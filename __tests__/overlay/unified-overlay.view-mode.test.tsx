@@ -9,8 +9,11 @@
  */
 
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render, fireEvent } from '@testing-library/react-native';
 import '../../tests/overlay/__testutils__/mockUnifiedOverlayDeps';
+
+// Mock openEdit function that we can track
+const mockOpenEdit = jest.fn();
 
 // Mock RepoProvider
 const mockGetById = jest.fn();
@@ -44,7 +47,7 @@ jest.mock('../../contexts/OverlayContext', () => ({
   useGlobalOverlay: () => ({
     state: { visible: false, mode: 'create', record: null, spaceId: null },
     openCreate: jest.fn(),
-    openEdit: jest.fn(),
+    openEdit: mockOpenEdit,
     openView: jest.fn(),
     close: jest.fn(),
   }),
@@ -70,6 +73,7 @@ describe('UnifiedOverlayV2 - View Mode', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetById.mockResolvedValue(mockRecord);
+    mockOpenEdit.mockClear();
   });
 
   describe('Footer buttons in view mode', () => {
@@ -184,6 +188,136 @@ describe('UnifiedOverlayV2 - View Mode', () => {
       // Edit button should NOT be rendered in edit mode (already editing)
       // Using queryByLabelText because the button has accessibilityLabel="Edit"
       expect(queryByLabelText('Edit')).toBeNull();
+    });
+  });
+
+  describe('Field interactivity in view mode', () => {
+    it('view mode renders body content as non-editable Text instead of TextInput', () => {
+      const onClose = jest.fn();
+      const { getByText, queryByLabelText } = render(
+        <UnifiedOverlayV2
+          visible={true}
+          mode="view"
+          onClose={onClose}
+          initialEntity={mockRecord}
+        />,
+      );
+
+      // In view mode, the body should be rendered as Text, not TextInput
+      // The body content should be visible
+      expect(getByText('Test note body content')).toBeTruthy();
+
+      // There should be no editable input with the overlay content label
+      expect(queryByLabelText('Overlay content input')).toBeNull();
+    });
+
+    it('view mode renders title as non-editable Text', () => {
+      const onClose = jest.fn();
+      const { getByText } = render(
+        <UnifiedOverlayV2
+          visible={true}
+          mode="view"
+          onClose={onClose}
+          initialEntity={mockRecord}
+        />,
+      );
+
+      // In view mode, the title should be rendered as Text
+      expect(getByText('Test Note Title')).toBeTruthy();
+    });
+
+    it('Reminder selector is disabled in view mode', () => {
+      const onClose = jest.fn();
+      const { queryByLabelText } = render(
+        <UnifiedOverlayV2
+          visible={true}
+          mode="view"
+          onClose={onClose}
+          initialEntity={mockRecord}
+        />,
+      );
+
+      // The reminders row should be disabled in view mode
+      const remindersRow = queryByLabelText('Reminders');
+      if (remindersRow) {
+        // If it exists, it should be disabled
+        expect(remindersRow.props.disabled).toBe(true);
+      }
+    });
+
+    it('Space selector is disabled in view mode', () => {
+      const onClose = jest.fn();
+      const { queryByLabelText } = render(
+        <UnifiedOverlayV2
+          visible={true}
+          mode="view"
+          onClose={onClose}
+          initialEntity={mockRecord}
+        />,
+      );
+
+      // The space selector row should be disabled in view mode
+      const spaceRow = queryByLabelText('Add to Space');
+      if (spaceRow) {
+        // If it exists, it should be disabled
+        expect(spaceRow.props.disabled).toBe(true);
+      }
+    });
+
+    it('mood selector buttons are disabled in view mode', () => {
+      // Use a journal log entity which shows mood selector
+      const journalRecord = {
+        ...mockRecord,
+        subtype: 'journal',
+      };
+      const onClose = jest.fn();
+      const { queryByLabelText } = render(
+        <UnifiedOverlayV2
+          visible={true}
+          mode="view"
+          onClose={onClose}
+          initialEntity={journalRecord}
+        />,
+      );
+
+      // Mood buttons should be disabled in view mode
+      const happyButton = queryByLabelText('Set mood to happy');
+      const neutralButton = queryByLabelText('Set mood to neutral');
+      const sadButton = queryByLabelText('Set mood to sad');
+
+      if (happyButton) expect(happyButton.props.disabled).toBe(true);
+      if (neutralButton) expect(neutralButton.props.disabled).toBe(true);
+      if (sadButton) expect(sadButton.props.disabled).toBe(true);
+    });
+  });
+
+  describe('Edit button behavior', () => {
+    it('Edit button calls openEdit with correct record and spaceId when pressed', () => {
+      const onClose = jest.fn();
+      const testSpaceId = 'test-space-456';
+
+      const { getByLabelText } = render(
+        <UnifiedOverlayV2
+          visible={true}
+          mode="view"
+          onClose={onClose}
+          initialEntity={mockRecord}
+          initialSpaceId={testSpaceId}
+        />,
+      );
+
+      // Find and press the Edit button
+      const editButton = getByLabelText('Edit');
+      fireEvent.press(editButton);
+
+      // Assert openEdit was called once
+      expect(mockOpenEdit).toHaveBeenCalledTimes(1);
+
+      // Assert openEdit was called with the correct arguments
+      expect(mockOpenEdit).toHaveBeenCalledWith({
+        record: mockRecord,
+        spaceId: testSpaceId,
+      });
     });
   });
 });

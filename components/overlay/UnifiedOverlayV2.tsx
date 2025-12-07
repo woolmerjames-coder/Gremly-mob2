@@ -1374,6 +1374,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const commitmentAnim = useSharedValue(state.commitment ? 1 : 0);
   const savePulse = useSharedValue(0);
   const headerPulse = useSharedValue(0);
+
+  // View ↔ Edit mode crossfade animation values
+  const viewModeOpacity = useSharedValue(mode === 'view' ? 1 : 0);
+  const editModeOpacity = useSharedValue(mode !== 'view' ? 1 : 0);
+
   const sheetTranslateY = useRef(new RNAnimated.Value(16)).current;
   const sheetOpacity = useRef(new RNAnimated.Value(0)).current;
   const overlayEntryTypeRef = useRef<BaseType>(baseType);
@@ -1395,6 +1400,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const headerPulseStyle = useAnimatedStyle(() => ({
     opacity: headerPulse.value,
+  }));
+
+  // View ↔ Edit mode crossfade animated styles
+  const viewModeStyle = useAnimatedStyle(() => ({
+    opacity: viewModeOpacity.value,
+    position: viewModeOpacity.value === 0 ? ('absolute' as const) : ('relative' as const),
+    width: '100%',
+    zIndex: viewModeOpacity.value > 0 ? 1 : 0,
+  }));
+
+  const editModeStyle = useAnimatedStyle(() => ({
+    opacity: editModeOpacity.value,
+    position: editModeOpacity.value === 0 ? ('absolute' as const) : ('relative' as const),
+    width: '100%',
+    zIndex: editModeOpacity.value > 0 ? 1 : 0,
   }));
 
   useEffect(() => {
@@ -1453,6 +1473,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // ignore incomplete mocks in tests
     }
   }, [state.commitment, commitmentAnim, reduceMotion]);
+
+  // Animate view ↔ edit mode crossfade
+  useEffect(() => {
+    try {
+      const duration = reduceMotion ? 0 : 180;
+      if (mode === 'view') {
+        viewModeOpacity.value = withTiming(1, { duration });
+        editModeOpacity.value = withTiming(0, { duration });
+      } else {
+        viewModeOpacity.value = withTiming(0, { duration });
+        editModeOpacity.value = withTiming(1, { duration });
+      }
+    } catch (e) {
+      // ignore incomplete mocks in tests
+    }
+  }, [mode, viewModeOpacity, editModeOpacity, reduceMotion]);
 
   const draftKey = useMemo(
     () => `overlayV2:draft:${mode}:${baseType}:${initialSpaceId ?? 'none'}`,
@@ -3436,6 +3472,319 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     onClose?.();
   }, [draftKey, onClose]);
 
+  // ============================================================================
+  // VIEW MODE CONTENT RENDERER
+  // ============================================================================
+  // Renders a read-optimized display layout for viewing entities
+  const renderViewModeContent = () => {
+    const entity = fullEntity || initialEntity;
+    if (!entity) return null;
+
+    const entityTitle = (entity as any).name || (entity as any).title || 'Untitled';
+    const entityBody = (entity as any).body || (entity as any).notes || '';
+    const entityTags = state.tags || [];
+    const entitySpaceName = state.spaceId ? spaces.find((s) => s.id === state.spaceId)?.name : null;
+    const entityDueDay = state.todo.due_day;
+    const entityCreatedAt = (entity as any).created_at;
+
+    // Format due date for display
+    const formattedDueDate = entityDueDay ? formatDueDay(entityDueDay) : null;
+
+    // Format created date
+    const formattedCreatedDate = entityCreatedAt
+      ? format(parseISO(entityCreatedAt), 'MMM d, yyyy')
+      : null;
+
+    return (
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingBottom: 24,
+          paddingTop: 8,
+        }}
+      >
+        {/* Title - Large, prominent display */}
+        <Text
+          style={{
+            fontSize: 24,
+            fontWeight: '600',
+            color: colorMode === 'dark' ? '#FFFFFF' : '#1a1a1a',
+            fontFamily: Platform.OS === 'ios' ? 'Plus Jakarta Sans' : undefined,
+            marginBottom: 12,
+            lineHeight: 32,
+          }}
+        >
+          {entityTitle}
+        </Text>
+
+        {/* Subtitle row: Type badge + Space + Due date */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+            marginBottom: 16,
+          }}
+        >
+          {/* Type badge */}
+          <View
+            style={{
+              backgroundColor:
+                colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(46, 85, 64, 0.08)',
+              paddingHorizontal: 10,
+              paddingVertical: 4,
+              borderRadius: 12,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: '500',
+                color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540',
+                textTransform: 'capitalize',
+              }}
+            >
+              {BASE_LABEL[baseType]}
+            </Text>
+          </View>
+
+          {/* Space badge */}
+          {entitySpaceName && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                backgroundColor:
+                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 12,
+              }}
+            >
+              <Folder size={12} color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
+                }}
+              >
+                {entitySpaceName}
+              </Text>
+            </View>
+          )}
+
+          {/* Due date badge (for todos) */}
+          {baseType === 'todo' && formattedDueDate && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                backgroundColor:
+                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 12,
+              }}
+            >
+              <Calendar size={12} color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
+                }}
+              >
+                {formattedDueDate}
+              </Text>
+            </View>
+          )}
+
+          {/* Frequency badge (for habits) */}
+          {baseType === 'habit' && state.habit.frequency_json && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                backgroundColor:
+                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 12,
+              }}
+            >
+              <Calendar size={12} color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
+                }}
+              >
+                {getFrequencyLabel(jsonToFrequency(state.habit.frequency_json))}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Tags row - read-only display */}
+        {entityTags.length > 0 && (
+          <View
+            style={{
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: 6,
+              marginBottom: 20,
+            }}
+          >
+            {entityTags.map((tag) => (
+              <View
+                key={tag}
+                style={{
+                  backgroundColor:
+                    colorMode === 'dark' ? 'rgba(94, 160, 138, 0.2)' : 'rgba(94, 160, 138, 0.15)',
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 14,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colorMode === 'dark' ? '#8FCBB4' : '#2E7D6A',
+                    fontWeight: '500',
+                  }}
+                >
+                  #{tag}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Body text - rendered with proper spacing */}
+        {entityBody ? (
+          <View
+            style={{
+              backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 20,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 16,
+                lineHeight: 24,
+                color: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
+                fontFamily: Platform.OS === 'ios' ? 'Inter' : undefined,
+              }}
+            >
+              {entityBody}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Photos grid (read-only) - for logs with photos */}
+        {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
+          <View style={{ marginBottom: 20 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 8 }}
+            >
+              {logPhotos
+                .filter((p) => !p.isDeleted)
+                .map((photo, index) => {
+                  const actualIndex = logPhotos.findIndex((p) => p === photo);
+                  return (
+                    <Pressable
+                      key={actualIndex}
+                      onPress={() => handleViewLogPhoto(actualIndex)}
+                      accessibilityLabel={`View photo ${index + 1}`}
+                      accessibilityRole="button"
+                    >
+                      <Image
+                        source={{ uri: photo.url }}
+                        style={{
+                          width: 100,
+                          height: 100,
+                          borderRadius: 8,
+                        }}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  );
+                })}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Reminders display (read-only) */}
+        {reminders.length > 0 && (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 16,
+              paddingVertical: 8,
+            }}
+          >
+            <Bell size={16} color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'} />
+            <Text
+              style={{
+                fontSize: 14,
+                color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#555',
+              }}
+            >
+              {formatReminderSummary(reminders)}
+            </Text>
+          </View>
+        )}
+
+        {/* Mood display (for journal logs) */}
+        {isJournal && mood && (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 16,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 14,
+                color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
+              }}
+            >
+              Mood:
+            </Text>
+            <Text style={{ fontSize: 20 }}>
+              {mood === 'happy' ? '😊' : mood === 'neutral' ? '😐' : '😔'}
+            </Text>
+          </View>
+        )}
+
+        {/* Created date - subtle footer info */}
+        {formattedCreatedDate && (
+          <Text
+            style={{
+              fontSize: 12,
+              color: colorMode === 'dark' ? 'rgba(255,255,255,0.4)' : '#999',
+              marginTop: 16,
+            }}
+          >
+            Created {formattedCreatedDate}
+          </Text>
+        )}
+      </ScrollView>
+    );
+  };
+
   console.log('[UnifiedOverlayV2] render', { visible, mode, baseType });
 
   if (!visible) return null;
@@ -3612,8 +3961,42 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     ) : null}
                   </View>
 
+                  {/* Header Edit button - view mode only */}
+                  {mode === 'view' && fullEntity ? (
+                    <Pressable
+                      onPress={() => {
+                        if (initialEntity && (initialEntity as any).id) {
+                          globalOverlay.openEdit({
+                            record: initialEntity as any,
+                            spaceId: initialSpaceId,
+                          });
+                        }
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit"
+                      style={({ pressed }) => ({
+                        backgroundColor:
+                          colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss,
+                        paddingHorizontal: 16,
+                        paddingVertical: 8,
+                        borderRadius: 999,
+                        opacity: pressed ? 0.8 : 1,
+                      })}
+                    >
+                      <Text
+                        style={{
+                          color: '#FFFFFF',
+                          fontSize: 14,
+                          fontWeight: '600',
+                        }}
+                      >
+                        Edit
+                      </Text>
+                    </Pressable>
+                  ) : null}
+
                   {/* Title actions - edit + resummarize icons (only in edit mode) */}
-                  {(mode === 'edit' || mode === 'view') && fullEntity ? (
+                  {mode === 'edit' && fullEntity ? (
                     <View style={styles.titleActions}>
                       {/* Edit icon - focuses the text input */}
                       <Pressable
@@ -3665,1072 +4048,1139 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               />
             </Box>
 
-            {/* Body: entire form stack in a single scroll context */}
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8, paddingTop: 0 }}
-            >
-              {/* Phase 6c: Type selector - segmented control */}
-              <View style={styles.tabsContainer}>
-                {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
-                  const selected = baseType === t;
-                  return (
-                    <Pressable
-                      key={t}
-                      onPress={() => handleTypeSelect(t)}
-                      style={[styles.tab, selected && styles.tabActive]}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected }}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Text style={[styles.tabLabel, selected && styles.tabLabelActive]}>
-                        {BASE_LABEL[t]}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+            {/* View/Edit Mode Content Container with Crossfade Animation */}
+            <View style={{ flex: 1, position: 'relative' }}>
+              {/* View Mode Content - Read-only display */}
+              <Reanimated.View style={[viewModeStyle, { flex: mode === 'view' ? 1 : 0 }]}>
+                {mode === 'view' && renderViewModeContent()}
+              </Reanimated.View>
 
-              {/* Build/Break Habit toggle - only for habits */}
-              {baseType === 'habit' && (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginTop: 0,
-                    marginBottom: 16,
-                    paddingHorizontal: 4,
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontSize: 14 }}>{isBreakHabit ? '↺' : '+'}</Text>
-                    <Text style={{ fontSize: 14, color: '#444', fontWeight: '500' }}>
-                      {isBreakHabit ? 'Break habit' : 'Build habit'}
-                    </Text>
-                  </View>
-                  <Switch
-                    value={isBreakHabit}
-                    onValueChange={(next) => {
-                      dispatch({
-                        type: 'SET_HABIT_SUBTYPE',
-                        subtype: next ? 'break_habit' : 'start_habit',
-                      });
-                    }}
-                    trackColor={{
-                      false: 'rgba(0,0,0,0.12)',
-                      true: lightTokens.colors.moss,
-                    }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-              )}
-
-              {/* Main text field - moved above tags */}
-              <Box style={{ marginBottom: 16 }}>
-                {isExpandedEditor ? (
-                  /* Expanded editor mode */
-                  <OverlayExpandedEditor
-                    baseType={baseType}
-                    effectiveLogSubtype={effectiveLogSubtype}
-                    text={currentText}
-                    onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                    colorMode={colorMode}
-                    isLog={isLog}
-                    onCollapse={() => {
-                      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                      setIsExpandedEditor(false);
-                    }}
-                    journalDateTime={effectiveLogSubtype === 'journal' ? new Date() : undefined}
-                    isChecklistMode={isChecklistMode}
-                    onToggleChecklistMode={() => dispatch({ type: 'TOGGLE_CHECKLIST_MODE' })}
-                  />
-                ) : (
-                  /* Compact text area mode */
-                  <View style={{ position: 'relative' }}>
-                    {/* Standard text input for all log subtypes */}
-                    <TextInput
-                      ref={textInputRef}
-                      value={currentText}
-                      onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                      editable={mode !== 'view'}
-                      pointerEvents={mode === 'view' ? 'none' : 'auto'}
-                      accessibilityLabel="Overlay content input"
-                      onFocus={() => setBodyFocused(true)}
-                      onBlur={() => setBodyFocused(false)}
-                      placeholder="Add notes..."
-                      placeholderTextColor={lightTokens.colors.subtle}
-                      multiline
-                      scrollEnabled={false}
-                      textAlignVertical="top"
-                      style={[
-                        styles.textArea,
-                        {
-                          color: lightTokens.colors.text,
-                          backgroundColor:
-                            colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                          borderWidth: 1,
-                          borderColor: colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                          shadowColor: '#000',
-                          shadowOpacity: 0.03,
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowRadius: 2,
-                          paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
-                        },
-                      ]}
-                    />
-                    {/* Expand button in top-right corner */}
-                    <Pressable
-                      onPress={() => {
-                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                        setIsExpandedEditor(true);
-                      }}
-                      style={({ pressed }) => ({
-                        position: 'absolute',
-                        top: 10,
-                        right: 10,
-                        width: 32,
-                        height: 32,
-                        borderRadius: 16,
-                        backgroundColor:
-                          colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(46, 85, 64, 0.08)',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        opacity: pressed ? 0.7 : 1,
-                      })}
-                      accessibilityLabel="Expand editor"
-                      accessibilityRole="button"
-                    >
-                      <Maximize2
-                        size={16}
-                        color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540'}
-                      />
-                    </Pressable>
-                    {/* Camera button inside text area for logs only (hidden in view mode) */}
-                    {isLog && mode !== 'view' && (
-                      <Pressable
-                        onPress={handleOpenMultiPhotoActionSheet}
-                        style={({ pressed }) => ({
-                          position: 'absolute',
-                          bottom: 14,
-                          right: 14,
-                          width: 40,
-                          height: 40,
-                          borderRadius: 20,
-                          backgroundColor:
-                            colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          shadowColor: '#000',
-                          shadowOpacity: 0.08,
-                          shadowOffset: { width: 0, height: 2 },
-                          shadowRadius: 4,
-                          opacity: pressed ? 0.7 : 1,
-                        })}
-                        accessibilityLabel="Add photo"
-                        accessibilityRole="button"
-                      >
-                        <Camera
-                          size={24}
-                          color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                        />
-                      </Pressable>
-                    )}
-                  </View>
-                )}
-              </Box>
-
-              {/* Multi-photo grid for logs (Phase L5) - only show when photos exist */}
-              {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
-                <Box px={4} mt={2}>
+              {/* Edit/Create Mode Content - Interactive form */}
+              <Reanimated.View style={[editModeStyle, { flex: mode !== 'view' ? 1 : 0 }]}>
+                {mode !== 'view' && (
                   <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.photoGridScroll}
-                    contentContainerStyle={styles.photoGridContent}
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={{
+                      paddingHorizontal: 16,
+                      paddingBottom: 8,
+                      paddingTop: 0,
+                    }}
                   >
-                    {logPhotos
-                      .filter((p) => !p.isDeleted)
-                      .map((photo, index) => {
-                        const actualIndex = logPhotos.findIndex((p) => p === photo);
+                    {/* Phase 6c: Type selector - segmented control */}
+                    <View style={styles.tabsContainer}>
+                      {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
+                        const selected = baseType === t;
                         return (
-                          <View key={actualIndex} style={styles.photoThumbnailContainer}>
-                            <Pressable
-                              onPress={() => handleViewLogPhoto(actualIndex)}
-                              accessibilityLabel={`View photo ${index + 1}`}
-                              accessibilityRole="button"
-                            >
-                              <Image
-                                source={{ uri: photo.url }}
-                                style={styles.photoGridThumbnail}
-                                resizeMode="cover"
-                              />
-                            </Pressable>
-                            <Pressable
-                              onPress={() => handleDeleteLogPhoto(actualIndex)}
-                              style={styles.photoGridDeleteButton}
-                              hitSlop={8}
-                              accessibilityLabel={`Remove photo ${index + 1}`}
-                              accessibilityRole="button"
-                            >
-                              <CloseIcon size={12} color="#666666" />
-                            </Pressable>
-                          </View>
-                        );
-                      })}
-                    {logPhotos.filter((p) => !p.isDeleted).length < 5 && (
-                      <Pressable
-                        onPress={handleOpenMultiPhotoActionSheet}
-                        style={styles.addMorePhotosButton}
-                        accessibilityLabel="Add another photo"
-                        accessibilityRole="button"
-                      >
-                        <Camera size={16} color="#666666" />
-                        <Text style={styles.addMorePhotosText}>Add photo</Text>
-                      </Pressable>
-                    )}
-                  </ScrollView>
-                </Box>
-              )}
-
-              {/* Tags row - now directly below text field */}
-              <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
-                <TagsRow
-                  tags={activeTagChips}
-                  suggested={suggestionChips}
-                  onToggle={mode === 'view' ? () => {} : handleTagToggle}
-                  onResuggest={
-                    mode === 'view'
-                      ? undefined
-                      : mode === 'edit' && fullEntity
-                        ? handleResuggestTags
-                        : undefined
-                  }
-                  resuggesting={isResuggestingTags}
-                  onAdd={mode === 'view' ? undefined : handleTagAdd}
-                  onUserAdd={mode === 'view' ? undefined : handleTelemetryTagAdd}
-                  onUserRemove={mode === 'view' ? undefined : handleTelemetryTagRemove}
-                />
-                {hasLowConfidenceSuggestions ? (
-                  <Box mt={2}>
-                    <Text variant="subtle">AI suggestions (low confidence)</Text>
-                  </Box>
-                ) : null}
-              </Box>
-
-              {/* Log meta row: timestamp + mood strip (Phase L4) - ONLY for journal logs */}
-              {isJournal ? (
-                <Box style={{ marginBottom: 16 }}>
-                  <View style={styles.logMetaRow}>
-                    {logTimestampLabel ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={styles.logTimestampText}>{logTimestampLabel}</Text>
-                        {state.log.private && (
-                          <Lock
-                            size={14}
-                            color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'}
-                            style={{ opacity: 0.8 }}
-                          />
-                        )}
-                      </View>
-                    ) : null}
-                    <View style={styles.moodRow}>
-                      <Pressable
-                        onPress={() => setMood('happy')}
-                        hitSlop={8}
-                        style={[styles.moodButton, mood === 'happy' && styles.moodButtonActive]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Set mood to happy"
-                        disabled={mode === 'view'}
-                      >
-                        <Text style={{ fontSize: 20 }}>😊</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setMood('neutral')}
-                        hitSlop={8}
-                        style={[styles.moodButton, mood === 'neutral' && styles.moodButtonActive]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Set mood to neutral"
-                        disabled={mode === 'view'}
-                      >
-                        <Text style={{ fontSize: 20 }}>😐</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setMood('sad')}
-                        hitSlop={8}
-                        style={[styles.moodButton, mood === 'sad' && styles.moodButtonActive]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Set mood to sad"
-                        disabled={mode === 'view'}
-                      >
-                        <Text style={{ fontSize: 20 }}>😔</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                </Box>
-              ) : null}
-
-              <Box>
-                {baseType === 'todo' || baseType === 'habit' ? (
-                  <Box style={{ marginBottom: 0 }}>
-                    {/* Due date + Lock In row */}
-                    <View style={styles.dueAndLockRow}>
-                      {/* Left side: Due date */}
-                      <View style={styles.dueDateLeft}>
-                        {baseType === 'todo' ? (
                           <Pressable
-                            style={styles.dueDatePill}
-                            onPress={() => {
-                              // Pre-fill date picker with current due_day if set
-                              if (state.todo.due_day) {
-                                const parsed = parseDayString(state.todo.due_day);
-                                if (parsed) {
-                                  setSelectedDate(parsed);
-                                }
-                              } else {
-                                setSelectedDate(new Date());
-                              }
-                              setDateModalTarget('todo');
-                              setShowDateModal(true);
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel={
-                              state.todo.due_day
-                                ? `Due date: ${formatDueDay(state.todo.due_day)}`
-                                : 'Add due date'
-                            }
+                            key={t}
+                            onPress={() => handleTypeSelect(t)}
+                            style={[styles.tab, selected && styles.tabActive]}
+                            accessibilityRole="tab"
+                            accessibilityState={{ selected }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           >
-                            <Calendar
-                              size={16}
-                              color={
-                                state.todo.due_day
-                                  ? colorMode === 'dark'
-                                    ? 'rgba(255,255,255,0.7)'
-                                    : '#666666'
-                                  : colorMode === 'dark'
-                                    ? 'rgba(255,255,255,0.5)'
-                                    : '#777777'
-                              }
-                              style={styles.dueDateIcon}
-                            />
-                            <Text
-                              style={[
-                                styles.dueDateText,
-                                !state.todo.due_day && {
-                                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#777777',
-                                  fontWeight: '400',
-                                },
-                              ]}
-                            >
-                              {state.todo.due_day
-                                ? formatDueDay(state.todo.due_day)
-                                : 'Add due date'}
+                            <Text style={[styles.tabLabel, selected && styles.tabLabelActive]}>
+                              {BASE_LABEL[t]}
                             </Text>
                           </Pressable>
-                        ) : null}
-                      </View>
-
-                      {/* Right side: Lock In toggle (for todos only) */}
-                      {commitmentsOn && baseType === 'todo' ? (
-                        <View style={styles.lockInRight}>
-                          <Diamond
-                            size={14}
-                            color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                            style={styles.lockIcon}
-                          />
-                          <Text style={styles.lockLabel}>Lock In</Text>
-                          <Switch
-                            value={isLockedIn}
-                            onValueChange={async () => {
-                              if (!state.commitment) {
-                                const ok = await canEnableCommitment();
-                                if (!ok) {
-                                  console.log('[Lock In] Limit reached (3)');
-                                  return;
-                                }
-                              }
-                              pushUndoEntry('commitment', {
-                                commitment: state.commitment,
-                                commitmentNote: state.commitmentNote,
-                                commitmentStartedAt: state.commitmentStartedAt,
-                              });
-                              dispatch({ type: 'TOGGLE_COMMITMENT' });
-                              try {
-                                eventBus.emit('OverlayCommitmentToggled', {
-                                  on: !state.commitment,
-                                });
-                              } catch (e) {
-                                // ignore telemetry errors
-                              }
-                            }}
-                            trackColor={{
-                              false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
-                              true: lightTokens.colors.moss,
-                            }}
-                            thumbColor="#FFFFFF"
-                          />
-                        </View>
-                      ) : null}
+                        );
+                      })}
                     </View>
-                    {dueToastMessage ? (
+
+                    {/* Build/Break Habit toggle - only for habits */}
+                    {baseType === 'habit' && (
                       <View
                         style={{
-                          marginLeft: tokenSpacing.sm,
-                          paddingHorizontal: 10,
-                          paddingVertical: 4,
-                          borderRadius: 999,
-                          backgroundColor:
-                            colorMode === 'dark'
-                              ? 'rgba(255,255,255,0.08)'
-                              : 'rgba(46,125,106,0.12)',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginTop: 0,
+                          marginBottom: 16,
+                          paddingHorizontal: 4,
                         }}
-                        pointerEvents="none"
                       >
-                        <Text
-                          style={{
-                            color: typeTabUnderlineColor,
-                            fontSize: lightTokens.typography.size.xs,
-                            fontWeight: '600',
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 14 }}>{isBreakHabit ? '↺' : '+'}</Text>
+                          <Text style={{ fontSize: 14, color: '#444', fontWeight: '500' }}>
+                            {isBreakHabit ? 'Break habit' : 'Build habit'}
+                          </Text>
+                        </View>
+                        <Switch
+                          value={isBreakHabit}
+                          onValueChange={(next) => {
+                            dispatch({
+                              type: 'SET_HABIT_SUBTYPE',
+                              subtype: next ? 'break_habit' : 'start_habit',
+                            });
                           }}
-                        >
-                          {dueToastMessage}
-                        </Text>
+                          trackColor={{
+                            false: 'rgba(0,0,0,0.12)',
+                            true: lightTokens.colors.moss,
+                          }}
+                          thumbColor="#FFFFFF"
+                        />
                       </View>
-                    ) : null}
-                  </Box>
-                ) : null}
-
-                {/* Frequency row for habits */}
-                {baseType === 'habit' ? (
-                  <Box mt={3} px={0}>
-                    {/* Optional frequency label for break habits */}
-                    {isBreakHabit && (
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#888888',
-                          marginBottom: 4,
-                          marginLeft: 4,
-                        }}
-                      >
-                        Check-in frequency
-                      </Text>
                     )}
-                    {/* Frequency + Lock In row (matching todo structure) */}
-                    <View style={styles.dueAndLockRow}>
-                      {/* Left side: Frequency selector */}
-                      <View style={styles.dueDateLeft}>
-                        <Pressable
-                          style={styles.dueDateRow}
-                          onPress={() => {
-                            // Initialize modal state from current habit frequency
-                            const currentFreq = jsonToFrequency(state.habit.frequency_json);
-                            setFrequencyTab(currentFreq.mode);
-                            if (currentFreq.mode === 'days') {
-                              setSelectedDays(currentFreq.days);
-                            } else if (currentFreq.mode === 'custom') {
-                              setCustomCount(String(currentFreq.value.count));
-                              setCustomUnit(currentFreq.value.unit);
-                            }
-                            setShowFrequencyModal(true);
+
+                    {/* Main text field - moved above tags */}
+                    <Box style={{ marginBottom: 16 }}>
+                      {isExpandedEditor ? (
+                        /* Expanded editor mode */
+                        <OverlayExpandedEditor
+                          baseType={baseType}
+                          effectiveLogSubtype={effectiveLogSubtype}
+                          text={currentText}
+                          onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                          colorMode={colorMode}
+                          isLog={isLog}
+                          onCollapse={() => {
+                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                            setIsExpandedEditor(false);
                           }}
-                          accessibilityRole="button"
-                          accessibilityLabel="Set frequency"
-                        >
-                          <Calendar
-                            size={16}
-                            color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                            style={styles.dueDateIcon}
+                          journalDateTime={
+                            effectiveLogSubtype === 'journal' ? new Date() : undefined
+                          }
+                          isChecklistMode={isChecklistMode}
+                          onToggleChecklistMode={() => dispatch({ type: 'TOGGLE_CHECKLIST_MODE' })}
+                        />
+                      ) : (
+                        /* Compact text area mode */
+                        <View style={{ position: 'relative' }}>
+                          {/* Standard text input for all log subtypes */}
+                          <TextInput
+                            ref={textInputRef}
+                            value={currentText}
+                            onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                            editable={mode !== 'view'}
+                            pointerEvents={mode === 'view' ? 'none' : 'auto'}
+                            accessibilityLabel="Overlay content input"
+                            onFocus={() => setBodyFocused(true)}
+                            onBlur={() => setBodyFocused(false)}
+                            placeholder="Add notes..."
+                            placeholderTextColor={lightTokens.colors.subtle}
+                            multiline
+                            scrollEnabled={false}
+                            textAlignVertical="top"
+                            style={[
+                              styles.textArea,
+                              {
+                                color: lightTokens.colors.text,
+                                backgroundColor:
+                                  colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                                borderWidth: 1,
+                                borderColor:
+                                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                                shadowColor: '#000',
+                                shadowOpacity: 0.03,
+                                shadowOffset: { width: 0, height: 1 },
+                                shadowRadius: 2,
+                                paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
+                              },
+                            ]}
                           />
-                          <Text style={styles.dueDateText}>
-                            {getFrequencyLabel(jsonToFrequency(state.habit.frequency_json))}
+                          {/* Expand button in top-right corner */}
+                          <Pressable
+                            onPress={() => {
+                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                              setIsExpandedEditor(true);
+                            }}
+                            style={({ pressed }) => ({
+                              position: 'absolute',
+                              top: 10,
+                              right: 10,
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              backgroundColor:
+                                colorMode === 'dark'
+                                  ? 'rgba(255,255,255,0.1)'
+                                  : 'rgba(46, 85, 64, 0.08)',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              opacity: pressed ? 0.7 : 1,
+                            })}
+                            accessibilityLabel="Expand editor"
+                            accessibilityRole="button"
+                          >
+                            <Maximize2
+                              size={16}
+                              color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540'}
+                            />
+                          </Pressable>
+                          {/* Camera button inside text area for logs only (hidden in view mode) */}
+                          {isLog && mode !== 'view' && (
+                            <Pressable
+                              onPress={handleOpenMultiPhotoActionSheet}
+                              style={({ pressed }) => ({
+                                position: 'absolute',
+                                bottom: 14,
+                                right: 14,
+                                width: 40,
+                                height: 40,
+                                borderRadius: 20,
+                                backgroundColor:
+                                  colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                shadowColor: '#000',
+                                shadowOpacity: 0.08,
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowRadius: 4,
+                                opacity: pressed ? 0.7 : 1,
+                              })}
+                              accessibilityLabel="Add photo"
+                              accessibilityRole="button"
+                            >
+                              <Camera
+                                size={24}
+                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                              />
+                            </Pressable>
+                          )}
+                        </View>
+                      )}
+                    </Box>
+
+                    {/* Multi-photo grid for logs (Phase L5) - only show when photos exist */}
+                    {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
+                      <Box px={4} mt={2}>
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          style={styles.photoGridScroll}
+                          contentContainerStyle={styles.photoGridContent}
+                        >
+                          {logPhotos
+                            .filter((p) => !p.isDeleted)
+                            .map((photo, index) => {
+                              const actualIndex = logPhotos.findIndex((p) => p === photo);
+                              return (
+                                <View key={actualIndex} style={styles.photoThumbnailContainer}>
+                                  <Pressable
+                                    onPress={() => handleViewLogPhoto(actualIndex)}
+                                    accessibilityLabel={`View photo ${index + 1}`}
+                                    accessibilityRole="button"
+                                  >
+                                    <Image
+                                      source={{ uri: photo.url }}
+                                      style={styles.photoGridThumbnail}
+                                      resizeMode="cover"
+                                    />
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={() => handleDeleteLogPhoto(actualIndex)}
+                                    style={styles.photoGridDeleteButton}
+                                    hitSlop={8}
+                                    accessibilityLabel={`Remove photo ${index + 1}`}
+                                    accessibilityRole="button"
+                                  >
+                                    <CloseIcon size={12} color="#666666" />
+                                  </Pressable>
+                                </View>
+                              );
+                            })}
+                          {logPhotos.filter((p) => !p.isDeleted).length < 5 && (
+                            <Pressable
+                              onPress={handleOpenMultiPhotoActionSheet}
+                              style={styles.addMorePhotosButton}
+                              accessibilityLabel="Add another photo"
+                              accessibilityRole="button"
+                            >
+                              <Camera size={16} color="#666666" />
+                              <Text style={styles.addMorePhotosText}>Add photo</Text>
+                            </Pressable>
+                          )}
+                        </ScrollView>
+                      </Box>
+                    )}
+
+                    {/* Tags row - now directly below text field */}
+                    <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
+                      <TagsRow
+                        tags={activeTagChips}
+                        suggested={suggestionChips}
+                        onToggle={mode === 'view' ? () => {} : handleTagToggle}
+                        onResuggest={
+                          mode === 'view'
+                            ? undefined
+                            : mode === 'edit' && fullEntity
+                              ? handleResuggestTags
+                              : undefined
+                        }
+                        resuggesting={isResuggestingTags}
+                        onAdd={mode === 'view' ? undefined : handleTagAdd}
+                        onUserAdd={mode === 'view' ? undefined : handleTelemetryTagAdd}
+                        onUserRemove={mode === 'view' ? undefined : handleTelemetryTagRemove}
+                      />
+                      {hasLowConfidenceSuggestions ? (
+                        <Box mt={2}>
+                          <Text variant="subtle">AI suggestions (low confidence)</Text>
+                        </Box>
+                      ) : null}
+                    </Box>
+
+                    {/* Log meta row: timestamp + mood strip (Phase L4) - ONLY for journal logs */}
+                    {isJournal ? (
+                      <Box style={{ marginBottom: 16 }}>
+                        <View style={styles.logMetaRow}>
+                          {logTimestampLabel ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.logTimestampText}>{logTimestampLabel}</Text>
+                              {state.log.private && (
+                                <Lock
+                                  size={14}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'}
+                                  style={{ opacity: 0.8 }}
+                                />
+                              )}
+                            </View>
+                          ) : null}
+                          <View style={styles.moodRow}>
+                            <Pressable
+                              onPress={() => setMood('happy')}
+                              hitSlop={8}
+                              style={[
+                                styles.moodButton,
+                                mood === 'happy' && styles.moodButtonActive,
+                              ]}
+                              accessibilityRole="button"
+                              accessibilityLabel="Set mood to happy"
+                              disabled={mode === 'view'}
+                            >
+                              <Text style={{ fontSize: 20 }}>😊</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => setMood('neutral')}
+                              hitSlop={8}
+                              style={[
+                                styles.moodButton,
+                                mood === 'neutral' && styles.moodButtonActive,
+                              ]}
+                              accessibilityRole="button"
+                              accessibilityLabel="Set mood to neutral"
+                              disabled={mode === 'view'}
+                            >
+                              <Text style={{ fontSize: 20 }}>😐</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => setMood('sad')}
+                              hitSlop={8}
+                              style={[styles.moodButton, mood === 'sad' && styles.moodButtonActive]}
+                              accessibilityRole="button"
+                              accessibilityLabel="Set mood to sad"
+                              disabled={mode === 'view'}
+                            >
+                              <Text style={{ fontSize: 20 }}>😔</Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      </Box>
+                    ) : null}
+
+                    <Box>
+                      {baseType === 'todo' || baseType === 'habit' ? (
+                        <Box style={{ marginBottom: 0 }}>
+                          {/* Due date + Lock In row */}
+                          <View style={styles.dueAndLockRow}>
+                            {/* Left side: Due date */}
+                            <View style={styles.dueDateLeft}>
+                              {baseType === 'todo' ? (
+                                <Pressable
+                                  style={styles.dueDatePill}
+                                  onPress={() => {
+                                    // Pre-fill date picker with current due_day if set
+                                    if (state.todo.due_day) {
+                                      const parsed = parseDayString(state.todo.due_day);
+                                      if (parsed) {
+                                        setSelectedDate(parsed);
+                                      }
+                                    } else {
+                                      setSelectedDate(new Date());
+                                    }
+                                    setDateModalTarget('todo');
+                                    setShowDateModal(true);
+                                  }}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={
+                                    state.todo.due_day
+                                      ? `Due date: ${formatDueDay(state.todo.due_day)}`
+                                      : 'Add due date'
+                                  }
+                                >
+                                  <Calendar
+                                    size={16}
+                                    color={
+                                      state.todo.due_day
+                                        ? colorMode === 'dark'
+                                          ? 'rgba(255,255,255,0.7)'
+                                          : '#666666'
+                                        : colorMode === 'dark'
+                                          ? 'rgba(255,255,255,0.5)'
+                                          : '#777777'
+                                    }
+                                    style={styles.dueDateIcon}
+                                  />
+                                  <Text
+                                    style={[
+                                      styles.dueDateText,
+                                      !state.todo.due_day && {
+                                        color:
+                                          colorMode === 'dark'
+                                            ? 'rgba(255,255,255,0.5)'
+                                            : '#777777',
+                                        fontWeight: '400',
+                                      },
+                                    ]}
+                                  >
+                                    {state.todo.due_day
+                                      ? formatDueDay(state.todo.due_day)
+                                      : 'Add due date'}
+                                  </Text>
+                                </Pressable>
+                              ) : null}
+                            </View>
+
+                            {/* Right side: Lock In toggle (for todos only) */}
+                            {commitmentsOn && baseType === 'todo' ? (
+                              <View style={styles.lockInRight}>
+                                <Diamond
+                                  size={14}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                                  style={styles.lockIcon}
+                                />
+                                <Text style={styles.lockLabel}>Lock In</Text>
+                                <Switch
+                                  value={isLockedIn}
+                                  onValueChange={async () => {
+                                    if (!state.commitment) {
+                                      const ok = await canEnableCommitment();
+                                      if (!ok) {
+                                        console.log('[Lock In] Limit reached (3)');
+                                        return;
+                                      }
+                                    }
+                                    pushUndoEntry('commitment', {
+                                      commitment: state.commitment,
+                                      commitmentNote: state.commitmentNote,
+                                      commitmentStartedAt: state.commitmentStartedAt,
+                                    });
+                                    dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                    try {
+                                      eventBus.emit('OverlayCommitmentToggled', {
+                                        on: !state.commitment,
+                                      });
+                                    } catch (e) {
+                                      // ignore telemetry errors
+                                    }
+                                  }}
+                                  trackColor={{
+                                    false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
+                                    true: lightTokens.colors.moss,
+                                  }}
+                                  thumbColor="#FFFFFF"
+                                />
+                              </View>
+                            ) : null}
+                          </View>
+                          {dueToastMessage ? (
+                            <View
+                              style={{
+                                marginLeft: tokenSpacing.sm,
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                borderRadius: 999,
+                                backgroundColor:
+                                  colorMode === 'dark'
+                                    ? 'rgba(255,255,255,0.08)'
+                                    : 'rgba(46,125,106,0.12)',
+                              }}
+                              pointerEvents="none"
+                            >
+                              <Text
+                                style={{
+                                  color: typeTabUnderlineColor,
+                                  fontSize: lightTokens.typography.size.xs,
+                                  fontWeight: '600',
+                                }}
+                              >
+                                {dueToastMessage}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </Box>
+                      ) : null}
+
+                      {/* Frequency row for habits */}
+                      {baseType === 'habit' ? (
+                        <Box mt={3} px={0}>
+                          {/* Optional frequency label for break habits */}
+                          {isBreakHabit && (
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#888888',
+                                marginBottom: 4,
+                                marginLeft: 4,
+                              }}
+                            >
+                              Check-in frequency
+                            </Text>
+                          )}
+                          {/* Frequency + Lock In row (matching todo structure) */}
+                          <View style={styles.dueAndLockRow}>
+                            {/* Left side: Frequency selector */}
+                            <View style={styles.dueDateLeft}>
+                              <Pressable
+                                style={styles.dueDateRow}
+                                onPress={() => {
+                                  // Initialize modal state from current habit frequency
+                                  const currentFreq = jsonToFrequency(state.habit.frequency_json);
+                                  setFrequencyTab(currentFreq.mode);
+                                  if (currentFreq.mode === 'days') {
+                                    setSelectedDays(currentFreq.days);
+                                  } else if (currentFreq.mode === 'custom') {
+                                    setCustomCount(String(currentFreq.value.count));
+                                    setCustomUnit(currentFreq.value.unit);
+                                  }
+                                  setShowFrequencyModal(true);
+                                }}
+                                accessibilityRole="button"
+                                accessibilityLabel="Set frequency"
+                              >
+                                <Calendar
+                                  size={16}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                                  style={styles.dueDateIcon}
+                                />
+                                <Text style={styles.dueDateText}>
+                                  {getFrequencyLabel(jsonToFrequency(state.habit.frequency_json))}
+                                </Text>
+                              </Pressable>
+                            </View>
+
+                            {/* Right side: Lock In toggle (same as todos) */}
+                            {commitmentsOn ? (
+                              <View style={styles.lockInRight}>
+                                <Diamond
+                                  size={14}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                                  style={styles.lockIcon}
+                                />
+                                <Text style={styles.lockLabel}>Lock In</Text>
+                                <Switch
+                                  value={isLockedIn}
+                                  onValueChange={async () => {
+                                    if (!state.commitment) {
+                                      const ok = await canEnableCommitment();
+                                      if (!ok) {
+                                        console.log('[Lock In] Limit reached (3)');
+                                        return;
+                                      }
+                                    }
+                                    pushUndoEntry('commitment', {
+                                      commitment: state.commitment,
+                                      commitmentNote: state.commitmentNote,
+                                      commitmentStartedAt: state.commitmentStartedAt,
+                                    });
+                                    dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                    try {
+                                      eventBus.emit('OverlayCommitmentToggled', {
+                                        on: !state.commitment,
+                                      });
+                                    } catch (e) {
+                                      // ignore telemetry errors
+                                    }
+                                  }}
+                                  trackColor={{
+                                    false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
+                                    true: lightTokens.colors.moss,
+                                  }}
+                                  thumbColor="#FFFFFF"
+                                />
+                              </View>
+                            ) : null}
+                          </View>
+                        </Box>
+                      ) : null}
+
+                      <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 12 }}>
+                        <Pressable
+                          onPress={handleToggleDetails}
+                          hitSlop={8}
+                          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                        >
+                          <Text
+                            style={{
+                              color: 'rgba(46, 85, 64, 0.75)',
+                              fontWeight: '500',
+                              fontSize: 14,
+                            }}
+                          >
+                            {state.expanded ? 'Hide details' : 'Show details'}
                           </Text>
                         </Pressable>
                       </View>
+                      {state.expanded ? (
+                        <Reanimated.View style={[detailsStyle, { marginTop: 0 }]}>
+                          <Box pb={2}>
+                            {/* To-Do Details */}
+                            {baseType === 'todo' ? (
+                              <View>
+                                {/* 1) Reminders row */}
+                                <Pressable
+                                  onPress={() => {
+                                    if (mode !== 'view') setShowRemindersModal(true);
+                                  }}
+                                  disabled={mode === 'view'}
+                                  style={({ pressed }) => [
+                                    styles.detailsRow,
+                                    pressed && styles.detailsRowPressed,
+                                  ]}
+                                >
+                                  <View style={styles.detailsRowLeft}>
+                                    <View style={styles.detailsRowIcon}>
+                                      <Bell
+                                        size={18}
+                                        color={
+                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                        }
+                                      />
+                                    </View>
+                                    <Text style={styles.detailsRowLabel}>Reminders</Text>
+                                  </View>
+                                  <Text style={styles.detailsRowValue}>
+                                    {formatReminderSummary(reminders)}
+                                  </Text>
+                                </Pressable>
 
-                      {/* Right side: Lock In toggle (same as todos) */}
-                      {commitmentsOn ? (
-                        <View style={styles.lockInRight}>
-                          <Diamond
-                            size={14}
-                            color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                            style={styles.lockIcon}
-                          />
-                          <Text style={styles.lockLabel}>Lock In</Text>
-                          <Switch
-                            value={isLockedIn}
-                            onValueChange={async () => {
-                              if (!state.commitment) {
-                                const ok = await canEnableCommitment();
-                                if (!ok) {
-                                  console.log('[Lock In] Limit reached (3)');
-                                  return;
-                                }
-                              }
-                              pushUndoEntry('commitment', {
-                                commitment: state.commitment,
-                                commitmentNote: state.commitmentNote,
-                                commitmentStartedAt: state.commitmentStartedAt,
-                              });
-                              dispatch({ type: 'TOGGLE_COMMITMENT' });
-                              try {
-                                eventBus.emit('OverlayCommitmentToggled', {
-                                  on: !state.commitment,
+                                {/* 2) Add to Space row */}
+                                <Pressable
+                                  onPress={() => {
+                                    if (mode !== 'view') setShowSpaceModal(true);
+                                  }}
+                                  disabled={mode === 'view'}
+                                  style={({ pressed }) => [
+                                    styles.detailsRow,
+                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                  ]}
+                                >
+                                  <View style={styles.detailsRowLeft}>
+                                    <View style={styles.detailsRowIcon}>
+                                      <Folder
+                                        size={18}
+                                        color={
+                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                        }
+                                      />
+                                    </View>
+                                    <Text style={styles.detailsRowLabel}>Add to Space</Text>
+                                  </View>
+                                  {state.spaceId ? (
+                                    <Text style={styles.detailsRowValue}>
+                                      {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
+                                    </Text>
+                                  ) : null}
+                                </Pressable>
+
+                                {/* 3) Delete To-Do row (only in edit mode) */}
+                                {mode === 'edit' && (initialEntity as any)?.id ? (
+                                  <Pressable
+                                    onPress={() => {
+                                      Alert.alert('Delete this to-do?', "This can't be undone.", [
+                                        {
+                                          text: 'Cancel',
+                                          style: 'cancel',
+                                        },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: async () => {
+                                            try {
+                                              const itemId = (initialEntity as any).id;
+                                              // Emit delete event BEFORE closing for optimistic UI
+                                              eventBus.emit('ItemDeleted', {
+                                                id: itemId,
+                                                type: 'todo',
+                                              });
+                                              onClose();
+                                              // Perform actual delete in background
+                                              await repo.remove(itemId);
+                                              eventBus.emit('ItemUpdated', { id: itemId });
+                                            } catch (err) {
+                                              console.error(
+                                                '[UnifiedOverlayV2] Delete failed:',
+                                                err,
+                                              );
+                                              Alert.alert(
+                                                'Error',
+                                                'Failed to delete to-do. Please try again.',
+                                              );
+                                            }
+                                          },
+                                        },
+                                      ]);
+                                    }}
+                                    style={({ pressed }) => [
+                                      styles.detailsRow,
+                                      pressed && { opacity: 0.7 },
+                                    ]}
+                                  >
+                                    <View style={styles.detailsRowLeft}>
+                                      <View style={styles.detailsRowIcon}>
+                                        <Trash2 size={18} color="#D9534F" />
+                                      </View>
+                                      <Text style={[styles.detailsRowLabel, styles.deleteText]}>
+                                        Delete to-do
+                                      </Text>
+                                    </View>
+                                  </Pressable>
+                                ) : null}
+                              </View>
+                            ) : null}
+
+                            {/* Habit Details */}
+                            {baseType === 'habit' ? (
+                              <View>
+                                {/* 1) Reminders row */}
+                                <Pressable
+                                  onPress={() => {
+                                    if (mode !== 'view') setShowRemindersModal(true);
+                                  }}
+                                  disabled={mode === 'view'}
+                                  style={({ pressed }) => [
+                                    styles.detailsRow,
+                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                  ]}
+                                >
+                                  <View style={styles.detailsRowLeft}>
+                                    <View style={styles.detailsRowIcon}>
+                                      <Bell
+                                        size={18}
+                                        color={
+                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                        }
+                                      />
+                                    </View>
+                                    <Text style={styles.detailsRowLabel}>Reminders</Text>
+                                  </View>
+                                  <Text style={styles.detailsRowValue}>
+                                    {formatReminderSummary(reminders)}
+                                  </Text>
+                                </Pressable>
+
+                                {/* 2) Add to Space row */}
+                                <Pressable
+                                  onPress={() => {
+                                    if (mode !== 'view') setShowSpaceModal(true);
+                                  }}
+                                  disabled={mode === 'view'}
+                                  style={({ pressed }) => [
+                                    styles.detailsRow,
+                                    { marginTop: 0 },
+                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                  ]}
+                                >
+                                  <View style={styles.detailsRowLeft}>
+                                    <View style={styles.detailsRowIcon}>
+                                      <Folder
+                                        size={18}
+                                        color={
+                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                        }
+                                      />
+                                    </View>
+                                    <Text style={styles.detailsRowLabel}>Add to Space</Text>
+                                  </View>
+                                  {state.spaceId ? (
+                                    <Text style={styles.detailsRowValue}>
+                                      {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
+                                    </Text>
+                                  ) : null}
+                                </Pressable>
+
+                                {/* 3) Delete Habit row (only in edit mode) */}
+                                {mode === 'edit' && (initialEntity as any)?.id ? (
+                                  <Pressable
+                                    onPress={() => {
+                                      Alert.alert('Delete this habit?', "This can't be undone.", [
+                                        {
+                                          text: 'Cancel',
+                                          style: 'cancel',
+                                        },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: async () => {
+                                            try {
+                                              const itemId = (initialEntity as any).id;
+                                              // Emit delete event BEFORE closing for optimistic UI
+                                              eventBus.emit('ItemDeleted', {
+                                                id: itemId,
+                                                type: 'habit',
+                                              });
+                                              onClose();
+                                              // Perform actual delete in background
+                                              await repo.remove(itemId);
+                                              eventBus.emit('ItemUpdated', { id: itemId });
+                                            } catch (err) {
+                                              console.error(
+                                                '[UnifiedOverlayV2] Delete failed:',
+                                                err,
+                                              );
+                                              Alert.alert(
+                                                'Error',
+                                                'Failed to delete habit. Please try again.',
+                                              );
+                                            }
+                                          },
+                                        },
+                                      ]);
+                                    }}
+                                    style={({ pressed }) => [
+                                      styles.detailsRow,
+                                      pressed && { opacity: 0.7 },
+                                    ]}
+                                  >
+                                    <View style={styles.detailsRowLeft}>
+                                      <View style={styles.detailsRowIcon}>
+                                        <Trash2 size={18} color="#D9534F" />
+                                      </View>
+                                      <Text style={[styles.detailsRowLabel, styles.deleteText]}>
+                                        Delete habit
+                                      </Text>
+                                    </View>
+                                  </Pressable>
+                                ) : null}
+                              </View>
+                            ) : null}
+
+                            {/* Log Details */}
+                            {baseType === 'log' ? (
+                              <View>
+                                {/* 1) Reminders row */}
+                                <Pressable
+                                  onPress={() => {
+                                    if (mode !== 'view') setShowRemindersModal(true);
+                                  }}
+                                  disabled={mode === 'view'}
+                                  style={({ pressed }) => [
+                                    styles.detailsRow,
+                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                  ]}
+                                >
+                                  <View style={styles.detailsRowLeft}>
+                                    <View style={styles.detailsRowIcon}>
+                                      <Bell
+                                        size={18}
+                                        color={
+                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                        }
+                                      />
+                                    </View>
+                                    <Text style={styles.detailsRowLabel}>Reminders</Text>
+                                  </View>
+                                  <Text style={styles.detailsRowValue}>
+                                    {formatReminderSummary(reminders)}
+                                  </Text>
+                                </Pressable>
+
+                                {/* 2) Add to Space row */}
+                                <Pressable
+                                  onPress={() => {
+                                    if (mode !== 'view') setShowSpaceModal(true);
+                                  }}
+                                  disabled={mode === 'view'}
+                                  style={({ pressed }) => [
+                                    styles.detailsRow,
+                                    { marginTop: 0 },
+                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                  ]}
+                                >
+                                  <View style={styles.detailsRowLeft}>
+                                    <View style={styles.detailsRowIcon}>
+                                      <Folder
+                                        size={18}
+                                        color={
+                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                        }
+                                      />
+                                    </View>
+                                    <Text style={styles.detailsRowLabel}>Add to Space</Text>
+                                  </View>
+                                  <Text style={styles.detailsRowValue}>
+                                    {state.spaceId
+                                      ? (spaces.find((s) => s.id === state.spaceId)?.name ??
+                                        'Unassigned')
+                                      : 'Unassigned'}
+                                  </Text>
+                                </Pressable>
+
+                                {/* 3) Private toggle row (Phase L9: Only for journal logs) */}
+                                {showLogPrivateToggle ? (
+                                  <View style={[styles.detailsRow, { marginTop: 0 }]}>
+                                    <View style={styles.detailsRowLeft}>
+                                      <View style={styles.detailsRowIcon}>
+                                        <Lock
+                                          size={18}
+                                          color={
+                                            colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                          }
+                                        />
+                                      </View>
+                                      <Text style={styles.detailsRowLabel}>Private</Text>
+                                    </View>
+                                    <Switch
+                                      value={state.logIsPrivate}
+                                      onValueChange={() =>
+                                        dispatch({
+                                          type: 'SET_LOG_IS_PRIVATE',
+                                          value: !state.logIsPrivate,
+                                        })
+                                      }
+                                      disabled={mode === 'view'}
+                                      trackColor={{ false: '#D1D5DB', true: '#10B981' }}
+                                      thumbColor="#FFFFFF"
+                                    />
+                                  </View>
+                                ) : null}
+
+                                {/* Idea Conversion Section (hidden in view mode) */}
+                                {effectiveLogSubtype === 'idea' && mode === 'edit' ? (
+                                  <View style={{ marginTop: 16 }}>
+                                    <Text
+                                      style={{
+                                        fontSize: 13,
+                                        color: '#888',
+                                        marginBottom: 8,
+                                      }}
+                                    >
+                                      Convert to...
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                      <Pressable
+                                        onPress={() => {
+                                          const ideaTitle = state.log.title || '';
+                                          const ideaBody = state.log.body || '';
+                                          const ideaTags = state.tags || [];
+                                          const ideaListItems = state.list?.items;
+                                          const ideaIsList = !!state.list?.items?.length;
+                                          const ideaId = (initialEntity as any)?.id;
+
+                                          // Close current overlay then open create todo overlay
+                                          onClose();
+                                          setTimeout(() => {
+                                            globalOverlay.openCreate({
+                                              type: 'todo',
+                                              conversionMeta: {
+                                                origin: 'idea_conversion',
+                                                initialTitle: ideaTitle,
+                                                initialNote: ideaBody,
+                                                initialTags: ideaTags,
+                                                initialListItems: ideaIsList
+                                                  ? ideaListItems
+                                                  : undefined,
+                                                initialIsList: ideaIsList,
+                                              },
+                                            });
+                                          }, 100);
+
+                                          // Archive the original idea
+                                          if (ideaId) {
+                                            repo.update({ id: ideaId, patch: { archived: true } });
+                                            eventBus.emit('ItemUpdated', { id: ideaId });
+                                          }
+                                        }}
+                                        style={({ pressed }) => ({
+                                          flex: 1,
+                                          backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                          borderRadius: 8,
+                                          paddingVertical: 12,
+                                          paddingHorizontal: 16,
+                                          minHeight: 44,
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          flexDirection: 'row',
+                                          gap: 6,
+                                        })}
+                                      >
+                                        <Text style={{ fontSize: 15 }}>📋</Text>
+                                        <Text
+                                          style={{ fontSize: 15, fontWeight: '500', color: '#333' }}
+                                        >
+                                          To-Do
+                                        </Text>
+                                      </Pressable>
+                                      <Pressable
+                                        onPress={() => {
+                                          const ideaTitle = state.log.title || '';
+                                          const ideaBody = state.log.body || '';
+                                          const ideaTags = state.tags || [];
+                                          const ideaListItems = state.list?.items;
+                                          const ideaIsList = !!state.list?.items?.length;
+                                          const ideaId = (initialEntity as any)?.id;
+
+                                          // Close current overlay then open create habit overlay
+                                          onClose();
+                                          setTimeout(() => {
+                                            globalOverlay.openCreate({
+                                              type: 'habit',
+                                              conversionMeta: {
+                                                origin: 'idea_conversion',
+                                                initialTitle: ideaTitle,
+                                                initialNote: ideaBody,
+                                                initialTags: ideaTags,
+                                                initialListItems: ideaIsList
+                                                  ? ideaListItems
+                                                  : undefined,
+                                                initialIsList: ideaIsList,
+                                              },
+                                            });
+                                          }, 100);
+
+                                          // Archive the original idea
+                                          if (ideaId) {
+                                            repo.update({ id: ideaId, patch: { archived: true } });
+                                            eventBus.emit('ItemUpdated', { id: ideaId });
+                                          }
+                                        }}
+                                        style={({ pressed }) => ({
+                                          flex: 1,
+                                          backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                          borderRadius: 8,
+                                          paddingVertical: 12,
+                                          paddingHorizontal: 16,
+                                          minHeight: 44,
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          flexDirection: 'row',
+                                          gap: 6,
+                                        })}
+                                      >
+                                        <Text style={{ fontSize: 15 }}>🔄</Text>
+                                        <Text
+                                          style={{ fontSize: 15, fontWeight: '500', color: '#333' }}
+                                        >
+                                          Habit
+                                        </Text>
+                                      </Pressable>
+                                    </View>
+                                  </View>
+                                ) : null}
+
+                                {/* 4) Delete log row (only in edit mode) */}
+                                {mode === 'edit' && (initialEntity as any)?.id ? (
+                                  <Pressable
+                                    onPress={() => {
+                                      Alert.alert('Delete this log?', "This can't be undone.", [
+                                        {
+                                          text: 'Cancel',
+                                          style: 'cancel',
+                                        },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: async () => {
+                                            try {
+                                              const itemId = (initialEntity as any).id;
+                                              // Emit delete event BEFORE closing for optimistic UI
+                                              eventBus.emit('ItemDeleted', {
+                                                id: itemId,
+                                                type: 'note',
+                                              });
+                                              onClose();
+                                              // Perform actual delete in background
+                                              await repo.remove(itemId);
+                                              eventBus.emit('ItemUpdated', { id: itemId });
+                                            } catch (err) {
+                                              console.error(
+                                                '[UnifiedOverlayV2] Delete log failed:',
+                                                err,
+                                              );
+                                              Alert.alert(
+                                                'Error',
+                                                'Failed to delete log. Please try again.',
+                                              );
+                                            }
+                                          },
+                                        },
+                                      ]);
+                                    }}
+                                    style={({ pressed }) => [
+                                      styles.detailsRow,
+                                      pressed && { opacity: 0.7 },
+                                    ]}
+                                  >
+                                    <View style={styles.detailsRowLeft}>
+                                      <View style={styles.detailsRowIcon}>
+                                        <Trash2 size={18} color="#D9534F" />
+                                      </View>
+                                      <Text style={[styles.detailsRowLabel, styles.deleteText]}>
+                                        Delete log
+                                      </Text>
+                                    </View>
+                                  </Pressable>
+                                ) : null}
+                              </View>
+                            ) : null}
+                          </Box>
+                        </Reanimated.View>
+                      ) : null}
+
+                      {/* Mentions / Dates chips (inline suggestions) */}
+                      <Box
+                        mt={3}
+                        row
+                        gap={2}
+                        style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}
+                      >
+                        {(state.detected?.mentions || []).map((m) => (
+                          <Chip key={m} label={`@${m}`} />
+                        ))}
+                        {(state.detected?.dates || []).map((d) => (
+                          <Button
+                            key={d}
+                            size="sm"
+                            variant="ghost"
+                            onPress={() => {
+                              if (d === '__token:today') {
+                                handleTodoDueChange(new Date(), { label: 'Today' });
+                              } else if (d === '__token:tomorrow') {
+                                handleTodoDueChange(addDays(new Date(), 1), {
+                                  label: 'Tomorrow',
                                 });
-                              } catch (e) {
-                                // ignore telemetry errors
+                              } else {
+                                // fallback: open custom date modal with parsed date prefilled
+                                try {
+                                  const dateStr = d.replace(/^\D+/g, '');
+                                  const parsed = new Date(dateStr);
+                                  if (!isNaN(parsed.getTime())) {
+                                    setSelectedDate(parsed);
+                                    setClearDateFlag(false);
+                                  }
+                                } catch (e) {
+                                  // Use today as fallback
+                                  setSelectedDate(new Date());
+                                }
+                                setDateModalTarget('todo');
+                                setShowDateModal(true);
                               }
                             }}
-                            trackColor={{
-                              false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
-                              true: lightTokens.colors.moss,
-                            }}
-                            thumbColor="#FFFFFF"
-                          />
-                        </View>
-                      ) : null}
-                    </View>
-                  </Box>
-                ) : null}
-
-                <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 12 }}>
-                  <Pressable
-                    onPress={handleToggleDetails}
-                    hitSlop={8}
-                    style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-                  >
-                    <Text
-                      style={{
-                        color: 'rgba(46, 85, 64, 0.75)',
-                        fontWeight: '500',
-                        fontSize: 14,
-                      }}
-                    >
-                      {state.expanded ? 'Hide details' : 'Show details'}
-                    </Text>
-                  </Pressable>
-                </View>
-                {state.expanded ? (
-                  <Reanimated.View style={[detailsStyle, { marginTop: 0 }]}>
-                    <Box pb={2}>
-                      {/* To-Do Details */}
-                      {baseType === 'todo' ? (
-                        <View>
-                          {/* 1) Reminders row */}
-                          <Pressable
-                            onPress={() => {
-                              if (mode !== 'view') setShowRemindersModal(true);
-                            }}
-                            disabled={mode === 'view'}
-                            style={({ pressed }) => [
-                              styles.detailsRow,
-                              pressed && styles.detailsRowPressed,
-                            ]}
-                          >
-                            <View style={styles.detailsRowLeft}>
-                              <View style={styles.detailsRowIcon}>
-                                <Bell
-                                  size={18}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                                />
-                              </View>
-                              <Text style={styles.detailsRowLabel}>Reminders</Text>
-                            </View>
-                            <Text style={styles.detailsRowValue}>
-                              {formatReminderSummary(reminders)}
-                            </Text>
-                          </Pressable>
-
-                          {/* 2) Add to Space row */}
-                          <Pressable
-                            onPress={() => {
-                              if (mode !== 'view') setShowSpaceModal(true);
-                            }}
-                            disabled={mode === 'view'}
-                            style={({ pressed }) => [
-                              styles.detailsRow,
-                              pressed && mode !== 'view' && styles.detailsRowPressed,
-                            ]}
-                          >
-                            <View style={styles.detailsRowLeft}>
-                              <View style={styles.detailsRowIcon}>
-                                <Folder
-                                  size={18}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                                />
-                              </View>
-                              <Text style={styles.detailsRowLabel}>Add to Space</Text>
-                            </View>
-                            {state.spaceId ? (
-                              <Text style={styles.detailsRowValue}>
-                                {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
-                              </Text>
-                            ) : null}
-                          </Pressable>
-
-                          {/* 3) Delete To-Do row (only in edit mode) */}
-                          {mode === 'edit' && (initialEntity as any)?.id ? (
-                            <Pressable
-                              onPress={() => {
-                                Alert.alert('Delete this to-do?', "This can't be undone.", [
-                                  {
-                                    text: 'Cancel',
-                                    style: 'cancel',
-                                  },
-                                  {
-                                    text: 'Delete',
-                                    style: 'destructive',
-                                    onPress: async () => {
-                                      try {
-                                        const itemId = (initialEntity as any).id;
-                                        // Emit delete event BEFORE closing for optimistic UI
-                                        eventBus.emit('ItemDeleted', {
-                                          id: itemId,
-                                          type: 'todo',
-                                        });
-                                        onClose();
-                                        // Perform actual delete in background
-                                        await repo.remove(itemId);
-                                        eventBus.emit('ItemUpdated', { id: itemId });
-                                      } catch (err) {
-                                        console.error('[UnifiedOverlayV2] Delete failed:', err);
-                                        Alert.alert(
-                                          'Error',
-                                          'Failed to delete to-do. Please try again.',
-                                        );
-                                      }
-                                    },
-                                  },
-                                ]);
-                              }}
-                              style={({ pressed }) => [
-                                styles.detailsRow,
-                                pressed && { opacity: 0.7 },
-                              ]}
-                            >
-                              <View style={styles.detailsRowLeft}>
-                                <View style={styles.detailsRowIcon}>
-                                  <Trash2 size={18} color="#D9534F" />
-                                </View>
-                                <Text style={[styles.detailsRowLabel, styles.deleteText]}>
-                                  Delete to-do
-                                </Text>
-                              </View>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      ) : null}
-
-                      {/* Habit Details */}
-                      {baseType === 'habit' ? (
-                        <View>
-                          {/* 1) Reminders row */}
-                          <Pressable
-                            onPress={() => {
-                              if (mode !== 'view') setShowRemindersModal(true);
-                            }}
-                            disabled={mode === 'view'}
-                            style={({ pressed }) => [
-                              styles.detailsRow,
-                              pressed && mode !== 'view' && styles.detailsRowPressed,
-                            ]}
-                          >
-                            <View style={styles.detailsRowLeft}>
-                              <View style={styles.detailsRowIcon}>
-                                <Bell
-                                  size={18}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                                />
-                              </View>
-                              <Text style={styles.detailsRowLabel}>Reminders</Text>
-                            </View>
-                            <Text style={styles.detailsRowValue}>
-                              {formatReminderSummary(reminders)}
-                            </Text>
-                          </Pressable>
-
-                          {/* 2) Add to Space row */}
-                          <Pressable
-                            onPress={() => {
-                              if (mode !== 'view') setShowSpaceModal(true);
-                            }}
-                            disabled={mode === 'view'}
-                            style={({ pressed }) => [
-                              styles.detailsRow,
-                              { marginTop: 0 },
-                              pressed && mode !== 'view' && styles.detailsRowPressed,
-                            ]}
-                          >
-                            <View style={styles.detailsRowLeft}>
-                              <View style={styles.detailsRowIcon}>
-                                <Folder
-                                  size={18}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                                />
-                              </View>
-                              <Text style={styles.detailsRowLabel}>Add to Space</Text>
-                            </View>
-                            {state.spaceId ? (
-                              <Text style={styles.detailsRowValue}>
-                                {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
-                              </Text>
-                            ) : null}
-                          </Pressable>
-
-                          {/* 3) Delete Habit row (only in edit mode) */}
-                          {mode === 'edit' && (initialEntity as any)?.id ? (
-                            <Pressable
-                              onPress={() => {
-                                Alert.alert('Delete this habit?', "This can't be undone.", [
-                                  {
-                                    text: 'Cancel',
-                                    style: 'cancel',
-                                  },
-                                  {
-                                    text: 'Delete',
-                                    style: 'destructive',
-                                    onPress: async () => {
-                                      try {
-                                        const itemId = (initialEntity as any).id;
-                                        // Emit delete event BEFORE closing for optimistic UI
-                                        eventBus.emit('ItemDeleted', {
-                                          id: itemId,
-                                          type: 'habit',
-                                        });
-                                        onClose();
-                                        // Perform actual delete in background
-                                        await repo.remove(itemId);
-                                        eventBus.emit('ItemUpdated', { id: itemId });
-                                      } catch (err) {
-                                        console.error('[UnifiedOverlayV2] Delete failed:', err);
-                                        Alert.alert(
-                                          'Error',
-                                          'Failed to delete habit. Please try again.',
-                                        );
-                                      }
-                                    },
-                                  },
-                                ]);
-                              }}
-                              style={({ pressed }) => [
-                                styles.detailsRow,
-                                pressed && { opacity: 0.7 },
-                              ]}
-                            >
-                              <View style={styles.detailsRowLeft}>
-                                <View style={styles.detailsRowIcon}>
-                                  <Trash2 size={18} color="#D9534F" />
-                                </View>
-                                <Text style={[styles.detailsRowLabel, styles.deleteText]}>
-                                  Delete habit
-                                </Text>
-                              </View>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      ) : null}
-
-                      {/* Log Details */}
-                      {baseType === 'log' ? (
-                        <View>
-                          {/* 1) Reminders row */}
-                          <Pressable
-                            onPress={() => {
-                              if (mode !== 'view') setShowRemindersModal(true);
-                            }}
-                            disabled={mode === 'view'}
-                            style={({ pressed }) => [
-                              styles.detailsRow,
-                              pressed && mode !== 'view' && styles.detailsRowPressed,
-                            ]}
-                          >
-                            <View style={styles.detailsRowLeft}>
-                              <View style={styles.detailsRowIcon}>
-                                <Bell
-                                  size={18}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                                />
-                              </View>
-                              <Text style={styles.detailsRowLabel}>Reminders</Text>
-                            </View>
-                            <Text style={styles.detailsRowValue}>
-                              {formatReminderSummary(reminders)}
-                            </Text>
-                          </Pressable>
-
-                          {/* 2) Add to Space row */}
-                          <Pressable
-                            onPress={() => {
-                              if (mode !== 'view') setShowSpaceModal(true);
-                            }}
-                            disabled={mode === 'view'}
-                            style={({ pressed }) => [
-                              styles.detailsRow,
-                              { marginTop: 0 },
-                              pressed && mode !== 'view' && styles.detailsRowPressed,
-                            ]}
-                          >
-                            <View style={styles.detailsRowLeft}>
-                              <View style={styles.detailsRowIcon}>
-                                <Folder
-                                  size={18}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                                />
-                              </View>
-                              <Text style={styles.detailsRowLabel}>Add to Space</Text>
-                            </View>
-                            <Text style={styles.detailsRowValue}>
-                              {state.spaceId
-                                ? (spaces.find((s) => s.id === state.spaceId)?.name ?? 'Unassigned')
-                                : 'Unassigned'}
-                            </Text>
-                          </Pressable>
-
-                          {/* 3) Private toggle row (Phase L9: Only for journal logs) */}
-                          {showLogPrivateToggle ? (
-                            <View style={[styles.detailsRow, { marginTop: 0 }]}>
-                              <View style={styles.detailsRowLeft}>
-                                <View style={styles.detailsRowIcon}>
-                                  <Lock
-                                    size={18}
-                                    color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'}
-                                  />
-                                </View>
-                                <Text style={styles.detailsRowLabel}>Private</Text>
-                              </View>
-                              <Switch
-                                value={state.logIsPrivate}
-                                onValueChange={() =>
-                                  dispatch({
-                                    type: 'SET_LOG_IS_PRIVATE',
-                                    value: !state.logIsPrivate,
-                                  })
-                                }
-                                disabled={mode === 'view'}
-                                trackColor={{ false: '#D1D5DB', true: '#10B981' }}
-                                thumbColor="#FFFFFF"
-                              />
-                            </View>
-                          ) : null}
-
-                          {/* Idea Conversion Section (hidden in view mode) */}
-                          {effectiveLogSubtype === 'idea' && mode === 'edit' ? (
-                            <View style={{ marginTop: 16 }}>
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  color: '#888',
-                                  marginBottom: 8,
-                                }}
-                              >
-                                Convert to...
-                              </Text>
-                              <View style={{ flexDirection: 'row', gap: 8 }}>
-                                <Pressable
-                                  onPress={() => {
-                                    const ideaTitle = state.log.title || '';
-                                    const ideaBody = state.log.body || '';
-                                    const ideaTags = state.tags || [];
-                                    const ideaListItems = state.list?.items;
-                                    const ideaIsList = !!state.list?.items?.length;
-                                    const ideaId = (initialEntity as any)?.id;
-
-                                    // Close current overlay then open create todo overlay
-                                    onClose();
-                                    setTimeout(() => {
-                                      globalOverlay.openCreate({
-                                        type: 'todo',
-                                        conversionMeta: {
-                                          origin: 'idea_conversion',
-                                          initialTitle: ideaTitle,
-                                          initialNote: ideaBody,
-                                          initialTags: ideaTags,
-                                          initialListItems: ideaIsList ? ideaListItems : undefined,
-                                          initialIsList: ideaIsList,
-                                        },
-                                      });
-                                    }, 100);
-
-                                    // Archive the original idea
-                                    if (ideaId) {
-                                      repo.update({ id: ideaId, patch: { archived: true } });
-                                      eventBus.emit('ItemUpdated', { id: ideaId });
-                                    }
-                                  }}
-                                  style={({ pressed }) => ({
-                                    flex: 1,
-                                    backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
-                                    borderRadius: 8,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 16,
-                                    minHeight: 44,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    flexDirection: 'row',
-                                    gap: 6,
-                                  })}
-                                >
-                                  <Text style={{ fontSize: 15 }}>📋</Text>
-                                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>
-                                    To-Do
-                                  </Text>
-                                </Pressable>
-                                <Pressable
-                                  onPress={() => {
-                                    const ideaTitle = state.log.title || '';
-                                    const ideaBody = state.log.body || '';
-                                    const ideaTags = state.tags || [];
-                                    const ideaListItems = state.list?.items;
-                                    const ideaIsList = !!state.list?.items?.length;
-                                    const ideaId = (initialEntity as any)?.id;
-
-                                    // Close current overlay then open create habit overlay
-                                    onClose();
-                                    setTimeout(() => {
-                                      globalOverlay.openCreate({
-                                        type: 'habit',
-                                        conversionMeta: {
-                                          origin: 'idea_conversion',
-                                          initialTitle: ideaTitle,
-                                          initialNote: ideaBody,
-                                          initialTags: ideaTags,
-                                          initialListItems: ideaIsList ? ideaListItems : undefined,
-                                          initialIsList: ideaIsList,
-                                        },
-                                      });
-                                    }, 100);
-
-                                    // Archive the original idea
-                                    if (ideaId) {
-                                      repo.update({ id: ideaId, patch: { archived: true } });
-                                      eventBus.emit('ItemUpdated', { id: ideaId });
-                                    }
-                                  }}
-                                  style={({ pressed }) => ({
-                                    flex: 1,
-                                    backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
-                                    borderRadius: 8,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 16,
-                                    minHeight: 44,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    flexDirection: 'row',
-                                    gap: 6,
-                                  })}
-                                >
-                                  <Text style={{ fontSize: 15 }}>🔄</Text>
-                                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>
-                                    Habit
-                                  </Text>
-                                </Pressable>
-                              </View>
-                            </View>
-                          ) : null}
-
-                          {/* 4) Delete log row (only in edit mode) */}
-                          {mode === 'edit' && (initialEntity as any)?.id ? (
-                            <Pressable
-                              onPress={() => {
-                                Alert.alert('Delete this log?', "This can't be undone.", [
-                                  {
-                                    text: 'Cancel',
-                                    style: 'cancel',
-                                  },
-                                  {
-                                    text: 'Delete',
-                                    style: 'destructive',
-                                    onPress: async () => {
-                                      try {
-                                        const itemId = (initialEntity as any).id;
-                                        // Emit delete event BEFORE closing for optimistic UI
-                                        eventBus.emit('ItemDeleted', {
-                                          id: itemId,
-                                          type: 'note',
-                                        });
-                                        onClose();
-                                        // Perform actual delete in background
-                                        await repo.remove(itemId);
-                                        eventBus.emit('ItemUpdated', { id: itemId });
-                                      } catch (err) {
-                                        console.error('[UnifiedOverlayV2] Delete log failed:', err);
-                                        Alert.alert(
-                                          'Error',
-                                          'Failed to delete log. Please try again.',
-                                        );
-                                      }
-                                    },
-                                  },
-                                ]);
-                              }}
-                              style={({ pressed }) => [
-                                styles.detailsRow,
-                                pressed && { opacity: 0.7 },
-                              ]}
-                            >
-                              <View style={styles.detailsRowLeft}>
-                                <View style={styles.detailsRowIcon}>
-                                  <Trash2 size={18} color="#D9534F" />
-                                </View>
-                                <Text style={[styles.detailsRowLabel, styles.deleteText]}>
-                                  Delete log
-                                </Text>
-                              </View>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      ) : null}
-                    </Box>
-                  </Reanimated.View>
-                ) : null}
-
-                {/* Mentions / Dates chips (inline suggestions) */}
-                <Box mt={3} row gap={2} style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}>
-                  {(state.detected?.mentions || []).map((m) => (
-                    <Chip key={m} label={`@${m}`} />
-                  ))}
-                  {(state.detected?.dates || []).map((d) => (
-                    <Button
-                      key={d}
-                      size="sm"
-                      variant="ghost"
-                      onPress={() => {
-                        if (d === '__token:today') {
-                          handleTodoDueChange(new Date(), { label: 'Today' });
-                        } else if (d === '__token:tomorrow') {
-                          handleTodoDueChange(addDays(new Date(), 1), {
-                            label: 'Tomorrow',
-                          });
-                        } else {
-                          // fallback: open custom date modal with parsed date prefilled
-                          try {
-                            const dateStr = d.replace(/^\D+/g, '');
-                            const parsed = new Date(dateStr);
-                            if (!isNaN(parsed.getTime())) {
-                              setSelectedDate(parsed);
-                              setClearDateFlag(false);
+                            title={
+                              d === '__token:today'
+                                ? 'Set due: Today'
+                                : d === '__token:tomorrow'
+                                  ? 'Set due: Tomorrow'
+                                  : d
                             }
-                          } catch (e) {
-                            // Use today as fallback
-                            setSelectedDate(new Date());
-                          }
-                          setDateModalTarget('todo');
-                          setShowDateModal(true);
-                        }
-                      }}
-                      title={
-                        d === '__token:today'
-                          ? 'Set due: Today'
-                          : d === '__token:tomorrow'
-                            ? 'Set due: Tomorrow'
-                            : d
-                      }
-                    />
-                  ))}
-                </Box>
-                {/* Tag row hidden at Level-1; lands in Phase 3 */}
-              </Box>
-            </ScrollView>
+                          />
+                        ))}
+                      </Box>
+                      {/* Tag row hidden at Level-1; lands in Phase 3 */}
+                    </Box>
+                  </ScrollView>
+                )}
+              </Reanimated.View>
+            </View>
 
             <Modal visible={showDateModal} transparent animationType="fade">
               <Pressable

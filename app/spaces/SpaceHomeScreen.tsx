@@ -42,18 +42,11 @@ import { WhatWeDiscussedCard } from '../../components/spaces/WhatWeDiscussedCard
 import { useAuth } from '../../providers/AuthProvider';
 import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
 import { summarizeChatForCard } from '../../lib/ai/chatSummaries';
-// v3 legacy components removed in v4 path
-import { FocusCard, CalendarStrip, QuickStatsRow, ChatCTA } from '../../components/spaces/v4';
+// v4 components (FocusCard, CalendarStrip, QuickStatsRow, ChatCTA) removed in Phase 5
 import HeaderV22 from '../../components/spaces/v22/Header';
-import WeekStripV22 from '../../components/spaces/v22/WeekStrip';
 import TimelineOverlay from '../../components/spaces/v22/Overlays/TimelineOverlay';
-import DayPanelV22 from '../../components/spaces/v22/DayPanel';
-import AdaptiveSummaryV22 from '../../components/spaces/v22/AdaptiveSummary';
-import FocusTodayCard from '../../components/spaces/v22/FocusTodayCard';
-import InsightsRow from '../../components/spaces/v22/InsightsRow';
 import NotepadOverlay from '../../components/spaces/v22/Overlays/NotepadOverlay';
 import PeopleOverlay from '../../components/spaces/v22/Overlays/PeopleOverlay';
-import NewChatCTA from '../../components/spaces/v22/NewChatCTA';
 import { COLORS as V22 } from '../../components/spaces/v22/_tokens';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -61,27 +54,15 @@ import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ConfettiBurst from '../../components/ConfettiBurst';
-import WeeklyGoalCard from '../../components/spaces/v22/WeeklyGoalCard';
 import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
 import { useSpaceNotes } from '../../hooks/useSpaceNotes';
 // v33 components (Space v3.3)
 import HeaderV33 from '../../components/spaces/v33/Header';
-import NewChatSectionV33 from '../../components/spaces/v33/NewChatSection';
-import ThreadCardV33 from '../../components/spaces/v33/ThreadCard';
-// v33 goal components
-import GoalListV33 from '../../components/spaces/v33/GoalList';
-import GoalSectionV33, { GoalsZone } from '../../components/spaces/v33/GoalSection';
-import SearchOverlayV33 from '../../components/spaces/v33/Overlays/SearchOverlay';
-import IconRowV33 from '../../components/spaces/v33/IconRow';
-import CalendarOverlayV33 from '../../components/spaces/v33/Overlays/CalendarOverlay';
-import EditGoalModal from '../../components/spaces/v33/Overlays/EditGoalModal';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
-import GoalPlaceholder from '../../components/spaces/v33/GoalPlaceholder';
-import Menu from '../../components/spaces/v33/Menu';
 import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -863,10 +844,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     useSpaceAggregate(spaceId);
   const { totalCount: notesCount } = useSpaceNotes(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  // v33 search filter chip state
-  const [searchActiveV33, setSearchActiveV33] = useState<'chats' | 'notes' | 'habits'>('chats');
+  // Phase 5: Removed searchVisible, searchQuery, searchActiveV33 state (search via filter bar now)
   const isFocused = useIsFocused();
   const [summaryPulse] = useState(() => new Animated.Value(1));
   const [showConfetti, setShowConfetti] = useState(false);
@@ -877,24 +855,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     formatISO(new Date(), { representation: 'date' }),
   );
   const [showTimeline, setShowTimeline] = useState(false);
-  // v33 calendar overlay state (separate from v22 timeline)
-  const [showCalendarV33, setShowCalendarV33] = useState(false);
-  // v33: edit goal modal state
-  const [editGoalVisible, setEditGoalVisible] = useState(false);
-  const [editGoalRecord, setEditGoalRecord] = useState<import('../../lib/types').AppRecord | null>(
-    null,
-  );
+  // Phase 5: Removed showCalendarV33, editGoalVisible, editGoalRecord, showNotepad, intentDraft, showPeople
+  // Phase 5: Removed showUnifiedAdd, goalMenuId, renameChatModalOpen, renameChatId, renameChatTitle
   const [showNotepad, setShowNotepad] = useState(false);
-  const [intentDraft, setIntentDraft] = useState<string | undefined>(undefined);
   const [showPeople, setShowPeople] = useState(false);
-  // v33: Unified Add overlay state
-  const [showUnifiedAdd, setShowUnifiedAdd] = useState(false);
-  // v33: goal menu (inline Menu component)
-  const [goalMenuId, setGoalMenuId] = useState<string | null>(null);
-  // v33: rename chat modal state
-  const [renameChatModalOpen, setRenameChatModalOpen] = useState(false);
-  const [renameChatId, setRenameChatId] = useState<string | null>(null);
-  const [renameChatTitle, setRenameChatTitle] = useState('');
 
   // NEW: Filter bar state
   const [filter, setFilter] = useState<FilterTab>('all');
@@ -1000,58 +964,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Refs for smooth scrolling to sections (v22)
   const scrollRef = React.useRef<ScrollView | null>(null);
-  const [dayPanelY, setDayPanelY] = React.useState<number | null>(null);
-  // Cascade fade-in for v22 sections
-  const oWeek = React.useMemo(() => new Animated.Value(0), []);
-  const oDay = React.useMemo(() => new Animated.Value(0), []);
-  const oSummary = React.useMemo(() => new Animated.Value(0), []);
-  const oInsights = React.useMemo(() => new Animated.Value(0), []);
-  const oCTA = React.useMemo(() => new Animated.Value(0), []);
-  const oThreads = React.useMemo(() => new Animated.Value(0), []);
-  // Slide-up motion for v22 sections
-  const yWeek = React.useMemo(() => new Animated.Value(20), []);
-  const yDay = React.useMemo(() => new Animated.Value(20), []);
-  const ySummary = React.useMemo(() => new Animated.Value(20), []);
-  const yInsights = React.useMemo(() => new Animated.Value(20), []);
-  const yCTA = React.useMemo(() => new Animated.Value(20), []);
-  const yThreads = React.useMemo(() => new Animated.Value(20), []);
+  // Phase 5: Removed v22 cascade animation values (oWeek, oDay, oSummary, oInsights, oCTA, oThreads, yWeek, etc.)
   // Focus card snooze state
   const [focusDismissed, setFocusDismissed] = useState<boolean>(false);
   // Feature flag: Space v22 header (strict equality as requested)
   const isSpaceV22 = process.env.EXPO_PUBLIC_SPACE_V22 === 'on';
 
-  useEffect(() => {
-    if (!isSpaceV22) return;
-    const ops = [oWeek, oDay, oSummary, oInsights, oCTA, oThreads];
-    const tys = [yWeek, yDay, ySummary, yInsights, yCTA, yThreads];
-    const groups = ops.map((op, i) =>
-      Animated.parallel([
-        Animated.timing(op, { toValue: 1, duration: 250, delay: i * 50, useNativeDriver: true }),
-        Animated.timing(tys[i], {
-          toValue: 0,
-          duration: 250,
-          delay: i * 50,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    Animated.stagger(50, groups).start();
-  }, [
-    isSpaceV22,
-    oCTA,
-    oDay,
-    oInsights,
-    oSummary,
-    oThreads,
-    oWeek,
-    yCTA,
-    yDay,
-    yInsights,
-    ySummary,
-    yThreads,
-    yWeek,
-  ]);
+  // Phase 5: Removed v22 cascade animation useEffect (no longer using those animated values)
+
   // Header mood line heuristic
   const headerMood = React.useMemo(() => {
     const lastChatTs = chats.reduce((acc, c) => Math.max(acc, new Date(c.updated_at).getTime()), 0);
@@ -1113,21 +1033,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }
   }, [isFocused, isSpaceV22]);
 
-  // When selected day changes in v22, scroll DayPanel into view (place before any early return)
-  useEffect(() => {
-    if (!isSpaceV22) return;
-    if (dayPanelY == null) return;
-    const t = setTimeout(() => {
-      try {
-        const y = Math.max(0, dayPanelY - 80);
-        scrollRef.current?.scrollTo({ y, animated: true });
-      } catch {
-        // no-op
-      }
-    }, 50);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDayISO]);
+  // Day scroll effect removed - DayPanel no longer used
 
   // Load focus card dismissal from AsyncStorage
   useEffect(() => {
@@ -1258,31 +1164,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     ]).finally(() => setRefreshing(false));
   }, [reload, repo, spaceId]);
 
-  const handleSearchPress = useCallback(() => {
-    setSearchVisible((v) => !v);
-  }, []);
-
-  const v33FilteredResults = React.useMemo(() => {
-    const empty = { items: [] as AppRecord[], chats: [] as SpaceChat[] };
-    const q = searchQuery.trim().toLowerCase();
-    if (!searchVisible || q.length === 0) return empty;
-
-    const match = (s?: string | null) => (s || '').toLowerCase().includes(q);
-
-    const matchedChats = chats.filter((c) => match(c.title) || match(c.last_message_snippet || ''));
-
-    const matchedNotes = (items as AppRecord[]).filter(
-      (it: any) => it.type === 'note' && (match((it as any).title) || match((it as any).body)),
-    );
-    const matchedHabits = (items as AppRecord[]).filter(
-      (it: any) => it.type === 'habit' && (match((it as any).name) || match((it as any).notes)),
-    );
-
-    if (searchActiveV33 === 'chats') return { items: [], chats: matchedChats };
-    if (searchActiveV33 === 'notes') return { items: matchedNotes, chats: [] };
-    if (searchActiveV33 === 'habits') return { items: matchedHabits, chats: [] };
-    return empty;
-  }, [searchActiveV33, searchQuery, searchVisible, chats, items]);
+  // Phase 5: Removed handleSearchPress, v33FilteredResults (search via filter bar now)
 
   // Persist layout state
   const persistLayoutState = useCallback(
@@ -1355,17 +1237,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [spaceChatRepo, reload],
   );
 
-  const handleRenameChat = useCallback(
-    (chatId: string) => {
-      const chat = chats.find((c) => c.id === chatId);
-      if (chat) {
-        setRenameChatId(chatId);
-        setRenameChatTitle(chat.title || 'New Chat');
-        setRenameChatModalOpen(true);
-      }
-    },
-    [chats],
-  );
+  // Phase 5: Removed handleRenameChat (used removed state), kept handleRenameChatV22
 
   // v22 compatible wrapper for handleRenameChat (takes newTitle directly)
   const handleRenameChatV22 = useCallback(
@@ -1381,19 +1253,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [spaceChatRepo, reload],
   );
 
-  const handleRenameChatSubmit = useCallback(
-    async (newTitle: string) => {
-      if (!renameChatId) return;
-      try {
-        await spaceChatRepo.update(renameChatId, { title: newTitle });
-        await reload();
-      } catch (error) {
-        console.error('Failed to rename chat:', error);
-        Alert.alert('Error', 'Failed to rename chat');
-      }
-    },
-    [renameChatId, spaceChatRepo, reload],
-  );
+  // Phase 5: Removed handleRenameChatSubmit (used removed renameChatId state)
 
   // v33: Goal menu handled via Menu component (see inline render in v33 branch)
 
@@ -1559,29 +1419,41 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               mood={v33Mood}
             />
 
+            {/* Phase 5: Simple chat CTA row */}
+            <Pressable
+              onPress={handleNewChat}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                gap: 8,
+              }}
+            >
+              <Text style={{ fontSize: 14, color: BRAND.colors.mossGreen }}>
+                💬 Chat with Gremly about this space
+              </Text>
+            </Pressable>
+
+            {/* "Captured in this Space" label */}
+            <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '600',
+                  color: BRAND.colors.inkSubtle,
+                  letterSpacing: 0.5,
+                  textTransform: 'uppercase',
+                }}
+              >
+                Captured in this Space
+              </Text>
+            </View>
+
             {/* Filter bar */}
             <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
 
-            {/* Slide-down search overlay under header */}
-            <SearchOverlayV33
-              visible={searchVisible}
-              onClose={() => setSearchVisible(false)}
-              spaceId={spaceId}
-              onOpenChat={(chatId) => {
-                setSearchVisible(false);
-                navigation.navigate('ChatThread', { spaceId, chatId });
-              }}
-              onOpenNote={(noteId) => {
-                setSearchVisible(false);
-                const note = items.find((it: any) => it.id === noteId);
-                if (note) overlay.openEdit({ record: note as any, spaceId });
-              }}
-              onOpenHabit={(habitId) => {
-                setSearchVisible(false);
-                const habit = items.find((it: any) => it.id === habitId);
-                if (habit) overlay.openEdit({ record: habit as any, spaceId });
-              }}
-            />
+            {/* Phase 5: Removed SearchOverlayV33, GoalsZone, IconRowV33, GoalListV33, NewChatSectionV33, ThreadCardV33 */}
 
             {/* Recent Activity - ALWAYS shows regardless of filter */}
             <RecentActivitySection
@@ -1627,118 +1499,45 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               />
             )}
 
-            {/* Goals Zone: wraps IconRow and Goals with Sage tint background */}
-            <GoalsZone>
-              {/* Centered icon row */}
-              <IconRowV33
-                counts={{
-                  notes: notesCount,
-                  milestones: (upcoming || []).length,
-                }}
-                onOpenNotepad={() => setShowNotepad(true)}
-                onOpenCalendar={() => setShowCalendarV33(true)}
-                onAdd={() => setShowUnifiedAdd(true)}
-                onOpenSearch={() => setSearchVisible(true)}
-              />
-
-              {/* Goals: expandable GoalList with See All / Show Less */}
-              {(() => {
-                const wk = weekly?.habits || [];
-                if (!wk.length) return <GoalPlaceholder />;
-                const byId = new Map<string, any>((items as any[]).map((r: any) => [r.id, r]));
-                const goals = wk.map((row) => {
-                  const rec = byId.get(row.id);
-                  const done = row.doneCount ?? 0;
-                  const target = row.target ?? 3;
-                  const state: 'idle' | 'active' | 'complete' =
-                    done >= target && target > 0 ? 'complete' : done > 0 ? 'active' : 'idle';
-                  return {
-                    id: row.id,
-                    title: (rec?.title || rec?.name || 'Habit') as string,
-                    subtitle: `${done}/${target} this week`,
-                    state,
-                    lastActivityAt: (rec?.updated_at as string) || null,
-                    createdAt: (rec?.created_at as string) || null,
-                    pinned: !!rec?.pinned,
-                  } as const;
-                });
-                return (
-                  <GoalListV33
-                    goals={goals as any}
-                    topN={3}
-                    persistKey={`goalList:expanded:${spaceId}`}
-                    totalCountLabel={(n) => `See All Goals (${n})`}
-                    onOpen={(id) => {
-                      console.log('[SpaceHome] Goal clicked:', id);
-                      const rec = (items as any[]).find((r) => r.id === id);
-                      console.log('[SpaceHome] Found record:', rec ? rec.type : 'NOT FOUND');
-                      if (rec && chats && chats.length > 0) {
-                        // Navigate to the most recent chat thread where user can edit via overlay
-                        const mostRecentChat = chats[0];
-                        console.log('[SpaceHome] Navigating to chat thread:', mostRecentChat.id);
-                        navigation.navigate('ChatThread', {
-                          spaceId,
-                          chatId: mostRecentChat.id,
-                        });
-                        // Then open the overlay from there (ChatThread has its own overlay controller)
-                        // Note: We can't directly open the overlay here due to multiple controller instances
-                      }
-                    }}
-                    onMenu={() => {}}
-                  />
-                );
-              })()}
-            </GoalsZone>
-
-            {/* Chat CTA */}
-            {(() => {
-              // Calculate inactivity days for sparkle
-              const lastChatTs = chats.reduce(
-                (acc, c) => Math.max(acc, new Date(c.updated_at).getTime()),
-                0,
-              );
-              const lastItemTs = items.reduce((acc, it: any) => {
-                const ts = new Date(it.updated_at || it.created_at || 0).getTime();
-                return Math.max(acc, ts);
-              }, 0);
-              const lastTs = Math.max(lastChatTs, lastItemTs);
-              const daysSince = lastTs
-                ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24))
-                : 999;
-              return (
-                <NewChatSectionV33
-                  spaceName={space?.name ?? 'this space'}
-                  inactiveDays={daysSince}
-                  onPress={handleNewChat}
-                />
-              );
-            })()}
-
-            {/* Recent Chats (last 3) */}
-            {(() => {
-              const list = chats.slice(0, 3);
-              if (list.length === 0)
-                return (
-                  <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-                    <Text style={{ color: T.colors.subtle }}>
-                      No conversations yet — want to ask Gremly something?
-                    </Text>
-                  </View>
-                );
-              return (
-                <View style={{ paddingHorizontal: 16, marginTop: 16, gap: 10 }}>
-                  {list.map((c) => (
-                    <ThreadCardV33
+            {/* Recent Chats (simplified) */}
+            {chats.length > 0 && (
+              <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+                <Text
+                  style={{
+                    fontWeight: '600',
+                    fontSize: 16,
+                    color: T.colors.text,
+                    marginBottom: 12,
+                  }}
+                >
+                  Recent conversations
+                </Text>
+                <View style={{ gap: 10 }}>
+                  {chats.slice(0, 3).map((c) => (
+                    <Pressable
                       key={c.id}
-                      chat={c}
-                      onPress={(chatId) => navigation.navigate('ChatThread', { spaceId, chatId })}
-                      onRename={handleRenameChat}
-                      onDelete={handleDeleteChat}
-                    />
+                      onPress={() => navigation.navigate('ChatThread', { spaceId, chatId: c.id })}
+                      style={{
+                        backgroundColor: BRAND.colors.linenCream,
+                        borderRadius: BRAND.radius.md,
+                        padding: 14,
+                        ...BRAND.elevation.one,
+                      }}
+                    >
+                      <Text
+                        style={{ fontSize: 15, fontWeight: '500', color: BRAND.colors.charcoalInk }}
+                        numberOfLines={1}
+                      >
+                        {c.title || 'Chat'}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: BRAND.colors.inkSubtle, marginTop: 4 }}>
+                        {c.last_message_snippet || 'Tap to view'}
+                      </Text>
+                    </Pressable>
                   ))}
                 </View>
-              );
-            })()}
+              </View>
+            )}
           </ScrollView>
         </Animated.View>
 
@@ -1748,101 +1547,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           durationMs={350}
           onComplete={() => setShowConfetti(false)}
         />
-        {/* Calendar overlay (v33) */}
-        <CalendarOverlayV33
-          visible={showCalendarV33}
-          onClose={() => setShowCalendarV33(false)}
-          spaceId={spaceId}
-          spaceName={space?.name || 'Space'}
-          days={(timelineDays || []) as any}
-          selectedISO={selectedDayISO}
-          onSelectDate={(iso: string) => {
-            setSelectedDayISO(iso);
-          }}
-          onAddMilestone={() => {
-            overlay.openCreate({
-              spaceId,
-              conversionMeta: { initialTitle: 'Milestone' },
-            });
-          }}
-          onEditItem={(id: string) => {
-            const rec = (items as any[]).find((r) => r.id === id);
-            if (rec) overlay.openEdit({ record: rec, spaceId });
-          }}
-          onToggleTodoPause={async (id: string) => {
-            const rec = (items as any[]).find((r) => r.id === id);
-            if (!rec) return;
-            try {
-              const paused = !!rec.undefined_due || !rec.due_date;
-              const patch: any = {};
-              if (paused) {
-                // Resume: set due_date to today and clear undefined_due
-                patch.due_date = formatISO(new Date(), { representation: 'date' });
-                patch.undefined_due = false;
-              } else {
-                // Pause: unset due_date and mark undefined_due
-                patch.due_date = null;
-                patch.undefined_due = true;
-              }
-              await repo.update({ id, patch });
-              await reload();
-            } catch (e) {
-              console.warn('[v33] toggle todo pause failed', e);
-            }
-          }}
-          onDeleteItem={async (id: string) => {
-            try {
-              await repo.remove(id);
-              await reload();
-            } catch (e) {
-              console.warn('[v33] delete item failed', e);
-            }
-          }}
-          onViewChatContext={async () => {
-            try {
-              const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-              const chatRepo =
-                backend === 'supabase'
-                  ? new SupabaseSpaceChatRepo(userId || undefined)
-                  : new MemorySpaceChatRepo(userId || 'anonymous');
-              const list = await chatRepo.list(spaceId).catch(() => []);
-              const chat = list[0] || (await chatRepo.create(spaceId, { title: 'General' }));
-              navigation.navigate('ChatThread', { spaceId, chatId: chat.id } as any);
-            } catch (e) {
-              console.warn('[v33] view chat context (overlay) failed', e);
-            }
-          }}
-        />
-        {/* Notepad overlay (v33) */}
-        <NotepadOverlayV33
-          spaceId={spaceId}
-          isOpen={showNotepad}
-          onClose={() => setShowNotepad(false)}
-        />
-        {/* Unified Add overlay (v33) - Space-locked create */}
-        <UnifiedAddOverlay
-          isOpen={showUnifiedAdd}
-          onClose={() => setShowUnifiedAdd(false)}
-          space={{ id: spaceId, name: space?.name || 'Space' }}
-        />
-        {/* Edit Goal modal (v33) */}
-        {editGoalRecord && (
-          <EditGoalModal
-            visible={editGoalVisible}
-            onClose={() => setEditGoalVisible(false)}
-            record={editGoalRecord as any}
-            onSaved={async () => {
-              await reload();
-            }}
-          />
-        )}
-        {/* Rename Chat modal (v33) */}
-        <RenameChatModal
-          isOpen={renameChatModalOpen}
-          onClose={() => setRenameChatModalOpen(false)}
-          initialTitle={renameChatTitle}
-          onSubmit={handleRenameChatSubmit}
-        />
+        {/* Phase 5: Removed CalendarOverlayV33, NotepadOverlayV33, UnifiedAddOverlay, EditGoalModal, RenameChatModal */}
       </View>
     );
   }
@@ -2009,7 +1714,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             lastVisited={buildLastVisitedLabel(items, chats)}
             contextLine={headerMood}
             onBack={() => navigation.goBack()}
-            onSearch={handleSearchPress}
+            onSearch={() => {}}
             onSettings={() => Alert.alert('Settings', 'Coming soon')}
             mascotState={headerMascot}
             spaceId={spaceId}
@@ -2056,7 +1761,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 12 }}>
-                <TouchableOpacity onPress={handleSearchPress} accessibilityRole="button">
+                <TouchableOpacity onPress={() => {}} accessibilityRole="button">
                   <SearchIcon color={lightTokens.colors.linenCream} size={18} />
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -2117,338 +1822,36 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           />
         )}
 
-        {/* Week strip (v22) */}
+        {/* Phase 5: Removed v22-specific components (WeekStripV22, FocusTodayCard, WeeklyGoalCard, DayPanelV22, NewChatCTA, AdaptiveSummaryV22, InsightsRow) */}
+        {/* v22 now uses the same simplified section layout - just add simple chat CTA */}
+
+        {/* Simple chat CTA for v22 */}
         {isSpaceV22 && (
-          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oWeek }}>
-            <WeekStripV22
-              days={(() => {
-                const todayISO = formatISO(new Date(), { representation: 'date' });
-                return (timelineDays || []).map((d) => ({
-                  dateISO: d.dateISO,
-                  isActive: d.dateISO === todayISO,
-                  isSelected: d.dateISO === selectedDayISO,
-                  hasItems: (d.items?.length ?? 0) > 0,
-                }));
-              })()}
-              onSelect={setSelectedDayISO}
-              onOpenTimeline={() => setShowTimeline(true)}
-            />
-          </Animated.View>
-        )}
-
-        {/* Focus Today Card (v22) */}
-        {isSpaceV22 && !focusDismissed && (
-          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-            {(() => {
-              const todayISO = formatISO(new Date(), { representation: 'date' });
-              const day = (timelineDays || []).find((d) => d.dateISO === todayISO);
-              const actionable = (day?.items || []).filter(
-                (it) => (it.type === 'habit' || it.type === 'todo') && !it.done,
-              );
-              const first = actionable[0]?.title;
-              const second = actionable[1]?.title;
-              const countHabits = (day?.items || []).filter(
-                (it) => it.type === 'habit' && !it.done,
-              ).length;
-              const countTodos = (day?.items || []).filter(
-                (it) => it.type === 'todo' && !it.done,
-              ).length;
-              const total = countHabits + countTodos;
-
-              if (total > 0) {
-                const summary = `You’ve got ${countHabits} habit${
-                  countHabits === 1 ? '' : 's'
-                } and ${countTodos} to-do${countTodos === 1 ? '' : 's'} today — start with ${
-                  first || 'the first task'
-                }${second ? ` or ${second}` : ''}?`;
-                return (
-                  <FocusTodayCard
-                    summary={summary}
-                    mode="action"
-                    onPrimary={() => {
-                      // Ensure today is selected
-                      setSelectedDayISO(todayISO);
-                    }}
-                    onSecondary={async () => {
-                      try {
-                        const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-                        const key = `focusCard:dismiss:${spaceId}:${todayISO}`;
-                        await AsyncStorage.setItem(key, until);
-                        setFocusDismissed(true);
-                      } catch {
-                        setFocusDismissed(true);
-                      }
-                    }}
-                  />
-                );
-              }
-
-              const summary = 'All calm here — want to set an intention for the day?';
-              return (
-                <FocusTodayCard
-                  summary={summary}
-                  mode="reflect"
-                  onPrimary={() => {
-                    setIntentDraft('Today, I intend to…');
-                    setShowNotepad(true);
-                  }}
-                  onSecondary={async () => {
-                    try {
-                      const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-                      const key = `focusCard:dismiss:${spaceId}:${todayISO}`;
-                      await AsyncStorage.setItem(key, until);
-                      setFocusDismissed(true);
-                    } catch {
-                      setFocusDismissed(true);
-                    }
-                  }}
-                />
-              );
-            })()}
-          </View>
-        )}
-
-        {/* Weekly Goal (v22): show for the first habit in the selected day, driven by aggregate.weekly */}
-        {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
-            {(() => {
-              const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-              const habitsToday = (day?.items || []).filter((it) => it.type === 'habit');
-              if (!habitsToday.length) return null;
-              const firstHabit = habitsToday[0];
-              const weeklyRow = (weekly?.habits || []).find((h) => h.id === firstHabit.id);
-              const weeklyDone = weeklyRow?.doneCount ?? 0;
-              const target = weeklyRow?.target ?? 3; // default weekly target (Phase v22)
-              const title = `${firstHabit.title} ${target}×/week`;
-              return (
-                <WeeklyGoalCard
-                  title={title}
-                  done={weeklyDone}
-                  target={target}
-                  onOpenDetail={() => {
-                    // Open overlay to edit this habit as a placeholder for habit detail
-                    const rec = (items as any[]).find((r) => r.id === firstHabit.id);
-                    if (rec) {
-                      overlay.openEdit({ record: rec, spaceId });
-                    } else {
-                      Alert.alert('Habit', 'Detail screen coming soon');
-                    }
-                  }}
-                />
-              );
-            })()}
-          </View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View
-            style={{ paddingHorizontal: 16, marginTop: 24, opacity: oDay }}
-            onLayout={(e) => setDayPanelY(e.nativeEvent.layout.y)}
-          >
-            <DayPanelV22
-              dateISO={selectedDayISO}
-              habits={(() => {
-                const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-                const habits = (day?.items || []).filter((it) => it.type === 'habit');
-                return habits.map((h) => ({
-                  id: h.id,
-                  title: h.title,
-                  // With no per-day completions history, approximate: done -> 1/3 else 0/3
-                  doneCount: h.done ? 1 : 0,
-                  target: 3,
-                }));
-              })()}
-              todos={(() => {
-                const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-                const todos = (day?.items || []).filter((it) => it.type === 'todo');
-                return todos.map((t) => ({ id: t.id, title: t.title, done: !!t.done }));
-              })()}
-              onAddItem={() => {
-                // Pre-fill space; due date prefill not yet supported by overlay API
-                // We can thread the intended date via initialTitle to hint the user
-                const friendly = new Date(selectedDayISO).toLocaleDateString(undefined, {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                });
-                overlay.openCreate({
-                  spaceId,
-                  conversionMeta: {
-                    initialTitle: `Task for ${friendly}`,
-                    initialDueDate: selectedDayISO,
-                  },
-                });
-              }}
-              onToggleHabit={async (id) => {
-                try {
-                  // Guard: prevent rapid double toggles for same habit+date
-                  const guardKey = `habit:${id}:${selectedDayISO}`;
-                  if ((SpaceHomeScreen as any)._inflight?.has(guardKey)) return;
-                  (SpaceHomeScreen as any)._inflight =
-                    (SpaceHomeScreen as any)._inflight || new Set<string>();
-                  (SpaceHomeScreen as any)._inflight.add(guardKey);
-                  // Find current state
-                  const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-                  const h = day?.items.find((it) => it.type === 'habit' && it.id === id);
-                  if (h?.done) {
-                    await repo.undoCompletion(id);
-                  } else {
-                    await repo.completeHabit(id, new Date().toISOString());
-                    // Idempotency event for logging
-                    try {
-                      await repo.writeEvent('habit_log', {
-                        space_id: spaceId,
-                        habit_id: id,
-                        date: selectedDayISO,
-                        idempotency_key: `${userId || 'anon'}:${id}:${selectedDayISO}:toggle`,
-                      });
-                    } catch (e) {
-                      // Non-blocking analytics/idempotency event failure
-                      console.debug('[v22] habit_log event write failed (non-blocking)', e);
-                    }
-                    // Micro feedback: short confetti + Undo snackbar
-                    setShowConfetti(true);
-                    setHeaderMascot('proud');
-                    setTimeout(() => setHeaderMascot('calm'), 800);
-                    showUndoSnackbar('Marked habit complete', async () => {
-                      try {
-                        await repo.undoCompletion(id);
-                        await Promise.all([reload(), reloadTimeline()]);
-                      } catch (e) {
-                        console.warn('[v22] undo habit failed', e);
-                      }
-                    });
-                  }
-                  await Promise.all([reload(), reloadTimeline()]);
-                  (SpaceHomeScreen as any)._inflight.delete(guardKey);
-                } catch (e) {
-                  console.warn('[v22] toggle habit failed', e);
-                  try {
-                    (SpaceHomeScreen as any)._inflight.delete(`habit:${id}:${selectedDayISO}`);
-                  } catch (e2) {
-                    // Ensure inflight guard is cleared even if Set.delete throws
-                    console.debug('[v22] inflight guard cleanup failed (habit)', e2);
-                  }
-                }
-              }}
-              onToggleTodo={async (id) => {
-                try {
-                  const guardKey = `todo:${id}:${selectedDayISO}`;
-                  if ((SpaceHomeScreen as any)._inflight?.has(guardKey)) return;
-                  (SpaceHomeScreen as any)._inflight =
-                    (SpaceHomeScreen as any)._inflight || new Set<string>();
-                  (SpaceHomeScreen as any)._inflight.add(guardKey);
-                  const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-                  const t = day?.items.find((it) => it.type === 'todo' && it.id === id);
-                  if (t?.done) {
-                    await repo.undoCompletion(id);
-                  } else {
-                    await repo.completeTodo(id, new Date().toISOString());
-                    try {
-                      await repo.writeEvent('todo_log', {
-                        space_id: spaceId,
-                        todo_id: id,
-                        date: selectedDayISO,
-                        idempotency_key: `${userId || 'anon'}:${id}:${selectedDayISO}:toggle`,
-                      });
-                    } catch (e) {
-                      // Non-blocking analytics/idempotency event failure
-                      console.debug('[v22] todo_log event write failed (non-blocking)', e);
-                    }
-                  }
-                  await Promise.all([reload(), reloadTimeline()]);
-                  if (!t?.done) {
-                    // Micro feedback: short confetti + Undo snackbar
-                    setShowConfetti(true);
-                    setHeaderMascot('proud');
-                    setTimeout(() => setHeaderMascot('calm'), 800);
-                    showUndoSnackbar('Marked to-do complete', async () => {
-                      try {
-                        await repo.undoCompletion(id);
-                        await Promise.all([reload(), reloadTimeline()]);
-                      } catch (e) {
-                        console.warn('[v22] undo todo failed', e);
-                      }
-                    });
-                  }
-                  (SpaceHomeScreen as any)._inflight.delete(guardKey);
-                } catch (e) {
-                  console.warn('[v22] toggle todo failed', e);
-                  try {
-                    (SpaceHomeScreen as any)._inflight.delete(`todo:${id}:${selectedDayISO}`);
-                  } catch (e2) {
-                    // Ensure inflight guard is cleared even if Set.delete throws
-                    console.debug('[v22] inflight guard cleanup failed (todo)', e2);
-                  }
-                }
-              }}
-            />
-          </Animated.View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View
+          <Pressable
+            onPress={handleNewChat}
             style={{
+              flexDirection: 'row',
+              alignItems: 'center',
               paddingHorizontal: 16,
-              marginTop: 24,
-              opacity: oCTA,
-              transform: [{ translateY: yCTA }],
+              paddingVertical: 12,
+              marginTop: 16,
+              gap: 8,
             }}
           >
-            <NewChatCTA onPress={handleNewChat} />
-          </Animated.View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View
-            style={{
-              paddingHorizontal: 16,
-              marginTop: 24,
-              opacity: oSummary,
-              transform: [{ translateY: ySummary }],
-            }}
-          >
-            <AdaptiveSummaryV22
-              mode="reflective"
-              intent={intent}
-              nextItem={nextItem ?? undefined}
-              spaceName={space?.name}
-              onSecondary={handleSaveInsightAsNote}
-              onPrimary={handleAddInsightTodos}
-            />
-          </Animated.View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View
-            style={{
-              paddingHorizontal: 16,
-              marginTop: 24,
-              opacity: oInsights,
-              transform: [{ translateY: yInsights }],
-            }}
-          >
-            <InsightsRow
-              onOpenNotepad={() => setShowNotepad(true)}
-              onOpenPeople={() => setShowPeople(true)}
-              onOpenTimeline={() => setShowTimeline(true)}
-            />
-          </Animated.View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View
-            style={{
-              paddingHorizontal: 16,
-              marginTop: 24,
-              opacity: oThreads,
-              transform: [{ translateY: yThreads }],
-            }}
-          >
-            <Text style={{ fontWeight: '700', fontSize: 16, color: T.colors.text }}>
-              Recent chats
+            <Text style={{ fontSize: 14, color: BRAND.colors.mossGreen }}>
+              💬 Chat with Gremly about this space
             </Text>
-            <View style={{ height: 10 }} />
+          </Pressable>
+        )}
+
+        {/* Recent chats (v22) - simplified */}
+        {isSpaceV22 && chats.length > 0 && (
+          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+            <Text
+              style={{ fontWeight: '600', fontSize: 16, color: T.colors.text, marginBottom: 12 }}
+            >
+              Recent conversations
+            </Text>
             <View style={{ gap: 10 }}>
               {chats.slice(0, 3).map((c) => (
                 <ThreadCard
@@ -2499,46 +1902,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 />
               ))}
             </View>
-          </Animated.View>
+          </View>
         )}
-
-        {/* Collapsible search bar (legacy) removed in favor of v22 Search overlay */}
-
-        <View style={[styles.content, { padding: T.spacing[4] }]}>
-          {/* Focus card */}
-          <FocusCard
-            spaceType={
-              listHabitsForSpace(items, spaceId, { limit: 1 }).length > 0 ? 'habit' : 'other'
-            }
-            summaryText={buildFocusText(
-              listHabitsForSpace(items, spaceId, { limit: 1 }).length,
-              upcoming,
-              todos,
-            )}
-            onPress={() => {}}
-          />
-
-          {/* Calendar snapshot */}
-          <View style={{ marginTop: 24 }}>
-            <CalendarStrip days={buildCalendarDays(items)} />
-          </View>
-
-          {/* Quick stats (non-zero only) */}
-          <View style={{ marginTop: 24 }}>
-            <QuickStatsRow
-              habitsCount={listHabitsForSpace(items, spaceId, { limit: 9999 }).length}
-              todosCount={listTodosForSpace(items, spaceId, { limit: 9999 }).length}
-              notesCount={listNotesForSpace(items, spaceId, { limit: 9999 }).length}
-              journalCount={
-                listNotesForSpace(items, spaceId, { subtype: 'journal', limit: 9999 }).length
-              }
-            />
-          </View>
-
-          {/* Primary CTA + What we discussed moved to v22 blocks above */}
-
-          {/* Recent chats list de-duplicated; see v22 section above */}
-        </View>
       </ScrollView>
 
       {/* Micro celebration overlay */}
@@ -2557,15 +1922,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           setShowTimeline(false);
         }}
       />
-      {/* Notepad overlay (v22) */}
-      <NotepadOverlay
-        visible={showNotepad}
-        onClose={() => setShowNotepad(false)}
-        spaceId={spaceId}
-        initialDraft={intentDraft}
-      />
-      {/* People overlay (v22) */}
-      <PeopleOverlay visible={showPeople} onClose={() => setShowPeople(false)} spaceId={spaceId} />
 
       {/* Floating Plus removed in v3.3; v22 FAB retired */}
 
