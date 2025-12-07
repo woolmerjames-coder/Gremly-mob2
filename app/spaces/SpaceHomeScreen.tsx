@@ -54,7 +54,14 @@ import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ConfettiBurst from '../../components/ConfettiBurst';
-import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
+import {
+  Search as SearchIcon,
+  Settings as SettingsIcon,
+  MessageSquare,
+  FileText,
+  StickyNote,
+  List as ListIcon,
+} from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
 import { useSpaceNotes } from '../../hooks/useSpaceNotes';
@@ -225,27 +232,33 @@ function formatRelativeDate(dateString?: string | null): string {
 function RecentActivitySection({
   items,
   onItemPress,
+  excludeIds = [],
   testID,
 }: {
   items: AppRecord[];
   onItemPress: (item: AppRecord) => void;
+  excludeIds?: string[];
   testID?: string;
 }) {
+  const excludeSet = React.useMemo(() => new Set(excludeIds), [excludeIds]);
   const recentItems = React.useMemo(() => {
-    const sorted = [...items].sort((a, b) => {
+    const filtered = items.filter((item) => !excludeSet.has(item.id));
+    const sorted = [...filtered].sort((a, b) => {
       const aDate = new Date((a as any).updated_at || (a as any).created_at || 0).getTime();
       const bDate = new Date((b as any).updated_at || (b as any).created_at || 0).getTime();
       return bDate - aDate;
     });
     return sorted.slice(0, 5);
-  }, [items]);
+  }, [items, excludeSet]);
 
   return (
     <View style={sectionStyles.section} testID={testID}>
       <SpaceSectionHeader title="Recent activity" testID={`${testID}-header`} />
       {recentItems.length === 0 ? (
         <View style={sectionStyles.emptyState} testID={`${testID}-empty`}>
-          <Text style={sectionStyles.emptyStateIcon}>📭</Text>
+          <View style={sectionStyles.emptyStateIconContainer}>
+            <FileText size={32} color={BRAND.colors.inkSubtle} />
+          </View>
           <Text style={sectionStyles.emptyStateText}>No recent activity in this space</Text>
           <Text style={sectionStyles.emptyStateSubtext}>
             Add habits, todos, or notes to see them here
@@ -461,7 +474,6 @@ function LogsNotesSection({
       <SpaceSectionHeader title="Logs / Notes" count={logs.length} testID={`${testID}-header`} />
       <View style={sectionStyles.itemsList}>
         {logs.slice(0, 10).map((log: any) => {
-          const icon = log.subtype === 'journal' ? '📝' : log.subtype === 'idea' ? '💡' : '📄';
           const typeLabel =
             log.subtype === 'journal' ? 'Log' : log.subtype === 'idea' ? 'Idea' : 'Note';
           return (
@@ -476,7 +488,15 @@ function LogsNotesSection({
               accessibilityRole="button"
               accessibilityLabel={`${typeLabel}: ${log.title || 'Untitled'}`}
             >
-              <Text style={sectionStyles.logIcon}>{icon}</Text>
+              <View style={sectionStyles.logIconContainer}>
+                {log.subtype === 'journal' ? (
+                  <FileText size={18} color={BRAND.colors.mossGreen} />
+                ) : log.subtype === 'idea' ? (
+                  <StickyNote size={18} color={BRAND.colors.mossGreen} />
+                ) : (
+                  <FileText size={18} color={BRAND.colors.mossGreen} />
+                )}
+              </View>
               <View style={sectionStyles.logContent}>
                 <Text style={sectionStyles.logTitle} numberOfLines={1}>
                   {log.title || (log.body ? log.body.slice(0, 40) + '...' : 'Untitled')}
@@ -534,7 +554,9 @@ function ListsSection({
               accessibilityRole="button"
               accessibilityLabel={`List: ${list.title || 'Untitled'}`}
             >
-              <Text style={sectionStyles.listIcon}>📋</Text>
+              <View style={sectionStyles.listIconContainer}>
+                <ListIcon size={18} color={BRAND.colors.mossGreen} />
+              </View>
               <View style={sectionStyles.listContent}>
                 <Text style={sectionStyles.listTitle} numberOfLines={1}>
                   {list.title || 'Untitled List'}
@@ -587,6 +609,15 @@ const sectionStyles = StyleSheet.create({
   },
   emptyStateIcon: {
     fontSize: 36,
+    marginBottom: 12,
+  },
+  emptyStateIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: BRAND.colors.sageMist,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 12,
   },
   emptyStateText: {
@@ -750,6 +781,15 @@ const sectionStyles = StyleSheet.create({
     fontSize: 20,
     marginRight: 12,
   },
+  logIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: BRAND.colors.sageMist,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
   logContent: {
     flex: 1,
     gap: 4,
@@ -786,6 +826,15 @@ const sectionStyles = StyleSheet.create({
   },
   listIcon: {
     fontSize: 20,
+    marginRight: 12,
+  },
+  listIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: BRAND.colors.sageMist,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 12,
   },
   listContent: {
@@ -959,6 +1008,39 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handleAttachExistingComplete = useCallback(() => {
     void reload();
   }, [reload]);
+
+  // Compute IDs of items shown in specific sections (for dedupe in Recent Activity)
+  const sectionItemIds = useMemo(() => {
+    const ids: string[] = [];
+    // Todos shown when filter is 'all' or 'todos'
+    if (filter === 'all' || filter === 'todos') {
+      const todos = listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
+      ids.push(...todos.map((t: any) => t.id));
+    }
+    // Habits shown when filter is 'all' or 'habits'
+    if (filter === 'all' || filter === 'habits') {
+      const habits = listHabitsForSpace(items, spaceId);
+      ids.push(...habits.map((h: any) => h.id));
+    }
+    // Logs/Notes shown when filter is 'all' or 'logs'
+    if (filter === 'all' || filter === 'logs') {
+      const notes = listNotesForSpace(items, spaceId);
+      const logs = notes
+        .filter((n: any) => {
+          const subtype = n.subtype;
+          return subtype === 'journal' || subtype === 'idea' || subtype === 'reference' || !subtype;
+        })
+        .filter((n: any) => !n.is_list);
+      ids.push(...logs.map((l: any) => l.id));
+    }
+    // Lists shown when filter is 'all' or 'lists'
+    if (filter === 'all' || filter === 'lists') {
+      const notes = listNotesForSpace(items, spaceId);
+      const lists = notes.filter((n: any) => n.is_list || n.subtype === 'list');
+      ids.push(...lists.map((l: any) => l.id));
+    }
+    return ids;
+  }, [items, spaceId, filter]);
 
   // Debug: Log overlay state changes
   useEffect(() => {
@@ -1473,24 +1555,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               mood={v33Mood}
             />
 
-            {/* Phase 5: Simple chat CTA row */}
-            <Pressable
-              onPress={handleNewChat}
+            {/* "Captured in this Space" header with inline + Add to Space button */}
+            <View
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
+                justifyContent: 'space-between',
                 paddingHorizontal: 16,
-                paddingVertical: 12,
-                gap: 8,
+                paddingTop: 16,
+                paddingBottom: 8,
               }}
             >
-              <Text style={{ fontSize: 14, color: BRAND.colors.mossGreen }}>
-                💬 Chat with Gremly about this space
-              </Text>
-            </Pressable>
-
-            {/* "Captured in this Space" label */}
-            <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
               <Text
                 style={{
                   fontSize: 12,
@@ -1502,130 +1577,105 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               >
                 Captured in this Space
               </Text>
-            </View>
 
-            {/* Phase 6: Add to Space CTA */}
-            <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+              {/* Phase 6: + Add to Space pill button (matches Today style) */}
               <Pressable
                 onPress={() => setShowQuickAddModal(true)}
                 style={({ pressed }) => ({
-                  backgroundColor: BRAND.colors.linenCream,
-                  borderRadius: BRAND.radius.md,
-                  padding: 16,
                   flexDirection: 'row',
                   alignItems: 'center',
-                  ...BRAND.elevation.one,
-                  opacity: pressed ? 0.8 : 1,
+                  backgroundColor: pressed ? '#D4E4D6' : '#E8F0EB',
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 14,
                 })}
                 testID="space-add-to-space-cta"
                 accessibilityRole="button"
                 accessibilityLabel="Add to Space"
               >
-                <View
+                <Text
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: BRAND.colors.sageMist,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 12,
+                    fontSize: 12,
+                    fontWeight: '500',
+                    color: '#2E5540',
                   }}
                 >
-                  <Text style={{ fontSize: 18, color: BRAND.colors.mossGreen }}>+</Text>
-                </View>
+                  + Add to Space
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Attach existing link */}
+            <Pressable
+              onPress={() => setShowAttachExistingModal(true)}
+              style={{ paddingHorizontal: 16, paddingBottom: 12 }}
+              testID="space-attach-existing-cta"
+              accessibilityRole="button"
+              accessibilityLabel="Attach existing item"
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: BRAND.colors.inkSubtle,
+                  textDecorationLine: 'underline',
+                }}
+              >
+                Attach existing item
+              </Text>
+            </Pressable>
+
+            {/* Optimistic quick add card */}
+            {optimisticQuickAdd && (
+              <View
+                style={{
+                  marginHorizontal: 16,
+                  marginBottom: 12,
+                  backgroundColor: BRAND.colors.sageMist,
+                  borderRadius: BRAND.radius.md,
+                  padding: 14,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <ActivityIndicator
+                  size="small"
+                  color={BRAND.colors.mossGreen}
+                  style={{ marginRight: 12 }}
+                />
                 <View style={{ flex: 1 }}>
                   <Text
                     style={{
-                      fontSize: 15,
-                      fontWeight: '600',
+                      fontSize: 14,
+                      fontWeight: '500',
                       color: BRAND.colors.charcoalInk,
                     }}
+                    numberOfLines={1}
                   >
-                    + Add to Space
+                    {optimisticQuickAdd.title}
                   </Text>
                   <Text
                     style={{
-                      fontSize: 13,
+                      fontSize: 12,
                       color: BRAND.colors.inkSubtle,
                       marginTop: 2,
                     }}
                   >
-                    Drop a thought, todo, or habit
+                    Processing...
                   </Text>
                 </View>
-              </Pressable>
-
-              {/* Attach existing link */}
-              <Pressable
-                onPress={() => setShowAttachExistingModal(true)}
-                style={{ paddingVertical: 8, alignItems: 'center' }}
-                testID="space-attach-existing-cta"
-                accessibilityRole="button"
-                accessibilityLabel="Attach existing item"
-              >
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: BRAND.colors.inkSubtle,
-                    textDecorationLine: 'underline',
-                  }}
-                >
-                  Attach existing item
-                </Text>
-              </Pressable>
-
-              {/* Optimistic quick add card */}
-              {optimisticQuickAdd && (
-                <View
-                  style={{
-                    backgroundColor: BRAND.colors.sageMist,
-                    borderRadius: BRAND.radius.md,
-                    padding: 14,
-                    marginTop: 8,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <ActivityIndicator
-                    size="small"
-                    color={BRAND.colors.mossGreen}
-                    style={{ marginRight: 12 }}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        fontWeight: '500',
-                        color: BRAND.colors.charcoalInk,
-                      }}
-                      numberOfLines={1}
-                    >
-                      {optimisticQuickAdd.title}
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        color: BRAND.colors.inkSubtle,
-                        marginTop: 2,
-                      }}
-                    >
-                      Processing...
-                    </Text>
-                  </View>
-                </View>
-              )}
-            </View>
+              </View>
+            )}
 
             {/* Filter bar */}
             <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
 
             {/* Phase 5: Removed SearchOverlayV33, GoalsZone, IconRowV33, GoalListV33, NewChatSectionV33, ThreadCardV33 */}
 
-            {/* Recent Activity - ALWAYS shows regardless of filter */}
+            {/* Recent Activity - shows items not duplicated in section lists */}
             <RecentActivitySection
               items={items}
               onItemPress={handleItemPress}
+              excludeIds={sectionItemIds}
               testID="space-section-recent-activity"
             />
 
@@ -1665,6 +1715,39 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 testID="space-section-lists"
               />
             )}
+
+            {/* Chat with Gremly CTA - branded button above Recent conversations */}
+            <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+              <Pressable
+                onPress={handleNewChat}
+                testID="space-chat-cta"
+                accessibilityRole="button"
+                accessibilityLabel="Start a new chat with Gremly"
+                style={({ pressed }) => ({
+                  backgroundColor: BRAND.colors.mossGreen,
+                  borderRadius: 999,
+                  paddingVertical: 14,
+                  paddingHorizontal: 24,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 10,
+                  opacity: pressed ? 0.9 : 1,
+                  ...BRAND.elevation.one,
+                })}
+              >
+                <MessageSquare size={20} color={BRAND.colors.surface} />
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: '600',
+                    color: BRAND.colors.surface,
+                  }}
+                >
+                  Start a new chat with Gremly
+                </Text>
+              </Pressable>
+            </View>
 
             {/* Recent Chats (simplified) */}
             {chats.length > 0 && (
@@ -1753,10 +1836,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           {/* Filter bar */}
           <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
 
-          {/* Recent Activity - ALWAYS shows regardless of filter */}
+          {/* Recent Activity - shows items not duplicated in section lists */}
           <RecentActivitySection
             items={items}
             onItemPress={handleItemPress}
+            excludeIds={sectionItemIds}
             testID="space-section-recent-activity"
           />
 
@@ -1963,10 +2047,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         {/* Filter bar */}
         <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
 
-        {/* Recent Activity - ALWAYS shows regardless of filter */}
+        {/* Recent Activity - shows items not duplicated in section lists */}
         <RecentActivitySection
           items={items}
           onItemPress={handleItemPress}
+          excludeIds={sectionItemIds}
           testID="space-section-recent-activity"
         />
 
@@ -2008,25 +2093,41 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         )}
 
         {/* Phase 5: Removed v22-specific components (WeekStripV22, FocusTodayCard, WeeklyGoalCard, DayPanelV22, NewChatCTA, AdaptiveSummaryV22, InsightsRow) */}
-        {/* v22 now uses the same simplified section layout - just add simple chat CTA */}
+        {/* v22 now uses the same simplified section layout - branded chat CTA */}
 
-        {/* Simple chat CTA for v22 */}
+        {/* Chat with Gremly CTA - branded button above Recent conversations (v22) */}
         {isSpaceV22 && (
-          <Pressable
-            onPress={handleNewChat}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              marginTop: 16,
-              gap: 8,
-            }}
-          >
-            <Text style={{ fontSize: 14, color: BRAND.colors.mossGreen }}>
-              💬 Chat with Gremly about this space
-            </Text>
-          </Pressable>
+          <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
+            <Pressable
+              onPress={handleNewChat}
+              testID="space-chat-cta"
+              accessibilityRole="button"
+              accessibilityLabel="Start a new chat with Gremly"
+              style={({ pressed }) => ({
+                backgroundColor: BRAND.colors.mossGreen,
+                borderRadius: 999,
+                paddingVertical: 14,
+                paddingHorizontal: 24,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                opacity: pressed ? 0.9 : 1,
+                ...BRAND.elevation.one,
+              })}
+            >
+              <MessageSquare size={20} color={BRAND.colors.surface} />
+              <Text
+                style={{
+                  fontSize: 15,
+                  fontWeight: '600',
+                  color: BRAND.colors.surface,
+                }}
+              >
+                Start a new chat with Gremly
+              </Text>
+            </Pressable>
+          </View>
         )}
 
         {/* Recent chats (v22) - simplified */}

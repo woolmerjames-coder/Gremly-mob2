@@ -68,13 +68,17 @@ function TestSectionHeader({ title, testID }: { title: string; testID?: string }
   );
 }
 
-/** Test container that simulates SpaceHomeScreen filter + sections behavior */
+/** Test container that simulates SpaceHomeScreen filter + sections behavior with deduplication */
 function TestSpaceLayout({
   items,
   initialFilter = 'all',
+  chats = [],
+  onNewChat,
 }: {
   items: any[];
   initialFilter?: FilterTab;
+  chats?: any[];
+  onNewChat?: () => void;
 }) {
   const [filter, setFilter] = React.useState<FilterTab>(initialFilter);
 
@@ -83,7 +87,28 @@ function TestSpaceLayout({
   const habits = items.filter((i) => i.type === 'habit');
   const logs = items.filter((i) => i.type === 'note' && !i.is_list && i.subtype !== 'list');
   const lists = items.filter((i) => i.type === 'note' && (i.is_list || i.subtype === 'list'));
+
+  // Compute IDs of items shown in specific sections (for dedupe in Recent Activity)
+  const sectionItemIds = React.useMemo(() => {
+    const ids: string[] = [];
+    if (filter === 'all' || filter === 'todos') {
+      ids.push(...todos.map((t: any) => t.id));
+    }
+    if (filter === 'all' || filter === 'habits') {
+      ids.push(...habits.map((h: any) => h.id));
+    }
+    if (filter === 'all' || filter === 'logs') {
+      ids.push(...logs.map((l: any) => l.id));
+    }
+    if (filter === 'all' || filter === 'lists') {
+      ids.push(...lists.map((l: any) => l.id));
+    }
+    return new Set(ids);
+  }, [filter, todos, habits, logs, lists]);
+
+  // Recent items excluding those in sections
   const recentItems = [...items]
+    .filter((item) => !sectionItemIds.has(item.id))
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .slice(0, 5);
 
@@ -91,7 +116,7 @@ function TestSpaceLayout({
     <View>
       <TestSpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
 
-      {/* Recent Activity - ALWAYS shows */}
+      {/* Recent Activity - shows items not in section lists */}
       <View testID="space-section-recent-activity">
         <TestSectionHeader title="Recent activity" testID="space-section-recent-activity-header" />
         {recentItems.length === 0 ? (
@@ -151,6 +176,23 @@ function TestSpaceLayout({
           {lists.map((list) => (
             <View key={list.id} testID={`space-section-lists-item-${list.id}`}>
               <Text>{list.title}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Chat CTA - appears above Recent conversations */}
+      <Pressable testID="space-chat-cta" onPress={onNewChat}>
+        <Text>Start a new chat with Gremly</Text>
+      </Pressable>
+
+      {/* Recent conversations */}
+      {chats.length > 0 && (
+        <View testID="space-recent-conversations">
+          <Text>Recent conversations</Text>
+          {chats.map((chat: any) => (
+            <View key={chat.id} testID={`space-chat-${chat.id}`}>
+              <Text>{chat.title}</Text>
             </View>
           ))}
         </View>
@@ -643,5 +685,100 @@ describe('SpaceHomeScreen Row Press → openView', () => {
       record: listItem,
       spaceId: TEST_SPACE_ID,
     });
+  });
+});
+
+describe('SpaceHomeScreen Chat CTA Position', () => {
+  it('renders chat CTA button', () => {
+    const { getByTestId } = render(<TestSpaceLayout items={createMockItems()} />);
+    expect(getByTestId('space-chat-cta')).toBeTruthy();
+  });
+
+  it('chat CTA appears after sections and before Recent conversations', () => {
+    const mockChats = [{ id: 'chat-1', title: 'Test Chat' }];
+    const { getByTestId, getByText } = render(
+      <TestSpaceLayout items={createMockItems()} chats={mockChats} />,
+    );
+
+    // Chat CTA should be present
+    const chatCta = getByTestId('space-chat-cta');
+    expect(chatCta).toBeTruthy();
+
+    // Recent conversations should be present
+    expect(getByTestId('space-recent-conversations')).toBeTruthy();
+
+    // The CTA text should be "Start a new chat with Gremly"
+    expect(getByText('Start a new chat with Gremly')).toBeTruthy();
+  });
+
+  it('calls onNewChat when chat CTA is pressed', () => {
+    const mockOnNewChat = jest.fn();
+    const { getByTestId } = render(
+      <TestSpaceLayout items={createMockItems()} onNewChat={mockOnNewChat} />,
+    );
+
+    fireEvent.press(getByTestId('space-chat-cta'));
+    expect(mockOnNewChat).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SpaceHomeScreen Recent Activity Deduplication', () => {
+  it('does NOT render a todo in Recent Activity when it is shown in Todos section (All filter)', () => {
+    const { queryByTestId, getByTestId } = render(
+      <TestSpaceLayout items={createMockItems()} initialFilter="all" />,
+    );
+
+    // Todo should appear in Todos section
+    expect(getByTestId('space-section-todos-item-todo-1')).toBeTruthy();
+
+    // Todo should NOT appear in Recent Activity (deduplicated)
+    expect(queryByTestId('space-section-recent-activity-item-todo-1')).toBeNull();
+  });
+
+  it('does NOT render a habit in Recent Activity when it is shown in Habits section (All filter)', () => {
+    const { queryByTestId, getByTestId } = render(
+      <TestSpaceLayout items={createMockItems()} initialFilter="all" />,
+    );
+
+    // Habit should appear in Habits section
+    expect(getByTestId('space-section-habits-item-habit-1')).toBeTruthy();
+
+    // Habit should NOT appear in Recent Activity (deduplicated)
+    expect(queryByTestId('space-section-recent-activity-item-habit-1')).toBeNull();
+  });
+
+  it('does NOT render a log in Recent Activity when it is shown in Logs section (All filter)', () => {
+    const { queryByTestId, getByTestId } = render(
+      <TestSpaceLayout items={createMockItems()} initialFilter="all" />,
+    );
+
+    // Log should appear in Logs section
+    expect(getByTestId('space-section-logs-notes-item-note-1')).toBeTruthy();
+
+    // Log should NOT appear in Recent Activity (deduplicated)
+    expect(queryByTestId('space-section-recent-activity-item-note-1')).toBeNull();
+  });
+
+  it('shows empty state in Recent Activity when all items are shown in sections', () => {
+    // With the "all" filter, all items are shown in their respective sections
+    // So Recent Activity should be empty
+    const { getByTestId } = render(
+      <TestSpaceLayout items={createMockItems()} initialFilter="all" />,
+    );
+
+    // Should show empty state since all items are in sections
+    expect(getByTestId('space-section-recent-activity-empty')).toBeTruthy();
+  });
+
+  it('shows todos in Recent Activity when Habits filter is active (todos not in section)', () => {
+    const { getByTestId, queryByTestId } = render(
+      <TestSpaceLayout items={createMockItems()} initialFilter="habits" />,
+    );
+
+    // Todos section should NOT be shown
+    expect(queryByTestId('space-section-todos')).toBeNull();
+
+    // But todo should appear in Recent Activity since it's not in any visible section
+    expect(getByTestId('space-section-recent-activity-item-todo-1')).toBeTruthy();
   });
 });
