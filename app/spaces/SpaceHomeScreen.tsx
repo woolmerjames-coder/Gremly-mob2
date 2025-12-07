@@ -68,6 +68,10 @@ import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import type { CanonicalType } from '../../lib/cortex/canonicalMap';
 import { BRAND } from '../../design/brand';
+// Phase 6: Space quick add imports
+import { SpaceQuickAddModal } from '../../components/spaces/SpaceQuickAddModal';
+import { AttachExistingModal } from '../../components/spaces/AttachExistingModal';
+import { useSpaceQuickAdd } from '../../lib/spaces/useSpaceQuickAdd';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -863,6 +867,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // NEW: Filter bar state
   const [filter, setFilter] = useState<FilterTab>('all');
 
+  // Phase 6: Quick add state
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [showAttachExistingModal, setShowAttachExistingModal] = useState(false);
+  const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+
   const overlay = useGlobalOverlay();
 
   // Handler for item press (opens view overlay for read-only mode)
@@ -905,6 +917,48 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     },
     [repo, reload],
   );
+
+  // Phase 6: Space quick add hook
+  const spaceQuickAdd = useSpaceQuickAdd({
+    spaceId,
+    onStart: (draftTitle) => {
+      console.log('[SpaceHome] Quick add started:', draftTitle);
+      setOptimisticQuickAdd({
+        id: `space-optimistic-${Date.now()}`,
+        title: draftTitle,
+      });
+    },
+    onComplete: (result) => {
+      console.log('[SpaceHome] Quick add complete:', result);
+      setOptimisticQuickAdd(null);
+      void reload();
+    },
+    onError: (error) => {
+      console.error('[SpaceHome] Quick add error:', error.message);
+      setOptimisticQuickAdd(null);
+    },
+  });
+
+  // Phase 6: Handle quick add submission
+  const handleQuickAddSubmit = useCallback(
+    (text: string) => {
+      spaceQuickAdd.onQuickAdd(text);
+    },
+    [spaceQuickAdd],
+  );
+
+  // Phase 6: Handle "Manual add" from quick add modal
+  const handleQuickAddManual = useCallback(
+    (text: string) => {
+      overlay.openCreate({ spaceId, initialText: text || undefined });
+    },
+    [overlay, spaceId],
+  );
+
+  // Phase 6: Handle attach existing completion
+  const handleAttachExistingComplete = useCallback(() => {
+    void reload();
+  }, [reload]);
 
   // Debug: Log overlay state changes
   useEffect(() => {
@@ -1450,6 +1504,119 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               </Text>
             </View>
 
+            {/* Phase 6: Add to Space CTA */}
+            <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+              <Pressable
+                onPress={() => setShowQuickAddModal(true)}
+                style={({ pressed }) => ({
+                  backgroundColor: BRAND.colors.linenCream,
+                  borderRadius: BRAND.radius.md,
+                  padding: 16,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  ...BRAND.elevation.one,
+                  opacity: pressed ? 0.8 : 1,
+                })}
+                testID="space-add-to-space-cta"
+                accessibilityRole="button"
+                accessibilityLabel="Add to Space"
+              >
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 18,
+                    backgroundColor: BRAND.colors.sageMist,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  }}
+                >
+                  <Text style={{ fontSize: 18, color: BRAND.colors.mossGreen }}>+</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: '600',
+                      color: BRAND.colors.charcoalInk,
+                    }}
+                  >
+                    + Add to Space
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: BRAND.colors.inkSubtle,
+                      marginTop: 2,
+                    }}
+                  >
+                    Drop a thought, todo, or habit
+                  </Text>
+                </View>
+              </Pressable>
+
+              {/* Attach existing link */}
+              <Pressable
+                onPress={() => setShowAttachExistingModal(true)}
+                style={{ paddingVertical: 8, alignItems: 'center' }}
+                testID="space-attach-existing-cta"
+                accessibilityRole="button"
+                accessibilityLabel="Attach existing item"
+              >
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: BRAND.colors.inkSubtle,
+                    textDecorationLine: 'underline',
+                  }}
+                >
+                  Attach existing item
+                </Text>
+              </Pressable>
+
+              {/* Optimistic quick add card */}
+              {optimisticQuickAdd && (
+                <View
+                  style={{
+                    backgroundColor: BRAND.colors.sageMist,
+                    borderRadius: BRAND.radius.md,
+                    padding: 14,
+                    marginTop: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <ActivityIndicator
+                    size="small"
+                    color={BRAND.colors.mossGreen}
+                    style={{ marginRight: 12 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontWeight: '500',
+                        color: BRAND.colors.charcoalInk,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {optimisticQuickAdd.title}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: BRAND.colors.inkSubtle,
+                        marginTop: 2,
+                      }}
+                    >
+                      Processing...
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
             {/* Filter bar */}
             <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
 
@@ -1548,6 +1715,24 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onComplete={() => setShowConfetti(false)}
         />
         {/* Phase 5: Removed CalendarOverlayV33, NotepadOverlayV33, UnifiedAddOverlay, EditGoalModal, RenameChatModal */}
+
+        {/* Phase 6: Space Quick Add Modal */}
+        <SpaceQuickAddModal
+          visible={showQuickAddModal}
+          spaceName={space?.name ?? 'Space'}
+          onClose={() => setShowQuickAddModal(false)}
+          onSubmit={handleQuickAddSubmit}
+          onPressManualAdd={handleQuickAddManual}
+        />
+
+        {/* Phase 6: Attach Existing Modal */}
+        <AttachExistingModal
+          visible={showAttachExistingModal}
+          spaceId={spaceId}
+          spaceName={space?.name ?? 'Space'}
+          onClose={() => setShowAttachExistingModal(false)}
+          onAttached={handleAttachExistingComplete}
+        />
       </View>
     );
   }

@@ -497,10 +497,11 @@ export async function saveToUnsortedTray(
     whyString?: string;
     tags?: string[] | null | undefined;
     dropId?: string;
+    spaceId?: string | null;
   } = {},
 ): Promise<string | undefined> {
   if (!text?.trim()) return undefined;
-  const { sourceMessageId, whyString, tags: incomingTags, dropId } = options;
+  const { sourceMessageId, whyString, tags: incomingTags, dropId, spaceId } = options;
   const clampedText = clampNoteLength(text);
   const catchallCanonical = persistedToCanonical('note', 'catchall');
   const normalizedTags = normalizeTags(incomingTags ?? []);
@@ -524,6 +525,7 @@ export async function saveToUnsortedTray(
     sourceMessageId: validSourceMessageId ?? undefined,
     dropId: dropId ?? undefined,
     tags,
+    space_id: spaceId ?? null, // Attach to space if provided
     views: {
       ai_pending: true, // Mark for background AI enrichment
       ai_failed: false, // Initial state - no failure yet

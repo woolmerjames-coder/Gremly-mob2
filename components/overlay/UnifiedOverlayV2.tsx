@@ -629,6 +629,36 @@ function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
   return 'log';
 }
 
+/**
+ * Derives the initial V2State from props, ensuring baseType is correct on first render.
+ * This fixes the P0 bug where editing a todo/habit briefly shows an empty LOG overlay.
+ *
+ * For edit/view mode: derives baseType from initialEntity.type synchronously
+ * For create mode: uses the default baseType from initialV2State ('log')
+ */
+function getInitialV2StateFromProps(props: UnifiedCreateOverlayProps): V2State {
+  const { mode, initialEntity } = props;
+
+  // Start with the default initial state
+  let baseType: BaseType = initialV2State.baseType; // default is 'log'
+
+  // For edit/view mode with an initialEntity, derive baseType from entity type
+  if ((mode === 'edit' || mode === 'view') && initialEntity) {
+    const entityType = (initialEntity as any)?.type;
+    const derived = deriveBaseTypeFromInitial(entityType);
+    if (derived) {
+      baseType = derived;
+    }
+  }
+
+  // Return initial state with the correct baseType
+  // Note: Full hydration still happens via HYDRATE_EDIT action
+  return {
+    ...initialV2State,
+    baseType,
+  };
+}
+
 function stripJournalTags(tags: TagKey[], keepJournal: boolean): TagKey[] {
   if (keepJournal) return [...tags];
   return tags.filter((tag) => {
@@ -987,7 +1017,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const repo = useRepo();
   const globalOverlay = useGlobalOverlay();
-  const [state, dispatch] = useReducer(v2Reducer, initialV2State);
+  // P0 fix: Use lazy initializer to derive baseType from initialEntity.type on first render
+  // This prevents the brief flash of empty LOG form when editing todos/habits
+  const [state, dispatch] = useReducer(v2Reducer, props, getInitialV2StateFromProps);
   const baseType = state.baseType;
   const isBreakHabit = baseType === 'habit' && state.habit.subtype === 'break_habit';
 
@@ -1080,7 +1112,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [dueToastMessage, setDueToastMessage] = useState<string | null>(null);
 
-  // PanResponder for swipe-down-to-dismiss-keyboard gesture
+  // Swipe-down-to-close: track drag offset and store onClose ref
+  const sheetDragY = useRef(new RNAnimated.Value(0)).current;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose; // Keep ref updated with latest onClose
+
+  // Threshold for swipe-to-close (in pixels)
+  const SWIPE_CLOSE_THRESHOLD = 100;
+  const SWIPE_VELOCITY_THRESHOLD = 0.5;
+
+  // PanResponder for swipe-down-to-close gesture
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (
@@ -1091,18 +1132,65 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // Start handling when the user clearly drags mostly downward
         const isVerticalSwipe = Math.abs(dy) > Math.abs(dx);
         const isDownward = dy > 10 && vy >= 0;
+        // Don't capture if saving
+        if (isSavingRef.current) return false;
         return isVerticalSwipe && isDownward;
       },
+      onPanResponderGrant: () => {
+        // Reset drag offset when gesture starts
+        sheetDragY.setValue(0);
+      },
       onPanResponderMove: (_evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
+        // Update drag offset for visual feedback (only allow downward drag)
+        const clampedDy = Math.max(0, gestureState.dy);
+        sheetDragY.setValue(clampedDy);
+        // Dismiss keyboard when dragging
         if (gestureState.dy > 10) {
           Keyboard.dismiss();
         }
       },
-      onPanResponderRelease: () => {
+      onPanResponderRelease: (
+        _evt: GestureResponderEvent,
+        gestureState: PanResponderGestureState,
+      ) => {
         Keyboard.dismiss();
+        const { dy, vy } = gestureState;
+        // Close if threshold exceeded OR velocity is high enough
+        if (dy > SWIPE_CLOSE_THRESHOLD || vy > SWIPE_VELOCITY_THRESHOLD) {
+          // Animate sheet off screen then close
+          RNAnimated.timing(sheetDragY, {
+            toValue: 500,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            onCloseRef.current?.();
+            sheetDragY.setValue(0);
+          });
+        } else {
+          // Snap back to original position
+          RNAnimated.spring(sheetDragY, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 10,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        // If gesture is interrupted, snap back
+        RNAnimated.spring(sheetDragY, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 10,
+        }).start();
       },
     }),
   ).current;
+
+  // Ref to track isSaving for PanResponder (since PanResponder is created once)
+  const isSavingRef = useRef(isSaving);
+  isSavingRef.current = isSaving;
 
   // Photo support for logs (Phase L3 - single photo)
   const [photoUri, setPhotoUri] = useState<string | null>(null);
@@ -1419,6 +1507,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   useEffect(() => {
     if (!visible) return;
+    // Reset drag offset when opening
+    sheetDragY.setValue(0);
     const delay = 24;
     if (reduceMotion) {
       sheetTranslateY.setValue(0);
@@ -1443,7 +1533,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [visible, reduceMotion, sheetTranslateY, sheetOpacity]);
+  }, [visible, reduceMotion, sheetTranslateY, sheetOpacity, sheetDragY]);
   // animate details panel expand/collapse
   useEffect(() => {
     try {
@@ -3809,13 +3899,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           style={{
             width: '100%',
             opacity: sheetOpacity,
-            transform: [{ translateY: sheetTranslateY }],
+            transform: [{ translateY: RNAnimated.add(sheetTranslateY, sheetDragY) }],
           }}
         >
           <View
             style={{
               width: '100%',
               alignSelf: 'stretch',
+              height: SHEET_MAX_H,
               maxHeight: SHEET_MAX_H,
               borderTopLeftRadius: tokenRadius.md,
               borderTopRightRadius: tokenRadius.md,
@@ -6492,7 +6583,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   backgroundColor: footerBackground,
                   flexDirection: 'row',
                   alignItems: 'center',
-                  justifyContent: mode === 'view' ? 'flex-end' : 'space-between',
+                  justifyContent: 'space-between',
                 }}
               >
                 {/* Cancel button - text-only, subtle (hidden in view mode) */}
@@ -6521,6 +6612,31 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       }}
                     >
                       Cancel
+                    </Text>
+                  </Pressable>
+                )}
+
+                {/* Close button - view mode only (matches Cancel button styling) */}
+                {mode === 'view' && (
+                  <Pressable
+                    onPress={() => onClose?.()}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close"
+                    style={{
+                      paddingVertical: 12,
+                      minHeight: 44,
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: 'rgba(34,34,34,0.7)',
+                        fontSize: 14,
+                        fontWeight: '500',
+                      }}
+                    >
+                      Close
                     </Text>
                   </Pressable>
                 )}

@@ -68,6 +68,8 @@ export interface StageAParams {
   sourceMessageId?: string | null;
   parsedDue?: string | null;
   unsortedNoteId?: string | null;
+  /** Optional space ID to attach created entities to */
+  spaceId?: string | null;
 }
 
 export interface StageAResult {
@@ -116,8 +118,17 @@ export interface StageBResult {
  * - minddrop_stage stays 'pending'
  */
 export async function runMindDropStageAClassification(params: StageAParams): Promise<StageAResult> {
-  const { repo, text, cleanedText, decision, dropId, sourceMessageId, parsedDue, unsortedNoteId } =
-    params;
+  const {
+    repo,
+    text,
+    cleanedText,
+    decision,
+    dropId,
+    sourceMessageId,
+    parsedDue,
+    unsortedNoteId,
+    spaceId,
+  } = params;
 
   // Telemetry: Stage A start
   console.debug('[MindDrop.StageA.Start]', {

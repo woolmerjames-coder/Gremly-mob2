@@ -320,4 +320,65 @@ describe('UnifiedOverlayV2 - View Mode', () => {
       });
     });
   });
+
+  describe('Close button in view mode', () => {
+    it('renders Close button in view mode', () => {
+      const onClose = jest.fn();
+      const { getByLabelText } = render(
+        <UnifiedOverlayV2
+          visible={true}
+          mode="view"
+          onClose={onClose}
+          initialEntity={mockRecord}
+        />,
+      );
+
+      // Close button SHOULD be rendered in view mode
+      expect(getByLabelText('Close')).toBeTruthy();
+    });
+
+    it('Close button calls onClose when pressed', () => {
+      const onClose = jest.fn();
+      const { getByLabelText } = render(
+        <UnifiedOverlayV2
+          visible={true}
+          mode="view"
+          onClose={onClose}
+          initialEntity={mockRecord}
+        />,
+      );
+
+      // Find and press the Close button
+      const closeButton = getByLabelText('Close');
+      fireEvent.press(closeButton);
+
+      // Assert onClose was called
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not render Close button in edit mode', () => {
+      const onClose = jest.fn();
+      const { queryByLabelText } = render(
+        <UnifiedOverlayV2
+          visible={true}
+          mode="edit"
+          onClose={onClose}
+          initialEntity={mockRecord}
+        />,
+      );
+
+      // Close button should NOT be rendered in edit mode
+      expect(queryByLabelText('Close')).toBeNull();
+    });
+
+    it('does not render Close button in create mode', () => {
+      const onClose = jest.fn();
+      const { queryByLabelText } = render(
+        <UnifiedOverlayV2 visible={true} mode="create" onClose={onClose} />,
+      );
+
+      // Close button should NOT be rendered in create mode
+      expect(queryByLabelText('Close')).toBeNull();
+    });
+  });
 });
