@@ -58,9 +58,6 @@ import {
   Search as SearchIcon,
   Settings as SettingsIcon,
   MessageSquare,
-  FileText,
-  StickyNote,
-  List as ListIcon,
 } from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
@@ -96,7 +93,7 @@ const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: 'lists', label: 'Lists' },
 ];
 
-/** Filter bar component for Space sections - styled with Sage Mist pill for active */
+/** Filter bar component for Space sections - styled as centered pill selector (matches UnifiedOverlayV2) */
 function SpaceFilterBar({
   activeFilter,
   onFilterChange,
@@ -105,53 +102,68 @@ function SpaceFilterBar({
   onFilterChange: (filter: FilterTab) => void;
 }) {
   return (
-    <View style={filterBarStyles.container} testID="space-filter-bar">
-      {FILTER_TABS.map((tab) => {
-        const isActive = activeFilter === tab.key;
-        return (
-          <Pressable
-            key={tab.key}
-            onPress={() => onFilterChange(tab.key)}
-            style={[filterBarStyles.tab, isActive && filterBarStyles.tabActive]}
-            testID={`space-filter-${tab.key}`}
-            accessibilityRole="button"
-            accessibilityLabel={`Filter by ${tab.label}`}
-            accessibilityState={{ selected: isActive }}
-          >
-            <Text style={[filterBarStyles.tabText, isActive && filterBarStyles.tabTextActive]}>
-              {tab.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={filterBarStyles.wrapper} testID="space-filter-bar">
+      <View style={filterBarStyles.container}>
+        {FILTER_TABS.map((tab) => {
+          const isActive = activeFilter === tab.key;
+          return (
+            <Pressable
+              key={tab.key}
+              onPress={() => onFilterChange(tab.key)}
+              style={[filterBarStyles.pill, isActive && filterBarStyles.pillActive]}
+              testID={`space-filter-${tab.key}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Filter by ${tab.label}`}
+              accessibilityState={{ selected: isActive }}
+            >
+              <Text style={[filterBarStyles.pillText, isActive && filterBarStyles.pillTextActive]}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
-/** Filter bar styles */
+/** Filter bar styles - centered pill selector (matches UnifiedOverlayV2 type selector) */
 const filterBarStyles = StyleSheet.create({
+  // Outer wrapper - transparent, just spacing
+  wrapper: {
+    paddingVertical: 16,
+    marginBottom: 16, // Spacing before sections
+  },
+  // Matches UnifiedOverlayV2 tabsContainer exactly
   container: {
     flexDirection: 'row',
+    borderRadius: 999,
+    backgroundColor: 'rgba(191, 216, 192, 0.18)', // Sage Mist at 18%
+    padding: 2,
+    alignSelf: 'center',
+  },
+  // Matches UnifiedOverlayV2 tab
+  pill: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 24, // 24px per design spec
+    borderRadius: 999,
   },
-  tab: {
-    paddingVertical: 8,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+  // Matches UnifiedOverlayV2 tabActive
+  pillActive: {
+    backgroundColor: 'rgba(46, 85, 64, 0.08)', // Moss Green at 8%
   },
-  tabActive: {
-    borderBottomColor: BRAND.colors.mossGreen, // Moss Green underline
-  },
-  tabText: {
+  // Matches UnifiedOverlayV2 tabLabel
+  pillText: {
     fontSize: 14,
     fontWeight: '500',
-    color: BRAND.colors.inkSubtle, // Charcoal at 70%
+    color: '#8A8F8A', // Muted sage
   },
-  tabTextActive: {
+  // Matches UnifiedOverlayV2 tabLabelActive
+  pillTextActive: {
     fontWeight: '600',
-    color: BRAND.colors.mossGreen, // Moss Green text
+    color: '#2E5540', // Moss Green
   },
 });
 
@@ -159,34 +171,21 @@ const filterBarStyles = StyleSheet.create({
 // SECTION COMPONENTS
 // ============================================================================
 
-/** Helper to get display type label */
-function getItemTypeLabel(item: AppRecord): string {
-  if (item.type === 'habit') return 'Habit';
-  if (item.type === 'todo') return 'Todo';
-  if (item.type === 'note') {
-    const subtype = (item as any).subtype;
-    if (subtype === 'journal') return 'Log';
-    if (subtype === 'list' || (item as any).is_list) return 'List';
-    if (subtype === 'idea') return 'Idea';
-    return 'Note';
-  }
-  return 'Item';
-}
+// Accent colors for item types (matches NowFocusRow)
+const ACCENT_COLORS = {
+  todo: '#4A7FBF', // Soft blue
+  habit: '#2E5540', // Moss Green
+  log: '#9CA6E0', // Periwinkle Smoke
+  list: '#E0C47A', // Golden Pear
+} as const;
 
-/** Helper to get item title with fallback */
-function getItemTitle(item: AppRecord): string {
-  if (item.type === 'habit' || item.type === 'todo') {
-    return (item as any).name || (item as any).title || 'Untitled';
-  }
-  if (item.type === 'note') {
-    const title = (item as any).title;
-    const body = (item as any).body;
-    if (title) return title;
-    if (body) return body.slice(0, 50) + (body.length > 50 ? '...' : '');
-    return 'Untitled';
-  }
-  return 'Untitled';
-}
+// Type pill background colors (matches NowTypeChip)
+const TYPE_PILL_BG = {
+  todo: '#E6F0FF', // Light blue
+  habit: '#EAF7ED', // Light green
+  log: '#F0F0FA', // Light periwinkle
+  list: '#FDF5E6', // Light golden
+} as const;
 
 /** Helper to format relative date */
 function formatRelativeDate(dateString?: string | null): string {
@@ -206,42 +205,289 @@ function formatRelativeDate(dateString?: string | null): string {
   }
 }
 
+/** Helper to format due date for todos */
+function formatDueDate(dueDate?: string | null): string {
+  if (!dueDate) return 'No due date';
+  try {
+    const date = new Date(dueDate);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.floor((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return 'Overdue';
+    if (diffDays === 0) return 'Due today';
+    if (diffDays === 1) return 'Due tomorrow';
+    return `Due ${date.toLocaleDateString()}`;
+  } catch {
+    return 'No due date';
+  }
+}
+
 /** Section "X more" footer style */
 const sectionMoreFooterStyle = {
-  paddingVertical: 12,
+  paddingVertical: 10,
   paddingHorizontal: 16,
   alignItems: 'center' as const,
 };
 const sectionMoreTextStyle = {
-  fontSize: 13,
+  fontSize: 12,
   color: BRAND.colors.inkSubtle,
 };
 
-/** Type pill styles - matches MindDrop card type chip */
-const typePillStyles = StyleSheet.create({
-  pill: {
-    backgroundColor: `${BRAND.colors.sageMist}80`, // 50% opacity
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-    marginBottom: 4,
-  },
-  text: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: BRAND.colors.mossGreen,
-  },
-});
+// ============================================================================
+// SpaceItemRow - Compact row matching Today's Focus style
+// ============================================================================
 
-/** Reusable type pill component */
-function SpaceTypePill({ label, testID }: { label: string; testID?: string }) {
+interface SpaceItemRowProps {
+  type: 'todo' | 'habit' | 'log' | 'list';
+  title: string;
+  subtitle?: string;
+  testID?: string;
+  isFirst?: boolean;
+  onPress?: () => void;
+  // Todo-specific
+  onToggleComplete?: () => void;
+  completed?: boolean;
+  // Habit-specific
+  progress?: { done: number; target: number };
+  onLogProgress?: () => void;
+}
+
+/** Compact row component matching NowFocusRow style */
+function SpaceItemRow({
+  type,
+  title,
+  subtitle,
+  testID,
+  isFirst = false,
+  onPress,
+  onToggleComplete,
+  completed = false,
+  progress,
+  onLogProgress,
+}: SpaceItemRowProps) {
+  const accentColor = ACCENT_COLORS[type];
+  const pillBg = TYPE_PILL_BG[type];
+  const typeLabel =
+    type === 'log' ? 'Log' : type === 'list' ? 'List' : type === 'habit' ? 'Habit' : 'Todo';
+
   return (
-    <View style={typePillStyles.pill} testID={testID}>
-      <Text style={typePillStyles.text}>{label}</Text>
+    <View style={rowStyles.wrapper}>
+      {/* Top divider - only show if not first item */}
+      {!isFirst && <View style={rowStyles.divider} />}
+
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [rowStyles.container, pressed && rowStyles.pressed]}
+        testID={testID}
+        accessibilityRole="button"
+        accessibilityLabel={`${typeLabel}: ${title}`}
+      >
+        {/* Left accent bar */}
+        <View style={rowStyles.accentContainer}>
+          <View style={[rowStyles.accentBar, { backgroundColor: accentColor }]} />
+        </View>
+
+        {/* Content area */}
+        <View style={rowStyles.content}>
+          {/* Title row */}
+          <Text numberOfLines={1} style={rowStyles.title}>
+            {title}
+          </Text>
+
+          {/* Meta row - type pill and subtitle */}
+          <View style={rowStyles.metaRow}>
+            <View
+              style={[rowStyles.typePill, { backgroundColor: pillBg }]}
+              testID={testID ? `${testID.replace('-item-', '-pill-')}` : undefined}
+            >
+              <Text style={rowStyles.typePillText}>{typeLabel}</Text>
+            </View>
+            {subtitle && (
+              <Text style={rowStyles.subtitle} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            )}
+          </View>
+        </View>
+
+        {/* Right side action */}
+        {type === 'todo' && onToggleComplete && (
+          <Pressable
+            onPress={onToggleComplete}
+            style={rowStyles.checkboxContainer}
+            testID={testID ? testID.replace('-item-', '-checkbox-') : undefined}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: completed }}
+            accessibilityLabel={`Mark ${title} as complete`}
+          >
+            <View style={[rowStyles.checkbox, completed && rowStyles.checkboxChecked]}>
+              {completed && <Text style={rowStyles.checkmark}>✓</Text>}
+            </View>
+          </Pressable>
+        )}
+
+        {type === 'habit' && progress && (
+          <View style={rowStyles.habitRight}>
+            {onLogProgress && (
+              <Pressable
+                onPress={onLogProgress}
+                style={rowStyles.habitLogButton}
+                testID={testID ? testID.replace('-item-', '-log-') : undefined}
+                accessibilityRole="button"
+                accessibilityLabel={`Log progress for ${title}`}
+              >
+                <Text style={rowStyles.habitLogIcon}>+</Text>
+              </Pressable>
+            )}
+            <View style={rowStyles.progressBar}>
+              <View
+                style={[
+                  rowStyles.progressFill,
+                  { width: `${Math.min(100, (progress.done / progress.target) * 100)}%` },
+                ]}
+              />
+            </View>
+          </View>
+        )}
+
+        {(type === 'log' || type === 'list') && <Text style={rowStyles.chevron}>›</Text>}
+      </Pressable>
     </View>
   );
 }
+
+/** SpaceItemRow styles - matches NowFocusRow compact layout */
+const rowStyles = StyleSheet.create({
+  wrapper: {
+    backgroundColor: BRAND.colors.linenCream,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    marginLeft: 20,
+  },
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 12,
+    paddingRight: 12,
+  },
+  pressed: {
+    opacity: 0.7,
+    backgroundColor: BRAND.colors.sageMist,
+  },
+  accentContainer: {
+    width: 20,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingLeft: 2,
+  },
+  accentBar: {
+    width: 3,
+    height: 32,
+    borderRadius: 4,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  title: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    lineHeight: 18,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 6,
+  },
+  typePill: {
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  typePillText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: BRAND.colors.inkSubtle,
+    lineHeight: 13,
+  },
+  subtitle: {
+    fontSize: 11,
+    color: BRAND.colors.inkSubtle,
+    lineHeight: 13,
+  },
+  // Checkbox for todos
+  checkboxContainer: {
+    marginLeft: 8,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: BRAND.colors.inkSubtle,
+    backgroundColor: BRAND.colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: BRAND.colors.mossGreen,
+    borderColor: BRAND.colors.mossGreen,
+  },
+  checkmark: {
+    color: BRAND.colors.surface,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 12,
+  },
+  // Habit progress
+  habitRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+    gap: 8,
+  },
+  habitLogButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: BRAND.colors.mossGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  habitLogIcon: {
+    color: BRAND.colors.surface,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  progressBar: {
+    width: 48,
+    height: 5,
+    backgroundColor: BRAND.colors.sageMist,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 3,
+  },
+  // Chevron for logs/lists
+  chevron: {
+    fontSize: 18,
+    color: BRAND.colors.inkSubtle,
+    marginLeft: 8,
+  },
+});
 
 /** Todos Section - shows incomplete todos for this space (max 5, sorted by most recent) */
 function TodosSection({
@@ -275,41 +521,18 @@ function TodosSection({
   return (
     <View style={sectionStyles.section} testID={testID}>
       <View style={sectionStyles.itemsList}>
-        {displayTodos.map((todo: any) => (
-          <Pressable
+        {displayTodos.map((todo: any, index: number) => (
+          <SpaceItemRow
             key={todo.id}
-            onPress={() => onItemPress(todo)}
-            style={({ pressed }) => [
-              sectionStyles.todoRow,
-              pressed && sectionStyles.itemRowPressed,
-            ]}
+            type="todo"
+            title={todo.name || 'Untitled'}
+            subtitle={formatDueDate(todo.due_date || todo.due_day)}
             testID={`${testID}-item-${todo.id}`}
-            accessibilityRole="button"
-            accessibilityLabel={`Todo: ${todo.name || 'Untitled'}`}
-          >
-            <Pressable
-              onPress={() => onToggleComplete(todo)}
-              style={sectionStyles.checkbox}
-              testID={`${testID}-checkbox-${todo.id}`}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: false }}
-              accessibilityLabel={`Mark ${todo.name || 'todo'} as complete`}
-            >
-              <View style={sectionStyles.checkboxInner} />
-            </Pressable>
-            <View style={sectionStyles.todoContent}>
-              <SpaceTypePill label="Todo" testID={`${testID}-pill-${todo.id}`} />
-              <Text style={sectionStyles.todoTitle} numberOfLines={1}>
-                {todo.name || 'Untitled'}
-              </Text>
-              {todo.due_date && (
-                <Text style={sectionStyles.todoDueDate}>
-                  Due: {formatRelativeDate(todo.due_date)}
-                </Text>
-              )}
-            </View>
-            <Text style={sectionStyles.itemChevron}>›</Text>
-          </Pressable>
+            isFirst={index === 0}
+            onPress={() => onItemPress(todo)}
+            onToggleComplete={() => onToggleComplete(todo)}
+            completed={!!todo.completed_at}
+          />
         ))}
       </View>
       {moreCount > 0 && (
@@ -370,49 +593,22 @@ function HabitsSection({
   return (
     <View style={sectionStyles.section} testID={testID}>
       <View style={sectionStyles.itemsList}>
-        {displayHabits.map((habit: any) => {
+        {displayHabits.map((habit: any, index: number) => {
           const progress = weeklyById.get(habit.id);
           const doneCount = progress?.doneCount ?? 0;
           const target = progress?.target ?? 3;
           return (
-            <Pressable
+            <SpaceItemRow
               key={habit.id}
-              onPress={() => onItemPress(habit)}
-              style={({ pressed }) => [
-                sectionStyles.habitRow,
-                pressed && sectionStyles.itemRowPressed,
-              ]}
+              type="habit"
+              title={habit.name || 'Untitled'}
+              subtitle={`${doneCount}/${target} this week`}
               testID={`${testID}-item-${habit.id}`}
-              accessibilityRole="button"
-              accessibilityLabel={`Habit: ${habit.name || 'Untitled'}, ${doneCount} of ${target} this week`}
-            >
-              <Pressable
-                onPress={() => onLogProgress(habit)}
-                style={sectionStyles.habitProgressButton}
-                testID={`${testID}-log-${habit.id}`}
-                accessibilityRole="button"
-                accessibilityLabel={`Log progress for ${habit.name || 'habit'}`}
-              >
-                <Text style={sectionStyles.habitProgressIcon}>+</Text>
-              </Pressable>
-              <View style={sectionStyles.habitContent}>
-                <SpaceTypePill label="Habit" testID={`${testID}-pill-${habit.id}`} />
-                <Text style={sectionStyles.habitTitle} numberOfLines={1}>
-                  {habit.name || 'Untitled'}
-                </Text>
-                <Text style={sectionStyles.habitProgress}>
-                  {doneCount}/{target} this week
-                </Text>
-              </View>
-              <View style={sectionStyles.habitProgressBar}>
-                <View
-                  style={[
-                    sectionStyles.habitProgressFill,
-                    { width: `${Math.min(100, (doneCount / target) * 100)}%` },
-                  ]}
-                />
-              </View>
-            </Pressable>
+              isFirst={index === 0}
+              onPress={() => onItemPress(habit)}
+              onLogProgress={() => onLogProgress(habit)}
+              progress={{ done: doneCount, target }}
+            />
           );
         })}
       </View>
@@ -432,7 +628,6 @@ function HabitsSection({
   );
 }
 
-/** Logs/Notes Section - shows journal, idea, reference notes (excludes lists) */
 /** Logs/Notes Section - shows journal, idea, reference notes (excludes lists, max 5, sorted by most recent) */
 function LogsNotesSection({
   items,
@@ -469,39 +664,18 @@ function LogsNotesSection({
   return (
     <View style={sectionStyles.section} testID={testID}>
       <View style={sectionStyles.itemsList}>
-        {displayLogs.map((log: any) => {
+        {displayLogs.map((log: any, index: number) => {
+          const title = log.title || (log.body ? log.body.slice(0, 40) + '...' : 'Untitled');
           return (
-            <Pressable
+            <SpaceItemRow
               key={log.id}
-              onPress={() => onItemPress(log)}
-              style={({ pressed }) => [
-                sectionStyles.logRow,
-                pressed && sectionStyles.itemRowPressed,
-              ]}
+              type="log"
+              title={title}
+              subtitle={formatRelativeDate(log.updated_at || log.created_at)}
               testID={`${testID}-item-${log.id}`}
-              accessibilityRole="button"
-              accessibilityLabel={`Log: ${log.title || 'Untitled'}`}
-            >
-              <View style={sectionStyles.logIconContainer}>
-                {log.subtype === 'journal' ? (
-                  <FileText size={18} color={BRAND.colors.mossGreen} />
-                ) : log.subtype === 'idea' ? (
-                  <StickyNote size={18} color={BRAND.colors.mossGreen} />
-                ) : (
-                  <FileText size={18} color={BRAND.colors.mossGreen} />
-                )}
-              </View>
-              <View style={sectionStyles.logContent}>
-                <SpaceTypePill label="Log" testID={`${testID}-pill-${log.id}`} />
-                <Text style={sectionStyles.logTitle} numberOfLines={1}>
-                  {log.title || (log.body ? log.body.slice(0, 40) + '...' : 'Untitled')}
-                </Text>
-                <Text style={sectionStyles.logDate}>
-                  {formatRelativeDate(log.updated_at || log.created_at)}
-                </Text>
-              </View>
-              <Text style={sectionStyles.itemChevron}>›</Text>
-            </Pressable>
+              isFirst={index === 0}
+              onPress={() => onItemPress(log)}
+            />
           );
         })}
       </View>
@@ -552,34 +726,18 @@ function ListsSection({
   return (
     <View style={sectionStyles.section} testID={testID}>
       <View style={sectionStyles.itemsList}>
-        {displayLists.map((list: any) => {
+        {displayLists.map((list: any, index: number) => {
           const itemCount = list.body ? (list.body.match(/^[-•*]\s/gm) || []).length : 0;
           return (
-            <Pressable
+            <SpaceItemRow
               key={list.id}
-              onPress={() => onItemPress(list)}
-              style={({ pressed }) => [
-                sectionStyles.listRow,
-                pressed && sectionStyles.itemRowPressed,
-              ]}
+              type="list"
+              title={list.title || 'Untitled List'}
+              subtitle={itemCount > 0 ? `${itemCount} items` : 'List'}
               testID={`${testID}-item-${list.id}`}
-              accessibilityRole="button"
-              accessibilityLabel={`List: ${list.title || 'Untitled'}`}
-            >
-              <View style={sectionStyles.listIconContainer}>
-                <ListIcon size={18} color={BRAND.colors.mossGreen} />
-              </View>
-              <View style={sectionStyles.listContent}>
-                <SpaceTypePill label="List" testID={`${testID}-pill-${list.id}`} />
-                <Text style={sectionStyles.listTitle} numberOfLines={1}>
-                  {list.title || 'Untitled List'}
-                </Text>
-                <Text style={sectionStyles.listMeta}>
-                  {itemCount > 0 ? `${itemCount} items` : 'List'}
-                </Text>
-              </View>
-              <Text style={sectionStyles.itemChevron}>›</Text>
-            </Pressable>
+              isFirst={index === 0}
+              onPress={() => onItemPress(list)}
+            />
           );
         })}
       </View>
@@ -599,10 +757,19 @@ function ListsSection({
   );
 }
 
-/** Section styles - matches Gremly design system (EntryCard, Today screen) */
+/** Section styles - matches Gremly design system */
 const sectionStyles = StyleSheet.create({
   section: {
-    marginBottom: 16,
+    marginBottom: 8,
+  },
+
+  // Items list - card container
+  itemsList: {
+    marginHorizontal: 16,
+    backgroundColor: BRAND.colors.linenCream,
+    borderRadius: BRAND.radius.md,
+    ...BRAND.elevation.one,
+    overflow: 'hidden',
   },
 
   // Empty state - card-style container
@@ -614,10 +781,6 @@ const sectionStyles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
     borderRadius: BRAND.radius.md,
     ...BRAND.elevation.one,
-  },
-  emptyStateIcon: {
-    fontSize: 36,
-    marginBottom: 12,
   },
   emptyStateIconContainer: {
     width: 48,
@@ -640,223 +803,6 @@ const sectionStyles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 6,
     lineHeight: 18,
-  },
-
-  // Items list - card container
-  itemsList: {
-    marginHorizontal: 16,
-    backgroundColor: BRAND.colors.linenCream,
-    borderRadius: BRAND.radius.md,
-    ...BRAND.elevation.one,
-    overflow: 'hidden',
-  },
-
-  // Item row - Recent Activity
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: BRAND.colors.sageMist,
-  },
-  itemRowPressed: {
-    opacity: 0.8,
-    backgroundColor: BRAND.colors.sageMist,
-  },
-  itemContent: {
-    flex: 1,
-    gap: 4,
-  },
-  itemTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  itemType: {
-    fontSize: 11,
-    color: BRAND.colors.mossGreen,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    fontWeight: '500',
-  },
-  itemChevron: {
-    fontSize: 18,
-    color: BRAND.colors.inkSubtle,
-    marginLeft: 8,
-  },
-
-  // Todo row
-  todoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: BRAND.colors.sageMist,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: BRAND.colors.mossGreen,
-    marginRight: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 3,
-    backgroundColor: 'transparent',
-  },
-  todoContent: {
-    flex: 1,
-    gap: 4,
-  },
-  todoTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  todoDueDate: {
-    fontSize: 12,
-    color: BRAND.colors.inkSubtle,
-  },
-
-  // Habit row
-  habitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: BRAND.colors.sageMist,
-  },
-  habitProgressButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: BRAND.colors.mossGreen,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-    ...BRAND.elevation.one,
-  },
-  habitProgressIcon: {
-    color: BRAND.colors.surface,
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  habitContent: {
-    flex: 1,
-    gap: 4,
-  },
-  habitTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  habitProgress: {
-    fontSize: 12,
-    color: BRAND.colors.inkSubtle,
-  },
-  habitProgressBar: {
-    width: 56,
-    height: 6,
-    backgroundColor: BRAND.colors.sageMist,
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginLeft: 8,
-  },
-  habitProgressFill: {
-    height: '100%',
-    backgroundColor: BRAND.colors.mossGreen,
-    borderRadius: 3,
-  },
-
-  // Log/Note row
-  logRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: BRAND.colors.sageMist,
-  },
-  logIcon: {
-    fontSize: 20,
-    marginRight: 12,
-  },
-  logIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: BRAND.colors.sageMist,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  logContent: {
-    flex: 1,
-    gap: 4,
-  },
-  logTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  logMeta: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  logType: {
-    fontSize: 11,
-    color: BRAND.colors.mossGreen,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    fontWeight: '500',
-  },
-  logDate: {
-    fontSize: 12,
-    color: BRAND.colors.inkSubtle,
-  },
-
-  // List row
-  listRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: BRAND.colors.sageMist,
-  },
-  listIcon: {
-    fontSize: 20,
-    marginRight: 12,
-  },
-  listIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: BRAND.colors.sageMist,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  listContent: {
-    flex: 1,
-    gap: 4,
-  },
-  listTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  listMeta: {
-    fontSize: 12,
-    color: BRAND.colors.inkSubtle,
   },
 });
 
@@ -1530,56 +1476,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               mood={v33Mood}
             />
 
-            {/* "Captured in this Space" header with inline + Add to Space button */}
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingHorizontal: 16,
-                paddingTop: 16,
-                paddingBottom: 8,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 12,
-                  fontWeight: '600',
-                  color: BRAND.colors.inkSubtle,
-                  letterSpacing: 0.5,
-                  textTransform: 'uppercase',
-                }}
-              >
-                Captured in this Space
-              </Text>
-
-              {/* Phase 6: + Add to Space pill button (matches Today style) */}
-              <Pressable
-                onPress={() => setShowQuickAddModal(true)}
-                style={({ pressed }) => ({
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: pressed ? '#D4E4D6' : '#E8F0EB',
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: 14,
-                })}
-                testID="space-add-to-space-cta"
-                accessibilityRole="button"
-                accessibilityLabel="Add to Space"
-              >
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontWeight: '500',
-                    color: '#2E5540',
-                  }}
-                >
-                  + Add to Space
-                </Text>
-              </Pressable>
-            </View>
-
             {/* Optimistic quick add card */}
             {optimisticQuickAdd && (
               <View
@@ -1663,6 +1559,42 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 testID="space-section-lists"
               />
             )}
+
+            {/* + Add to Space button - after sections, before chat CTA */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                paddingHorizontal: 16,
+                marginTop: 20,
+              }}
+            >
+              <Pressable
+                onPress={() => setShowQuickAddModal(true)}
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: pressed ? '#D4E4D6' : '#E8F0EB',
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 14,
+                })}
+                testID="space-add-to-space-cta"
+                accessibilityRole="button"
+                accessibilityLabel="Add to Space"
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '500',
+                    color: BRAND.colors.mossGreen,
+                  }}
+                >
+                  + Add to Space
+                </Text>
+              </Pressable>
+            </View>
 
             {/* Chat with Gremly CTA - branded button above Recent conversations */}
             <View style={{ paddingHorizontal: 16, marginTop: 24 }}>
@@ -2027,6 +1959,42 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
         {/* Phase 5: Removed v22-specific components (WeekStripV22, FocusTodayCard, WeeklyGoalCard, DayPanelV22, NewChatCTA, AdaptiveSummaryV22, InsightsRow) */}
         {/* v22 now uses the same simplified section layout - branded chat CTA */}
+
+        {/* + Add to Space button - after sections, before chat CTA (v22/legacy) */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            paddingHorizontal: 16,
+            marginTop: 20,
+          }}
+        >
+          <Pressable
+            onPress={() => setShowQuickAddModal(true)}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: pressed ? '#D4E4D6' : '#E8F0EB',
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: 14,
+            })}
+            testID="space-add-to-space-cta"
+            accessibilityRole="button"
+            accessibilityLabel="Add to Space"
+          >
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: '500',
+                color: BRAND.colors.mossGreen,
+              }}
+            >
+              + Add to Space
+            </Text>
+          </Pressable>
+        </View>
 
         {/* Chat with Gremly CTA - branded button above Recent conversations (v22) */}
         {isSpaceV22 && (
