@@ -159,28 +159,6 @@ const filterBarStyles = StyleSheet.create({
 // SECTION COMPONENTS
 // ============================================================================
 
-/** Section header matching Today/MindDrop styling */
-function SpaceSectionHeader({
-  title,
-  count,
-  testID,
-}: {
-  title: string;
-  count?: number;
-  testID?: string;
-}) {
-  return (
-    <View style={sectionStyles.headerContainer} testID={testID}>
-      <Text style={sectionStyles.headerText}>
-        {title}
-        {count !== undefined && count > 0 && (
-          <Text style={sectionStyles.headerCount}> ({count})</Text>
-        )}
-      </Text>
-    </View>
-  );
-}
-
 /** Helper to get display type label */
 function getItemTypeLabel(item: AppRecord): string {
   if (item.type === 'habit') return 'Habit';
@@ -228,72 +206,44 @@ function formatRelativeDate(dateString?: string | null): string {
   }
 }
 
-/** Recent Activity Section - shows 5 most recently updated items */
-function RecentActivitySection({
-  items,
-  onItemPress,
-  excludeIds = [],
-  testID,
-}: {
-  items: AppRecord[];
-  onItemPress: (item: AppRecord) => void;
-  excludeIds?: string[];
-  testID?: string;
-}) {
-  const excludeSet = React.useMemo(() => new Set(excludeIds), [excludeIds]);
-  const recentItems = React.useMemo(() => {
-    const filtered = items.filter((item) => !excludeSet.has(item.id));
-    const sorted = [...filtered].sort((a, b) => {
-      const aDate = new Date((a as any).updated_at || (a as any).created_at || 0).getTime();
-      const bDate = new Date((b as any).updated_at || (b as any).created_at || 0).getTime();
-      return bDate - aDate;
-    });
-    return sorted.slice(0, 5);
-  }, [items, excludeSet]);
+/** Section "X more" footer style */
+const sectionMoreFooterStyle = {
+  paddingVertical: 12,
+  paddingHorizontal: 16,
+  alignItems: 'center' as const,
+};
+const sectionMoreTextStyle = {
+  fontSize: 13,
+  color: BRAND.colors.inkSubtle,
+};
 
+/** Type pill styles - matches MindDrop card type chip */
+const typePillStyles = StyleSheet.create({
+  pill: {
+    backgroundColor: `${BRAND.colors.sageMist}80`, // 50% opacity
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginBottom: 4,
+  },
+  text: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+  },
+});
+
+/** Reusable type pill component */
+function SpaceTypePill({ label, testID }: { label: string; testID?: string }) {
   return (
-    <View style={sectionStyles.section} testID={testID}>
-      <SpaceSectionHeader title="Recent activity" testID={`${testID}-header`} />
-      {recentItems.length === 0 ? (
-        <View style={sectionStyles.emptyState} testID={`${testID}-empty`}>
-          <View style={sectionStyles.emptyStateIconContainer}>
-            <FileText size={32} color={BRAND.colors.inkSubtle} />
-          </View>
-          <Text style={sectionStyles.emptyStateText}>No recent activity in this space</Text>
-          <Text style={sectionStyles.emptyStateSubtext}>
-            Add habits, todos, or notes to see them here
-          </Text>
-        </View>
-      ) : (
-        <View style={sectionStyles.itemsList}>
-          {recentItems.map((item) => (
-            <Pressable
-              key={item.id}
-              onPress={() => onItemPress(item)}
-              style={({ pressed }) => [
-                sectionStyles.itemRow,
-                pressed && sectionStyles.itemRowPressed,
-              ]}
-              testID={`${testID}-item-${item.id}`}
-              accessibilityRole="button"
-              accessibilityLabel={`${getItemTitle(item)}, ${getItemTypeLabel(item)}`}
-            >
-              <View style={sectionStyles.itemContent}>
-                <Text style={sectionStyles.itemTitle} numberOfLines={1}>
-                  {getItemTitle(item)}
-                </Text>
-                <Text style={sectionStyles.itemType}>{getItemTypeLabel(item)}</Text>
-              </View>
-              <Text style={sectionStyles.itemChevron}>›</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+    <View style={typePillStyles.pill} testID={testID}>
+      <Text style={typePillStyles.text}>{label}</Text>
     </View>
   );
 }
 
-/** Todos Section - shows incomplete todos for this space */
+/** Todos Section - shows incomplete todos for this space (max 5, sorted by most recent) */
 function TodosSection({
   items,
   spaceId,
@@ -307,21 +257,25 @@ function TodosSection({
   onToggleComplete: (item: AppRecord) => void;
   testID?: string;
 }) {
-  const todos = React.useMemo(() => {
-    return listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
+  const allTodos = React.useMemo(() => {
+    const incomplete = listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
+    // Sort by most recently updated
+    return [...incomplete].sort((a: any, b: any) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
   }, [items, spaceId]);
 
-  if (todos.length === 0) return null;
+  const displayTodos = allTodos.slice(0, 5);
+  const moreCount = allTodos.length - 5;
+
+  if (allTodos.length === 0) return null;
 
   return (
     <View style={sectionStyles.section} testID={testID}>
-      <SpaceSectionHeader
-        title="Todos for this Space"
-        count={todos.length}
-        testID={`${testID}-header`}
-      />
       <View style={sectionStyles.itemsList}>
-        {todos.map((todo: any) => (
+        {displayTodos.map((todo: any) => (
           <Pressable
             key={todo.id}
             onPress={() => onItemPress(todo)}
@@ -344,6 +298,7 @@ function TodosSection({
               <View style={sectionStyles.checkboxInner} />
             </Pressable>
             <View style={sectionStyles.todoContent}>
+              <SpaceTypePill label="Todo" testID={`${testID}-pill-${todo.id}`} />
               <Text style={sectionStyles.todoTitle} numberOfLines={1}>
                 {todo.name || 'Untitled'}
               </Text>
@@ -357,11 +312,23 @@ function TodosSection({
           </Pressable>
         ))}
       </View>
+      {moreCount > 0 && (
+        <Pressable
+          style={sectionMoreFooterStyle}
+          onPress={() => {
+            // TODO: Wire to full list view or search
+            console.log('[TodosSection] + X more pressed');
+          }}
+          testID={`${testID}-more`}
+        >
+          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
 
-/** Habits Section - shows habits with weekly progress */
+/** Habits Section - shows habits with weekly progress (max 5, sorted by most recent) */
 function HabitsSection({
   items,
   spaceId,
@@ -377,7 +344,19 @@ function HabitsSection({
   onLogProgress: (item: AppRecord) => void;
   testID?: string;
 }) {
-  const habits = React.useMemo(() => listHabitsForSpace(items, spaceId), [items, spaceId]);
+  const allHabits = React.useMemo(() => {
+    const habits = listHabitsForSpace(items, spaceId);
+    // Sort by most recently updated
+    return [...habits].sort((a: any, b: any) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+  }, [items, spaceId]);
+
+  const displayHabits = allHabits.slice(0, 5);
+  const moreCount = allHabits.length - 5;
+
   const weeklyById = React.useMemo(() => {
     const map = new Map<string, { doneCount: number; target: number }>();
     (weekly?.habits || []).forEach((h) =>
@@ -386,17 +365,12 @@ function HabitsSection({
     return map;
   }, [weekly]);
 
-  if (habits.length === 0) return null;
+  if (allHabits.length === 0) return null;
 
   return (
     <View style={sectionStyles.section} testID={testID}>
-      <SpaceSectionHeader
-        title="Habits for this Space"
-        count={habits.length}
-        testID={`${testID}-header`}
-      />
       <View style={sectionStyles.itemsList}>
-        {habits.map((habit: any) => {
+        {displayHabits.map((habit: any) => {
           const progress = weeklyById.get(habit.id);
           const doneCount = progress?.doneCount ?? 0;
           const target = progress?.target ?? 3;
@@ -422,6 +396,7 @@ function HabitsSection({
                 <Text style={sectionStyles.habitProgressIcon}>+</Text>
               </Pressable>
               <View style={sectionStyles.habitContent}>
+                <SpaceTypePill label="Habit" testID={`${testID}-pill-${habit.id}`} />
                 <Text style={sectionStyles.habitTitle} numberOfLines={1}>
                   {habit.name || 'Untitled'}
                 </Text>
@@ -441,11 +416,24 @@ function HabitsSection({
           );
         })}
       </View>
+      {moreCount > 0 && (
+        <Pressable
+          style={sectionMoreFooterStyle}
+          onPress={() => {
+            // TODO: Wire to full list view or search
+            console.log('[HabitsSection] + X more pressed');
+          }}
+          testID={`${testID}-more`}
+        >
+          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
 
 /** Logs/Notes Section - shows journal, idea, reference notes (excludes lists) */
+/** Logs/Notes Section - shows journal, idea, reference notes (excludes lists, max 5, sorted by most recent) */
 function LogsNotesSection({
   items,
   spaceId,
@@ -457,25 +445,31 @@ function LogsNotesSection({
   onItemPress: (item: AppRecord) => void;
   testID?: string;
 }) {
-  const logs = React.useMemo(() => {
+  const allLogs = React.useMemo(() => {
     const notes = listNotesForSpace(items, spaceId);
-    return notes
+    const filtered = notes
       .filter((n: any) => {
         const subtype = n.subtype;
         return subtype === 'journal' || subtype === 'idea' || subtype === 'reference' || !subtype;
       })
       .filter((n: any) => !n.is_list);
+    // Sort by most recently updated
+    return [...filtered].sort((a: any, b: any) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
   }, [items, spaceId]);
 
-  if (logs.length === 0) return null;
+  const displayLogs = allLogs.slice(0, 5);
+  const moreCount = allLogs.length - 5;
+
+  if (allLogs.length === 0) return null;
 
   return (
     <View style={sectionStyles.section} testID={testID}>
-      <SpaceSectionHeader title="Logs / Notes" count={logs.length} testID={`${testID}-header`} />
       <View style={sectionStyles.itemsList}>
-        {logs.slice(0, 10).map((log: any) => {
-          const typeLabel =
-            log.subtype === 'journal' ? 'Log' : log.subtype === 'idea' ? 'Idea' : 'Note';
+        {displayLogs.map((log: any) => {
           return (
             <Pressable
               key={log.id}
@@ -486,7 +480,7 @@ function LogsNotesSection({
               ]}
               testID={`${testID}-item-${log.id}`}
               accessibilityRole="button"
-              accessibilityLabel={`${typeLabel}: ${log.title || 'Untitled'}`}
+              accessibilityLabel={`Log: ${log.title || 'Untitled'}`}
             >
               <View style={sectionStyles.logIconContainer}>
                 {log.subtype === 'journal' ? (
@@ -498,26 +492,36 @@ function LogsNotesSection({
                 )}
               </View>
               <View style={sectionStyles.logContent}>
+                <SpaceTypePill label="Log" testID={`${testID}-pill-${log.id}`} />
                 <Text style={sectionStyles.logTitle} numberOfLines={1}>
                   {log.title || (log.body ? log.body.slice(0, 40) + '...' : 'Untitled')}
                 </Text>
-                <View style={sectionStyles.logMeta}>
-                  <Text style={sectionStyles.logType}>{typeLabel}</Text>
-                  <Text style={sectionStyles.logDate}>
-                    {formatRelativeDate(log.updated_at || log.created_at)}
-                  </Text>
-                </View>
+                <Text style={sectionStyles.logDate}>
+                  {formatRelativeDate(log.updated_at || log.created_at)}
+                </Text>
               </View>
               <Text style={sectionStyles.itemChevron}>›</Text>
             </Pressable>
           );
         })}
       </View>
+      {moreCount > 0 && (
+        <Pressable
+          style={sectionMoreFooterStyle}
+          onPress={() => {
+            // TODO: Wire to full list view or search
+            console.log('[LogsNotesSection] + X more pressed');
+          }}
+          testID={`${testID}-more`}
+        >
+          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
 
-/** Lists Section - shows notes with is_list=true or subtype='list' */
+/** Lists Section - shows notes with is_list=true or subtype='list' (max 5, sorted by most recent) */
 function ListsSection({
   items,
   spaceId,
@@ -529,18 +533,26 @@ function ListsSection({
   onItemPress: (item: AppRecord) => void;
   testID?: string;
 }) {
-  const lists = React.useMemo(() => {
+  const allLists = React.useMemo(() => {
     const notes = listNotesForSpace(items, spaceId);
-    return notes.filter((n: any) => n.is_list || n.subtype === 'list');
+    const filtered = notes.filter((n: any) => n.is_list || n.subtype === 'list');
+    // Sort by most recently updated
+    return [...filtered].sort((a: any, b: any) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
   }, [items, spaceId]);
 
-  if (lists.length === 0) return null;
+  const displayLists = allLists.slice(0, 5);
+  const moreCount = allLists.length - 5;
+
+  if (allLists.length === 0) return null;
 
   return (
     <View style={sectionStyles.section} testID={testID}>
-      <SpaceSectionHeader title="Lists" count={lists.length} testID={`${testID}-header`} />
       <View style={sectionStyles.itemsList}>
-        {lists.map((list: any) => {
+        {displayLists.map((list: any) => {
           const itemCount = list.body ? (list.body.match(/^[-•*]\s/gm) || []).length : 0;
           return (
             <Pressable
@@ -558,6 +570,7 @@ function ListsSection({
                 <ListIcon size={18} color={BRAND.colors.mossGreen} />
               </View>
               <View style={sectionStyles.listContent}>
+                <SpaceTypePill label="List" testID={`${testID}-pill-${list.id}`} />
                 <Text style={sectionStyles.listTitle} numberOfLines={1}>
                   {list.title || 'Untitled List'}
                 </Text>
@@ -570,29 +583,24 @@ function ListsSection({
           );
         })}
       </View>
+      {moreCount > 0 && (
+        <Pressable
+          style={sectionMoreFooterStyle}
+          onPress={() => {
+            // TODO: Wire to full list view or search
+            console.log('[ListsSection] + X more pressed');
+          }}
+          testID={`${testID}-more`}
+        >
+          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
 
 /** Section styles - matches Gremly design system (EntryCard, Today screen) */
 const sectionStyles = StyleSheet.create({
-  // Section header - matches Today screen typography
-  headerContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 12,
-  },
-  headerText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-    letterSpacing: -0.3,
-  },
-  headerCount: {
-    fontSize: 16,
-    fontWeight: '400',
-    color: BRAND.colors.inkSubtle,
-  },
   section: {
     marginBottom: 16,
   },
@@ -1008,39 +1016,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handleAttachExistingComplete = useCallback(() => {
     void reload();
   }, [reload]);
-
-  // Compute IDs of items shown in specific sections (for dedupe in Recent Activity)
-  const sectionItemIds = useMemo(() => {
-    const ids: string[] = [];
-    // Todos shown when filter is 'all' or 'todos'
-    if (filter === 'all' || filter === 'todos') {
-      const todos = listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
-      ids.push(...todos.map((t: any) => t.id));
-    }
-    // Habits shown when filter is 'all' or 'habits'
-    if (filter === 'all' || filter === 'habits') {
-      const habits = listHabitsForSpace(items, spaceId);
-      ids.push(...habits.map((h: any) => h.id));
-    }
-    // Logs/Notes shown when filter is 'all' or 'logs'
-    if (filter === 'all' || filter === 'logs') {
-      const notes = listNotesForSpace(items, spaceId);
-      const logs = notes
-        .filter((n: any) => {
-          const subtype = n.subtype;
-          return subtype === 'journal' || subtype === 'idea' || subtype === 'reference' || !subtype;
-        })
-        .filter((n: any) => !n.is_list);
-      ids.push(...logs.map((l: any) => l.id));
-    }
-    // Lists shown when filter is 'all' or 'lists'
-    if (filter === 'all' || filter === 'lists') {
-      const notes = listNotesForSpace(items, spaceId);
-      const lists = notes.filter((n: any) => n.is_list || n.subtype === 'list');
-      ids.push(...lists.map((l: any) => l.id));
-    }
-    return ids;
-  }, [items, spaceId, filter]);
 
   // Debug: Log overlay state changes
   useEffect(() => {
@@ -1605,25 +1580,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               </Pressable>
             </View>
 
-            {/* Attach existing link */}
-            <Pressable
-              onPress={() => setShowAttachExistingModal(true)}
-              style={{ paddingHorizontal: 16, paddingBottom: 12 }}
-              testID="space-attach-existing-cta"
-              accessibilityRole="button"
-              accessibilityLabel="Attach existing item"
-            >
-              <Text
-                style={{
-                  fontSize: 13,
-                  color: BRAND.colors.inkSubtle,
-                  textDecorationLine: 'underline',
-                }}
-              >
-                Attach existing item
-              </Text>
-            </Pressable>
-
             {/* Optimistic quick add card */}
             {optimisticQuickAdd && (
               <View
@@ -1670,14 +1626,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
 
             {/* Phase 5: Removed SearchOverlayV33, GoalsZone, IconRowV33, GoalListV33, NewChatSectionV33, ThreadCardV33 */}
-
-            {/* Recent Activity - shows items not duplicated in section lists */}
-            <RecentActivitySection
-              items={items}
-              onItemPress={handleItemPress}
-              excludeIds={sectionItemIds}
-              testID="space-section-recent-activity"
-            />
 
             {/* Filtered sections based on active filter */}
             {(filter === 'all' || filter === 'todos') && (
@@ -1806,6 +1754,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onClose={() => setShowQuickAddModal(false)}
           onSubmit={handleQuickAddSubmit}
           onPressManualAdd={handleQuickAddManual}
+          onPressAttachExisting={() => setShowAttachExistingModal(true)}
         />
 
         {/* Phase 6: Attach Existing Modal */}
@@ -1835,14 +1784,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
           {/* Filter bar */}
           <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
-
-          {/* Recent Activity - shows items not duplicated in section lists */}
-          <RecentActivitySection
-            items={items}
-            onItemPress={handleItemPress}
-            excludeIds={sectionItemIds}
-            testID="space-section-recent-activity"
-          />
 
           {/* Filtered sections based on active filter */}
           {(filter === 'all' || filter === 'todos') && (
@@ -2046,14 +1987,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
         {/* Filter bar */}
         <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
-
-        {/* Recent Activity - shows items not duplicated in section lists */}
-        <RecentActivitySection
-          items={items}
-          onItemPress={handleItemPress}
-          excludeIds={sectionItemIds}
-          testID="space-section-recent-activity"
-        />
 
         {/* Filtered sections based on active filter */}
         {(filter === 'all' || filter === 'todos') && (

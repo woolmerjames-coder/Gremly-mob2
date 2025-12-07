@@ -31,6 +31,8 @@ interface SpaceQuickAddModalProps {
   /** Fire-and-forget submit - closes modal immediately, pipeline runs in background */
   onSubmit: (text: string) => void;
   onPressManualAdd: (text: string) => void;
+  /** Optional callback to attach an existing item to the space */
+  onPressAttachExisting?: () => void;
 }
 
 const useStyles = makeStyles((t) => ({
@@ -116,6 +118,7 @@ export function SpaceQuickAddModal({
   onClose,
   onSubmit,
   onPressManualAdd,
+  onPressAttachExisting,
 }: SpaceQuickAddModalProps) {
   const styles = useStyles();
   const [text, setText] = useState('');
@@ -167,6 +170,12 @@ export function SpaceQuickAddModal({
     onPressManualAdd(currentText);
   };
 
+  const handleAttachExisting = () => {
+    Keyboard.dismiss();
+    onClose();
+    onPressAttachExisting?.();
+  };
+
   const isDisabled = !text.trim();
 
   return (
@@ -210,9 +219,23 @@ export function SpaceQuickAddModal({
               <Text style={styles.submitButtonText}>Drop to Gremly →</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.manualAddLink} onPress={handleManualAdd}>
+            <TouchableOpacity
+              style={styles.manualAddLink}
+              onPress={handleManualAdd}
+              testID="quick-add-manual-link"
+            >
               <Text style={styles.manualAddText}>Prefer to add it manually?</Text>
             </TouchableOpacity>
+
+            {onPressAttachExisting && (
+              <TouchableOpacity
+                style={styles.manualAddLink}
+                onPress={handleAttachExisting}
+                testID="quick-add-attach-existing"
+              >
+                <Text style={styles.manualAddText}>Or attach an existing item</Text>
+              </TouchableOpacity>
+            )}
           </TouchableOpacity>
         </TouchableOpacity>
       </KeyboardAvoidingView>

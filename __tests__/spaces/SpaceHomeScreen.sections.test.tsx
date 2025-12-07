@@ -59,16 +59,7 @@ function TestSpaceFilterBar({
   );
 }
 
-/** Test version of section headers */
-function TestSectionHeader({ title, testID }: { title: string; testID?: string }) {
-  return (
-    <View testID={testID}>
-      <Text>{title}</Text>
-    </View>
-  );
-}
-
-/** Test container that simulates SpaceHomeScreen filter + sections behavior with deduplication */
+/** Test container that simulates SpaceHomeScreen filter + sections behavior with 5-item limit */
 function TestSpaceLayout({
   items,
   initialFilter = 'all',
@@ -82,102 +73,100 @@ function TestSpaceLayout({
 }) {
   const [filter, setFilter] = React.useState<FilterTab>(initialFilter);
 
-  // Filter items by type
-  const todos = items.filter((i) => i.type === 'todo' && !i.completed_at);
-  const habits = items.filter((i) => i.type === 'habit');
-  const logs = items.filter((i) => i.type === 'note' && !i.is_list && i.subtype !== 'list');
-  const lists = items.filter((i) => i.type === 'note' && (i.is_list || i.subtype === 'list'));
+  // Filter and sort items by type (sorted by most recent updated_at)
+  const sortByRecent = (arr: any[]) =>
+    [...arr].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
-  // Compute IDs of items shown in specific sections (for dedupe in Recent Activity)
-  const sectionItemIds = React.useMemo(() => {
-    const ids: string[] = [];
-    if (filter === 'all' || filter === 'todos') {
-      ids.push(...todos.map((t: any) => t.id));
-    }
-    if (filter === 'all' || filter === 'habits') {
-      ids.push(...habits.map((h: any) => h.id));
-    }
-    if (filter === 'all' || filter === 'logs') {
-      ids.push(...logs.map((l: any) => l.id));
-    }
-    if (filter === 'all' || filter === 'lists') {
-      ids.push(...lists.map((l: any) => l.id));
-    }
-    return new Set(ids);
-  }, [filter, todos, habits, logs, lists]);
+  const todos = sortByRecent(items.filter((i) => i.type === 'todo' && !i.completed_at));
+  const habits = sortByRecent(items.filter((i) => i.type === 'habit'));
+  const logs = sortByRecent(
+    items.filter((i) => i.type === 'note' && !i.is_list && i.subtype !== 'list'),
+  );
+  const lists = sortByRecent(
+    items.filter((i) => i.type === 'note' && (i.is_list || i.subtype === 'list')),
+  );
 
-  // Recent items excluding those in sections
-  const recentItems = [...items]
-    .filter((item) => !sectionItemIds.has(item.id))
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-    .slice(0, 5);
+  // Max 5 items per section
+  const MAX_ITEMS = 5;
 
   return (
     <View>
       <TestSpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
 
-      {/* Recent Activity - shows items not in section lists */}
-      <View testID="space-section-recent-activity">
-        <TestSectionHeader title="Recent activity" testID="space-section-recent-activity-header" />
-        {recentItems.length === 0 ? (
-          <View testID="space-section-recent-activity-empty">
-            <Text>No recent activity in this space</Text>
-          </View>
-        ) : (
-          recentItems.map((item) => (
-            <View key={item.id} testID={`space-section-recent-activity-item-${item.id}`}>
-              <Text>{item.name || item.title}</Text>
-            </View>
-          ))
-        )}
-      </View>
-
-      {/* Todos Section */}
+      {/* Todos Section - no header, with type pills */}
       {(filter === 'all' || filter === 'todos') && todos.length > 0 && (
         <View testID="space-section-todos">
-          <TestSectionHeader title="Todos for this Space" testID="space-section-todos-header" />
-          {todos.map((todo) => (
+          {todos.slice(0, MAX_ITEMS).map((todo) => (
             <View key={todo.id} testID={`space-section-todos-item-${todo.id}`}>
+              <View testID={`space-section-todos-pill-${todo.id}`}>
+                <Text>Todo</Text>
+              </View>
               <Text>{todo.name}</Text>
             </View>
           ))}
+          {todos.length > MAX_ITEMS && (
+            <View testID="space-section-todos-more">
+              <Text>+ {todos.length - MAX_ITEMS} more in this space</Text>
+            </View>
+          )}
         </View>
       )}
 
-      {/* Habits Section */}
+      {/* Habits Section - no header, with type pills */}
       {(filter === 'all' || filter === 'habits') && habits.length > 0 && (
         <View testID="space-section-habits">
-          <TestSectionHeader title="Habits for this Space" testID="space-section-habits-header" />
-          {habits.map((habit) => (
+          {habits.slice(0, MAX_ITEMS).map((habit) => (
             <View key={habit.id} testID={`space-section-habits-item-${habit.id}`}>
+              <View testID={`space-section-habits-pill-${habit.id}`}>
+                <Text>Habit</Text>
+              </View>
               <Text>{habit.name}</Text>
               <Text>3/5 this week</Text>
             </View>
           ))}
+          {habits.length > MAX_ITEMS && (
+            <View testID="space-section-habits-more">
+              <Text>+ {habits.length - MAX_ITEMS} more in this space</Text>
+            </View>
+          )}
         </View>
       )}
 
-      {/* Logs/Notes Section */}
+      {/* Logs/Notes Section - no header, with type pills */}
       {(filter === 'all' || filter === 'logs') && logs.length > 0 && (
         <View testID="space-section-logs-notes">
-          <TestSectionHeader title="Logs / Notes" testID="space-section-logs-notes-header" />
-          {logs.map((log) => (
+          {logs.slice(0, MAX_ITEMS).map((log) => (
             <View key={log.id} testID={`space-section-logs-notes-item-${log.id}`}>
+              <View testID={`space-section-logs-notes-pill-${log.id}`}>
+                <Text>Log</Text>
+              </View>
               <Text>{log.title}</Text>
             </View>
           ))}
+          {logs.length > MAX_ITEMS && (
+            <View testID="space-section-logs-notes-more">
+              <Text>+ {logs.length - MAX_ITEMS} more in this space</Text>
+            </View>
+          )}
         </View>
       )}
 
-      {/* Lists Section */}
+      {/* Lists Section - no header, with type pills */}
       {(filter === 'all' || filter === 'lists') && lists.length > 0 && (
         <View testID="space-section-lists">
-          <TestSectionHeader title="Lists" testID="space-section-lists-header" />
-          {lists.map((list) => (
+          {lists.slice(0, MAX_ITEMS).map((list) => (
             <View key={list.id} testID={`space-section-lists-item-${list.id}`}>
+              <View testID={`space-section-lists-pill-${list.id}`}>
+                <Text>List</Text>
+              </View>
               <Text>{list.title}</Text>
             </View>
           ))}
+          {lists.length > MAX_ITEMS && (
+            <View testID="space-section-lists-more">
+              <Text>+ {lists.length - MAX_ITEMS} more in this space</Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -308,7 +297,8 @@ describe('SpaceHomeScreen Todos Section', () => {
   it('renders todos section when todos exist', () => {
     const { getByTestId, getByText } = render(<TestSpaceLayout items={createMockItems()} />);
     expect(getByTestId('space-section-todos')).toBeTruthy();
-    expect(getByText('Todos for this Space')).toBeTruthy();
+    // Type pill should show "Todo"
+    expect(getByTestId('space-section-todos-pill-todo-1')).toBeTruthy();
   });
 
   it('shows todo items', () => {
@@ -329,7 +319,8 @@ describe('SpaceHomeScreen Habits Section', () => {
   it('renders habits section when habits exist', () => {
     const { getByTestId, getByText } = render(<TestSpaceLayout items={createMockItems()} />);
     expect(getByTestId('space-section-habits')).toBeTruthy();
-    expect(getByText('Habits for this Space')).toBeTruthy();
+    // Type pill should show "Habit"
+    expect(getByTestId('space-section-habits-pill-habit-1')).toBeTruthy();
   });
 
   it('shows weekly progress', () => {
@@ -349,7 +340,8 @@ describe('SpaceHomeScreen Logs/Notes Section', () => {
   it('renders logs/notes section when logs exist', () => {
     const { getByTestId, getByText } = render(<TestSpaceLayout items={createMockItems()} />);
     expect(getByTestId('space-section-logs-notes')).toBeTruthy();
-    expect(getByText('Logs / Notes')).toBeTruthy();
+    // Type pill should show "Log"
+    expect(getByTestId('space-section-logs-notes-pill-note-1')).toBeTruthy();
   });
 
   it('excludes lists from logs section', () => {
@@ -362,8 +354,8 @@ describe('SpaceHomeScreen Lists Section', () => {
   it('renders lists section when lists exist', () => {
     const { getByTestId, getAllByText } = render(<TestSpaceLayout items={createMockItems()} />);
     expect(getByTestId('space-section-lists')).toBeTruthy();
-    // 'Lists' appears in both filter tab and section header
-    expect(getAllByText('Lists').length).toBeGreaterThan(0);
+    // Type pill should show "List" and 'Lists' appears in filter tab
+    expect(getByTestId('space-section-lists-pill-list-1')).toBeTruthy();
   });
 
   it('shows list items', () => {
@@ -381,37 +373,20 @@ describe('SpaceHomeScreen Lists Section', () => {
   });
 });
 
-describe('SpaceHomeScreen Recent Activity Section', () => {
-  it('renders recent activity section', () => {
-    const { getByTestId, getByText } = render(<TestSpaceLayout items={createMockItems()} />);
-    expect(getByTestId('space-section-recent-activity')).toBeTruthy();
-    expect(getByText('Recent activity')).toBeTruthy();
-  });
-
-  it('shows empty state when no items', () => {
-    const { getByTestId, getByText } = render(<TestSpaceLayout items={[]} />);
-    expect(getByTestId('space-section-recent-activity-empty')).toBeTruthy();
-    expect(getByText('No recent activity in this space')).toBeTruthy();
-  });
-});
-
 describe('SpaceHomeScreen Filter Behavior', () => {
   it('shows all sections when filter is "all"', () => {
     const { getByTestId } = render(<TestSpaceLayout items={createMockItems()} />);
-    expect(getByTestId('space-section-recent-activity')).toBeTruthy();
     expect(getByTestId('space-section-todos')).toBeTruthy();
     expect(getByTestId('space-section-habits')).toBeTruthy();
     expect(getByTestId('space-section-logs-notes')).toBeTruthy();
     expect(getByTestId('space-section-lists')).toBeTruthy();
   });
 
-  it('shows only Todos section when filter is "todos" (plus Recent Activity)', () => {
+  it('shows only Todos section when filter is "todos"', () => {
     const { getByTestId, queryByTestId } = render(<TestSpaceLayout items={createMockItems()} />);
 
     fireEvent.press(getByTestId('space-filter-todos'));
 
-    // Recent Activity always shows
-    expect(getByTestId('space-section-recent-activity')).toBeTruthy();
     // Todos should show
     expect(getByTestId('space-section-todos')).toBeTruthy();
     // Others should be hidden
@@ -420,36 +395,33 @@ describe('SpaceHomeScreen Filter Behavior', () => {
     expect(queryByTestId('space-section-lists')).toBeNull();
   });
 
-  it('shows only Habits section when filter is "habits" (plus Recent Activity)', () => {
+  it('shows only Habits section when filter is "habits"', () => {
     const { getByTestId, queryByTestId } = render(<TestSpaceLayout items={createMockItems()} />);
 
     fireEvent.press(getByTestId('space-filter-habits'));
 
-    expect(getByTestId('space-section-recent-activity')).toBeTruthy();
     expect(getByTestId('space-section-habits')).toBeTruthy();
     expect(queryByTestId('space-section-todos')).toBeNull();
     expect(queryByTestId('space-section-logs-notes')).toBeNull();
     expect(queryByTestId('space-section-lists')).toBeNull();
   });
 
-  it('shows only Logs/Notes section when filter is "logs" (plus Recent Activity)', () => {
+  it('shows only Logs/Notes section when filter is "logs"', () => {
     const { getByTestId, queryByTestId } = render(<TestSpaceLayout items={createMockItems()} />);
 
     fireEvent.press(getByTestId('space-filter-logs'));
 
-    expect(getByTestId('space-section-recent-activity')).toBeTruthy();
     expect(getByTestId('space-section-logs-notes')).toBeTruthy();
     expect(queryByTestId('space-section-todos')).toBeNull();
     expect(queryByTestId('space-section-habits')).toBeNull();
     expect(queryByTestId('space-section-lists')).toBeNull();
   });
 
-  it('shows only Lists section when filter is "lists" (plus Recent Activity)', () => {
+  it('shows only Lists section when filter is "lists"', () => {
     const { getByTestId, queryByTestId } = render(<TestSpaceLayout items={createMockItems()} />);
 
     fireEvent.press(getByTestId('space-filter-lists'));
 
-    expect(getByTestId('space-section-recent-activity')).toBeTruthy();
     expect(getByTestId('space-section-lists')).toBeTruthy();
     expect(queryByTestId('space-section-todos')).toBeNull();
     expect(queryByTestId('space-section-habits')).toBeNull();
@@ -466,22 +438,10 @@ describe('SpaceHomeScreen Filter Behavior', () => {
     // Now press "All" to restore
     fireEvent.press(getByTestId('space-filter-all'));
 
-    expect(getByTestId('space-section-recent-activity')).toBeTruthy();
     expect(getByTestId('space-section-todos')).toBeTruthy();
     expect(getByTestId('space-section-habits')).toBeTruthy();
     expect(getByTestId('space-section-logs-notes')).toBeTruthy();
     expect(getByTestId('space-section-lists')).toBeTruthy();
-  });
-
-  it('Recent Activity always shows regardless of filter', () => {
-    const { getByTestId } = render(<TestSpaceLayout items={createMockItems()} />);
-
-    // Test each filter - Recent Activity should always be visible
-    const filters = ['all', 'todos', 'habits', 'logs', 'lists'] as const;
-    for (const filterKey of filters) {
-      fireEvent.press(getByTestId(`space-filter-${filterKey}`));
-      expect(getByTestId('space-section-recent-activity')).toBeTruthy();
-    }
   });
 });
 
@@ -513,64 +473,72 @@ function TestSpaceLayoutWithPress({
     <View>
       <TestSpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
 
-      {/* Todos Section with pressable rows */}
+      {/* Todos Section with pressable rows - no header, with type pills */}
       {(filter === 'all' || filter === 'todos') && todos.length > 0 && (
         <View testID="space-section-todos">
-          <TestSectionHeader title="Todos for this Space" testID="space-section-todos-header" />
           {todos.map((todo) => (
             <Pressable
               key={todo.id}
               testID={`space-section-todos-item-${todo.id}`}
               onPress={() => onItemPress(todo, spaceId)}
             >
+              <View testID={`space-section-todos-pill-${todo.id}`}>
+                <Text>Todo</Text>
+              </View>
               <Text>{todo.name}</Text>
             </Pressable>
           ))}
         </View>
       )}
 
-      {/* Habits Section with pressable rows */}
+      {/* Habits Section with pressable rows - no header, with type pills */}
       {(filter === 'all' || filter === 'habits') && habits.length > 0 && (
         <View testID="space-section-habits">
-          <TestSectionHeader title="Habits for this Space" testID="space-section-habits-header" />
           {habits.map((habit) => (
             <Pressable
               key={habit.id}
               testID={`space-section-habits-item-${habit.id}`}
               onPress={() => onItemPress(habit, spaceId)}
             >
+              <View testID={`space-section-habits-pill-${habit.id}`}>
+                <Text>Habit</Text>
+              </View>
               <Text>{habit.name}</Text>
             </Pressable>
           ))}
         </View>
       )}
 
-      {/* Logs Section with pressable rows */}
+      {/* Logs Section with pressable rows - no header, with type pills */}
       {(filter === 'all' || filter === 'logs') && logs.length > 0 && (
         <View testID="space-section-logs-notes">
-          <TestSectionHeader title="Logs / Notes" testID="space-section-logs-notes-header" />
           {logs.map((log) => (
             <Pressable
               key={log.id}
               testID={`space-section-logs-notes-item-${log.id}`}
               onPress={() => onItemPress(log, spaceId)}
             >
+              <View testID={`space-section-logs-notes-pill-${log.id}`}>
+                <Text>Log</Text>
+              </View>
               <Text>{log.title}</Text>
             </Pressable>
           ))}
         </View>
       )}
 
-      {/* Lists Section with pressable rows */}
+      {/* Lists Section with pressable rows - no header, with type pills */}
       {(filter === 'all' || filter === 'lists') && lists.length > 0 && (
         <View testID="space-section-lists">
-          <TestSectionHeader title="Lists" testID="space-section-lists-header" />
           {lists.map((list) => (
             <Pressable
               key={list.id}
               testID={`space-section-lists-item-${list.id}`}
               onPress={() => onItemPress(list, spaceId)}
             >
+              <View testID={`space-section-lists-pill-${list.id}`}>
+                <Text>List</Text>
+              </View>
               <Text>{list.title}</Text>
             </Pressable>
           ))}
@@ -722,63 +690,243 @@ describe('SpaceHomeScreen Chat CTA Position', () => {
   });
 });
 
-describe('SpaceHomeScreen Recent Activity Deduplication', () => {
-  it('does NOT render a todo in Recent Activity when it is shown in Todos section (All filter)', () => {
-    const { queryByTestId, getByTestId } = render(
+describe('SpaceHomeScreen 5-Item Limit and "X More" Footer', () => {
+  // Helper to create many items of a specific type
+  const createManyTodos = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: `todo-${i + 1}`,
+      type: 'todo',
+      name: `Todo ${i + 1}`,
+      created_at: `2024-01-01T0${i}:00:00Z`,
+      updated_at: `2024-01-${15 - i}T09:00:00Z`, // Most recent first
+      space_id: 'test-space',
+      completed_at: null,
+    }));
+
+  const createManyHabits = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: `habit-${i + 1}`,
+      type: 'habit',
+      name: `Habit ${i + 1}`,
+      created_at: `2024-01-01T0${i}:00:00Z`,
+      updated_at: `2024-01-${15 - i}T09:00:00Z`,
+      space_id: 'test-space',
+    }));
+
+  const createManyLogs = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: `note-${i + 1}`,
+      type: 'note',
+      title: `Log ${i + 1}`,
+      body: `Content ${i + 1}`,
+      subtype: 'journal',
+      created_at: `2024-01-01T0${i}:00:00Z`,
+      updated_at: `2024-01-${15 - i}T09:00:00Z`,
+      space_id: 'test-space',
+    }));
+
+  const createManyLists = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: `list-${i + 1}`,
+      type: 'note',
+      title: `List ${i + 1}`,
+      body: '- Item 1\n- Item 2',
+      subtype: 'list',
+      is_list: true,
+      created_at: `2024-01-01T0${i}:00:00Z`,
+      updated_at: `2024-01-${15 - i}T09:00:00Z`,
+      space_id: 'test-space',
+    }));
+
+  it('shows at most 5 todos when more than 5 exist', () => {
+    const manyTodos = createManyTodos(8);
+    const { queryAllByTestId } = render(
+      <TestSpaceLayout items={manyTodos} initialFilter="todos" />,
+    );
+
+    // Should only render 5 todo items
+    const todoItems = queryAllByTestId(/^space-section-todos-item-/);
+    expect(todoItems.length).toBe(5);
+  });
+
+  it('shows "+ X more" footer for todos when more than 5 exist', () => {
+    const manyTodos = createManyTodos(8);
+    const { getByTestId, getByText } = render(
+      <TestSpaceLayout items={manyTodos} initialFilter="todos" />,
+    );
+
+    // Should show the "more" footer
+    expect(getByTestId('space-section-todos-more')).toBeTruthy();
+    expect(getByText('+ 3 more in this space')).toBeTruthy();
+  });
+
+  it('does NOT show "+ X more" footer for todos when 5 or fewer exist', () => {
+    const fewTodos = createManyTodos(5);
+    const { queryByTestId } = render(<TestSpaceLayout items={fewTodos} initialFilter="todos" />);
+
+    // Should NOT show the "more" footer
+    expect(queryByTestId('space-section-todos-more')).toBeNull();
+  });
+
+  it('shows at most 5 habits when more than 5 exist', () => {
+    const manyHabits = createManyHabits(7);
+    const { queryAllByTestId } = render(
+      <TestSpaceLayout items={manyHabits} initialFilter="habits" />,
+    );
+
+    const habitItems = queryAllByTestId(/^space-section-habits-item-/);
+    expect(habitItems.length).toBe(5);
+  });
+
+  it('shows "+ X more" footer for habits when more than 5 exist', () => {
+    const manyHabits = createManyHabits(7);
+    const { getByTestId, getByText } = render(
+      <TestSpaceLayout items={manyHabits} initialFilter="habits" />,
+    );
+
+    expect(getByTestId('space-section-habits-more')).toBeTruthy();
+    expect(getByText('+ 2 more in this space')).toBeTruthy();
+  });
+
+  it('does NOT show "+ X more" footer for habits when 5 or fewer exist', () => {
+    const fewHabits = createManyHabits(3);
+    const { queryByTestId } = render(<TestSpaceLayout items={fewHabits} initialFilter="habits" />);
+
+    expect(queryByTestId('space-section-habits-more')).toBeNull();
+  });
+
+  it('shows at most 5 logs when more than 5 exist', () => {
+    const manyLogs = createManyLogs(10);
+    const { queryAllByTestId } = render(<TestSpaceLayout items={manyLogs} initialFilter="logs" />);
+
+    const logItems = queryAllByTestId(/^space-section-logs-notes-item-/);
+    expect(logItems.length).toBe(5);
+  });
+
+  it('shows "+ X more" footer for logs when more than 5 exist', () => {
+    const manyLogs = createManyLogs(10);
+    const { getByTestId, getByText } = render(
+      <TestSpaceLayout items={manyLogs} initialFilter="logs" />,
+    );
+
+    expect(getByTestId('space-section-logs-notes-more')).toBeTruthy();
+    expect(getByText('+ 5 more in this space')).toBeTruthy();
+  });
+
+  it('shows at most 5 lists when more than 5 exist', () => {
+    const manyLists = createManyLists(9);
+    const { queryAllByTestId } = render(
+      <TestSpaceLayout items={manyLists} initialFilter="lists" />,
+    );
+
+    const listItems = queryAllByTestId(/^space-section-lists-item-/);
+    expect(listItems.length).toBe(5);
+  });
+
+  it('shows "+ X more" footer for lists when more than 5 exist', () => {
+    const manyLists = createManyLists(9);
+    const { getByTestId, getByText } = render(
+      <TestSpaceLayout items={manyLists} initialFilter="lists" />,
+    );
+
+    expect(getByTestId('space-section-lists-more')).toBeTruthy();
+    expect(getByText('+ 4 more in this space')).toBeTruthy();
+  });
+
+  it('does NOT render Recent Activity section (removed)', () => {
+    const { queryByTestId } = render(
       <TestSpaceLayout items={createMockItems()} initialFilter="all" />,
     );
 
-    // Todo should appear in Todos section
-    expect(getByTestId('space-section-todos-item-todo-1')).toBeTruthy();
-
-    // Todo should NOT appear in Recent Activity (deduplicated)
-    expect(queryByTestId('space-section-recent-activity-item-todo-1')).toBeNull();
+    // Recent Activity section should no longer exist
+    expect(queryByTestId('space-section-recent-activity')).toBeNull();
+    expect(queryByTestId('space-section-recent-activity-header')).toBeNull();
+    expect(queryByTestId('space-section-recent-activity-empty')).toBeNull();
   });
+});
 
-  it('does NOT render a habit in Recent Activity when it is shown in Habits section (All filter)', () => {
-    const { queryByTestId, getByTestId } = render(
+describe('SpaceHomeScreen Attach Existing Flow', () => {
+  it('does NOT render standalone attach existing link on main Space screen', () => {
+    // The standalone "Attach existing item" link was moved into SpaceQuickAddModal
+    // So the testID "space-attach-existing-cta" should no longer exist on the main layout
+    const { queryByTestId } = render(
       <TestSpaceLayout items={createMockItems()} initialFilter="all" />,
     );
 
-    // Habit should appear in Habits section
-    expect(getByTestId('space-section-habits-item-habit-1')).toBeTruthy();
-
-    // Habit should NOT appear in Recent Activity (deduplicated)
-    expect(queryByTestId('space-section-recent-activity-item-habit-1')).toBeNull();
+    // Should NOT find the old standalone link
+    expect(queryByTestId('space-attach-existing-cta')).toBeNull();
   });
+});
 
-  it('does NOT render a log in Recent Activity when it is shown in Logs section (All filter)', () => {
-    const { queryByTestId, getByTestId } = render(
-      <TestSpaceLayout items={createMockItems()} initialFilter="all" />,
+describe('SpaceQuickAddModal Links', () => {
+  // Test helper component that simulates the modal content
+  function TestSpaceQuickAddModalLinks({
+    onPressManualAdd,
+    onPressAttachExisting,
+  }: {
+    onPressManualAdd?: () => void;
+    onPressAttachExisting?: () => void;
+  }) {
+    return (
+      <View testID="space-quick-add-modal">
+        <Pressable testID="quick-add-manual-link" onPress={onPressManualAdd}>
+          <Text>Prefer to add it manually?</Text>
+        </Pressable>
+        {onPressAttachExisting && (
+          <Pressable testID="quick-add-attach-existing" onPress={onPressAttachExisting}>
+            <Text>Or attach an existing item</Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+
+  it('renders both manual add and attach existing links when onPressAttachExisting is provided', () => {
+    const mockManualAdd = jest.fn();
+    const mockAttachExisting = jest.fn();
+
+    const { getByTestId, getByText } = render(
+      <TestSpaceQuickAddModalLinks
+        onPressManualAdd={mockManualAdd}
+        onPressAttachExisting={mockAttachExisting}
+      />,
     );
 
-    // Log should appear in Logs section
-    expect(getByTestId('space-section-logs-notes-item-note-1')).toBeTruthy();
+    // Both links should be present
+    expect(getByTestId('quick-add-manual-link')).toBeTruthy();
+    expect(getByTestId('quick-add-attach-existing')).toBeTruthy();
 
-    // Log should NOT appear in Recent Activity (deduplicated)
-    expect(queryByTestId('space-section-recent-activity-item-note-1')).toBeNull();
+    // Both should have the expected text
+    expect(getByText('Prefer to add it manually?')).toBeTruthy();
+    expect(getByText('Or attach an existing item')).toBeTruthy();
   });
 
-  it('shows empty state in Recent Activity when all items are shown in sections', () => {
-    // With the "all" filter, all items are shown in their respective sections
-    // So Recent Activity should be empty
+  it('calls onPressAttachExisting when attach existing link is pressed', () => {
+    const mockManualAdd = jest.fn();
+    const mockAttachExisting = jest.fn();
+
     const { getByTestId } = render(
-      <TestSpaceLayout items={createMockItems()} initialFilter="all" />,
+      <TestSpaceQuickAddModalLinks
+        onPressManualAdd={mockManualAdd}
+        onPressAttachExisting={mockAttachExisting}
+      />,
     );
 
-    // Should show empty state since all items are in sections
-    expect(getByTestId('space-section-recent-activity-empty')).toBeTruthy();
+    fireEvent.press(getByTestId('quick-add-attach-existing'));
+    expect(mockAttachExisting).toHaveBeenCalledTimes(1);
   });
 
-  it('shows todos in Recent Activity when Habits filter is active (todos not in section)', () => {
-    const { getByTestId, queryByTestId } = render(
-      <TestSpaceLayout items={createMockItems()} initialFilter="habits" />,
+  it('does NOT render attach existing link when onPressAttachExisting is not provided', () => {
+    const mockManualAdd = jest.fn();
+
+    const { queryByTestId, getByTestId } = render(
+      <TestSpaceQuickAddModalLinks onPressManualAdd={mockManualAdd} />,
     );
 
-    // Todos section should NOT be shown
-    expect(queryByTestId('space-section-todos')).toBeNull();
+    // Manual add should still be present
+    expect(getByTestId('quick-add-manual-link')).toBeTruthy();
 
-    // But todo should appear in Recent Activity since it's not in any visible section
-    expect(getByTestId('space-section-recent-activity-item-todo-1')).toBeTruthy();
+    // Attach existing should NOT be present
+    expect(queryByTestId('quick-add-attach-existing')).toBeNull();
   });
 });
