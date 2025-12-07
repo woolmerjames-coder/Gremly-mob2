@@ -9,7 +9,7 @@
 
 export type OverlayClosedPayload = {
   /** The mode the overlay was in when closed */
-  mode: 'create' | 'edit';
+  mode: 'create' | 'edit' | 'view';
   /** The ID of the record being edited (for edit mode), undefined for create */
   editingId?: string;
   /** Whether the close was due to a save (true) or cancel/dismiss (false) */

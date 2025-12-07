@@ -1,3 +1,4 @@
+// LEGACY: no longer used by SpaceHomeScreen. Kept for reference.
 /**
  * HabitsTodosPreview - Shows habits and todos for a space
  * Uses listHabitsForSpace and listTodosForSpace selectors
@@ -5,8 +6,8 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import type { Habit, Todo } from '../../lib/types';
-import { lightTokens } from '../../design/tokens';
+import type { Habit, Todo } from '../../../lib/types';
+import { lightTokens } from '../../../design/tokens';
 
 interface HabitsTodosPreviewProps {
   habits: Habit[];

@@ -152,7 +152,7 @@ const COMMITMENT_NOTE_LIMIT = 140;
 
 export type UnifiedCreateOverlayProps = {
   visible: boolean;
-  mode: 'create' | 'edit';
+  mode: 'create' | 'edit' | 'view';
   initialEntity?: {
     type: EntityType | 'journal' | 'note' | 'person' | null;
     id?: string;
@@ -345,7 +345,7 @@ export function UnifiedCreateOverlay({
   }, [selectedType, selectedLogSubtype]);
 
   useEffect(() => {
-    if (mode === 'edit') {
+    if (mode === 'edit' || mode === 'view') {
       originalTypeRef.current = normalizedInitialType ?? null;
     } else {
       originalTypeRef.current = null;
@@ -586,7 +586,7 @@ export function UnifiedCreateOverlay({
   const phase8Links = usePhase8LinksState(
     repo,
     userId || '',
-    mode === 'edit' ? initialEntity?.id || null : null,
+    mode === 'edit' || mode === 'view' ? initialEntity?.id || null : null,
     getItemType(),
   );
 
@@ -749,7 +749,7 @@ export function UnifiedCreateOverlay({
     selectedType === 'log' && (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person';
   const allowPeopleLinking = usePhase8Features && !isLogPerson;
   const isEditingPerson =
-    mode === 'edit' &&
+    (mode === 'edit' || mode === 'view') &&
     (initialEntity?.type === 'person' ||
       (initialEntity?.type === 'log' &&
         (initialEntity?.logSubtype ?? normalizedInitialSubtype ?? DEFAULT_LOG_SUBTYPE) ===
@@ -841,7 +841,7 @@ export function UnifiedCreateOverlay({
   };
 
   const validation = getValidationState();
-  const typePillsDisabled = mode === 'edit' ? !ALLOW_TYPE_CHANGE : false;
+  const typePillsDisabled = mode === 'edit' || mode === 'view' ? !ALLOW_TYPE_CHANGE : false;
 
   // Helper to show success toast cross-platform
   const showToast = useCallback((message: string) => {
@@ -1031,7 +1031,7 @@ export function UnifiedCreateOverlay({
       return;
     }
 
-    if (mode === 'edit' && initialEntity && initialEntity.type) {
+    if ((mode === 'edit' || mode === 'view') && initialEntity && initialEntity.type) {
       // Only enforce the initial type while hydrating; once ready, respect user changes
       if (
         hydration !== 'ready' &&
@@ -1403,7 +1403,7 @@ export function UnifiedCreateOverlay({
   };
 
   const handleTypeSelect = (type: EntityType, logSubtypeOverride?: LogSubtype) => {
-    if (mode === 'edit' && !ALLOW_TYPE_CHANGE) {
+    if ((mode === 'edit' || mode === 'view') && !ALLOW_TYPE_CHANGE) {
       return;
     }
     const wasLog = selectedType === 'log';
@@ -1438,7 +1438,7 @@ export function UnifiedCreateOverlay({
   };
 
   const handleAiModeToggle = () => {
-    if (mode === 'edit') return; // No AI mode in edit
+    if (mode === 'edit' || mode === 'view') return; // No AI mode in edit/view
     const nextAiMode = !aiMode;
     setAiMode(nextAiMode);
 
@@ -2155,7 +2155,7 @@ export function UnifiedCreateOverlay({
       }
 
       // Edit mode
-      if (mode === 'edit' && initialEntity?.id && selectedType) {
+      if ((mode === 'edit' || mode === 'view') && initialEntity?.id && selectedType) {
         const originalWasPerson = isEditingPerson;
 
         if (isLogPerson && originalWasPerson) {
@@ -2659,7 +2659,7 @@ export function UnifiedCreateOverlay({
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={[styles.container, { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }]}
       pointerEvents="box-none"
-      testID={mode === 'edit' ? 'overlay-mode-edit' : 'unified-overlay'}
+      testID={mode === 'edit' || mode === 'view' ? 'overlay-mode-edit' : 'unified-overlay'}
     >
       <View
         style={[
@@ -2863,7 +2863,7 @@ export function UnifiedCreateOverlay({
             selectedType &&
             (() => {
               // Guard: If in edit mode and still loading, show skeleton
-              if (mode === 'edit' && hydration === 'loading') {
+              if ((mode === 'edit' || mode === 'view') && hydration === 'loading') {
                 return (
                   <View style={styles.fieldsContainer} testID="loading-skeleton">
                     <View style={[styles.skeletonInput, { backgroundColor: '#F3F4F6' }]} />
@@ -2890,7 +2890,7 @@ export function UnifiedCreateOverlay({
               }
 
               // Guard: If in edit mode and errored, show error
-              if (mode === 'edit' && hydration === 'error') {
+              if ((mode === 'edit' || mode === 'view') && hydration === 'error') {
                 return (
                   <View style={styles.fieldsContainer} testID="error-state">
                     <Text
@@ -2908,7 +2908,8 @@ export function UnifiedCreateOverlay({
 
               // Render fields only when ready (or in create mode which is always ready)
               const canRenderFields =
-                mode === 'create' || (mode === 'edit' && hydration === 'ready');
+                mode === 'create' ||
+                ((mode === 'edit' || mode === 'view') && hydration === 'ready');
 
               if (!canRenderFields) {
                 return null;
@@ -3072,7 +3073,7 @@ export function UnifiedCreateOverlay({
                   )}
                   {COMMITMENTS_FEATURE_ENABLED &&
                     !entityForCommitment &&
-                    mode === 'edit' &&
+                    (mode === 'edit' || mode === 'view') &&
                     hydration === 'ready' &&
                     initialEntity?.id &&
                     (selectedType === 'habit' || selectedType === 'todo') && (
@@ -3226,7 +3227,7 @@ export function UnifiedCreateOverlay({
                 {showTagEditor && (
                   <TagEditor
                     userId={userId || ''}
-                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                    itemId={mode === 'edit' || mode === 'view' ? initialEntity?.id || null : null}
                     itemType={itemType}
                     currentTags={tagEditorTags}
                     allTags={phase8Links.allTags}
@@ -3241,7 +3242,7 @@ export function UnifiedCreateOverlay({
                 {showPeopleLinker && (
                   <PeopleLinker
                     userId={userId || ''}
-                    itemId={mode === 'edit' ? initialEntity?.id || null : null}
+                    itemId={mode === 'edit' || mode === 'view' ? initialEntity?.id || null : null}
                     itemType={itemType}
                     linkedPeople={phase8Links.linkedPeople}
                     onPeopleChange={(_people) => {

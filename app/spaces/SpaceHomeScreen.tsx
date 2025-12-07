@@ -16,6 +16,7 @@ import {
   Alert,
   RefreshControl,
   TouchableOpacity,
+  Pressable,
   useColorScheme,
   BackHandler,
 } from 'react-native';
@@ -85,8 +86,741 @@ import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import type { CanonicalType } from '../../lib/cortex/canonicalMap';
+import { BRAND } from '../../design/brand';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
+
+// ============================================================================
+// FILTER BAR TYPES & COMPONENTS
+// ============================================================================
+
+type FilterTab = 'all' | 'todos' | 'habits' | 'logs' | 'lists';
+
+const FILTER_TABS: { key: FilterTab; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'todos', label: 'Todos' },
+  { key: 'habits', label: 'Habits' },
+  { key: 'logs', label: 'Logs' },
+  { key: 'lists', label: 'Lists' },
+];
+
+/** Filter bar component for Space sections - styled with Sage Mist pill for active */
+function SpaceFilterBar({
+  activeFilter,
+  onFilterChange,
+}: {
+  activeFilter: FilterTab;
+  onFilterChange: (filter: FilterTab) => void;
+}) {
+  return (
+    <View style={filterBarStyles.container} testID="space-filter-bar">
+      {FILTER_TABS.map((tab) => {
+        const isActive = activeFilter === tab.key;
+        return (
+          <Pressable
+            key={tab.key}
+            onPress={() => onFilterChange(tab.key)}
+            style={[filterBarStyles.tab, isActive && filterBarStyles.tabActive]}
+            testID={`space-filter-${tab.key}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Filter by ${tab.label}`}
+            accessibilityState={{ selected: isActive }}
+          >
+            <Text style={[filterBarStyles.tabText, isActive && filterBarStyles.tabTextActive]}>
+              {tab.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Filter bar styles */
+const filterBarStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 24, // 24px per design spec
+  },
+  tab: {
+    paddingVertical: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: BRAND.colors.mossGreen, // Moss Green underline
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.inkSubtle, // Charcoal at 70%
+  },
+  tabTextActive: {
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen, // Moss Green text
+  },
+});
+
+// ============================================================================
+// SECTION COMPONENTS
+// ============================================================================
+
+/** Section header matching Today/MindDrop styling */
+function SpaceSectionHeader({
+  title,
+  count,
+  testID,
+}: {
+  title: string;
+  count?: number;
+  testID?: string;
+}) {
+  return (
+    <View style={sectionStyles.headerContainer} testID={testID}>
+      <Text style={sectionStyles.headerText}>
+        {title}
+        {count !== undefined && count > 0 && (
+          <Text style={sectionStyles.headerCount}> ({count})</Text>
+        )}
+      </Text>
+    </View>
+  );
+}
+
+/** Helper to get display type label */
+function getItemTypeLabel(item: AppRecord): string {
+  if (item.type === 'habit') return 'Habit';
+  if (item.type === 'todo') return 'Todo';
+  if (item.type === 'note') {
+    const subtype = (item as any).subtype;
+    if (subtype === 'journal') return 'Log';
+    if (subtype === 'list' || (item as any).is_list) return 'List';
+    if (subtype === 'idea') return 'Idea';
+    return 'Note';
+  }
+  return 'Item';
+}
+
+/** Helper to get item title with fallback */
+function getItemTitle(item: AppRecord): string {
+  if (item.type === 'habit' || item.type === 'todo') {
+    return (item as any).name || (item as any).title || 'Untitled';
+  }
+  if (item.type === 'note') {
+    const title = (item as any).title;
+    const body = (item as any).body;
+    if (title) return title;
+    if (body) return body.slice(0, 50) + (body.length > 50 ? '...' : '');
+    return 'Untitled';
+  }
+  return 'Untitled';
+}
+
+/** Helper to format relative date */
+function formatRelativeDate(dateString?: string | null): string {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+    return date.toLocaleDateString();
+  } catch {
+    return '';
+  }
+}
+
+/** Recent Activity Section - shows 5 most recently updated items */
+function RecentActivitySection({
+  items,
+  onItemPress,
+  testID,
+}: {
+  items: AppRecord[];
+  onItemPress: (item: AppRecord) => void;
+  testID?: string;
+}) {
+  const recentItems = React.useMemo(() => {
+    const sorted = [...items].sort((a, b) => {
+      const aDate = new Date((a as any).updated_at || (a as any).created_at || 0).getTime();
+      const bDate = new Date((b as any).updated_at || (b as any).created_at || 0).getTime();
+      return bDate - aDate;
+    });
+    return sorted.slice(0, 5);
+  }, [items]);
+
+  return (
+    <View style={sectionStyles.section} testID={testID}>
+      <SpaceSectionHeader title="Recent activity" testID={`${testID}-header`} />
+      {recentItems.length === 0 ? (
+        <View style={sectionStyles.emptyState} testID={`${testID}-empty`}>
+          <Text style={sectionStyles.emptyStateIcon}>📭</Text>
+          <Text style={sectionStyles.emptyStateText}>No recent activity in this space</Text>
+          <Text style={sectionStyles.emptyStateSubtext}>
+            Add habits, todos, or notes to see them here
+          </Text>
+        </View>
+      ) : (
+        <View style={sectionStyles.itemsList}>
+          {recentItems.map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() => onItemPress(item)}
+              style={({ pressed }) => [
+                sectionStyles.itemRow,
+                pressed && sectionStyles.itemRowPressed,
+              ]}
+              testID={`${testID}-item-${item.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${getItemTitle(item)}, ${getItemTypeLabel(item)}`}
+            >
+              <View style={sectionStyles.itemContent}>
+                <Text style={sectionStyles.itemTitle} numberOfLines={1}>
+                  {getItemTitle(item)}
+                </Text>
+                <Text style={sectionStyles.itemType}>{getItemTypeLabel(item)}</Text>
+              </View>
+              <Text style={sectionStyles.itemChevron}>›</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** Todos Section - shows incomplete todos for this space */
+function TodosSection({
+  items,
+  spaceId,
+  onItemPress,
+  onToggleComplete,
+  testID,
+}: {
+  items: AppRecord[];
+  spaceId: string;
+  onItemPress: (item: AppRecord) => void;
+  onToggleComplete: (item: AppRecord) => void;
+  testID?: string;
+}) {
+  const todos = React.useMemo(() => {
+    return listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
+  }, [items, spaceId]);
+
+  if (todos.length === 0) return null;
+
+  return (
+    <View style={sectionStyles.section} testID={testID}>
+      <SpaceSectionHeader
+        title="Todos for this Space"
+        count={todos.length}
+        testID={`${testID}-header`}
+      />
+      <View style={sectionStyles.itemsList}>
+        {todos.map((todo: any) => (
+          <Pressable
+            key={todo.id}
+            onPress={() => onItemPress(todo)}
+            style={({ pressed }) => [
+              sectionStyles.todoRow,
+              pressed && sectionStyles.itemRowPressed,
+            ]}
+            testID={`${testID}-item-${todo.id}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Todo: ${todo.name || 'Untitled'}`}
+          >
+            <Pressable
+              onPress={() => onToggleComplete(todo)}
+              style={sectionStyles.checkbox}
+              testID={`${testID}-checkbox-${todo.id}`}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: false }}
+              accessibilityLabel={`Mark ${todo.name || 'todo'} as complete`}
+            >
+              <View style={sectionStyles.checkboxInner} />
+            </Pressable>
+            <View style={sectionStyles.todoContent}>
+              <Text style={sectionStyles.todoTitle} numberOfLines={1}>
+                {todo.name || 'Untitled'}
+              </Text>
+              {todo.due_date && (
+                <Text style={sectionStyles.todoDueDate}>
+                  Due: {formatRelativeDate(todo.due_date)}
+                </Text>
+              )}
+            </View>
+            <Text style={sectionStyles.itemChevron}>›</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** Habits Section - shows habits with weekly progress */
+function HabitsSection({
+  items,
+  spaceId,
+  weekly,
+  onItemPress,
+  onLogProgress,
+  testID,
+}: {
+  items: AppRecord[];
+  spaceId: string;
+  weekly?: { habits: Array<{ id: string; doneCount: number; target: number }> };
+  onItemPress: (item: AppRecord) => void;
+  onLogProgress: (item: AppRecord) => void;
+  testID?: string;
+}) {
+  const habits = React.useMemo(() => listHabitsForSpace(items, spaceId), [items, spaceId]);
+  const weeklyById = React.useMemo(() => {
+    const map = new Map<string, { doneCount: number; target: number }>();
+    (weekly?.habits || []).forEach((h) =>
+      map.set(h.id, { doneCount: h.doneCount, target: h.target }),
+    );
+    return map;
+  }, [weekly]);
+
+  if (habits.length === 0) return null;
+
+  return (
+    <View style={sectionStyles.section} testID={testID}>
+      <SpaceSectionHeader
+        title="Habits for this Space"
+        count={habits.length}
+        testID={`${testID}-header`}
+      />
+      <View style={sectionStyles.itemsList}>
+        {habits.map((habit: any) => {
+          const progress = weeklyById.get(habit.id);
+          const doneCount = progress?.doneCount ?? 0;
+          const target = progress?.target ?? 3;
+          return (
+            <Pressable
+              key={habit.id}
+              onPress={() => onItemPress(habit)}
+              style={({ pressed }) => [
+                sectionStyles.habitRow,
+                pressed && sectionStyles.itemRowPressed,
+              ]}
+              testID={`${testID}-item-${habit.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Habit: ${habit.name || 'Untitled'}, ${doneCount} of ${target} this week`}
+            >
+              <Pressable
+                onPress={() => onLogProgress(habit)}
+                style={sectionStyles.habitProgressButton}
+                testID={`${testID}-log-${habit.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Log progress for ${habit.name || 'habit'}`}
+              >
+                <Text style={sectionStyles.habitProgressIcon}>+</Text>
+              </Pressable>
+              <View style={sectionStyles.habitContent}>
+                <Text style={sectionStyles.habitTitle} numberOfLines={1}>
+                  {habit.name || 'Untitled'}
+                </Text>
+                <Text style={sectionStyles.habitProgress}>
+                  {doneCount}/{target} this week
+                </Text>
+              </View>
+              <View style={sectionStyles.habitProgressBar}>
+                <View
+                  style={[
+                    sectionStyles.habitProgressFill,
+                    { width: `${Math.min(100, (doneCount / target) * 100)}%` },
+                  ]}
+                />
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/** Logs/Notes Section - shows journal, idea, reference notes (excludes lists) */
+function LogsNotesSection({
+  items,
+  spaceId,
+  onItemPress,
+  testID,
+}: {
+  items: AppRecord[];
+  spaceId: string;
+  onItemPress: (item: AppRecord) => void;
+  testID?: string;
+}) {
+  const logs = React.useMemo(() => {
+    const notes = listNotesForSpace(items, spaceId);
+    return notes
+      .filter((n: any) => {
+        const subtype = n.subtype;
+        return subtype === 'journal' || subtype === 'idea' || subtype === 'reference' || !subtype;
+      })
+      .filter((n: any) => !n.is_list);
+  }, [items, spaceId]);
+
+  if (logs.length === 0) return null;
+
+  return (
+    <View style={sectionStyles.section} testID={testID}>
+      <SpaceSectionHeader title="Logs / Notes" count={logs.length} testID={`${testID}-header`} />
+      <View style={sectionStyles.itemsList}>
+        {logs.slice(0, 10).map((log: any) => {
+          const icon = log.subtype === 'journal' ? '📝' : log.subtype === 'idea' ? '💡' : '📄';
+          const typeLabel =
+            log.subtype === 'journal' ? 'Log' : log.subtype === 'idea' ? 'Idea' : 'Note';
+          return (
+            <Pressable
+              key={log.id}
+              onPress={() => onItemPress(log)}
+              style={({ pressed }) => [
+                sectionStyles.logRow,
+                pressed && sectionStyles.itemRowPressed,
+              ]}
+              testID={`${testID}-item-${log.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${typeLabel}: ${log.title || 'Untitled'}`}
+            >
+              <Text style={sectionStyles.logIcon}>{icon}</Text>
+              <View style={sectionStyles.logContent}>
+                <Text style={sectionStyles.logTitle} numberOfLines={1}>
+                  {log.title || (log.body ? log.body.slice(0, 40) + '...' : 'Untitled')}
+                </Text>
+                <View style={sectionStyles.logMeta}>
+                  <Text style={sectionStyles.logType}>{typeLabel}</Text>
+                  <Text style={sectionStyles.logDate}>
+                    {formatRelativeDate(log.updated_at || log.created_at)}
+                  </Text>
+                </View>
+              </View>
+              <Text style={sectionStyles.itemChevron}>›</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/** Lists Section - shows notes with is_list=true or subtype='list' */
+function ListsSection({
+  items,
+  spaceId,
+  onItemPress,
+  testID,
+}: {
+  items: AppRecord[];
+  spaceId: string;
+  onItemPress: (item: AppRecord) => void;
+  testID?: string;
+}) {
+  const lists = React.useMemo(() => {
+    const notes = listNotesForSpace(items, spaceId);
+    return notes.filter((n: any) => n.is_list || n.subtype === 'list');
+  }, [items, spaceId]);
+
+  if (lists.length === 0) return null;
+
+  return (
+    <View style={sectionStyles.section} testID={testID}>
+      <SpaceSectionHeader title="Lists" count={lists.length} testID={`${testID}-header`} />
+      <View style={sectionStyles.itemsList}>
+        {lists.map((list: any) => {
+          const itemCount = list.body ? (list.body.match(/^[-•*]\s/gm) || []).length : 0;
+          return (
+            <Pressable
+              key={list.id}
+              onPress={() => onItemPress(list)}
+              style={({ pressed }) => [
+                sectionStyles.listRow,
+                pressed && sectionStyles.itemRowPressed,
+              ]}
+              testID={`${testID}-item-${list.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`List: ${list.title || 'Untitled'}`}
+            >
+              <Text style={sectionStyles.listIcon}>📋</Text>
+              <View style={sectionStyles.listContent}>
+                <Text style={sectionStyles.listTitle} numberOfLines={1}>
+                  {list.title || 'Untitled List'}
+                </Text>
+                <Text style={sectionStyles.listMeta}>
+                  {itemCount > 0 ? `${itemCount} items` : 'List'}
+                </Text>
+              </View>
+              <Text style={sectionStyles.itemChevron}>›</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/** Section styles - matches Gremly design system (EntryCard, Today screen) */
+const sectionStyles = StyleSheet.create({
+  // Section header - matches Today screen typography
+  headerContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 24,
+    paddingBottom: 12,
+  },
+  headerText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+    letterSpacing: -0.3,
+  },
+  headerCount: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: BRAND.colors.inkSubtle,
+  },
+  section: {
+    marginBottom: 16,
+  },
+
+  // Empty state - card-style container
+  emptyState: {
+    marginHorizontal: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    backgroundColor: BRAND.colors.linenCream,
+    borderRadius: BRAND.radius.md,
+    ...BRAND.elevation.one,
+  },
+  emptyStateIcon: {
+    fontSize: 36,
+    marginBottom: 12,
+  },
+  emptyStateText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+  },
+  emptyStateSubtext: {
+    fontSize: 13,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 18,
+  },
+
+  // Items list - card container
+  itemsList: {
+    marginHorizontal: 16,
+    backgroundColor: BRAND.colors.linenCream,
+    borderRadius: BRAND.radius.md,
+    ...BRAND.elevation.one,
+    overflow: 'hidden',
+  },
+
+  // Item row - Recent Activity
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: BRAND.colors.sageMist,
+  },
+  itemRowPressed: {
+    opacity: 0.8,
+    backgroundColor: BRAND.colors.sageMist,
+  },
+  itemContent: {
+    flex: 1,
+    gap: 4,
+  },
+  itemTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  itemType: {
+    fontSize: 11,
+    color: BRAND.colors.mossGreen,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    fontWeight: '500',
+  },
+  itemChevron: {
+    fontSize: 18,
+    color: BRAND.colors.inkSubtle,
+    marginLeft: 8,
+  },
+
+  // Todo row
+  todoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: BRAND.colors.sageMist,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: BRAND.colors.mossGreen,
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    backgroundColor: 'transparent',
+  },
+  todoContent: {
+    flex: 1,
+    gap: 4,
+  },
+  todoTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  todoDueDate: {
+    fontSize: 12,
+    color: BRAND.colors.inkSubtle,
+  },
+
+  // Habit row
+  habitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: BRAND.colors.sageMist,
+  },
+  habitProgressButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: BRAND.colors.mossGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    ...BRAND.elevation.one,
+  },
+  habitProgressIcon: {
+    color: BRAND.colors.surface,
+    fontSize: 20,
+    fontWeight: '600',
+  },
+  habitContent: {
+    flex: 1,
+    gap: 4,
+  },
+  habitTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  habitProgress: {
+    fontSize: 12,
+    color: BRAND.colors.inkSubtle,
+  },
+  habitProgressBar: {
+    width: 56,
+    height: 6,
+    backgroundColor: BRAND.colors.sageMist,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginLeft: 8,
+  },
+  habitProgressFill: {
+    height: '100%',
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 3,
+  },
+
+  // Log/Note row
+  logRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: BRAND.colors.sageMist,
+  },
+  logIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  logContent: {
+    flex: 1,
+    gap: 4,
+  },
+  logTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  logMeta: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  logType: {
+    fontSize: 11,
+    color: BRAND.colors.mossGreen,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    fontWeight: '500',
+  },
+  logDate: {
+    fontSize: 12,
+    color: BRAND.colors.inkSubtle,
+  },
+
+  // List row
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: BRAND.colors.sageMist,
+  },
+  listIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  listContent: {
+    flex: 1,
+    gap: 4,
+  },
+  listTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  listMeta: {
+    fontSize: 12,
+    color: BRAND.colors.inkSubtle,
+  },
+});
+
+// ============================================================================
+// EXISTING TYPES & CONSTANTS
+// ============================================================================
 
 interface LayoutState {
   scheduleCollapsed?: boolean;
@@ -133,10 +867,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   // v33 search filter chip state
   const [searchActiveV33, setSearchActiveV33] = useState<'chats' | 'notes' | 'habits'>('chats');
-  // Local search results (computed client-side)
-  const [activeTab, setActiveTab] = useState<'all' | 'chats' | 'habits' | 'todos' | 'notes'>(
-    'chats',
-  );
   const isFocused = useIsFocused();
   const [summaryPulse] = useState(() => new Animated.Value(1));
   const [showConfetti, setShowConfetti] = useState(false);
@@ -165,7 +895,52 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [renameChatModalOpen, setRenameChatModalOpen] = useState(false);
   const [renameChatId, setRenameChatId] = useState<string | null>(null);
   const [renameChatTitle, setRenameChatTitle] = useState('');
+
+  // NEW: Filter bar state
+  const [filter, setFilter] = useState<FilterTab>('all');
+
   const overlay = useGlobalOverlay();
+
+  // Handler for item press (opens view overlay for read-only mode)
+  const handleItemPress = useCallback(
+    (item: AppRecord) => {
+      console.log('[SpaceHome] Item pressed:', item.id, item.type);
+      overlay.openView({ record: item, spaceId });
+    },
+    [overlay, spaceId],
+  );
+
+  // Handler for todo completion
+  const handleTodoComplete = useCallback(
+    async (item: AppRecord) => {
+      console.log('[SpaceHome] Todo complete:', item.id);
+      try {
+        await repo.completeTodo(item.id, new Date().toISOString());
+        setShowConfetti(true);
+        await reload();
+      } catch (e) {
+        console.warn('[SpaceHome] Failed to complete todo:', e);
+        Alert.alert('Error', 'Failed to complete todo');
+      }
+    },
+    [repo, reload],
+  );
+
+  // Handler for habit progress logging
+  const handleHabitLogProgress = useCallback(
+    async (item: AppRecord) => {
+      console.log('[SpaceHome] Habit log progress:', item.id);
+      try {
+        await repo.logHabitProgress(item.id, new Date().toISOString());
+        setShowConfetti(true);
+        await reload();
+      } catch (e) {
+        console.warn('[SpaceHome] Failed to log habit progress:', e);
+        Alert.alert('Error', 'Failed to log progress');
+      }
+    },
+    [repo, reload],
+  );
 
   // Debug: Log overlay state changes
   useEffect(() => {
@@ -487,10 +1262,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     setSearchVisible((v) => !v);
   }, []);
 
-  const handleFilterPress = useCallback((key: 'all' | 'chats' | 'habits' | 'todos' | 'notes') => {
-    setActiveTab(key);
-  }, []);
-
   const v33FilteredResults = React.useMemo(() => {
     const empty = { items: [] as AppRecord[], chats: [] as SpaceChat[] };
     const q = searchQuery.trim().toLowerCase();
@@ -788,6 +1559,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               mood={v33Mood}
             />
 
+            {/* Filter bar */}
+            <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
+
             {/* Slide-down search overlay under header */}
             <SearchOverlayV33
               visible={searchVisible}
@@ -808,6 +1582,50 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 if (habit) overlay.openEdit({ record: habit as any, spaceId });
               }}
             />
+
+            {/* Recent Activity - ALWAYS shows regardless of filter */}
+            <RecentActivitySection
+              items={items}
+              onItemPress={handleItemPress}
+              testID="space-section-recent-activity"
+            />
+
+            {/* Filtered sections based on active filter */}
+            {(filter === 'all' || filter === 'todos') && (
+              <TodosSection
+                items={items}
+                spaceId={spaceId}
+                onItemPress={handleItemPress}
+                onToggleComplete={handleTodoComplete}
+                testID="space-section-todos"
+              />
+            )}
+            {(filter === 'all' || filter === 'habits') && (
+              <HabitsSection
+                items={items}
+                spaceId={spaceId}
+                weekly={weekly}
+                onItemPress={handleItemPress}
+                onLogProgress={handleHabitLogProgress}
+                testID="space-section-habits"
+              />
+            )}
+            {(filter === 'all' || filter === 'logs') && (
+              <LogsNotesSection
+                items={items}
+                spaceId={spaceId}
+                onItemPress={handleItemPress}
+                testID="space-section-logs-notes"
+              />
+            )}
+            {(filter === 'all' || filter === 'lists') && (
+              <ListsSection
+                items={items}
+                spaceId={spaceId}
+                onItemPress={handleItemPress}
+                testID="space-section-lists"
+              />
+            )}
 
             {/* Goals Zone: wraps IconRow and Goals with Sage tint background */}
             <GoalsZone>
@@ -1041,6 +1859,54 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
         >
           <SpaceBanner space={space} />
+
+          {/* Filter bar */}
+          <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
+
+          {/* Recent Activity - ALWAYS shows regardless of filter */}
+          <RecentActivitySection
+            items={items}
+            onItemPress={handleItemPress}
+            testID="space-section-recent-activity"
+          />
+
+          {/* Filtered sections based on active filter */}
+          {(filter === 'all' || filter === 'todos') && (
+            <TodosSection
+              items={items}
+              spaceId={spaceId}
+              onItemPress={handleItemPress}
+              onToggleComplete={handleTodoComplete}
+              testID="space-section-todos"
+            />
+          )}
+          {(filter === 'all' || filter === 'habits') && (
+            <HabitsSection
+              items={items}
+              spaceId={spaceId}
+              weekly={weekly}
+              onItemPress={handleItemPress}
+              onLogProgress={handleHabitLogProgress}
+              testID="space-section-habits"
+            />
+          )}
+          {(filter === 'all' || filter === 'logs') && (
+            <LogsNotesSection
+              items={items}
+              spaceId={spaceId}
+              onItemPress={handleItemPress}
+              testID="space-section-logs-notes"
+            />
+          )}
+          {(filter === 'all' || filter === 'lists') && (
+            <ListsSection
+              items={items}
+              spaceId={spaceId}
+              onItemPress={handleItemPress}
+              testID="space-section-lists"
+            />
+          )}
+
           <View style={[styles.content, { padding: T.spacing[4] }]}>
             <Text style={styles.sectionTitle}>Chats</Text>
             {chats.length === 0 ? (
@@ -1202,6 +2068,53 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               </View>
             </View>
           </View>
+        )}
+
+        {/* Filter bar */}
+        <SpaceFilterBar activeFilter={filter} onFilterChange={setFilter} />
+
+        {/* Recent Activity - ALWAYS shows regardless of filter */}
+        <RecentActivitySection
+          items={items}
+          onItemPress={handleItemPress}
+          testID="space-section-recent-activity"
+        />
+
+        {/* Filtered sections based on active filter */}
+        {(filter === 'all' || filter === 'todos') && (
+          <TodosSection
+            items={items}
+            spaceId={spaceId}
+            onItemPress={handleItemPress}
+            onToggleComplete={handleTodoComplete}
+            testID="space-section-todos"
+          />
+        )}
+        {(filter === 'all' || filter === 'habits') && (
+          <HabitsSection
+            items={items}
+            spaceId={spaceId}
+            weekly={weekly}
+            onItemPress={handleItemPress}
+            onLogProgress={handleHabitLogProgress}
+            testID="space-section-habits"
+          />
+        )}
+        {(filter === 'all' || filter === 'logs') && (
+          <LogsNotesSection
+            items={items}
+            spaceId={spaceId}
+            onItemPress={handleItemPress}
+            testID="space-section-logs-notes"
+          />
+        )}
+        {(filter === 'all' || filter === 'lists') && (
+          <ListsSection
+            items={items}
+            spaceId={spaceId}
+            onItemPress={handleItemPress}
+            testID="space-section-lists"
+          />
         )}
 
         {/* Week strip (v22) */}

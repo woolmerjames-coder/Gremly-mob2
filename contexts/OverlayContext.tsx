@@ -26,7 +26,7 @@ interface ConversionMeta {
 
 interface OverlayState {
   visible: boolean;
-  mode: 'create' | 'edit';
+  mode: 'create' | 'edit' | 'view';
   initialEntity?: {
     type: EntityType | null;
     id?: string;
@@ -62,6 +62,7 @@ interface OverlayContextValue {
   state: OverlayState;
   openCreate: (options?: CreateOptions) => void;
   openEdit: (options: EditOptions) => void;
+  openView: (options: EditOptions) => void;
   close: () => void;
 }
 
@@ -188,6 +189,65 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     }, 600);
   }, []);
 
+  const openView = useCallback(({ record, spaceId }: EditOptions) => {
+    if (isOpeningRef.current) {
+      console.log('[GlobalOverlay] open already in progress, ignoring');
+      return;
+    }
+
+    let entityType: EntityType;
+    let logSubtype: LogSubtype | null = null;
+
+    if (record.type === 'habit') {
+      entityType = 'habit';
+    } else if (record.type === 'todo') {
+      entityType = 'todo';
+    } else if (record.type === 'note') {
+      const labels = (record as any)?.labels as string[] | undefined;
+      const recordSubtype = (record as any)?.subtype as string | undefined;
+
+      if (labels?.includes?.(NEEDS_REVIEW_LABEL) || recordSubtype === CATCHALL_LABEL) {
+        entityType = 'unsorted';
+        logSubtype = null;
+      } else {
+        entityType = 'log';
+        logSubtype = persistedNoteSubtypeToLogSubtype(recordSubtype ?? null);
+      }
+    } else {
+      entityType = 'log';
+      logSubtype = 'everything_else';
+    }
+
+    // Extract views from the record to pass through to overlay
+    const safeViews = record.views ?? {};
+
+    const newState = {
+      visible: true,
+      mode: 'view' as const,
+      initialEntity: {
+        type: entityType,
+        id: record.id,
+        logSubtype,
+      },
+      initialSpaceId: spaceId,
+      initialText: null,
+      entity: record, // Store full record for pre-fill
+      views: safeViews, // Pass through views (ai_title_frozen, ai_tags_frozen, etc.)
+    };
+
+    console.log('[GlobalOverlay] openView called with state:', newState);
+
+    isOpeningRef.current = true;
+    setState(newState);
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      isOpeningRef.current = false;
+    }, 600);
+  }, []);
+
   const close = useCallback(() => {
     setState({
       visible: false,
@@ -205,7 +265,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <OverlayContext.Provider value={{ state, openCreate, openEdit, close }}>
+    <OverlayContext.Provider value={{ state, openCreate, openEdit, openView, close }}>
       {children}
     </OverlayContext.Provider>
   );

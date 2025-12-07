@@ -1,3 +1,4 @@
+// LEGACY: no longer used by SpaceHomeScreen. Kept for reference.
 /**
  * JournalPreview - Shows recent journal entries for a space
  * Uses countJournalForSpace selector
@@ -5,8 +6,8 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import type { Note } from '../../lib/types';
-import { lightTokens } from '../../design/tokens';
+import type { Note } from '../../../lib/types';
+import { lightTokens } from '../../../design/tokens';
 import { format, parseISO } from 'date-fns';
 
 interface JournalPreviewProps {
