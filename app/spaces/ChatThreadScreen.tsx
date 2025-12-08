@@ -81,6 +81,12 @@ import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import type { CanonicalType, LogSubtype } from '../../lib/types';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useActionToast, type ActionToastInput } from '../../src/hooks/useActionToast';
+
+// Space Chat enhanced context imports
+import { useSpaceChatEnhanced } from '../../hooks/useSpaceChatEnhanced';
+import { type ChatMessageForResolution } from '../../lib/chat/thisResolver';
+import MessageWithSave from '../../components/chat/MessageWithSave';
+
 const resolveOverlayCreateParams = (
   kind: IntentKind,
 ): { type: CanonicalType; logSubtype?: LogSubtype | null } | null => {
@@ -404,6 +410,21 @@ export default function ChatThreadScreen({ route }: Props) {
     appendEntryCard,
     removeMessage,
   } = useChatMessages(chatId, spaceId);
+
+  // Helper function to convert messages for resolution
+  const getMessagesForResolution = useCallback((): ChatMessageForResolution[] => {
+    return messages.map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+      timestamp: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
+    }));
+  }, [messages]);
+
+  // Space Chat enhanced context hook
+  const spaceChatEnhanced = useSpaceChatEnhanced({
+    spaceId,
+    chatId,
+  });
 
   // Back button handler
   const handleBackPress = useCallback(() => {
@@ -976,6 +997,35 @@ export default function ChatThreadScreen({ route }: Props) {
           return; // Skip Cortex API call
         }
 
+        // Space Chat: Meta-intent handling (before regular Cortex call)
+        // Handles "save this", "what did we talk about", etc.
+        const metaResult = spaceChatEnhanced.checkForMetaIntent(
+          trimmedText,
+          getMessagesForResolution(),
+        );
+        if (metaResult.type === 'save_this') {
+          mascot.thinking();
+          const saveResult = await spaceChatEnhanced.handleSaveThisCommand(
+            metaResult.intent,
+            metaResult.resolution,
+          );
+          await appendAssistantMessage(saveResult.gremlyResponse);
+          mascot.idle();
+          setSending(false);
+          return;
+        } else if (metaResult.type === 'summary') {
+          mascot.thinking();
+          // Filter to only user/assistant messages for summary
+          const recentMessages = getMessagesForResolution()
+            .filter((m) => m.role === 'user' || m.role === 'assistant')
+            .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+          const summaryResult = await spaceChatEnhanced.handleSummaryCommand(recentMessages);
+          await appendAssistantMessage(summaryResult.gremlyResponse);
+          mascot.idle();
+          setSending(false);
+          return;
+        }
+
         // Phase 10.6: Start thinking animation for API call
         mascot.thinking();
 
@@ -1182,6 +1232,17 @@ export default function ChatThreadScreen({ route }: Props) {
 
             const appendedMessage = await appendAssistantMessage(assistantText);
 
+            // Space Chat: Run saveable detection for assistant message
+            if (appendedMessage?.id) {
+              spaceChatEnhanced
+                .runSaveableDetection(assistantText, trimmedText, appendedMessage.id)
+                .catch((err) => {
+                  if (__DEV__) {
+                    console.error('[ChatThread] Saveable detection failed:', err);
+                  }
+                });
+            }
+
             // Phase 10.8: Maybe refresh Space Insight summary (background, fire-and-forget)
             if (getEnv('EXPO_PUBLIC_SPACE_SUMMARY_BG') === 'on' && spaceId) {
               // Convert messages to ChatTurn format
@@ -1244,6 +1305,13 @@ export default function ChatThreadScreen({ route }: Props) {
             } else {
               mascot.replying();
             }
+
+            // Space Chat: Update rolling context after turn completes
+            spaceChatEnhanced.onTurnComplete(trimmedText, assistantText).catch((err) => {
+              if (__DEV__) {
+                console.error('[ChatThread] Context update failed:', err);
+              }
+            });
           }
         } catch (cortexError: any) {
           // Enhanced cortex error handling with detailed logging
@@ -1714,7 +1782,17 @@ export default function ChatThreadScreen({ route }: Props) {
                     return null;
                   }
 
-                  return (
+                  // Space Chat: Get save button state for this message
+                  const saveButtonState =
+                    message.role === 'assistant'
+                      ? spaceChatEnhanced.getButtonStateForMessage(message.id)
+                      : null;
+                  const showSaveButton = saveButtonState?.isVisible ?? false;
+                  const isSaving = saveButtonState?.isSaving ?? false;
+                  const saveableResult = saveButtonState?.result ?? null;
+
+                  // Wrap assistant messages with MessageWithSave for save button support
+                  const messageBubble = (
                     <View
                       key={message.id}
                       style={[
@@ -1736,6 +1814,48 @@ export default function ChatThreadScreen({ route }: Props) {
                       )}
                     </View>
                   );
+
+                  // For assistant messages with save button, wrap with MessageWithSave
+                  if (message.role === 'assistant' && (showSaveButton || saveableResult)) {
+                    return (
+                      <MessageWithSave
+                        key={message.id}
+                        messageId={message.id}
+                        saveableResult={saveableResult}
+                        showSaveButton={showSaveButton}
+                        isSaving={isSaving}
+                        onSave={(result) => {
+                          spaceChatEnhanced.startSaving();
+                          // Open save overlay with prefilled data
+                          const prefill = result.prefill || {};
+                          openUnifiedFromChat(
+                            result.suggestedType as OverlayKind,
+                            {
+                              title: prefill.title || smartTitle(message.content),
+                              note: prefill.content,
+                            },
+                            {
+                              lane: 'space_chat',
+                              spaceId: spaceId || null,
+                              messageId: message.id,
+                            },
+                            overlayController,
+                          );
+                          // Track save completion
+                          spaceChatEnhanced.finishSaving();
+                          spaceChatEnhanced.markSaveTapped();
+                        }}
+                        onDismiss={() => {
+                          spaceChatEnhanced.dismissSaveButton();
+                          spaceChatEnhanced.markSaveDismissed();
+                        }}
+                      >
+                        {messageBubble}
+                      </MessageWithSave>
+                    );
+                  }
+
+                  return messageBubble;
                 })}
 
                 {/* Suggestion chips for ask mode responses */}
