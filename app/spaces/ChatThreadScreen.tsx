@@ -966,15 +966,15 @@ export default function ChatThreadScreen({ route }: Props) {
                           // AI-generated prefill takes priority, fallback to extracted content
                           const prefill = result.prefill || {};
                           const kind = saveableTypeToOverlayKind(result.suggestedType);
-                          // Notes get full message content; todos/habits get empty details (title is the task)
-                          const noteContent = kind === 'note' ? message.content : '';
+                          // Notes/Logs: full assistant response; Todos/Habits: AI-summarized content
+                          const note = kind === 'note' ? message.content : prefill.content || '';
                           openUnifiedFromChat(
                             kind,
                             {
                               // AI title first, fallback to smartTitle extraction
                               title: prefill.title || smartTitle(message.content),
-                              // Notes: full response; Todos/Habits: empty (title is sufficient)
-                              note: noteContent,
+                              // Notes: full response; Todos/Habits: AI summary (or empty)
+                              note,
                               // Pass tags from AI, or empty array to avoid stale tags
                               tags: prefill.tags || [],
                               // Habit-specific fields

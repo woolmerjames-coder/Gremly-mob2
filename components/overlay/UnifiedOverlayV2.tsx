@@ -1769,6 +1769,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         };
       }
 
+      // SPACE CHAT FIX: For todos/habits, if initialNote is falsy, explicitly clear details/notes
+      // This prevents rawText from the hasText block from leaking into the details field
+      // Space Chat passes the title separately - todos/habits don't need body text
+      if (initialTitle && !initialNote) {
+        payload.todo = {
+          ...(payload.todo || initialV2State.todo),
+          details: '',
+        };
+        payload.habit = {
+          ...(payload.habit || initialV2State.habit),
+          notes: '',
+        };
+      }
+
       // Apply todo due date from Space Chat detection
       if (conversionMeta.initialDueDate) {
         payload.todo = {
