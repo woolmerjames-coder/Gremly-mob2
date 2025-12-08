@@ -19,7 +19,6 @@ import {
   ActivityIndicator,
   Alert,
   SafeAreaView,
-  ToastAndroid,
   Image,
   TouchableOpacity,
   Pressable,
@@ -584,16 +583,6 @@ export default function ChatThreadScreen({ route }: Props) {
     [handleSend],
   );
 
-  // Helper to show success toast cross-platform with chat-specific messaging
-  const showChatConversionToast = useCallback((message: string) => {
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(message, ToastAndroid.SHORT);
-    } else {
-      // TODO: Implement custom toast with Golden Pear color (#E0C47A)
-      Alert.alert('✅ Success', message);
-    }
-  }, []);
-
   // Environment gate - wrap entire chat UI
   if (process.env.EXPO_PUBLIC_FEATURE_CHAT !== 'on') {
     return <Placeholder text="Chat temporarily disabled" />;
@@ -623,35 +612,33 @@ export default function ChatThreadScreen({ route }: Props) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         >
-          {/* Header with Mascot - Phase 10.6 */}
-          {shouldShowMascot() && (
-            <View style={styles.header}>
-              <View style={styles.headerContent}>
+          {/* Header - always shown for navigation */}
+          <View style={styles.header}>
+            <View style={styles.headerContent}>
+              <TouchableOpacity
+                onPress={handleBackPress}
+                style={styles.backButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityLabel="Go back to Space"
+                accessibilityRole="button"
+              >
+                <Text style={styles.backButtonText}>← Space</Text>
+              </TouchableOpacity>
+              <Text style={styles.headerTitle}>Chat</Text>
+              <View style={styles.headerRight}>
                 <TouchableOpacity
-                  onPress={handleBackPress}
-                  style={styles.backButton}
+                  onPress={() => setSearchVisible(true)}
+                  style={styles.searchButton}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  accessibilityLabel="Go back to Space"
+                  accessibilityLabel="Search messages"
                   accessibilityRole="button"
                 >
-                  <Text style={styles.backButtonText}>← Space</Text>
+                  <SearchIcon size={24} color="#2E5540" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Chat with Gremly</Text>
-                <View style={styles.headerRight}>
-                  <TouchableOpacity
-                    onPress={() => setSearchVisible(true)}
-                    style={styles.searchButton}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    accessibilityLabel="Search messages"
-                    accessibilityRole="button"
-                  >
-                    <SearchIcon size={24} color="#2E5540" />
-                  </TouchableOpacity>
-                  <Mascot size="md" />
-                </View>
+                {shouldShowMascot() && <Mascot size="md" />}
               </View>
             </View>
-          )}
+          </View>
 
           {/* Messages ScrollView */}
           <ScrollView
@@ -938,16 +925,35 @@ export default function ChatThreadScreen({ route }: Props) {
               conversionMeta={overlayController.state.conversionMeta}
               onClose={overlayController.close}
               onSaved={async (result) => {
-                // Success toast with chat-specific messaging
-                const itemType =
-                  result.type === 'note'
-                    ? 'Note'
-                    : result.type === 'todo'
-                      ? 'To-Do'
-                      : result.type === 'habit'
-                        ? 'Habit'
-                        : 'Item';
-                showChatConversionToast(`${itemType} created from chat ✨`);
+                if (__DEV__) {
+                  console.log('[ChatThreadScreen] onSaved called', {
+                    resultId: result?.id,
+                    resultType: result?.type,
+                    resultSpaceId: (result as any)?.space_id,
+                    spaceId,
+                  });
+                }
+                // Get the full record for tap-to-edit
+                const record = await repo.getById(result.id);
+
+                // Show toast with tap-to-edit using ActionToast
+                const typeLabel =
+                  result.type === 'habit' ? 'Habit' : result.type === 'todo' ? 'To-do' : 'Note';
+
+                showActionToast({
+                  type: 'success',
+                  content: `${typeLabel} saved!`,
+                  metadata: {
+                    onViewDetails: record
+                      ? () => {
+                          overlayController.openEdit({
+                            record,
+                            spaceId: spaceId ?? undefined,
+                          });
+                        }
+                      : undefined,
+                  },
+                });
 
                 // Remove the action confirmation toast after successful creation
                 const actionConfirmation = messages.find(

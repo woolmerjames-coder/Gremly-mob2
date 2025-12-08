@@ -3511,18 +3511,46 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       try {
         const savedType = (result as any)?.type ?? baseType;
         eventBus.emit('OverlaySaved', { id: result?.id, type: savedType });
+        // After successful save, emit event for immediate UI update
+        // Use result.space_id (from saved entity), fallback to state.spaceId, then initialSpaceId
+        const emitSpaceId = (result as any)?.space_id ?? state.spaceId ?? initialSpaceId ?? null;
+        if (__DEV__) {
+          console.log('[UnifiedOverlayV2] Emitting entity:created', {
+            type: savedType,
+            emitSpaceId,
+            resultSpaceId: (result as any)?.space_id,
+            stateSpaceId: state.spaceId,
+            initialSpaceId,
+            resultId: result?.id,
+          });
+        }
+        eventBus.emit('entity:created', {
+          entity: result,
+          type: savedType,
+          spaceId: emitSpaceId,
+        });
       } catch (e) {
         // ignore
       }
       try {
         // Notify parent (OverlayHost) so it can run its saved hooks
+        if (__DEV__) {
+          console.log('[UnifiedOverlayV2] About to call onSaved', {
+            hasOnSaved: !!onSaved,
+            resultId: result?.id,
+            resultType: (result as any)?.type ?? baseType,
+          });
+        }
         onSaved?.({
           id: result?.id,
           type: (result as any)?.type ?? baseType,
           savedEntity: result,
         } as any);
+        if (__DEV__) {
+          console.log('[UnifiedOverlayV2] onSaved called successfully');
+        }
       } catch (e) {
-        // ignore
+        console.error('[UnifiedOverlayV2] onSaved failed:', e);
       }
 
       // show a quick save pulse before closing (respect reduced motion)
@@ -4801,10 +4829,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           onPress: async () => {
                                             try {
                                               const itemId = (initialEntity as any).id;
+                                              const itemSpaceId =
+                                                (initialEntity as any).space_id ??
+                                                state.spaceId ??
+                                                initialSpaceId;
                                               // Emit delete event BEFORE closing for optimistic UI
                                               eventBus.emit('ItemDeleted', {
                                                 id: itemId,
                                                 type: 'todo',
+                                              });
+                                              if (__DEV__) {
+                                                console.log(
+                                                  '[UnifiedOverlayV2] Emitting entity:deleted',
+                                                  {
+                                                    id: itemId,
+                                                    type: 'todo',
+                                                    spaceId: itemSpaceId,
+                                                  },
+                                                );
+                                              }
+                                              eventBus.emit('entity:deleted', {
+                                                id: itemId,
+                                                type: 'todo',
+                                                spaceId: itemSpaceId,
                                               });
                                               onClose();
                                               // Perform actual delete in background
@@ -4917,10 +4964,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           onPress: async () => {
                                             try {
                                               const itemId = (initialEntity as any).id;
+                                              const itemSpaceId =
+                                                (initialEntity as any).space_id ??
+                                                state.spaceId ??
+                                                initialSpaceId;
                                               // Emit delete event BEFORE closing for optimistic UI
                                               eventBus.emit('ItemDeleted', {
                                                 id: itemId,
                                                 type: 'habit',
+                                              });
+                                              if (__DEV__) {
+                                                console.log(
+                                                  '[UnifiedOverlayV2] Emitting entity:deleted',
+                                                  {
+                                                    id: itemId,
+                                                    type: 'habit',
+                                                    spaceId: itemSpaceId,
+                                                  },
+                                                );
+                                              }
+                                              eventBus.emit('entity:deleted', {
+                                                id: itemId,
+                                                type: 'habit',
+                                                spaceId: itemSpaceId,
                                               });
                                               onClose();
                                               // Perform actual delete in background
@@ -5186,10 +5252,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           onPress: async () => {
                                             try {
                                               const itemId = (initialEntity as any).id;
+                                              const itemSpaceId =
+                                                (initialEntity as any).space_id ??
+                                                state.spaceId ??
+                                                initialSpaceId;
                                               // Emit delete event BEFORE closing for optimistic UI
                                               eventBus.emit('ItemDeleted', {
                                                 id: itemId,
                                                 type: 'note',
+                                              });
+                                              if (__DEV__) {
+                                                console.log(
+                                                  '[UnifiedOverlayV2] Emitting entity:deleted',
+                                                  {
+                                                    id: itemId,
+                                                    type: 'note',
+                                                    spaceId: itemSpaceId,
+                                                  },
+                                                );
+                                              }
+                                              eventBus.emit('entity:deleted', {
+                                                id: itemId,
+                                                type: 'note',
+                                                spaceId: itemSpaceId,
                                               });
                                               onClose();
                                               // Perform actual delete in background

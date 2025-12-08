@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { startOfWeek, addDays, formatISO, isSameDay, parseISO } from 'date-fns';
 import { useRepo } from '../providers/RepoProvider';
 import { supabase } from '../lib/supabase/client';
+import { eventBus } from '../lib/events/EventBus';
 import type { AppRecord } from '../lib/types';
 
 export type TimelineItem = {
@@ -168,6 +169,36 @@ export function useSpaceTimeline(spaceId: string | null | undefined): UseSpaceTi
       supabase.removeChannel(channel);
     };
   }, [backend, spaceId, reload]);
+
+  // Optimistic updates via EventBus (faster than realtime)
+  useEffect(() => {
+    if (!spaceId) return;
+
+    const handleEntityCreated = ({ entity, type, spaceId: entitySpaceId }: any) => {
+      if (__DEV__) {
+        console.log('[useSpaceTimeline] entity:created received', {
+          entitySpaceId,
+          currentSpaceId: spaceId,
+          type,
+          entityId: entity?.id,
+        });
+      }
+      // Reload if:
+      // 1. entitySpaceId matches this space, OR
+      // 2. entitySpaceId is null/undefined (assume it might belong here)
+      if (entitySpaceId !== spaceId && entitySpaceId != null) {
+        if (__DEV__) console.log('[useSpaceTimeline] Skipping - different space');
+        return;
+      }
+
+      // Trigger immediate reload
+      if (__DEV__) console.log('[useSpaceTimeline] Triggering reload for space', spaceId);
+      reload();
+    };
+
+    const unsub = eventBus.on('entity:created', handleEntityCreated);
+    return () => unsub();
+  }, [spaceId, reload]);
 
   const next7Days = useCallback(() => {
     // Start today forward 7 days
