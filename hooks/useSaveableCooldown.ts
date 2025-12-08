@@ -79,6 +79,8 @@ export interface UseSaveableCooldownReturn {
   isInCooldown: boolean;
   /** Human-readable reason if in cooldown, null if okay to show Save */
   cooldownReason: string | null;
+  /** Raw cooldown state for passing to other hooks */
+  cooldownState: CooldownState;
   /** Increment turn counter - call after each assistant message */
   incrementTurn: () => void;
   /** Record that Save button was shown - starts cooldown */
@@ -171,6 +173,7 @@ export function useSaveableCooldown(): UseSaveableCooldownReturn {
     currentTurn,
     isInCooldown,
     cooldownReason,
+    cooldownState,
     incrementTurn,
     markSaveShown,
     markSaveDismissed,
