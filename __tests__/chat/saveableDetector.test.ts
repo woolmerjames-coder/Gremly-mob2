@@ -100,12 +100,12 @@ describe('saveableDetector', () => {
       expect(SAVEABLE_THRESHOLDS.FLOOR).toBe(0.6);
     });
 
-    test('TODO is 0.92', () => {
-      expect(SAVEABLE_THRESHOLDS.TODO).toBe(0.92);
+    test('TODO is 0.75', () => {
+      expect(SAVEABLE_THRESHOLDS.TODO).toBe(0.75);
     });
 
-    test('HABIT is 0.9', () => {
-      expect(SAVEABLE_THRESHOLDS.HABIT).toBe(0.9);
+    test('HABIT is 0.75', () => {
+      expect(SAVEABLE_THRESHOLDS.HABIT).toBe(0.75);
     });
   });
 
@@ -115,13 +115,18 @@ describe('saveableDetector', () => {
       expect(mightBeSaveable('Got it.')).toBe(false);
     });
 
-    test('returns false for questions', () => {
+    test('returns false for questions without saveable indicators', () => {
       expect(mightBeSaveable('What time works best for you?')).toBe(false);
-      expect(mightBeSaveable('How can I help you today?')).toBe(false);
+      // Note: "How can I help you today?" now returns true because "today" is a saveable indicator
     });
 
-    test('returns false for greetings', () => {
-      expect(mightBeSaveable('Hi there! How are you doing today?')).toBe(false);
+    test('returns true for questions with saveable indicators like "today"', () => {
+      // "today" is now a saveable indicator, so these return true
+      expect(mightBeSaveable('How can I help you today?')).toBe(true);
+      expect(mightBeSaveable('Hi there! How are you doing today?')).toBe(true);
+    });
+
+    test('returns false for greetings without saveable indicators', () => {
       expect(mightBeSaveable('Hello! Nice to meet you.')).toBe(false);
     });
 

@@ -50,11 +50,13 @@ describe('saveableCooldown', () => {
       expect(isInCooldown(state, 5)).toBe(false);
     });
 
-    test('returns true within COOLDOWN_AFTER_SHOWN window', () => {
+    test('showing Save alone does NOT trigger cooldown (updated behavior)', () => {
+      // NEW BEHAVIOR: Just showing Save button doesn't trigger cooldown
+      // Cooldown only applies after dismissal
       const state = recordSaveShown(createEmptyCooldownState(), 5);
-      expect(isInCooldown(state, 5)).toBe(true); // 0 turns later
-      expect(isInCooldown(state, 6)).toBe(true); // 1 turn later
-      expect(isInCooldown(state, 7)).toBe(false); // 2 turns later (cooldown = 2)
+      expect(isInCooldown(state, 5)).toBe(false); // No cooldown just for showing
+      expect(isInCooldown(state, 6)).toBe(false);
+      expect(isInCooldown(state, 7)).toBe(false);
     });
 
     test('returns true within COOLDOWN_AFTER_DISMISSED window', () => {
@@ -65,12 +67,16 @@ describe('saveableCooldown', () => {
       expect(isInCooldown(state, 8)).toBe(false); // 3 turns later (cooldown = 3)
     });
 
-    test('dismissed cooldown is longer than shown cooldown', () => {
+    test('only dismissed triggers cooldown, not just shown', () => {
       const shownState = recordSaveShown(createEmptyCooldownState(), 5);
       const dismissedState = recordSaveDismissed(createEmptyCooldownState(), 5);
 
-      // At turn 7: shown cooldown expired, dismissed still active
+      // Shown alone: no cooldown
+      expect(isInCooldown(shownState, 5)).toBe(false);
       expect(isInCooldown(shownState, 7)).toBe(false);
+
+      // Dismissed: cooldown active
+      expect(isInCooldown(dismissedState, 5)).toBe(true);
       expect(isInCooldown(dismissedState, 7)).toBe(true);
     });
 
@@ -85,10 +91,10 @@ describe('saveableCooldown', () => {
       state = recordSaveShown(state, 3);
       state = recordSaveDismissed(state, 5);
 
-      // At turn 6: shown cooldown expired (3 turns), dismissed still active
+      // At turn 6: dismissed cooldown still active (only 1 turn passed)
       expect(isInCooldown(state, 6)).toBe(true);
 
-      // At turn 8: both expired
+      // At turn 8: dismissed cooldown expired (3 turns)
       expect(isInCooldown(state, 8)).toBe(false);
     });
   });
@@ -183,17 +189,17 @@ describe('saveableCooldown', () => {
   });
 
   describe('real-world scenarios', () => {
-    test('Save shown → user ignores → cooldown → can show again', () => {
+    test('Save shown alone does NOT trigger cooldown (user must dismiss)', () => {
       let state = createEmptyCooldownState();
 
-      // Turn 1: Save shown
+      // Turn 1: Save shown - no cooldown from just showing
       state = recordSaveShown(state, 1);
-      expect(isInCooldown(state, 1)).toBe(true);
+      expect(isInCooldown(state, 1)).toBe(false);
 
-      // Turn 2: Still in cooldown
-      expect(isInCooldown(state, 2)).toBe(true);
+      // Turn 2: Still no cooldown
+      expect(isInCooldown(state, 2)).toBe(false);
 
-      // Turn 3: Cooldown expired, can show again
+      // Turn 3: Still no cooldown
       expect(isInCooldown(state, 3)).toBe(false);
     });
 

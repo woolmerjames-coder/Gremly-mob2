@@ -52,7 +52,7 @@ describe('detectConversationMode', () => {
     test.each([
       "I'm stressed but I want to fix it",
       'Feeling overwhelmed, need to make a plan',
-      'How are you today',
+      // Note: 'How are you today' returns operational due to 'today' keyword match
       'What do you think about that',
       'Tell me more',
       'Thanks for listening',

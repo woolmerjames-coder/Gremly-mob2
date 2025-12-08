@@ -27,8 +27,8 @@ describe('Overlay Prefill Utilities', () => {
       expect(smartTitle('Buy groceries')).toBe('Buy groceries');
     });
 
-    it('handles empty text', () => {
-      expect(smartTitle('')).toBe('');
+    it('handles empty text with fallback', () => {
+      expect(smartTitle('')).toBe('Untitled');
     });
 
     it('preserves text when no match', () => {
