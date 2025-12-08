@@ -3,6 +3,10 @@
  *
  * Matches UnifiedOverlayV2 type selector styling exactly.
  * Used in both overlay and Space screens for consistent visuals.
+ *
+ * Variants:
+ * - 'primary' (default): Larger, bolder for top-level mode switches (e.g. Actions/Chats)
+ * - 'secondary': Smaller, subtler for subcategory filters (e.g. All/Todos/Habits/Logs/Lists)
  */
 
 import React from 'react';
@@ -19,6 +23,8 @@ export interface SegmentedPillOption<T extends string> {
   label: string;
 }
 
+export type SegmentedPillsVariant = 'primary' | 'secondary';
+
 export interface SegmentedPillsProps<T extends string> {
   /** Array of options to display */
   options: SegmentedPillOption<T>[];
@@ -26,6 +32,8 @@ export interface SegmentedPillsProps<T extends string> {
   selected: T;
   /** Callback when option is selected */
   onSelect: (key: T) => void;
+  /** Visual variant: 'primary' for top-level toggles, 'secondary' for filter rows */
+  variant?: SegmentedPillsVariant;
   /** Optional container style override */
   containerStyle?: ViewStyle;
   /** Optional test ID prefix */
@@ -36,25 +44,48 @@ export function SegmentedPills<T extends string>({
   options,
   selected,
   onSelect,
+  variant = 'primary',
   containerStyle,
   testID = 'segmented-pills',
 }: SegmentedPillsProps<T>) {
+  const isPrimary = variant === 'primary';
+
   return (
-    <View style={[styles.container, containerStyle]} testID={testID}>
+    <View
+      style={[
+        styles.container,
+        isPrimary ? styles.containerPrimary : styles.containerSecondary,
+        containerStyle,
+      ]}
+      testID={testID}
+    >
       {options.map((option) => {
         const isActive = selected === option.key;
         return (
           <Pressable
             key={option.key}
             onPress={() => onSelect(option.key)}
-            style={[styles.pill, isActive && styles.pillActive]}
+            style={[
+              styles.pill,
+              isPrimary ? styles.pillPrimary : styles.pillSecondary,
+              isActive && (isPrimary ? styles.pillActivePrimary : styles.pillActiveSecondary),
+            ]}
             testID={`${testID}-${option.key}`}
             accessibilityRole="button"
             accessibilityLabel={option.label}
             accessibilityState={{ selected: isActive }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={[styles.pillText, isActive && styles.pillTextActive]}>{option.label}</Text>
+            <Text
+              style={[
+                styles.pillText,
+                isPrimary ? styles.pillTextPrimary : styles.pillTextSecondary,
+                isActive &&
+                  (isPrimary ? styles.pillTextActivePrimary : styles.pillTextActiveSecondary),
+              ]}
+            >
+              {option.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -63,34 +94,70 @@ export function SegmentedPills<T extends string>({
 }
 
 const styles = StyleSheet.create({
-  // Matches UnifiedOverlayV2 tabsContainer exactly
+  // Base container
   container: {
     flexDirection: 'row',
     borderRadius: 999,
     backgroundColor: SAGE_MIST_TINT,
-    padding: 2,
     alignSelf: 'center',
   },
-  // Matches UnifiedOverlayV2 tab
+  // Primary variant (top-level mode toggle)
+  containerPrimary: {
+    padding: 3,
+  },
+  // Secondary variant (subcategory filter row)
+  containerSecondary: {
+    padding: 2,
+  },
+
+  // Base pill
   pill: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
     borderRadius: 999,
   },
-  // Matches UnifiedOverlayV2 tabActive
-  pillActive: {
+  // Primary pill (larger)
+  pillPrimary: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+  },
+  // Secondary pill (smaller)
+  pillSecondary: {
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+  },
+
+  // Primary active state
+  pillActivePrimary: {
     backgroundColor: MOSS_GREEN_TINT,
   },
-  // Matches UnifiedOverlayV2 tabLabel
+  // Secondary active state
+  pillActiveSecondary: {
+    backgroundColor: MOSS_GREEN_TINT,
+  },
+
+  // Base text
   pillText: {
-    fontSize: 14,
-    fontWeight: '500',
     color: MUTED_SAGE,
   },
-  // Matches UnifiedOverlayV2 tabLabelActive
-  pillTextActive: {
+  // Primary text (larger, bolder)
+  pillTextPrimary: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  // Secondary text (smaller, lighter)
+  pillTextSecondary: {
+    fontSize: 13,
+    fontWeight: '400',
+  },
+
+  // Primary active text
+  pillTextActivePrimary: {
+    fontWeight: '700',
+    color: MOSS_GREEN,
+  },
+  // Secondary active text
+  pillTextActiveSecondary: {
     fontWeight: '600',
     color: MOSS_GREEN,
   },

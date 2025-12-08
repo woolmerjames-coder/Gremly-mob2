@@ -1201,7 +1201,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       console.log('[SpaceHome v33] title:', space?.name ?? 'Space');
     }
     return (
-      <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
+      <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>
         <Animated.View style={{ flex: 1, opacity: oV33, transform: [{ translateY: yV33 }] }}>
           <ScrollView
             ref={scrollRef}
@@ -1219,9 +1219,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             {/* Top-level mode toggle: Actions vs Chats */}
             <View
               style={{
-                paddingHorizontal: 16,
-                paddingTop: 16,
-                paddingBottom: 14,
+                alignSelf: 'center',
+                marginTop: 20,
+                marginBottom: 16,
               }}
             >
               <SegmentedPills
@@ -1231,6 +1231,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 ]}
                 selected={spaceView}
                 onSelect={(key) => setSpaceView(key as SpaceViewMode)}
+                variant="primary"
                 testID="space-view-toggle"
               />
             </View>
@@ -1239,15 +1240,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             {spaceView === 'actions' && (
               <View
                 style={{
-                  paddingHorizontal: 16,
-                  paddingTop: 0,
-                  paddingBottom: 20,
+                  alignSelf: 'center',
+                  marginBottom: 20,
                 }}
               >
                 <SegmentedPills
                   options={FILTER_OPTIONS}
                   selected={filter}
                   onSelect={setFilter}
+                  variant="secondary"
                   testID="space-filter-bar"
                 />
               </View>
@@ -1300,10 +1301,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             {/* ═══════════════════════════════════════════════════════════════════
                 ZONE B — Content Zone
                 ═══════════════════════════════════════════════════════════════════ */}
-            <View style={{ paddingTop: 8 }} testID="space-zone-b">
+            <View testID="space-zone-b">
               {/* Unified compact items list - only shown in Actions mode */}
               {spaceView === 'actions' && (
-                <>
+                <View style={{ paddingBottom: 24 }}>
                   {itemsToShow.length > 0 ? (
                     <View style={sectionStyles.itemsList}>
                       {itemsToShow.map((item: any, index: number) => {
@@ -1381,14 +1382,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       </Pressable>
                     </View>
                   )}
-                </>
+                </View>
               )}
 
               {/* ═══════════════════════════════════════════════════════════════════
                   CHATS MODE — Show only conversations
                   ═══════════════════════════════════════════════════════════════════ */}
               {spaceView === 'chats' && (
-                <>
+                <View style={{ paddingTop: 4, paddingBottom: 24 }}>
                   {/* New Chat CTA */}
                   <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
                     <Pressable
@@ -1499,7 +1500,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       </Text>
                     </View>
                   )}
-                </>
+                </View>
               )}
             </View>
           </ScrollView>
@@ -1517,7 +1518,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             paddingHorizontal: 16,
             paddingTop: 12,
             paddingBottom: 12 + insets.bottom,
-            backgroundColor: T.colors.bg,
+            backgroundColor: BRAND.colors.linenCream,
             borderTopWidth: 1,
             borderTopColor: 'rgba(191, 216, 192, 0.3)',
             flexDirection: 'row',
@@ -1604,7 +1605,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     if (__DEV__) console.log('[SpaceHome] render legacy (not v3)');
     // Legacy stacked layout fallback
     return (
-      <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
+      <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>
         <ScrollView
           ref={scrollRef}
           style={styles.scroll}
@@ -1616,9 +1617,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           {/* Top-level mode toggle: Actions vs Chats */}
           <View
             style={{
-              paddingHorizontal: 16,
-              paddingTop: 16,
-              paddingBottom: 14,
+              alignSelf: 'center',
+              marginTop: 20,
+              marginBottom: 16,
             }}
           >
             <SegmentedPills
@@ -1628,6 +1629,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               ]}
               selected={spaceView}
               onSelect={(key) => setSpaceView(key as SpaceViewMode)}
+              variant="primary"
               testID="space-view-toggle"
             />
           </View>
@@ -1636,15 +1638,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           {spaceView === 'actions' && (
             <View
               style={{
-                paddingHorizontal: 16,
-                paddingTop: 0,
-                paddingBottom: 20,
+                alignSelf: 'center',
+                marginBottom: 20,
               }}
             >
               <SegmentedPills
                 options={FILTER_OPTIONS}
                 selected={filter}
                 onSelect={setFilter}
+                variant="secondary"
                 testID="space-filter-bar"
               />
             </View>
@@ -1655,10 +1657,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           {/* ═══════════════════════════════════════════════════════════════════
               ZONE B — Content Zone (Legacy)
               ═══════════════════════════════════════════════════════════════════ */}
-          <View style={{ paddingTop: 8 }} testID="space-zone-b">
+          <View testID="space-zone-b">
             {/* Unified compact items list - only shown in Actions mode */}
             {spaceView === 'actions' && (
-              <>
+              <View style={{ paddingBottom: 24 }}>
                 {itemsToShow.length > 0 ? (
                   <View style={sectionStyles.itemsList}>
                     {itemsToShow.map((item: any, index: number) => {
@@ -1733,14 +1735,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     </Pressable>
                   </View>
                 )}
-              </>
+              </View>
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════
                 CHATS MODE — Show only conversations (Legacy)
                 ═══════════════════════════════════════════════════════════════════ */}
             {spaceView === 'chats' && (
-              <>
+              <View style={{ paddingTop: 4, paddingBottom: 24 }}>
                 {/* New Chat CTA */}
                 <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
                   <Pressable
@@ -1835,7 +1837,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     </Text>
                   </View>
                 )}
-              </>
+              </View>
             )}
           </View>
         </ScrollView>
@@ -1852,7 +1854,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             paddingHorizontal: 16,
             paddingTop: 12,
             paddingBottom: 12 + insets.bottom,
-            backgroundColor: T.colors.bg,
+            backgroundColor: BRAND.colors.linenCream,
             borderTopWidth: 1,
             borderTopColor: 'rgba(191, 216, 192, 0.3)',
             flexDirection: 'row',
@@ -1920,7 +1922,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // (effect moved above to satisfy hooks rules)
 
   return (
-    <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
+    <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
@@ -1998,9 +2000,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         {/* Top-level mode toggle: Actions vs Chats */}
         <View
           style={{
-            paddingHorizontal: 16,
-            paddingTop: 16,
-            paddingBottom: 14,
+            alignSelf: 'center',
+            marginTop: 20,
+            marginBottom: 16,
           }}
         >
           <SegmentedPills
@@ -2010,6 +2012,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             ]}
             selected={spaceView}
             onSelect={(key) => setSpaceView(key as SpaceViewMode)}
+            variant="primary"
             testID="space-view-toggle"
           />
         </View>
@@ -2018,15 +2021,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         {spaceView === 'actions' && (
           <View
             style={{
-              paddingHorizontal: 16,
-              paddingTop: 0,
-              paddingBottom: 20,
+              alignSelf: 'center',
+              marginBottom: 20,
             }}
           >
             <SegmentedPills
               options={FILTER_OPTIONS}
               selected={filter}
               onSelect={setFilter}
+              variant="secondary"
               testID="space-filter-bar"
             />
           </View>
@@ -2037,10 +2040,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         {/* ═══════════════════════════════════════════════════════════════════
             ZONE B — Content Zone (v22)
             ═══════════════════════════════════════════════════════════════════ */}
-        <View style={{ paddingTop: 8 }} testID="space-zone-b">
+        <View testID="space-zone-b">
           {/* Unified compact items list - only shown in Actions mode */}
           {spaceView === 'actions' && (
-            <>
+            <View style={{ paddingBottom: 24 }}>
               {itemsToShow.length > 0 ? (
                 <View style={sectionStyles.itemsList}>
                   {itemsToShow.map((item: any, index: number) => {
@@ -2115,14 +2118,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                   </Pressable>
                 </View>
               )}
-            </>
+            </View>
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════
               CHATS MODE — Show only conversations (v22)
               ═══════════════════════════════════════════════════════════════════ */}
           {spaceView === 'chats' && (
-            <>
+            <View style={{ paddingTop: 4, paddingBottom: 24 }}>
               {/* New Chat CTA */}
               <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
                 <Pressable
@@ -2238,7 +2241,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                   </Text>
                 </View>
               )}
-            </>
+            </View>
           )}
         </View>
       </ScrollView>
@@ -2255,7 +2258,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           paddingHorizontal: 16,
           paddingTop: 12,
           paddingBottom: 12 + insets.bottom,
-          backgroundColor: T.colors.bg,
+          backgroundColor: BRAND.colors.linenCream,
           borderTopWidth: 1,
           borderTopColor: 'rgba(191, 216, 192, 0.3)',
           flexDirection: 'row',
@@ -2391,7 +2394,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: BRAND.colors.linenCream,
   },
   scroll: {
     flex: 1,
@@ -2421,13 +2424,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: BRAND.colors.linenCream,
   },
   error: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: BRAND.colors.linenCream,
   },
   errorText: {
     fontSize: lightTokens.typography.size.lg,
