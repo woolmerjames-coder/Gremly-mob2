@@ -207,10 +207,10 @@ export const SAVEABLE_THRESHOLDS = {
 
   /**
    * Confidence required to suggest 'todo' type.
-   * Lowered from 0.92 to 0.85 - the AI detection is reliable
-   * and 0.92 was causing valid todos to be downgraded.
+   * Lowered from 0.92 → 0.85 → 0.75 - the AI detection is reliable
+   * and higher thresholds were causing valid todos to be downgraded.
    */
-  TODO: 0.85,
+  TODO: 0.75,
 
   /**
    * Confidence required to suggest 'habit' type.

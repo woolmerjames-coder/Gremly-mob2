@@ -171,11 +171,12 @@ export function useSaveableDetection(): UseSaveableDetectionReturn {
         return null;
       }
 
-      // Skip if in cooldown
-      if (isInCooldown(cooldownState, currentTurn)) {
-        log('SKIP', 'In cooldown - not detecting');
-        return null;
-      }
+      // DISABLED: Cooldown logic removed - AI detection is the quality filter
+      // If something is detected as saveable, we should always show the save button
+      // if (isInCooldown(cooldownState, currentTurn)) {
+      //   log('SKIP', 'In cooldown - not detecting');
+      //   return null;
+      // }
 
       // Skip if already detecting this message
       if (pendingSetRef.current.has(messageId)) {

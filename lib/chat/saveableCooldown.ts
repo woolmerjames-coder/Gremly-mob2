@@ -78,6 +78,9 @@ export function createEmptyCooldownState(): CooldownState {
 /**
  * Checks if we're currently in a cooldown period and shouldn't show Save.
  *
+ * UPDATED: Cooldown only applies after dismissal, not after successful saves.
+ * If user tapped Save (positive engagement), we allow detection on next turn.
+ *
  * @param state - Current cooldown state
  * @param currentTurn - The current conversation turn number
  * @returns True if in cooldown (don't show Save), false if okay to show
@@ -90,15 +93,17 @@ export function createEmptyCooldownState(): CooldownState {
  * ```
  */
 export function isInCooldown(state: CooldownState, currentTurn: number): boolean {
-  // Check cooldown from last time Save was shown
-  if (state.lastSaveShownAtTurn !== undefined) {
-    const turnsSinceShown = currentTurn - state.lastSaveShownAtTurn;
-    if (turnsSinceShown < COOLDOWN_AFTER_SHOWN) {
-      return true;
-    }
+  // If user tapped Save on the most recent shown button, no cooldown
+  // (positive engagement means they want to save things)
+  if (
+    state.lastSaveTappedAtTurn !== undefined &&
+    state.lastSaveShownAtTurn !== undefined &&
+    state.lastSaveTappedAtTurn >= state.lastSaveShownAtTurn
+  ) {
+    return false;
   }
 
-  // Check cooldown from dismissal (longer cooldown)
+  // Check cooldown from dismissal only (user didn't want to save)
   if (state.lastSaveDismissedAtTurn !== undefined) {
     const turnsSinceDismissed = currentTurn - state.lastSaveDismissedAtTurn;
     if (turnsSinceDismissed < COOLDOWN_AFTER_DISMISSED) {
@@ -106,7 +111,7 @@ export function isInCooldown(state: CooldownState, currentTurn: number): boolean
     }
   }
 
-  // Note: lastSaveTappedAtTurn doesn't trigger cooldown (COOLDOWN_AFTER_TAPPED = 0)
+  // Note: We no longer cooldown just because Save was shown - only after dismissal
 
   return false;
 }

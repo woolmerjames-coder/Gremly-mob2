@@ -111,7 +111,7 @@ RESPOND IN JSON:
  *
  * @returns YYYY-MM-DD string or undefined if not resolvable
  */
-function resolveRelativeDate(indicator: string | undefined): string | undefined {
+export function resolveRelativeDate(indicator: string | undefined): string | undefined {
   if (!indicator) return undefined;
 
   const normalized = indicator.toLowerCase().trim();
@@ -183,8 +183,12 @@ function resolveRelativeDate(indicator: string | undefined): string | undefined 
 
 /**
  * Parse the AI response into a structured result.
+ * Exported for testing.
  */
-function parseDetectionResponse(responseText: string, messageId: string): SaveableResult | null {
+export function parseDetectionResponse(
+  responseText: string,
+  messageId: string,
+): SaveableResult | null {
   try {
     // Try to extract JSON from the response
     let jsonStr = responseText.trim();
@@ -485,19 +489,33 @@ export function mightBeSaveable(assistantMessage: string): boolean {
     return false;
   }
 
-  // Check for saveable indicators FIRST
+  // Check for saveable indicators FIRST - expanded list
   // This ensures messages like "Got it: call the dentist tomorrow" are detected
   // even though "Got it" alone would match a non-saveable pattern
   const saveableIndicators = [
+    // Suggestions and recommendations
     /\b(?:suggest|recommend|try|consider)\b/i,
+    // List structure
     /\b(?:here(?:'s| is| are)|step \d|first|second|third)\b/i,
-    /\b(?:schedule|plan|routine|habit)\b/i,
-    /\b(?:tomorrow|next week|every day|daily|weekly)\b/i,
     /\d+\.\s+\w/, // Numbered list
     /[-•]\s+\w/, // Bullet list
+    // Schedule/habit words
+    /\b(?:schedule|plan|routine|habit)\b/i,
+    // Time references (todos/habits)
+    /\b(?:today|tomorrow|tonight)\b/i,
+    /\b(?:next week|next month|this week)\b/i,
+    /\b(?:every day|daily|weekly|monthly)\b/i,
+    // Weekday names
+    /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+    // Action verbs commonly in tasks
+    /\b(?:call|buy|get|pick up|drop off|send|email|text|book|reserve)\b/i,
+    /\b(?:remind|remember|don't forget|make sure)\b/i,
+    /\b(?:need to|have to|should|must|gonna|going to)\b/i,
+    // Confirmation of task/commitment
+    /\b(?:added|noted|on (?:the|your) list|got it.*(?:call|buy|do|schedule|remind))\b/i,
   ];
 
-  // If it has saveable indicators, might be saveable (check this FIRST)
+  // If ANY saveable indicator matches, return true immediately
   for (const pattern of saveableIndicators) {
     if (pattern.test(assistantMessage)) {
       return true;
@@ -505,15 +523,14 @@ export function mightBeSaveable(assistantMessage: string): boolean {
   }
 
   // Check for non-saveable indicators (questions, greetings)
-  // Only reject if no saveable indicators were found
+  // Only reject if NO saveable indicators were found above
   const nonSaveableIndicators = [
-    /^(?:hi|hello|hey)\b/i,
-    /\?$/, // Ends with question
-    /^(?:i understand|got it|okay|sure)\b/i,
-    /^(?:how|what|when|where|why|would you like)\b/i,
+    /^(?:hi|hello|hey)[!,.\s]*$/i, // Pure greeting (nothing else)
+    /^[^.!]*\?$/, // Single sentence ending with question
+    /^(?:how|what|when|where|why|would you like)\b/i, // Question starters
   ];
 
-  // If it looks like a question or greeting (and no saveable indicators), reject
+  // If it looks like a pure question or greeting (and no saveable indicators), reject
   for (const pattern of nonSaveableIndicators) {
     if (pattern.test(assistantMessage.trim())) {
       return false;
