@@ -68,6 +68,7 @@ import { useActionToast, type ActionToastInput } from '../../src/hooks/useAction
 import { useSpaceChatEnhanced } from '../../hooks/useSpaceChatEnhanced';
 import { type ChatMessageForResolution } from '../../lib/chat/thisResolver';
 import MessageWithSave from '../../components/chat/MessageWithSave';
+import { eventBus } from '../../lib/events/EventBus';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
@@ -191,6 +192,30 @@ export default function ChatThreadScreen({ route }: Props) {
   useEffect(() => {
     searchIndex.initialize();
   }, []);
+
+  // Listen for OverlaySaved events to show toast (overlay is global, not local)
+  useEffect(() => {
+    if (!spaceId) return;
+
+    const handleOverlaySaved = (payload: { id: string; type?: string }) => {
+      const typeLabel =
+        payload.type === 'habit' ? 'Habit' : payload.type === 'todo' ? 'To-do' : 'Note';
+
+      if (__DEV__) {
+        console.log('[ChatThread] OverlaySaved event received', payload);
+      }
+
+      showActionToast({
+        type: 'success',
+        content: `${typeLabel} saved!`,
+      });
+    };
+
+    const unsub = eventBus.on('OverlaySaved', handleOverlaySaved);
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, [spaceId, showActionToast]);
 
   // Index messages as they're added
   useEffect(() => {

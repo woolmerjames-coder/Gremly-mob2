@@ -4833,7 +4833,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                 (initialEntity as any).space_id ??
                                                 state.spaceId ??
                                                 initialSpaceId;
-                                              // Emit delete event BEFORE closing for optimistic UI
+
+                                              // 1. Delete from database FIRST
+                                              await repo.remove(itemId);
+                                              if (__DEV__) {
+                                                console.log(
+                                                  '[UnifiedOverlayV2] Item deleted from DB:',
+                                                  itemId,
+                                                );
+                                              }
+
+                                              // 2. THEN emit events so reload gets fresh data
                                               eventBus.emit('ItemDeleted', {
                                                 id: itemId,
                                                 type: 'todo',
@@ -4853,10 +4863,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                 type: 'todo',
                                                 spaceId: itemSpaceId,
                                               });
+
+                                              // 3. Close overlay last
                                               onClose();
-                                              // Perform actual delete in background
-                                              await repo.remove(itemId);
-                                              eventBus.emit('ItemUpdated', { id: itemId });
                                             } catch (err) {
                                               console.error(
                                                 '[UnifiedOverlayV2] Delete failed:',
@@ -4968,7 +4977,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                 (initialEntity as any).space_id ??
                                                 state.spaceId ??
                                                 initialSpaceId;
-                                              // Emit delete event BEFORE closing for optimistic UI
+
+                                              // 1. Delete from database FIRST
+                                              await repo.remove(itemId);
+                                              if (__DEV__) {
+                                                console.log(
+                                                  '[UnifiedOverlayV2] Item deleted from DB:',
+                                                  itemId,
+                                                );
+                                              }
+
+                                              // 2. THEN emit events so reload gets fresh data
                                               eventBus.emit('ItemDeleted', {
                                                 id: itemId,
                                                 type: 'habit',
@@ -4988,10 +5007,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                 type: 'habit',
                                                 spaceId: itemSpaceId,
                                               });
+
+                                              // 3. Close overlay last
                                               onClose();
-                                              // Perform actual delete in background
-                                              await repo.remove(itemId);
-                                              eventBus.emit('ItemUpdated', { id: itemId });
                                             } catch (err) {
                                               console.error(
                                                 '[UnifiedOverlayV2] Delete failed:',
@@ -5256,7 +5274,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                 (initialEntity as any).space_id ??
                                                 state.spaceId ??
                                                 initialSpaceId;
-                                              // Emit delete event BEFORE closing for optimistic UI
+
+                                              // 1. Delete from database FIRST
+                                              await repo.remove(itemId);
+                                              if (__DEV__) {
+                                                console.log(
+                                                  '[UnifiedOverlayV2] Item deleted from DB:',
+                                                  itemId,
+                                                );
+                                              }
+
+                                              // 2. THEN emit events so reload gets fresh data
                                               eventBus.emit('ItemDeleted', {
                                                 id: itemId,
                                                 type: 'note',
@@ -5276,10 +5304,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                 type: 'note',
                                                 spaceId: itemSpaceId,
                                               });
+
+                                              // 3. Close overlay last
                                               onClose();
-                                              // Perform actual delete in background
-                                              await repo.remove(itemId);
-                                              eventBus.emit('ItemUpdated', { id: itemId });
                                             } catch (err) {
                                               console.error(
                                                 '[UnifiedOverlayV2] Delete log failed:',
