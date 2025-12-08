@@ -258,6 +258,43 @@ export async function callChat(
   );
 }
 
+/**
+ * Call the Cortex proxy for Space Chat conversations.
+ * Uses GPT-5.1 via the space_chat lane with conversational settings.
+ *
+ * @param messages - The conversation messages
+ * @param opts - Options including spaceId, chatId, and optional system prompt override
+ * @returns The AI response
+ */
+export async function callSpaceChat(
+  messages: ChatMessage[],
+  opts: {
+    spaceId: string;
+    chatId: string;
+    systemPrompt?: string;
+  },
+) {
+  // Build messages array with system prompt if provided
+  const allMessages: ChatMessage[] = opts.systemPrompt
+    ? [{ role: 'system', content: opts.systemPrompt }, ...messages]
+    : messages;
+
+  return postJSON(
+    {
+      type: 'chat',
+      model: 'gpt-5.1', // Will be overridden by worker for space_chat lane anyway
+      messages: allMessages,
+      temperature: 0.7,
+      max_tokens: 400,
+      lane: 'space_chat', // Critical: tells worker to use GPT-5.1
+      spaceId: opts.spaceId,
+      space_id: opts.spaceId,
+      chatId: opts.chatId,
+    },
+    { raw: true },
+  );
+}
+
 export async function callComplete(
   prompt: string,
   opts?: { model?: string; temperature?: number; maxTokens?: number },
@@ -478,4 +515,4 @@ export async function callClassify(opts: {
   }
 }
 
-export const CortexClient = { callChat, callComplete, callClassify };
+export const CortexClient = { callChat, callComplete, callClassify, callSpaceChat };

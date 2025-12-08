@@ -3944,6 +3944,27 @@ export class SupabaseSpaceChatRepo {
     return this.currentUserId;
   }
 
+  /**
+   * Get a single chat by ID
+   */
+  async getById(chatId: string): Promise<import('../types').SpaceChat | null> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .select('*')
+      .eq('id', chatId)
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null; // Not found
+      throw new Error(`Failed to get space chat: ${error.message}`);
+    }
+
+    return data as import('../types').SpaceChat;
+  }
+
   async list(
     spaceId: string,
     opts?: { includeArchived?: boolean },
@@ -4004,6 +4025,8 @@ export class SupabaseSpaceChatRepo {
     if ('pinned' in patch) updatePayload.pinned = patch.pinned;
     if ('last_message_snippet' in patch)
       updatePayload.last_message_snippet = patch.last_message_snippet ?? null;
+    if ('running_summary' in patch) updatePayload.running_summary = patch.running_summary ?? null;
+    if ('context_json' in patch) updatePayload.context_json = patch.context_json ?? null;
     if ('metadata_json' in patch) updatePayload.metadata_json = patch.metadata_json ?? null;
 
     const { data, error } = await supabase

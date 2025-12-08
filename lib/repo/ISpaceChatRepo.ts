@@ -6,6 +6,13 @@ import type { ID, SpaceChat, SpaceChatCreateInput, SpaceChatUpdateInput } from '
  */
 export interface ISpaceChatRepo {
   /**
+   * Get a single chat by ID
+   * @param chatId - The ID of the chat to fetch
+   * @returns The SpaceChat or null if not found
+   */
+  getById(chatId: ID): Promise<SpaceChat | null>;
+
+  /**
    * List all chats for a given space
    * @param spaceId - The space to list chats for
    * @param opts - Options for filtering (e.g., includeArchived)
