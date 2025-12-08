@@ -94,10 +94,88 @@ RESPOND IN JSON:
     "title": "5-10 word summary",
     "content": "the relevant content to save",
     "tags": ["tag1", "tag2"],
-    "dueDate": "YYYY-MM-DD or null (for todos only, extract from 'tomorrow', 'next week', etc.)"
+    "dueDate": "relative indicator like 'tomorrow', 'next_week', 'monday', '+3d', or null if no date mentioned (for todos only). Do NOT return an actual date - return the relative reference."
   },
   "reasoning": "brief explanation"
 }`;
+
+// ============================================================================
+// Date Resolution
+// ============================================================================
+
+/**
+ * Resolve relative date indicators to YYYY-MM-DD format.
+ *
+ * Handles: "tomorrow", "today", "+Nd" (e.g. "+3d"), "next_week",
+ * weekday names (monday, tuesday, etc.)
+ *
+ * @returns YYYY-MM-DD string or undefined if not resolvable
+ */
+function resolveRelativeDate(indicator: string | undefined): string | undefined {
+  if (!indicator) return undefined;
+
+  const normalized = indicator.toLowerCase().trim();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Helper to format date as YYYY-MM-DD
+  const formatDate = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Helper to add days
+  const addDays = (date: Date, days: number): Date => {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+  };
+
+  // "today"
+  if (normalized === 'today') {
+    return formatDate(today);
+  }
+
+  // "tomorrow"
+  if (normalized === 'tomorrow') {
+    return formatDate(addDays(today, 1));
+  }
+
+  // "+Nd" format (e.g., "+3d", "+7d")
+  const plusDaysMatch = normalized.match(/^\+(\d+)d$/);
+  if (plusDaysMatch) {
+    const days = parseInt(plusDaysMatch[1], 10);
+    return formatDate(addDays(today, days));
+  }
+
+  // "next_week" or "next week"
+  if (normalized === 'next_week' || normalized === 'next week') {
+    return formatDate(addDays(today, 7));
+  }
+
+  // Weekday names - find next occurrence
+  const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const weekdayIndex = weekdays.indexOf(normalized);
+  if (weekdayIndex !== -1) {
+    const currentDay = today.getDay();
+    let daysUntil = weekdayIndex - currentDay;
+    if (daysUntil <= 0) {
+      daysUntil += 7; // Next week if today or past
+    }
+    return formatDate(addDays(today, daysUntil));
+  }
+
+  // Check if it's already a valid YYYY-MM-DD date (pass through)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  // Not a recognized format
+  log('DATE_RESOLVE', `Unrecognized date indicator: ${indicator}`);
+  return undefined;
+}
 
 // ============================================================================
 // Response Parsing
@@ -137,14 +215,16 @@ function parseDetectionResponse(responseText: string, messageId: string): Saveab
     }
 
     // Validate prefill
+    const rawDueDate =
+      typeof parsed.prefill?.dueDate === 'string' ? parsed.prefill.dueDate : undefined;
     const prefill = {
       title: typeof parsed.prefill?.title === 'string' ? parsed.prefill.title : '',
       content: typeof parsed.prefill?.content === 'string' ? parsed.prefill.content : '',
       tags: Array.isArray(parsed.prefill?.tags)
         ? parsed.prefill.tags.filter((t: unknown) => typeof t === 'string')
         : [],
-      // Extract dueDate for todos (AI returns YYYY-MM-DD or null)
-      dueDate: typeof parsed.prefill?.dueDate === 'string' ? parsed.prefill.dueDate : undefined,
+      // Resolve relative date indicator to YYYY-MM-DD (e.g., "tomorrow" → "2025-12-09")
+      dueDate: resolveRelativeDate(rawDueDate),
     };
 
     return {
