@@ -966,7 +966,7 @@ export default function ChatThreadScreen({ route }: Props) {
                           // AI-generated prefill takes priority, fallback to extracted content
                           const prefill = result.prefill || {};
                           openUnifiedFromChat(
-                            result.suggestedType as OverlayKind,
+                            saveableTypeToOverlayKind(result.suggestedType),
                             {
                               // AI title first, fallback to smartTitle extraction
                               title: prefill.title || smartTitle(message.content),

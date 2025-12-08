@@ -1265,6 +1265,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const editAutoPrefillRanRef = useRef(false);
   const aiTitlePersistedRef = useRef(false);
   const textInputRef = useRef<TextInput | null>(null);
+  const prevConversionMetaRef = useRef(conversionMeta);
+
+  // CRITICAL: Reset prefill flags when overlay closes or conversionMeta changes
+  // This prevents stale data from previous saves appearing in new saves
+  useEffect(() => {
+    if (!visible) {
+      // Reset when overlay closes
+      createPrefillAppliedRef.current = false;
+      editAutoPrefillRanRef.current = false;
+    } else if (conversionMeta !== prevConversionMetaRef.current) {
+      // Reset when conversionMeta changes while visible (new save action)
+      createPrefillAppliedRef.current = false;
+      editAutoPrefillRanRef.current = false;
+    }
+    prevConversionMetaRef.current = conversionMeta;
+  }, [visible, conversionMeta]);
+
   // feature flag for commitments (soft rollout)
   const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
   const currentTagsRef = useRef<TagKey[]>(state.tags);
@@ -1707,7 +1724,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         conversionMeta.initialNote ||
         conversionMeta.initialTags?.length ||
         conversionMeta.initialListItems?.length ||
-        conversionMeta.initialFrequency); // ADD: Space Chat habit frequency
+        conversionMeta.initialFrequency ||
+        conversionMeta.initialDueDate); // ADD: Space Chat todo due date
 
     if (!override && !hasText && !defaultDueToday && !hasConversionMeta) {
       createPrefillAppliedRef.current = true;
@@ -1742,6 +1760,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           ...(payload.habit || initialV2State.habit),
           title,
           notes: note,
+        };
+        // Also apply note to log body for notes
+        payload.log = {
+          ...(payload.log || initialV2State.log),
+          title: title,
+          body: note,
+        };
+      }
+
+      // Apply todo due date from Space Chat detection
+      if (conversionMeta.initialDueDate) {
+        payload.todo = {
+          ...(payload.todo || initialV2State.todo),
+          due_at: conversionMeta.initialDueDate,
         };
       }
 

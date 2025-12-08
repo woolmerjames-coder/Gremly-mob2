@@ -9,18 +9,47 @@ export interface HabitPrefill {
 }
 
 /**
- * Generate a smart title from user text
- * Strips common prefixes and cleans up the text
+ * Maximum length for a title before truncation
  */
-export function smartTitle(userText: string): string {
-  const trimmed = userText.trim();
+const MAX_TITLE_LENGTH = 50;
+
+/**
+ * Generate a smart title from text content
+ * Handles lists, long content, and common prefixes
+ */
+export function smartTitle(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return 'Untitled';
+
+  // Get first line only (for multi-line content)
+  const firstLine = trimmed.split('\n')[0].trim();
 
   // Strip common note/reminder prefixes
-  const withoutPrefixes = trimmed
+  let cleaned = firstLine
     .replace(/^(remember|note|don't forget|remind me|keep in mind|write down|jot down)[:;\s]*/i, '')
     .trim();
 
-  return withoutPrefixes || trimmed;
+  // Handle numbered list items: "1) Coava Coffee..." → "Coava Coffee..."
+  // Also handles "1.", "1:", "1 -", etc.
+  cleaned = cleaned.replace(/^\d+[.):-]\s*/, '').trim();
+
+  // Handle bullet points
+  cleaned = cleaned.replace(/^[-•*]\s*/, '').trim();
+
+  // If it's still too long, truncate at word boundary
+  if (cleaned.length > MAX_TITLE_LENGTH) {
+    // Find the last space before the limit
+    const truncateAt = cleaned.lastIndexOf(' ', MAX_TITLE_LENGTH);
+    if (truncateAt > 20) {
+      // Only truncate at word if we have reasonable content
+      cleaned = cleaned.slice(0, truncateAt) + '…';
+    } else {
+      // Hard truncate if no good word boundary
+      cleaned = cleaned.slice(0, MAX_TITLE_LENGTH - 1) + '…';
+    }
+  }
+
+  return cleaned || firstLine || 'Untitled';
 }
 
 /**

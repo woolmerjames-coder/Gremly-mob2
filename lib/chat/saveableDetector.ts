@@ -93,7 +93,8 @@ RESPOND IN JSON:
   "prefill": {
     "title": "5-10 word summary",
     "content": "the relevant content to save",
-    "tags": ["tag1", "tag2"]
+    "tags": ["tag1", "tag2"],
+    "dueDate": "YYYY-MM-DD or null (for todos only, extract from 'tomorrow', 'next week', etc.)"
   },
   "reasoning": "brief explanation"
 }`;
@@ -142,6 +143,8 @@ function parseDetectionResponse(responseText: string, messageId: string): Saveab
       tags: Array.isArray(parsed.prefill?.tags)
         ? parsed.prefill.tags.filter((t: unknown) => typeof t === 'string')
         : [],
+      // Extract dueDate for todos (AI returns YYYY-MM-DD or null)
+      dueDate: typeof parsed.prefill?.dueDate === 'string' ? parsed.prefill.dueDate : undefined,
     };
 
     return {
@@ -402,7 +405,9 @@ export function mightBeSaveable(assistantMessage: string): boolean {
     return false;
   }
 
-  // Check for saveable indicators
+  // Check for saveable indicators FIRST
+  // This ensures messages like "Got it: call the dentist tomorrow" are detected
+  // even though "Got it" alone would match a non-saveable pattern
   const saveableIndicators = [
     /\b(?:suggest|recommend|try|consider)\b/i,
     /\b(?:here(?:'s| is| are)|step \d|first|second|third)\b/i,
@@ -412,7 +417,15 @@ export function mightBeSaveable(assistantMessage: string): boolean {
     /[-•]\s+\w/, // Bullet list
   ];
 
+  // If it has saveable indicators, might be saveable (check this FIRST)
+  for (const pattern of saveableIndicators) {
+    if (pattern.test(assistantMessage)) {
+      return true;
+    }
+  }
+
   // Check for non-saveable indicators (questions, greetings)
+  // Only reject if no saveable indicators were found
   const nonSaveableIndicators = [
     /^(?:hi|hello|hey)\b/i,
     /\?$/, // Ends with question
@@ -420,17 +433,10 @@ export function mightBeSaveable(assistantMessage: string): boolean {
     /^(?:how|what|when|where|why|would you like)\b/i,
   ];
 
-  // If it looks like a question or greeting, probably not saveable
+  // If it looks like a question or greeting (and no saveable indicators), reject
   for (const pattern of nonSaveableIndicators) {
     if (pattern.test(assistantMessage.trim())) {
       return false;
-    }
-  }
-
-  // If it has saveable indicators, might be saveable
-  for (const pattern of saveableIndicators) {
-    if (pattern.test(assistantMessage)) {
-      return true;
     }
   }
 

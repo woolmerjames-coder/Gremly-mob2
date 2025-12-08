@@ -207,15 +207,18 @@ export const SAVEABLE_THRESHOLDS = {
 
   /**
    * Confidence required to suggest 'todo' type.
-   * Must be very confident since todos create obligations.
+   * Lowered from 0.92 to 0.85 - the AI detection is reliable
+   * and 0.92 was causing valid todos to be downgraded.
    */
-  TODO: 0.92,
+  TODO: 0.85,
 
   /**
    * Confidence required to suggest 'habit' type.
-   * Must be very confident AND have a detected frequency.
+   * Lowered from 0.9 to 0.75 - the AI detection is reliable
+   * and 0.9 was causing valid habits to be downgraded.
+   * Note: habits also require frequency detection to pass.
    */
-  HABIT: 0.9,
+  HABIT: 0.75,
 
   /**
    * Default entity type when confidence is above floor
