@@ -267,12 +267,17 @@ export interface SpaceChatMessage {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent';
+    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item';
     actionType?: string;
     actionId?: string;
     entryId?: string;
+    entityId?: string;
     entry?: any;
+    entity?: any;
     entryType?: string;
+    entityType?: string;
+    title?: string;
+    subtitle?: string;
     options?: any[];
     [key: string]: any;
   } | null;
@@ -288,12 +293,17 @@ export interface SpaceChatMessageInsert {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent';
+    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item';
     actionType?: string;
     actionId?: string;
     entryId?: string;
+    entityId?: string;
     entry?: any;
+    entity?: any;
     entryType?: string;
+    entityType?: string;
+    title?: string;
+    subtitle?: string;
     options?: any[];
     [key: string]: any;
   } | null;

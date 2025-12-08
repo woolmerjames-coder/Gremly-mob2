@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { SpaceChatMessage, SpaceChatMessageInsert } from '../lib/types';
 import { SupabaseSpaceChatMessageRepo, SupabaseSpaceChatRepo } from '../lib/repo/supabase';
+import { formatFrequencyLabel, formatDueDateLabel } from '../src/lib/formatters/itemDisplayHelpers';
 import { useAuth } from '../providers/AuthProvider';
 
 export function useChatMessages(chatId: string, spaceId: string) {
@@ -182,6 +183,66 @@ export function useChatMessages(chatId: string, spaceId: string) {
     setMessages((prev) => prev.filter((m) => m.id !== messageId));
   }, []);
 
+  /**
+   * Append a saved-item confirmation card to the chat
+   * Used after creating entities via Space Chat save flow
+   */
+  const appendSavedItemCard = useCallback(
+    async (
+      entity: Record<string, any>,
+      entityType: 'note' | 'todo' | 'habit' | 'person',
+    ): Promise<SpaceChatMessage | undefined> => {
+      if (!entity || !chatId || !spaceId || !user?.id) return undefined;
+
+      try {
+        setError(null);
+
+        // Generate title and subtitle based on entity type
+        const title = entity.title || entity.name || 'Untitled';
+        let subtitle = '';
+
+        if (entityType === 'habit') {
+          // Use frequency_json for better formatting, fallback to frequency string
+          const freqLabel = formatFrequencyLabel(entity.frequency_json);
+          subtitle = freqLabel || entity.frequency || 'Habit';
+        } else if (entityType === 'todo') {
+          // Use formatDueDateLabel for human-readable dates
+          const dueLabel = formatDueDateLabel(entity.due_at);
+          subtitle = dueLabel ? `Due ${dueLabel}` : 'Task';
+        } else if (entityType === 'note') {
+          subtitle = 'Note';
+        } else if (entityType === 'person') {
+          subtitle = 'Person';
+        }
+
+        const input: SpaceChatMessageInsert = {
+          chat_id: chatId,
+          space_id: spaceId,
+          role: 'system', // Valid database role
+          content: `Saved ${entityType}: ${title}`,
+          metadata_json: {
+            type: 'saved-item', // Message type in metadata
+            entity,
+            entityType,
+            entityId: entity.id,
+            title,
+            subtitle,
+          },
+        };
+
+        const newMessage = await messageRepo.append(input);
+        setMessages((prev) => [...prev, newMessage]);
+
+        return newMessage;
+      } catch (err) {
+        console.error('Failed to append saved item card:', err);
+        setError(err instanceof Error ? err.message : 'Failed to append saved item card');
+        throw err;
+      }
+    },
+    [chatId, spaceId, user?.id, messageRepo],
+  );
+
   // Load messages on mount and when chatId changes
   useEffect(() => {
     refresh();
@@ -196,6 +257,7 @@ export function useChatMessages(chatId: string, spaceId: string) {
     appendAssistantMessage,
     appendActionConfirmation,
     appendEntryCard,
+    appendSavedItemCard,
     removeMessage,
   };
 }

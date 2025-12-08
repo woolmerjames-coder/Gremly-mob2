@@ -44,6 +44,7 @@ import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { EntryCard } from '../../components/chat/EntryCard';
+import { SavedItemCard } from '../../src/components/chat/SavedItemCard';
 import { ChatActionBar } from '../../components/chat/ChatActionBar';
 import { MessageSearch } from '../../components/chat/MessageSearch';
 // Removed PersistentActionBar to reduce clutter per UX polish
@@ -119,6 +120,7 @@ export default function ChatThreadScreen({ route }: Props) {
     appendAssistantMessage,
     appendActionConfirmation,
     appendEntryCard,
+    appendSavedItemCard,
     removeMessage,
   } = useChatMessages(chatId, spaceId);
 
@@ -193,29 +195,36 @@ export default function ChatThreadScreen({ route }: Props) {
     searchIndex.initialize();
   }, []);
 
-  // Listen for OverlaySaved events to show toast (overlay is global, not local)
+  // Listen for entity:created events to add SavedItemCard to chat
   useEffect(() => {
     if (!spaceId) return;
 
-    const handleOverlaySaved = (payload: { id: string; type?: string }) => {
-      const typeLabel =
-        payload.type === 'habit' ? 'Habit' : payload.type === 'todo' ? 'To-do' : 'Note';
+    const handleEntityCreated = (payload: {
+      entity: any;
+      type: string;
+      spaceId?: string | null;
+    }) => {
+      // Only handle events for this space
+      if (payload.spaceId !== spaceId) return;
 
       if (__DEV__) {
-        console.log('[ChatThread] OverlaySaved event received', payload);
+        console.log('[ChatThread] entity:created event received', payload);
       }
 
-      showActionToast({
-        type: 'success',
-        content: `${typeLabel} saved!`,
-      });
+      // Add saved item card to chat
+      const entityType = payload.type as 'habit' | 'todo' | 'note' | 'person';
+      if (['habit', 'todo', 'note', 'person'].includes(entityType)) {
+        appendSavedItemCard(payload.entity, entityType).catch((err) => {
+          console.error('[ChatThread] Failed to append saved item card:', err);
+        });
+      }
     };
 
-    const unsub = eventBus.on('OverlaySaved', handleOverlaySaved);
+    const unsub = eventBus.on('entity:created', handleEntityCreated);
     return () => {
       if (typeof unsub === 'function') unsub();
     };
-  }, [spaceId, showActionToast]);
+  }, [spaceId, appendSavedItemCard]);
 
   // Index messages as they're added
   useEffect(() => {
@@ -835,6 +844,31 @@ export default function ChatThreadScreen({ route }: Props) {
                     }
                   }
 
+                  // Phase 11.8: Render saved-item card for Space Chat save confirmations
+                  if (message.role === 'system' && message.metadata_json?.type === 'saved-item') {
+                    const metadata = message.metadata_json || {};
+                    const entity = metadata.entity;
+                    const entityType = metadata.entityType as 'habit' | 'todo' | 'note' | 'person';
+
+                    if (entity && entityType) {
+                      return (
+                        <SavedItemCard
+                          key={message.id}
+                          itemType={entityType}
+                          title={metadata.title || entity.title || entity.name || 'Untitled'}
+                          subtitle={metadata.subtitle}
+                          onPress={() => {
+                            // Open unified overlay with full entity data
+                            overlayController.openEdit({
+                              record: { ...entity, type: entityType } as any,
+                              spaceId: spaceId ?? undefined,
+                            });
+                          }}
+                        />
+                      );
+                    }
+                  }
+
                   // Phase 11.3/11.5: Skip action confirmations - they're rendered outside ScrollView
                   // CRITICAL FIX: Check for system role with type 'action-confirmation' in metadata
                   if (
@@ -961,24 +995,8 @@ export default function ChatThreadScreen({ route }: Props) {
                 // Get the full record for tap-to-edit
                 const record = await repo.getById(result.id);
 
-                // Show toast with tap-to-edit using ActionToast
-                const typeLabel =
-                  result.type === 'habit' ? 'Habit' : result.type === 'todo' ? 'To-do' : 'Note';
-
-                showActionToast({
-                  type: 'success',
-                  content: `${typeLabel} saved!`,
-                  metadata: {
-                    onViewDetails: record
-                      ? () => {
-                          overlayController.openEdit({
-                            record,
-                            spaceId: spaceId ?? undefined,
-                          });
-                        }
-                      : undefined,
-                  },
-                });
+                // NOTE: Toast removed - SavedItemCard is now added via entity:created event listener
+                // This provides inline chat feedback instead of floating toast
 
                 // Remove the action confirmation toast after successful creation
                 const actionConfirmation = messages.find(
