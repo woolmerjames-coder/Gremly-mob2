@@ -289,8 +289,8 @@ function applyThresholds(result: SaveableResult, combinedText: string): Saveable
         `Habit confidence ${confidence} below threshold ${SAVEABLE_THRESHOLDS.HABIT}, downgrading to log-general`,
       );
       suggestedType = 'log-general';
-    } else {
-      // Valid habit - add frequency to prefill
+    } else if (frequencyResult) {
+      // Valid habit with frequency - add frequency to prefill
       log(
         'THRESHOLD',
         `Habit detected with frequency: ${frequencyResult.frequency}, count: ${frequencyResult.details?.count ?? 1}`,
@@ -305,6 +305,7 @@ function applyThresholds(result: SaveableResult, combinedText: string): Saveable
         },
       };
     }
+    // else: high confidence habit without frequency - continue without frequency prefill
   }
 
   return {
