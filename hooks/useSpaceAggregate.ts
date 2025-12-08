@@ -8,6 +8,7 @@ import { useAuth } from '../providers/AuthProvider';
 import { SupabaseSpaceChatRepo } from '../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../lib/repo/memory';
 import { supabase } from '../lib/supabase/client';
+import { eventBus } from '../lib/events/EventBus';
 
 export type SpaceAggregate = {
   space: Space | null;
@@ -310,6 +311,61 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
       supabase.removeChannel(channel);
     };
   }, [backend, spaceId, reload]);
+
+  // Optimistic updates via EventBus (faster than realtime)
+  useEffect(() => {
+    if (!spaceId) return;
+
+    const handleEntityCreated = (payload: { spaceId?: string | null; type?: string }) => {
+      const entitySpaceId = payload?.spaceId;
+
+      if (__DEV__) {
+        console.log('[useSpaceAggregate] entity:created received', {
+          entitySpaceId,
+          currentSpaceId: spaceId,
+          type: payload?.type,
+        });
+      }
+
+      // Reload if spaceIds match OR if entitySpaceId is unknown
+      if (entitySpaceId === spaceId || !entitySpaceId) {
+        if (__DEV__) {
+          console.log('[useSpaceAggregate] Triggering reload for space', spaceId);
+        }
+        reload();
+      }
+    };
+
+    const handleEntityDeleted = (payload: {
+      spaceId?: string | null;
+      id?: string;
+      type?: string;
+    }) => {
+      const entitySpaceId = payload?.spaceId;
+      if (__DEV__) {
+        console.log('[useSpaceAggregate] entity:deleted received', {
+          entitySpaceId,
+          currentSpaceId: spaceId,
+          id: payload?.id,
+          type: payload?.type,
+        });
+      }
+      if (entitySpaceId === spaceId || !entitySpaceId) {
+        if (__DEV__) {
+          console.log('[useSpaceAggregate] entity:deleted - Triggering reload');
+        }
+        reload();
+      }
+    };
+
+    const unsubCreate = eventBus.on('entity:created', handleEntityCreated);
+    const unsubDelete = eventBus.on('entity:deleted', handleEntityDeleted);
+
+    return () => {
+      if (typeof unsubCreate === 'function') unsubCreate();
+      if (typeof unsubDelete === 'function') unsubDelete();
+    };
+  }, [spaceId, reload]);
 
   const stats = useMemo(() => computeStats(items, chats), [items, chats, computeStats]);
   const upcoming = useMemo(() => buildUpcoming(items), [items, buildUpcoming]);

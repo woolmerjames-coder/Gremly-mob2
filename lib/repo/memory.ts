@@ -1782,6 +1782,14 @@ export class MemorySpaceChatRepo {
 
   constructor(private currentUserId: string = 'memory-user') {}
 
+  /**
+   * Get a single chat by ID
+   */
+  async getById(chatId: string): Promise<import('../types').SpaceChat | null> {
+    const chat = this.chats.find((c) => c.id === chatId && c.user_id === this.currentUserId);
+    return chat || null;
+  }
+
   async list(
     spaceId: string,
     opts?: { includeArchived?: boolean },

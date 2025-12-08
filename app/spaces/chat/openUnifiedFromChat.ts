@@ -5,6 +5,25 @@ import type { CanonicalType, LogSubtype } from '../../../lib/types';
 
 export type OverlayKind = 'todo' | 'note' | 'habit' | 'reflection';
 
+/**
+ * Map SaveableType (from detection) to OverlayKind.
+ * Detection returns types like 'log-general', 'log-list', etc.
+ * but overlay expects 'note', 'todo', 'habit', 'reflection'.
+ */
+export function saveableTypeToOverlayKind(saveableType: string): OverlayKind {
+  switch (saveableType) {
+    case 'todo':
+      return 'todo';
+    case 'habit':
+      return 'habit';
+    case 'log-general':
+    case 'log-list':
+    case 'log-idea':
+    default:
+      return 'note';
+  }
+}
+
 export interface ChatConversionMeta {
   lane: Lane; // 'space_chat'
   spaceId: string | null; // the current space
@@ -19,6 +38,9 @@ export interface OverlayInitial {
   title?: string;
   note?: string;
   dueDate?: string | null;
+  frequency?: string;
+  frequencyValue?: number;
+  tags?: string[];
   // add others as your overlay supports (due_date, cadence, etc.)
 }
 
@@ -59,6 +81,9 @@ export function openUnifiedFromChat(
       initialTitle: initial.title || '',
       initialNote: initial.note || '',
       initialDueDate: initial.dueDate ?? null,
+      initialFrequency: initial.frequency,
+      initialFrequencyValue: initial.frequencyValue,
+      initialTags: initial.tags || [],
     },
     suppressOverlayOpen: options?.suppressOverlayOpen,
   });

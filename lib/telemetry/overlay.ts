@@ -1,7 +1,7 @@
 import { FF_OVERLAY_TELEMETRY } from '../flags';
 
 type OverlayEvent =
-  | { type: 'overlay_open'; mode: 'create' | 'edit'; entryType: 'log' | 'todo' | 'habit' }
+  | { type: 'overlay_open'; mode: 'create' | 'edit' | 'view'; entryType: 'log' | 'todo' | 'habit' }
   | {
       type: 'overlay_save';
       entryType: 'log' | 'todo' | 'habit';

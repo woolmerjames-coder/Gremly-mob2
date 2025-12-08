@@ -69,7 +69,7 @@ export default function RootNavigator() {
         component={ChatThreadScreen}
         options={{
           title: 'Chat',
-          headerShown: true,
+          headerShown: false, // Using custom header in component
         }}
       />
       {/* Phase 10.7: Lists UX */}

@@ -220,6 +220,8 @@ export interface SpaceChat {
   pinned: boolean;
   archived_at?: string | null; // ISO 8601 timestamp when chat was archived (null = active)
   last_message_snippet?: string | null; // Preview of last message
+  running_summary?: string | null; // Rolling context summary
+  context_json?: any | null; // Structured context data (ChatContextStructured)
   updated_at: string; // ISO 8601
   metadata_json?: any | null; // JSON blob for additional metadata
   created_at: string; // ISO 8601
@@ -236,6 +238,8 @@ export interface SpaceChatUpdateInput {
   title?: string;
   pinned?: boolean;
   last_message_snippet?: string;
+  running_summary?: string;
+  context_json?: any;
   metadata_json?: any;
 }
 
@@ -263,12 +267,17 @@ export interface SpaceChatMessage {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent';
+    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item';
     actionType?: string;
     actionId?: string;
     entryId?: string;
+    entityId?: string;
     entry?: any;
+    entity?: any;
     entryType?: string;
+    entityType?: string;
+    title?: string;
+    subtitle?: string;
     options?: any[];
     [key: string]: any;
   } | null;
@@ -284,12 +293,17 @@ export interface SpaceChatMessageInsert {
   role: MessageRole;
   content: string;
   metadata_json?: {
-    type?: 'action-confirmation' | 'entry-card' | 'multi-intent';
+    type?: 'action-confirmation' | 'entry-card' | 'multi-intent' | 'saved-item';
     actionType?: string;
     actionId?: string;
     entryId?: string;
+    entityId?: string;
     entry?: any;
+    entity?: any;
     entryType?: string;
+    entityType?: string;
+    title?: string;
+    subtitle?: string;
     options?: any[];
     [key: string]: any;
   } | null;

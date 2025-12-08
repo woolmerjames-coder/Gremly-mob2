@@ -1,3 +1,4 @@
+// LEGACY: no longer used by SpaceHomeScreen. Kept for reference.
 /**
  * NotesResourcesPreview - Shows notes and resources for a space
  * Uses listNotesForSpace selector with subtype filtering
@@ -5,9 +6,9 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import type { Note } from '../../lib/types';
-import { lightTokens } from '../../design/tokens';
-import { getNoteLabel } from '../../lib/canonicalTypes';
+import type { Note } from '../../../lib/types';
+import { lightTokens } from '../../../design/tokens';
+import { getNoteLabel } from '../../../lib/canonicalTypes';
 
 interface NotesResourcesPreviewProps {
   notes: Note[];

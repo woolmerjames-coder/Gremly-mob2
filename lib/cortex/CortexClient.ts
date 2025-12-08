@@ -124,6 +124,7 @@ async function postJSON<T>(body: any, options?: { raw?: boolean }): Promise<Cort
     let data: any;
     try {
       data = text ? JSON.parse(text) : {};
+      log('FULL_RESPONSE_DATA', JSON.stringify(data));
       log('PARSED_RESPONSE', {
         hasChoices: Array.isArray(data?.choices),
         choicesCount: data?.choices?.length || 0,
@@ -253,6 +254,43 @@ export async function callChat(
       space_id: opts?.spaceId ?? undefined, // duplicate for worker/backward compat
       chatId: opts?.chatId ?? undefined,
       lane: opts?.lane ?? undefined,
+    },
+    { raw: true },
+  );
+}
+
+/**
+ * Call the Cortex proxy for Space Chat conversations.
+ * Uses GPT-5.1 via the space_chat lane with conversational settings.
+ *
+ * @param messages - The conversation messages
+ * @param opts - Options including spaceId, chatId, and optional system prompt override
+ * @returns The AI response
+ */
+export async function callSpaceChat(
+  messages: ChatMessage[],
+  opts: {
+    spaceId: string;
+    chatId: string;
+    systemPrompt?: string;
+  },
+) {
+  // Build messages array with system prompt if provided
+  const allMessages: ChatMessage[] = opts.systemPrompt
+    ? [{ role: 'system', content: opts.systemPrompt }, ...messages]
+    : messages;
+
+  return postJSON(
+    {
+      type: 'chat',
+      model: 'gpt-4o', // GPT-4o for conversational Space Chat
+      messages: allMessages,
+      temperature: 0.7,
+      max_completion_tokens: 400,
+      lane: 'space_chat', // Critical: tells worker to use GPT-4o
+      spaceId: opts.spaceId,
+      space_id: opts.spaceId,
+      chatId: opts.chatId,
     },
     { raw: true },
   );
@@ -478,4 +516,4 @@ export async function callClassify(opts: {
   }
 }
 
-export const CortexClient = { callChat, callComplete, callClassify };
+export const CortexClient = { callChat, callComplete, callClassify, callSpaceChat };

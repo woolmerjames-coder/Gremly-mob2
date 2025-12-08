@@ -16,6 +16,7 @@ import {
   Alert,
   RefreshControl,
   TouchableOpacity,
+  Pressable,
   useColorScheme,
   BackHandler,
 } from 'react-native';
@@ -41,18 +42,11 @@ import { WhatWeDiscussedCard } from '../../components/spaces/WhatWeDiscussedCard
 import { useAuth } from '../../providers/AuthProvider';
 import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
 import { summarizeChatForCard } from '../../lib/ai/chatSummaries';
-// v3 legacy components removed in v4 path
-import { FocusCard, CalendarStrip, QuickStatsRow, ChatCTA } from '../../components/spaces/v4';
+// v4 components (FocusCard, CalendarStrip, QuickStatsRow, ChatCTA) removed in Phase 5
 import HeaderV22 from '../../components/spaces/v22/Header';
-import WeekStripV22 from '../../components/spaces/v22/WeekStrip';
 import TimelineOverlay from '../../components/spaces/v22/Overlays/TimelineOverlay';
-import DayPanelV22 from '../../components/spaces/v22/DayPanel';
-import AdaptiveSummaryV22 from '../../components/spaces/v22/AdaptiveSummary';
-import FocusTodayCard from '../../components/spaces/v22/FocusTodayCard';
-import InsightsRow from '../../components/spaces/v22/InsightsRow';
 import NotepadOverlay from '../../components/spaces/v22/Overlays/NotepadOverlay';
 import PeopleOverlay from '../../components/spaces/v22/Overlays/PeopleOverlay';
-import NewChatCTA from '../../components/spaces/v22/NewChatCTA';
 import { COLORS as V22 } from '../../components/spaces/v22/_tokens';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -60,33 +54,471 @@ import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ConfettiBurst from '../../components/ConfettiBurst';
-import WeeklyGoalCard from '../../components/spaces/v22/WeeklyGoalCard';
-import { Search as SearchIcon, Settings as SettingsIcon } from '../../components/icons';
+import {
+  Search as SearchIcon,
+  Settings as SettingsIcon,
+  MessageSquare,
+  Plus,
+} from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
 import { useSpaceNotes } from '../../hooks/useSpaceNotes';
 // v33 components (Space v3.3)
 import HeaderV33 from '../../components/spaces/v33/Header';
-import NewChatSectionV33 from '../../components/spaces/v33/NewChatSection';
-import ThreadCardV33 from '../../components/spaces/v33/ThreadCard';
-// v33 goal components
-import GoalListV33 from '../../components/spaces/v33/GoalList';
-import GoalSectionV33, { GoalsZone } from '../../components/spaces/v33/GoalSection';
-import SearchOverlayV33 from '../../components/spaces/v33/Overlays/SearchOverlay';
-import IconRowV33 from '../../components/spaces/v33/IconRow';
-import CalendarOverlayV33 from '../../components/spaces/v33/Overlays/CalendarOverlay';
-import EditGoalModal from '../../components/spaces/v33/Overlays/EditGoalModal';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
-import GoalPlaceholder from '../../components/spaces/v33/GoalPlaceholder';
-import Menu from '../../components/spaces/v33/Menu';
 import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import type { CanonicalType } from '../../lib/cortex/canonicalMap';
+import { BRAND } from '../../design/brand';
+// Phase 6: Space quick add imports
+import { SpaceQuickAddModal } from '../../components/spaces/SpaceQuickAddModal';
+import { AttachExistingModal } from '../../components/spaces/AttachExistingModal';
+import { useSpaceQuickAdd } from '../../lib/spaces/useSpaceQuickAdd';
+// Shared components for unified styling
+import {
+  SegmentedPills,
+  AddToSpacePill,
+  EntityCard,
+  type EntityType,
+} from '../../components/shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
+
+// ============================================================================
+// LAYOUT CONSTANTS
+// ============================================================================
+
+/** Consistent horizontal padding for content alignment (selectors, cards) */
+const CONTENT_HORIZONTAL_PAD = 16;
+
+// ============================================================================
+// FILTER BAR TYPES & COMPONENTS
+// ============================================================================
+
+type FilterTab = 'all' | 'todos' | 'habits' | 'logs' | 'lists';
+
+const FILTER_OPTIONS: { key: FilterTab; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'todos', label: 'Todos' },
+  { key: 'habits', label: 'Habits' },
+  { key: 'logs', label: 'Logs' },
+  { key: 'lists', label: 'Lists' },
+];
+
+// ============================================================================
+// SECTION COMPONENTS
+// ============================================================================
+
+/** Helper to format relative date */
+function formatRelativeDate(dateString?: string | null): string {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+    return date.toLocaleDateString();
+  } catch {
+    return '';
+  }
+}
+
+/** Helper to format due date for todos */
+function formatDueDate(dueDate?: string | null): string {
+  if (!dueDate) return 'No due date';
+  try {
+    const date = new Date(dueDate);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.floor((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return 'Overdue';
+    if (diffDays === 0) return 'Due today';
+    if (diffDays === 1) return 'Due tomorrow';
+    return `Due ${date.toLocaleDateString()}`;
+  } catch {
+    return 'No due date';
+  }
+}
+
+/** Section "X more" footer style */
+const sectionMoreFooterStyle = {
+  paddingVertical: 10,
+  paddingHorizontal: 16,
+  alignItems: 'center' as const,
+};
+const sectionMoreTextStyle = {
+  fontSize: 12,
+  color: BRAND.colors.inkSubtle,
+};
+
+/** Todos Section - shows incomplete todos for this space (max 5, sorted by most recent) */
+function TodosSection({
+  items,
+  spaceId,
+  onItemPress,
+  onToggleComplete,
+  testID,
+}: {
+  items: AppRecord[];
+  spaceId: string;
+  onItemPress: (item: AppRecord) => void;
+  onToggleComplete: (item: AppRecord) => void;
+  testID?: string;
+}) {
+  const allTodos = React.useMemo(() => {
+    const incomplete = listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
+    // Sort by most recently updated
+    return [...incomplete].sort((a: any, b: any) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+  }, [items, spaceId]);
+
+  const displayTodos = allTodos.slice(0, 5);
+  const moreCount = allTodos.length - 5;
+
+  if (allTodos.length === 0) return null;
+
+  return (
+    <View style={sectionStyles.section} testID={testID}>
+      <View style={sectionStyles.itemsList}>
+        {displayTodos.map((todo: any, index: number) => (
+          <EntityCard
+            key={todo.id}
+            record={todo}
+            type="todo"
+            onPress={() => onItemPress(todo)}
+            onToggleComplete={() => onToggleComplete(todo)}
+            showCheckbox={true}
+            showTypePill={true}
+            isFirst={index === 0}
+            completed={!!todo.completed_at}
+            testID={`${testID}-item-${todo.id}`}
+          />
+        ))}
+      </View>
+      {moreCount > 0 && (
+        <Pressable
+          style={sectionMoreFooterStyle}
+          onPress={() => {
+            // TODO: Wire to full list view or search
+            console.log('[TodosSection] + X more pressed');
+          }}
+          testID={`${testID}-more`}
+        >
+          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/** Habits Section - shows habits with weekly progress (max 5, sorted by most recent) */
+/** Habits Section - shows habits with weekly progress (max 5, sorted by most recent) */
+function HabitsSection({
+  items,
+  spaceId,
+  weekly,
+  onItemPress,
+  onLogProgress,
+  testID,
+}: {
+  items: AppRecord[];
+  spaceId: string;
+  weekly?: { habits: Array<{ id: string; doneCount: number; target: number }> };
+  onItemPress: (item: AppRecord) => void;
+  onLogProgress: (item: AppRecord) => void;
+  testID?: string;
+}) {
+  const allHabits = React.useMemo(() => {
+    const habits = listHabitsForSpace(items, spaceId);
+    // Sort by most recently updated
+    return [...habits].sort((a: any, b: any) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+  }, [items, spaceId]);
+
+  const displayHabits = allHabits.slice(0, 5);
+  const moreCount = allHabits.length - 5;
+
+  const weeklyById = React.useMemo(() => {
+    const map = new Map<string, { doneCount: number; target: number }>();
+    (weekly?.habits || []).forEach((h) =>
+      map.set(h.id, { doneCount: h.doneCount, target: h.target }),
+    );
+    return map;
+  }, [weekly]);
+
+  if (allHabits.length === 0) return null;
+
+  return (
+    <View style={sectionStyles.section} testID={testID}>
+      <View style={sectionStyles.itemsList}>
+        {displayHabits.map((habit: any, index: number) => {
+          const progress = weeklyById.get(habit.id);
+          const doneCount = progress?.doneCount ?? 0;
+          const target = progress?.target ?? 3;
+          return (
+            <EntityCard
+              key={habit.id}
+              record={habit}
+              type="habit"
+              onPress={() => onItemPress(habit)}
+              onLogProgress={() => onLogProgress(habit)}
+              showCheckbox={true}
+              showTypePill={true}
+              isFirst={index === 0}
+              habitProgress={{ done: doneCount, target }}
+              testID={`${testID}-item-${habit.id}`}
+            />
+          );
+        })}
+      </View>
+      {moreCount > 0 && (
+        <Pressable
+          style={sectionMoreFooterStyle}
+          onPress={() => {
+            // TODO: Wire to full list view or search
+            console.log('[HabitsSection] + X more pressed');
+          }}
+          testID={`${testID}-more`}
+        >
+          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/** Logs/Notes Section - shows journal, idea, reference notes (excludes lists, max 5, sorted by most recent) */
+/** Logs/Notes Section - shows journal, idea, reference notes (excludes lists, max 5, sorted by most recent) */
+function LogsNotesSection({
+  items,
+  spaceId,
+  onItemPress,
+  testID,
+}: {
+  items: AppRecord[];
+  spaceId: string;
+  onItemPress: (item: AppRecord) => void;
+  testID?: string;
+}) {
+  const allLogs = React.useMemo(() => {
+    const notes = listNotesForSpace(items, spaceId);
+    const filtered = notes
+      .filter((n: any) => {
+        const subtype = n.subtype;
+        return subtype === 'journal' || subtype === 'idea' || subtype === 'reference' || !subtype;
+      })
+      .filter((n: any) => !n.is_list);
+    // Sort by most recently updated
+    return [...filtered].sort((a: any, b: any) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+  }, [items, spaceId]);
+
+  const displayLogs = allLogs.slice(0, 5);
+  const moreCount = allLogs.length - 5;
+
+  if (allLogs.length === 0) return null;
+
+  return (
+    <View style={sectionStyles.section} testID={testID}>
+      <View style={sectionStyles.itemsList}>
+        {displayLogs.map((log: any, index: number) => (
+          <EntityCard
+            key={log.id}
+            record={log}
+            type="log"
+            onPress={() => onItemPress(log)}
+            showCheckbox={false}
+            showTypePill={true}
+            isFirst={index === 0}
+            subtitle={formatRelativeDate(log.updated_at || log.created_at)}
+            testID={`${testID}-item-${log.id}`}
+          />
+        ))}
+      </View>
+      {moreCount > 0 && (
+        <Pressable
+          style={sectionMoreFooterStyle}
+          onPress={() => {
+            // TODO: Wire to full list view or search
+            console.log('[LogsNotesSection] + X more pressed');
+          }}
+          testID={`${testID}-more`}
+        >
+          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/** Lists Section - shows notes with is_list=true or subtype='list' (max 5, sorted by most recent) */
+function ListsSection({
+  items,
+  spaceId,
+  onItemPress,
+  testID,
+}: {
+  items: AppRecord[];
+  spaceId: string;
+  onItemPress: (item: AppRecord) => void;
+  testID?: string;
+}) {
+  const allLists = React.useMemo(() => {
+    const notes = listNotesForSpace(items, spaceId);
+    const filtered = notes.filter((n: any) => n.is_list || n.subtype === 'list');
+    // Sort by most recently updated
+    return [...filtered].sort((a: any, b: any) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+  }, [items, spaceId]);
+
+  const displayLists = allLists.slice(0, 5);
+  const moreCount = allLists.length - 5;
+
+  if (allLists.length === 0) return null;
+
+  return (
+    <View style={sectionStyles.section} testID={testID}>
+      <View style={sectionStyles.itemsList}>
+        {displayLists.map((list: any, index: number) => {
+          const itemCount = list.body ? (list.body.match(/^[-•*]\s/gm) || []).length : 0;
+          return (
+            <EntityCard
+              key={list.id}
+              record={list}
+              type="list"
+              onPress={() => onItemPress(list)}
+              showCheckbox={false}
+              showTypePill={true}
+              isFirst={index === 0}
+              subtitle={itemCount > 0 ? `${itemCount} items` : 'List'}
+              testID={`${testID}-item-${list.id}`}
+            />
+          );
+        })}
+      </View>
+      {moreCount > 0 && (
+        <Pressable
+          style={sectionMoreFooterStyle}
+          onPress={() => {
+            // TODO: Wire to full list view or search
+            console.log('[ListsSection] + X more pressed');
+          }}
+          testID={`${testID}-more`}
+        >
+          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/** Section styles - matches Gremly design system */
+const sectionStyles = StyleSheet.create({
+  section: {
+    marginBottom: 8,
+  },
+
+  // Actions/Chats toggle - simple tab bar (no pill background)
+  actionsChatsContainer: {
+    paddingHorizontal: CONTENT_HORIZONTAL_PAD,
+    marginTop: 16,
+    marginBottom: 20,
+  },
+  actionsChatsSegmentedControl: {
+    flexDirection: 'row',
+    // No background - clean tab bar style
+  },
+  actionsChatsTab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  actionsChatsTabText: {
+    fontSize: 17,
+    textAlign: 'center',
+  },
+  actionsChatsTabActive: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '700',
+  },
+  actionsChatsTabInactive: {
+    color: 'rgba(34, 34, 34, 0.6)', // 60% opacity ink
+    fontWeight: '400',
+  },
+  actionsChatsUnderline: {
+    height: 2,
+    width: 60,
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 1,
+    marginTop: 6,
+  },
+
+  // Items list - card container
+  itemsList: {
+    marginHorizontal: 16,
+    backgroundColor: BRAND.colors.linenCream,
+    borderRadius: BRAND.radius.md,
+    ...BRAND.elevation.one,
+    overflow: 'hidden',
+  },
+
+  // Empty state - card-style container
+  emptyState: {
+    marginHorizontal: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    backgroundColor: BRAND.colors.linenCream,
+    borderRadius: BRAND.radius.md,
+    ...BRAND.elevation.one,
+  },
+  emptyStateIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: BRAND.colors.sageMist,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyStateText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+  },
+  emptyStateSubtext: {
+    fontSize: 13,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 18,
+  },
+});
+
+// ============================================================================
+// EXISTING TYPES & CONSTANTS
+// ============================================================================
 
 interface LayoutState {
   scheduleCollapsed?: boolean;
@@ -129,14 +561,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     useSpaceAggregate(spaceId);
   const { totalCount: notesCount } = useSpaceNotes(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  // v33 search filter chip state
-  const [searchActiveV33, setSearchActiveV33] = useState<'chats' | 'notes' | 'habits'>('chats');
-  // Local search results (computed client-side)
-  const [activeTab, setActiveTab] = useState<'all' | 'chats' | 'habits' | 'todos' | 'notes'>(
-    'chats',
-  );
+  // Phase 5: Removed searchVisible, searchQuery, searchActiveV33 state (search via filter bar now)
   const isFocused = useIsFocused();
   const [summaryPulse] = useState(() => new Animated.Value(1));
   const [showConfetti, setShowConfetti] = useState(false);
@@ -147,25 +572,178 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     formatISO(new Date(), { representation: 'date' }),
   );
   const [showTimeline, setShowTimeline] = useState(false);
-  // v33 calendar overlay state (separate from v22 timeline)
-  const [showCalendarV33, setShowCalendarV33] = useState(false);
-  // v33: edit goal modal state
-  const [editGoalVisible, setEditGoalVisible] = useState(false);
-  const [editGoalRecord, setEditGoalRecord] = useState<import('../../lib/types').AppRecord | null>(
-    null,
-  );
+  // Phase 5: Removed showCalendarV33, editGoalVisible, editGoalRecord, showNotepad, intentDraft, showPeople
+  // Phase 5: Removed showUnifiedAdd, goalMenuId, renameChatModalOpen, renameChatId, renameChatTitle
   const [showNotepad, setShowNotepad] = useState(false);
-  const [intentDraft, setIntentDraft] = useState<string | undefined>(undefined);
   const [showPeople, setShowPeople] = useState(false);
-  // v33: Unified Add overlay state
-  const [showUnifiedAdd, setShowUnifiedAdd] = useState(false);
-  // v33: goal menu (inline Menu component)
-  const [goalMenuId, setGoalMenuId] = useState<string | null>(null);
-  // v33: rename chat modal state
-  const [renameChatModalOpen, setRenameChatModalOpen] = useState(false);
-  const [renameChatId, setRenameChatId] = useState<string | null>(null);
-  const [renameChatTitle, setRenameChatTitle] = useState('');
+
+  // NEW: Top-level view toggle (Actions vs Chats)
+  type SpaceViewMode = 'actions' | 'chats';
+  const [spaceView, setSpaceView] = useState<SpaceViewMode>('actions');
+
+  // NEW: Filter bar state
+  const [filter, setFilter] = useState<FilterTab>('all');
+
+  // Phase 6: Quick add state
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [showAttachExistingModal, setShowAttachExistingModal] = useState(false);
+  const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+
+  // Unified compact item list - combines all types, filtered, sorted by most recent
+  const MAX_COMPACT_ITEMS = 7;
+
+  // Weekly habit progress map (for habit progress bars)
+  const weeklyById = useMemo(() => {
+    const map = new Map<string, { doneCount: number; target: number }>();
+    (weekly?.habits || []).forEach((h: { id: string; doneCount: number; target: number }) =>
+      map.set(h.id, { doneCount: h.doneCount, target: h.target }),
+    );
+    return map;
+  }, [weekly]);
+
+  // Build unified filtered items array
+  const { itemsToShow, moreCount } = useMemo(() => {
+    // Get all items by type for this space
+    const todos = listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
+    const habits = listHabitsForSpace(items, spaceId);
+    const notes = listNotesForSpace(items, spaceId);
+    const logs = notes.filter(
+      (n: any) =>
+        !n.is_list &&
+        (n.subtype === 'journal' ||
+          n.subtype === 'idea' ||
+          n.subtype === 'reference' ||
+          !n.subtype),
+    );
+    const lists = notes.filter((n: any) => n.is_list || n.subtype === 'list');
+
+    // Apply filter
+    let filtered: any[] = [];
+    if (filter === 'all') {
+      filtered = [...todos, ...habits, ...logs, ...lists];
+    } else if (filter === 'todos') {
+      filtered = todos;
+    } else if (filter === 'habits') {
+      filtered = habits;
+    } else if (filter === 'logs') {
+      filtered = logs;
+    } else if (filter === 'lists') {
+      filtered = lists;
+    }
+
+    // Exclude optimistic items (already shown in optimistic card)
+    if (optimisticQuickAdd) {
+      filtered = filtered.filter((it) => it.id !== optimisticQuickAdd.id);
+    }
+
+    // Sort by most recently interacted (updated_at or created_at)
+    filtered.sort((a: any, b: any) => {
+      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bDate - aDate;
+    });
+
+    return {
+      itemsToShow: filtered.slice(0, MAX_COMPACT_ITEMS),
+      moreCount: Math.max(0, filtered.length - MAX_COMPACT_ITEMS),
+    };
+  }, [items, spaceId, filter, optimisticQuickAdd]);
+
+  // Helper to determine EntityCard type from record
+  const getEntityType = useCallback((record: any): EntityType => {
+    if (record.type === 'todo') return 'todo';
+    if (record.type === 'habit') return 'habit';
+    if (record.is_list || record.subtype === 'list') return 'list';
+    return 'log';
+  }, []);
+
   const overlay = useGlobalOverlay();
+
+  // Handler for item press (opens view overlay for read-only mode)
+  const handleItemPress = useCallback(
+    (item: AppRecord) => {
+      console.log('[SpaceHome] Item pressed:', item.id, item.type);
+      overlay.openView({ record: item, spaceId });
+    },
+    [overlay, spaceId],
+  );
+
+  // Handler for todo completion
+  const handleTodoComplete = useCallback(
+    async (item: AppRecord) => {
+      console.log('[SpaceHome] Todo complete:', item.id);
+      try {
+        await repo.completeTodo(item.id, new Date().toISOString());
+        setShowConfetti(true);
+        await reload();
+      } catch (e) {
+        console.warn('[SpaceHome] Failed to complete todo:', e);
+        Alert.alert('Error', 'Failed to complete todo');
+      }
+    },
+    [repo, reload],
+  );
+
+  // Handler for habit progress logging
+  const handleHabitLogProgress = useCallback(
+    async (item: AppRecord) => {
+      console.log('[SpaceHome] Habit log progress:', item.id);
+      try {
+        await repo.logHabitProgress(item.id, new Date().toISOString());
+        setShowConfetti(true);
+        await reload();
+      } catch (e) {
+        console.warn('[SpaceHome] Failed to log habit progress:', e);
+        Alert.alert('Error', 'Failed to log progress');
+      }
+    },
+    [repo, reload],
+  );
+
+  // Phase 6: Space quick add hook
+  const spaceQuickAdd = useSpaceQuickAdd({
+    spaceId,
+    onStart: (draftTitle) => {
+      console.log('[SpaceHome] Quick add started:', draftTitle);
+      setOptimisticQuickAdd({
+        id: `space-optimistic-${Date.now()}`,
+        title: draftTitle,
+      });
+    },
+    onComplete: (result) => {
+      console.log('[SpaceHome] Quick add complete:', result);
+      setOptimisticQuickAdd(null);
+      void reload();
+    },
+    onError: (error) => {
+      console.error('[SpaceHome] Quick add error:', error.message);
+      setOptimisticQuickAdd(null);
+    },
+  });
+
+  // Phase 6: Handle quick add submission
+  const handleQuickAddSubmit = useCallback(
+    (text: string) => {
+      spaceQuickAdd.onQuickAdd(text);
+    },
+    [spaceQuickAdd],
+  );
+
+  // Phase 6: Handle "Manual add" from quick add modal
+  const handleQuickAddManual = useCallback(
+    (text: string) => {
+      overlay.openCreate({ spaceId, initialText: text || undefined });
+    },
+    [overlay, spaceId],
+  );
+
+  // Phase 6: Handle attach existing completion
+  const handleAttachExistingComplete = useCallback(() => {
+    void reload();
+  }, [reload]);
 
   // Debug: Log overlay state changes
   useEffect(() => {
@@ -225,58 +803,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Refs for smooth scrolling to sections (v22)
   const scrollRef = React.useRef<ScrollView | null>(null);
-  const [dayPanelY, setDayPanelY] = React.useState<number | null>(null);
-  // Cascade fade-in for v22 sections
-  const oWeek = React.useMemo(() => new Animated.Value(0), []);
-  const oDay = React.useMemo(() => new Animated.Value(0), []);
-  const oSummary = React.useMemo(() => new Animated.Value(0), []);
-  const oInsights = React.useMemo(() => new Animated.Value(0), []);
-  const oCTA = React.useMemo(() => new Animated.Value(0), []);
-  const oThreads = React.useMemo(() => new Animated.Value(0), []);
-  // Slide-up motion for v22 sections
-  const yWeek = React.useMemo(() => new Animated.Value(20), []);
-  const yDay = React.useMemo(() => new Animated.Value(20), []);
-  const ySummary = React.useMemo(() => new Animated.Value(20), []);
-  const yInsights = React.useMemo(() => new Animated.Value(20), []);
-  const yCTA = React.useMemo(() => new Animated.Value(20), []);
-  const yThreads = React.useMemo(() => new Animated.Value(20), []);
+  // Phase 5: Removed v22 cascade animation values (oWeek, oDay, oSummary, oInsights, oCTA, oThreads, yWeek, etc.)
   // Focus card snooze state
   const [focusDismissed, setFocusDismissed] = useState<boolean>(false);
   // Feature flag: Space v22 header (strict equality as requested)
   const isSpaceV22 = process.env.EXPO_PUBLIC_SPACE_V22 === 'on';
 
-  useEffect(() => {
-    if (!isSpaceV22) return;
-    const ops = [oWeek, oDay, oSummary, oInsights, oCTA, oThreads];
-    const tys = [yWeek, yDay, ySummary, yInsights, yCTA, yThreads];
-    const groups = ops.map((op, i) =>
-      Animated.parallel([
-        Animated.timing(op, { toValue: 1, duration: 250, delay: i * 50, useNativeDriver: true }),
-        Animated.timing(tys[i], {
-          toValue: 0,
-          duration: 250,
-          delay: i * 50,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    Animated.stagger(50, groups).start();
-  }, [
-    isSpaceV22,
-    oCTA,
-    oDay,
-    oInsights,
-    oSummary,
-    oThreads,
-    oWeek,
-    yCTA,
-    yDay,
-    yInsights,
-    ySummary,
-    yThreads,
-    yWeek,
-  ]);
+  // Phase 5: Removed v22 cascade animation useEffect (no longer using those animated values)
+
   // Header mood line heuristic
   const headerMood = React.useMemo(() => {
     const lastChatTs = chats.reduce((acc, c) => Math.max(acc, new Date(c.updated_at).getTime()), 0);
@@ -338,21 +872,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }
   }, [isFocused, isSpaceV22]);
 
-  // When selected day changes in v22, scroll DayPanel into view (place before any early return)
-  useEffect(() => {
-    if (!isSpaceV22) return;
-    if (dayPanelY == null) return;
-    const t = setTimeout(() => {
-      try {
-        const y = Math.max(0, dayPanelY - 80);
-        scrollRef.current?.scrollTo({ y, animated: true });
-      } catch {
-        // no-op
-      }
-    }, 50);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDayISO]);
+  // Day scroll effect removed - DayPanel no longer used
 
   // Load focus card dismissal from AsyncStorage
   useEffect(() => {
@@ -483,35 +1003,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     ]).finally(() => setRefreshing(false));
   }, [reload, repo, spaceId]);
 
-  const handleSearchPress = useCallback(() => {
-    setSearchVisible((v) => !v);
-  }, []);
-
-  const handleFilterPress = useCallback((key: 'all' | 'chats' | 'habits' | 'todos' | 'notes') => {
-    setActiveTab(key);
-  }, []);
-
-  const v33FilteredResults = React.useMemo(() => {
-    const empty = { items: [] as AppRecord[], chats: [] as SpaceChat[] };
-    const q = searchQuery.trim().toLowerCase();
-    if (!searchVisible || q.length === 0) return empty;
-
-    const match = (s?: string | null) => (s || '').toLowerCase().includes(q);
-
-    const matchedChats = chats.filter((c) => match(c.title) || match(c.last_message_snippet || ''));
-
-    const matchedNotes = (items as AppRecord[]).filter(
-      (it: any) => it.type === 'note' && (match((it as any).title) || match((it as any).body)),
-    );
-    const matchedHabits = (items as AppRecord[]).filter(
-      (it: any) => it.type === 'habit' && (match((it as any).name) || match((it as any).notes)),
-    );
-
-    if (searchActiveV33 === 'chats') return { items: [], chats: matchedChats };
-    if (searchActiveV33 === 'notes') return { items: matchedNotes, chats: [] };
-    if (searchActiveV33 === 'habits') return { items: matchedHabits, chats: [] };
-    return empty;
-  }, [searchActiveV33, searchQuery, searchVisible, chats, items]);
+  // Phase 5: Removed handleSearchPress, v33FilteredResults (search via filter bar now)
 
   // Persist layout state
   const persistLayoutState = useCallback(
@@ -584,17 +1076,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [spaceChatRepo, reload],
   );
 
-  const handleRenameChat = useCallback(
-    (chatId: string) => {
-      const chat = chats.find((c) => c.id === chatId);
-      if (chat) {
-        setRenameChatId(chatId);
-        setRenameChatTitle(chat.title || 'New Chat');
-        setRenameChatModalOpen(true);
-      }
-    },
-    [chats],
-  );
+  // Phase 5: Removed handleRenameChat (used removed state), kept handleRenameChatV22
 
   // v22 compatible wrapper for handleRenameChat (takes newTitle directly)
   const handleRenameChatV22 = useCallback(
@@ -610,19 +1092,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [spaceChatRepo, reload],
   );
 
-  const handleRenameChatSubmit = useCallback(
-    async (newTitle: string) => {
-      if (!renameChatId) return;
-      try {
-        await spaceChatRepo.update(renameChatId, { title: newTitle });
-        await reload();
-      } catch (error) {
-        console.error('Failed to rename chat:', error);
-        Alert.alert('Error', 'Failed to rename chat');
-      }
-    },
-    [renameChatId, spaceChatRepo, reload],
-  );
+  // Phase 5: Removed handleRenameChatSubmit (used removed renameChatId state)
 
   // v33: Goal menu handled via Menu component (see inline render in v33 branch)
 
@@ -773,12 +1243,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       console.log('[SpaceHome v33] title:', space?.name ?? 'Space');
     }
     return (
-      <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
+      <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>
         <Animated.View style={{ flex: 1, opacity: oV33, transform: [{ translateY: yV33 }] }}>
           <ScrollView
             ref={scrollRef}
             style={styles.scroll}
-            contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           >
             <HeaderV33
@@ -788,141 +1258,374 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               mood={v33Mood}
             />
 
-            {/* Slide-down search overlay under header */}
-            <SearchOverlayV33
-              visible={searchVisible}
-              onClose={() => setSearchVisible(false)}
-              spaceId={spaceId}
-              onOpenChat={(chatId) => {
-                setSearchVisible(false);
-                navigation.navigate('ChatThread', { spaceId, chatId });
-              }}
-              onOpenNote={(noteId) => {
-                setSearchVisible(false);
-                const note = items.find((it: any) => it.id === noteId);
-                if (note) overlay.openEdit({ record: note as any, spaceId });
-              }}
-              onOpenHabit={(habitId) => {
-                setSearchVisible(false);
-                const habit = items.find((it: any) => it.id === habitId);
-                if (habit) overlay.openEdit({ record: habit as any, spaceId });
-              }}
-            />
+            {/* Top-level mode toggle: Actions vs Chats (Segmented Control) */}
+            <View style={sectionStyles.actionsChatsContainer}>
+              <View style={sectionStyles.actionsChatsSegmentedControl} testID="space-view-toggle">
+                {(['actions', 'chats'] as const).map((mode) => {
+                  const isActive = spaceView === mode;
+                  const label = mode === 'actions' ? 'Actions' : 'Chats';
+                  return (
+                    <Pressable
+                      key={mode}
+                      onPress={() => setSpaceView(mode)}
+                      style={sectionStyles.actionsChatsTab}
+                      testID={`space-view-toggle-${mode}`}
+                      accessibilityRole="tab"
+                      accessibilityLabel={label}
+                      accessibilityState={{ selected: isActive }}
+                    >
+                      <Text
+                        style={[
+                          sectionStyles.actionsChatsTabText,
+                          isActive
+                            ? sectionStyles.actionsChatsTabActive
+                            : sectionStyles.actionsChatsTabInactive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                      {isActive && <View style={sectionStyles.actionsChatsUnderline} />}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
 
-            {/* Goals Zone: wraps IconRow and Goals with Sage tint background */}
-            <GoalsZone>
-              {/* Centered icon row */}
-              <IconRowV33
-                counts={{
-                  notes: notesCount,
-                  milestones: (upcoming || []).length,
+            {/* Secondary category selector - only in Actions mode */}
+            {spaceView === 'actions' && (
+              <View
+                style={{
+                  paddingHorizontal: CONTENT_HORIZONTAL_PAD,
+                  marginBottom: 20,
                 }}
-                onOpenNotepad={() => setShowNotepad(true)}
-                onOpenCalendar={() => setShowCalendarV33(true)}
-                onAdd={() => setShowUnifiedAdd(true)}
-                onOpenSearch={() => setSearchVisible(true)}
-              />
-
-              {/* Goals: expandable GoalList with See All / Show Less */}
-              {(() => {
-                const wk = weekly?.habits || [];
-                if (!wk.length) return <GoalPlaceholder />;
-                const byId = new Map<string, any>((items as any[]).map((r: any) => [r.id, r]));
-                const goals = wk.map((row) => {
-                  const rec = byId.get(row.id);
-                  const done = row.doneCount ?? 0;
-                  const target = row.target ?? 3;
-                  const state: 'idle' | 'active' | 'complete' =
-                    done >= target && target > 0 ? 'complete' : done > 0 ? 'active' : 'idle';
-                  return {
-                    id: row.id,
-                    title: (rec?.title || rec?.name || 'Habit') as string,
-                    subtitle: `${done}/${target} this week`,
-                    state,
-                    lastActivityAt: (rec?.updated_at as string) || null,
-                    createdAt: (rec?.created_at as string) || null,
-                    pinned: !!rec?.pinned,
-                  } as const;
-                });
-                return (
-                  <GoalListV33
-                    goals={goals as any}
-                    topN={3}
-                    persistKey={`goalList:expanded:${spaceId}`}
-                    totalCountLabel={(n) => `See All Goals (${n})`}
-                    onOpen={(id) => {
-                      console.log('[SpaceHome] Goal clicked:', id);
-                      const rec = (items as any[]).find((r) => r.id === id);
-                      console.log('[SpaceHome] Found record:', rec ? rec.type : 'NOT FOUND');
-                      if (rec && chats && chats.length > 0) {
-                        // Navigate to the most recent chat thread where user can edit via overlay
-                        const mostRecentChat = chats[0];
-                        console.log('[SpaceHome] Navigating to chat thread:', mostRecentChat.id);
-                        navigation.navigate('ChatThread', {
-                          spaceId,
-                          chatId: mostRecentChat.id,
-                        });
-                        // Then open the overlay from there (ChatThread has its own overlay controller)
-                        // Note: We can't directly open the overlay here due to multiple controller instances
-                      }
-                    }}
-                    onMenu={() => {}}
-                  />
-                );
-              })()}
-            </GoalsZone>
-
-            {/* Chat CTA */}
-            {(() => {
-              // Calculate inactivity days for sparkle
-              const lastChatTs = chats.reduce(
-                (acc, c) => Math.max(acc, new Date(c.updated_at).getTime()),
-                0,
-              );
-              const lastItemTs = items.reduce((acc, it: any) => {
-                const ts = new Date(it.updated_at || it.created_at || 0).getTime();
-                return Math.max(acc, ts);
-              }, 0);
-              const lastTs = Math.max(lastChatTs, lastItemTs);
-              const daysSince = lastTs
-                ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24))
-                : 999;
-              return (
-                <NewChatSectionV33
-                  spaceName={space?.name ?? 'this space'}
-                  inactiveDays={daysSince}
-                  onPress={handleNewChat}
+              >
+                <SegmentedPills
+                  options={FILTER_OPTIONS}
+                  selected={filter}
+                  onSelect={setFilter}
+                  variant="secondary"
+                  fullWidth
+                  testID="space-filter-bar"
                 />
-              );
-            })()}
+              </View>
+            )}
 
-            {/* Recent Chats (last 3) */}
-            {(() => {
-              const list = chats.slice(0, 3);
-              if (list.length === 0)
-                return (
-                  <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-                    <Text style={{ color: T.colors.subtle }}>
-                      No conversations yet — want to ask Gremly something?
-                    </Text>
-                  </View>
-                );
-              return (
-                <View style={{ paddingHorizontal: 16, marginTop: 16, gap: 10 }}>
-                  {list.map((c) => (
-                    <ThreadCardV33
-                      key={c.id}
-                      chat={c}
-                      onPress={(chatId) => navigation.navigate('ChatThread', { spaceId, chatId })}
-                      onRename={handleRenameChat}
-                      onDelete={handleDeleteChat}
-                    />
-                  ))}
+            {/* Optimistic quick add card */}
+            {optimisticQuickAdd && (
+              <View
+                style={{
+                  marginHorizontal: CONTENT_HORIZONTAL_PAD,
+                  marginBottom: 12,
+                  backgroundColor: BRAND.colors.sageMist,
+                  borderRadius: BRAND.radius.md,
+                  padding: 14,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <ActivityIndicator
+                  size="small"
+                  color={BRAND.colors.mossGreen}
+                  style={{ marginRight: 12 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: '500',
+                      color: BRAND.colors.charcoalInk,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {optimisticQuickAdd.title}
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: BRAND.colors.inkSubtle,
+                      marginTop: 2,
+                    }}
+                  >
+                    Processing...
+                  </Text>
                 </View>
-              );
-            })()}
+              </View>
+            )}
+
+            {/* Zone A removed - Add to Space moved to persistent bottom bar */}
+
+            {/* ═══════════════════════════════════════════════════════════════════
+                ZONE B — Content Zone
+                ═══════════════════════════════════════════════════════════════════ */}
+            <View testID="space-zone-b">
+              {/* Unified compact items list - only shown in Actions mode */}
+              {spaceView === 'actions' && (
+                <View style={{ paddingBottom: 24 }}>
+                  {itemsToShow.length > 0 ? (
+                    <View style={sectionStyles.itemsList}>
+                      {itemsToShow.map((item: any, index: number) => {
+                        const entityType = getEntityType(item);
+                        const progress =
+                          entityType === 'habit' ? weeklyById.get(item.id) : undefined;
+                        return (
+                          <EntityCard
+                            key={item.id}
+                            record={item}
+                            type={entityType}
+                            onPress={() => handleItemPress(item)}
+                            onToggleComplete={
+                              entityType === 'todo' ? () => handleTodoComplete(item) : undefined
+                            }
+                            onLogProgress={
+                              entityType === 'habit'
+                                ? () => handleHabitLogProgress(item)
+                                : undefined
+                            }
+                            showCheckbox={entityType === 'todo' || entityType === 'habit'}
+                            showTypePill={true}
+                            isFirst={index === 0}
+                            completed={entityType === 'todo' && !!item.completed_at}
+                            habitProgress={
+                              progress
+                                ? { done: progress.doneCount, target: progress.target }
+                                : undefined
+                            }
+                            subtitle={
+                              entityType === 'log'
+                                ? formatRelativeDate(item.updated_at || item.created_at)
+                                : entityType === 'list'
+                                  ? `${item.body ? (item.body.match(/^[-•*]\s/gm) || []).length : 0} items`
+                                  : undefined
+                            }
+                            testID={`space-compact-item-${item.id}`}
+                          />
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <View style={{ paddingHorizontal: 16 }}>
+                      <Text
+                        style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
+                      >
+                        No items yet. Add something to get started!
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* View X more pill */}
+                  {moreCount > 0 && (
+                    <View style={{ alignItems: 'center', marginTop: 12 }}>
+                      <Pressable
+                        onPress={() => {
+                          // TODO: Navigate to full filtered list view
+                          console.log('[SpaceHome] View more pressed, moreCount:', moreCount);
+                        }}
+                        style={({ pressed }) => ({
+                          backgroundColor: pressed
+                            ? 'rgba(191, 216, 192, 0.25)'
+                            : 'rgba(191, 216, 192, 0.18)',
+                          borderRadius: 999,
+                          paddingVertical: 8,
+                          paddingHorizontal: 16,
+                        })}
+                        testID="space-view-more"
+                      >
+                        <Text
+                          style={{ fontSize: 13, fontWeight: '500', color: BRAND.colors.mossGreen }}
+                        >
+                          View {moreCount} more
+                        </Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* ═══════════════════════════════════════════════════════════════════
+                  CHATS MODE — Show only conversations
+                  ═══════════════════════════════════════════════════════════════════ */}
+              {spaceView === 'chats' && (
+                <View style={{ paddingTop: 4, paddingBottom: 24 }}>
+                  {/* New Chat CTA */}
+                  <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
+                    <Pressable
+                      onPress={handleNewChat}
+                      testID="space-chat-cta"
+                      accessibilityRole="button"
+                      accessibilityLabel="Start a new chat with Gremly"
+                      style={({ pressed }) => ({
+                        backgroundColor: BRAND.colors.mossGreen,
+                        borderRadius: 999,
+                        paddingVertical: 12,
+                        paddingHorizontal: 20,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 10,
+                        opacity: pressed ? 0.9 : 1,
+                        ...BRAND.elevation.one,
+                      })}
+                    >
+                      <MessageSquare size={18} color={BRAND.colors.surface} />
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: '600',
+                          color: BRAND.colors.surface,
+                        }}
+                      >
+                        Start a new chat with Gremly
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  {/* Conversations list */}
+                  {chats.length > 0 ? (
+                    <View style={{ paddingHorizontal: 16 }}>
+                      <View style={{ gap: 10 }}>
+                        {chats.slice(0, 7).map((c) => (
+                          <Pressable
+                            key={c.id}
+                            onPress={() =>
+                              navigation.navigate('ChatThread', { spaceId, chatId: c.id })
+                            }
+                            style={{
+                              backgroundColor: BRAND.colors.linenCream,
+                              borderRadius: BRAND.radius.md,
+                              padding: 14,
+                              ...BRAND.elevation.one,
+                            }}
+                            testID={`space-chat-${c.id}`}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 15,
+                                fontWeight: '500',
+                                color: BRAND.colors.charcoalInk,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {c.title || 'Chat'}
+                            </Text>
+                            <Text
+                              style={{ fontSize: 12, color: BRAND.colors.inkSubtle, marginTop: 4 }}
+                            >
+                              {aiSummaries[c.id] || c.last_message_snippet || 'Tap to view'}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+
+                      {/* View older conversations pill */}
+                      {chats.length > 7 && (
+                        <View style={{ alignItems: 'center', marginTop: 12 }}>
+                          <Pressable
+                            onPress={() => {
+                              // TODO: Navigate to full chat list
+                              console.log('[SpaceHome] View older conversations pressed');
+                            }}
+                            style={({ pressed }) => ({
+                              backgroundColor: pressed
+                                ? 'rgba(191, 216, 192, 0.25)'
+                                : 'rgba(191, 216, 192, 0.18)',
+                              borderRadius: 999,
+                              paddingVertical: 8,
+                              paddingHorizontal: 16,
+                            })}
+                            testID="space-view-older-chats"
+                          >
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                fontWeight: '500',
+                                color: BRAND.colors.mossGreen,
+                              }}
+                            >
+                              View {chats.length - 7} older conversations
+                            </Text>
+                          </Pressable>
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={{ paddingHorizontal: 16 }}>
+                      <Text
+                        style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
+                      >
+                        No conversations yet. Start chatting with Gremly!
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
           </ScrollView>
         </Animated.View>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            PERSISTENT BOTTOM ACTION BAR
+            ═══════════════════════════════════════════════════════════════════ */}
+        <View
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            paddingHorizontal: 16,
+            paddingTop: 12,
+            paddingBottom: 12 + insets.bottom,
+            backgroundColor: BRAND.colors.linenCream,
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(191, 216, 192, 0.3)',
+            flexDirection: 'row',
+            gap: 8,
+          }}
+          testID="space-bottom-action-bar"
+        >
+          <Pressable
+            onPress={() => setShowQuickAddModal(true)}
+            style={({ pressed }) => ({
+              flex: 1,
+              height: 48,
+              backgroundColor: pressed ? 'rgba(191, 216, 192, 0.35)' : 'rgba(191, 216, 192, 0.25)',
+              borderRadius: 24,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            })}
+            accessibilityRole="button"
+            accessibilityLabel="Add to Space"
+            testID="space-bottom-add"
+          >
+            <Plus size={18} color={BRAND.colors.mossGreen} />
+            <Text style={{ fontSize: 14, fontWeight: '600', color: BRAND.colors.mossGreen }}>
+              Add to Space
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={handleNewChat}
+            style={({ pressed }) => ({
+              flex: 1,
+              height: 48,
+              backgroundColor: pressed ? '#254433' : BRAND.colors.mossGreen,
+              borderRadius: 24,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            })}
+            accessibilityRole="button"
+            accessibilityLabel="Chat with Gremly"
+            testID="space-bottom-chat"
+          >
+            <MessageSquare size={18} color={BRAND.colors.surface} />
+            <Text style={{ fontSize: 14, fontWeight: '600', color: BRAND.colors.surface }}>
+              Chat with Gremly
+            </Text>
+          </Pressable>
+        </View>
 
         {/* Micro celebration overlay */}
         <ConfettiBurst
@@ -930,100 +1633,25 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           durationMs={350}
           onComplete={() => setShowConfetti(false)}
         />
-        {/* Calendar overlay (v33) */}
-        <CalendarOverlayV33
-          visible={showCalendarV33}
-          onClose={() => setShowCalendarV33(false)}
+        {/* Phase 5: Removed CalendarOverlayV33, NotepadOverlayV33, UnifiedAddOverlay, EditGoalModal, RenameChatModal */}
+
+        {/* Phase 6: Space Quick Add Modal */}
+        <SpaceQuickAddModal
+          visible={showQuickAddModal}
+          spaceName={space?.name ?? 'Space'}
+          onClose={() => setShowQuickAddModal(false)}
+          onSubmit={handleQuickAddSubmit}
+          onPressManualAdd={handleQuickAddManual}
+          onPressAttachExisting={() => setShowAttachExistingModal(true)}
+        />
+
+        {/* Phase 6: Attach Existing Modal */}
+        <AttachExistingModal
+          visible={showAttachExistingModal}
           spaceId={spaceId}
-          spaceName={space?.name || 'Space'}
-          days={(timelineDays || []) as any}
-          selectedISO={selectedDayISO}
-          onSelectDate={(iso: string) => {
-            setSelectedDayISO(iso);
-          }}
-          onAddMilestone={() => {
-            overlay.openCreate({
-              spaceId,
-              conversionMeta: { initialTitle: 'Milestone' },
-            });
-          }}
-          onEditItem={(id: string) => {
-            const rec = (items as any[]).find((r) => r.id === id);
-            if (rec) overlay.openEdit({ record: rec, spaceId });
-          }}
-          onToggleTodoPause={async (id: string) => {
-            const rec = (items as any[]).find((r) => r.id === id);
-            if (!rec) return;
-            try {
-              const paused = !!rec.undefined_due || !rec.due_date;
-              const patch: any = {};
-              if (paused) {
-                // Resume: set due_date to today and clear undefined_due
-                patch.due_date = formatISO(new Date(), { representation: 'date' });
-                patch.undefined_due = false;
-              } else {
-                // Pause: unset due_date and mark undefined_due
-                patch.due_date = null;
-                patch.undefined_due = true;
-              }
-              await repo.update({ id, patch });
-              await reload();
-            } catch (e) {
-              console.warn('[v33] toggle todo pause failed', e);
-            }
-          }}
-          onDeleteItem={async (id: string) => {
-            try {
-              await repo.remove(id);
-              await reload();
-            } catch (e) {
-              console.warn('[v33] delete item failed', e);
-            }
-          }}
-          onViewChatContext={async () => {
-            try {
-              const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-              const chatRepo =
-                backend === 'supabase'
-                  ? new SupabaseSpaceChatRepo(userId || undefined)
-                  : new MemorySpaceChatRepo(userId || 'anonymous');
-              const list = await chatRepo.list(spaceId).catch(() => []);
-              const chat = list[0] || (await chatRepo.create(spaceId, { title: 'General' }));
-              navigation.navigate('ChatThread', { spaceId, chatId: chat.id } as any);
-            } catch (e) {
-              console.warn('[v33] view chat context (overlay) failed', e);
-            }
-          }}
-        />
-        {/* Notepad overlay (v33) */}
-        <NotepadOverlayV33
-          spaceId={spaceId}
-          isOpen={showNotepad}
-          onClose={() => setShowNotepad(false)}
-        />
-        {/* Unified Add overlay (v33) - Space-locked create */}
-        <UnifiedAddOverlay
-          isOpen={showUnifiedAdd}
-          onClose={() => setShowUnifiedAdd(false)}
-          space={{ id: spaceId, name: space?.name || 'Space' }}
-        />
-        {/* Edit Goal modal (v33) */}
-        {editGoalRecord && (
-          <EditGoalModal
-            visible={editGoalVisible}
-            onClose={() => setEditGoalVisible(false)}
-            record={editGoalRecord as any}
-            onSaved={async () => {
-              await reload();
-            }}
-          />
-        )}
-        {/* Rename Chat modal (v33) */}
-        <RenameChatModal
-          isOpen={renameChatModalOpen}
-          onClose={() => setRenameChatModalOpen(false)}
-          initialTitle={renameChatTitle}
-          onSubmit={handleRenameChatSubmit}
+          spaceName={space?.name ?? 'Space'}
+          onClose={() => setShowAttachExistingModal(false)}
+          onAttached={handleAttachExistingComplete}
         />
       </View>
     );
@@ -1033,86 +1661,321 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     if (__DEV__) console.log('[SpaceHome] render legacy (not v3)');
     // Legacy stacked layout fallback
     return (
-      <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
+      <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>
         <ScrollView
           ref={scrollRef}
           style={styles.scroll}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
         >
           <SpaceBanner space={space} />
-          <View style={[styles.content, { padding: T.spacing[4] }]}>
-            <Text style={styles.sectionTitle}>Chats</Text>
-            {chats.length === 0 ? (
-              <View style={styles.emptyChats}>
-                <Text style={styles.emptyChatsTitle}>No chats yet</Text>
-                <Text style={styles.emptyChatsText}>
-                  Start a conversation with Gremly to plan, reflect, and track progress.
-                </Text>
-                <TouchableOpacity onPress={handleNewChat} accessibilityRole="button">
-                  <Text style={{ color: T.colors.primary, fontWeight: '600' }}>New chat</Text>
-                </TouchableOpacity>
+
+          {/* Top-level mode toggle: Actions vs Chats (Segmented Control) */}
+          <View style={sectionStyles.actionsChatsContainer}>
+            <View style={sectionStyles.actionsChatsSegmentedControl} testID="space-view-toggle">
+              {(['actions', 'chats'] as const).map((mode) => {
+                const isActive = spaceView === mode;
+                const label = mode === 'actions' ? 'Actions' : 'Chats';
+                return (
+                  <Pressable
+                    key={mode}
+                    onPress={() => setSpaceView(mode)}
+                    style={sectionStyles.actionsChatsTab}
+                    testID={`space-view-toggle-${mode}`}
+                    accessibilityRole="tab"
+                    accessibilityLabel={label}
+                    accessibilityState={{ selected: isActive }}
+                  >
+                    <Text
+                      style={[
+                        sectionStyles.actionsChatsTabText,
+                        isActive
+                          ? sectionStyles.actionsChatsTabActive
+                          : sectionStyles.actionsChatsTabInactive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                    {isActive && <View style={sectionStyles.actionsChatsUnderline} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Secondary category selector - only in Actions mode */}
+          {spaceView === 'actions' && (
+            <View
+              style={{
+                paddingHorizontal: CONTENT_HORIZONTAL_PAD,
+                marginBottom: 20,
+              }}
+            >
+              <SegmentedPills
+                options={FILTER_OPTIONS}
+                selected={filter}
+                onSelect={setFilter}
+                variant="secondary"
+                fullWidth
+                testID="space-filter-bar"
+              />
+            </View>
+          )}
+
+          {/* Zone A removed - Add to Space moved to persistent bottom bar */}
+
+          {/* ═══════════════════════════════════════════════════════════════════
+              ZONE B — Content Zone (Legacy)
+              ═══════════════════════════════════════════════════════════════════ */}
+          <View testID="space-zone-b">
+            {/* Unified compact items list - only shown in Actions mode */}
+            {spaceView === 'actions' && (
+              <View style={{ paddingBottom: 24 }}>
+                {itemsToShow.length > 0 ? (
+                  <View style={sectionStyles.itemsList}>
+                    {itemsToShow.map((item: any, index: number) => {
+                      const entityType = getEntityType(item);
+                      const progress = entityType === 'habit' ? weeklyById.get(item.id) : undefined;
+                      return (
+                        <EntityCard
+                          key={item.id}
+                          record={item}
+                          type={entityType}
+                          onPress={() => handleItemPress(item)}
+                          onToggleComplete={
+                            entityType === 'todo' ? () => handleTodoComplete(item) : undefined
+                          }
+                          onLogProgress={
+                            entityType === 'habit' ? () => handleHabitLogProgress(item) : undefined
+                          }
+                          showCheckbox={entityType === 'todo' || entityType === 'habit'}
+                          showTypePill={true}
+                          isFirst={index === 0}
+                          completed={entityType === 'todo' && !!item.completed_at}
+                          habitProgress={
+                            progress
+                              ? { done: progress.doneCount, target: progress.target }
+                              : undefined
+                          }
+                          subtitle={
+                            entityType === 'log'
+                              ? formatRelativeDate(item.updated_at || item.created_at)
+                              : entityType === 'list'
+                                ? `${item.body ? (item.body.match(/^[-•*]\s/gm) || []).length : 0} items`
+                                : undefined
+                          }
+                          testID={`space-compact-item-${item.id}`}
+                        />
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={{ paddingHorizontal: 16 }}>
+                    <Text
+                      style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
+                    >
+                      No items yet. Add something to get started!
+                    </Text>
+                  </View>
+                )}
+
+                {/* View X more pill */}
+                {moreCount > 0 && (
+                  <View style={{ alignItems: 'center', marginTop: 12 }}>
+                    <Pressable
+                      onPress={() => {
+                        // TODO: Navigate to full filtered list view
+                        console.log('[SpaceHome] View more pressed, moreCount:', moreCount);
+                      }}
+                      style={({ pressed }) => ({
+                        backgroundColor: pressed
+                          ? 'rgba(191, 216, 192, 0.25)'
+                          : 'rgba(191, 216, 192, 0.18)',
+                        borderRadius: 999,
+                        paddingVertical: 8,
+                        paddingHorizontal: 16,
+                      })}
+                      testID="space-view-more"
+                    >
+                      <Text
+                        style={{ fontSize: 13, fontWeight: '500', color: BRAND.colors.mossGreen }}
+                      >
+                        View {moreCount} more
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
               </View>
-            ) : (
-              chats
-                .slice(0, 5)
-                .map((chat) => (
-                  <ChatCard
-                    key={chat.id}
-                    chat={chat}
-                    onPress={() => handleChatPress(chat.id)}
-                    onPin={handlePinChat}
-                    onUnpin={handleUnpinChat}
-                    onRename={handleRenameChatV22}
-                    onArchive={handleArchiveChat}
-                    onDelete={handleDeleteChat}
-                    aiSummary={aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'}
-                  />
-                ))
             )}
 
-            <View style={{ height: T.spacing[4] }} />
-            <Text style={styles.sectionTitle}>Habits</Text>
-            {habits.slice(0, 5).map((h) => (
-              <Text key={h.id} style={{ color: T.colors.text, marginBottom: 8 }}>
-                {h.name}
-              </Text>
-            ))}
+            {/* ═══════════════════════════════════════════════════════════════════
+                CHATS MODE — Show only conversations (Legacy)
+                ═══════════════════════════════════════════════════════════════════ */}
+            {spaceView === 'chats' && (
+              <View style={{ paddingTop: 4, paddingBottom: 24 }}>
+                {/* New Chat CTA */}
+                <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
+                  <Pressable
+                    onPress={handleNewChat}
+                    testID="space-chat-cta"
+                    accessibilityRole="button"
+                    accessibilityLabel="Start a new chat with Gremly"
+                    style={({ pressed }) => ({
+                      backgroundColor: BRAND.colors.mossGreen,
+                      borderRadius: 999,
+                      paddingVertical: 12,
+                      paddingHorizontal: 20,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 10,
+                      opacity: pressed ? 0.9 : 1,
+                      ...BRAND.elevation.one,
+                    })}
+                  >
+                    <MessageSquare size={18} color={BRAND.colors.surface} />
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: BRAND.colors.surface,
+                      }}
+                    >
+                      Start a new chat with Gremly
+                    </Text>
+                  </Pressable>
+                </View>
 
-            <View style={{ height: T.spacing[4] }} />
-            <Text style={styles.sectionTitle}>To-Dos</Text>
-            {todos.slice(0, 5).map((t) => (
-              <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={{ color: T.colors.text, flex: 1 }}>{t.name}</Text>
-                <TouchableOpacity
-                  accessibilityLabel={`Complete to-do '${t.name}'`}
-                  accessibilityRole="button"
-                  onPress={async () => {
-                    try {
-                      await repo.completeTodo(t.id, new Date().toISOString());
-                      setShowConfetti(true);
-                      await reload();
-                    } catch (e) {
-                      console.warn('Failed to complete todo', e);
-                    }
-                  }}
-                >
-                  <Text style={{ color: T.colors.primary }}>✓</Text>
-                </TouchableOpacity>
+                {/* Conversations list */}
+                {chats.length > 0 ? (
+                  <View style={{ paddingHorizontal: 16 }}>
+                    <View style={{ gap: 10 }}>
+                      {chats.slice(0, 7).map((chat) => (
+                        <ChatCard
+                          key={chat.id}
+                          chat={chat}
+                          onPress={() => handleChatPress(chat.id)}
+                          onPin={handlePinChat}
+                          onUnpin={handleUnpinChat}
+                          onRename={handleRenameChatV22}
+                          onArchive={handleArchiveChat}
+                          onDelete={handleDeleteChat}
+                          aiSummary={
+                            aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'
+                          }
+                        />
+                      ))}
+                    </View>
+
+                    {/* View older conversations pill */}
+                    {chats.length > 7 && (
+                      <View style={{ alignItems: 'center', marginTop: 12 }}>
+                        <Pressable
+                          onPress={() => {
+                            // TODO: Navigate to full chat list
+                            console.log('[SpaceHome] View older conversations pressed');
+                          }}
+                          style={({ pressed }) => ({
+                            backgroundColor: pressed
+                              ? 'rgba(191, 216, 192, 0.25)'
+                              : 'rgba(191, 216, 192, 0.18)',
+                            borderRadius: 999,
+                            paddingVertical: 8,
+                            paddingHorizontal: 16,
+                          })}
+                          testID="space-view-older-chats"
+                        >
+                          <Text
+                            style={{
+                              fontSize: 13,
+                              fontWeight: '500',
+                              color: BRAND.colors.mossGreen,
+                            }}
+                          >
+                            View {chats.length - 7} older conversations
+                          </Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <View style={{ paddingHorizontal: 16 }}>
+                    <Text
+                      style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
+                    >
+                      No conversations yet. Start chatting with Gremly!
+                    </Text>
+                  </View>
+                )}
               </View>
-            ))}
-
-            <View style={{ height: T.spacing[4] }} />
-            <Text style={styles.sectionTitle}>{NOTE_SECTION_LABELS.plural}</Text>
-            {notes.slice(0, 5).map((n) => (
-              <Text key={n.id} style={{ color: T.colors.text, marginBottom: 8 }}>
-                {n.title}
-              </Text>
-            ))}
+            )}
           </View>
         </ScrollView>
 
-        {/* Floating FAB removed in v3.3; use IconRow + button actions instead */}
+        {/* ═══════════════════════════════════════════════════════════════════
+            PERSISTENT BOTTOM ACTION BAR (Legacy)
+            ═══════════════════════════════════════════════════════════════════ */}
+        <View
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            paddingHorizontal: 16,
+            paddingTop: 12,
+            paddingBottom: 12 + insets.bottom,
+            backgroundColor: BRAND.colors.linenCream,
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(191, 216, 192, 0.3)',
+            flexDirection: 'row',
+            gap: 8,
+          }}
+          testID="space-bottom-action-bar"
+        >
+          <Pressable
+            onPress={() => setShowQuickAddModal(true)}
+            style={({ pressed }) => ({
+              flex: 1,
+              height: 48,
+              backgroundColor: pressed ? 'rgba(191, 216, 192, 0.35)' : 'rgba(191, 216, 192, 0.25)',
+              borderRadius: 24,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            })}
+            accessibilityRole="button"
+            accessibilityLabel="Add to Space"
+            testID="space-bottom-add"
+          >
+            <Plus size={18} color={BRAND.colors.mossGreen} />
+            <Text style={{ fontSize: 14, fontWeight: '600', color: BRAND.colors.mossGreen }}>
+              Add to Space
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={handleNewChat}
+            style={({ pressed }) => ({
+              flex: 1,
+              height: 48,
+              backgroundColor: pressed ? '#254433' : BRAND.colors.mossGreen,
+              borderRadius: 24,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            })}
+            accessibilityRole="button"
+            accessibilityLabel="Chat with Gremly"
+            testID="space-bottom-chat"
+          >
+            <MessageSquare size={18} color={BRAND.colors.surface} />
+            <Text style={{ fontSize: 14, fontWeight: '600', color: BRAND.colors.surface }}>
+              Chat with Gremly
+            </Text>
+          </Pressable>
+        </View>
 
         {/* Micro celebration overlay */}
         <ConfettiBurst
@@ -1129,11 +1992,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // (effect moved above to satisfy hooks rules)
 
   return (
-    <View style={[styles.container, { backgroundColor: T.colors.bg }]}>
+    <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: T.spacing[6] }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         {/* Header: v22 Moss band or existing v4 minimal band */}
@@ -1143,7 +2006,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             lastVisited={buildLastVisitedLabel(items, chats)}
             contextLine={headerMood}
             onBack={() => navigation.goBack()}
-            onSearch={handleSearchPress}
+            onSearch={() => {}}
             onSettings={() => Alert.alert('Settings', 'Coming soon')}
             mascotState={headerMascot}
             spaceId={spaceId}
@@ -1190,7 +2053,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 12 }}>
-                <TouchableOpacity onPress={handleSearchPress} accessibilityRole="button">
+                <TouchableOpacity onPress={() => {}} accessibilityRole="button">
                   <SearchIcon color={lightTokens.colors.linenCream} size={18} />
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1204,429 +2067,333 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        {/* Week strip (v22) */}
-        {isSpaceV22 && (
-          <Animated.View style={{ paddingHorizontal: 16, marginTop: 24, opacity: oWeek }}>
-            <WeekStripV22
-              days={(() => {
-                const todayISO = formatISO(new Date(), { representation: 'date' });
-                return (timelineDays || []).map((d) => ({
-                  dateISO: d.dateISO,
-                  isActive: d.dateISO === todayISO,
-                  isSelected: d.dateISO === selectedDayISO,
-                  hasItems: (d.items?.length ?? 0) > 0,
-                }));
-              })()}
-              onSelect={setSelectedDayISO}
-              onOpenTimeline={() => setShowTimeline(true)}
-            />
-          </Animated.View>
-        )}
-
-        {/* Focus Today Card (v22) */}
-        {isSpaceV22 && !focusDismissed && (
-          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-            {(() => {
-              const todayISO = formatISO(new Date(), { representation: 'date' });
-              const day = (timelineDays || []).find((d) => d.dateISO === todayISO);
-              const actionable = (day?.items || []).filter(
-                (it) => (it.type === 'habit' || it.type === 'todo') && !it.done,
-              );
-              const first = actionable[0]?.title;
-              const second = actionable[1]?.title;
-              const countHabits = (day?.items || []).filter(
-                (it) => it.type === 'habit' && !it.done,
-              ).length;
-              const countTodos = (day?.items || []).filter(
-                (it) => it.type === 'todo' && !it.done,
-              ).length;
-              const total = countHabits + countTodos;
-
-              if (total > 0) {
-                const summary = `You’ve got ${countHabits} habit${
-                  countHabits === 1 ? '' : 's'
-                } and ${countTodos} to-do${countTodos === 1 ? '' : 's'} today — start with ${
-                  first || 'the first task'
-                }${second ? ` or ${second}` : ''}?`;
-                return (
-                  <FocusTodayCard
-                    summary={summary}
-                    mode="action"
-                    onPrimary={() => {
-                      // Ensure today is selected
-                      setSelectedDayISO(todayISO);
-                    }}
-                    onSecondary={async () => {
-                      try {
-                        const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-                        const key = `focusCard:dismiss:${spaceId}:${todayISO}`;
-                        await AsyncStorage.setItem(key, until);
-                        setFocusDismissed(true);
-                      } catch {
-                        setFocusDismissed(true);
-                      }
-                    }}
-                  />
-                );
-              }
-
-              const summary = 'All calm here — want to set an intention for the day?';
+        {/* Top-level mode toggle: Actions vs Chats (Segmented Control) */}
+        <View style={sectionStyles.actionsChatsContainer}>
+          <View style={sectionStyles.actionsChatsSegmentedControl} testID="space-view-toggle">
+            {(['actions', 'chats'] as const).map((mode) => {
+              const isActive = spaceView === mode;
+              const label = mode === 'actions' ? 'Actions' : 'Chats';
               return (
-                <FocusTodayCard
-                  summary={summary}
-                  mode="reflect"
-                  onPrimary={() => {
-                    setIntentDraft('Today, I intend to…');
-                    setShowNotepad(true);
-                  }}
-                  onSecondary={async () => {
-                    try {
-                      const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-                      const key = `focusCard:dismiss:${spaceId}:${todayISO}`;
-                      await AsyncStorage.setItem(key, until);
-                      setFocusDismissed(true);
-                    } catch {
-                      setFocusDismissed(true);
-                    }
-                  }}
-                />
+                <Pressable
+                  key={mode}
+                  onPress={() => setSpaceView(mode)}
+                  style={sectionStyles.actionsChatsTab}
+                  testID={`space-view-toggle-${mode}`}
+                  accessibilityRole="tab"
+                  accessibilityLabel={label}
+                  accessibilityState={{ selected: isActive }}
+                >
+                  <Text
+                    style={[
+                      sectionStyles.actionsChatsTabText,
+                      isActive
+                        ? sectionStyles.actionsChatsTabActive
+                        : sectionStyles.actionsChatsTabInactive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                  {isActive && <View style={sectionStyles.actionsChatsUnderline} />}
+                </Pressable>
               );
-            })()}
+            })}
+          </View>
+        </View>
+
+        {/* Secondary category selector - only in Actions mode */}
+        {spaceView === 'actions' && (
+          <View
+            style={{
+              paddingHorizontal: CONTENT_HORIZONTAL_PAD,
+              marginBottom: 20,
+            }}
+          >
+            <SegmentedPills
+              options={FILTER_OPTIONS}
+              selected={filter}
+              onSelect={setFilter}
+              variant="secondary"
+              fullWidth
+              testID="space-filter-bar"
+            />
           </View>
         )}
 
-        {/* Weekly Goal (v22): show for the first habit in the selected day, driven by aggregate.weekly */}
-        {isSpaceV22 && (
-          <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
-            {(() => {
-              const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-              const habitsToday = (day?.items || []).filter((it) => it.type === 'habit');
-              if (!habitsToday.length) return null;
-              const firstHabit = habitsToday[0];
-              const weeklyRow = (weekly?.habits || []).find((h) => h.id === firstHabit.id);
-              const weeklyDone = weeklyRow?.doneCount ?? 0;
-              const target = weeklyRow?.target ?? 3; // default weekly target (Phase v22)
-              const title = `${firstHabit.title} ${target}×/week`;
-              return (
-                <WeeklyGoalCard
-                  title={title}
-                  done={weeklyDone}
-                  target={target}
-                  onOpenDetail={() => {
-                    // Open overlay to edit this habit as a placeholder for habit detail
-                    const rec = (items as any[]).find((r) => r.id === firstHabit.id);
-                    if (rec) {
-                      overlay.openEdit({ record: rec, spaceId });
-                    } else {
-                      Alert.alert('Habit', 'Detail screen coming soon');
-                    }
-                  }}
-                />
-              );
-            })()}
-          </View>
-        )}
+        {/* Zone A removed - Add to Space moved to persistent bottom bar */}
 
-        {isSpaceV22 && (
-          <Animated.View
-            style={{ paddingHorizontal: 16, marginTop: 24, opacity: oDay }}
-            onLayout={(e) => setDayPanelY(e.nativeEvent.layout.y)}
-          >
-            <DayPanelV22
-              dateISO={selectedDayISO}
-              habits={(() => {
-                const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-                const habits = (day?.items || []).filter((it) => it.type === 'habit');
-                return habits.map((h) => ({
-                  id: h.id,
-                  title: h.title,
-                  // With no per-day completions history, approximate: done -> 1/3 else 0/3
-                  doneCount: h.done ? 1 : 0,
-                  target: 3,
-                }));
-              })()}
-              todos={(() => {
-                const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-                const todos = (day?.items || []).filter((it) => it.type === 'todo');
-                return todos.map((t) => ({ id: t.id, title: t.title, done: !!t.done }));
-              })()}
-              onAddItem={() => {
-                // Pre-fill space; due date prefill not yet supported by overlay API
-                // We can thread the intended date via initialTitle to hint the user
-                const friendly = new Date(selectedDayISO).toLocaleDateString(undefined, {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                });
-                overlay.openCreate({
-                  spaceId,
-                  conversionMeta: {
-                    initialTitle: `Task for ${friendly}`,
-                    initialDueDate: selectedDayISO,
-                  },
-                });
-              }}
-              onToggleHabit={async (id) => {
-                try {
-                  // Guard: prevent rapid double toggles for same habit+date
-                  const guardKey = `habit:${id}:${selectedDayISO}`;
-                  if ((SpaceHomeScreen as any)._inflight?.has(guardKey)) return;
-                  (SpaceHomeScreen as any)._inflight =
-                    (SpaceHomeScreen as any)._inflight || new Set<string>();
-                  (SpaceHomeScreen as any)._inflight.add(guardKey);
-                  // Find current state
-                  const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-                  const h = day?.items.find((it) => it.type === 'habit' && it.id === id);
-                  if (h?.done) {
-                    await repo.undoCompletion(id);
-                  } else {
-                    await repo.completeHabit(id, new Date().toISOString());
-                    // Idempotency event for logging
-                    try {
-                      await repo.writeEvent('habit_log', {
-                        space_id: spaceId,
-                        habit_id: id,
-                        date: selectedDayISO,
-                        idempotency_key: `${userId || 'anon'}:${id}:${selectedDayISO}:toggle`,
-                      });
-                    } catch (e) {
-                      // Non-blocking analytics/idempotency event failure
-                      console.debug('[v22] habit_log event write failed (non-blocking)', e);
-                    }
-                    // Micro feedback: short confetti + Undo snackbar
-                    setShowConfetti(true);
-                    setHeaderMascot('proud');
-                    setTimeout(() => setHeaderMascot('calm'), 800);
-                    showUndoSnackbar('Marked habit complete', async () => {
-                      try {
-                        await repo.undoCompletion(id);
-                        await Promise.all([reload(), reloadTimeline()]);
-                      } catch (e) {
-                        console.warn('[v22] undo habit failed', e);
-                      }
-                    });
-                  }
-                  await Promise.all([reload(), reloadTimeline()]);
-                  (SpaceHomeScreen as any)._inflight.delete(guardKey);
-                } catch (e) {
-                  console.warn('[v22] toggle habit failed', e);
-                  try {
-                    (SpaceHomeScreen as any)._inflight.delete(`habit:${id}:${selectedDayISO}`);
-                  } catch (e2) {
-                    // Ensure inflight guard is cleared even if Set.delete throws
-                    console.debug('[v22] inflight guard cleanup failed (habit)', e2);
-                  }
-                }
-              }}
-              onToggleTodo={async (id) => {
-                try {
-                  const guardKey = `todo:${id}:${selectedDayISO}`;
-                  if ((SpaceHomeScreen as any)._inflight?.has(guardKey)) return;
-                  (SpaceHomeScreen as any)._inflight =
-                    (SpaceHomeScreen as any)._inflight || new Set<string>();
-                  (SpaceHomeScreen as any)._inflight.add(guardKey);
-                  const day = (timelineDays || []).find((d) => d.dateISO === selectedDayISO);
-                  const t = day?.items.find((it) => it.type === 'todo' && it.id === id);
-                  if (t?.done) {
-                    await repo.undoCompletion(id);
-                  } else {
-                    await repo.completeTodo(id, new Date().toISOString());
-                    try {
-                      await repo.writeEvent('todo_log', {
-                        space_id: spaceId,
-                        todo_id: id,
-                        date: selectedDayISO,
-                        idempotency_key: `${userId || 'anon'}:${id}:${selectedDayISO}:toggle`,
-                      });
-                    } catch (e) {
-                      // Non-blocking analytics/idempotency event failure
-                      console.debug('[v22] todo_log event write failed (non-blocking)', e);
-                    }
-                  }
-                  await Promise.all([reload(), reloadTimeline()]);
-                  if (!t?.done) {
-                    // Micro feedback: short confetti + Undo snackbar
-                    setShowConfetti(true);
-                    setHeaderMascot('proud');
-                    setTimeout(() => setHeaderMascot('calm'), 800);
-                    showUndoSnackbar('Marked to-do complete', async () => {
-                      try {
-                        await repo.undoCompletion(id);
-                        await Promise.all([reload(), reloadTimeline()]);
-                      } catch (e) {
-                        console.warn('[v22] undo todo failed', e);
-                      }
-                    });
-                  }
-                  (SpaceHomeScreen as any)._inflight.delete(guardKey);
-                } catch (e) {
-                  console.warn('[v22] toggle todo failed', e);
-                  try {
-                    (SpaceHomeScreen as any)._inflight.delete(`todo:${id}:${selectedDayISO}`);
-                  } catch (e2) {
-                    // Ensure inflight guard is cleared even if Set.delete throws
-                    console.debug('[v22] inflight guard cleanup failed (todo)', e2);
-                  }
-                }
-              }}
-            />
-          </Animated.View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View
-            style={{
-              paddingHorizontal: 16,
-              marginTop: 24,
-              opacity: oCTA,
-              transform: [{ translateY: yCTA }],
-            }}
-          >
-            <NewChatCTA onPress={handleNewChat} />
-          </Animated.View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View
-            style={{
-              paddingHorizontal: 16,
-              marginTop: 24,
-              opacity: oSummary,
-              transform: [{ translateY: ySummary }],
-            }}
-          >
-            <AdaptiveSummaryV22
-              mode="reflective"
-              intent={intent}
-              nextItem={nextItem ?? undefined}
-              spaceName={space?.name}
-              onSecondary={handleSaveInsightAsNote}
-              onPrimary={handleAddInsightTodos}
-            />
-          </Animated.View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View
-            style={{
-              paddingHorizontal: 16,
-              marginTop: 24,
-              opacity: oInsights,
-              transform: [{ translateY: yInsights }],
-            }}
-          >
-            <InsightsRow
-              onOpenNotepad={() => setShowNotepad(true)}
-              onOpenPeople={() => setShowPeople(true)}
-              onOpenTimeline={() => setShowTimeline(true)}
-            />
-          </Animated.View>
-        )}
-
-        {isSpaceV22 && (
-          <Animated.View
-            style={{
-              paddingHorizontal: 16,
-              marginTop: 24,
-              opacity: oThreads,
-              transform: [{ translateY: yThreads }],
-            }}
-          >
-            <Text style={{ fontWeight: '700', fontSize: 16, color: T.colors.text }}>
-              Recent chats
-            </Text>
-            <View style={{ height: 10 }} />
-            <View style={{ gap: 10 }}>
-              {chats.slice(0, 3).map((c) => (
-                <ThreadCard
-                  key={c.id}
-                  title={c.title}
-                  snippet={aiSummaries[c.id] || c.last_message_snippet || 'Tap to view'}
-                  lastActive={new Date(c.updated_at).toLocaleDateString(undefined, {
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric',
+        {/* ═══════════════════════════════════════════════════════════════════
+            ZONE B — Content Zone (v22)
+            ═══════════════════════════════════════════════════════════════════ */}
+        <View testID="space-zone-b">
+          {/* Unified compact items list - only shown in Actions mode */}
+          {spaceView === 'actions' && (
+            <View style={{ paddingBottom: 24 }}>
+              {itemsToShow.length > 0 ? (
+                <View style={sectionStyles.itemsList}>
+                  {itemsToShow.map((item: any, index: number) => {
+                    const entityType = getEntityType(item);
+                    const progress = entityType === 'habit' ? weeklyById.get(item.id) : undefined;
+                    return (
+                      <EntityCard
+                        key={item.id}
+                        record={item}
+                        type={entityType}
+                        onPress={() => handleItemPress(item)}
+                        onToggleComplete={
+                          entityType === 'todo' ? () => handleTodoComplete(item) : undefined
+                        }
+                        onLogProgress={
+                          entityType === 'habit' ? () => handleHabitLogProgress(item) : undefined
+                        }
+                        showCheckbox={entityType === 'todo' || entityType === 'habit'}
+                        showTypePill={true}
+                        isFirst={index === 0}
+                        completed={entityType === 'todo' && !!item.completed_at}
+                        habitProgress={
+                          progress
+                            ? { done: progress.doneCount, target: progress.target }
+                            : undefined
+                        }
+                        subtitle={
+                          entityType === 'log'
+                            ? formatRelativeDate(item.updated_at || item.created_at)
+                            : entityType === 'list'
+                              ? `${item.body ? (item.body.match(/^[-•*]\s/gm) || []).length : 0} items`
+                              : undefined
+                        }
+                        testID={`space-compact-item-${item.id}`}
+                      />
+                    );
                   })}
-                  onOpen={() => handleChatPress(c.id)}
-                  onMenu={() => {}}
-                  onArchive={async () => {
-                    try {
-                      const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-                      if (
-                        backend === 'supabase' &&
-                        spaceChatRepo instanceof SupabaseSpaceChatRepo
-                      ) {
-                        await spaceChatRepo.archive(c.id);
-                      } else {
-                        await spaceChatRepo.delete(c.id);
-                      }
-                      await reload();
-                    } catch (e) {
-                      console.warn('Archive chat failed', e);
-                      Alert.alert('Error', 'Failed to archive chat');
-                    }
-                  }}
-                  onDelete={async () => {
-                    try {
-                      const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-                      if (
-                        backend === 'supabase' &&
-                        spaceChatRepo instanceof SupabaseSpaceChatRepo
-                      ) {
-                        await spaceChatRepo.delete(c.id);
-                      } else {
-                        await spaceChatRepo.delete(c.id);
-                      }
-                      await reload();
-                    } catch (e) {
-                      console.warn('Delete chat failed', e);
-                      Alert.alert('Error', 'Failed to delete chat');
-                    }
-                  }}
-                />
-              ))}
+                </View>
+              ) : (
+                <View style={{ paddingHorizontal: 16 }}>
+                  <Text
+                    style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
+                  >
+                    No items yet. Add something to get started!
+                  </Text>
+                </View>
+              )}
+
+              {/* View X more pill */}
+              {moreCount > 0 && (
+                <View style={{ alignItems: 'center', marginTop: 12 }}>
+                  <Pressable
+                    onPress={() => {
+                      // TODO: Navigate to full filtered list view
+                      console.log('[SpaceHome] View more pressed, moreCount:', moreCount);
+                    }}
+                    style={({ pressed }) => ({
+                      backgroundColor: pressed
+                        ? 'rgba(191, 216, 192, 0.25)'
+                        : 'rgba(191, 216, 192, 0.18)',
+                      borderRadius: 999,
+                      paddingVertical: 8,
+                      paddingHorizontal: 16,
+                    })}
+                    testID="space-view-more"
+                  >
+                    <Text
+                      style={{ fontSize: 13, fontWeight: '500', color: BRAND.colors.mossGreen }}
+                    >
+                      View {moreCount} more
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
-          </Animated.View>
-        )}
+          )}
 
-        {/* Collapsible search bar (legacy) removed in favor of v22 Search overlay */}
+          {/* ═══════════════════════════════════════════════════════════════════
+              CHATS MODE — Show only conversations (v22)
+              ═══════════════════════════════════════════════════════════════════ */}
+          {spaceView === 'chats' && (
+            <View style={{ paddingTop: 4, paddingBottom: 24 }}>
+              {/* New Chat CTA */}
+              <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
+                <Pressable
+                  onPress={handleNewChat}
+                  testID="space-chat-cta"
+                  accessibilityRole="button"
+                  accessibilityLabel="Start a new chat with Gremly"
+                  style={({ pressed }) => ({
+                    backgroundColor: BRAND.colors.mossGreen,
+                    borderRadius: 999,
+                    paddingVertical: 12,
+                    paddingHorizontal: 20,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 10,
+                    opacity: pressed ? 0.9 : 1,
+                    ...BRAND.elevation.one,
+                  })}
+                >
+                  <MessageSquare size={18} color={BRAND.colors.surface} />
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: BRAND.colors.surface,
+                    }}
+                  >
+                    Start a new chat with Gremly
+                  </Text>
+                </Pressable>
+              </View>
 
-        <View style={[styles.content, { padding: T.spacing[4] }]}>
-          {/* Focus card */}
-          <FocusCard
-            spaceType={
-              listHabitsForSpace(items, spaceId, { limit: 1 }).length > 0 ? 'habit' : 'other'
-            }
-            summaryText={buildFocusText(
-              listHabitsForSpace(items, spaceId, { limit: 1 }).length,
-              upcoming,
-              todos,
-            )}
-            onPress={() => {}}
-          />
+              {/* Conversations list */}
+              {chats.length > 0 ? (
+                <View style={{ paddingHorizontal: 16 }}>
+                  <View style={{ gap: 10 }}>
+                    {chats.slice(0, 7).map((c) => (
+                      <ThreadCard
+                        key={c.id}
+                        title={c.title}
+                        snippet={aiSummaries[c.id] || c.last_message_snippet || 'Tap to view'}
+                        lastActive={new Date(c.updated_at).toLocaleDateString(undefined, {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                        onOpen={() => handleChatPress(c.id)}
+                        onMenu={() => {}}
+                        onArchive={async () => {
+                          try {
+                            const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
+                            if (
+                              backend === 'supabase' &&
+                              spaceChatRepo instanceof SupabaseSpaceChatRepo
+                            ) {
+                              await spaceChatRepo.archive(c.id);
+                            } else {
+                              await spaceChatRepo.delete(c.id);
+                            }
+                            await reload();
+                          } catch (e) {
+                            console.warn('Archive chat failed', e);
+                            Alert.alert('Error', 'Failed to archive chat');
+                          }
+                        }}
+                        onDelete={async () => {
+                          try {
+                            await spaceChatRepo.delete(c.id);
+                            await reload();
+                          } catch (e) {
+                            console.warn('Delete chat failed', e);
+                            Alert.alert('Error', 'Failed to delete chat');
+                          }
+                        }}
+                      />
+                    ))}
+                  </View>
 
-          {/* Calendar snapshot */}
-          <View style={{ marginTop: 24 }}>
-            <CalendarStrip days={buildCalendarDays(items)} />
-          </View>
-
-          {/* Quick stats (non-zero only) */}
-          <View style={{ marginTop: 24 }}>
-            <QuickStatsRow
-              habitsCount={listHabitsForSpace(items, spaceId, { limit: 9999 }).length}
-              todosCount={listTodosForSpace(items, spaceId, { limit: 9999 }).length}
-              notesCount={listNotesForSpace(items, spaceId, { limit: 9999 }).length}
-              journalCount={
-                listNotesForSpace(items, spaceId, { subtype: 'journal', limit: 9999 }).length
-              }
-            />
-          </View>
-
-          {/* Primary CTA + What we discussed moved to v22 blocks above */}
-
-          {/* Recent chats list de-duplicated; see v22 section above */}
+                  {/* View older conversations pill */}
+                  {chats.length > 7 && (
+                    <View style={{ alignItems: 'center', marginTop: 12 }}>
+                      <Pressable
+                        onPress={() => {
+                          // TODO: Navigate to full chat list
+                          console.log('[SpaceHome] View older conversations pressed');
+                        }}
+                        style={({ pressed }) => ({
+                          backgroundColor: pressed
+                            ? 'rgba(191, 216, 192, 0.25)'
+                            : 'rgba(191, 216, 192, 0.18)',
+                          borderRadius: 999,
+                          paddingVertical: 8,
+                          paddingHorizontal: 16,
+                        })}
+                        testID="space-view-older-chats"
+                      >
+                        <Text
+                          style={{ fontSize: 13, fontWeight: '500', color: BRAND.colors.mossGreen }}
+                        >
+                          View {chats.length - 7} older conversations
+                        </Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={{ paddingHorizontal: 16 }}>
+                  <Text
+                    style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
+                  >
+                    No conversations yet. Start chatting with Gremly!
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
         </View>
       </ScrollView>
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          PERSISTENT BOTTOM ACTION BAR (v22)
+          ═══════════════════════════════════════════════════════════════════ */}
+      <View
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          paddingHorizontal: 16,
+          paddingTop: 12,
+          paddingBottom: 12 + insets.bottom,
+          backgroundColor: BRAND.colors.linenCream,
+          borderTopWidth: 1,
+          borderTopColor: 'rgba(191, 216, 192, 0.3)',
+          flexDirection: 'row',
+          gap: 8,
+        }}
+        testID="space-bottom-action-bar"
+      >
+        <Pressable
+          onPress={() => setShowQuickAddModal(true)}
+          style={({ pressed }) => ({
+            flex: 1,
+            height: 48,
+            backgroundColor: pressed ? 'rgba(191, 216, 192, 0.35)' : 'rgba(191, 216, 192, 0.25)',
+            borderRadius: 24,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+          })}
+          accessibilityRole="button"
+          accessibilityLabel="Add to Space"
+          testID="space-bottom-add"
+        >
+          <Plus size={18} color={BRAND.colors.mossGreen} />
+          <Text style={{ fontSize: 14, fontWeight: '600', color: BRAND.colors.mossGreen }}>
+            Add to Space
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={handleNewChat}
+          style={({ pressed }) => ({
+            flex: 1,
+            height: 48,
+            backgroundColor: pressed ? '#254433' : BRAND.colors.mossGreen,
+            borderRadius: 24,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+          })}
+          accessibilityRole="button"
+          accessibilityLabel="Chat with Gremly"
+          testID="space-bottom-chat"
+        >
+          <MessageSquare size={18} color={BRAND.colors.surface} />
+          <Text style={{ fontSize: 14, fontWeight: '600', color: BRAND.colors.surface }}>
+            Chat with Gremly
+          </Text>
+        </Pressable>
+      </View>
 
       {/* Micro celebration overlay */}
       <ConfettiBurst
@@ -1644,15 +2411,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           setShowTimeline(false);
         }}
       />
-      {/* Notepad overlay (v22) */}
-      <NotepadOverlay
-        visible={showNotepad}
-        onClose={() => setShowNotepad(false)}
-        spaceId={spaceId}
-        initialDraft={intentDraft}
-      />
-      {/* People overlay (v22) */}
-      <PeopleOverlay visible={showPeople} onClose={() => setShowPeople(false)} spaceId={spaceId} />
 
       {/* Floating Plus removed in v3.3; v22 FAB retired */}
 
@@ -1720,7 +2478,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: BRAND.colors.linenCream,
   },
   scroll: {
     flex: 1,
@@ -1750,13 +2508,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: BRAND.colors.linenCream,
   },
   error: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: BRAND.colors.linenCream,
   },
   errorText: {
     fontSize: lightTokens.typography.size.lg,

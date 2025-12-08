@@ -22,6 +22,11 @@ interface ConversionMeta {
   initialNote?: string;
   // Optional: prefill todo due date (ISO yyyy-mm-dd or full ISO)
   initialDueDate?: string | null;
+  // Phase 10.8: Habit frequency prefill from Space Chat
+  initialFrequency?: string;
+  initialFrequencyValue?: number;
+  // Phase 11.8: Tags prefill from Space Chat AI extraction
+  initialTags?: string[];
 }
 
 interface CreateOptions {

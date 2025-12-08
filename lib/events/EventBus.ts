@@ -26,7 +26,7 @@ export type EventMap = {
   TagFilterApplied: { tagCount: number };
   CommitmentsChanged: Record<string, never>;
   // Overlay funnel / UX telemetry
-  OverlayOpened: { mode: 'create' | 'edit'; baseType: string | null };
+  OverlayOpened: { mode: 'create' | 'edit' | 'view'; baseType: string | null };
   OverlayTypeChanged: { from: string; to: string };
   OverlayTypeConverted: {
     from: string;
@@ -40,6 +40,9 @@ export type EventMap = {
   // Cortex classification events (Phase 10)
   'cortex:classified': { itemId: string; classification: ClassificationResult };
   'cortex:failed': { itemId: string; error: string };
+  // Entity lifecycle events (Space Chat)
+  'entity:created': { entity: any; type: string; spaceId?: string | null };
+  'entity:deleted': { id: string; type?: string; spaceId?: string | null };
 };
 
 type Handler<T> = (payload: T) => void;
