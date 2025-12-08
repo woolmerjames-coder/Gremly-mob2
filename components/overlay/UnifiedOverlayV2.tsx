@@ -1747,6 +1747,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const { initialTitle, initialNote, initialTags, initialListItems, initialIsList } =
         conversionMeta as any;
 
+      console.log('[UnifiedOverlayV2] conversionMeta dueDate:', conversionMeta?.initialDueDate);
+
       // Apply title and note
       if (initialTitle || initialNote) {
         const title = initialTitle || '';
@@ -1787,7 +1789,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (conversionMeta.initialDueDate) {
         payload.todo = {
           ...(payload.todo || initialV2State.todo),
-          due_at: conversionMeta.initialDueDate,
+          due_day: conversionMeta.initialDueDate,
         };
       }
 
