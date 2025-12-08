@@ -970,8 +970,8 @@ export default function ChatThreadScreen({ route }: Props) {
                             {
                               // AI title first, fallback to smartTitle extraction
                               title: prefill.title || smartTitle(message.content),
-                              // Use AI-extracted content, fallback to full message
-                              note: prefill.content || message.content,
+                              // Use full assistant message as body (not AI summary which loses context)
+                              note: message.content,
                               // Pass tags from AI, or empty array to avoid stale tags
                               tags: prefill.tags || [],
                               // Habit-specific fields
