@@ -49,7 +49,7 @@ describe('SpaceHomeScreen v22 gating logic', () => {
     });
 
     it('returns false when EXPO_PUBLIC_SPACE_V22 is "off"', () => {
-      const flagValue = 'off';
+      const flagValue: string = 'off';
       const isSpaceV22 = flagValue === 'on';
       expect(isSpaceV22).toBe(false);
     });
@@ -69,7 +69,7 @@ describe('SpaceHomeScreen v22 gating logic', () => {
     });
 
     it('returns false when EXPO_PUBLIC_SPACE_V33 is "off"', () => {
-      const flagValue = 'off';
+      const flagValue: string = 'off';
       const isSpaceV33 = flagValue === 'on';
       expect(isSpaceV33).toBe(false);
     });

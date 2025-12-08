@@ -1012,6 +1012,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     conversionMeta,
   } = props;
 
+  // Derive view mode flag - used throughout to guard edit vs view functionality
+  // This avoids TypeScript narrowing issues in nested conditionals
+  const isViewMode = mode === 'view';
+
   // Extract full entity from props (passed by OverlayHost in edit mode)
   const fullEntity = (props as any).entity ?? null;
 
@@ -1464,8 +1468,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const headerPulse = useSharedValue(0);
 
   // View ↔ Edit mode crossfade animation values
-  const viewModeOpacity = useSharedValue(mode === 'view' ? 1 : 0);
-  const editModeOpacity = useSharedValue(mode !== 'view' ? 1 : 0);
+  const viewModeOpacity = useSharedValue(isViewMode ? 1 : 0);
+  const editModeOpacity = useSharedValue(!isViewMode ? 1 : 0);
 
   const sheetTranslateY = useRef(new RNAnimated.Value(16)).current;
   const sheetOpacity = useRef(new RNAnimated.Value(0)).current;
@@ -1568,7 +1572,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   useEffect(() => {
     try {
       const duration = reduceMotion ? 0 : 180;
-      if (mode === 'view') {
+      if (isViewMode) {
         viewModeOpacity.value = withTiming(1, { duration });
         editModeOpacity.value = withTiming(0, { duration });
       } else {
@@ -3041,7 +3045,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Only use fallback (firstLine) for new entities or when user explicitly cleared title
     // Phase L10: For new logs from Mind Drop (create mode), always use full body as title
     const preserveExistingTitle =
-      (mode === 'edit' || mode === 'view') && initialEntity && (initialEntity as any)?.title;
+      (mode === 'edit' || isViewMode) && initialEntity && (initialEntity as any)?.title;
     const isNewLogFromMindDrop = mode === 'create' && s.log.body && !s.log.title;
     const derivedTitle = isNewLogFromMindDrop
       ? s.log.body // Use full body for new Mind Drop logs
@@ -3190,7 +3194,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       // Detect cross-table type conversion
       const isTypeConversion =
-        (mode === 'edit' || mode === 'view') &&
+        (mode === 'edit' || isViewMode) &&
         (initialEntity as any)?.id &&
         originalFamily !== null &&
         originalFamily !== targetFamily;
@@ -3268,7 +3272,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // STANDARD UPDATE/CREATE FLOW (same table or new entity)
         // ─────────────────────────────────────────────────────────────────────
         result =
-          (mode === 'edit' || mode === 'view') && (initialEntity as any)?.id
+          (mode === 'edit' || isViewMode) && (initialEntity as any)?.id
             ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
             : await repo.create(input as any);
       }
@@ -4053,7 +4057,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </View>
 
                   {/* Header Edit button - view mode only */}
-                  {mode === 'view' && fullEntity ? (
+                  {isViewMode && fullEntity ? (
                     <Pressable
                       onPress={() => {
                         if (initialEntity && (initialEntity as any).id) {
@@ -4142,13 +4146,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             {/* View/Edit Mode Content Container with Crossfade Animation */}
             <View style={{ flex: 1, position: 'relative' }}>
               {/* View Mode Content - Read-only display */}
-              <Reanimated.View style={[viewModeStyle, { flex: mode === 'view' ? 1 : 0 }]}>
-                {mode === 'view' && renderViewModeContent()}
+              <Reanimated.View style={[viewModeStyle, { flex: isViewMode ? 1 : 0 }]}>
+                {isViewMode && renderViewModeContent()}
               </Reanimated.View>
 
               {/* Edit/Create Mode Content - Interactive form */}
-              <Reanimated.View style={[editModeStyle, { flex: mode !== 'view' ? 1 : 0 }]}>
-                {mode !== 'view' && (
+              <Reanimated.View style={[editModeStyle, { flex: !isViewMode ? 1 : 0 }]}>
+                {!isViewMode && (
                   <ScrollView
                     keyboardShouldPersistTaps="handled"
                     contentContainerStyle={{
@@ -4242,8 +4246,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             ref={textInputRef}
                             value={currentText}
                             onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                            editable={mode !== 'view'}
-                            pointerEvents={mode === 'view' ? 'none' : 'auto'}
+                            editable={!isViewMode}
+                            pointerEvents={isViewMode ? 'none' : 'auto'}
                             accessibilityLabel="Overlay content input"
                             onFocus={() => setBodyFocused(true)}
                             onBlur={() => setBodyFocused(false)}
@@ -4299,7 +4303,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             />
                           </Pressable>
                           {/* Camera button inside text area for logs only (hidden in view mode) */}
-                          {isLog && mode !== 'view' && (
+                          {isLog && !isViewMode && (
                             <Pressable
                               onPress={handleOpenMultiPhotoActionSheet}
                               style={({ pressed }) => ({
@@ -4390,18 +4394,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       <TagsRow
                         tags={activeTagChips}
                         suggested={suggestionChips}
-                        onToggle={mode === 'view' ? () => {} : handleTagToggle}
+                        onToggle={isViewMode ? () => {} : handleTagToggle}
                         onResuggest={
-                          mode === 'view'
+                          isViewMode
                             ? undefined
                             : mode === 'edit' && fullEntity
                               ? handleResuggestTags
                               : undefined
                         }
                         resuggesting={isResuggestingTags}
-                        onAdd={mode === 'view' ? undefined : handleTagAdd}
-                        onUserAdd={mode === 'view' ? undefined : handleTelemetryTagAdd}
-                        onUserRemove={mode === 'view' ? undefined : handleTelemetryTagRemove}
+                        onAdd={isViewMode ? undefined : handleTagAdd}
+                        onUserAdd={isViewMode ? undefined : handleTelemetryTagAdd}
+                        onUserRemove={isViewMode ? undefined : handleTelemetryTagRemove}
                       />
                       {hasLowConfidenceSuggestions ? (
                         <Box mt={2}>
@@ -4436,7 +4440,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               ]}
                               accessibilityRole="button"
                               accessibilityLabel="Set mood to happy"
-                              disabled={mode === 'view'}
+                              disabled={isViewMode}
                             >
                               <Text style={{ fontSize: 20 }}>😊</Text>
                             </Pressable>
@@ -4449,7 +4453,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               ]}
                               accessibilityRole="button"
                               accessibilityLabel="Set mood to neutral"
-                              disabled={mode === 'view'}
+                              disabled={isViewMode}
                             >
                               <Text style={{ fontSize: 20 }}>😐</Text>
                             </Pressable>
@@ -4459,7 +4463,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               style={[styles.moodButton, mood === 'sad' && styles.moodButtonActive]}
                               accessibilityRole="button"
                               accessibilityLabel="Set mood to sad"
-                              disabled={mode === 'view'}
+                              disabled={isViewMode}
                             >
                               <Text style={{ fontSize: 20 }}>😔</Text>
                             </Pressable>
@@ -4720,9 +4724,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 {/* 1) Reminders row */}
                                 <Pressable
                                   onPress={() => {
-                                    if (mode !== 'view') setShowRemindersModal(true);
+                                    if (!isViewMode) setShowRemindersModal(true);
                                   }}
-                                  disabled={mode === 'view'}
+                                  disabled={isViewMode}
                                   style={({ pressed }) => [
                                     styles.detailsRow,
                                     pressed && styles.detailsRowPressed,
@@ -4747,12 +4751,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 {/* 2) Add to Space row */}
                                 <Pressable
                                   onPress={() => {
-                                    if (mode !== 'view') setShowSpaceModal(true);
+                                    if (!isViewMode) setShowSpaceModal(true);
                                   }}
-                                  disabled={mode === 'view'}
+                                  disabled={isViewMode}
                                   style={({ pressed }) => [
                                     styles.detailsRow,
-                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                    pressed && !isViewMode && styles.detailsRowPressed,
                                   ]}
                                 >
                                   <View style={styles.detailsRowLeft}>
@@ -4835,12 +4839,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 {/* 1) Reminders row */}
                                 <Pressable
                                   onPress={() => {
-                                    if (mode !== 'view') setShowRemindersModal(true);
+                                    if (!isViewMode) setShowRemindersModal(true);
                                   }}
-                                  disabled={mode === 'view'}
+                                  disabled={isViewMode}
                                   style={({ pressed }) => [
                                     styles.detailsRow,
-                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                    pressed && !isViewMode && styles.detailsRowPressed,
                                   ]}
                                 >
                                   <View style={styles.detailsRowLeft}>
@@ -4862,13 +4866,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 {/* 2) Add to Space row */}
                                 <Pressable
                                   onPress={() => {
-                                    if (mode !== 'view') setShowSpaceModal(true);
+                                    if (!isViewMode) setShowSpaceModal(true);
                                   }}
-                                  disabled={mode === 'view'}
+                                  disabled={isViewMode}
                                   style={({ pressed }) => [
                                     styles.detailsRow,
                                     { marginTop: 0 },
-                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                    pressed && !isViewMode && styles.detailsRowPressed,
                                   ]}
                                 >
                                   <View style={styles.detailsRowLeft}>
@@ -4951,12 +4955,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 {/* 1) Reminders row */}
                                 <Pressable
                                   onPress={() => {
-                                    if (mode !== 'view') setShowRemindersModal(true);
+                                    if (!isViewMode) setShowRemindersModal(true);
                                   }}
-                                  disabled={mode === 'view'}
+                                  disabled={isViewMode}
                                   style={({ pressed }) => [
                                     styles.detailsRow,
-                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                    pressed && !isViewMode && styles.detailsRowPressed,
                                   ]}
                                 >
                                   <View style={styles.detailsRowLeft}>
@@ -4978,13 +4982,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 {/* 2) Add to Space row */}
                                 <Pressable
                                   onPress={() => {
-                                    if (mode !== 'view') setShowSpaceModal(true);
+                                    if (!isViewMode) setShowSpaceModal(true);
                                   }}
-                                  disabled={mode === 'view'}
+                                  disabled={isViewMode}
                                   style={({ pressed }) => [
                                     styles.detailsRow,
                                     { marginTop: 0 },
-                                    pressed && mode !== 'view' && styles.detailsRowPressed,
+                                    pressed && !isViewMode && styles.detailsRowPressed,
                                   ]}
                                 >
                                   <View style={styles.detailsRowLeft}>
@@ -5028,7 +5032,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           value: !state.logIsPrivate,
                                         })
                                       }
-                                      disabled={mode === 'view'}
+                                      disabled={isViewMode}
                                       trackColor={{ false: '#D1D5DB', true: '#10B981' }}
                                       thumbColor="#FFFFFF"
                                     />
@@ -6587,7 +6591,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 }}
               >
                 {/* Cancel button - text-only, subtle (hidden in view mode) */}
-                {mode !== 'view' && (
+                {!isViewMode && (
                   <Pressable
                     onPress={handleCancel}
                     disabled={isSaving}
@@ -6617,7 +6621,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 )}
 
                 {/* Close button - view mode only (matches Cancel button styling) */}
-                {mode === 'view' && (
+                {isViewMode && (
                   <Pressable
                     onPress={() => onClose?.()}
                     hitSlop={8}
@@ -6642,7 +6646,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 )}
 
                 {/* View mode: Edit button to switch to edit mode */}
-                {mode === 'view' && (
+                {isViewMode && (
                   <Pressable
                     onPress={() => {
                       // Switch to edit mode for this record
@@ -6678,7 +6682,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 )}
 
                 {/* Save button - primary action (hidden in view mode) */}
-                {mode !== 'view' && (
+                {!isViewMode && (
                   <Reanimated.View style={saveStyle}>
                     <Pressable
                       onPress={onSave}
