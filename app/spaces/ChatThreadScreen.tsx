@@ -58,7 +58,7 @@ import { emitChatEvent } from '../lib/chat/events';
 // Legacy mascot imports (to be removed)
 import { useMascotController } from '../../hooks/useMascotController';
 import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
-import { openUnifiedFromChat } from './chat/openUnifiedFromChat';
+import { openUnifiedFromChat, saveableTypeToOverlayKind } from './chat/openUnifiedFromChat';
 import type { OverlayKind } from './chat/openUnifiedFromChat';
 import { smartTitle } from './chat/prefillUtils';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
@@ -207,24 +207,47 @@ export default function ChatThreadScreen({ route }: Props) {
       // Only handle events for this space
       if (payload.spaceId !== spaceId) return;
 
-      if (__DEV__) {
-        console.log('[ChatThread] entity:created event received', payload);
+      const entityType = payload.type as 'habit' | 'todo' | 'note' | 'person';
+      if (!['habit', 'todo', 'note', 'person'].includes(entityType)) return;
+
+      const entityId = payload.entity?.id;
+      if (!entityId) {
+        console.warn('[ChatThread] entity:created missing entity id');
+        return;
       }
 
-      // Add saved item card to chat
-      const entityType = payload.type as 'habit' | 'todo' | 'note' | 'person';
-      if (['habit', 'todo', 'note', 'person'].includes(entityType)) {
-        appendSavedItemCard(payload.entity, entityType).catch((err) => {
-          console.error('[ChatThread] Failed to append saved item card:', err);
+      // CRITICAL: Check if we already have a card for this entity
+      // This prevents duplicates when editing existing items
+      const existingCard = messages.find(
+        (m) =>
+          m.role === 'system' &&
+          m.metadata_json?.type === 'saved-item' &&
+          m.metadata_json?.entityId === entityId,
+      );
+
+      if (existingCard) {
+        console.log('[ChatThread] Skipping duplicate card for entity:', entityId);
+        return;
+      }
+
+      if (__DEV__) {
+        console.log('[ChatThread] entity:created event received', {
+          entityId,
+          type: entityType,
+          title: payload.entity?.title || payload.entity?.name,
         });
       }
+
+      appendSavedItemCard(payload.entity, entityType).catch((err) => {
+        console.error('[ChatThread] Failed to append saved item card:', err);
+      });
     };
 
     const unsub = eventBus.on('entity:created', handleEntityCreated);
     return () => {
       if (typeof unsub === 'function') unsub();
     };
-  }, [spaceId, appendSavedItemCard]);
+  }, [spaceId, messages, appendSavedItemCard]);
 
   // Index messages as they're added
   useEffect(() => {
@@ -522,6 +545,27 @@ export default function ChatThreadScreen({ route }: Props) {
                 console.error('[ChatThread] Context update failed:', err);
               }
             });
+          } else {
+            // EMPTY RESPONSE HANDLING: API returned no content
+            // This can happen when the model spends reasoning tokens but produces nothing
+            console.warn('[ChatThread] API returned empty content', {
+              responseKeys: Object.keys(response),
+              explanation: response.explanation,
+              replyText: response.replyText,
+            });
+
+            // Show a friendly fallback message instead of leaving the chat frozen
+            const fallbackContent =
+              'Hmm, I lost my train of thought there. Could you say that again?';
+
+            await appendAssistantMessage(fallbackContent, {
+              wasEmptyResponse: true,
+            });
+
+            // Trigger a gentle mascot state
+            mascot.replying();
+
+            // Skip saveable detection for fallback messages (nothing to save)
           }
         } catch (cortexError: any) {
           // Enhanced cortex error handling with detailed logging
@@ -847,26 +891,32 @@ export default function ChatThreadScreen({ route }: Props) {
                   // Phase 11.8: Render saved-item card for Space Chat save confirmations
                   if (message.role === 'system' && message.metadata_json?.type === 'saved-item') {
                     const metadata = message.metadata_json || {};
-                    const entity = metadata.entity;
-                    const entityType = metadata.entityType as 'habit' | 'todo' | 'note' | 'person';
+                    const savedEntity = metadata.entity || {};
+                    const entityType = (metadata.entityType || 'note') as
+                      | 'habit'
+                      | 'todo'
+                      | 'note'
+                      | 'person';
 
-                    if (entity && entityType) {
-                      return (
-                        <SavedItemCard
-                          key={message.id}
-                          itemType={entityType}
-                          title={metadata.title || entity.title || entity.name || 'Untitled'}
-                          subtitle={metadata.subtitle}
-                          onPress={() => {
-                            // Open unified overlay with full entity data
+                    return (
+                      <SavedItemCard
+                        key={message.id}
+                        itemType={entityType}
+                        title={
+                          metadata.title || savedEntity.title || savedEntity.name || 'Untitled'
+                        }
+                        subtitle={metadata.subtitle}
+                        onPress={() => {
+                          // Open unified overlay with full entity data
+                          if (savedEntity.id) {
                             overlayController.openEdit({
-                              record: { ...entity, type: entityType } as any,
+                              record: { ...savedEntity, type: entityType } as any,
                               spaceId: spaceId ?? undefined,
                             });
-                          }}
-                        />
-                      );
-                    }
+                          }
+                        }}
+                      />
+                    );
                   }
 
                   // Phase 11.3/11.5: Skip action confirmations - they're rendered outside ScrollView
@@ -913,14 +963,22 @@ export default function ChatThreadScreen({ route }: Props) {
                         onSave={(result) => {
                           spaceChatEnhanced.startSaving();
                           // Open save overlay with prefilled data
+                          // AI-generated prefill takes priority, fallback to extracted content
                           const prefill = result.prefill || {};
                           openUnifiedFromChat(
                             result.suggestedType as OverlayKind,
                             {
+                              // AI title first, fallback to smartTitle extraction
                               title: prefill.title || smartTitle(message.content),
-                              note: prefill.content,
+                              // Use AI-extracted content, fallback to full message
+                              note: prefill.content || message.content,
+                              // Pass tags from AI, or empty array to avoid stale tags
+                              tags: prefill.tags || [],
+                              // Habit-specific fields
                               frequency: prefill.frequency ?? undefined,
                               frequencyValue: prefill.frequencyValue,
+                              // Todo-specific fields
+                              dueDate: prefill.dueDate ?? undefined,
                             },
                             {
                               lane: 'space_chat',

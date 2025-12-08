@@ -101,7 +101,7 @@ export interface UseSpaceChatEnhancedReturn {
     assistantMessage: string,
     userMessage: string,
     messageId: string,
-  ) => Promise<void>;
+  ) => Promise<SaveableResult | null>;
 
   // Save button state
   /** Currently active save button (only one at a time) */
@@ -260,14 +260,26 @@ export function useSpaceChatEnhanced({
    * Respects conversation mode and cooldown state.
    */
   const runSaveableDetection = useCallback(
-    async (assistantMessage: string, userMessage: string, messageId: string): Promise<void> => {
+    async (
+      assistantMessage: string,
+      userMessage: string,
+      messageId: string,
+    ): Promise<SaveableResult | null> => {
+      console.log('[useSpaceChatEnhanced] runSaveableDetection called', {
+        messageId,
+        assistantLength: assistantMessage?.length,
+        userMessage: userMessage?.slice(0, 50),
+      });
+
       // Quick filter - skip obvious non-saveable content
       if (!mightBeSaveable(assistantMessage)) {
-        return;
+        console.log('[useSpaceChatEnhanced] SKIP: mightBeSaveable returned false');
+        return null;
       }
 
       // Detect conversation mode from user message
       const mode = detectConversationMode(userMessage);
+      console.log('[useSpaceChatEnhanced] Conversation mode:', mode);
 
       // Run detection (handles cooldown internally)
       const result = await detection.runDetection(
@@ -282,11 +294,30 @@ export function useSpaceChatEnhanced({
         cooldown.currentTurn,
       );
 
+      console.log('[useSpaceChatEnhanced] detection.runDetection result', {
+        messageId,
+        hasResult: !!result,
+        isSaveable: result?.isSaveable,
+        type: result?.suggestedType,
+        cooldownState: cooldown.cooldownState,
+        currentTurn: cooldown.currentTurn,
+      });
+
       // Show button if saveable and should show
       if (result && shouldShowSaveButton(result, mode, cooldown.isInCooldown)) {
+        console.log('[useSpaceChatEnhanced] Showing save button for', messageId);
         buttonState.showSaveButton(messageId, result);
         cooldown.markSaveShown();
+      } else if (result) {
+        console.log('[useSpaceChatEnhanced] NOT showing save button', {
+          messageId,
+          isSaveable: result.isSaveable,
+          mode,
+          isInCooldown: cooldown.isInCooldown,
+        });
       }
+
+      return result;
     },
     [detection, context.runningSummary, cooldown, buttonState],
   );

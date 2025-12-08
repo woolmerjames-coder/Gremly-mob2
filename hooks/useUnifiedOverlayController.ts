@@ -25,6 +25,8 @@ interface ConversionMeta {
   // Phase 10.8: Habit frequency prefill from Space Chat
   initialFrequency?: string;
   initialFrequencyValue?: number;
+  // Phase 11.8: Tags prefill from Space Chat AI extraction
+  initialTags?: string[];
 }
 
 interface CreateOptions {

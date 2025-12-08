@@ -202,9 +202,22 @@ export function useChatMessages(chatId: string, spaceId: string) {
         let subtitle = '';
 
         if (entityType === 'habit') {
-          // Use frequency_json for better formatting, fallback to frequency string
-          const freqLabel = formatFrequencyLabel(entity.frequency_json);
+          // Habits store frequency in frequency_value (maps to frequency_json in DB)
+          // Try frequency_value first (JSON object), then frequency (string)
+          if (__DEV__) {
+            console.log('[useChatMessages] Formatting frequency', {
+              frequency_value: entity.frequency_value,
+              frequency_json: entity.frequency_json,
+              frequency: entity.frequency,
+            });
+          }
+          const freqLabel =
+            formatFrequencyLabel(entity.frequency_value) ||
+            formatFrequencyLabel(entity.frequency_json);
           subtitle = freqLabel || entity.frequency || 'Habit';
+          if (__DEV__) {
+            console.log('[useChatMessages] Formatted subtitle:', subtitle);
+          }
         } else if (entityType === 'todo') {
           // Use formatDueDateLabel for human-readable dates
           const dueLabel = formatDueDateLabel(entity.due_at);
