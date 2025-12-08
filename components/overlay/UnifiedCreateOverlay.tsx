@@ -174,6 +174,9 @@ export type UnifiedCreateOverlayProps = {
     // Phase 10.7E: Initial list items for prefill
     initialListItems?: Array<{ id: string; text: string; checked: boolean }>;
     initialIsList?: boolean;
+    // Phase 10.8: Habit frequency prefill from Space Chat
+    initialFrequency?: string;
+    initialFrequencyValue?: number;
   };
   initialText?: string | null;
   initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs

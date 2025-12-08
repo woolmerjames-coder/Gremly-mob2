@@ -192,7 +192,8 @@ function applyThresholds(result: SaveableResult, combinedText: string): Saveable
   if (suggestedType === 'habit') {
     const frequencyResult = detectFrequency(combinedText);
 
-    if (!frequencyResult) {
+    // Trust high-confidence AI detection even without frequency match
+    if (!frequencyResult && confidence < 0.85) {
       log('THRESHOLD', 'No frequency detected for habit, downgrading to log-general');
       suggestedType = 'log-general';
     } else if (confidence < SAVEABLE_THRESHOLDS.HABIT) {
@@ -203,13 +204,17 @@ function applyThresholds(result: SaveableResult, combinedText: string): Saveable
       suggestedType = 'log-general';
     } else {
       // Valid habit - add frequency to prefill
-      log('THRESHOLD', `Habit detected with frequency: ${frequencyResult.frequency}`);
+      log(
+        'THRESHOLD',
+        `Habit detected with frequency: ${frequencyResult.frequency}, count: ${frequencyResult.details?.count ?? 1}`,
+      );
       return {
         ...result,
         suggestedType,
         prefill: {
           ...result.prefill,
           frequency: frequencyResult.frequency,
+          frequencyValue: frequencyResult.details?.count ?? 1,
         },
       };
     }
@@ -297,7 +302,9 @@ export async function detectSaveable(input: SaveableDetectionInput): Promise<Sav
     // Extract content from response
     const data = response.data as any;
     const responseText =
-      typeof data === 'string' ? data : (data?.choices?.[0]?.message?.content ?? '');
+      typeof data === 'string'
+        ? data
+        : (data?.content ?? data?.choices?.[0]?.message?.content ?? '');
 
     if (!responseText) {
       log('EMPTY_RESPONSE', 'AI returned empty response');
@@ -428,5 +435,5 @@ export function mightBeSaveable(assistantMessage: string): boolean {
   }
 
   // Default to true for longer messages (let AI decide)
-  return assistantMessage.length > 100;
+  return assistantMessage.length > 30;
 }

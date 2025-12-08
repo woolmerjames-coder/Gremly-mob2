@@ -22,6 +22,9 @@ interface ConversionMeta {
   initialTags?: string[];
   initialListItems?: Array<{ id: string; text: string; checked: boolean }>;
   initialIsList?: boolean;
+  // Phase 10.8: Habit frequency prefill from Space Chat
+  initialFrequency?: string;
+  initialFrequencyValue?: number;
 }
 
 interface OverlayState {

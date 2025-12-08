@@ -163,6 +163,8 @@ export function useSaveableDetection(): UseSaveableDetectionReturn {
       cooldownState: CooldownState,
       currentTurn: number,
     ): Promise<SaveableResult | null> => {
+      log('RUN_DETECTION_CALLED', { mode, currentTurn, cooldownState, messageId });
+
       // Skip if in reflective mode (user is venting)
       if (mode === 'reflective') {
         log('SKIP', 'Reflective mode - not detecting');

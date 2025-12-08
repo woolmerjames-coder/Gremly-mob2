@@ -75,6 +75,12 @@ export interface SaveablePrefill {
   frequency?: HabitFrequency;
 
   /**
+   * Frequency value for habits (count for "N times a week").
+   * Only populated when suggestedType is 'habit'.
+   */
+  frequencyValue?: number;
+
+  /**
    * Due date for todos. Only populated when suggestedType is 'todo'.
    * ISO 8601 date string (e.g., "2025-12-15") or null if no due date.
    */

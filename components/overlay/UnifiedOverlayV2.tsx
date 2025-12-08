@@ -1700,13 +1700,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const rawText = typeof initialText === 'string' ? initialText : '';
     const hasText = rawText.trim().length > 0;
 
-    // Check for conversionMeta prefill (Idea → Todo/Habit conversion)
+    // Check for conversionMeta prefill (Idea → Todo/Habit conversion, Space Chat)
     const hasConversionMeta =
       conversionMeta &&
       (conversionMeta.initialTitle ||
         conversionMeta.initialNote ||
         conversionMeta.initialTags?.length ||
-        conversionMeta.initialListItems?.length);
+        conversionMeta.initialListItems?.length ||
+        conversionMeta.initialFrequency); // ADD: Space Chat habit frequency
 
     if (!override && !hasText && !defaultDueToday && !hasConversionMeta) {
       createPrefillAppliedRef.current = true;
@@ -1741,6 +1742,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           ...(payload.habit || initialV2State.habit),
           title,
           notes: note,
+        };
+      }
+
+      // Apply habit frequency from Space Chat detection
+      if (conversionMeta.initialFrequency) {
+        const frequencyJson = buildFrequencyJsonFromDb(
+          conversionMeta.initialFrequency,
+          conversionMeta.initialFrequencyValue ?? 1,
+        );
+        payload.habit = {
+          ...(payload.habit || initialV2State.habit),
+          frequency_json: frequencyJson,
         };
       }
 

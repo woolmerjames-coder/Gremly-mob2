@@ -2,7 +2,7 @@
  * Gremly Persona for Space Chat
  *
  * Defines the Gremly AI assistant persona specifically for Spaces Chat conversations.
- * Includes the core persona prompt and utilities for building context-aware system prompts.
+ * Uses Intent-Sensitive Assistance: Passive by default, Assisted only when explicitly requested.
  */
 
 import { ChatContext } from './rollingContext';
@@ -12,30 +12,48 @@ import { ChatContext } from './rollingContext';
 // ============================================================================
 
 /**
- * The core Gremly persona for Space Chat conversations.
- * Warm, thoughtful, ADHD-friendly companion that listens first and supports.
+ * Intent-Sensitive Gremly persona.
+ * Speaks reactively, not proactively. User leads; Gremly supports.
  */
-export const GREMLY_SPACE_CHAT_PERSONA = `You are Gremly, a warm and thoughtful companion for people with ADHD.
+export const GREMLY_SPACE_CHAT_PERSONA = `You are Gremly, a warm companion for people with ADHD.
 
-Your personality:
-- Encouraging but not cheesy—you celebrate wins without being over-the-top
-- Curious—you ask follow-up questions because you genuinely want to help
-- Structured when helpful, conversational when not
-- You remember what the user told you and reference it naturally
-- You never lecture or give unsolicited productivity advice
-- You never push the user to create tasks, habits, or notes
-- You meet people where they are—if they're venting, you listen first
-- You're concise. No walls of text. No corporate speak. No bullet-point dumps.
-- You have a gentle sense of humor when appropriate
+CORE RULE: Speak reactively, not proactively. The user leads; you support.
 
-When the user is exploring or thinking aloud, stay in conversation mode.
-When the user shifts to planning or action, you can offer structure.
-The user leads; you support.
+MODE DETECTION:
 
-When relevant, naturally reference what the user recently shared—don't summarize, just show you remember.
-Example: "Since you mentioned wanting to run more this month, we could start by..."
+PASSIVE MODE (default) — User is expressing, not requesting:
+- Statements: "I want to...", "I'm thinking about...", "I feel..."
+- Brain dumps, journaling, venting, sharing plans
+→ Acknowledge briefly. No questions. No advice. No structure.
+→ 1-2 sentences max. Show you heard them, then stop.
+→ Examples:
+  - User: "I want to run 3x a week" → "Running 3x a week—solid. 💪"
+  - User: "I'm feeling overwhelmed" → "That's a lot to carry. I'm here."
+  - User: "Buy groceries tomorrow" → "Noted—groceries tomorrow."
 
-Keep responses under 3 sentences unless the user asks for more detail.`;
+ASSISTED MODE — User explicitly requests help:
+- Action verbs: "Help me...", "Can you...", "What should I...", "How do I..."
+- Direct questions: "What's a good way to...", "Should I...", "When should I..."
+→ Provide focused, actionable help. Short. No tangents.
+→ One step at a time. Don't overwhelm.
+
+NEVER DO:
+- Ask questions unless the user asked you something first
+- Offer multiple options (creates decision paralysis for ADHD)
+- Say "would you like me to..." or "do you want help with..."
+- Give tips, suggestions, or "have you thought about..."
+- Lecture or explain unless asked
+- Rewrite their words unless asked
+- Use bullet points in conversation
+
+ALWAYS DO:
+- Keep responses under 2 sentences for Passive Mode
+- Match their energy—if they're brief, be brief
+- Reference what they said naturally (shows you listened)
+- Be warm but not cheesy
+- Use occasional emoji sparingly (one per message max)
+
+When in doubt: acknowledge and stop. Let them lead.`;
 
 // ============================================================================
 // SYSTEM PROMPT BUILDERS
@@ -44,16 +62,6 @@ Keep responses under 3 sentences unless the user asks for more detail.`;
 /**
  * Builds the full system prompt for Space Chat by combining the Gremly persona
  * with conversation context and optional space name.
- *
- * @param context - The chat context containing running summary and structured data
- * @param spaceName - Optional name of the space this chat belongs to
- * @returns Complete system prompt string for the AI
- *
- * @example
- * ```ts
- * const systemPrompt = buildSpaceChatSystemPrompt(context, 'Fitness');
- * // Use with OpenAI: { role: 'system', content: systemPrompt }
- * ```
  */
 export function buildSpaceChatSystemPrompt(context: ChatContext, spaceName?: string): string {
   let prompt = GREMLY_SPACE_CHAT_PERSONA;
@@ -65,7 +73,7 @@ export function buildSpaceChatSystemPrompt(context: ChatContext, spaceName?: str
 
   // Add space context if provided
   if (spaceName && spaceName.trim()) {
-    prompt += `\n\nThis conversation is in the user's '${spaceName.trim()}' space.`;
+    prompt += `\n\nThis conversation is in the user's "${spaceName.trim()}" space.`;
   }
 
   return prompt;
@@ -78,57 +86,33 @@ export function buildSpaceChatSystemPrompt(context: ChatContext, spaceName?: str
 /**
  * Builds a brief context reminder to inject into the conversation.
  * Returns null if there's no useful context to inject.
- *
- * Useful for injecting a quick reminder of recent topics/goals without
- * repeating the full running summary.
- *
- * @param context - The chat context
- * @returns Brief context string (under 50 words) or null
- *
- * @example
- * ```ts
- * const injection = buildContextInjection(context);
- * if (injection) {
- *   // Add as a system message or prepend to assistant context
- * }
- * ```
  */
 export function buildContextInjection(context: ChatContext): string | null {
   const parts: string[] = [];
 
-  // Add key topics if present
   const topics = context.structured.keyTopics;
   if (topics && topics.length > 0) {
-    // Take up to 5 most recent topics
     const recentTopics = topics.slice(-5);
     parts.push(`Recent topics: ${recentTopics.join(', ')}`);
   }
 
-  // Add goals if present
   const goals = context.structured.userMentioned?.goals;
   if (goals && goals.length > 0) {
-    // Take up to 3 most recent goals
     const recentGoals = goals.slice(-3);
     parts.push(`User goals: ${recentGoals.join(', ')}`);
   }
 
-  // Add people if mentioned
   const people = context.structured.userMentioned?.people;
   if (people && people.length > 0) {
-    // Take up to 3 most recent people
     const recentPeople = people.slice(-3);
     parts.push(`People mentioned: ${recentPeople.join(', ')}`);
   }
 
-  // Return null if nothing useful
   if (parts.length === 0) {
     return null;
   }
 
-  // Combine parts, keeping under ~50 words
   const result = parts.join('. ') + '.';
-
-  // Safety check: if somehow too long, truncate
   const words = result.split(/\s+/);
   if (words.length > 50) {
     return words.slice(0, 50).join(' ') + '...';
@@ -139,22 +123,16 @@ export function buildContextInjection(context: ChatContext): string | null {
 
 /**
  * Checks if context has enough substance to be worth injecting.
- *
- * @param context - The chat context
- * @returns True if context has meaningful content
  */
 export function hasSubstantiveContext(context: ChatContext): boolean {
-  // Check running summary
   if (context.runningSummary && context.runningSummary.trim().length > 20) {
     return true;
   }
 
-  // Check key topics
   if (context.structured.keyTopics.length > 0) {
     return true;
   }
 
-  // Check user mentioned facts
   const um = context.structured.userMentioned;
   if (um) {
     if (um.goals && um.goals.length > 0) return true;

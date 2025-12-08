@@ -19,6 +19,8 @@ export interface OverlayInitial {
   title?: string;
   note?: string;
   dueDate?: string | null;
+  frequency?: string;
+  frequencyValue?: number;
   // add others as your overlay supports (due_date, cadence, etc.)
 }
 
@@ -59,6 +61,8 @@ export function openUnifiedFromChat(
       initialTitle: initial.title || '',
       initialNote: initial.note || '',
       initialDueDate: initial.dueDate ?? null,
+      initialFrequency: initial.frequency,
+      initialFrequencyValue: initial.frequencyValue,
     },
     suppressOverlayOpen: options?.suppressOverlayOpen,
   });

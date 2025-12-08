@@ -177,7 +177,9 @@ export async function generateChatSummary(
     // Extract response content
     const data = response.data as any;
     const responseText =
-      typeof data === 'string' ? data : (data?.choices?.[0]?.message?.content ?? '');
+      typeof data === 'string'
+        ? data
+        : (data?.content ?? data?.choices?.[0]?.message?.content ?? '');
 
     if (!responseText) {
       log('EMPTY_RESPONSE', 'AI returned empty response');

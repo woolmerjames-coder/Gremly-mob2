@@ -124,6 +124,7 @@ async function postJSON<T>(body: any, options?: { raw?: boolean }): Promise<Cort
     let data: any;
     try {
       data = text ? JSON.parse(text) : {};
+      log('FULL_RESPONSE_DATA', JSON.stringify(data));
       log('PARSED_RESPONSE', {
         hasChoices: Array.isArray(data?.choices),
         choicesCount: data?.choices?.length || 0,
@@ -282,11 +283,11 @@ export async function callSpaceChat(
   return postJSON(
     {
       type: 'chat',
-      model: 'gpt-5.1', // Will be overridden by worker for space_chat lane anyway
+      model: 'gpt-4o', // GPT-4o for conversational Space Chat
       messages: allMessages,
       temperature: 0.7,
-      max_tokens: 400,
-      lane: 'space_chat', // Critical: tells worker to use GPT-5.1
+      max_completion_tokens: 400,
+      lane: 'space_chat', // Critical: tells worker to use GPT-4o
       spaceId: opts.spaceId,
       space_id: opts.spaceId,
       chatId: opts.chatId,
