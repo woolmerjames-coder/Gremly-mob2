@@ -34,6 +34,8 @@ export interface SegmentedPillsProps<T extends string> {
   onSelect: (key: T) => void;
   /** Visual variant: 'primary' for top-level toggles, 'secondary' for filter rows */
   variant?: SegmentedPillsVariant;
+  /** When true, pills expand to fill container width evenly */
+  fullWidth?: boolean;
   /** Optional container style override */
   containerStyle?: ViewStyle;
   /** Optional test ID prefix */
@@ -45,6 +47,7 @@ export function SegmentedPills<T extends string>({
   selected,
   onSelect,
   variant = 'primary',
+  fullWidth = false,
   containerStyle,
   testID = 'segmented-pills',
 }: SegmentedPillsProps<T>) {
@@ -55,6 +58,7 @@ export function SegmentedPills<T extends string>({
       style={[
         styles.container,
         isPrimary ? styles.containerPrimary : styles.containerSecondary,
+        fullWidth && styles.containerFullWidth,
         containerStyle,
       ]}
       testID={testID}
@@ -68,6 +72,7 @@ export function SegmentedPills<T extends string>({
             style={[
               styles.pill,
               isPrimary ? styles.pillPrimary : styles.pillSecondary,
+              fullWidth && styles.pillFlex,
               isActive && (isPrimary ? styles.pillActivePrimary : styles.pillActiveSecondary),
             ]}
             testID={`${testID}-${option.key}`}
@@ -101,6 +106,10 @@ const styles = StyleSheet.create({
     backgroundColor: SAGE_MIST_TINT,
     alignSelf: 'center',
   },
+  // Full-width mode: stretch to fill parent
+  containerFullWidth: {
+    alignSelf: 'stretch',
+  },
   // Primary variant (top-level mode toggle)
   containerPrimary: {
     padding: 3,
@@ -115,6 +124,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 999,
+  },
+  // Full-width mode: pills expand evenly
+  pillFlex: {
+    flex: 1,
   },
   // Primary pill (larger)
   pillPrimary: {

@@ -88,6 +88,13 @@ import {
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
 // ============================================================================
+// LAYOUT CONSTANTS
+// ============================================================================
+
+/** Consistent horizontal padding for content alignment (selectors, cards) */
+const CONTENT_HORIZONTAL_PAD = 16;
+
+// ============================================================================
 // FILTER BAR TYPES & COMPONENTS
 // ============================================================================
 
@@ -429,6 +436,41 @@ function ListsSection({
 const sectionStyles = StyleSheet.create({
   section: {
     marginBottom: 8,
+  },
+
+  // Actions/Chats toggle - simple tab bar (no pill background)
+  actionsChatsContainer: {
+    paddingHorizontal: CONTENT_HORIZONTAL_PAD,
+    marginTop: 16,
+    marginBottom: 20,
+  },
+  actionsChatsSegmentedControl: {
+    flexDirection: 'row',
+    // No background - clean tab bar style
+  },
+  actionsChatsTab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  actionsChatsTabText: {
+    fontSize: 17,
+    textAlign: 'center',
+  },
+  actionsChatsTabActive: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '700',
+  },
+  actionsChatsTabInactive: {
+    color: 'rgba(34, 34, 34, 0.6)', // 60% opacity ink
+    fontWeight: '400',
+  },
+  actionsChatsUnderline: {
+    height: 2,
+    width: 60,
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 1,
+    marginTop: 6,
   },
 
   // Items list - card container
@@ -1216,31 +1258,44 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               mood={v33Mood}
             />
 
-            {/* Top-level mode toggle: Actions vs Chats */}
-            <View
-              style={{
-                alignSelf: 'center',
-                marginTop: 20,
-                marginBottom: 16,
-              }}
-            >
-              <SegmentedPills
-                options={[
-                  { key: 'actions', label: 'Actions' },
-                  { key: 'chats', label: 'Chats' },
-                ]}
-                selected={spaceView}
-                onSelect={(key) => setSpaceView(key as SpaceViewMode)}
-                variant="primary"
-                testID="space-view-toggle"
-              />
+            {/* Top-level mode toggle: Actions vs Chats (Segmented Control) */}
+            <View style={sectionStyles.actionsChatsContainer}>
+              <View style={sectionStyles.actionsChatsSegmentedControl} testID="space-view-toggle">
+                {(['actions', 'chats'] as const).map((mode) => {
+                  const isActive = spaceView === mode;
+                  const label = mode === 'actions' ? 'Actions' : 'Chats';
+                  return (
+                    <Pressable
+                      key={mode}
+                      onPress={() => setSpaceView(mode)}
+                      style={sectionStyles.actionsChatsTab}
+                      testID={`space-view-toggle-${mode}`}
+                      accessibilityRole="tab"
+                      accessibilityLabel={label}
+                      accessibilityState={{ selected: isActive }}
+                    >
+                      <Text
+                        style={[
+                          sectionStyles.actionsChatsTabText,
+                          isActive
+                            ? sectionStyles.actionsChatsTabActive
+                            : sectionStyles.actionsChatsTabInactive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                      {isActive && <View style={sectionStyles.actionsChatsUnderline} />}
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
 
             {/* Secondary category selector - only in Actions mode */}
             {spaceView === 'actions' && (
               <View
                 style={{
-                  alignSelf: 'center',
+                  paddingHorizontal: CONTENT_HORIZONTAL_PAD,
                   marginBottom: 20,
                 }}
               >
@@ -1249,6 +1304,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                   selected={filter}
                   onSelect={setFilter}
                   variant="secondary"
+                  fullWidth
                   testID="space-filter-bar"
                 />
               </View>
@@ -1258,7 +1314,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             {optimisticQuickAdd && (
               <View
                 style={{
-                  marginHorizontal: 16,
+                  marginHorizontal: CONTENT_HORIZONTAL_PAD,
                   marginBottom: 12,
                   backgroundColor: BRAND.colors.sageMist,
                   borderRadius: BRAND.radius.md,
@@ -1614,31 +1670,44 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         >
           <SpaceBanner space={space} />
 
-          {/* Top-level mode toggle: Actions vs Chats */}
-          <View
-            style={{
-              alignSelf: 'center',
-              marginTop: 20,
-              marginBottom: 16,
-            }}
-          >
-            <SegmentedPills
-              options={[
-                { key: 'actions', label: 'Actions' },
-                { key: 'chats', label: 'Chats' },
-              ]}
-              selected={spaceView}
-              onSelect={(key) => setSpaceView(key as SpaceViewMode)}
-              variant="primary"
-              testID="space-view-toggle"
-            />
+          {/* Top-level mode toggle: Actions vs Chats (Segmented Control) */}
+          <View style={sectionStyles.actionsChatsContainer}>
+            <View style={sectionStyles.actionsChatsSegmentedControl} testID="space-view-toggle">
+              {(['actions', 'chats'] as const).map((mode) => {
+                const isActive = spaceView === mode;
+                const label = mode === 'actions' ? 'Actions' : 'Chats';
+                return (
+                  <Pressable
+                    key={mode}
+                    onPress={() => setSpaceView(mode)}
+                    style={sectionStyles.actionsChatsTab}
+                    testID={`space-view-toggle-${mode}`}
+                    accessibilityRole="tab"
+                    accessibilityLabel={label}
+                    accessibilityState={{ selected: isActive }}
+                  >
+                    <Text
+                      style={[
+                        sectionStyles.actionsChatsTabText,
+                        isActive
+                          ? sectionStyles.actionsChatsTabActive
+                          : sectionStyles.actionsChatsTabInactive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                    {isActive && <View style={sectionStyles.actionsChatsUnderline} />}
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
 
           {/* Secondary category selector - only in Actions mode */}
           {spaceView === 'actions' && (
             <View
               style={{
-                alignSelf: 'center',
+                paddingHorizontal: CONTENT_HORIZONTAL_PAD,
                 marginBottom: 20,
               }}
             >
@@ -1647,6 +1716,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 selected={filter}
                 onSelect={setFilter}
                 variant="secondary"
+                fullWidth
                 testID="space-filter-bar"
               />
             </View>
@@ -1997,31 +2067,44 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        {/* Top-level mode toggle: Actions vs Chats */}
-        <View
-          style={{
-            alignSelf: 'center',
-            marginTop: 20,
-            marginBottom: 16,
-          }}
-        >
-          <SegmentedPills
-            options={[
-              { key: 'actions', label: 'Actions' },
-              { key: 'chats', label: 'Chats' },
-            ]}
-            selected={spaceView}
-            onSelect={(key) => setSpaceView(key as SpaceViewMode)}
-            variant="primary"
-            testID="space-view-toggle"
-          />
+        {/* Top-level mode toggle: Actions vs Chats (Segmented Control) */}
+        <View style={sectionStyles.actionsChatsContainer}>
+          <View style={sectionStyles.actionsChatsSegmentedControl} testID="space-view-toggle">
+            {(['actions', 'chats'] as const).map((mode) => {
+              const isActive = spaceView === mode;
+              const label = mode === 'actions' ? 'Actions' : 'Chats';
+              return (
+                <Pressable
+                  key={mode}
+                  onPress={() => setSpaceView(mode)}
+                  style={sectionStyles.actionsChatsTab}
+                  testID={`space-view-toggle-${mode}`}
+                  accessibilityRole="tab"
+                  accessibilityLabel={label}
+                  accessibilityState={{ selected: isActive }}
+                >
+                  <Text
+                    style={[
+                      sectionStyles.actionsChatsTabText,
+                      isActive
+                        ? sectionStyles.actionsChatsTabActive
+                        : sectionStyles.actionsChatsTabInactive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                  {isActive && <View style={sectionStyles.actionsChatsUnderline} />}
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
         {/* Secondary category selector - only in Actions mode */}
         {spaceView === 'actions' && (
           <View
             style={{
-              alignSelf: 'center',
+              paddingHorizontal: CONTENT_HORIZONTAL_PAD,
               marginBottom: 20,
             }}
           >
@@ -2030,6 +2113,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               selected={filter}
               onSelect={setFilter}
               variant="secondary"
+              fullWidth
               testID="space-filter-bar"
             />
           </View>
