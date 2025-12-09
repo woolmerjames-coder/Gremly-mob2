@@ -973,6 +973,8 @@ export default function ChatThreadScreen({ route }: Props) {
                               frequencyValue: prefill.frequencyValue,
                               // Todo-specific fields
                               dueDate: prefill.dueDate ?? undefined,
+                              // Enable preview mode for logs
+                              fromChat: true,
                             },
                             {
                               lane: 'space_chat',

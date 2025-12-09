@@ -27,6 +27,8 @@ interface ConversionMeta {
   initialFrequencyValue?: number;
   // Phase 11.8: Tags prefill from Space Chat AI extraction
   initialTags?: string[];
+  // Indicates content came from chat (for preview mode)
+  fromChat?: boolean;
 }
 
 interface CreateOptions {

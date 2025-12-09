@@ -49,6 +49,7 @@ import {
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
 import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
+import { stripMarkdown } from '../../lib/markdown/stripMarkdown';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
 import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
@@ -1237,6 +1238,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [bodyFocused, setBodyFocused] = useState(false);
   // Expanded editor mode state
   const [isExpandedEditor, setIsExpandedEditor] = useState(false);
+  // Preview mode: When opening a log from chat, show formatted read-only view first
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [commitmentFocused, setCommitmentFocused] = useState(false);
   // useAuth may not be available in some test harnesses that mock providers,
   // so guard against the hook throwing by falling back to null.
@@ -1362,6 +1365,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (showSaveToast) setShowSaveToast(false);
       // Reset expanded editor when overlay closes
       if (isExpandedEditor) setIsExpandedEditor(false);
+      // Reset preview mode when overlay closes
+      setIsPreviewMode(false);
     }
   }, [visible, showSaveToast, isExpandedEditor]);
 
@@ -1387,6 +1392,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   useEffect(() => {
     setIsExpandedEditor(false);
   }, [baseType]);
+
+  // Initialize preview mode when opening a log from chat with content
+  useEffect(() => {
+    const shouldStartInPreview =
+      visible &&
+      mode === 'create' &&
+      baseType === 'log' &&
+      conversionMeta?.fromChat === true &&
+      (conversionMeta?.initialNote?.length ?? 0) > 0;
+
+    if (shouldStartInPreview) {
+      setIsPreviewMode(true);
+    }
+  }, [visible, mode, baseType, conversionMeta]);
 
   // safe area insets (guard when the test harness doesn't provide the hook)
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -4323,6 +4342,74 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           isChecklistMode={isChecklistMode}
                           onToggleChecklistMode={() => dispatch({ type: 'TOGGLE_CHECKLIST_MODE' })}
                         />
+                      ) : isPreviewMode ? (
+                        /* Preview mode: Formatted read-only content */
+                        <View style={{ position: 'relative' }}>
+                          <View
+                            style={[
+                              styles.textArea,
+                              {
+                                maxHeight: 200,
+                                backgroundColor:
+                                  colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                                borderWidth: 1,
+                                borderColor:
+                                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                                paddingRight: 50,
+                              },
+                            ]}
+                          >
+                            <ScrollView
+                              style={{ flex: 1 }}
+                              showsVerticalScrollIndicator={true}
+                              nestedScrollEnabled={true}
+                            >
+                              {renderFormattedContent(currentText, {
+                                textColor:
+                                  colorMode === 'dark'
+                                    ? 'rgba(255,255,255,0.9)'
+                                    : lightTokens.colors.text,
+                                fontSize: 16,
+                                lineHeight: 24,
+                              })}
+                            </ScrollView>
+                          </View>
+
+                          {/* Edit button - top right */}
+                          <Pressable
+                            onPress={() => {
+                              // Strip markdown and switch to edit mode
+                              const strippedText = stripMarkdown(currentText);
+                              dispatch({ type: 'SET_TEXT', text: strippedText });
+                              setIsPreviewMode(false);
+                            }}
+                            style={({ pressed }) => ({
+                              position: 'absolute',
+                              top: 10,
+                              right: 10,
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              borderRadius: 14,
+                              backgroundColor:
+                                colorMode === 'dark'
+                                  ? 'rgba(255,255,255,0.1)'
+                                  : 'rgba(46, 85, 64, 0.1)',
+                              opacity: pressed ? 0.7 : 1,
+                            })}
+                            accessibilityLabel="Edit content"
+                            accessibilityRole="button"
+                          >
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                fontWeight: '600',
+                                color: colorMode === 'dark' ? 'rgba(255,255,255,0.8)' : '#2E5540',
+                              }}
+                            >
+                              Edit
+                            </Text>
+                          </Pressable>
+                        </View>
                       ) : (
                         /* Compact text area mode */
                         <View style={{ position: 'relative' }}>

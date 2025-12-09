@@ -177,6 +177,8 @@ export type UnifiedCreateOverlayProps = {
     // Phase 10.8: Habit frequency prefill from Space Chat
     initialFrequency?: string;
     initialFrequencyValue?: number;
+    // When true and type is log, opens in preview mode
+    fromChat?: boolean;
   };
   initialText?: string | null;
   initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
