@@ -133,6 +133,8 @@ export const todoZ = baseRecordZ.extend({
   commitment: z.boolean().nullable().optional(),
   commitmentNote: z.string().nullable().optional(),
   commitmentStartedAt: z.string().nullable().optional(),
+  // Make Actionable: reference to source note (when todo was created from a note)
+  source_note_id: z.string().uuid().nullable().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const noteZ = baseRecordZ.extend({

@@ -1483,28 +1483,47 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Fetch source note for todos created via "explode to todos"
   useEffect(() => {
+    const entity = fullEntity || (initialEntity as any);
+
+    console.log('[SourceNote] Check:', {
+      baseType,
+      entityId: entity?.id,
+      sourceNoteId: entity?.source_note_id,
+      fullEntitySourceNoteId: fullEntity?.source_note_id,
+      initialEntitySourceNoteId: (initialEntity as any)?.source_note_id,
+    });
+
     const fetchSourceNote = async () => {
-      if (baseType !== 'todo' || !fullEntity?.source_note_id) {
+      if (baseType !== 'todo') {
+        setSourceNote(null);
+        return;
+      }
+
+      const sourceNoteId = entity?.source_note_id;
+      if (!sourceNoteId) {
+        console.log('[SourceNote] No source_note_id found');
         setSourceNote(null);
         return;
       }
 
       try {
-        const note = await repo.getById(fullEntity.source_note_id);
+        console.log('[SourceNote] Fetching note:', sourceNoteId);
+        const note = await repo.getById(sourceNoteId);
         if (note) {
+          console.log('[SourceNote] Found:', (note as any).title);
           setSourceNote({
             id: note.id,
             title: (note as any).title || 'Untitled',
           });
         }
       } catch (error) {
-        console.warn('[Todo] Failed to fetch source note:', error);
+        console.warn('[SourceNote] Failed to fetch:', error);
         setSourceNote(null);
       }
     };
 
     fetchSourceNote();
-  }, [baseType, fullEntity?.source_note_id, repo]);
+  }, [baseType, fullEntity, initialEntity, repo]);
 
   // safe area insets (guard when the test harness doesn't provide the hook)
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };
