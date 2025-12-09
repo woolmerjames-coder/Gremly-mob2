@@ -1499,7 +1499,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         return;
       }
 
-      const sourceNoteId = entity?.source_note_id;
+      let sourceNoteId = entity?.source_note_id;
+
+      // If source_note_id isn't in the passed entity, fetch fresh from DB
+      // This handles the case where the todo list didn't include this field
+      if (!sourceNoteId && entity?.id) {
+        console.log('[SourceNote] No source_note_id in entity, fetching fresh todo:', entity.id);
+        try {
+          const freshTodo = await repo.getById(entity.id);
+          sourceNoteId = (freshTodo as any)?.source_note_id;
+          console.log('[SourceNote] Fresh fetch result:', { sourceNoteId });
+        } catch (err) {
+          console.warn('[SourceNote] Fresh fetch failed:', err);
+        }
+      }
+
       if (!sourceNoteId) {
         console.log('[SourceNote] No source_note_id found');
         setSourceNote(null);
