@@ -182,11 +182,12 @@ function extractTopicsFromMessages(userMessage: string, assistantMessage: string
  */
 export function useSpaceChatEnhanced({
   chatId,
-  spaceId,
+  spaceId: _spaceId,
   spaceName,
 }: UseSpaceChatEnhancedProps): UseSpaceChatEnhancedReturn {
   // Initialize all sub-hooks
-  const { context, updateContext } = useChatContext(chatId);
+  // Pass empty string to useChatContext when chatId is undefined (new chat)
+  const { context, updateContext } = useChatContext(chatId ?? '');
   const cooldown = useSaveableCooldown();
   const detection = useSaveableDetection();
   const buttonState = useSaveButtonState();
