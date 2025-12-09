@@ -1838,20 +1838,43 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   /**
    * Open source note (for todos created from notes)
    */
-  const handleOpenSourceNote = useCallback(() => {
+  const handleOpenSourceNote = useCallback(async () => {
     if (!sourceNote) return;
 
-    // Close current overlay
-    onClose?.();
+    try {
+      // Fetch full note data before opening
+      console.log('[SourceNote] Fetching full note:', sourceNote.id);
+      const fullNote = await repo.getById(sourceNote.id);
 
-    // Small delay to let current overlay close
-    setTimeout(() => {
-      globalOverlay.openView({
-        record: { id: sourceNote.id, type: 'note' } as any,
-        spaceId: fullEntity?.space_id,
-      });
-    }, 300);
-  }, [sourceNote, fullEntity?.space_id, onClose, globalOverlay]);
+      if (!fullNote) {
+        console.warn('[SourceNote] Could not fetch full note');
+        return;
+      }
+
+      const entity = fullEntity || (initialEntity as any);
+      const spaceId = (fullNote as any).space_id || entity?.space_id || initialSpaceId;
+
+      console.log('[SourceNote] Opening note with spaceId:', spaceId);
+
+      // Close current overlay
+      onClose?.();
+
+      // Small delay to let current overlay close
+      setTimeout(() => {
+        globalOverlay.openView({
+          record: {
+            id: fullNote.id,
+            type: 'note',
+            // Pass the full entity data
+            ...fullNote,
+          } as any,
+          spaceId: spaceId,
+        });
+      }, 300);
+    } catch (error) {
+      console.error('[SourceNote] Error opening note:', error);
+    }
+  }, [sourceNote, fullEntity, initialEntity, initialSpaceId, onClose, globalOverlay, repo]);
 
   const handleToggleDetails = useCallback(() => {
     if (!reduceMotion) {
