@@ -3985,7 +3985,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           justifyContent: 'flex-end',
           alignSelf: 'stretch',
         }}
-        {...panResponder.panHandlers}
       >
         {/* Bottom-anchored sheet: max 80% of viewport, rounded top corners */}
         <RNAnimated.View
@@ -4042,12 +4041,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 </Text>
               </View>
             ) : null}
-            {/* Grab handle for visual separation */}
+            {/* Grab handle for visual separation - drag here to dismiss */}
             <View
+              {...panResponder.panHandlers}
               style={{
                 alignItems: 'center',
-                paddingTop: tokenSpacing.sm,
-                paddingBottom: 4,
+                paddingTop: 12,
+                paddingBottom: 8,
                 backgroundColor: sheetBackground,
               }}
             >
@@ -4343,11 +4343,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             placeholder="Add notes..."
                             placeholderTextColor={lightTokens.colors.subtle}
                             multiline
-                            scrollEnabled={false}
+                            scrollEnabled={true}
                             textAlignVertical="top"
                             style={[
                               styles.textArea,
                               {
+                                maxHeight: 200,
                                 color: lightTokens.colors.text,
                                 backgroundColor:
                                   colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',

@@ -442,7 +442,7 @@ const sectionStyles = StyleSheet.create({
   actionsChatsContainer: {
     paddingHorizontal: CONTENT_HORIZONTAL_PAD,
     marginTop: 16,
-    marginBottom: 20,
+    marginBottom: 8,
   },
   actionsChatsSegmentedControl: {
     flexDirection: 'row',
@@ -584,6 +584,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // NEW: Filter bar state
   const [filter, setFilter] = useState<FilterTab>('all');
 
+  // Expanded state for "View more" button
+  const [expanded, setExpanded] = useState(false);
+
+  // Handler to change filter and collapse list
+  const handleFilterChange = useCallback((newFilter: FilterTab) => {
+    setFilter(newFilter);
+    setExpanded(false);
+  }, []);
+
   // Phase 6: Quick add state
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [showAttachExistingModal, setShowAttachExistingModal] = useState(false);
@@ -604,20 +613,22 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return map;
   }, [weekly]);
 
+  // Helper to get habit day flags from weekly data
+  const getHabitDayFlags = useCallback(
+    (habitId: string): boolean[] | undefined => {
+      const habitWeekly = weekly?.habits?.find((h: any) => h.id === habitId);
+      return habitWeekly?.dayFlags;
+    },
+    [weekly],
+  );
+
   // Build unified filtered items array
   const { itemsToShow, moreCount } = useMemo(() => {
     // Get all items by type for this space
     const todos = listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
     const habits = listHabitsForSpace(items, spaceId);
     const notes = listNotesForSpace(items, spaceId);
-    const logs = notes.filter(
-      (n: any) =>
-        !n.is_list &&
-        (n.subtype === 'journal' ||
-          n.subtype === 'idea' ||
-          n.subtype === 'reference' ||
-          !n.subtype),
-    );
+    const logs = notes.filter((n: any) => !n.is_list && n.subtype !== 'list');
     const lists = notes.filter((n: any) => n.is_list || n.subtype === 'list');
 
     // Apply filter
@@ -647,10 +658,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     });
 
     return {
-      itemsToShow: filtered.slice(0, MAX_COMPACT_ITEMS),
+      itemsToShow: expanded ? filtered : filtered.slice(0, MAX_COMPACT_ITEMS),
       moreCount: Math.max(0, filtered.length - MAX_COMPACT_ITEMS),
     };
-  }, [items, spaceId, filter, optimisticQuickAdd]);
+  }, [items, spaceId, filter, optimisticQuickAdd, expanded]);
 
   // Helper to determine EntityCard type from record
   const getEntityType = useCallback((record: any): EntityType => {
@@ -1302,7 +1313,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 <SegmentedPills
                   options={FILTER_OPTIONS}
                   selected={filter}
-                  onSelect={setFilter}
+                  onSelect={handleFilterChange}
                   variant="secondary"
                   fullWidth
                   testID="space-filter-bar"
@@ -1390,12 +1401,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                                 ? { done: progress.doneCount, target: progress.target }
                                 : undefined
                             }
-                            subtitle={
-                              entityType === 'log'
-                                ? formatRelativeDate(item.updated_at || item.created_at)
-                                : entityType === 'list'
-                                  ? `${item.body ? (item.body.match(/^[-•*]\s/gm) || []).length : 0} items`
-                                  : undefined
+                            habitDayFlags={
+                              entityType === 'habit' ? getHabitDayFlags(item.id) : undefined
+                            }
+                            listProgress={
+                              entityType === 'list' && item.list_items
+                                ? {
+                                    done: (item.list_items || []).filter((li: any) => li.checked)
+                                      .length,
+                                    total: (item.list_items || []).length,
+                                  }
+                                : undefined
                             }
                             testID={`space-compact-item-${item.id}`}
                           />
@@ -1412,14 +1428,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     </View>
                   )}
 
-                  {/* View X more pill */}
-                  {moreCount > 0 && (
+                  {/* View X more / Show less pill */}
+                  {(moreCount > 0 || expanded) && (
                     <View style={{ alignItems: 'center', marginTop: 12 }}>
                       <Pressable
-                        onPress={() => {
-                          // TODO: Navigate to full filtered list view
-                          console.log('[SpaceHome] View more pressed, moreCount:', moreCount);
-                        }}
+                        onPress={() => setExpanded(!expanded)}
                         style={({ pressed }) => ({
                           backgroundColor: pressed
                             ? 'rgba(191, 216, 192, 0.25)'
@@ -1433,7 +1446,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                         <Text
                           style={{ fontSize: 13, fontWeight: '500', color: BRAND.colors.mossGreen }}
                         >
-                          View {moreCount} more
+                          {expanded ? 'Show less' : `View ${moreCount} more`}
                         </Text>
                       </Pressable>
                     </View>
@@ -1714,7 +1727,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               <SegmentedPills
                 options={FILTER_OPTIONS}
                 selected={filter}
-                onSelect={setFilter}
+                onSelect={handleFilterChange}
                 variant="secondary"
                 fullWidth
                 testID="space-filter-bar"
@@ -2111,7 +2124,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             <SegmentedPills
               options={FILTER_OPTIONS}
               selected={filter}
-              onSelect={setFilter}
+              onSelect={handleFilterChange}
               variant="secondary"
               fullWidth
               testID="space-filter-bar"
