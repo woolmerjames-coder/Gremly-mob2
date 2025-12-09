@@ -1158,7 +1158,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       hasActionableResult: hasActionableList(body),
       hasChecklistItems: checklistItems && checklistItems.length > 0,
     };
-    console.log('[MakeActionable] check:', result);
 
     if (mode !== 'view') return false;
     if (baseType !== 'log') return false;
@@ -1481,17 +1480,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [fullEntity, initialEntity]);
 
+  // Fetch is_favorite fresh from DB in view mode (list doesn't pass it)
+  useEffect(() => {
+    const fetchFavoriteStatus = async () => {
+      if (mode !== 'view' || baseType !== 'log') return;
+
+      const entity = fullEntity || (initialEntity as any);
+      const entityId = entity?.id;
+      if (!entityId) return;
+
+      try {
+        const freshNote = await repo.getById(entityId);
+        if (freshNote) {
+          const favValue = (freshNote as any).is_favorite ?? false;
+          setIsFavorite(favValue);
+        }
+      } catch (error) {
+        // Silent fail - use default value
+      }
+    };
+
+    fetchFavoriteStatus();
+  }, [mode, baseType, fullEntity, initialEntity, repo]);
+
   // Fetch source note for todos created via "explode to todos"
   useEffect(() => {
     const entity = fullEntity || (initialEntity as any);
-
-    console.log('[SourceNote] Check:', {
-      baseType,
-      entityId: entity?.id,
-      sourceNoteId: entity?.source_note_id,
-      fullEntitySourceNoteId: fullEntity?.source_note_id,
-      initialEntitySourceNoteId: (initialEntity as any)?.source_note_id,
-    });
 
     const fetchSourceNote = async () => {
       if (baseType !== 'todo') {
@@ -1504,34 +1518,28 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // If source_note_id isn't in the passed entity, fetch fresh from DB
       // This handles the case where the todo list didn't include this field
       if (!sourceNoteId && entity?.id) {
-        console.log('[SourceNote] No source_note_id in entity, fetching fresh todo:', entity.id);
         try {
           const freshTodo = await repo.getById(entity.id);
           sourceNoteId = (freshTodo as any)?.source_note_id;
-          console.log('[SourceNote] Fresh fetch result:', { sourceNoteId });
         } catch (err) {
-          console.warn('[SourceNote] Fresh fetch failed:', err);
+          // Silent fail
         }
       }
 
       if (!sourceNoteId) {
-        console.log('[SourceNote] No source_note_id found');
         setSourceNote(null);
         return;
       }
 
       try {
-        console.log('[SourceNote] Fetching note:', sourceNoteId);
         const note = await repo.getById(sourceNoteId);
         if (note) {
-          console.log('[SourceNote] Found:', (note as any).title);
           setSourceNote({
             id: note.id,
             title: (note as any).title || 'Untitled',
           });
         }
       } catch (error) {
-        console.warn('[SourceNote] Failed to fetch:', error);
         setSourceNote(null);
       }
     };
@@ -1559,29 +1567,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
    * Convert note to inline checklist
    */
   const handleConvertToChecklist = useCallback(async () => {
-    console.log('[MakeActionable] handleConvertToChecklist called');
-
     // Get entity from fullEntity OR initialEntity (same pattern as body)
     const entity = fullEntity || (initialEntity as any);
     const entityId = entity?.id;
 
-    console.log('[MakeActionable] entityId:', entityId);
-
-    if (!entityId) {
-      console.log('[MakeActionable] No entity id, aborting');
-      return;
-    }
-
-    console.log('[MakeActionable] noteBody length:', noteBody.length);
+    if (!entityId) return;
 
     const items = extractListItems(noteBody);
-    console.log('[MakeActionable] extracted items:', items.length);
-
     const listItems = toListItems(items);
-    console.log('[MakeActionable] listItems:', listItems);
 
     try {
-      console.log('[MakeActionable] Calling repo.update...');
       await repo.update({
         id: entityId,
         patch: {
@@ -1589,7 +1584,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           has_list: true,
         } as any,
       });
-      console.log('[MakeActionable] repo.update SUCCESS');
 
       // Update local state
       setChecklistItems(listItems);
@@ -1599,8 +1593,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       // Emit event for other components
       eventBus.emit('ItemUpdated', { id: entityId });
-
-      console.log('[MakeActionable] Converted to checklist:', listItems.length, 'items');
     } catch (error) {
       console.error('[MakeActionable] Failed to convert to checklist:', error);
       Alert.alert('Error', 'Failed to convert to checklist');
@@ -1719,8 +1711,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
               // Emit event
               eventBus.emit('ItemUpdated', { id: entityId });
-
-              console.log('[MakeActionable] Reverted to text');
             } catch (error) {
               console.error('[Checklist] Failed to revert:', error);
               Alert.alert('Error', 'Failed to revert checklist');
@@ -1736,29 +1726,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
    */
   const handleExplodeToTodos = useCallback(
     async (selectedItems: ExtractedListItem[]) => {
-      console.log('[MakeActionable] handleExplodeToTodos called');
-      console.log('[MakeActionable] selectedItems:', selectedItems.length);
-
       // Get entity from fullEntity OR initialEntity
       const entity = fullEntity || (initialEntity as any);
       const entityId = entity?.id;
 
-      console.log('[MakeActionable] entityId:', entityId);
-
-      if (!entityId || selectedItems.length === 0) {
-        console.log('[MakeActionable] Missing entity or no items selected');
-        return;
-      }
+      if (!entityId || selectedItems.length === 0) return;
 
       const targetSpaceId = entity.space_id || initialSpaceId;
-      console.log('[MakeActionable] targetSpaceId:', targetSpaceId);
 
       try {
-        console.log('[MakeActionable] Creating todos...');
         const createdTodos = [];
 
         for (const item of selectedItems) {
-          console.log('[MakeActionable] Creating todo:', item.text.substring(0, 30));
           const todo = await repo.create({
             type: 'todo',
             name: item.text,
@@ -1768,11 +1747,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             due_time: null,
             ai_placed: false,
           } as any);
-          console.log('[MakeActionable] Created todo:', todo?.id);
           createdTodos.push(todo);
         }
-
-        console.log('[MakeActionable] All todos created!');
 
         // Close modal
         setShowTodoPreview(false);
@@ -1794,8 +1770,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           'Tasks Created',
           `Created ${createdTodos.length} ${createdTodos.length === 1 ? 'task' : 'tasks'}`,
         );
-
-        console.log('[MakeActionable] Created todos:', createdTodos.length);
       } catch (error) {
         console.error('[MakeActionable] Failed to create todos:', error);
         Alert.alert('Error', 'Failed to create tasks. Please try again.');
@@ -1831,7 +1805,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     } catch (error) {
       // Revert on failure
       setIsFavorite(!newValue);
-      console.error('[Favorite] Failed to toggle:', error);
     }
   }, [fullEntity, initialEntity, isFavorite, repo]);
 
@@ -1843,18 +1816,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     try {
       // Fetch full note data before opening
-      console.log('[SourceNote] Fetching full note:', sourceNote.id);
       const fullNote = await repo.getById(sourceNote.id);
 
-      if (!fullNote) {
-        console.warn('[SourceNote] Could not fetch full note');
-        return;
-      }
+      if (!fullNote) return;
 
       const entity = fullEntity || (initialEntity as any);
       const spaceId = (fullNote as any).space_id || entity?.space_id || initialSpaceId;
-
-      console.log('[SourceNote] Opening note with spaceId:', spaceId);
 
       // Close current overlay
       onClose?.();
@@ -1863,16 +1830,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setTimeout(() => {
         globalOverlay.openView({
           record: {
-            id: fullNote.id,
-            type: 'note',
-            // Pass the full entity data
             ...fullNote,
+            type: 'note',
           } as any,
           spaceId: spaceId,
         });
       }, 300);
     } catch (error) {
-      console.error('[SourceNote] Error opening note:', error);
+      // Silent fail
     }
   }, [sourceNote, fullEntity, initialEntity, initialSpaceId, onClose, globalOverlay, repo]);
 
@@ -4678,22 +4643,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </View>
 
                     {/* Favorite star - view mode, notes only */}
-                    {isViewMode && baseType === 'log' && fullEntity?.id && (
-                      <Pressable
-                        onPress={handleToggleFavorite}
-                        style={{ padding: 8, marginRight: 4 }}
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          isFavorite ? 'Remove from favorites' : 'Add to favorites'
-                        }
-                      >
-                        <Star
-                          size={22}
-                          color={isFavorite ? '#F5A623' : '#ccc'}
-                          fill={isFavorite ? '#F5A623' : 'transparent'}
-                        />
-                      </Pressable>
-                    )}
+                    {isViewMode &&
+                      baseType === 'log' &&
+                      (fullEntity?.id || (initialEntity as any)?.id) && (
+                        <Pressable
+                          onPress={handleToggleFavorite}
+                          style={{ padding: 8, marginRight: 4 }}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            isFavorite ? 'Remove from favorites' : 'Add to favorites'
+                          }
+                        >
+                          <Star
+                            size={22}
+                            color={isFavorite ? '#F5A623' : '#ccc'}
+                            fill={isFavorite ? '#F5A623' : 'transparent'}
+                          />
+                        </Pressable>
+                      )}
 
                     {/* Header Edit button - view mode only */}
                     {isViewMode && fullEntity ? (

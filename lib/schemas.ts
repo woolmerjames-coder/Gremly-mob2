@@ -163,6 +163,19 @@ export const noteZ = baseRecordZ.extend({
   commitment: z.boolean().nullable().optional(),
   commitmentNote: z.string().nullable().optional(),
   commitmentStartedAt: z.string().nullable().optional(),
+  // Make Actionable feature fields
+  is_favorite: z.boolean().optional(),
+  has_list: z.boolean().optional(),
+  list_items: z
+    .array(
+      z.object({
+        id: z.string(),
+        text: z.string(),
+        checked: z.boolean(),
+      }),
+    )
+    .nullable()
+    .optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
