@@ -45,6 +45,8 @@ import {
   Camera,
   Diamond,
   Maximize2,
+  Star,
+  FileText,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -111,6 +113,20 @@ import {
   getFrequencyLabel,
   DAY_LABELS,
 } from './frequencyHelpers';
+
+// Make Actionable feature
+import { MakeActionableButton } from './MakeActionableButton';
+import { ChecklistView } from './ChecklistView';
+import { ChecklistProgress } from './ChecklistProgress';
+import { RevertToTextButton } from './RevertToTextButton';
+import { TodoPreviewModal } from './TodoPreviewModal';
+import {
+  extractListItems,
+  hasActionableList,
+  toListItems,
+  type ExtractedListItem,
+  type ListItem,
+} from '../../lib/lists';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
@@ -1118,6 +1134,39 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [dueToastMessage, setDueToastMessage] = useState<string | null>(null);
 
+  // Make Actionable feature state
+  const [showTodoPreview, setShowTodoPreview] = useState(false);
+  const [extractedItems, setExtractedItems] = useState<ExtractedListItem[]>([]);
+  const [checklistItems, setChecklistItems] = useState<ListItem[] | null>(null);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [sourceNote, setSourceNote] = useState<{ id: string; title: string } | null>(null);
+
+  // Keep this for other parts of the component that need the body
+  const noteBody = state.log?.body || fullEntity?.body || (initialEntity as any)?.body || '';
+
+  // Make Actionable: compute whether to show the button
+  const showMakeActionable = useMemo(() => {
+    // Compute body inside useMemo - check all possible sources
+    const body = state.log?.body || fullEntity?.body || (initialEntity as any)?.body || '';
+    const entity = fullEntity || (initialEntity as any);
+
+    const result = {
+      mode,
+      baseType,
+      noteBodyLength: body?.length ?? 0,
+      hasListFlag: entity?.has_list,
+      hasActionableResult: hasActionableList(body),
+      hasChecklistItems: checklistItems && checklistItems.length > 0,
+    };
+    console.log('[MakeActionable] check:', result);
+
+    if (mode !== 'view') return false;
+    if (baseType !== 'log') return false;
+    if (entity?.has_list) return false; // Already a checklist in DB
+    if (checklistItems && checklistItems.length > 0) return false; // Already showing checklist
+    return hasActionableList(body);
+  }, [mode, baseType, state.log?.body, fullEntity, initialEntity, checklistItems]);
+
   // Swipe-down-to-close: track drag offset and store onClose ref
   const sheetDragY = useRef(new RNAnimated.Value(0)).current;
   const onCloseRef = useRef(onClose);
@@ -1367,6 +1416,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (isExpandedEditor) setIsExpandedEditor(false);
       // Reset preview mode when overlay closes
       setIsPreviewMode(false);
+      // Reset Make Actionable state when overlay closes
+      setChecklistItems(null);
+      setIsFavorite(false);
+      setSourceNote(null);
+      setShowTodoPreview(false);
+      setExtractedItems([]);
     }
   }, [visible, showSaveToast, isExpandedEditor]);
 
@@ -1409,6 +1464,48 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [visible, mode, baseType, conversionMeta, initialEntity]);
 
+  // Initialize Make Actionable state from entity
+  useEffect(() => {
+    const entity = fullEntity || (initialEntity as any);
+
+    if (entity) {
+      // Initialize favorite state
+      setIsFavorite(entity.is_favorite ?? false);
+
+      // Initialize checklist state if note has list - only on first load
+      // Don't reset if we already have checklist items locally (user just converted)
+      if (entity.has_list && entity.list_items) {
+        setChecklistItems(entity.list_items);
+      }
+      // Note: Don't set to null here - that would reset after user converts to checklist
+    }
+  }, [fullEntity, initialEntity]);
+
+  // Fetch source note for todos created via "explode to todos"
+  useEffect(() => {
+    const fetchSourceNote = async () => {
+      if (baseType !== 'todo' || !fullEntity?.source_note_id) {
+        setSourceNote(null);
+        return;
+      }
+
+      try {
+        const note = await repo.getById(fullEntity.source_note_id);
+        if (note) {
+          setSourceNote({
+            id: note.id,
+            title: (note as any).title || 'Untitled',
+          });
+        }
+      } catch (error) {
+        console.warn('[Todo] Failed to fetch source note:', error);
+        setSourceNote(null);
+      }
+    };
+
+    fetchSourceNote();
+  }, [baseType, fullEntity?.source_note_id, repo]);
+
   // safe area insets (guard when the test harness doesn't provide the hook)
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };
   try {
@@ -1420,6 +1517,308 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // reduced motion preference
   const reduceMotion = useReducedMotion();
+
+  // ============================================
+  // MAKE ACTIONABLE HANDLERS
+  // ============================================
+
+  /**
+   * Convert note to inline checklist
+   */
+  const handleConvertToChecklist = useCallback(async () => {
+    console.log('[MakeActionable] handleConvertToChecklist called');
+
+    // Get entity from fullEntity OR initialEntity (same pattern as body)
+    const entity = fullEntity || (initialEntity as any);
+    const entityId = entity?.id;
+
+    console.log('[MakeActionable] entityId:', entityId);
+
+    if (!entityId) {
+      console.log('[MakeActionable] No entity id, aborting');
+      return;
+    }
+
+    console.log('[MakeActionable] noteBody length:', noteBody.length);
+
+    const items = extractListItems(noteBody);
+    console.log('[MakeActionable] extracted items:', items.length);
+
+    const listItems = toListItems(items);
+    console.log('[MakeActionable] listItems:', listItems);
+
+    try {
+      console.log('[MakeActionable] Calling repo.update...');
+      await repo.update({
+        id: entityId,
+        patch: {
+          list_items: listItems,
+          has_list: true,
+        } as any,
+      });
+      console.log('[MakeActionable] repo.update SUCCESS');
+
+      // Update local state
+      setChecklistItems(listItems);
+
+      // Haptic feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Emit event for other components
+      eventBus.emit('ItemUpdated', { id: entityId });
+
+      console.log('[MakeActionable] Converted to checklist:', listItems.length, 'items');
+    } catch (error) {
+      console.error('[MakeActionable] Failed to convert to checklist:', error);
+      Alert.alert('Error', 'Failed to convert to checklist');
+    }
+  }, [fullEntity, initialEntity, noteBody, repo]);
+
+  /**
+   * Show todo preview modal
+   */
+  const handleShowTodoPreview = useCallback(() => {
+    const items = extractListItems(noteBody);
+    setExtractedItems(items);
+    setShowTodoPreview(true);
+  }, [noteBody]);
+
+  /**
+   * Show action sheet with Make Actionable options
+   */
+  const handleMakeActionable = useCallback(() => {
+    const options = ['Turn into checklist', 'Create todos', 'Cancel'];
+    const cancelButtonIndex = 2;
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex,
+          title: 'Make Actionable',
+          message: 'Choose how to use this list',
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) {
+            handleConvertToChecklist();
+          } else if (buttonIndex === 1) {
+            handleShowTodoPreview();
+          }
+        },
+      );
+    } else {
+      // Android fallback using Alert
+      Alert.alert('Make Actionable', 'Choose how to use this list', [
+        { text: 'Turn into checklist', onPress: handleConvertToChecklist },
+        { text: 'Create todos', onPress: handleShowTodoPreview },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [handleConvertToChecklist, handleShowTodoPreview]);
+
+  /**
+   * Toggle a checklist item's checked state
+   */
+  const handleToggleChecklistItem = useCallback(
+    async (itemId: string) => {
+      const entity = fullEntity || (initialEntity as any);
+      const entityId = entity?.id;
+
+      if (!entityId || !checklistItems) return;
+
+      // Optimistic update
+      const updatedItems = checklistItems.map((item) =>
+        item.id === itemId ? { ...item, checked: !item.checked } : item,
+      );
+      setChecklistItems(updatedItems);
+
+      try {
+        await repo.update({
+          id: entityId,
+          patch: {
+            list_items: updatedItems,
+          } as any,
+        });
+
+        // Emit update event
+        eventBus.emit('ItemUpdated', { id: entityId });
+      } catch (error) {
+        // Revert on failure
+        setChecklistItems(checklistItems);
+        console.error('[Checklist] Failed to toggle item:', error);
+      }
+    },
+    [fullEntity, initialEntity, checklistItems, repo],
+  );
+
+  /**
+   * Revert checklist back to plain text
+   */
+  const handleRevertToText = useCallback(() => {
+    const entity = fullEntity || (initialEntity as any);
+    const entityId = entity?.id;
+
+    if (!entityId) return;
+
+    Alert.alert(
+      'Revert to text?',
+      'This will convert the checklist back to regular text. Your check marks will be lost.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Revert',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await repo.update({
+                id: entityId,
+                patch: {
+                  has_list: false,
+                  list_items: null,
+                } as any,
+              });
+
+              // Update local state
+              setChecklistItems(null);
+
+              // Haptic feedback
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+              // Emit event
+              eventBus.emit('ItemUpdated', { id: entityId });
+
+              console.log('[MakeActionable] Reverted to text');
+            } catch (error) {
+              console.error('[Checklist] Failed to revert:', error);
+              Alert.alert('Error', 'Failed to revert checklist');
+            }
+          },
+        },
+      ],
+    );
+  }, [fullEntity, initialEntity, repo]);
+
+  /**
+   * Create todos from selected items
+   */
+  const handleExplodeToTodos = useCallback(
+    async (selectedItems: ExtractedListItem[]) => {
+      console.log('[MakeActionable] handleExplodeToTodos called');
+      console.log('[MakeActionable] selectedItems:', selectedItems.length);
+
+      // Get entity from fullEntity OR initialEntity
+      const entity = fullEntity || (initialEntity as any);
+      const entityId = entity?.id;
+
+      console.log('[MakeActionable] entityId:', entityId);
+
+      if (!entityId || selectedItems.length === 0) {
+        console.log('[MakeActionable] Missing entity or no items selected');
+        return;
+      }
+
+      const targetSpaceId = entity.space_id || initialSpaceId;
+      console.log('[MakeActionable] targetSpaceId:', targetSpaceId);
+
+      try {
+        console.log('[MakeActionable] Creating todos...');
+        const createdTodos = [];
+
+        for (const item of selectedItems) {
+          console.log('[MakeActionable] Creating todo:', item.text.substring(0, 30));
+          const todo = await repo.create({
+            type: 'todo',
+            name: item.text,
+            space_id: targetSpaceId,
+            source_note_id: entityId,
+            due_day: null,
+            due_time: null,
+            ai_placed: false,
+          } as any);
+          console.log('[MakeActionable] Created todo:', todo?.id);
+          createdTodos.push(todo);
+        }
+
+        console.log('[MakeActionable] All todos created!');
+
+        // Close modal
+        setShowTodoPreview(false);
+
+        // Haptic feedback
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Emit events for created todos
+        for (const todo of createdTodos) {
+          eventBus.emit('entity:created', {
+            type: 'todo',
+            entity: todo,
+            spaceId: targetSpaceId,
+          });
+        }
+
+        // Show toast (use existing toast mechanism if available)
+        Alert.alert(
+          'Tasks Created',
+          `Created ${createdTodos.length} ${createdTodos.length === 1 ? 'task' : 'tasks'}`,
+        );
+
+        console.log('[MakeActionable] Created todos:', createdTodos.length);
+      } catch (error) {
+        console.error('[MakeActionable] Failed to create todos:', error);
+        Alert.alert('Error', 'Failed to create tasks. Please try again.');
+      }
+    },
+    [fullEntity, initialEntity, initialSpaceId, repo],
+  );
+
+  /**
+   * Toggle favorite/star state
+   */
+  const handleToggleFavorite = useCallback(async () => {
+    const entity = fullEntity || (initialEntity as any);
+    const entityId = entity?.id;
+
+    if (!entityId) return;
+
+    const newValue = !isFavorite;
+
+    // Optimistic update
+    setIsFavorite(newValue);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    try {
+      await repo.update({
+        id: entityId,
+        patch: {
+          is_favorite: newValue,
+        } as any,
+      });
+
+      eventBus.emit('ItemUpdated', { id: entityId });
+    } catch (error) {
+      // Revert on failure
+      setIsFavorite(!newValue);
+      console.error('[Favorite] Failed to toggle:', error);
+    }
+  }, [fullEntity, initialEntity, isFavorite, repo]);
+
+  /**
+   * Open source note (for todos created from notes)
+   */
+  const handleOpenSourceNote = useCallback(() => {
+    if (!sourceNote) return;
+
+    // Close current overlay
+    onClose?.();
+
+    // Small delay to let current overlay close
+    setTimeout(() => {
+      globalOverlay.openView({
+        record: { id: sourceNote.id, type: 'note' } as any,
+        spaceId: fullEntity?.space_id,
+      });
+    }, 300);
+  }, [sourceNote, fullEntity?.space_id, onClose, globalOverlay]);
 
   const handleToggleDetails = useCallback(() => {
     if (!reduceMotion) {
@@ -3807,6 +4206,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             </View>
           )}
 
+          {/* Source note reference - for todos created from notes */}
+          {baseType === 'todo' && sourceNote && (
+            <Pressable
+              onPress={handleOpenSourceNote}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                backgroundColor: 'rgba(107, 142, 107, 0.08)',
+                borderRadius: 8,
+                marginBottom: 12,
+                alignSelf: 'flex-start',
+              }}
+            >
+              <FileText size={14} color={lightTokens.colors.mossGreen} />
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 13,
+                  color: lightTokens.colors.mossGreen,
+                }}
+              >
+                From: {sourceNote.title}
+              </Text>
+              <ChevronRight size={14} color="#999" />
+            </Pressable>
+          )}
+
           {/* Frequency badge (for habits) */}
           {baseType === 'habit' && state.habit.frequency_json && (
             <View
@@ -3869,8 +4298,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           </View>
         )}
 
-        {/* Body text - rendered with proper spacing */}
-        {entityBody ? (
+        {/* Body content - checklist or formatted text */}
+        {baseType === 'log' && checklistItems && checklistItems.length > 0 ? (
+          // Checklist mode - use local state as primary trigger
+          <View
+            style={{
+              backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 20,
+            }}
+          >
+            <ChecklistProgress items={checklistItems} />
+            <ChecklistView items={checklistItems} onToggle={handleToggleChecklistItem} />
+          </View>
+        ) : entityBody ? (
+          // Regular formatted content
           <View
             style={{
               backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
@@ -3886,6 +4329,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             })}
           </View>
         ) : null}
+
+        {/* Make Actionable button - only for notes with lists that aren't already checklists */}
+        {baseType === 'log' && showMakeActionable && (
+          <MakeActionableButton onPress={handleMakeActionable} />
+        )}
+
+        {/* Revert to text button - only for notes that ARE checklists */}
+        {baseType === 'log' && checklistItems && checklistItems.length > 0 && (
+          <RevertToTextButton onPress={handleRevertToText} />
+        )}
 
         {/* Photos grid (read-only) - for logs with photos */}
         {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
@@ -3989,1791 +4442,1880 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   if (!visible) return null;
 
+  // Derive space name for modals
+  const currentSpaceName = state.spaceId
+    ? spaces.find((s) => s.id === state.spaceId)?.name || 'this Space'
+    : 'this Space';
+
   return (
-    <KeyboardAvoidingView
-      style={[{ flex: 1, backgroundColor: 'rgba(0,0,0,0.10)' }]}
-      behavior={Platform.select({ ios: 'position', android: undefined })}
-      keyboardVerticalOffset={0}
-      contentContainerStyle={{ flex: 1 }}
-    >
-      <View
-        style={{
-          flex: 1,
-          justifyContent: 'flex-end',
-          alignSelf: 'stretch',
-        }}
+    <>
+      <KeyboardAvoidingView
+        style={[{ flex: 1, backgroundColor: 'rgba(0,0,0,0.10)' }]}
+        behavior={Platform.select({ ios: 'position', android: undefined })}
+        keyboardVerticalOffset={0}
+        contentContainerStyle={{ flex: 1 }}
       >
-        {/* Bottom-anchored sheet: max 80% of viewport, rounded top corners */}
-        <RNAnimated.View
+        <View
           style={{
-            width: '100%',
-            opacity: sheetOpacity,
-            transform: [{ translateY: RNAnimated.add(sheetTranslateY, sheetDragY) }],
+            flex: 1,
+            justifyContent: 'flex-end',
+            alignSelf: 'stretch',
           }}
         >
-          <View
+          {/* Bottom-anchored sheet: max 80% of viewport, rounded top corners */}
+          <RNAnimated.View
             style={{
               width: '100%',
-              alignSelf: 'stretch',
-              height: SHEET_MAX_H,
-              maxHeight: SHEET_MAX_H,
-              borderTopLeftRadius: tokenRadius.md,
-              borderTopRightRadius: tokenRadius.md,
-              overflow: 'hidden',
-              backgroundColor: sheetBackground,
-              // Lock In visual state: add green top border when locked
-              borderTopWidth: isLockedIn ? 3 : 0,
-              borderTopColor: isLockedIn ? lightTokens.colors.moss : 'transparent',
-              // subtle shadow to feel like a sheet of paper floating above the app
-              shadowColor: '#000',
-              shadowOpacity: 0.05,
-              shadowRadius: 3,
-              shadowOffset: { width: 0, height: 1 },
-              elevation: 4,
+              opacity: sheetOpacity,
+              transform: [{ translateY: RNAnimated.add(sheetTranslateY, sheetDragY) }],
             }}
           >
-            {showSaveToast ? (
+            <View
+              style={{
+                width: '100%',
+                alignSelf: 'stretch',
+                height: SHEET_MAX_H,
+                maxHeight: SHEET_MAX_H,
+                borderTopLeftRadius: tokenRadius.md,
+                borderTopRightRadius: tokenRadius.md,
+                overflow: 'hidden',
+                backgroundColor: sheetBackground,
+                // Lock In visual state: add green top border when locked
+                borderTopWidth: isLockedIn ? 3 : 0,
+                borderTopColor: isLockedIn ? lightTokens.colors.moss : 'transparent',
+                // subtle shadow to feel like a sheet of paper floating above the app
+                shadowColor: '#000',
+                shadowOpacity: 0.05,
+                shadowRadius: 3,
+                shadowOffset: { width: 0, height: 1 },
+                elevation: 4,
+              }}
+            >
+              {showSaveToast ? (
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    top: tokenSpacing.sm,
+                    right: tokenSpacing.base,
+                    backgroundColor:
+                      colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(46, 125, 106, 0.12)',
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 12,
+                    zIndex: 2,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: typeTabUnderlineColor,
+                      fontWeight: '600',
+                      fontSize: lightTokens.typography.size.sm,
+                    }}
+                  >
+                    Saved
+                  </Text>
+                </View>
+              ) : null}
+              {/* Grab handle for visual separation - drag here to dismiss */}
               <View
-                pointerEvents="none"
+                {...panResponder.panHandlers}
                 style={{
-                  position: 'absolute',
-                  top: tokenSpacing.sm,
-                  right: tokenSpacing.base,
-                  backgroundColor:
-                    colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(46, 125, 106, 0.12)',
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 12,
-                  zIndex: 2,
+                  alignItems: 'center',
+                  paddingTop: 12,
+                  paddingBottom: 8,
+                  backgroundColor: sheetBackground,
                 }}
               >
-                <Text
-                  style={{
-                    color: typeTabUnderlineColor,
-                    fontWeight: '600',
-                    fontSize: lightTokens.typography.size.sm,
-                  }}
-                >
-                  Saved
-                </Text>
-              </View>
-            ) : null}
-            {/* Grab handle for visual separation - drag here to dismiss */}
-            <View
-              {...panResponder.panHandlers}
-              style={{
-                alignItems: 'center',
-                paddingTop: 12,
-                paddingBottom: 8,
-                backgroundColor: sheetBackground,
-              }}
-            >
-              <View
-                style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: handleColor }}
-              />
-            </View>
-            {/* Header: contextual title - Phase 6b cleanup */}
-            <Box
-              style={{
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                // remove harsh bottom border on header to keep sheet soft
-                borderBottomWidth: 0,
-                backgroundColor: sheetBackground,
-              }}
-            >
-              <View style={{ position: 'relative' }}>
-                <Reanimated.View
-                  pointerEvents="none"
-                  style={[
-                    StyleSheet.absoluteFillObject,
-                    { backgroundColor: headerPulseColor, borderRadius: 12 },
-                    headerPulseStyle,
-                  ]}
-                />
                 <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}>
-                    <Text
-                      variant="title"
-                      style={{
-                        color: '#222222',
-                        fontWeight: '500',
-                        fontSize: 18,
-                        flex: 1,
-                      }}
-                      numberOfLines={1}
-                    >
-                      {headerFor(baseType, mode, overlaySubtitle)}
-                    </Text>
-                    {/* Lock In badge */}
-                    {isLockedIn ? (
-                      <View
-                        style={[
-                          styles.lockedBadge,
-                          { flexDirection: 'row', alignItems: 'center', gap: 4 },
-                        ]}
+                  style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: handleColor }}
+                />
+              </View>
+              {/* Header: contextual title - Phase 6b cleanup */}
+              <Box
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  // remove harsh bottom border on header to keep sheet soft
+                  borderBottomWidth: 0,
+                  backgroundColor: sheetBackground,
+                }}
+              >
+                <View style={{ position: 'relative' }}>
+                  <Reanimated.View
+                    pointerEvents="none"
+                    style={[
+                      StyleSheet.absoluteFillObject,
+                      { backgroundColor: headerPulseColor, borderRadius: 12 },
+                      headerPulseStyle,
+                    ]}
+                  />
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}>
+                      <Text
+                        variant="title"
+                        style={{
+                          color: '#222222',
+                          fontWeight: '500',
+                          fontSize: 18,
+                          flex: 1,
+                        }}
+                        numberOfLines={1}
                       >
-                        <Diamond size={12} color="#2E5540" fill="#2E5540" />
-                        <Text style={styles.lockedBadgeText}>Locked In</Text>
-                      </View>
-                    ) : null}
-                    {/* Log subtype chip - tappable for manual override */}
-                    {isLog && logSubtypeLabel ? (
+                        {headerFor(baseType, mode, overlaySubtitle)}
+                      </Text>
+                      {/* Lock In badge */}
+                      {isLockedIn ? (
+                        <View
+                          style={[
+                            styles.lockedBadge,
+                            { flexDirection: 'row', alignItems: 'center', gap: 4 },
+                          ]}
+                        >
+                          <Diamond size={12} color="#2E5540" fill="#2E5540" />
+                          <Text style={styles.lockedBadgeText}>Locked In</Text>
+                        </View>
+                      ) : null}
+                      {/* Log subtype chip - tappable for manual override */}
+                      {isLog && logSubtypeLabel ? (
+                        <Pressable
+                          onPress={handleLogSubtypeChipPress}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Log subtype: ${logSubtypeLabel}. Tap to change.`}
+                          style={({ pressed }) => ({
+                            alignSelf: 'center',
+                            marginLeft: 8,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: 999,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor:
+                              colorMode === 'dark'
+                                ? 'rgba(255, 255, 255, 0.15)'
+                                : 'rgba(0, 0, 0, 0.12)',
+                            backgroundColor:
+                              colorMode === 'dark'
+                                ? 'rgba(255, 255, 255, 0.04)'
+                                : 'rgba(46, 85, 64, 0.06)',
+                            opacity: pressed ? 0.6 : 1,
+                          })}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: '500',
+                              color: colorMode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : '#5a5a5a',
+                            }}
+                          >
+                            {logSubtypeLabel}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+
+                    {/* Favorite star - view mode, notes only */}
+                    {isViewMode && baseType === 'log' && fullEntity?.id && (
                       <Pressable
-                        onPress={handleLogSubtypeChipPress}
-                        hitSlop={8}
+                        onPress={handleToggleFavorite}
+                        style={{ padding: 8, marginRight: 4 }}
                         accessibilityRole="button"
-                        accessibilityLabel={`Log subtype: ${logSubtypeLabel}. Tap to change.`}
+                        accessibilityLabel={
+                          isFavorite ? 'Remove from favorites' : 'Add to favorites'
+                        }
+                      >
+                        <Star
+                          size={22}
+                          color={isFavorite ? '#F5A623' : '#ccc'}
+                          fill={isFavorite ? '#F5A623' : 'transparent'}
+                        />
+                      </Pressable>
+                    )}
+
+                    {/* Header Edit button - view mode only */}
+                    {isViewMode && fullEntity ? (
+                      <Pressable
+                        onPress={() => {
+                          if (initialEntity && (initialEntity as any).id) {
+                            globalOverlay.openEdit({
+                              record: initialEntity as any,
+                              spaceId: initialSpaceId,
+                            });
+                          }
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit"
                         style={({ pressed }) => ({
-                          alignSelf: 'center',
-                          marginLeft: 8,
-                          paddingHorizontal: 8,
-                          paddingVertical: 3,
-                          borderRadius: 999,
-                          borderWidth: StyleSheet.hairlineWidth,
-                          borderColor:
-                            colorMode === 'dark'
-                              ? 'rgba(255, 255, 255, 0.15)'
-                              : 'rgba(0, 0, 0, 0.12)',
                           backgroundColor:
-                            colorMode === 'dark'
-                              ? 'rgba(255, 255, 255, 0.04)'
-                              : 'rgba(46, 85, 64, 0.06)',
-                          opacity: pressed ? 0.6 : 1,
+                            colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss,
+                          paddingHorizontal: 16,
+                          paddingVertical: 8,
+                          borderRadius: 999,
+                          opacity: pressed ? 0.8 : 1,
                         })}
                       >
                         <Text
                           style={{
-                            fontSize: 11,
-                            fontWeight: '500',
-                            color: colorMode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : '#5a5a5a',
+                            color: '#FFFFFF',
+                            fontSize: 14,
+                            fontWeight: '600',
                           }}
                         >
-                          {logSubtypeLabel}
+                          Edit
                         </Text>
                       </Pressable>
                     ) : null}
-                  </View>
 
-                  {/* Header Edit button - view mode only */}
-                  {isViewMode && fullEntity ? (
-                    <Pressable
-                      onPress={() => {
-                        if (initialEntity && (initialEntity as any).id) {
-                          globalOverlay.openEdit({
-                            record: initialEntity as any,
-                            spaceId: initialSpaceId,
-                          });
-                        }
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Edit"
-                      style={({ pressed }) => ({
-                        backgroundColor:
-                          colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss,
-                        paddingHorizontal: 16,
-                        paddingVertical: 8,
-                        borderRadius: 999,
-                        opacity: pressed ? 0.8 : 1,
-                      })}
-                    >
-                      <Text
-                        style={{
-                          color: '#FFFFFF',
-                          fontSize: 14,
-                          fontWeight: '600',
-                        }}
-                      >
-                        Edit
-                      </Text>
-                    </Pressable>
-                  ) : null}
-
-                  {/* Title actions - edit + resummarize icons (only in edit mode) */}
-                  {mode === 'edit' && fullEntity ? (
-                    <View style={styles.titleActions}>
-                      {/* Edit icon - focuses the text input */}
-                      <Pressable
-                        onPress={handleEditTitle}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Edit title"
-                        style={({ pressed }) => ({
-                          opacity: pressed ? 0.5 : 0.6,
-                        })}
-                      >
-                        <Pencil
-                          size={16}
-                          color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                        />
-                      </Pressable>
-                      {/* Resummarize icon - regenerates title via AI */}
-                      {currentText ? (
+                    {/* Title actions - edit + resummarize icons (only in edit mode) */}
+                    {mode === 'edit' && fullEntity ? (
+                      <View style={styles.titleActions}>
+                        {/* Edit icon - focuses the text input */}
                         <Pressable
-                          onPress={handleResummarizeTitle}
-                          disabled={isResummarizingTitle}
+                          onPress={handleEditTitle}
                           hitSlop={8}
                           accessibilityRole="button"
-                          accessibilityLabel="Re-summarize title"
+                          accessibilityLabel="Edit title"
                           style={({ pressed }) => ({
-                            opacity: pressed || isResummarizingTitle ? 0.5 : 0.6,
+                            opacity: pressed ? 0.5 : 0.6,
                           })}
                         >
-                          <RotateCw
+                          <Pencil
                             size={16}
                             color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
                           />
                         </Pressable>
-                      ) : null}
-                    </View>
-                  ) : null}
-                </View>
-                {/* Phase 6b: Removed subtitle to avoid duplication - title now shows in header */}
-              </View>
-              {/* Decorative title divider */}
-              <View
-                style={{
-                  width: '35%',
-                  height: 1,
-                  backgroundColor: 'rgba(191, 216, 192, 0.9)',
-                  marginTop: 8,
-                  marginBottom: 16,
-                }}
-              />
-            </Box>
-
-            {/* View/Edit Mode Content Container with Crossfade Animation */}
-            <View style={{ flex: 1, position: 'relative' }}>
-              {/* View Mode Content - Read-only display */}
-              <Reanimated.View style={[viewModeStyle, { flex: isViewMode ? 1 : 0 }]}>
-                {isViewMode && renderViewModeContent()}
-              </Reanimated.View>
-
-              {/* Edit/Create Mode Content - Interactive form */}
-              <Reanimated.View style={[editModeStyle, { flex: !isViewMode ? 1 : 0 }]}>
-                {!isViewMode && (
-                  <ScrollView
-                    keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={{
-                      paddingHorizontal: 16,
-                      paddingBottom: 8,
-                      paddingTop: 0,
-                    }}
-                  >
-                    {/* Phase 6c: Type selector - segmented control */}
-                    <View style={styles.tabsContainer}>
-                      {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
-                        const selected = baseType === t;
-                        return (
+                        {/* Resummarize icon - regenerates title via AI */}
+                        {currentText ? (
                           <Pressable
-                            key={t}
-                            onPress={() => handleTypeSelect(t)}
-                            style={[styles.tab, selected && styles.tabActive]}
-                            accessibilityRole="tab"
-                            accessibilityState={{ selected }}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <Text style={[styles.tabLabel, selected && styles.tabLabelActive]}>
-                              {BASE_LABEL[t]}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-
-                    {/* Build/Break Habit toggle - only for habits */}
-                    {baseType === 'habit' && (
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginTop: 0,
-                          marginBottom: 16,
-                          paddingHorizontal: 4,
-                        }}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontSize: 14 }}>{isBreakHabit ? '↺' : '+'}</Text>
-                          <Text style={{ fontSize: 14, color: '#444', fontWeight: '500' }}>
-                            {isBreakHabit ? 'Break habit' : 'Build habit'}
-                          </Text>
-                        </View>
-                        <Switch
-                          value={isBreakHabit}
-                          onValueChange={(next) => {
-                            dispatch({
-                              type: 'SET_HABIT_SUBTYPE',
-                              subtype: next ? 'break_habit' : 'start_habit',
-                            });
-                          }}
-                          trackColor={{
-                            false: 'rgba(0,0,0,0.12)',
-                            true: lightTokens.colors.moss,
-                          }}
-                          thumbColor="#FFFFFF"
-                        />
-                      </View>
-                    )}
-
-                    {/* Main text field - moved above tags */}
-                    <Box style={{ marginBottom: 16 }}>
-                      {isExpandedEditor ? (
-                        /* Expanded editor mode */
-                        <OverlayExpandedEditor
-                          baseType={baseType}
-                          effectiveLogSubtype={effectiveLogSubtype}
-                          text={currentText}
-                          onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                          colorMode={colorMode}
-                          isLog={isLog}
-                          onCollapse={() => {
-                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                            setIsExpandedEditor(false);
-                          }}
-                          journalDateTime={
-                            effectiveLogSubtype === 'journal' ? new Date() : undefined
-                          }
-                          isChecklistMode={isChecklistMode}
-                          onToggleChecklistMode={() => dispatch({ type: 'TOGGLE_CHECKLIST_MODE' })}
-                        />
-                      ) : isPreviewMode ? (
-                        /* Preview mode: Formatted read-only content */
-                        <View style={{ position: 'relative' }}>
-                          <View
-                            style={[
-                              styles.textArea,
-                              {
-                                maxHeight: 200,
-                                backgroundColor:
-                                  colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                                borderWidth: 1,
-                                borderColor:
-                                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                                paddingRight: 50,
-                              },
-                            ]}
-                          >
-                            <ScrollView
-                              style={{ flex: 1 }}
-                              showsVerticalScrollIndicator={true}
-                              nestedScrollEnabled={true}
-                            >
-                              {renderFormattedContent(currentText, {
-                                textColor:
-                                  colorMode === 'dark'
-                                    ? 'rgba(255,255,255,0.9)'
-                                    : lightTokens.colors.text,
-                                fontSize: 16,
-                                lineHeight: 24,
-                              })}
-                            </ScrollView>
-                          </View>
-
-                          {/* Edit button - top right */}
-                          <Pressable
-                            onPress={() => {
-                              // Strip markdown and switch to edit mode
-                              const strippedText = stripMarkdown(currentText);
-                              dispatch({ type: 'SET_TEXT', text: strippedText });
-                              setIsPreviewMode(false);
-                            }}
-                            style={({ pressed }) => ({
-                              position: 'absolute',
-                              top: 10,
-                              right: 10,
-                              paddingHorizontal: 12,
-                              paddingVertical: 6,
-                              borderRadius: 14,
-                              backgroundColor:
-                                colorMode === 'dark'
-                                  ? 'rgba(255,255,255,0.1)'
-                                  : 'rgba(46, 85, 64, 0.1)',
-                              opacity: pressed ? 0.7 : 1,
-                            })}
-                            accessibilityLabel="Edit content"
+                            onPress={handleResummarizeTitle}
+                            disabled={isResummarizingTitle}
+                            hitSlop={8}
                             accessibilityRole="button"
-                          >
-                            <Text
-                              style={{
-                                fontSize: 13,
-                                fontWeight: '600',
-                                color: colorMode === 'dark' ? 'rgba(255,255,255,0.8)' : '#2E5540',
-                              }}
-                            >
-                              Edit
-                            </Text>
-                          </Pressable>
-                        </View>
-                      ) : (
-                        /* Compact text area mode */
-                        <View style={{ position: 'relative' }}>
-                          {/* Standard text input for all log subtypes */}
-                          <TextInput
-                            ref={textInputRef}
-                            value={currentText}
-                            onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
-                            editable={!isViewMode}
-                            pointerEvents={isViewMode ? 'none' : 'auto'}
-                            accessibilityLabel="Overlay content input"
-                            onFocus={() => setBodyFocused(true)}
-                            onBlur={() => setBodyFocused(false)}
-                            placeholder="Add notes..."
-                            placeholderTextColor={lightTokens.colors.subtle}
-                            multiline
-                            scrollEnabled={true}
-                            textAlignVertical="top"
-                            style={[
-                              styles.textArea,
-                              {
-                                maxHeight: 200,
-                                color: lightTokens.colors.text,
-                                backgroundColor:
-                                  colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                                borderWidth: 1,
-                                borderColor:
-                                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                                shadowColor: '#000',
-                                shadowOpacity: 0.03,
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowRadius: 2,
-                                paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
-                              },
-                            ]}
-                          />
-                          {/* Expand button in top-right corner */}
-                          <Pressable
-                            onPress={() => {
-                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                              setIsExpandedEditor(true);
-                            }}
+                            accessibilityLabel="Re-summarize title"
                             style={({ pressed }) => ({
-                              position: 'absolute',
-                              top: 10,
-                              right: 10,
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
-                              backgroundColor:
-                                colorMode === 'dark'
-                                  ? 'rgba(255,255,255,0.1)'
-                                  : 'rgba(46, 85, 64, 0.08)',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              opacity: pressed ? 0.7 : 1,
+                              opacity: pressed || isResummarizingTitle ? 0.5 : 0.6,
                             })}
-                            accessibilityLabel="Expand editor"
-                            accessibilityRole="button"
                           >
-                            <Maximize2
+                            <RotateCw
                               size={16}
-                              color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540'}
+                              color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
                             />
                           </Pressable>
-                          {/* Camera button inside text area for logs only (hidden in view mode) */}
-                          {isLog && !isViewMode && (
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
+                  {/* Phase 6b: Removed subtitle to avoid duplication - title now shows in header */}
+                </View>
+                {/* Decorative title divider */}
+                <View
+                  style={{
+                    width: '35%',
+                    height: 1,
+                    backgroundColor: 'rgba(191, 216, 192, 0.9)',
+                    marginTop: 8,
+                    marginBottom: 16,
+                  }}
+                />
+              </Box>
+
+              {/* View/Edit Mode Content Container with Crossfade Animation */}
+              <View style={{ flex: 1, position: 'relative' }}>
+                {/* View Mode Content - Read-only display */}
+                <Reanimated.View style={[viewModeStyle, { flex: isViewMode ? 1 : 0 }]}>
+                  {isViewMode && renderViewModeContent()}
+                </Reanimated.View>
+
+                {/* Edit/Create Mode Content - Interactive form */}
+                <Reanimated.View style={[editModeStyle, { flex: !isViewMode ? 1 : 0 }]}>
+                  {!isViewMode && (
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      contentContainerStyle={{
+                        paddingHorizontal: 16,
+                        paddingBottom: 8,
+                        paddingTop: 0,
+                      }}
+                    >
+                      {/* Phase 6c: Type selector - segmented control */}
+                      <View style={styles.tabsContainer}>
+                        {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
+                          const selected = baseType === t;
+                          return (
                             <Pressable
-                              onPress={handleOpenMultiPhotoActionSheet}
-                              style={({ pressed }) => ({
-                                position: 'absolute',
-                                bottom: 14,
-                                right: 14,
-                                width: 40,
-                                height: 40,
-                                borderRadius: 20,
-                                backgroundColor:
-                                  colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                shadowColor: '#000',
-                                shadowOpacity: 0.08,
-                                shadowOffset: { width: 0, height: 2 },
-                                shadowRadius: 4,
-                                opacity: pressed ? 0.7 : 1,
-                              })}
-                              accessibilityLabel="Add photo"
-                              accessibilityRole="button"
+                              key={t}
+                              onPress={() => handleTypeSelect(t)}
+                              style={[styles.tab, selected && styles.tabActive]}
+                              accessibilityRole="tab"
+                              accessibilityState={{ selected }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
-                              <Camera
-                                size={24}
-                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                              />
+                              <Text style={[styles.tabLabel, selected && styles.tabLabelActive]}>
+                                {BASE_LABEL[t]}
+                              </Text>
                             </Pressable>
-                          )}
+                          );
+                        })}
+                      </View>
+
+                      {/* Build/Break Habit toggle - only for habits */}
+                      {baseType === 'habit' && (
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginTop: 0,
+                            marginBottom: 16,
+                            paddingHorizontal: 4,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={{ fontSize: 14 }}>{isBreakHabit ? '↺' : '+'}</Text>
+                            <Text style={{ fontSize: 14, color: '#444', fontWeight: '500' }}>
+                              {isBreakHabit ? 'Break habit' : 'Build habit'}
+                            </Text>
+                          </View>
+                          <Switch
+                            value={isBreakHabit}
+                            onValueChange={(next) => {
+                              dispatch({
+                                type: 'SET_HABIT_SUBTYPE',
+                                subtype: next ? 'break_habit' : 'start_habit',
+                              });
+                            }}
+                            trackColor={{
+                              false: 'rgba(0,0,0,0.12)',
+                              true: lightTokens.colors.moss,
+                            }}
+                            thumbColor="#FFFFFF"
+                          />
                         </View>
                       )}
-                    </Box>
 
-                    {/* Multi-photo grid for logs (Phase L5) - only show when photos exist */}
-                    {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
-                      <Box px={4} mt={2}>
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          style={styles.photoGridScroll}
-                          contentContainerStyle={styles.photoGridContent}
-                        >
-                          {logPhotos
-                            .filter((p) => !p.isDeleted)
-                            .map((photo, index) => {
-                              const actualIndex = logPhotos.findIndex((p) => p === photo);
-                              return (
-                                <View key={actualIndex} style={styles.photoThumbnailContainer}>
-                                  <Pressable
-                                    onPress={() => handleViewLogPhoto(actualIndex)}
-                                    accessibilityLabel={`View photo ${index + 1}`}
-                                    accessibilityRole="button"
-                                  >
-                                    <Image
-                                      source={{ uri: photo.url }}
-                                      style={styles.photoGridThumbnail}
-                                      resizeMode="cover"
-                                    />
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => handleDeleteLogPhoto(actualIndex)}
-                                    style={styles.photoGridDeleteButton}
-                                    hitSlop={8}
-                                    accessibilityLabel={`Remove photo ${index + 1}`}
-                                    accessibilityRole="button"
-                                  >
-                                    <CloseIcon size={12} color="#666666" />
-                                  </Pressable>
-                                </View>
-                              );
-                            })}
-                          {logPhotos.filter((p) => !p.isDeleted).length < 5 && (
-                            <Pressable
-                              onPress={handleOpenMultiPhotoActionSheet}
-                              style={styles.addMorePhotosButton}
-                              accessibilityLabel="Add another photo"
-                              accessibilityRole="button"
-                            >
-                              <Camera size={16} color="#666666" />
-                              <Text style={styles.addMorePhotosText}>Add photo</Text>
-                            </Pressable>
-                          )}
-                        </ScrollView>
-                      </Box>
-                    )}
-
-                    {/* Tags row - now directly below text field */}
-                    <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
-                      <TagsRow
-                        tags={activeTagChips}
-                        suggested={suggestionChips}
-                        onToggle={isViewMode ? () => {} : handleTagToggle}
-                        onResuggest={
-                          isViewMode
-                            ? undefined
-                            : mode === 'edit' && fullEntity
-                              ? handleResuggestTags
-                              : undefined
-                        }
-                        resuggesting={isResuggestingTags}
-                        onAdd={isViewMode ? undefined : handleTagAdd}
-                        onUserAdd={isViewMode ? undefined : handleTelemetryTagAdd}
-                        onUserRemove={isViewMode ? undefined : handleTelemetryTagRemove}
-                      />
-                      {hasLowConfidenceSuggestions ? (
-                        <Box mt={2}>
-                          <Text variant="subtle">AI suggestions (low confidence)</Text>
-                        </Box>
-                      ) : null}
-                    </Box>
-
-                    {/* Log meta row: timestamp + mood strip (Phase L4) - ONLY for journal logs */}
-                    {isJournal ? (
+                      {/* Main text field - moved above tags */}
                       <Box style={{ marginBottom: 16 }}>
-                        <View style={styles.logMetaRow}>
-                          {logTimestampLabel ? (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <Text style={styles.logTimestampText}>{logTimestampLabel}</Text>
-                              {state.log.private && (
-                                <Lock
-                                  size={14}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'}
-                                  style={{ opacity: 0.8 }}
-                                />
-                              )}
+                        {isExpandedEditor ? (
+                          /* Expanded editor mode */
+                          <OverlayExpandedEditor
+                            baseType={baseType}
+                            effectiveLogSubtype={effectiveLogSubtype}
+                            text={currentText}
+                            onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                            colorMode={colorMode}
+                            isLog={isLog}
+                            onCollapse={() => {
+                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                              setIsExpandedEditor(false);
+                            }}
+                            journalDateTime={
+                              effectiveLogSubtype === 'journal' ? new Date() : undefined
+                            }
+                            isChecklistMode={isChecklistMode}
+                            onToggleChecklistMode={() =>
+                              dispatch({ type: 'TOGGLE_CHECKLIST_MODE' })
+                            }
+                          />
+                        ) : isPreviewMode ? (
+                          /* Preview mode: Formatted read-only content */
+                          <View style={{ position: 'relative' }}>
+                            <View
+                              style={[
+                                styles.textArea,
+                                {
+                                  maxHeight: 200,
+                                  backgroundColor:
+                                    colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                                  borderWidth: 1,
+                                  borderColor:
+                                    colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                                  paddingRight: 50,
+                                },
+                              ]}
+                            >
+                              <ScrollView
+                                style={{ flex: 1 }}
+                                showsVerticalScrollIndicator={true}
+                                nestedScrollEnabled={true}
+                              >
+                                {renderFormattedContent(currentText, {
+                                  textColor:
+                                    colorMode === 'dark'
+                                      ? 'rgba(255,255,255,0.9)'
+                                      : lightTokens.colors.text,
+                                  fontSize: 16,
+                                  lineHeight: 24,
+                                })}
+                              </ScrollView>
                             </View>
-                          ) : null}
-                          <View style={styles.moodRow}>
+
+                            {/* Edit button - top right */}
                             <Pressable
-                              onPress={() => setMood('happy')}
-                              hitSlop={8}
-                              style={[
-                                styles.moodButton,
-                                mood === 'happy' && styles.moodButtonActive,
-                              ]}
+                              onPress={() => {
+                                // Strip markdown and switch to edit mode
+                                const strippedText = stripMarkdown(currentText);
+                                dispatch({ type: 'SET_TEXT', text: strippedText });
+                                setIsPreviewMode(false);
+                              }}
+                              style={({ pressed }) => ({
+                                position: 'absolute',
+                                top: 10,
+                                right: 10,
+                                paddingHorizontal: 12,
+                                paddingVertical: 6,
+                                borderRadius: 14,
+                                backgroundColor:
+                                  colorMode === 'dark'
+                                    ? 'rgba(255,255,255,0.1)'
+                                    : 'rgba(46, 85, 64, 0.1)',
+                                opacity: pressed ? 0.7 : 1,
+                              })}
+                              accessibilityLabel="Edit content"
                               accessibilityRole="button"
-                              accessibilityLabel="Set mood to happy"
-                              disabled={isViewMode}
                             >
-                              <Text style={{ fontSize: 20 }}>😊</Text>
-                            </Pressable>
-                            <Pressable
-                              onPress={() => setMood('neutral')}
-                              hitSlop={8}
-                              style={[
-                                styles.moodButton,
-                                mood === 'neutral' && styles.moodButtonActive,
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel="Set mood to neutral"
-                              disabled={isViewMode}
-                            >
-                              <Text style={{ fontSize: 20 }}>😐</Text>
-                            </Pressable>
-                            <Pressable
-                              onPress={() => setMood('sad')}
-                              hitSlop={8}
-                              style={[styles.moodButton, mood === 'sad' && styles.moodButtonActive]}
-                              accessibilityRole="button"
-                              accessibilityLabel="Set mood to sad"
-                              disabled={isViewMode}
-                            >
-                              <Text style={{ fontSize: 20 }}>😔</Text>
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: '600',
+                                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.8)' : '#2E5540',
+                                }}
+                              >
+                                Edit
+                              </Text>
                             </Pressable>
                           </View>
-                        </View>
+                        ) : (
+                          /* Compact text area mode */
+                          <View style={{ position: 'relative' }}>
+                            {/* Standard text input for all log subtypes */}
+                            <TextInput
+                              ref={textInputRef}
+                              value={currentText}
+                              onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                              editable={!isViewMode}
+                              pointerEvents={isViewMode ? 'none' : 'auto'}
+                              accessibilityLabel="Overlay content input"
+                              onFocus={() => setBodyFocused(true)}
+                              onBlur={() => setBodyFocused(false)}
+                              placeholder="Add notes..."
+                              placeholderTextColor={lightTokens.colors.subtle}
+                              multiline
+                              scrollEnabled={true}
+                              textAlignVertical="top"
+                              style={[
+                                styles.textArea,
+                                {
+                                  maxHeight: 200,
+                                  color: lightTokens.colors.text,
+                                  backgroundColor:
+                                    colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                                  borderWidth: 1,
+                                  borderColor:
+                                    colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+                                  shadowColor: '#000',
+                                  shadowOpacity: 0.03,
+                                  shadowOffset: { width: 0, height: 1 },
+                                  shadowRadius: 2,
+                                  paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
+                                },
+                              ]}
+                            />
+                            {/* Expand button in top-right corner */}
+                            <Pressable
+                              onPress={() => {
+                                LayoutAnimation.configureNext(
+                                  LayoutAnimation.Presets.easeInEaseOut,
+                                );
+                                setIsExpandedEditor(true);
+                              }}
+                              style={({ pressed }) => ({
+                                position: 'absolute',
+                                top: 10,
+                                right: 10,
+                                width: 32,
+                                height: 32,
+                                borderRadius: 16,
+                                backgroundColor:
+                                  colorMode === 'dark'
+                                    ? 'rgba(255,255,255,0.1)'
+                                    : 'rgba(46, 85, 64, 0.08)',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                opacity: pressed ? 0.7 : 1,
+                              })}
+                              accessibilityLabel="Expand editor"
+                              accessibilityRole="button"
+                            >
+                              <Maximize2
+                                size={16}
+                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540'}
+                              />
+                            </Pressable>
+                            {/* Camera button inside text area for logs only (hidden in view mode) */}
+                            {isLog && !isViewMode && (
+                              <Pressable
+                                onPress={handleOpenMultiPhotoActionSheet}
+                                style={({ pressed }) => ({
+                                  position: 'absolute',
+                                  bottom: 14,
+                                  right: 14,
+                                  width: 40,
+                                  height: 40,
+                                  borderRadius: 20,
+                                  backgroundColor:
+                                    colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  shadowColor: '#000',
+                                  shadowOpacity: 0.08,
+                                  shadowOffset: { width: 0, height: 2 },
+                                  shadowRadius: 4,
+                                  opacity: pressed ? 0.7 : 1,
+                                })}
+                                accessibilityLabel="Add photo"
+                                accessibilityRole="button"
+                              >
+                                <Camera
+                                  size={24}
+                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
+                                />
+                              </Pressable>
+                            )}
+                          </View>
+                        )}
                       </Box>
-                    ) : null}
 
-                    <Box>
-                      {baseType === 'todo' || baseType === 'habit' ? (
-                        <Box style={{ marginBottom: 0 }}>
-                          {/* Due date + Lock In row */}
-                          <View style={styles.dueAndLockRow}>
-                            {/* Left side: Due date */}
-                            <View style={styles.dueDateLeft}>
-                              {baseType === 'todo' ? (
-                                <Pressable
-                                  style={styles.dueDatePill}
-                                  onPress={() => {
-                                    // Pre-fill date picker with current due_day if set
-                                    if (state.todo.due_day) {
-                                      const parsed = parseDayString(state.todo.due_day);
-                                      if (parsed) {
-                                        setSelectedDate(parsed);
+                      {/* Multi-photo grid for logs (Phase L5) - only show when photos exist */}
+                      {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
+                        <Box px={4} mt={2}>
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.photoGridScroll}
+                            contentContainerStyle={styles.photoGridContent}
+                          >
+                            {logPhotos
+                              .filter((p) => !p.isDeleted)
+                              .map((photo, index) => {
+                                const actualIndex = logPhotos.findIndex((p) => p === photo);
+                                return (
+                                  <View key={actualIndex} style={styles.photoThumbnailContainer}>
+                                    <Pressable
+                                      onPress={() => handleViewLogPhoto(actualIndex)}
+                                      accessibilityLabel={`View photo ${index + 1}`}
+                                      accessibilityRole="button"
+                                    >
+                                      <Image
+                                        source={{ uri: photo.url }}
+                                        style={styles.photoGridThumbnail}
+                                        resizeMode="cover"
+                                      />
+                                    </Pressable>
+                                    <Pressable
+                                      onPress={() => handleDeleteLogPhoto(actualIndex)}
+                                      style={styles.photoGridDeleteButton}
+                                      hitSlop={8}
+                                      accessibilityLabel={`Remove photo ${index + 1}`}
+                                      accessibilityRole="button"
+                                    >
+                                      <CloseIcon size={12} color="#666666" />
+                                    </Pressable>
+                                  </View>
+                                );
+                              })}
+                            {logPhotos.filter((p) => !p.isDeleted).length < 5 && (
+                              <Pressable
+                                onPress={handleOpenMultiPhotoActionSheet}
+                                style={styles.addMorePhotosButton}
+                                accessibilityLabel="Add another photo"
+                                accessibilityRole="button"
+                              >
+                                <Camera size={16} color="#666666" />
+                                <Text style={styles.addMorePhotosText}>Add photo</Text>
+                              </Pressable>
+                            )}
+                          </ScrollView>
+                        </Box>
+                      )}
+
+                      {/* Tags row - now directly below text field */}
+                      <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
+                        <TagsRow
+                          tags={activeTagChips}
+                          suggested={suggestionChips}
+                          onToggle={isViewMode ? () => {} : handleTagToggle}
+                          onResuggest={
+                            isViewMode
+                              ? undefined
+                              : mode === 'edit' && fullEntity
+                                ? handleResuggestTags
+                                : undefined
+                          }
+                          resuggesting={isResuggestingTags}
+                          onAdd={isViewMode ? undefined : handleTagAdd}
+                          onUserAdd={isViewMode ? undefined : handleTelemetryTagAdd}
+                          onUserRemove={isViewMode ? undefined : handleTelemetryTagRemove}
+                        />
+                        {hasLowConfidenceSuggestions ? (
+                          <Box mt={2}>
+                            <Text variant="subtle">AI suggestions (low confidence)</Text>
+                          </Box>
+                        ) : null}
+                      </Box>
+
+                      {/* Log meta row: timestamp + mood strip (Phase L4) - ONLY for journal logs */}
+                      {isJournal ? (
+                        <Box style={{ marginBottom: 16 }}>
+                          <View style={styles.logMetaRow}>
+                            {logTimestampLabel ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text style={styles.logTimestampText}>{logTimestampLabel}</Text>
+                                {state.log.private && (
+                                  <Lock
+                                    size={14}
+                                    color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'}
+                                    style={{ opacity: 0.8 }}
+                                  />
+                                )}
+                              </View>
+                            ) : null}
+                            <View style={styles.moodRow}>
+                              <Pressable
+                                onPress={() => setMood('happy')}
+                                hitSlop={8}
+                                style={[
+                                  styles.moodButton,
+                                  mood === 'happy' && styles.moodButtonActive,
+                                ]}
+                                accessibilityRole="button"
+                                accessibilityLabel="Set mood to happy"
+                                disabled={isViewMode}
+                              >
+                                <Text style={{ fontSize: 20 }}>😊</Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={() => setMood('neutral')}
+                                hitSlop={8}
+                                style={[
+                                  styles.moodButton,
+                                  mood === 'neutral' && styles.moodButtonActive,
+                                ]}
+                                accessibilityRole="button"
+                                accessibilityLabel="Set mood to neutral"
+                                disabled={isViewMode}
+                              >
+                                <Text style={{ fontSize: 20 }}>😐</Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={() => setMood('sad')}
+                                hitSlop={8}
+                                style={[
+                                  styles.moodButton,
+                                  mood === 'sad' && styles.moodButtonActive,
+                                ]}
+                                accessibilityRole="button"
+                                accessibilityLabel="Set mood to sad"
+                                disabled={isViewMode}
+                              >
+                                <Text style={{ fontSize: 20 }}>😔</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        </Box>
+                      ) : null}
+
+                      <Box>
+                        {baseType === 'todo' || baseType === 'habit' ? (
+                          <Box style={{ marginBottom: 0 }}>
+                            {/* Due date + Lock In row */}
+                            <View style={styles.dueAndLockRow}>
+                              {/* Left side: Due date */}
+                              <View style={styles.dueDateLeft}>
+                                {baseType === 'todo' ? (
+                                  <Pressable
+                                    style={styles.dueDatePill}
+                                    onPress={() => {
+                                      // Pre-fill date picker with current due_day if set
+                                      if (state.todo.due_day) {
+                                        const parsed = parseDayString(state.todo.due_day);
+                                        if (parsed) {
+                                          setSelectedDate(parsed);
+                                        }
+                                      } else {
+                                        setSelectedDate(new Date());
                                       }
-                                    } else {
-                                      setSelectedDate(new Date());
+                                      setDateModalTarget('todo');
+                                      setShowDateModal(true);
+                                    }}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={
+                                      state.todo.due_day
+                                        ? `Due date: ${formatDueDay(state.todo.due_day)}`
+                                        : 'Add due date'
                                     }
-                                    setDateModalTarget('todo');
-                                    setShowDateModal(true);
+                                  >
+                                    <Calendar
+                                      size={16}
+                                      color={
+                                        state.todo.due_day
+                                          ? colorMode === 'dark'
+                                            ? 'rgba(255,255,255,0.7)'
+                                            : '#666666'
+                                          : colorMode === 'dark'
+                                            ? 'rgba(255,255,255,0.5)'
+                                            : '#777777'
+                                      }
+                                      style={styles.dueDateIcon}
+                                    />
+                                    <Text
+                                      style={[
+                                        styles.dueDateText,
+                                        !state.todo.due_day && {
+                                          color:
+                                            colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.5)'
+                                              : '#777777',
+                                          fontWeight: '400',
+                                        },
+                                      ]}
+                                    >
+                                      {state.todo.due_day
+                                        ? formatDueDay(state.todo.due_day)
+                                        : 'Add due date'}
+                                    </Text>
+                                  </Pressable>
+                                ) : null}
+                              </View>
+
+                              {/* Right side: Lock In toggle (for todos only) */}
+                              {commitmentsOn && baseType === 'todo' ? (
+                                <View style={styles.lockInRight}>
+                                  <Diamond
+                                    size={14}
+                                    color={
+                                      colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'
+                                    }
+                                    style={styles.lockIcon}
+                                  />
+                                  <Text style={styles.lockLabel}>Lock In</Text>
+                                  <Switch
+                                    value={isLockedIn}
+                                    onValueChange={async () => {
+                                      if (!state.commitment) {
+                                        const ok = await canEnableCommitment();
+                                        if (!ok) {
+                                          console.log('[Lock In] Limit reached (3)');
+                                          return;
+                                        }
+                                      }
+                                      pushUndoEntry('commitment', {
+                                        commitment: state.commitment,
+                                        commitmentNote: state.commitmentNote,
+                                        commitmentStartedAt: state.commitmentStartedAt,
+                                      });
+                                      dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                      try {
+                                        eventBus.emit('OverlayCommitmentToggled', {
+                                          on: !state.commitment,
+                                        });
+                                      } catch (e) {
+                                        // ignore telemetry errors
+                                      }
+                                    }}
+                                    trackColor={{
+                                      false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
+                                      true: lightTokens.colors.moss,
+                                    }}
+                                    thumbColor="#FFFFFF"
+                                  />
+                                </View>
+                              ) : null}
+                            </View>
+                            {dueToastMessage ? (
+                              <View
+                                style={{
+                                  marginLeft: tokenSpacing.sm,
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 4,
+                                  borderRadius: 999,
+                                  backgroundColor:
+                                    colorMode === 'dark'
+                                      ? 'rgba(255,255,255,0.08)'
+                                      : 'rgba(46,125,106,0.12)',
+                                }}
+                                pointerEvents="none"
+                              >
+                                <Text
+                                  style={{
+                                    color: typeTabUnderlineColor,
+                                    fontSize: lightTokens.typography.size.xs,
+                                    fontWeight: '600',
+                                  }}
+                                >
+                                  {dueToastMessage}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </Box>
+                        ) : null}
+
+                        {/* Frequency row for habits */}
+                        {baseType === 'habit' ? (
+                          <Box mt={3} px={0}>
+                            {/* Optional frequency label for break habits */}
+                            {isBreakHabit && (
+                              <Text
+                                style={{
+                                  fontSize: 12,
+                                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#888888',
+                                  marginBottom: 4,
+                                  marginLeft: 4,
+                                }}
+                              >
+                                Check-in frequency
+                              </Text>
+                            )}
+                            {/* Frequency + Lock In row (matching todo structure) */}
+                            <View style={styles.dueAndLockRow}>
+                              {/* Left side: Frequency selector */}
+                              <View style={styles.dueDateLeft}>
+                                <Pressable
+                                  style={styles.dueDateRow}
+                                  onPress={() => {
+                                    // Initialize modal state from current habit frequency
+                                    const currentFreq = jsonToFrequency(state.habit.frequency_json);
+                                    setFrequencyTab(currentFreq.mode);
+                                    if (currentFreq.mode === 'days') {
+                                      setSelectedDays(currentFreq.days);
+                                    } else if (currentFreq.mode === 'custom') {
+                                      setCustomCount(String(currentFreq.value.count));
+                                      setCustomUnit(currentFreq.value.unit);
+                                    }
+                                    setShowFrequencyModal(true);
                                   }}
                                   accessibilityRole="button"
-                                  accessibilityLabel={
-                                    state.todo.due_day
-                                      ? `Due date: ${formatDueDay(state.todo.due_day)}`
-                                      : 'Add due date'
-                                  }
+                                  accessibilityLabel="Set frequency"
                                 >
                                   <Calendar
                                     size={16}
                                     color={
-                                      state.todo.due_day
-                                        ? colorMode === 'dark'
-                                          ? 'rgba(255,255,255,0.7)'
-                                          : '#666666'
-                                        : colorMode === 'dark'
-                                          ? 'rgba(255,255,255,0.5)'
-                                          : '#777777'
+                                      colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'
                                     }
                                     style={styles.dueDateIcon}
                                   />
-                                  <Text
-                                    style={[
-                                      styles.dueDateText,
-                                      !state.todo.due_day && {
-                                        color:
-                                          colorMode === 'dark'
-                                            ? 'rgba(255,255,255,0.5)'
-                                            : '#777777',
-                                        fontWeight: '400',
-                                      },
-                                    ]}
-                                  >
-                                    {state.todo.due_day
-                                      ? formatDueDay(state.todo.due_day)
-                                      : 'Add due date'}
+                                  <Text style={styles.dueDateText}>
+                                    {getFrequencyLabel(jsonToFrequency(state.habit.frequency_json))}
                                   </Text>
                                 </Pressable>
+                              </View>
+
+                              {/* Right side: Lock In toggle (same as todos) */}
+                              {commitmentsOn ? (
+                                <View style={styles.lockInRight}>
+                                  <Diamond
+                                    size={14}
+                                    color={
+                                      colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'
+                                    }
+                                    style={styles.lockIcon}
+                                  />
+                                  <Text style={styles.lockLabel}>Lock In</Text>
+                                  <Switch
+                                    value={isLockedIn}
+                                    onValueChange={async () => {
+                                      if (!state.commitment) {
+                                        const ok = await canEnableCommitment();
+                                        if (!ok) {
+                                          console.log('[Lock In] Limit reached (3)');
+                                          return;
+                                        }
+                                      }
+                                      pushUndoEntry('commitment', {
+                                        commitment: state.commitment,
+                                        commitmentNote: state.commitmentNote,
+                                        commitmentStartedAt: state.commitmentStartedAt,
+                                      });
+                                      dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                      try {
+                                        eventBus.emit('OverlayCommitmentToggled', {
+                                          on: !state.commitment,
+                                        });
+                                      } catch (e) {
+                                        // ignore telemetry errors
+                                      }
+                                    }}
+                                    trackColor={{
+                                      false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
+                                      true: lightTokens.colors.moss,
+                                    }}
+                                    thumbColor="#FFFFFF"
+                                  />
+                                </View>
                               ) : null}
                             </View>
+                          </Box>
+                        ) : null}
 
-                            {/* Right side: Lock In toggle (for todos only) */}
-                            {commitmentsOn && baseType === 'todo' ? (
-                              <View style={styles.lockInRight}>
-                                <Diamond
-                                  size={14}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                                  style={styles.lockIcon}
-                                />
-                                <Text style={styles.lockLabel}>Lock In</Text>
-                                <Switch
-                                  value={isLockedIn}
-                                  onValueChange={async () => {
-                                    if (!state.commitment) {
-                                      const ok = await canEnableCommitment();
-                                      if (!ok) {
-                                        console.log('[Lock In] Limit reached (3)');
-                                        return;
-                                      }
-                                    }
-                                    pushUndoEntry('commitment', {
-                                      commitment: state.commitment,
-                                      commitmentNote: state.commitmentNote,
-                                      commitmentStartedAt: state.commitmentStartedAt,
-                                    });
-                                    dispatch({ type: 'TOGGLE_COMMITMENT' });
-                                    try {
-                                      eventBus.emit('OverlayCommitmentToggled', {
-                                        on: !state.commitment,
-                                      });
-                                    } catch (e) {
-                                      // ignore telemetry errors
-                                    }
-                                  }}
-                                  trackColor={{
-                                    false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
-                                    true: lightTokens.colors.moss,
-                                  }}
-                                  thumbColor="#FFFFFF"
-                                />
-                              </View>
-                            ) : null}
-                          </View>
-                          {dueToastMessage ? (
-                            <View
-                              style={{
-                                marginLeft: tokenSpacing.sm,
-                                paddingHorizontal: 10,
-                                paddingVertical: 4,
-                                borderRadius: 999,
-                                backgroundColor:
-                                  colorMode === 'dark'
-                                    ? 'rgba(255,255,255,0.08)'
-                                    : 'rgba(46,125,106,0.12)',
-                              }}
-                              pointerEvents="none"
-                            >
-                              <Text
-                                style={{
-                                  color: typeTabUnderlineColor,
-                                  fontSize: lightTokens.typography.size.xs,
-                                  fontWeight: '600',
-                                }}
-                              >
-                                {dueToastMessage}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </Box>
-                      ) : null}
-
-                      {/* Frequency row for habits */}
-                      {baseType === 'habit' ? (
-                        <Box mt={3} px={0}>
-                          {/* Optional frequency label for break habits */}
-                          {isBreakHabit && (
+                        <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 12 }}>
+                          <Pressable
+                            onPress={handleToggleDetails}
+                            hitSlop={8}
+                            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                          >
                             <Text
                               style={{
-                                fontSize: 12,
-                                color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#888888',
-                                marginBottom: 4,
-                                marginLeft: 4,
+                                color: 'rgba(46, 85, 64, 0.75)',
+                                fontWeight: '500',
+                                fontSize: 14,
                               }}
                             >
-                              Check-in frequency
+                              {state.expanded ? 'Hide details' : 'Show details'}
                             </Text>
-                          )}
-                          {/* Frequency + Lock In row (matching todo structure) */}
-                          <View style={styles.dueAndLockRow}>
-                            {/* Left side: Frequency selector */}
-                            <View style={styles.dueDateLeft}>
-                              <Pressable
-                                style={styles.dueDateRow}
-                                onPress={() => {
-                                  // Initialize modal state from current habit frequency
-                                  const currentFreq = jsonToFrequency(state.habit.frequency_json);
-                                  setFrequencyTab(currentFreq.mode);
-                                  if (currentFreq.mode === 'days') {
-                                    setSelectedDays(currentFreq.days);
-                                  } else if (currentFreq.mode === 'custom') {
-                                    setCustomCount(String(currentFreq.value.count));
-                                    setCustomUnit(currentFreq.value.unit);
-                                  }
-                                  setShowFrequencyModal(true);
-                                }}
-                                accessibilityRole="button"
-                                accessibilityLabel="Set frequency"
-                              >
-                                <Calendar
-                                  size={16}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                                  style={styles.dueDateIcon}
-                                />
-                                <Text style={styles.dueDateText}>
-                                  {getFrequencyLabel(jsonToFrequency(state.habit.frequency_json))}
-                                </Text>
-                              </Pressable>
-                            </View>
-
-                            {/* Right side: Lock In toggle (same as todos) */}
-                            {commitmentsOn ? (
-                              <View style={styles.lockInRight}>
-                                <Diamond
-                                  size={14}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                                  style={styles.lockIcon}
-                                />
-                                <Text style={styles.lockLabel}>Lock In</Text>
-                                <Switch
-                                  value={isLockedIn}
-                                  onValueChange={async () => {
-                                    if (!state.commitment) {
-                                      const ok = await canEnableCommitment();
-                                      if (!ok) {
-                                        console.log('[Lock In] Limit reached (3)');
-                                        return;
-                                      }
-                                    }
-                                    pushUndoEntry('commitment', {
-                                      commitment: state.commitment,
-                                      commitmentNote: state.commitmentNote,
-                                      commitmentStartedAt: state.commitmentStartedAt,
-                                    });
-                                    dispatch({ type: 'TOGGLE_COMMITMENT' });
-                                    try {
-                                      eventBus.emit('OverlayCommitmentToggled', {
-                                        on: !state.commitment,
-                                      });
-                                    } catch (e) {
-                                      // ignore telemetry errors
-                                    }
-                                  }}
-                                  trackColor={{
-                                    false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
-                                    true: lightTokens.colors.moss,
-                                  }}
-                                  thumbColor="#FFFFFF"
-                                />
-                              </View>
-                            ) : null}
-                          </View>
-                        </Box>
-                      ) : null}
-
-                      <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 12 }}>
-                        <Pressable
-                          onPress={handleToggleDetails}
-                          hitSlop={8}
-                          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-                        >
-                          <Text
-                            style={{
-                              color: 'rgba(46, 85, 64, 0.75)',
-                              fontWeight: '500',
-                              fontSize: 14,
-                            }}
-                          >
-                            {state.expanded ? 'Hide details' : 'Show details'}
-                          </Text>
-                        </Pressable>
-                      </View>
-                      {state.expanded ? (
-                        <Reanimated.View style={[detailsStyle, { marginTop: 0 }]}>
-                          <Box pb={2}>
-                            {/* To-Do Details */}
-                            {baseType === 'todo' ? (
-                              <View>
-                                {/* 1) Reminders row */}
-                                <Pressable
-                                  onPress={() => {
-                                    if (!isViewMode) setShowRemindersModal(true);
-                                  }}
-                                  disabled={isViewMode}
-                                  style={({ pressed }) => [
-                                    styles.detailsRow,
-                                    pressed && styles.detailsRowPressed,
-                                  ]}
-                                >
-                                  <View style={styles.detailsRowLeft}>
-                                    <View style={styles.detailsRowIcon}>
-                                      <Bell
-                                        size={18}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
-                                        }
-                                      />
-                                    </View>
-                                    <Text style={styles.detailsRowLabel}>Reminders</Text>
-                                  </View>
-                                  <Text style={styles.detailsRowValue}>
-                                    {formatReminderSummary(reminders)}
-                                  </Text>
-                                </Pressable>
-
-                                {/* 2) Add to Space row */}
-                                <Pressable
-                                  onPress={() => {
-                                    if (!isViewMode) setShowSpaceModal(true);
-                                  }}
-                                  disabled={isViewMode}
-                                  style={({ pressed }) => [
-                                    styles.detailsRow,
-                                    pressed && !isViewMode && styles.detailsRowPressed,
-                                  ]}
-                                >
-                                  <View style={styles.detailsRowLeft}>
-                                    <View style={styles.detailsRowIcon}>
-                                      <Folder
-                                        size={18}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
-                                        }
-                                      />
-                                    </View>
-                                    <Text style={styles.detailsRowLabel}>Add to Space</Text>
-                                  </View>
-                                  {state.spaceId ? (
-                                    <Text style={styles.detailsRowValue}>
-                                      {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
-                                    </Text>
-                                  ) : null}
-                                </Pressable>
-
-                                {/* 3) Delete To-Do row (only in edit mode) */}
-                                {mode === 'edit' && (initialEntity as any)?.id ? (
+                          </Pressable>
+                        </View>
+                        {state.expanded ? (
+                          <Reanimated.View style={[detailsStyle, { marginTop: 0 }]}>
+                            <Box pb={2}>
+                              {/* To-Do Details */}
+                              {baseType === 'todo' ? (
+                                <View>
+                                  {/* 1) Reminders row */}
                                   <Pressable
                                     onPress={() => {
-                                      Alert.alert('Delete this to-do?', "This can't be undone.", [
-                                        {
-                                          text: 'Cancel',
-                                          style: 'cancel',
-                                        },
-                                        {
-                                          text: 'Delete',
-                                          style: 'destructive',
-                                          onPress: async () => {
-                                            try {
-                                              const itemId = (initialEntity as any).id;
-                                              const itemSpaceId =
-                                                (initialEntity as any).space_id ??
-                                                state.spaceId ??
-                                                initialSpaceId;
-
-                                              // 1. Delete from database FIRST
-                                              await repo.remove(itemId);
-                                              if (__DEV__) {
-                                                console.log(
-                                                  '[UnifiedOverlayV2] Item deleted from DB:',
-                                                  itemId,
-                                                );
-                                              }
-
-                                              // 2. THEN emit events so reload gets fresh data
-                                              eventBus.emit('ItemDeleted', {
-                                                id: itemId,
-                                                type: 'todo',
-                                              });
-                                              if (__DEV__) {
-                                                console.log(
-                                                  '[UnifiedOverlayV2] Emitting entity:deleted',
-                                                  {
-                                                    id: itemId,
-                                                    type: 'todo',
-                                                    spaceId: itemSpaceId,
-                                                  },
-                                                );
-                                              }
-                                              eventBus.emit('entity:deleted', {
-                                                id: itemId,
-                                                type: 'todo',
-                                                spaceId: itemSpaceId,
-                                              });
-
-                                              // 3. Close overlay last
-                                              onClose();
-                                            } catch (err) {
-                                              console.error(
-                                                '[UnifiedOverlayV2] Delete failed:',
-                                                err,
-                                              );
-                                              Alert.alert(
-                                                'Error',
-                                                'Failed to delete to-do. Please try again.',
-                                              );
-                                            }
-                                          },
-                                        },
-                                      ]);
+                                      if (!isViewMode) setShowRemindersModal(true);
                                     }}
+                                    disabled={isViewMode}
                                     style={({ pressed }) => [
                                       styles.detailsRow,
-                                      pressed && { opacity: 0.7 },
+                                      pressed && styles.detailsRowPressed,
                                     ]}
                                   >
                                     <View style={styles.detailsRowLeft}>
                                       <View style={styles.detailsRowIcon}>
-                                        <Trash2 size={18} color="#D9534F" />
-                                      </View>
-                                      <Text style={[styles.detailsRowLabel, styles.deleteText]}>
-                                        Delete to-do
-                                      </Text>
-                                    </View>
-                                  </Pressable>
-                                ) : null}
-                              </View>
-                            ) : null}
-
-                            {/* Habit Details */}
-                            {baseType === 'habit' ? (
-                              <View>
-                                {/* 1) Reminders row */}
-                                <Pressable
-                                  onPress={() => {
-                                    if (!isViewMode) setShowRemindersModal(true);
-                                  }}
-                                  disabled={isViewMode}
-                                  style={({ pressed }) => [
-                                    styles.detailsRow,
-                                    pressed && !isViewMode && styles.detailsRowPressed,
-                                  ]}
-                                >
-                                  <View style={styles.detailsRowLeft}>
-                                    <View style={styles.detailsRowIcon}>
-                                      <Bell
-                                        size={18}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
-                                        }
-                                      />
-                                    </View>
-                                    <Text style={styles.detailsRowLabel}>Reminders</Text>
-                                  </View>
-                                  <Text style={styles.detailsRowValue}>
-                                    {formatReminderSummary(reminders)}
-                                  </Text>
-                                </Pressable>
-
-                                {/* 2) Add to Space row */}
-                                <Pressable
-                                  onPress={() => {
-                                    if (!isViewMode) setShowSpaceModal(true);
-                                  }}
-                                  disabled={isViewMode}
-                                  style={({ pressed }) => [
-                                    styles.detailsRow,
-                                    { marginTop: 0 },
-                                    pressed && !isViewMode && styles.detailsRowPressed,
-                                  ]}
-                                >
-                                  <View style={styles.detailsRowLeft}>
-                                    <View style={styles.detailsRowIcon}>
-                                      <Folder
-                                        size={18}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
-                                        }
-                                      />
-                                    </View>
-                                    <Text style={styles.detailsRowLabel}>Add to Space</Text>
-                                  </View>
-                                  {state.spaceId ? (
-                                    <Text style={styles.detailsRowValue}>
-                                      {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
-                                    </Text>
-                                  ) : null}
-                                </Pressable>
-
-                                {/* 3) Delete Habit row (only in edit mode) */}
-                                {mode === 'edit' && (initialEntity as any)?.id ? (
-                                  <Pressable
-                                    onPress={() => {
-                                      Alert.alert('Delete this habit?', "This can't be undone.", [
-                                        {
-                                          text: 'Cancel',
-                                          style: 'cancel',
-                                        },
-                                        {
-                                          text: 'Delete',
-                                          style: 'destructive',
-                                          onPress: async () => {
-                                            try {
-                                              const itemId = (initialEntity as any).id;
-                                              const itemSpaceId =
-                                                (initialEntity as any).space_id ??
-                                                state.spaceId ??
-                                                initialSpaceId;
-
-                                              // 1. Delete from database FIRST
-                                              await repo.remove(itemId);
-                                              if (__DEV__) {
-                                                console.log(
-                                                  '[UnifiedOverlayV2] Item deleted from DB:',
-                                                  itemId,
-                                                );
-                                              }
-
-                                              // 2. THEN emit events so reload gets fresh data
-                                              eventBus.emit('ItemDeleted', {
-                                                id: itemId,
-                                                type: 'habit',
-                                              });
-                                              if (__DEV__) {
-                                                console.log(
-                                                  '[UnifiedOverlayV2] Emitting entity:deleted',
-                                                  {
-                                                    id: itemId,
-                                                    type: 'habit',
-                                                    spaceId: itemSpaceId,
-                                                  },
-                                                );
-                                              }
-                                              eventBus.emit('entity:deleted', {
-                                                id: itemId,
-                                                type: 'habit',
-                                                spaceId: itemSpaceId,
-                                              });
-
-                                              // 3. Close overlay last
-                                              onClose();
-                                            } catch (err) {
-                                              console.error(
-                                                '[UnifiedOverlayV2] Delete failed:',
-                                                err,
-                                              );
-                                              Alert.alert(
-                                                'Error',
-                                                'Failed to delete habit. Please try again.',
-                                              );
-                                            }
-                                          },
-                                        },
-                                      ]);
-                                    }}
-                                    style={({ pressed }) => [
-                                      styles.detailsRow,
-                                      pressed && { opacity: 0.7 },
-                                    ]}
-                                  >
-                                    <View style={styles.detailsRowLeft}>
-                                      <View style={styles.detailsRowIcon}>
-                                        <Trash2 size={18} color="#D9534F" />
-                                      </View>
-                                      <Text style={[styles.detailsRowLabel, styles.deleteText]}>
-                                        Delete habit
-                                      </Text>
-                                    </View>
-                                  </Pressable>
-                                ) : null}
-                              </View>
-                            ) : null}
-
-                            {/* Log Details */}
-                            {baseType === 'log' ? (
-                              <View>
-                                {/* 1) Reminders row */}
-                                <Pressable
-                                  onPress={() => {
-                                    if (!isViewMode) setShowRemindersModal(true);
-                                  }}
-                                  disabled={isViewMode}
-                                  style={({ pressed }) => [
-                                    styles.detailsRow,
-                                    pressed && !isViewMode && styles.detailsRowPressed,
-                                  ]}
-                                >
-                                  <View style={styles.detailsRowLeft}>
-                                    <View style={styles.detailsRowIcon}>
-                                      <Bell
-                                        size={18}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
-                                        }
-                                      />
-                                    </View>
-                                    <Text style={styles.detailsRowLabel}>Reminders</Text>
-                                  </View>
-                                  <Text style={styles.detailsRowValue}>
-                                    {formatReminderSummary(reminders)}
-                                  </Text>
-                                </Pressable>
-
-                                {/* 2) Add to Space row */}
-                                <Pressable
-                                  onPress={() => {
-                                    if (!isViewMode) setShowSpaceModal(true);
-                                  }}
-                                  disabled={isViewMode}
-                                  style={({ pressed }) => [
-                                    styles.detailsRow,
-                                    { marginTop: 0 },
-                                    pressed && !isViewMode && styles.detailsRowPressed,
-                                  ]}
-                                >
-                                  <View style={styles.detailsRowLeft}>
-                                    <View style={styles.detailsRowIcon}>
-                                      <Folder
-                                        size={18}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
-                                        }
-                                      />
-                                    </View>
-                                    <Text style={styles.detailsRowLabel}>Add to Space</Text>
-                                  </View>
-                                  <Text style={styles.detailsRowValue}>
-                                    {state.spaceId
-                                      ? (spaces.find((s) => s.id === state.spaceId)?.name ??
-                                        'Unassigned')
-                                      : 'Unassigned'}
-                                  </Text>
-                                </Pressable>
-
-                                {/* 3) Private toggle row (Phase L9: Only for journal logs) */}
-                                {showLogPrivateToggle ? (
-                                  <View style={[styles.detailsRow, { marginTop: 0 }]}>
-                                    <View style={styles.detailsRowLeft}>
-                                      <View style={styles.detailsRowIcon}>
-                                        <Lock
+                                        <Bell
                                           size={18}
                                           color={
                                             colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
                                           }
                                         />
                                       </View>
-                                      <Text style={styles.detailsRowLabel}>Private</Text>
+                                      <Text style={styles.detailsRowLabel}>Reminders</Text>
                                     </View>
-                                    <Switch
-                                      value={state.logIsPrivate}
-                                      onValueChange={() =>
-                                        dispatch({
-                                          type: 'SET_LOG_IS_PRIVATE',
-                                          value: !state.logIsPrivate,
-                                        })
-                                      }
-                                      disabled={isViewMode}
-                                      trackColor={{ false: '#D1D5DB', true: '#10B981' }}
-                                      thumbColor="#FFFFFF"
-                                    />
-                                  </View>
-                                ) : null}
-
-                                {/* Idea Conversion Section (hidden in view mode) */}
-                                {effectiveLogSubtype === 'idea' && mode === 'edit' ? (
-                                  <View style={{ marginTop: 16 }}>
-                                    <Text
-                                      style={{
-                                        fontSize: 13,
-                                        color: '#888',
-                                        marginBottom: 8,
-                                      }}
-                                    >
-                                      Convert to...
+                                    <Text style={styles.detailsRowValue}>
+                                      {formatReminderSummary(reminders)}
                                     </Text>
-                                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                                      <Pressable
-                                        onPress={() => {
-                                          const ideaTitle = state.log.title || '';
-                                          const ideaBody = state.log.body || '';
-                                          const ideaTags = state.tags || [];
-                                          const ideaListItems = state.list?.items;
-                                          const ideaIsList = !!state.list?.items?.length;
-                                          const ideaId = (initialEntity as any)?.id;
+                                  </Pressable>
 
-                                          // Close current overlay then open create todo overlay
-                                          onClose();
-                                          setTimeout(() => {
-                                            globalOverlay.openCreate({
-                                              type: 'todo',
-                                              conversionMeta: {
-                                                origin: 'idea_conversion',
-                                                initialTitle: ideaTitle,
-                                                initialNote: ideaBody,
-                                                initialTags: ideaTags,
-                                                initialListItems: ideaIsList
-                                                  ? ideaListItems
-                                                  : undefined,
-                                                initialIsList: ideaIsList,
-                                              },
-                                            });
-                                          }, 100);
-
-                                          // Archive the original idea
-                                          if (ideaId) {
-                                            repo.update({ id: ideaId, patch: { archived: true } });
-                                            eventBus.emit('ItemUpdated', { id: ideaId });
-                                          }
-                                        }}
-                                        style={({ pressed }) => ({
-                                          flex: 1,
-                                          backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
-                                          borderRadius: 8,
-                                          paddingVertical: 12,
-                                          paddingHorizontal: 16,
-                                          minHeight: 44,
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          flexDirection: 'row',
-                                          gap: 6,
-                                        })}
-                                      >
-                                        <Text style={{ fontSize: 15 }}>📋</Text>
-                                        <Text
-                                          style={{ fontSize: 15, fontWeight: '500', color: '#333' }}
-                                        >
-                                          To-Do
-                                        </Text>
-                                      </Pressable>
-                                      <Pressable
-                                        onPress={() => {
-                                          const ideaTitle = state.log.title || '';
-                                          const ideaBody = state.log.body || '';
-                                          const ideaTags = state.tags || [];
-                                          const ideaListItems = state.list?.items;
-                                          const ideaIsList = !!state.list?.items?.length;
-                                          const ideaId = (initialEntity as any)?.id;
-
-                                          // Close current overlay then open create habit overlay
-                                          onClose();
-                                          setTimeout(() => {
-                                            globalOverlay.openCreate({
-                                              type: 'habit',
-                                              conversionMeta: {
-                                                origin: 'idea_conversion',
-                                                initialTitle: ideaTitle,
-                                                initialNote: ideaBody,
-                                                initialTags: ideaTags,
-                                                initialListItems: ideaIsList
-                                                  ? ideaListItems
-                                                  : undefined,
-                                                initialIsList: ideaIsList,
-                                              },
-                                            });
-                                          }, 100);
-
-                                          // Archive the original idea
-                                          if (ideaId) {
-                                            repo.update({ id: ideaId, patch: { archived: true } });
-                                            eventBus.emit('ItemUpdated', { id: ideaId });
-                                          }
-                                        }}
-                                        style={({ pressed }) => ({
-                                          flex: 1,
-                                          backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
-                                          borderRadius: 8,
-                                          paddingVertical: 12,
-                                          paddingHorizontal: 16,
-                                          minHeight: 44,
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          flexDirection: 'row',
-                                          gap: 6,
-                                        })}
-                                      >
-                                        <Text style={{ fontSize: 15 }}>🔄</Text>
-                                        <Text
-                                          style={{ fontSize: 15, fontWeight: '500', color: '#333' }}
-                                        >
-                                          Habit
-                                        </Text>
-                                      </Pressable>
-                                    </View>
-                                  </View>
-                                ) : null}
-
-                                {/* 4) Delete log row (only in edit mode) */}
-                                {mode === 'edit' && (initialEntity as any)?.id ? (
+                                  {/* 2) Add to Space row */}
                                   <Pressable
                                     onPress={() => {
-                                      Alert.alert('Delete this log?', "This can't be undone.", [
-                                        {
-                                          text: 'Cancel',
-                                          style: 'cancel',
-                                        },
-                                        {
-                                          text: 'Delete',
-                                          style: 'destructive',
-                                          onPress: async () => {
-                                            try {
-                                              const itemId = (initialEntity as any).id;
-                                              const itemSpaceId =
-                                                (initialEntity as any).space_id ??
-                                                state.spaceId ??
-                                                initialSpaceId;
-
-                                              // 1. Delete from database FIRST
-                                              await repo.remove(itemId);
-                                              if (__DEV__) {
-                                                console.log(
-                                                  '[UnifiedOverlayV2] Item deleted from DB:',
-                                                  itemId,
-                                                );
-                                              }
-
-                                              // 2. THEN emit events so reload gets fresh data
-                                              eventBus.emit('ItemDeleted', {
-                                                id: itemId,
-                                                type: 'note',
-                                              });
-                                              if (__DEV__) {
-                                                console.log(
-                                                  '[UnifiedOverlayV2] Emitting entity:deleted',
-                                                  {
-                                                    id: itemId,
-                                                    type: 'note',
-                                                    spaceId: itemSpaceId,
-                                                  },
-                                                );
-                                              }
-                                              eventBus.emit('entity:deleted', {
-                                                id: itemId,
-                                                type: 'note',
-                                                spaceId: itemSpaceId,
-                                              });
-
-                                              // 3. Close overlay last
-                                              onClose();
-                                            } catch (err) {
-                                              console.error(
-                                                '[UnifiedOverlayV2] Delete log failed:',
-                                                err,
-                                              );
-                                              Alert.alert(
-                                                'Error',
-                                                'Failed to delete log. Please try again.',
-                                              );
-                                            }
-                                          },
-                                        },
-                                      ]);
+                                      if (!isViewMode) setShowSpaceModal(true);
                                     }}
+                                    disabled={isViewMode}
                                     style={({ pressed }) => [
                                       styles.detailsRow,
-                                      pressed && { opacity: 0.7 },
+                                      pressed && !isViewMode && styles.detailsRowPressed,
                                     ]}
                                   >
                                     <View style={styles.detailsRowLeft}>
                                       <View style={styles.detailsRowIcon}>
-                                        <Trash2 size={18} color="#D9534F" />
+                                        <Folder
+                                          size={18}
+                                          color={
+                                            colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                          }
+                                        />
                                       </View>
-                                      <Text style={[styles.detailsRowLabel, styles.deleteText]}>
-                                        Delete log
-                                      </Text>
+                                      <Text style={styles.detailsRowLabel}>Add to Space</Text>
                                     </View>
+                                    {state.spaceId ? (
+                                      <Text style={styles.detailsRowValue}>
+                                        {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
+                                      </Text>
+                                    ) : null}
                                   </Pressable>
-                                ) : null}
-                              </View>
-                            ) : null}
-                          </Box>
-                        </Reanimated.View>
-                      ) : null}
 
-                      {/* Mentions / Dates chips (inline suggestions) */}
-                      <Box
-                        mt={3}
-                        row
-                        gap={2}
-                        style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}
-                      >
-                        {(state.detected?.mentions || []).map((m) => (
-                          <Chip key={m} label={`@${m}`} />
-                        ))}
-                        {(state.detected?.dates || []).map((d) => (
-                          <Button
-                            key={d}
-                            size="sm"
-                            variant="ghost"
-                            onPress={() => {
-                              if (d === '__token:today') {
-                                handleTodoDueChange(new Date(), { label: 'Today' });
-                              } else if (d === '__token:tomorrow') {
-                                handleTodoDueChange(addDays(new Date(), 1), {
-                                  label: 'Tomorrow',
-                                });
-                              } else {
-                                // fallback: open custom date modal with parsed date prefilled
-                                try {
-                                  const dateStr = d.replace(/^\D+/g, '');
-                                  const parsed = new Date(dateStr);
-                                  if (!isNaN(parsed.getTime())) {
-                                    setSelectedDate(parsed);
-                                    setClearDateFlag(false);
+                                  {/* 3) Delete To-Do row (only in edit mode) */}
+                                  {mode === 'edit' && (initialEntity as any)?.id ? (
+                                    <Pressable
+                                      onPress={() => {
+                                        Alert.alert('Delete this to-do?', "This can't be undone.", [
+                                          {
+                                            text: 'Cancel',
+                                            style: 'cancel',
+                                          },
+                                          {
+                                            text: 'Delete',
+                                            style: 'destructive',
+                                            onPress: async () => {
+                                              try {
+                                                const itemId = (initialEntity as any).id;
+                                                const itemSpaceId =
+                                                  (initialEntity as any).space_id ??
+                                                  state.spaceId ??
+                                                  initialSpaceId;
+
+                                                // 1. Delete from database FIRST
+                                                await repo.remove(itemId);
+                                                if (__DEV__) {
+                                                  console.log(
+                                                    '[UnifiedOverlayV2] Item deleted from DB:',
+                                                    itemId,
+                                                  );
+                                                }
+
+                                                // 2. THEN emit events so reload gets fresh data
+                                                eventBus.emit('ItemDeleted', {
+                                                  id: itemId,
+                                                  type: 'todo',
+                                                });
+                                                if (__DEV__) {
+                                                  console.log(
+                                                    '[UnifiedOverlayV2] Emitting entity:deleted',
+                                                    {
+                                                      id: itemId,
+                                                      type: 'todo',
+                                                      spaceId: itemSpaceId,
+                                                    },
+                                                  );
+                                                }
+                                                eventBus.emit('entity:deleted', {
+                                                  id: itemId,
+                                                  type: 'todo',
+                                                  spaceId: itemSpaceId,
+                                                });
+
+                                                // 3. Close overlay last
+                                                onClose();
+                                              } catch (err) {
+                                                console.error(
+                                                  '[UnifiedOverlayV2] Delete failed:',
+                                                  err,
+                                                );
+                                                Alert.alert(
+                                                  'Error',
+                                                  'Failed to delete to-do. Please try again.',
+                                                );
+                                              }
+                                            },
+                                          },
+                                        ]);
+                                      }}
+                                      style={({ pressed }) => [
+                                        styles.detailsRow,
+                                        pressed && { opacity: 0.7 },
+                                      ]}
+                                    >
+                                      <View style={styles.detailsRowLeft}>
+                                        <View style={styles.detailsRowIcon}>
+                                          <Trash2 size={18} color="#D9534F" />
+                                        </View>
+                                        <Text style={[styles.detailsRowLabel, styles.deleteText]}>
+                                          Delete to-do
+                                        </Text>
+                                      </View>
+                                    </Pressable>
+                                  ) : null}
+                                </View>
+                              ) : null}
+
+                              {/* Habit Details */}
+                              {baseType === 'habit' ? (
+                                <View>
+                                  {/* 1) Reminders row */}
+                                  <Pressable
+                                    onPress={() => {
+                                      if (!isViewMode) setShowRemindersModal(true);
+                                    }}
+                                    disabled={isViewMode}
+                                    style={({ pressed }) => [
+                                      styles.detailsRow,
+                                      pressed && !isViewMode && styles.detailsRowPressed,
+                                    ]}
+                                  >
+                                    <View style={styles.detailsRowLeft}>
+                                      <View style={styles.detailsRowIcon}>
+                                        <Bell
+                                          size={18}
+                                          color={
+                                            colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                          }
+                                        />
+                                      </View>
+                                      <Text style={styles.detailsRowLabel}>Reminders</Text>
+                                    </View>
+                                    <Text style={styles.detailsRowValue}>
+                                      {formatReminderSummary(reminders)}
+                                    </Text>
+                                  </Pressable>
+
+                                  {/* 2) Add to Space row */}
+                                  <Pressable
+                                    onPress={() => {
+                                      if (!isViewMode) setShowSpaceModal(true);
+                                    }}
+                                    disabled={isViewMode}
+                                    style={({ pressed }) => [
+                                      styles.detailsRow,
+                                      { marginTop: 0 },
+                                      pressed && !isViewMode && styles.detailsRowPressed,
+                                    ]}
+                                  >
+                                    <View style={styles.detailsRowLeft}>
+                                      <View style={styles.detailsRowIcon}>
+                                        <Folder
+                                          size={18}
+                                          color={
+                                            colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                          }
+                                        />
+                                      </View>
+                                      <Text style={styles.detailsRowLabel}>Add to Space</Text>
+                                    </View>
+                                    {state.spaceId ? (
+                                      <Text style={styles.detailsRowValue}>
+                                        {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
+                                      </Text>
+                                    ) : null}
+                                  </Pressable>
+
+                                  {/* 3) Delete Habit row (only in edit mode) */}
+                                  {mode === 'edit' && (initialEntity as any)?.id ? (
+                                    <Pressable
+                                      onPress={() => {
+                                        Alert.alert('Delete this habit?', "This can't be undone.", [
+                                          {
+                                            text: 'Cancel',
+                                            style: 'cancel',
+                                          },
+                                          {
+                                            text: 'Delete',
+                                            style: 'destructive',
+                                            onPress: async () => {
+                                              try {
+                                                const itemId = (initialEntity as any).id;
+                                                const itemSpaceId =
+                                                  (initialEntity as any).space_id ??
+                                                  state.spaceId ??
+                                                  initialSpaceId;
+
+                                                // 1. Delete from database FIRST
+                                                await repo.remove(itemId);
+                                                if (__DEV__) {
+                                                  console.log(
+                                                    '[UnifiedOverlayV2] Item deleted from DB:',
+                                                    itemId,
+                                                  );
+                                                }
+
+                                                // 2. THEN emit events so reload gets fresh data
+                                                eventBus.emit('ItemDeleted', {
+                                                  id: itemId,
+                                                  type: 'habit',
+                                                });
+                                                if (__DEV__) {
+                                                  console.log(
+                                                    '[UnifiedOverlayV2] Emitting entity:deleted',
+                                                    {
+                                                      id: itemId,
+                                                      type: 'habit',
+                                                      spaceId: itemSpaceId,
+                                                    },
+                                                  );
+                                                }
+                                                eventBus.emit('entity:deleted', {
+                                                  id: itemId,
+                                                  type: 'habit',
+                                                  spaceId: itemSpaceId,
+                                                });
+
+                                                // 3. Close overlay last
+                                                onClose();
+                                              } catch (err) {
+                                                console.error(
+                                                  '[UnifiedOverlayV2] Delete failed:',
+                                                  err,
+                                                );
+                                                Alert.alert(
+                                                  'Error',
+                                                  'Failed to delete habit. Please try again.',
+                                                );
+                                              }
+                                            },
+                                          },
+                                        ]);
+                                      }}
+                                      style={({ pressed }) => [
+                                        styles.detailsRow,
+                                        pressed && { opacity: 0.7 },
+                                      ]}
+                                    >
+                                      <View style={styles.detailsRowLeft}>
+                                        <View style={styles.detailsRowIcon}>
+                                          <Trash2 size={18} color="#D9534F" />
+                                        </View>
+                                        <Text style={[styles.detailsRowLabel, styles.deleteText]}>
+                                          Delete habit
+                                        </Text>
+                                      </View>
+                                    </Pressable>
+                                  ) : null}
+                                </View>
+                              ) : null}
+
+                              {/* Log Details */}
+                              {baseType === 'log' ? (
+                                <View>
+                                  {/* 1) Reminders row */}
+                                  <Pressable
+                                    onPress={() => {
+                                      if (!isViewMode) setShowRemindersModal(true);
+                                    }}
+                                    disabled={isViewMode}
+                                    style={({ pressed }) => [
+                                      styles.detailsRow,
+                                      pressed && !isViewMode && styles.detailsRowPressed,
+                                    ]}
+                                  >
+                                    <View style={styles.detailsRowLeft}>
+                                      <View style={styles.detailsRowIcon}>
+                                        <Bell
+                                          size={18}
+                                          color={
+                                            colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                          }
+                                        />
+                                      </View>
+                                      <Text style={styles.detailsRowLabel}>Reminders</Text>
+                                    </View>
+                                    <Text style={styles.detailsRowValue}>
+                                      {formatReminderSummary(reminders)}
+                                    </Text>
+                                  </Pressable>
+
+                                  {/* 2) Add to Space row */}
+                                  <Pressable
+                                    onPress={() => {
+                                      if (!isViewMode) setShowSpaceModal(true);
+                                    }}
+                                    disabled={isViewMode}
+                                    style={({ pressed }) => [
+                                      styles.detailsRow,
+                                      { marginTop: 0 },
+                                      pressed && !isViewMode && styles.detailsRowPressed,
+                                    ]}
+                                  >
+                                    <View style={styles.detailsRowLeft}>
+                                      <View style={styles.detailsRowIcon}>
+                                        <Folder
+                                          size={18}
+                                          color={
+                                            colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666'
+                                          }
+                                        />
+                                      </View>
+                                      <Text style={styles.detailsRowLabel}>Add to Space</Text>
+                                    </View>
+                                    <Text style={styles.detailsRowValue}>
+                                      {state.spaceId
+                                        ? (spaces.find((s) => s.id === state.spaceId)?.name ??
+                                          'Unassigned')
+                                        : 'Unassigned'}
+                                    </Text>
+                                  </Pressable>
+
+                                  {/* 3) Private toggle row (Phase L9: Only for journal logs) */}
+                                  {showLogPrivateToggle ? (
+                                    <View style={[styles.detailsRow, { marginTop: 0 }]}>
+                                      <View style={styles.detailsRowLeft}>
+                                        <View style={styles.detailsRowIcon}>
+                                          <Lock
+                                            size={18}
+                                            color={
+                                              colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.7)'
+                                                : '#666'
+                                            }
+                                          />
+                                        </View>
+                                        <Text style={styles.detailsRowLabel}>Private</Text>
+                                      </View>
+                                      <Switch
+                                        value={state.logIsPrivate}
+                                        onValueChange={() =>
+                                          dispatch({
+                                            type: 'SET_LOG_IS_PRIVATE',
+                                            value: !state.logIsPrivate,
+                                          })
+                                        }
+                                        disabled={isViewMode}
+                                        trackColor={{ false: '#D1D5DB', true: '#10B981' }}
+                                        thumbColor="#FFFFFF"
+                                      />
+                                    </View>
+                                  ) : null}
+
+                                  {/* Idea Conversion Section (hidden in view mode) */}
+                                  {effectiveLogSubtype === 'idea' && mode === 'edit' ? (
+                                    <View style={{ marginTop: 16 }}>
+                                      <Text
+                                        style={{
+                                          fontSize: 13,
+                                          color: '#888',
+                                          marginBottom: 8,
+                                        }}
+                                      >
+                                        Convert to...
+                                      </Text>
+                                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                                        <Pressable
+                                          onPress={() => {
+                                            const ideaTitle = state.log.title || '';
+                                            const ideaBody = state.log.body || '';
+                                            const ideaTags = state.tags || [];
+                                            const ideaListItems = state.list?.items;
+                                            const ideaIsList = !!state.list?.items?.length;
+                                            const ideaId = (initialEntity as any)?.id;
+
+                                            // Close current overlay then open create todo overlay
+                                            onClose();
+                                            setTimeout(() => {
+                                              globalOverlay.openCreate({
+                                                type: 'todo',
+                                                conversionMeta: {
+                                                  origin: 'idea_conversion',
+                                                  initialTitle: ideaTitle,
+                                                  initialNote: ideaBody,
+                                                  initialTags: ideaTags,
+                                                  initialListItems: ideaIsList
+                                                    ? ideaListItems
+                                                    : undefined,
+                                                  initialIsList: ideaIsList,
+                                                },
+                                              });
+                                            }, 100);
+
+                                            // Archive the original idea
+                                            if (ideaId) {
+                                              repo.update({
+                                                id: ideaId,
+                                                patch: { archived: true },
+                                              });
+                                              eventBus.emit('ItemUpdated', { id: ideaId });
+                                            }
+                                          }}
+                                          style={({ pressed }) => ({
+                                            flex: 1,
+                                            backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                            borderRadius: 8,
+                                            paddingVertical: 12,
+                                            paddingHorizontal: 16,
+                                            minHeight: 44,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            flexDirection: 'row',
+                                            gap: 6,
+                                          })}
+                                        >
+                                          <Text style={{ fontSize: 15 }}>📋</Text>
+                                          <Text
+                                            style={{
+                                              fontSize: 15,
+                                              fontWeight: '500',
+                                              color: '#333',
+                                            }}
+                                          >
+                                            To-Do
+                                          </Text>
+                                        </Pressable>
+                                        <Pressable
+                                          onPress={() => {
+                                            const ideaTitle = state.log.title || '';
+                                            const ideaBody = state.log.body || '';
+                                            const ideaTags = state.tags || [];
+                                            const ideaListItems = state.list?.items;
+                                            const ideaIsList = !!state.list?.items?.length;
+                                            const ideaId = (initialEntity as any)?.id;
+
+                                            // Close current overlay then open create habit overlay
+                                            onClose();
+                                            setTimeout(() => {
+                                              globalOverlay.openCreate({
+                                                type: 'habit',
+                                                conversionMeta: {
+                                                  origin: 'idea_conversion',
+                                                  initialTitle: ideaTitle,
+                                                  initialNote: ideaBody,
+                                                  initialTags: ideaTags,
+                                                  initialListItems: ideaIsList
+                                                    ? ideaListItems
+                                                    : undefined,
+                                                  initialIsList: ideaIsList,
+                                                },
+                                              });
+                                            }, 100);
+
+                                            // Archive the original idea
+                                            if (ideaId) {
+                                              repo.update({
+                                                id: ideaId,
+                                                patch: { archived: true },
+                                              });
+                                              eventBus.emit('ItemUpdated', { id: ideaId });
+                                            }
+                                          }}
+                                          style={({ pressed }) => ({
+                                            flex: 1,
+                                            backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                            borderRadius: 8,
+                                            paddingVertical: 12,
+                                            paddingHorizontal: 16,
+                                            minHeight: 44,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            flexDirection: 'row',
+                                            gap: 6,
+                                          })}
+                                        >
+                                          <Text style={{ fontSize: 15 }}>🔄</Text>
+                                          <Text
+                                            style={{
+                                              fontSize: 15,
+                                              fontWeight: '500',
+                                              color: '#333',
+                                            }}
+                                          >
+                                            Habit
+                                          </Text>
+                                        </Pressable>
+                                      </View>
+                                    </View>
+                                  ) : null}
+
+                                  {/* 4) Delete log row (only in edit mode) */}
+                                  {mode === 'edit' && (initialEntity as any)?.id ? (
+                                    <Pressable
+                                      onPress={() => {
+                                        Alert.alert('Delete this log?', "This can't be undone.", [
+                                          {
+                                            text: 'Cancel',
+                                            style: 'cancel',
+                                          },
+                                          {
+                                            text: 'Delete',
+                                            style: 'destructive',
+                                            onPress: async () => {
+                                              try {
+                                                const itemId = (initialEntity as any).id;
+                                                const itemSpaceId =
+                                                  (initialEntity as any).space_id ??
+                                                  state.spaceId ??
+                                                  initialSpaceId;
+
+                                                // 1. Delete from database FIRST
+                                                await repo.remove(itemId);
+                                                if (__DEV__) {
+                                                  console.log(
+                                                    '[UnifiedOverlayV2] Item deleted from DB:',
+                                                    itemId,
+                                                  );
+                                                }
+
+                                                // 2. THEN emit events so reload gets fresh data
+                                                eventBus.emit('ItemDeleted', {
+                                                  id: itemId,
+                                                  type: 'note',
+                                                });
+                                                if (__DEV__) {
+                                                  console.log(
+                                                    '[UnifiedOverlayV2] Emitting entity:deleted',
+                                                    {
+                                                      id: itemId,
+                                                      type: 'note',
+                                                      spaceId: itemSpaceId,
+                                                    },
+                                                  );
+                                                }
+                                                eventBus.emit('entity:deleted', {
+                                                  id: itemId,
+                                                  type: 'note',
+                                                  spaceId: itemSpaceId,
+                                                });
+
+                                                // 3. Close overlay last
+                                                onClose();
+                                              } catch (err) {
+                                                console.error(
+                                                  '[UnifiedOverlayV2] Delete log failed:',
+                                                  err,
+                                                );
+                                                Alert.alert(
+                                                  'Error',
+                                                  'Failed to delete log. Please try again.',
+                                                );
+                                              }
+                                            },
+                                          },
+                                        ]);
+                                      }}
+                                      style={({ pressed }) => [
+                                        styles.detailsRow,
+                                        pressed && { opacity: 0.7 },
+                                      ]}
+                                    >
+                                      <View style={styles.detailsRowLeft}>
+                                        <View style={styles.detailsRowIcon}>
+                                          <Trash2 size={18} color="#D9534F" />
+                                        </View>
+                                        <Text style={[styles.detailsRowLabel, styles.deleteText]}>
+                                          Delete log
+                                        </Text>
+                                      </View>
+                                    </Pressable>
+                                  ) : null}
+                                </View>
+                              ) : null}
+                            </Box>
+                          </Reanimated.View>
+                        ) : null}
+
+                        {/* Mentions / Dates chips (inline suggestions) */}
+                        <Box
+                          mt={3}
+                          row
+                          gap={2}
+                          style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}
+                        >
+                          {(state.detected?.mentions || []).map((m) => (
+                            <Chip key={m} label={`@${m}`} />
+                          ))}
+                          {(state.detected?.dates || []).map((d) => (
+                            <Button
+                              key={d}
+                              size="sm"
+                              variant="ghost"
+                              onPress={() => {
+                                if (d === '__token:today') {
+                                  handleTodoDueChange(new Date(), { label: 'Today' });
+                                } else if (d === '__token:tomorrow') {
+                                  handleTodoDueChange(addDays(new Date(), 1), {
+                                    label: 'Tomorrow',
+                                  });
+                                } else {
+                                  // fallback: open custom date modal with parsed date prefilled
+                                  try {
+                                    const dateStr = d.replace(/^\D+/g, '');
+                                    const parsed = new Date(dateStr);
+                                    if (!isNaN(parsed.getTime())) {
+                                      setSelectedDate(parsed);
+                                      setClearDateFlag(false);
+                                    }
+                                  } catch (e) {
+                                    // Use today as fallback
+                                    setSelectedDate(new Date());
                                   }
-                                } catch (e) {
-                                  // Use today as fallback
-                                  setSelectedDate(new Date());
+                                  setDateModalTarget('todo');
+                                  setShowDateModal(true);
                                 }
-                                setDateModalTarget('todo');
-                                setShowDateModal(true);
+                              }}
+                              title={
+                                d === '__token:today'
+                                  ? 'Set due: Today'
+                                  : d === '__token:tomorrow'
+                                    ? 'Set due: Tomorrow'
+                                    : d
                               }
-                            }}
-                            title={
-                              d === '__token:today'
-                                ? 'Set due: Today'
-                                : d === '__token:tomorrow'
-                                  ? 'Set due: Tomorrow'
-                                  : d
-                            }
-                          />
-                        ))}
+                            />
+                          ))}
+                        </Box>
+                        {/* Tag row hidden at Level-1; lands in Phase 3 */}
                       </Box>
-                      {/* Tag row hidden at Level-1; lands in Phase 3 */}
-                    </Box>
-                  </ScrollView>
-                )}
-              </Reanimated.View>
-            </View>
+                    </ScrollView>
+                  )}
+                </Reanimated.View>
+              </View>
 
-            <Modal visible={showDateModal} transparent animationType="fade">
-              <Pressable
-                style={{
-                  flex: 1,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  backgroundColor: 'rgba(0,0,0,0.4)',
-                }}
-                onPress={() => {
-                  // Close modal when tapping outside
-                  setShowDateModal(false);
-                  setDateModalTarget(null);
-                  setShowTimePicker(false);
-                  setClearDateFlag(false);
-                  setSelectedTimePreset(null);
-                  setShowCustomTimePicker(false);
-                }}
-              >
+              <Modal visible={showDateModal} transparent animationType="fade">
                 <Pressable
-                  onPress={(e) => e.stopPropagation()}
                   style={{
-                    width: '92%',
-                    maxWidth: 400,
-                    maxHeight: '85%',
-                    alignSelf: 'center',
-                    backgroundColor: '#FFFFFF',
-                    paddingHorizontal: 12,
-                    paddingTop: 20,
-                    paddingBottom: 16,
-                    borderRadius: 20,
-                    borderWidth: 1,
-                    borderColor: '#E0E0E0',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 8 },
-                    shadowOpacity: 0.15,
-                    shadowRadius: 24,
-                    elevation: 8,
+                    flex: 1,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.4)',
+                  }}
+                  onPress={() => {
+                    // Close modal when tapping outside
+                    setShowDateModal(false);
+                    setDateModalTarget(null);
+                    setShowTimePicker(false);
+                    setClearDateFlag(false);
+                    setSelectedTimePreset(null);
+                    setShowCustomTimePicker(false);
                   }}
                 >
-                  <ScrollView
-                    showsVerticalScrollIndicator={false}
-                    bounces={true}
-                    contentContainerStyle={{
-                      paddingBottom: 32,
-                      paddingTop: 4,
+                  <Pressable
+                    onPress={(e) => e.stopPropagation()}
+                    style={{
+                      width: '92%',
+                      maxWidth: 400,
+                      maxHeight: '85%',
+                      alignSelf: 'center',
+                      backgroundColor: '#FFFFFF',
+                      paddingHorizontal: 12,
+                      paddingTop: 20,
+                      paddingBottom: 16,
+                      borderRadius: 20,
+                      borderWidth: 1,
+                      borderColor: '#E0E0E0',
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 8 },
+                      shadowOpacity: 0.15,
+                      shadowRadius: 24,
+                      elevation: 8,
                     }}
                   >
-                    <Text
-                      style={{
-                        fontSize: 18,
-                        fontWeight: '600',
-                        color: '#222222',
-                        marginBottom: 16,
+                    <ScrollView
+                      showsVerticalScrollIndicator={false}
+                      bounces={true}
+                      contentContainerStyle={{
+                        paddingBottom: 32,
+                        paddingTop: 4,
                       }}
                     >
-                      Set due date
-                    </Text>
-                    <Box mt={1}>
-                      <Box row gap={2} style={{ flexWrap: 'wrap' }}>
-                        <Pressable
-                          onPress={() => {
-                            const today = new Date();
-                            setSelectedDate(today);
-                            setClearDateFlag(false);
-                            if (dateModalTarget === 'reminder') {
-                              dispatch({ type: 'SET_REMINDER', when: today.toISOString() });
-                              setShowDateModal(false);
-                              setDateModalTarget(null);
-                            }
-                          }}
-                          style={({ pressed }) => ({
-                            paddingHorizontal: 14,
-                            paddingVertical: 7,
-                            borderRadius: 18,
-                            backgroundColor: pressed
-                              ? '#F5F5F5'
-                              : clearDateFlag === false &&
-                                  selectedDate.toDateString() === new Date().toDateString()
-                                ? '#F0F4F1'
-                                : '#FAFAFA',
-                            borderWidth: 1,
-                            borderColor:
-                              clearDateFlag === false &&
-                              selectedDate.toDateString() === new Date().toDateString()
-                                ? '#2E5540'
-                                : '#E0E0E0',
-                          })}
-                        >
-                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
-                            Today
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => {
-                            const tomorrow = addDays(new Date(), 1);
-                            setSelectedDate(tomorrow);
-                            setClearDateFlag(false);
-                            if (dateModalTarget === 'reminder') {
-                              dispatch({ type: 'SET_REMINDER', when: tomorrow.toISOString() });
-                              setShowDateModal(false);
-                              setDateModalTarget(null);
-                            }
-                          }}
-                          style={({ pressed }) => ({
-                            paddingHorizontal: 14,
-                            paddingVertical: 7,
-                            borderRadius: 18,
-                            backgroundColor: pressed
-                              ? '#F5F5F5'
-                              : clearDateFlag === false &&
-                                  selectedDate.toDateString() ===
-                                    addDays(new Date(), 1).toDateString()
-                                ? '#F0F4F1'
-                                : '#FAFAFA',
-                            borderWidth: 1,
-                            borderColor:
-                              clearDateFlag === false &&
-                              selectedDate.toDateString() === addDays(new Date(), 1).toDateString()
-                                ? '#2E5540'
-                                : '#E0E0E0',
-                          })}
-                        >
-                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
-                            Tomorrow
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => {
-                            setClearDateFlag(true);
-                            setShowTimePicker(false);
-                            setSelectedTimePreset(null);
-                            setShowCustomTimePicker(false);
-                            if (dateModalTarget === 'reminder') {
-                              dispatch({ type: 'SET_REMINDER', when: null });
-                              setShowDateModal(false);
-                              setDateModalTarget(null);
-                            }
-                          }}
-                          style={({ pressed }) => ({
-                            paddingHorizontal: 14,
-                            paddingVertical: 7,
-                            borderRadius: 18,
-                            backgroundColor: pressed
-                              ? '#F5F5F5'
-                              : clearDateFlag
-                                ? '#F0F4F1'
-                                : '#FAFAFA',
-                            borderWidth: 1,
-                            borderColor: clearDateFlag ? '#2E5540' : '#E0E0E0',
-                          })}
-                        >
-                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
-                            Clear
-                          </Text>
-                        </Pressable>
-                      </Box>
-                    </Box>
-
-                    {/* Date Picker */}
-                    {!clearDateFlag && (
-                      <Box mt={3} mb={4}>
-                        <DateTimePicker
-                          value={selectedDate}
-                          mode="date"
-                          display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                          onChange={(event, date) => {
-                            if (date) {
-                              setSelectedDate(date);
+                      <Text
+                        style={{
+                          fontSize: 18,
+                          fontWeight: '600',
+                          color: '#222222',
+                          marginBottom: 16,
+                        }}
+                      >
+                        Set due date
+                      </Text>
+                      <Box mt={1}>
+                        <Box row gap={2} style={{ flexWrap: 'wrap' }}>
+                          <Pressable
+                            onPress={() => {
+                              const today = new Date();
+                              setSelectedDate(today);
                               setClearDateFlag(false);
-                            }
-                          }}
-                          themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
-                          accentColor="#2E5540"
-                        />
-                      </Box>
-                    )}
-
-                    {/* Add time toggle */}
-                    {!clearDateFlag && (
-                      <Box mt={3} mb={4}>
-                        <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Text
-                            style={{
-                              fontSize: 15,
-                              fontWeight: '500',
-                              color: '#555555',
-                            }}
-                          >
-                            Add time?
-                          </Text>
-                          <Switch
-                            value={showTimePicker}
-                            onValueChange={(value) => {
-                              setShowTimePicker(value);
-                              if (value) {
-                                // Default to 9 AM if no preset selected
-                                if (!selectedTimePreset) {
-                                  setSelectedTimePreset(PRESET_TIMES[0].key);
-                                  const defaultTime = setHours(setMinutes(new Date(), 0), 9);
-                                  setSelectedTime(defaultTime);
-                                }
-                              } else {
-                                // Reset when toggling off
-                                setSelectedTimePreset(null);
-                                setShowCustomTimePicker(false);
+                              if (dateModalTarget === 'reminder') {
+                                dispatch({ type: 'SET_REMINDER', when: today.toISOString() });
+                                setShowDateModal(false);
+                                setDateModalTarget(null);
                               }
                             }}
-                            trackColor={{
-                              false: '#E0E0E0',
-                              true: '#2E5540',
+                            style={({ pressed }) => ({
+                              paddingHorizontal: 14,
+                              paddingVertical: 7,
+                              borderRadius: 18,
+                              backgroundColor: pressed
+                                ? '#F5F5F5'
+                                : clearDateFlag === false &&
+                                    selectedDate.toDateString() === new Date().toDateString()
+                                  ? '#F0F4F1'
+                                  : '#FAFAFA',
+                              borderWidth: 1,
+                              borderColor:
+                                clearDateFlag === false &&
+                                selectedDate.toDateString() === new Date().toDateString()
+                                  ? '#2E5540'
+                                  : '#E0E0E0',
+                            })}
+                          >
+                            <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
+                              Today
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              const tomorrow = addDays(new Date(), 1);
+                              setSelectedDate(tomorrow);
+                              setClearDateFlag(false);
+                              if (dateModalTarget === 'reminder') {
+                                dispatch({ type: 'SET_REMINDER', when: tomorrow.toISOString() });
+                                setShowDateModal(false);
+                                setDateModalTarget(null);
+                              }
                             }}
-                            thumbColor="#FFFFFF"
+                            style={({ pressed }) => ({
+                              paddingHorizontal: 14,
+                              paddingVertical: 7,
+                              borderRadius: 18,
+                              backgroundColor: pressed
+                                ? '#F5F5F5'
+                                : clearDateFlag === false &&
+                                    selectedDate.toDateString() ===
+                                      addDays(new Date(), 1).toDateString()
+                                  ? '#F0F4F1'
+                                  : '#FAFAFA',
+                              borderWidth: 1,
+                              borderColor:
+                                clearDateFlag === false &&
+                                selectedDate.toDateString() ===
+                                  addDays(new Date(), 1).toDateString()
+                                  ? '#2E5540'
+                                  : '#E0E0E0',
+                            })}
+                          >
+                            <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
+                              Tomorrow
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              setClearDateFlag(true);
+                              setShowTimePicker(false);
+                              setSelectedTimePreset(null);
+                              setShowCustomTimePicker(false);
+                              if (dateModalTarget === 'reminder') {
+                                dispatch({ type: 'SET_REMINDER', when: null });
+                                setShowDateModal(false);
+                                setDateModalTarget(null);
+                              }
+                            }}
+                            style={({ pressed }) => ({
+                              paddingHorizontal: 14,
+                              paddingVertical: 7,
+                              borderRadius: 18,
+                              backgroundColor: pressed
+                                ? '#F5F5F5'
+                                : clearDateFlag
+                                  ? '#F0F4F1'
+                                  : '#FAFAFA',
+                              borderWidth: 1,
+                              borderColor: clearDateFlag ? '#2E5540' : '#E0E0E0',
+                            })}
+                          >
+                            <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
+                              Clear
+                            </Text>
+                          </Pressable>
+                        </Box>
+                      </Box>
+
+                      {/* Date Picker */}
+                      {!clearDateFlag && (
+                        <Box mt={3} mb={4}>
+                          <DateTimePicker
+                            value={selectedDate}
+                            mode="date"
+                            display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                            onChange={(event, date) => {
+                              if (date) {
+                                setSelectedDate(date);
+                                setClearDateFlag(false);
+                              }
+                            }}
+                            themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
+                            accentColor="#2E5540"
                           />
                         </Box>
+                      )}
 
-                        {/* Preset Time Chips */}
-                        {showTimePicker && (
-                          <Box mt={3} style={{ marginBottom: 0, paddingBottom: 4 }}>
-                            <Box
-                              row
+                      {/* Add time toggle */}
+                      {!clearDateFlag && (
+                        <Box mt={3} mb={4}>
+                          <Box
+                            row
+                            style={{ alignItems: 'center', justifyContent: 'space-between' }}
+                          >
+                            <Text
                               style={{
-                                flexWrap: 'wrap',
-                                rowGap: 8,
-                                columnGap: 8,
+                                fontSize: 15,
+                                fontWeight: '500',
+                                color: '#555555',
                               }}
                             >
-                              {PRESET_TIMES.map((preset) => (
+                              Add time?
+                            </Text>
+                            <Switch
+                              value={showTimePicker}
+                              onValueChange={(value) => {
+                                setShowTimePicker(value);
+                                if (value) {
+                                  // Default to 9 AM if no preset selected
+                                  if (!selectedTimePreset) {
+                                    setSelectedTimePreset(PRESET_TIMES[0].key);
+                                    const defaultTime = setHours(setMinutes(new Date(), 0), 9);
+                                    setSelectedTime(defaultTime);
+                                  }
+                                } else {
+                                  // Reset when toggling off
+                                  setSelectedTimePreset(null);
+                                  setShowCustomTimePicker(false);
+                                }
+                              }}
+                              trackColor={{
+                                false: '#E0E0E0',
+                                true: '#2E5540',
+                              }}
+                              thumbColor="#FFFFFF"
+                            />
+                          </Box>
+
+                          {/* Preset Time Chips */}
+                          {showTimePicker && (
+                            <Box mt={3} style={{ marginBottom: 0, paddingBottom: 4 }}>
+                              <Box
+                                row
+                                style={{
+                                  flexWrap: 'wrap',
+                                  rowGap: 8,
+                                  columnGap: 8,
+                                }}
+                              >
+                                {PRESET_TIMES.map((preset) => (
+                                  <Pressable
+                                    key={preset.key}
+                                    onPress={() => {
+                                      setSelectedTimePreset(preset.key);
+                                      setShowCustomTimePicker(false);
+                                      // Update selectedTime for use in Set button
+                                      const newTime = setHours(
+                                        setMinutes(new Date(), preset.minute),
+                                        preset.hour,
+                                      );
+                                      setSelectedTime(newTime);
+                                    }}
+                                    style={({ pressed }) => ({
+                                      paddingHorizontal: 14,
+                                      paddingVertical: 8,
+                                      borderRadius: 18,
+                                      backgroundColor: pressed
+                                        ? '#F5F5F5'
+                                        : selectedTimePreset === preset.key
+                                          ? '#F0F4F1'
+                                          : '#FAFAFA',
+                                      borderWidth: 1,
+                                      borderColor:
+                                        selectedTimePreset === preset.key ? '#2E5540' : '#E0E0E0',
+                                    })}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 13,
+                                        fontWeight: '500',
+                                        color:
+                                          selectedTimePreset === preset.key ? '#2E5540' : '#222222',
+                                      }}
+                                    >
+                                      {preset.label}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+                                {/* Custom time chip */}
                                 <Pressable
-                                  key={preset.key}
                                   onPress={() => {
-                                    setSelectedTimePreset(preset.key);
-                                    setShowCustomTimePicker(false);
-                                    // Update selectedTime for use in Set button
-                                    const newTime = setHours(
-                                      setMinutes(new Date(), preset.minute),
-                                      preset.hour,
-                                    );
-                                    setSelectedTime(newTime);
+                                    setSelectedTimePreset('custom');
+                                    setShowCustomTimePicker(true);
                                   }}
                                   style={({ pressed }) => ({
                                     paddingHorizontal: 14,
@@ -5781,12 +6323,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     borderRadius: 18,
                                     backgroundColor: pressed
                                       ? '#F5F5F5'
-                                      : selectedTimePreset === preset.key
+                                      : selectedTimePreset === 'custom'
                                         ? '#F0F4F1'
                                         : '#FAFAFA',
                                     borderWidth: 1,
                                     borderColor:
-                                      selectedTimePreset === preset.key ? '#2E5540' : '#E0E0E0',
+                                      selectedTimePreset === 'custom' ? '#2E5540' : '#E0E0E0',
                                   })}
                                 >
                                   <Text
@@ -5794,373 +6336,270 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       fontSize: 13,
                                       fontWeight: '500',
                                       color:
-                                        selectedTimePreset === preset.key ? '#2E5540' : '#222222',
+                                        selectedTimePreset === 'custom' ? '#2E5540' : '#222222',
                                     }}
                                   >
-                                    {preset.label}
+                                    {selectedTimePreset === 'custom'
+                                      ? `Custom (${format(selectedTime, 'h:mm a')})`
+                                      : 'Custom…'}
                                   </Text>
                                 </Pressable>
-                              ))}
-                              {/* Custom time chip */}
-                              <Pressable
-                                onPress={() => {
-                                  setSelectedTimePreset('custom');
-                                  setShowCustomTimePicker(true);
-                                }}
-                                style={({ pressed }) => ({
-                                  paddingHorizontal: 14,
-                                  paddingVertical: 8,
-                                  borderRadius: 18,
-                                  backgroundColor: pressed
-                                    ? '#F5F5F5'
-                                    : selectedTimePreset === 'custom'
-                                      ? '#F0F4F1'
-                                      : '#FAFAFA',
-                                  borderWidth: 1,
-                                  borderColor:
-                                    selectedTimePreset === 'custom' ? '#2E5540' : '#E0E0E0',
-                                })}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 13,
-                                    fontWeight: '500',
-                                    color: selectedTimePreset === 'custom' ? '#2E5540' : '#222222',
-                                  }}
-                                >
-                                  {selectedTimePreset === 'custom'
-                                    ? `Custom (${format(selectedTime, 'h:mm a')})`
-                                    : 'Custom…'}
-                                </Text>
-                              </Pressable>
-                            </Box>
-
-                            {/* Custom Time Picker - shown inline when Custom is selected */}
-                            {showCustomTimePicker && (
-                              <Box mt={3}>
-                                <DateTimePicker
-                                  value={selectedTime}
-                                  mode="time"
-                                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                  onChange={(event, time) => {
-                                    // On Android, event.type === 'dismissed' means the user cancelled
-                                    if (Platform.OS === 'android' && event.type === 'dismissed') {
-                                      setShowCustomTimePicker(false);
-                                      return;
-                                    }
-
-                                    if (time) {
-                                      setSelectedTime(time);
-                                      if (Platform.OS === 'android') {
-                                        // Close picker after selection on Android
-                                        setShowCustomTimePicker(false);
-                                      }
-                                    }
-                                  }}
-                                  themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
-                                  accentColor="#2E5540"
-                                />
                               </Box>
-                            )}
-                          </Box>
-                        )}
-                      </Box>
-                    )}
 
-                    {/* Action buttons - now inside ScrollView */}
-                    <Box row style={{ gap: 12, marginTop: 12 }}>
-                      <Button
-                        variant="ghost"
-                        onPress={() => {
-                          setShowDateModal(false);
-                          setDateModalTarget(null);
-                          setShowTimePicker(false);
-                          setClearDateFlag(false);
-                          setSelectedTimePreset(null);
-                          setShowCustomTimePicker(false);
-                        }}
-                        title="Cancel"
-                      />
-                      <Box flex={1} />
-                      <Button
-                        variant="primary"
-                        onPress={() => {
-                          try {
-                            let finalDate: Date | null = null;
+                              {/* Custom Time Picker - shown inline when Custom is selected */}
+                              {showCustomTimePicker && (
+                                <Box mt={3}>
+                                  <DateTimePicker
+                                    value={selectedTime}
+                                    mode="time"
+                                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                    onChange={(event, time) => {
+                                      // On Android, event.type === 'dismissed' means the user cancelled
+                                      if (Platform.OS === 'android' && event.type === 'dismissed') {
+                                        setShowCustomTimePicker(false);
+                                        return;
+                                      }
 
-                            if (!clearDateFlag) {
-                              // Combine date and optional time
-                              finalDate = selectedDate;
+                                      if (time) {
+                                        setSelectedTime(time);
+                                        if (Platform.OS === 'android') {
+                                          // Close picker after selection on Android
+                                          setShowCustomTimePicker(false);
+                                        }
+                                      }
+                                    }}
+                                    themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
+                                    accentColor="#2E5540"
+                                  />
+                                </Box>
+                              )}
+                            </Box>
+                          )}
+                        </Box>
+                      )}
 
-                              if (showTimePicker && selectedTime) {
-                                // Merge the selected time into the selected date
-                                finalDate = setHours(
-                                  setMinutes(selectedDate, selectedTime.getMinutes()),
-                                  selectedTime.getHours(),
-                                );
-                              } else {
-                                // No time selected, use the date as-is (all-day)
-                                finalDate = selectedDate;
-                              }
-                            }
-
-                            // Apply the change
-                            if (dateModalTarget === 'reminder') {
-                              // Reminders still use ISO timestamps
-                              dispatch({
-                                type: 'SET_REMINDER',
-                                when: finalDate?.toISOString() ?? null,
-                              });
-                            } else {
-                              // Todos use due_day (local date string) - pass Date object
-                              const label = finalDate ? format(finalDate, 'MMM d') : '';
-                              handleTodoDueChange(finalDate, { label });
-                            }
-
-                            // Reset and close
+                      {/* Action buttons - now inside ScrollView */}
+                      <Box row style={{ gap: 12, marginTop: 12 }}>
+                        <Button
+                          variant="ghost"
+                          onPress={() => {
                             setShowDateModal(false);
                             setDateModalTarget(null);
                             setShowTimePicker(false);
                             setClearDateFlag(false);
                             setSelectedTimePreset(null);
                             setShowCustomTimePicker(false);
-                          } catch (e) {
-                            console.error('[DatePicker] Error setting date:', e);
-                          }
-                        }}
-                        title="Set"
-                      />
-                    </Box>
-                  </ScrollView>
-                </Pressable>
-              </Pressable>
-            </Modal>
-
-            {/* Space Selector Modal for To-Do Details */}
-            <Modal visible={showSpaceModal} transparent animationType="fade">
-              <Pressable
-                style={{
-                  flex: 1,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  backgroundColor: 'rgba(0,0,0,0.4)',
-                }}
-                onPress={() => setShowSpaceModal(false)}
-              >
-                <Pressable
-                  onPress={(e) => e.stopPropagation()}
-                  style={{
-                    width: '85%',
-                    maxWidth: 350,
-                    backgroundColor: '#FFFFFF',
-                    padding: 20,
-                    borderRadius: 16,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 12,
-                    elevation: 5,
-                  }}
-                >
-                  <Text
-                    style={{ fontSize: 18, fontWeight: '600', color: '#111827', marginBottom: 16 }}
-                  >
-                    Select Space
-                  </Text>
-
-                  {/* Clear selection option */}
-                  <Pressable
-                    onPress={() => {
-                      dispatch({ type: 'SET_SPACE', spaceId: null });
-                      setShowSpaceModal(false);
-                    }}
-                    style={({ pressed }) => ({
-                      paddingVertical: 12,
-                      paddingHorizontal: 12,
-                      borderRadius: 8,
-                      backgroundColor: pressed
-                        ? '#F3F4F6'
-                        : state.spaceId === null
-                          ? '#F0F4F1'
-                          : 'transparent',
-                      marginBottom: 8,
-                    })}
-                  >
-                    <Text style={{ fontSize: 15, color: '#374151' }}>None</Text>
-                  </Pressable>
-
-                  {/* Space options */}
-                  <ScrollView style={{ maxHeight: 300 }}>
-                    {spaces.map((space) => (
-                      <Pressable
-                        key={space.id}
-                        onPress={() => {
-                          dispatch({ type: 'SET_SPACE', spaceId: space.id });
-                          setShowSpaceModal(false);
-                        }}
-                        style={({ pressed }) => ({
-                          paddingVertical: 12,
-                          paddingHorizontal: 12,
-                          borderRadius: 8,
-                          backgroundColor: pressed
-                            ? '#F3F4F6'
-                            : state.spaceId === space.id
-                              ? '#F0F4F1'
-                              : 'transparent',
-                          marginBottom: 8,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                        })}
-                      >
-                        {space.icon && (
-                          <Text style={{ fontSize: 16, marginRight: 10 }}>{space.icon}</Text>
-                        )}
-                        <Text style={{ fontSize: 15, color: '#374151' }}>{space.name}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </Pressable>
-              </Pressable>
-            </Modal>
-
-            {/* Reminders Management Modal */}
-            <Modal visible={showRemindersModal} transparent animationType="fade">
-              <Pressable
-                style={{
-                  flex: 1,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  backgroundColor: 'rgba(0,0,0,0.4)',
-                }}
-                onPress={() => {
-                  if (!editingReminder) {
-                    setShowRemindersModal(false);
-                  }
-                }}
-              >
-                <Pressable
-                  onPress={(e) => e.stopPropagation()}
-                  style={{
-                    width: '90%',
-                    maxWidth: 400,
-                    backgroundColor: '#FFFFFF',
-                    padding: 20,
-                    borderRadius: 16,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 12,
-                    elevation: 5,
-                    maxHeight: '80%',
-                  }}
-                >
-                  {editingReminder ? (
-                    /* Add/Edit Reminder Form */
-                    <ScrollView showsVerticalScrollIndicator={false}>
-                      {/* Header */}
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: 20,
-                        }}
-                      >
-                        <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827' }}>
-                          {editingMode === 'add' ? 'Add Reminder' : 'Edit Reminder'}
-                        </Text>
-                        <Pressable
+                          }}
+                          title="Cancel"
+                        />
+                        <Box flex={1} />
+                        <Button
+                          variant="primary"
                           onPress={() => {
-                            setEditingReminder(null);
-                            setReminderValidationError(null);
+                            try {
+                              let finalDate: Date | null = null;
+
+                              if (!clearDateFlag) {
+                                // Combine date and optional time
+                                finalDate = selectedDate;
+
+                                if (showTimePicker && selectedTime) {
+                                  // Merge the selected time into the selected date
+                                  finalDate = setHours(
+                                    setMinutes(selectedDate, selectedTime.getMinutes()),
+                                    selectedTime.getHours(),
+                                  );
+                                } else {
+                                  // No time selected, use the date as-is (all-day)
+                                  finalDate = selectedDate;
+                                }
+                              }
+
+                              // Apply the change
+                              if (dateModalTarget === 'reminder') {
+                                // Reminders still use ISO timestamps
+                                dispatch({
+                                  type: 'SET_REMINDER',
+                                  when: finalDate?.toISOString() ?? null,
+                                });
+                              } else {
+                                // Todos use due_day (local date string) - pass Date object
+                                const label = finalDate ? format(finalDate, 'MMM d') : '';
+                                handleTodoDueChange(finalDate, { label });
+                              }
+
+                              // Reset and close
+                              setShowDateModal(false);
+                              setDateModalTarget(null);
+                              setShowTimePicker(false);
+                              setClearDateFlag(false);
+                              setSelectedTimePreset(null);
+                              setShowCustomTimePicker(false);
+                            } catch (e) {
+                              console.error('[DatePicker] Error setting date:', e);
+                            }
+                          }}
+                          title="Set"
+                        />
+                      </Box>
+                    </ScrollView>
+                  </Pressable>
+                </Pressable>
+              </Modal>
+
+              {/* Space Selector Modal for To-Do Details */}
+              <Modal visible={showSpaceModal} transparent animationType="fade">
+                <Pressable
+                  style={{
+                    flex: 1,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.4)',
+                  }}
+                  onPress={() => setShowSpaceModal(false)}
+                >
+                  <Pressable
+                    onPress={(e) => e.stopPropagation()}
+                    style={{
+                      width: '85%',
+                      maxWidth: 350,
+                      backgroundColor: '#FFFFFF',
+                      padding: 20,
+                      borderRadius: 16,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 12,
+                      elevation: 5,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 18,
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: 16,
+                      }}
+                    >
+                      Select Space
+                    </Text>
+
+                    {/* Clear selection option */}
+                    <Pressable
+                      onPress={() => {
+                        dispatch({ type: 'SET_SPACE', spaceId: null });
+                        setShowSpaceModal(false);
+                      }}
+                      style={({ pressed }) => ({
+                        paddingVertical: 12,
+                        paddingHorizontal: 12,
+                        borderRadius: 8,
+                        backgroundColor: pressed
+                          ? '#F3F4F6'
+                          : state.spaceId === null
+                            ? '#F0F4F1'
+                            : 'transparent',
+                        marginBottom: 8,
+                      })}
+                    >
+                      <Text style={{ fontSize: 15, color: '#374151' }}>None</Text>
+                    </Pressable>
+
+                    {/* Space options */}
+                    <ScrollView style={{ maxHeight: 300 }}>
+                      {spaces.map((space) => (
+                        <Pressable
+                          key={space.id}
+                          onPress={() => {
+                            dispatch({ type: 'SET_SPACE', spaceId: space.id });
+                            setShowSpaceModal(false);
                           }}
                           style={({ pressed }) => ({
-                            opacity: pressed ? 0.6 : 1,
-                            padding: 4,
+                            paddingVertical: 12,
+                            paddingHorizontal: 12,
+                            borderRadius: 8,
+                            backgroundColor: pressed
+                              ? '#F3F4F6'
+                              : state.spaceId === space.id
+                                ? '#F0F4F1'
+                                : 'transparent',
+                            marginBottom: 8,
+                            flexDirection: 'row',
+                            alignItems: 'center',
                           })}
                         >
-                          <CloseIcon size={24} color="#6B7280" />
-                        </Pressable>
-                      </View>
-
-                      {/* Time Selector */}
-                      <View style={{ marginBottom: 20 }}>
-                        <Text
-                          style={{
-                            fontSize: 14,
-                            fontWeight: '500',
-                            color: '#374151',
-                            marginBottom: 8,
-                          }}
-                        >
-                          Time
-                        </Text>
-                        <View style={{ backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12 }}>
-                          <DateTimePicker
-                            value={reminderTimeValue}
-                            mode="time"
-                            display="spinner"
-                            onChange={(event, date) => {
-                              if (date) {
-                                setReminderTimeValue(date);
-                              }
-                            }}
-                            style={{ backgroundColor: 'transparent' }}
-                          />
-                        </View>
-                      </View>
-
-                      {/* Repeat Options */}
-                      <View style={{ marginBottom: 20 }}>
-                        <Text
-                          style={{
-                            fontSize: 14,
-                            fontWeight: '500',
-                            color: '#374151',
-                            marginBottom: 8,
-                          }}
-                        >
-                          Repeat
-                        </Text>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                          {(['once', 'daily', 'weekdays', 'weekends', 'custom'] as const).map(
-                            (option) => (
-                              <Pressable
-                                key={option}
-                                onPress={() => setReminderRepeat(option)}
-                                style={({ pressed }) => ({
-                                  paddingHorizontal: 14,
-                                  paddingVertical: 8,
-                                  borderRadius: 8,
-                                  backgroundColor:
-                                    reminderRepeat === option
-                                      ? lightTokens.colors.moss
-                                      : pressed
-                                        ? '#F3F4F6'
-                                        : '#F9FAFB',
-                                  borderWidth: 1,
-                                  borderColor:
-                                    reminderRepeat === option ? lightTokens.colors.moss : '#E5E7EB',
-                                })}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 14,
-                                    fontWeight: '500',
-                                    color: reminderRepeat === option ? '#FFFFFF' : '#374151',
-                                    textTransform: 'capitalize',
-                                  }}
-                                >
-                                  {option}
-                                </Text>
-                              </Pressable>
-                            ),
+                          {space.icon && (
+                            <Text style={{ fontSize: 16, marginRight: 10 }}>{space.icon}</Text>
                           )}
-                        </View>
-                      </View>
+                          <Text style={{ fontSize: 15, color: '#374151' }}>{space.name}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </Pressable>
+                </Pressable>
+              </Modal>
 
-                      {/* Conditional: Date picker for "once" */}
-                      {reminderRepeat === 'once' && (
+              {/* Reminders Management Modal */}
+              <Modal visible={showRemindersModal} transparent animationType="fade">
+                <Pressable
+                  style={{
+                    flex: 1,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.4)',
+                  }}
+                  onPress={() => {
+                    if (!editingReminder) {
+                      setShowRemindersModal(false);
+                    }
+                  }}
+                >
+                  <Pressable
+                    onPress={(e) => e.stopPropagation()}
+                    style={{
+                      width: '90%',
+                      maxWidth: 400,
+                      backgroundColor: '#FFFFFF',
+                      padding: 20,
+                      borderRadius: 16,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 12,
+                      elevation: 5,
+                      maxHeight: '80%',
+                    }}
+                  >
+                    {editingReminder ? (
+                      /* Add/Edit Reminder Form */
+                      <ScrollView showsVerticalScrollIndicator={false}>
+                        {/* Header */}
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 20,
+                          }}
+                        >
+                          <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827' }}>
+                            {editingMode === 'add' ? 'Add Reminder' : 'Edit Reminder'}
+                          </Text>
+                          <Pressable
+                            onPress={() => {
+                              setEditingReminder(null);
+                              setReminderValidationError(null);
+                            }}
+                            style={({ pressed }) => ({
+                              opacity: pressed ? 0.6 : 1,
+                              padding: 4,
+                            })}
+                          >
+                            <CloseIcon size={24} color="#6B7280" />
+                          </Pressable>
+                        </View>
+
+                        {/* Time Selector */}
                         <View style={{ marginBottom: 20 }}>
                           <Text
                             style={{
@@ -6170,28 +6609,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               marginBottom: 8,
                             }}
                           >
-                            Date
+                            Time
                           </Text>
                           <View
                             style={{ backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12 }}
                           >
                             <DateTimePicker
-                              value={reminderDateValue}
-                              mode="date"
-                              display="inline"
+                              value={reminderTimeValue}
+                              mode="time"
+                              display="spinner"
                               onChange={(event, date) => {
                                 if (date) {
-                                  setReminderDateValue(date);
+                                  setReminderTimeValue(date);
                                 }
                               }}
                               style={{ backgroundColor: 'transparent' }}
                             />
                           </View>
                         </View>
-                      )}
 
-                      {/* Conditional: Custom days selector */}
-                      {reminderRepeat === 'custom' && (
+                        {/* Repeat Options */}
                         <View style={{ marginBottom: 20 }}>
                           <Text
                             style={{
@@ -6201,531 +6638,585 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               marginBottom: 8,
                             }}
                           >
-                            Days
+                            Repeat
                           </Text>
-                          <View
-                            style={{
-                              flexDirection: 'row',
-                              justifyContent: 'space-between',
-                              gap: 8,
-                            }}
-                          >
-                            {SHORT_DAY_LABELS.map((label, index) => (
-                              <Pressable
-                                key={index}
-                                onPress={() => {
-                                  setReminderCustomDays((prev) => {
-                                    if (prev.includes(index)) {
-                                      return prev.filter((d) => d !== index);
-                                    } else {
-                                      return [...prev, index].sort((a, b) => a - b);
-                                    }
-                                  });
-                                }}
-                                style={({ pressed }) => ({
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius: 16,
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  backgroundColor: reminderCustomDays.includes(index)
-                                    ? lightTokens.colors.moss
-                                    : pressed
-                                      ? '#F3F4F6'
-                                      : 'transparent',
-                                  borderWidth: 1,
-                                  borderColor: reminderCustomDays.includes(index)
-                                    ? lightTokens.colors.moss
-                                    : '#D1D5DB',
-                                })}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 13,
-                                    fontWeight: '500',
-                                    color: reminderCustomDays.includes(index)
-                                      ? '#FFFFFF'
-                                      : '#6B7280',
-                                  }}
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {(['once', 'daily', 'weekdays', 'weekends', 'custom'] as const).map(
+                              (option) => (
+                                <Pressable
+                                  key={option}
+                                  onPress={() => setReminderRepeat(option)}
+                                  style={({ pressed }) => ({
+                                    paddingHorizontal: 14,
+                                    paddingVertical: 8,
+                                    borderRadius: 8,
+                                    backgroundColor:
+                                      reminderRepeat === option
+                                        ? lightTokens.colors.moss
+                                        : pressed
+                                          ? '#F3F4F6'
+                                          : '#F9FAFB',
+                                    borderWidth: 1,
+                                    borderColor:
+                                      reminderRepeat === option
+                                        ? lightTokens.colors.moss
+                                        : '#E5E7EB',
+                                  })}
                                 >
-                                  {label}
-                                </Text>
-                              </Pressable>
-                            ))}
+                                  <Text
+                                    style={{
+                                      fontSize: 14,
+                                      fontWeight: '500',
+                                      color: reminderRepeat === option ? '#FFFFFF' : '#374151',
+                                      textTransform: 'capitalize',
+                                    }}
+                                  >
+                                    {option}
+                                  </Text>
+                                </Pressable>
+                              ),
+                            )}
                           </View>
-                          {reminderValidationError && (
-                            <Text style={{ fontSize: 12, color: '#DC2626', marginTop: 8 }}>
-                              {reminderValidationError}
-                            </Text>
-                          )}
                         </View>
-                      )}
 
-                      {/* Buttons */}
-                      <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
-                        <Pressable
-                          onPress={() => {
-                            setEditingReminder(null);
-                            setReminderValidationError(null);
-                          }}
-                          style={({ pressed }) => ({
-                            flex: 1,
-                            paddingVertical: 12,
-                            borderRadius: 8,
-                            backgroundColor: pressed ? '#F3F4F6' : 'transparent',
-                            borderWidth: 1,
-                            borderColor: '#D1D5DB',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            minHeight: 44,
-                          })}
-                        >
-                          <Text style={{ fontSize: 15, fontWeight: '500', color: '#6B7280' }}>
-                            Cancel
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => {
-                            // Validation
-                            if (reminderRepeat === 'custom' && reminderCustomDays.length === 0) {
-                              setReminderValidationError('Select at least one day');
-                              return;
-                            }
-
-                            // Build reminder object
-                            const hour = format(reminderTimeValue, 'HH');
-                            const minute = format(reminderTimeValue, 'mm');
-                            const time = `${hour}:${minute}`;
-
-                            const newReminder: OverlayReminder = {
-                              id: editingReminder.id,
-                              time,
-                              repeat: reminderRepeat,
-                              ...(reminderRepeat === 'once' && {
-                                date: format(reminderDateValue, 'yyyy-MM-dd'),
-                              }),
-                              ...(reminderRepeat === 'custom' && { days: reminderCustomDays }),
-                            };
-
-                            // Check for duplicates
-                            const isDuplicate = reminders.some((r) => {
-                              if (editingMode === 'edit' && r.id === editingReminder.id)
-                                return false;
-                              return (
-                                r.time === newReminder.time &&
-                                r.repeat === newReminder.repeat &&
-                                r.date === newReminder.date &&
-                                JSON.stringify(r.days) === JSON.stringify(newReminder.days)
-                              );
-                            });
-
-                            if (isDuplicate) {
-                              setReminderValidationError('This reminder already exists');
-                              return;
-                            }
-
-                            // Add or update
-                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                            if (editingMode === 'add') {
-                              setReminders((prev) => [...prev, newReminder]);
-                            } else {
-                              setReminders((prev) =>
-                                prev.map((r) => (r.id === editingReminder.id ? newReminder : r)),
-                              );
-                            }
-
-                            // Clear and return to list
-                            setEditingReminder(null);
-                            setReminderValidationError(null);
-                          }}
-                          style={({ pressed }) => ({
-                            flex: 1,
-                            paddingVertical: 12,
-                            borderRadius: 8,
-                            backgroundColor: pressed ? '#244430' : lightTokens.colors.moss,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            minHeight: 44,
-                          })}
-                        >
-                          <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
-                            {editingMode === 'add' ? 'Add' : 'Update'}
-                          </Text>
-                        </Pressable>
-                      </View>
-                    </ScrollView>
-                  ) : (
-                    /* Reminders List View */
-                    <View>
-                      {/* Header */}
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: 16,
-                        }}
-                      >
-                        <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827' }}>
-                          Set Reminders
-                        </Text>
-                        <Pressable
-                          onPress={() => setShowRemindersModal(false)}
-                          style={({ pressed }) => ({
-                            opacity: pressed ? 0.6 : 1,
-                            padding: 4,
-                          })}
-                        >
-                          <CloseIcon size={24} color="#6B7280" />
-                        </Pressable>
-                      </View>
-
-                      {/* Reminders List or Empty State */}
-                      <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
-                        {reminders.length === 0 ? (
-                          <Text
-                            style={{ textAlign: 'center', color: '#6B7280', paddingVertical: 40 }}
-                          >
-                            No reminders set
-                          </Text>
-                        ) : (
-                          reminders.map((reminder) => (
-                            <Pressable
-                              key={reminder.id}
-                              onPress={() => {
-                                // Open for editing
-                                setEditingReminder(reminder);
-                                setEditingMode('edit');
-                                // Hydrate form state
-                                const [hour, minute] = reminder.time.split(':').map(Number);
-                                const timeDate = new Date();
-                                timeDate.setHours(hour, minute, 0, 0);
-                                setReminderTimeValue(timeDate);
-                                setReminderRepeat(reminder.repeat);
-                                if (reminder.date) {
-                                  setReminderDateValue(parseISO(reminder.date));
-                                }
-                                if (reminder.days) {
-                                  setReminderCustomDays(reminder.days);
-                                }
-                                setReminderValidationError(null);
-                              }}
-                              style={({ pressed }) => ({
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                paddingVertical: 12,
-                                paddingHorizontal: 12,
-                                borderRadius: 8,
-                                backgroundColor: pressed ? '#F3F4F6' : 'transparent',
+                        {/* Conditional: Date picker for "once" */}
+                        {reminderRepeat === 'once' && (
+                          <View style={{ marginBottom: 20 }}>
+                            <Text
+                              style={{
+                                fontSize: 14,
+                                fontWeight: '500',
+                                color: '#374151',
                                 marginBottom: 8,
-                                minHeight: 48,
-                              })}
+                              }}
                             >
-                              <View
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 12,
-                                  flex: 1,
+                              Date
+                            </Text>
+                            <View
+                              style={{ backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12 }}
+                            >
+                              <DateTimePicker
+                                value={reminderDateValue}
+                                mode="date"
+                                display="inline"
+                                onChange={(event, date) => {
+                                  if (date) {
+                                    setReminderDateValue(date);
+                                  }
                                 }}
-                              >
-                                <Bell size={20} color={lightTokens.colors.moss} />
-                                <Text style={{ fontSize: 15, fontWeight: '500', color: '#111827' }}>
-                                  {formatSingleReminder(reminder)}
-                                </Text>
-                              </View>
-                              <Pressable
-                                onPress={(e) => {
-                                  e.stopPropagation();
-                                  // Delete reminder with animation
-                                  LayoutAnimation.configureNext(
-                                    LayoutAnimation.Presets.easeInEaseOut,
-                                  );
-                                  setReminders((prev) => prev.filter((r) => r.id !== reminder.id));
-                                }}
-                                style={({ pressed }) => ({
-                                  padding: 4,
-                                  opacity: pressed ? 0.6 : 1,
-                                  minWidth: 24,
-                                  minHeight: 24,
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                })}
-                              >
-                                <CloseIcon size={18} color="#6B7280" />
-                              </Pressable>
-                            </Pressable>
-                          ))
+                                style={{ backgroundColor: 'transparent' }}
+                              />
+                            </View>
+                          </View>
                         )}
+
+                        {/* Conditional: Custom days selector */}
+                        {reminderRepeat === 'custom' && (
+                          <View style={{ marginBottom: 20 }}>
+                            <Text
+                              style={{
+                                fontSize: 14,
+                                fontWeight: '500',
+                                color: '#374151',
+                                marginBottom: 8,
+                              }}
+                            >
+                              Days
+                            </Text>
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                justifyContent: 'space-between',
+                                gap: 8,
+                              }}
+                            >
+                              {SHORT_DAY_LABELS.map((label, index) => (
+                                <Pressable
+                                  key={index}
+                                  onPress={() => {
+                                    setReminderCustomDays((prev) => {
+                                      if (prev.includes(index)) {
+                                        return prev.filter((d) => d !== index);
+                                      } else {
+                                        return [...prev, index].sort((a, b) => a - b);
+                                      }
+                                    });
+                                  }}
+                                  style={({ pressed }) => ({
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 16,
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    backgroundColor: reminderCustomDays.includes(index)
+                                      ? lightTokens.colors.moss
+                                      : pressed
+                                        ? '#F3F4F6'
+                                        : 'transparent',
+                                    borderWidth: 1,
+                                    borderColor: reminderCustomDays.includes(index)
+                                      ? lightTokens.colors.moss
+                                      : '#D1D5DB',
+                                  })}
+                                >
+                                  <Text
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: '500',
+                                      color: reminderCustomDays.includes(index)
+                                        ? '#FFFFFF'
+                                        : '#6B7280',
+                                    }}
+                                  >
+                                    {label}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                            </View>
+                            {reminderValidationError && (
+                              <Text style={{ fontSize: 12, color: '#DC2626', marginTop: 8 }}>
+                                {reminderValidationError}
+                              </Text>
+                            )}
+                          </View>
+                        )}
+
+                        {/* Buttons */}
+                        <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                          <Pressable
+                            onPress={() => {
+                              setEditingReminder(null);
+                              setReminderValidationError(null);
+                            }}
+                            style={({ pressed }) => ({
+                              flex: 1,
+                              paddingVertical: 12,
+                              borderRadius: 8,
+                              backgroundColor: pressed ? '#F3F4F6' : 'transparent',
+                              borderWidth: 1,
+                              borderColor: '#D1D5DB',
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              minHeight: 44,
+                            })}
+                          >
+                            <Text style={{ fontSize: 15, fontWeight: '500', color: '#6B7280' }}>
+                              Cancel
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              // Validation
+                              if (reminderRepeat === 'custom' && reminderCustomDays.length === 0) {
+                                setReminderValidationError('Select at least one day');
+                                return;
+                              }
+
+                              // Build reminder object
+                              const hour = format(reminderTimeValue, 'HH');
+                              const minute = format(reminderTimeValue, 'mm');
+                              const time = `${hour}:${minute}`;
+
+                              const newReminder: OverlayReminder = {
+                                id: editingReminder.id,
+                                time,
+                                repeat: reminderRepeat,
+                                ...(reminderRepeat === 'once' && {
+                                  date: format(reminderDateValue, 'yyyy-MM-dd'),
+                                }),
+                                ...(reminderRepeat === 'custom' && { days: reminderCustomDays }),
+                              };
+
+                              // Check for duplicates
+                              const isDuplicate = reminders.some((r) => {
+                                if (editingMode === 'edit' && r.id === editingReminder.id)
+                                  return false;
+                                return (
+                                  r.time === newReminder.time &&
+                                  r.repeat === newReminder.repeat &&
+                                  r.date === newReminder.date &&
+                                  JSON.stringify(r.days) === JSON.stringify(newReminder.days)
+                                );
+                              });
+
+                              if (isDuplicate) {
+                                setReminderValidationError('This reminder already exists');
+                                return;
+                              }
+
+                              // Add or update
+                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                              if (editingMode === 'add') {
+                                setReminders((prev) => [...prev, newReminder]);
+                              } else {
+                                setReminders((prev) =>
+                                  prev.map((r) => (r.id === editingReminder.id ? newReminder : r)),
+                                );
+                              }
+
+                              // Clear and return to list
+                              setEditingReminder(null);
+                              setReminderValidationError(null);
+                            }}
+                            style={({ pressed }) => ({
+                              flex: 1,
+                              paddingVertical: 12,
+                              borderRadius: 8,
+                              backgroundColor: pressed ? '#244430' : lightTokens.colors.moss,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              minHeight: 44,
+                            })}
+                          >
+                            <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
+                              {editingMode === 'add' ? 'Add' : 'Update'}
+                            </Text>
+                          </Pressable>
+                        </View>
                       </ScrollView>
-
-                      {/* Add Reminder Button */}
-                      {reminders.length < 5 && (
-                        <Pressable
-                          onPress={() => {
-                            // Set smart defaults based on baseType and habit mode
-                            const isHabit = baseType === 'habit';
-                            const defaultTime = isHabit
-                              ? isBreakHabit
-                                ? '20:00'
-                                : '09:00'
-                              : '09:00';
-                            const defaultRepeat = isHabit ? 'daily' : 'once';
-
-                            const [hour, minute] = defaultTime.split(':').map(Number);
-                            const timeDate = new Date();
-                            timeDate.setHours(hour, minute, 0, 0);
-
-                            setReminderTimeValue(timeDate);
-                            setReminderRepeat(defaultRepeat);
-                            setReminderDateValue(
-                              baseType === 'todo' ? addDays(new Date(), 1) : new Date(),
-                            );
-                            setReminderCustomDays([]);
-                            setReminderValidationError(null);
-                            setEditingMode('add');
-                            setEditingReminder({
-                              id: `reminder-${Date.now()}`,
-                              time: defaultTime,
-                              repeat: defaultRepeat,
-                            });
-                          }}
-                          style={({ pressed }) => ({
+                    ) : (
+                      /* Reminders List View */
+                      <View>
+                        {/* Header */}
+                        <View
+                          style={{
                             flexDirection: 'row',
                             alignItems: 'center',
-                            justifyContent: 'center',
-                            paddingVertical: 14,
-                            borderRadius: 8,
-                            borderWidth: 1.5,
-                            borderStyle: 'dashed',
-                            borderColor: lightTokens.colors.moss,
-                            backgroundColor: pressed ? '#F0F4F1' : 'transparent',
-                            minHeight: 48,
-                          })}
+                            justifyContent: 'space-between',
+                            marginBottom: 16,
+                          }}
                         >
-                          <Text
-                            style={{
-                              fontSize: 15,
-                              fontWeight: '500',
-                              color: lightTokens.colors.moss,
-                            }}
-                          >
-                            + Add reminder
+                          <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827' }}>
+                            Set Reminders
                           </Text>
-                        </Pressable>
-                      )}
-                    </View>
-                  )}
-                </Pressable>
-              </Pressable>
-            </Modal>
+                          <Pressable
+                            onPress={() => setShowRemindersModal(false)}
+                            style={({ pressed }) => ({
+                              opacity: pressed ? 0.6 : 1,
+                              padding: 4,
+                            })}
+                          >
+                            <CloseIcon size={24} color="#6B7280" />
+                          </Pressable>
+                        </View>
 
-            {/* Frequency Builder Modal */}
-            <Modal
-              visible={showFrequencyModal}
-              transparent
-              animationType="fade"
-              onRequestClose={() => {
-                setShowFrequencyModal(false);
-              }}
-            >
-              <Box
-                flex={1}
-                style={{
-                  backgroundColor: 'rgba(0,0,0,0.4)',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  padding: 16,
+                        {/* Reminders List or Empty State */}
+                        <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
+                          {reminders.length === 0 ? (
+                            <Text
+                              style={{ textAlign: 'center', color: '#6B7280', paddingVertical: 40 }}
+                            >
+                              No reminders set
+                            </Text>
+                          ) : (
+                            reminders.map((reminder) => (
+                              <Pressable
+                                key={reminder.id}
+                                onPress={() => {
+                                  // Open for editing
+                                  setEditingReminder(reminder);
+                                  setEditingMode('edit');
+                                  // Hydrate form state
+                                  const [hour, minute] = reminder.time.split(':').map(Number);
+                                  const timeDate = new Date();
+                                  timeDate.setHours(hour, minute, 0, 0);
+                                  setReminderTimeValue(timeDate);
+                                  setReminderRepeat(reminder.repeat);
+                                  if (reminder.date) {
+                                    setReminderDateValue(parseISO(reminder.date));
+                                  }
+                                  if (reminder.days) {
+                                    setReminderCustomDays(reminder.days);
+                                  }
+                                  setReminderValidationError(null);
+                                }}
+                                style={({ pressed }) => ({
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  paddingVertical: 12,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 8,
+                                  backgroundColor: pressed ? '#F3F4F6' : 'transparent',
+                                  marginBottom: 8,
+                                  minHeight: 48,
+                                })}
+                              >
+                                <View
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    flex: 1,
+                                  }}
+                                >
+                                  <Bell size={20} color={lightTokens.colors.moss} />
+                                  <Text
+                                    style={{ fontSize: 15, fontWeight: '500', color: '#111827' }}
+                                  >
+                                    {formatSingleReminder(reminder)}
+                                  </Text>
+                                </View>
+                                <Pressable
+                                  onPress={(e) => {
+                                    e.stopPropagation();
+                                    // Delete reminder with animation
+                                    LayoutAnimation.configureNext(
+                                      LayoutAnimation.Presets.easeInEaseOut,
+                                    );
+                                    setReminders((prev) =>
+                                      prev.filter((r) => r.id !== reminder.id),
+                                    );
+                                  }}
+                                  style={({ pressed }) => ({
+                                    padding: 4,
+                                    opacity: pressed ? 0.6 : 1,
+                                    minWidth: 24,
+                                    minHeight: 24,
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                  })}
+                                >
+                                  <CloseIcon size={18} color="#6B7280" />
+                                </Pressable>
+                              </Pressable>
+                            ))
+                          )}
+                        </ScrollView>
+
+                        {/* Add Reminder Button */}
+                        {reminders.length < 5 && (
+                          <Pressable
+                            onPress={() => {
+                              // Set smart defaults based on baseType and habit mode
+                              const isHabit = baseType === 'habit';
+                              const defaultTime = isHabit
+                                ? isBreakHabit
+                                  ? '20:00'
+                                  : '09:00'
+                                : '09:00';
+                              const defaultRepeat = isHabit ? 'daily' : 'once';
+
+                              const [hour, minute] = defaultTime.split(':').map(Number);
+                              const timeDate = new Date();
+                              timeDate.setHours(hour, minute, 0, 0);
+
+                              setReminderTimeValue(timeDate);
+                              setReminderRepeat(defaultRepeat);
+                              setReminderDateValue(
+                                baseType === 'todo' ? addDays(new Date(), 1) : new Date(),
+                              );
+                              setReminderCustomDays([]);
+                              setReminderValidationError(null);
+                              setEditingMode('add');
+                              setEditingReminder({
+                                id: `reminder-${Date.now()}`,
+                                time: defaultTime,
+                                repeat: defaultRepeat,
+                              });
+                            }}
+                            style={({ pressed }) => ({
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              paddingVertical: 14,
+                              borderRadius: 8,
+                              borderWidth: 1.5,
+                              borderStyle: 'dashed',
+                              borderColor: lightTokens.colors.moss,
+                              backgroundColor: pressed ? '#F0F4F1' : 'transparent',
+                              minHeight: 48,
+                            })}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 15,
+                                fontWeight: '500',
+                                color: lightTokens.colors.moss,
+                              }}
+                            >
+                              + Add reminder
+                            </Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    )}
+                  </Pressable>
+                </Pressable>
+              </Modal>
+
+              {/* Frequency Builder Modal */}
+              <Modal
+                visible={showFrequencyModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                  setShowFrequencyModal(false);
                 }}
               >
                 <Box
-                  bg="bg"
+                  flex={1}
                   style={{
-                    padding: tokenSpacing.md,
-                    borderRadius: tokenRadius.sm,
-                    width: '100%',
-                    maxWidth: 400,
+                    backgroundColor: 'rgba(0,0,0,0.4)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    padding: 16,
                   }}
                 >
-                  <Text variant="title">Set frequency</Text>
+                  <Box
+                    bg="bg"
+                    style={{
+                      padding: tokenSpacing.md,
+                      borderRadius: tokenRadius.sm,
+                      width: '100%',
+                      maxWidth: 400,
+                    }}
+                  >
+                    <Text variant="title">Set frequency</Text>
 
-                  {/* Tab selector */}
-                  <Box mt={3}>
-                    <Box
-                      row
-                      gap={2}
-                      style={{
-                        borderBottomWidth: 1,
-                        borderBottomColor:
-                          colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
-                      }}
-                    >
-                      {(['simple', 'days', 'custom'] as const).map((tab) => (
-                        <Pressable
-                          key={tab}
-                          onPress={() => setFrequencyTab(tab)}
-                          style={{
-                            paddingVertical: 8,
-                            paddingHorizontal: 16,
-                            borderBottomWidth: 2,
-                            borderBottomColor:
-                              frequencyTab === tab
-                                ? colorMode === 'dark'
-                                  ? lightTokens.colors.moss
-                                  : lightTokens.colors.moss
-                                : 'transparent',
-                          }}
-                        >
-                          <Text
+                    {/* Tab selector */}
+                    <Box mt={3}>
+                      <Box
+                        row
+                        gap={2}
+                        style={{
+                          borderBottomWidth: 1,
+                          borderBottomColor:
+                            colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
+                        }}
+                      >
+                        {(['simple', 'days', 'custom'] as const).map((tab) => (
+                          <Pressable
+                            key={tab}
+                            onPress={() => setFrequencyTab(tab)}
                             style={{
-                              color:
+                              paddingVertical: 8,
+                              paddingHorizontal: 16,
+                              borderBottomWidth: 2,
+                              borderBottomColor:
                                 frequencyTab === tab
                                   ? colorMode === 'dark'
-                                    ? '#FFFFFF'
-                                    : '#222222'
-                                  : colorMode === 'dark'
-                                    ? 'rgba(255,255,255,0.6)'
-                                    : 'rgba(34,34,34,0.6)',
-                              fontWeight: frequencyTab === tab ? '600' : '400',
+                                    ? lightTokens.colors.moss
+                                    : lightTokens.colors.moss
+                                  : 'transparent',
                             }}
                           >
-                            {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </Box>
-                  </Box>
-
-                  {/* Tab content */}
-                  <Box mt={3} style={{ minHeight: 150 }}>
-                    {/* Simple tab */}
-                    {frequencyTab === 'simple' && (
-                      <Box gap={2}>
-                        {(['daily', 'weekly', 'monthly'] as const).map((freq) => (
-                          <Button
-                            key={freq}
-                            variant="ghost"
-                            onPress={() => {
-                              const config: FrequencyConfig = { mode: 'simple', value: freq };
-                              dispatch({
-                                type: 'SET_HABIT_FREQUENCY',
-                                frequency_json: frequencyToJson(config),
-                              });
-                              setShowFrequencyModal(false);
-                            }}
-                            title={freq.charAt(0).toUpperCase() + freq.slice(1)}
-                          />
+                            <Text
+                              style={{
+                                color:
+                                  frequencyTab === tab
+                                    ? colorMode === 'dark'
+                                      ? '#FFFFFF'
+                                      : '#222222'
+                                    : colorMode === 'dark'
+                                      ? 'rgba(255,255,255,0.6)'
+                                      : 'rgba(34,34,34,0.6)',
+                                fontWeight: frequencyTab === tab ? '600' : '400',
+                              }}
+                            >
+                              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                            </Text>
+                          </Pressable>
                         ))}
                       </Box>
-                    )}
+                    </Box>
 
-                    {/* Days tab */}
-                    {frequencyTab === 'days' && (
-                      <Box>
-                        <Text variant="label" style={{ marginBottom: 12 }}>
-                          Select days
-                        </Text>
-                        <Box row gap={1} style={{ flexWrap: 'wrap' }}>
-                          {DAY_LABELS.map(({ day, short, long }) => {
-                            const isSelected = selectedDays.includes(day);
-                            return (
-                              <Pressable
-                                key={day}
-                                onPress={() => {
-                                  setSelectedDays((prev) =>
-                                    prev.includes(day)
-                                      ? prev.filter((d) => d !== day)
-                                      : [...prev, day],
-                                  );
-                                }}
-                                style={{
-                                  width: 44,
-                                  height: 44,
-                                  borderRadius: 22,
-                                  backgroundColor: isSelected
-                                    ? colorMode === 'dark'
-                                      ? lightTokens.colors.moss
-                                      : lightTokens.colors.moss
-                                    : colorMode === 'dark'
-                                      ? 'rgba(255,255,255,0.1)'
-                                      : '#F5F5F5',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  marginBottom: 8,
-                                }}
-                                accessibilityLabel={long}
-                                accessibilityRole="button"
-                                accessibilityState={{ selected: isSelected }}
-                              >
-                                <Text
-                                  style={{
-                                    color: isSelected
-                                      ? '#FFFFFF'
-                                      : colorMode === 'dark'
-                                        ? 'rgba(255,255,255,0.7)'
-                                        : '#666666',
-                                    fontWeight: isSelected ? '600' : '400',
-                                    fontSize: 16,
-                                  }}
-                                >
-                                  {short}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </Box>
-                      </Box>
-                    )}
-
-                    {/* Custom tab */}
-                    {frequencyTab === 'custom' && (
-                      <Box>
-                        <Text variant="label" style={{ marginBottom: 12 }}>
-                          How often?
-                        </Text>
-                        <Box row gap={2} style={{ alignItems: 'center' }}>
-                          <TextInput
-                            value={customCount}
-                            onChangeText={(text) => {
-                              const num = text.replace(/[^0-9]/g, '');
-                              setCustomCount(num || '1');
-                            }}
-                            keyboardType="number-pad"
-                            placeholder="1"
-                            style={{
-                              backgroundColor:
-                                colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                              borderWidth: 1,
-                              borderColor:
-                                colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
-                              borderRadius: 8,
-                              paddingHorizontal: 12,
-                              paddingVertical: 10,
-                              width: 80,
-                              color: colorMode === 'dark' ? '#FFFFFF' : '#222222',
-                              fontSize: 16,
-                            }}
-                          />
-                          <Text
-                            style={{
-                              color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666',
-                            }}
-                          >
-                            times per
-                          </Text>
-                          <View style={{ flex: 1 }}>
-                            <Pressable
+                    {/* Tab content */}
+                    <Box mt={3} style={{ minHeight: 150 }}>
+                      {/* Simple tab */}
+                      {frequencyTab === 'simple' && (
+                        <Box gap={2}>
+                          {(['daily', 'weekly', 'monthly'] as const).map((freq) => (
+                            <Button
+                              key={freq}
+                              variant="ghost"
                               onPress={() => {
-                                const units: ('day' | 'week' | 'month')[] = [
-                                  'day',
-                                  'week',
-                                  'month',
-                                ];
-                                const currentIndex = units.indexOf(customUnit);
-                                const nextIndex = (currentIndex + 1) % units.length;
-                                setCustomUnit(units[nextIndex]);
+                                const config: FrequencyConfig = { mode: 'simple', value: freq };
+                                dispatch({
+                                  type: 'SET_HABIT_FREQUENCY',
+                                  frequency_json: frequencyToJson(config),
+                                });
+                                setShowFrequencyModal(false);
                               }}
+                              title={freq.charAt(0).toUpperCase() + freq.slice(1)}
+                            />
+                          ))}
+                        </Box>
+                      )}
+
+                      {/* Days tab */}
+                      {frequencyTab === 'days' && (
+                        <Box>
+                          <Text variant="label" style={{ marginBottom: 12 }}>
+                            Select days
+                          </Text>
+                          <Box row gap={1} style={{ flexWrap: 'wrap' }}>
+                            {DAY_LABELS.map(({ day, short, long }) => {
+                              const isSelected = selectedDays.includes(day);
+                              return (
+                                <Pressable
+                                  key={day}
+                                  onPress={() => {
+                                    setSelectedDays((prev) =>
+                                      prev.includes(day)
+                                        ? prev.filter((d) => d !== day)
+                                        : [...prev, day],
+                                    );
+                                  }}
+                                  style={{
+                                    width: 44,
+                                    height: 44,
+                                    borderRadius: 22,
+                                    backgroundColor: isSelected
+                                      ? colorMode === 'dark'
+                                        ? lightTokens.colors.moss
+                                        : lightTokens.colors.moss
+                                      : colorMode === 'dark'
+                                        ? 'rgba(255,255,255,0.1)'
+                                        : '#F5F5F5',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    marginBottom: 8,
+                                  }}
+                                  accessibilityLabel={long}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected: isSelected }}
+                                >
+                                  <Text
+                                    style={{
+                                      color: isSelected
+                                        ? '#FFFFFF'
+                                        : colorMode === 'dark'
+                                          ? 'rgba(255,255,255,0.7)'
+                                          : '#666666',
+                                      fontWeight: isSelected ? '600' : '400',
+                                      fontSize: 16,
+                                    }}
+                                  >
+                                    {short}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </Box>
+                        </Box>
+                      )}
+
+                      {/* Custom tab */}
+                      {frequencyTab === 'custom' && (
+                        <Box>
+                          <Text variant="label" style={{ marginBottom: 12 }}>
+                            How often?
+                          </Text>
+                          <Box row gap={2} style={{ alignItems: 'center' }}>
+                            <TextInput
+                              value={customCount}
+                              onChangeText={(text) => {
+                                const num = text.replace(/[^0-9]/g, '');
+                                setCustomCount(num || '1');
+                              }}
+                              keyboardType="number-pad"
+                              placeholder="1"
                               style={{
                                 backgroundColor:
                                   colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
@@ -6735,227 +7226,225 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 borderRadius: 8,
                                 paddingHorizontal: 12,
                                 paddingVertical: 10,
+                                width: 80,
+                                color: colorMode === 'dark' ? '#FFFFFF' : '#222222',
+                                fontSize: 16,
+                              }}
+                            />
+                            <Text
+                              style={{
+                                color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666',
                               }}
                             >
-                              <Text
+                              times per
+                            </Text>
+                            <View style={{ flex: 1 }}>
+                              <Pressable
+                                onPress={() => {
+                                  const units: ('day' | 'week' | 'month')[] = [
+                                    'day',
+                                    'week',
+                                    'month',
+                                  ];
+                                  const currentIndex = units.indexOf(customUnit);
+                                  const nextIndex = (currentIndex + 1) % units.length;
+                                  setCustomUnit(units[nextIndex]);
+                                }}
                                 style={{
-                                  color: colorMode === 'dark' ? '#FFFFFF' : '#222222',
-                                  fontSize: 16,
+                                  backgroundColor:
+                                    colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
+                                  borderWidth: 1,
+                                  borderColor:
+                                    colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
+                                  borderRadius: 8,
+                                  paddingHorizontal: 12,
+                                  paddingVertical: 10,
                                 }}
                               >
-                                {customUnit}
-                              </Text>
-                            </Pressable>
-                          </View>
+                                <Text
+                                  style={{
+                                    color: colorMode === 'dark' ? '#FFFFFF' : '#222222',
+                                    fontSize: 16,
+                                  }}
+                                >
+                                  {customUnit}
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </Box>
                         </Box>
-                      </Box>
-                    )}
-                  </Box>
+                      )}
+                    </Box>
 
-                  {/* Action buttons */}
-                  <Box row mt={4}>
+                    {/* Action buttons */}
+                    <Box row mt={4}>
+                      <Button
+                        variant="ghost"
+                        onPress={() => {
+                          setShowFrequencyModal(false);
+                        }}
+                        title="Cancel"
+                      />
+                      <Box flex={1} />
+                      <Button
+                        variant="primary"
+                        onPress={() => {
+                          let config: FrequencyConfig;
+
+                          if (frequencyTab === 'simple') {
+                            config = { mode: 'simple', value: 'daily' }; // Default, but this won't be called in simple mode
+                          } else if (frequencyTab === 'days') {
+                            if (selectedDays.length === 0) {
+                              // Require at least one day
+                              return;
+                            }
+                            config = { mode: 'days', days: selectedDays as DayOfWeek[] };
+                          } else {
+                            const count = parseInt(customCount) || 1;
+                            config = { mode: 'custom', value: { count, unit: customUnit } };
+                          }
+
+                          dispatch({
+                            type: 'SET_HABIT_FREQUENCY',
+                            frequency_json: frequencyToJson(config),
+                          });
+                          setShowFrequencyModal(false);
+                        }}
+                        title="Set"
+                        disabled={frequencyTab === 'days' && selectedDays.length === 0}
+                      />
+                    </Box>
+                  </Box>
+                </Box>
+              </Modal>
+
+              {/* Save bar (fixed within the sheet) */}
+              {/* Inline save error / retry bar (Phase 9) */}
+              {saveError ? (
+                <Box
+                  px={4}
+                  py={2}
+                  style={{ backgroundColor: '#fce8e6', borderTopWidth: StyleSheet.hairlineWidth }}
+                >
+                  <Box row style={{ alignItems: 'center' }}>
+                    <Text style={{ color: '#7a2719', flex: 1 }}>{saveError}</Text>
                     <Button
                       variant="ghost"
+                      size="sm"
                       onPress={() => {
-                        setShowFrequencyModal(false);
+                        // Retry invokes save again
+                        setSaveError(null);
+                        // call onSave again
+                        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+                        onSave();
                       }}
-                      title="Cancel"
+                      title="Retry"
                     />
-                    <Box flex={1} />
                     <Button
-                      variant="primary"
-                      onPress={() => {
-                        let config: FrequencyConfig;
-
-                        if (frequencyTab === 'simple') {
-                          config = { mode: 'simple', value: 'daily' }; // Default, but this won't be called in simple mode
-                        } else if (frequencyTab === 'days') {
-                          if (selectedDays.length === 0) {
-                            // Require at least one day
-                            return;
-                          }
-                          config = { mode: 'days', days: selectedDays as DayOfWeek[] };
-                        } else {
-                          const count = parseInt(customCount) || 1;
-                          config = { mode: 'custom', value: { count, unit: customUnit } };
-                        }
-
-                        dispatch({
-                          type: 'SET_HABIT_FREQUENCY',
-                          frequency_json: frequencyToJson(config),
-                        });
-                        setShowFrequencyModal(false);
-                      }}
-                      title="Set"
-                      disabled={frequencyTab === 'days' && selectedDays.length === 0}
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => setSaveError(null)}
+                      title="Dismiss"
                     />
                   </Box>
                 </Box>
-              </Box>
-            </Modal>
-
-            {/* Save bar (fixed within the sheet) */}
-            {/* Inline save error / retry bar (Phase 9) */}
-            {saveError ? (
-              <Box
-                px={4}
-                py={2}
-                style={{ backgroundColor: '#fce8e6', borderTopWidth: StyleSheet.hairlineWidth }}
-              >
-                <Box row style={{ alignItems: 'center' }}>
-                  <Text style={{ color: '#7a2719', flex: 1 }}>{saveError}</Text>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onPress={() => {
-                      // Retry invokes save again
-                      setSaveError(null);
-                      // call onSave again
-                      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-                      onSave();
-                    }}
-                    title="Retry"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onPress={() => setSaveError(null)}
-                    title="Dismiss"
-                  />
+              ) : isOffline ? (
+                <Box px={4} py={1}>
+                  <Text variant="subtle">You're offline — Save will keep the draft.</Text>
                 </Box>
-              </Box>
-            ) : isOffline ? (
-              <Box px={4} py={1}>
-                <Text variant="subtle">You're offline — Save will keep the draft.</Text>
-              </Box>
-            ) : null}
+              ) : null}
 
-            {/* Phase 6d: Footer with better spacing and clear primary action */}
-            <View
-              style={{
-                backgroundColor: footerBackground,
-                borderTopWidth: 1,
-                borderTopColor: 'rgba(191, 216, 192, 0.4)',
-              }}
-            >
-              <Box
+              {/* Phase 6d: Footer with better spacing and clear primary action */}
+              <View
                 style={{
-                  paddingHorizontal: 20,
-                  paddingTop: 20,
-                  paddingBottom: 20,
                   backgroundColor: footerBackground,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  borderTopWidth: 1,
+                  borderTopColor: 'rgba(191, 216, 192, 0.4)',
                 }}
               >
-                {/* Cancel button - text-only, subtle (hidden in view mode) */}
-                {!isViewMode && (
-                  <Pressable
-                    onPress={handleCancel}
-                    disabled={isSaving}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancel"
-                    style={{
-                      paddingVertical: 12,
-                      minHeight: 44,
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: isSaving
-                          ? colorMode === 'dark'
-                            ? 'rgba(255,255,255,0.3)'
-                            : 'rgba(34,34,34,0.3)'
-                          : 'rgba(34,34,34,0.7)',
-                        fontSize: 14,
-                        fontWeight: '500',
-                      }}
-                    >
-                      Cancel
-                    </Text>
-                  </Pressable>
-                )}
-
-                {/* Close button - view mode only (matches Cancel button styling) */}
-                {isViewMode && (
-                  <Pressable
-                    onPress={() => onClose?.()}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close"
-                    style={{
-                      paddingVertical: 12,
-                      minHeight: 44,
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: 'rgba(34,34,34,0.7)',
-                        fontSize: 14,
-                        fontWeight: '500',
-                      }}
-                    >
-                      Close
-                    </Text>
-                  </Pressable>
-                )}
-
-                {/* View mode: Edit button to switch to edit mode */}
-                {isViewMode && (
-                  <Pressable
-                    onPress={() => {
-                      // Switch to edit mode for this record
-                      if (initialEntity && (initialEntity as any).id) {
-                        globalOverlay.openEdit({
-                          record: initialEntity as any,
-                          spaceId: initialSpaceId,
-                        });
-                      }
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Edit"
-                    style={{
-                      backgroundColor:
-                        colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss,
-                      width: 120,
-                      height: 44,
-                      borderRadius: 999,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: '#FFFFFF',
-                        fontSize: 15,
-                        fontWeight: '600',
-                      }}
-                    >
-                      Edit
-                    </Text>
-                  </Pressable>
-                )}
-
-                {/* Save button - primary action (hidden in view mode) */}
-                {!isViewMode && (
-                  <Reanimated.View style={saveStyle}>
+                <Box
+                  style={{
+                    paddingHorizontal: 20,
+                    paddingTop: 20,
+                    paddingBottom: 20,
+                    backgroundColor: footerBackground,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  {/* Cancel button - text-only, subtle (hidden in view mode) */}
+                  {!isViewMode && (
                     <Pressable
-                      onPress={onSave}
-                      disabled={!canSave}
+                      onPress={handleCancel}
+                      disabled={isSaving}
+                      hitSlop={8}
                       accessibilityRole="button"
-                      accessibilityLabel={isSaving ? 'Saving' : 'Save'}
+                      accessibilityLabel="Cancel"
                       style={{
-                        backgroundColor: !canSave
-                          ? colorMode === 'dark'
-                            ? 'rgba(94, 160, 138, 0.3)'
-                            : 'rgba(46, 125, 106, 0.3)'
-                          : colorMode === 'dark'
-                            ? darkTokens.colors.moss
-                            : lightTokens.colors.moss,
+                        paddingVertical: 12,
+                        minHeight: 44,
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: isSaving
+                            ? colorMode === 'dark'
+                              ? 'rgba(255,255,255,0.3)'
+                              : 'rgba(34,34,34,0.3)'
+                            : 'rgba(34,34,34,0.7)',
+                          fontSize: 14,
+                          fontWeight: '500',
+                        }}
+                      >
+                        Cancel
+                      </Text>
+                    </Pressable>
+                  )}
+
+                  {/* Close button - view mode only (matches Cancel button styling) */}
+                  {isViewMode && (
+                    <Pressable
+                      onPress={() => onClose?.()}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close"
+                      style={{
+                        paddingVertical: 12,
+                        minHeight: 44,
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: 'rgba(34,34,34,0.7)',
+                          fontSize: 14,
+                          fontWeight: '500',
+                        }}
+                      >
+                        Close
+                      </Text>
+                    </Pressable>
+                  )}
+
+                  {/* View mode: Edit button to switch to edit mode */}
+                  {isViewMode && (
+                    <Pressable
+                      onPress={() => {
+                        // Switch to edit mode for this record
+                        if (initialEntity && (initialEntity as any).id) {
+                          globalOverlay.openEdit({
+                            record: initialEntity as any,
+                            spaceId: initialSpaceId,
+                          });
+                        }
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit"
+                      style={{
+                        backgroundColor:
+                          colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss,
                         width: 120,
                         height: 44,
                         borderRadius: 999,
@@ -6965,44 +7454,90 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     >
                       <Text
                         style={{
-                          color: !canSave
-                            ? colorMode === 'dark'
-                              ? 'rgba(255,255,255,0.4)'
-                              : 'rgba(255,255,255,0.6)'
-                            : '#FFFFFF',
+                          color: '#FFFFFF',
                           fontSize: 15,
                           fontWeight: '600',
                         }}
                       >
-                        {isSaving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
+                        Edit
                       </Text>
                     </Pressable>
-                  </Reanimated.View>
-                )}
-              </Box>
-            </View>
-          </View>
-        </RNAnimated.View>
-      </View>
+                  )}
 
-      {/* Fullscreen image modal (Phase L5 - multi-photo support) */}
-      <Modal visible={selectedPhotoIndex !== null} transparent animationType="fade">
-        <Pressable
-          style={styles.imageModalContainer}
-          onPress={() => setSelectedPhotoIndex(null)}
-          accessibilityLabel="Close fullscreen image"
-          accessibilityRole="button"
-        >
-          {selectedPhotoIndex !== null && logPhotos[selectedPhotoIndex] ? (
-            <Image
-              source={{ uri: logPhotos[selectedPhotoIndex].url }}
-              style={styles.imageModalImage}
-              resizeMode="contain"
-            />
-          ) : null}
-        </Pressable>
-      </Modal>
-    </KeyboardAvoidingView>
+                  {/* Save button - primary action (hidden in view mode) */}
+                  {!isViewMode && (
+                    <Reanimated.View style={saveStyle}>
+                      <Pressable
+                        onPress={onSave}
+                        disabled={!canSave}
+                        accessibilityRole="button"
+                        accessibilityLabel={isSaving ? 'Saving' : 'Save'}
+                        style={{
+                          backgroundColor: !canSave
+                            ? colorMode === 'dark'
+                              ? 'rgba(94, 160, 138, 0.3)'
+                              : 'rgba(46, 125, 106, 0.3)'
+                            : colorMode === 'dark'
+                              ? darkTokens.colors.moss
+                              : lightTokens.colors.moss,
+                          width: 120,
+                          height: 44,
+                          borderRadius: 999,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: !canSave
+                              ? colorMode === 'dark'
+                                ? 'rgba(255,255,255,0.4)'
+                                : 'rgba(255,255,255,0.6)'
+                              : '#FFFFFF',
+                            fontSize: 15,
+                            fontWeight: '600',
+                          }}
+                        >
+                          {isSaving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
+                        </Text>
+                      </Pressable>
+                    </Reanimated.View>
+                  )}
+                </Box>
+              </View>
+            </View>
+          </RNAnimated.View>
+        </View>
+
+        {/* Fullscreen image modal (Phase L5 - multi-photo support) */}
+        <Modal visible={selectedPhotoIndex !== null} transparent animationType="fade">
+          <Pressable
+            style={styles.imageModalContainer}
+            onPress={() => setSelectedPhotoIndex(null)}
+            accessibilityLabel="Close fullscreen image"
+            accessibilityRole="button"
+          >
+            {selectedPhotoIndex !== null && logPhotos[selectedPhotoIndex] ? (
+              <Image
+                source={{ uri: logPhotos[selectedPhotoIndex].url }}
+                style={styles.imageModalImage}
+                resizeMode="contain"
+              />
+            ) : null}
+          </Pressable>
+        </Modal>
+      </KeyboardAvoidingView>
+
+      {/* TodoPreviewModal - for exploding notes to todos */}
+      <TodoPreviewModal
+        visible={showTodoPreview}
+        items={extractedItems}
+        spaceName={currentSpaceName}
+        spaceId={fullEntity?.space_id || initialSpaceId || ''}
+        onConfirm={handleExplodeToTodos}
+        onCancel={() => setShowTodoPreview(false)}
+      />
+    </>
   );
 }
 

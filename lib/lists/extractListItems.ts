@@ -3,7 +3,7 @@
  * Extracts bullet points, numbered lists, and checkboxes from markdown text
  */
 
-import { nanoid } from 'nanoid';
+import { nanoid } from 'nanoid/non-secure';
 import type { ListItem, ExtractedListItem } from './types';
 
 /**

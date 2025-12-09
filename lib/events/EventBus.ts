@@ -42,6 +42,7 @@ export type EventMap = {
   'cortex:failed': { itemId: string; error: string };
   // Entity lifecycle events (Space Chat)
   'entity:created': { entity: any; type: string; spaceId?: string | null };
+  'entity:updated': { entity: any; type: string; spaceId?: string | null };
   'entity:deleted': { id: string; type?: string; spaceId?: string | null };
 };
 
