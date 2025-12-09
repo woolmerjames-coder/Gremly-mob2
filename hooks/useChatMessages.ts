@@ -77,6 +77,12 @@ export function useChatMessages(
   // Track the current chat ID (may be created during session)
   const [currentChatId, setCurrentChatId] = useState<string | null>(chatId || null);
 
+  // CRITICAL: Use a ref to track currentChatId synchronously
+  // React state updates are batched/async, so if sendUserMessage is called twice
+  // before React re-renders, currentChatId state will still be null on second call.
+  // The ref provides immediate synchronous access to the latest chat ID.
+  const currentChatIdRef = useRef<string | null>(chatId || null);
+
   // Track if we've already set the chat title from first message
   const titleSetRef = useRef(false);
 
@@ -90,6 +96,7 @@ export function useChatMessages(
   useEffect(() => {
     if (chatId) {
       setCurrentChatId(chatId);
+      currentChatIdRef.current = chatId;
     }
   }, [chatId]);
 
@@ -123,7 +130,9 @@ export function useChatMessages(
       try {
         setError(null);
 
-        let activeChatId = currentChatId;
+        // CRITICAL: Use ref for synchronous access to current chat ID
+        // State may not have updated yet if this is called rapidly
+        let activeChatId = currentChatIdRef.current;
 
         // If no chatId exists, create the chat now
         if (!activeChatId) {
@@ -132,6 +141,8 @@ export function useChatMessages(
             title: generatedTitle,
           });
           activeChatId = newChat.id;
+          // Update BOTH state and ref - ref provides immediate sync access
+          currentChatIdRef.current = activeChatId;
           setCurrentChatId(activeChatId);
           titleSetRef.current = true; // Title already set during creation
           console.log('[useChatMessages] Created new chat on first message:', activeChatId);
@@ -183,7 +194,8 @@ export function useChatMessages(
       metadata?: Record<string, unknown>,
       overrideChatId?: string,
     ): Promise<SpaceChatMessage | undefined> => {
-      const targetChatId = overrideChatId || currentChatId;
+      // Priority: overrideChatId > ref (sync) > state (may be stale)
+      const targetChatId = overrideChatId || currentChatIdRef.current || currentChatId;
       if (!text.trim() || !targetChatId || !spaceId || !user?.id) {
         if (!targetChatId) {
           console.error('[useChatMessages] Cannot append assistant message - no chat ID');

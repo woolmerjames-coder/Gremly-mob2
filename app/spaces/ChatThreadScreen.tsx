@@ -259,6 +259,12 @@ export default function ChatThreadScreen({ route }: Props) {
       const trimmedText = text.trim();
       if (!trimmedText || !chat) return;
 
+      // Guard against rapid double-taps while sending
+      if (sending) {
+        console.log('[Chat] Ignoring send - already sending');
+        return;
+      }
+
       hideActionToast();
 
       // P0 Fix: Strict spaceId validation with dev error
@@ -882,12 +888,21 @@ export default function ChatThreadScreen({ route }: Props) {
                         }
                         subtitle={metadata.subtitle}
                         onPress={() => {
-                          // Open unified overlay with full entity data
                           if (savedEntity.id) {
-                            overlayController.openEdit({
-                              record: { ...savedEntity, type: entityType } as any,
-                              spaceId: spaceId ?? undefined,
-                            });
+                            // Notes/logs open in view mode (pretty, formatted)
+                            // Todos/Habits open in edit mode (actionable)
+                            if (entityType === 'note') {
+                              overlayController.openView({
+                                record: { ...savedEntity, type: entityType } as any,
+                                spaceId: spaceId ?? undefined,
+                                fromChat: true, // Triggers preview mode
+                              });
+                            } else {
+                              overlayController.openEdit({
+                                record: { ...savedEntity, type: entityType } as any,
+                                spaceId: spaceId ?? undefined,
+                              });
+                            }
                           }
                         }}
                       />

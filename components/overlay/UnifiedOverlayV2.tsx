@@ -1393,19 +1393,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     setIsExpandedEditor(false);
   }, [baseType]);
 
-  // Initialize preview mode when opening a log from chat with content
+  // Initialize preview mode when opening a log from chat with content OR viewing a note
   useEffect(() => {
-    const shouldStartInPreview =
+    const isCreatingLogFromChat =
       visible &&
       mode === 'create' &&
       baseType === 'log' &&
       conversionMeta?.fromChat === true &&
       (conversionMeta?.initialNote?.length ?? 0) > 0;
 
-    if (shouldStartInPreview) {
+    const isViewingNote = visible && mode === 'view' && baseType === 'log' && initialEntity?.id; // It's an existing note in view mode
+
+    if (isCreatingLogFromChat || isViewingNote) {
       setIsPreviewMode(true);
     }
-  }, [visible, mode, baseType, conversionMeta]);
+  }, [visible, mode, baseType, conversionMeta, initialEntity]);
 
   // safe area insets (guard when the test harness doesn't provide the hook)
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };

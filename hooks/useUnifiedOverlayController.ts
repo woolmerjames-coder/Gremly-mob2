@@ -54,6 +54,7 @@ interface EditOptions {
 interface ViewOptions {
   record: AppRecord;
   spaceId?: string | null;
+  fromChat?: boolean; // Opens notes in preview mode when true
 }
 
 type QueuedOpenRequest =
@@ -66,6 +67,7 @@ export function useUnifiedOverlayController() {
     state: globalState,
     openCreate: contextOpenCreate,
     openEdit: contextOpenEdit,
+    openView: contextOpenView,
     close: contextClose,
   } = useGlobalOverlay();
 
@@ -129,6 +131,22 @@ export function useUnifiedOverlayController() {
           suppressOverlayOpen: opts.suppressOverlayOpen,
           defaultDueToday: opts.defaultDueToday,
         });
+      } else if (request.mode === 'view') {
+        const { record, spaceId, fromChat } = request.options;
+        const { entityType, logSubtype } = resolveEntityFromRecord(record);
+        console.log('[OverlayController] openView called with state:', {
+          visible: true,
+          mode: request.mode,
+          initialEntity: {
+            type: entityType,
+            id: record.id,
+            logSubtype,
+          },
+          initialSpaceId: spaceId,
+          fromChat,
+        });
+
+        contextOpenView({ record, spaceId, fromChat });
       } else {
         const { record, spaceId } = request.options;
         const { entityType, logSubtype } = resolveEntityFromRecord(record);
@@ -155,7 +173,7 @@ export function useUnifiedOverlayController() {
         }
       });
     },
-    [contextOpenCreate, contextOpenEdit, resolveEntityFromRecord],
+    [contextOpenCreate, contextOpenEdit, contextOpenView, resolveEntityFromRecord],
   );
 
   const enqueueOpen = useCallback(

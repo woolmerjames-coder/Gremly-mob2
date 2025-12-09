@@ -67,6 +67,7 @@ interface OpenEditParams {
 interface OpenViewParams {
   record: AppRecord;
   spaceId?: string | null;
+  fromChat?: boolean; // Opens notes in preview mode when true
 }
 
 export interface OverlayController {
