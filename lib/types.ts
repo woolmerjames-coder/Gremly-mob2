@@ -168,6 +168,11 @@ export interface Note {
   reminders?: any[] | null; // ReminderRow[] JSON for journal reminders
   journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only journal classification
   tags_meta?: TagsMeta | null;
+
+  // Make Actionable feature fields
+  is_favorite?: boolean;
+  has_list?: boolean;
+  list_items?: Array<{ id: string; text: string; checked: boolean }> | null;
 }
 
 /**
