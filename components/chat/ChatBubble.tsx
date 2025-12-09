@@ -9,6 +9,7 @@ import Animated, { FadeIn, SlideInRight, Layout } from 'react-native-reanimated'
 import { Text } from '../../ui/Text';
 import { SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
+import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
 
 interface ChatBubbleProps {
   message: SpaceChatMessage;
@@ -54,9 +55,11 @@ export function ChatBubble({ message, testID }: ChatBubbleProps) {
       <View
         style={[styles.bubble, isUser && styles.userBubble, isAssistant && styles.assistantBubble]}
       >
-        <Text style={[styles.text, isUser && styles.userText, isAssistant && styles.assistantText]}>
-          {message.content}
-        </Text>
+        {isAssistant ? (
+          <View style={{ paddingVertical: 2 }}>{renderFormattedContent(message.content)}</View>
+        ) : (
+          <Text style={[styles.text, isUser && styles.userText]}>{message.content}</Text>
+        )}
       </View>
     </ViewComponent>
   );

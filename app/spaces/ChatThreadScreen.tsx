@@ -727,16 +727,7 @@ export default function ChatThreadScreen({ route }: Props) {
           >
             {messages.length === 0 ? (
               <View style={styles.placeholder}>
-                {/* Gremly peeking from right edge */}
-                <View style={styles.gremlyContainer}>
-                  <Image
-                    source={require('../../assets/mascot/Gremlychat.png')}
-                    style={styles.peekingGremly}
-                    resizeMode="contain"
-                  />
-                </View>
-
-                {/* Text positioned on the left side */}
+                {/* Centered text */}
                 <View style={styles.emptyTextContainer}>
                   <Text style={styles.placeholderTitle}>Start typing what's on your mind.</Text>
                   <Text style={styles.placeholderText}>
@@ -1255,26 +1246,13 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     flex: 1,
-    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingBottom: 100, // Account for input field
-  },
-  gremlyContainer: {
-    position: 'absolute',
-    right: -30, // Negative margin to peek from edge
-    top: '20%',
-    width: 220,
-    height: 220,
-    zIndex: 1,
-  },
-  peekingGremly: {
-    width: '100%',
-    height: '100%',
+    paddingHorizontal: 32,
   },
   emptyTextContainer: {
-    position: 'absolute',
-    left: 32,
-    top: '30%',
-    maxWidth: '60%', // Don't overlap with mascot
+    alignItems: 'center',
   },
   placeholderTitle: {
     fontSize: 18,
@@ -1282,11 +1260,13 @@ const styles = StyleSheet.create({
     color: '#2E5540', // Moss Green
     marginBottom: 12,
     lineHeight: 24,
+    textAlign: 'center',
   },
   placeholderText: {
     fontSize: 15,
     color: '#4A5F4A', // Darker green for better contrast on sage background
     lineHeight: 21,
+    textAlign: 'center',
   },
   messageContainer: {
     marginBottom: lightTokens.spacing[3],

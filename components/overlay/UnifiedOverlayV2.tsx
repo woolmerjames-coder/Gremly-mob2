@@ -48,6 +48,7 @@ import {
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
+import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
 import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
@@ -3857,16 +3858,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               marginBottom: 20,
             }}
           >
-            <Text
-              style={{
-                fontSize: 16,
-                lineHeight: 24,
-                color: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
-                fontFamily: Platform.OS === 'ios' ? 'Inter' : undefined,
-              }}
-            >
-              {entityBody}
-            </Text>
+            {renderFormattedContent(entityBody, {
+              textColor: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
+              fontSize: 16,
+              lineHeight: 24,
+            })}
           </View>
         ) : null}
 
