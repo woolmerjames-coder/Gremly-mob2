@@ -247,6 +247,7 @@ export const todoInsertSchema = z.object({
   origin: z.literal('catchall').optional(),
   canonicalType: z.enum(['habit', 'todo', 'log', 'unsorted', 'note', 'journal']).optional(),
   source_message_id: z.string().min(1).optional(),
+  source_note_id: z.string().uuid().nullable().optional(), // Make Actionable: reference to source note
   drop_id: z.string().uuid().nullable().optional(),
   labels: z.array(z.string()).optional(),
   views: z
@@ -282,6 +283,19 @@ export const noteInsertSchema = z.object({
   reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: tagsZ,
   journal_subtype: z.enum(['reflection', 'gratitude', 'dream', 'review']).nullable().optional(), // AI-only
+  // Make Actionable feature fields
+  is_favorite: z.boolean().optional(),
+  has_list: z.boolean().optional(),
+  list_items: z
+    .array(
+      z.object({
+        id: z.string(),
+        text: z.string(),
+        checked: z.boolean(),
+      }),
+    )
+    .nullable()
+    .optional(),
 });
 
 // ==========================

@@ -114,6 +114,8 @@ export interface Todo {
     [key: string]: any;
   }; // JSONB field for UI state flags
   source_message_id?: string | null;
+  // Make Actionable: reference to note this todo was created from
+  source_note_id?: string | null;
   drop_id?: string | null;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601

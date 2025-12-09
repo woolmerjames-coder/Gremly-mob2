@@ -320,6 +320,8 @@ function mapTodoFromDb(dbRecord: any): any {
     origin: dbRecord.origin ?? null,
     has_list: dbRecord.has_list ?? false,
     list_items: dbRecord.list_items ?? null,
+    // Make Actionable: reference to source note
+    source_note_id: dbRecord.source_note_id ?? null,
   };
 
   if (__DEV__) {
@@ -332,6 +334,7 @@ function mapTodoFromDb(dbRecord: any): any {
       due_day: mapped.due_day,
       due_time: mapped.due_time,
       reminders: mapped.reminders?.length ?? 0,
+      source_note_id: mapped.source_note_id,
     });
   }
 
@@ -367,6 +370,8 @@ function mapNoteFromDb(dbRecord: any): any {
     labels: dbRecord.labels ?? null,
     space_id: dbRecord.space_id ?? null,
     origin: dbRecord.origin ?? null,
+    // Make Actionable feature fields
+    is_favorite: dbRecord.is_favorite ?? false,
     has_list: dbRecord.has_list ?? false,
     list_items: dbRecord.list_items ?? null,
   };
@@ -381,6 +386,9 @@ function mapNoteFromDb(dbRecord: any): any {
       private: mapped.private,
       journal_subtype: mapped.journal_subtype,
       reminders: mapped.reminders?.length ?? 0,
+      is_favorite: mapped.is_favorite,
+      has_list: mapped.has_list,
+      list_items_count: mapped.list_items?.length ?? 0,
     });
   }
 
@@ -579,6 +587,7 @@ export class SupabaseRepo implements IRepo {
           origin: input.origin ?? undefined,
           canonical_type: input.canonicalType ?? undefined,
           source_message_id: input.sourceMessageId ?? undefined,
+          source_note_id: (input as any).source_note_id ?? null, // Make Actionable: reference to source note
           drop_id: input.dropId ?? undefined,
           labels: input.labels ?? undefined,
           views: input.views ?? {},
@@ -1068,6 +1077,17 @@ export class SupabaseRepo implements IRepo {
       // Map photo_uri directly
       if ('photo_uri' in normalizedPatch)
         updatePayload.photo_uri = (normalizedPatch as any).photo_uri ?? null;
+
+      // Make Actionable feature fields
+      if ('is_favorite' in normalizedPatch) {
+        updatePayload.is_favorite = !!(normalizedPatch as any).is_favorite;
+      }
+      if ('has_list' in normalizedPatch) {
+        updatePayload.has_list = !!(normalizedPatch as any).has_list;
+      }
+      if ('list_items' in normalizedPatch) {
+        updatePayload.list_items = (normalizedPatch as any).list_items ?? null;
+      }
 
       // Development logging for note updates
       if (__DEV__) {
