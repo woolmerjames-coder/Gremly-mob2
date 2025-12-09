@@ -64,8 +64,8 @@ import { SaveThisIntent } from '../lib/chat/metaIntents';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface UseSpaceChatEnhancedProps {
-  /** ID of the chat */
-  chatId: string;
+  /** ID of the chat (optional for new chats) */
+  chatId?: string;
   /** ID of the space */
   spaceId: string;
   /** Optional name of the space for context */

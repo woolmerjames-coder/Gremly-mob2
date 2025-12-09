@@ -17,6 +17,7 @@ import {
 import type { SpaceChat } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { formatDistanceToNow } from 'date-fns';
+import { stripMarkdown } from '../../lib/markdown/stripMarkdown';
 
 interface ChatCardProps {
   chat: SpaceChat;
@@ -165,7 +166,7 @@ export function ChatCard({
         <View style={styles.titleRow}>
           {chat.pinned && <Text style={styles.pinIcon}>📌</Text>}
           <Text style={styles.title} numberOfLines={1}>
-            {chat.title}
+            {stripMarkdown(chat.title || 'Chat')}
           </Text>
         </View>
         <View style={styles.headerRight}>
@@ -184,8 +185,10 @@ export function ChatCard({
 
       {(aiSummary || chat.last_message_snippet) && (
         <Text style={[styles.snippet, styles.aiSummary]} numberOfLines={1}>
-          {(aiSummary || chat.last_message_snippet || '').replace(/\s+/g, ' ').slice(0, 80)}
-          {(aiSummary || chat.last_message_snippet || '').length > 80 ? '…' : ''}
+          {stripMarkdown(aiSummary || chat.last_message_snippet || '')
+            .replace(/\s+/g, ' ')
+            .slice(0, 80)}
+          {stripMarkdown(aiSummary || chat.last_message_snippet || '').length > 80 ? '…' : ''}
         </Text>
       )}
     </TouchableOpacity>

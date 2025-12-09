@@ -20,7 +20,7 @@ export type RootStackParamList = {
   CatchAllNotepad: undefined;
   PersonDetail: { personName: string; personEmail?: string }; // Phase 8
   SpaceHome: { spaceId: string }; // Phase 8 Spaces v2
-  ChatThread: { spaceId: string; chatId: string }; // Phase 10.5 - Updated to include spaceId
+  ChatThread: { spaceId: string; chatId?: string }; // Phase 10.5 - chatId optional for new chats
   Lists: undefined; // Phase 10.7 Lists UX
   Sweep: undefined; // Phase Sweep - Evening Sweep ritual
   // NewSpace removed - now using NewSpaceModal (Phase H)

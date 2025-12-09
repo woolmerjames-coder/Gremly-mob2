@@ -23,7 +23,6 @@ import {
   TouchableOpacity,
   Pressable,
 } from 'react-native';
-import { Search as SearchIcon } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
@@ -37,7 +36,6 @@ import { useRepo } from '../../providers/RepoProvider';
 import { callSpaceChat } from '../../lib/cortex/CortexClient';
 import { checkQuickResponse, getQuickResponseText } from '../../lib/chat/quickResponses';
 import { perfMonitor } from '../../lib/chat/performanceMonitor';
-import { searchIndex } from '../../lib/chat/searchIndex';
 import { getEnv } from '../../lib/env';
 import { Placeholder } from '../../components/common/Placeholder';
 import { useChatMessages } from '../../hooks/useChatMessages';
@@ -46,7 +44,6 @@ import { ChatComposer } from '../../components/chat/ChatComposer';
 import { EntryCard } from '../../components/chat/EntryCard';
 import { SavedItemCard } from '../../src/components/chat/SavedItemCard';
 import { ChatActionBar } from '../../components/chat/ChatActionBar';
-import { MessageSearch } from '../../components/chat/MessageSearch';
 // Removed PersistentActionBar to reduce clutter per UX polish
 import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
@@ -88,8 +85,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const [chat, setChat] = useState<SpaceChat | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [spaceName, setSpaceName] = useState<string | null>(null);
 
   // Phase 10.7D: Debounce timer ref
   const sendDebounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -111,11 +107,12 @@ export default function ChatThreadScreen({ route }: Props) {
     Toast: ActionToast,
   } = useActionToast({ bottomOffset: actionToastOffset });
 
-  // Use new chat messages hook
+  // Use new chat messages hook - chatId may be undefined for new chats
   const {
     messages,
     loading: messagesLoading,
     error: messagesError,
+    currentChatId,
     sendUserMessage,
     appendAssistantMessage,
     appendActionConfirmation,
@@ -133,10 +130,10 @@ export default function ChatThreadScreen({ route }: Props) {
     }));
   }, [messages]);
 
-  // Space Chat enhanced context hook
+  // Space Chat enhanced context hook - use currentChatId (may be null for new chats)
   const spaceChatEnhanced = useSpaceChatEnhanced({
     spaceId,
-    chatId,
+    chatId: currentChatId ?? undefined,
   });
 
   // Back button handler
@@ -162,15 +159,16 @@ export default function ChatThreadScreen({ route }: Props) {
       : new MemorySpaceChatRepo(userId || 'anonymous');
   }, [userId]);
 
-  // Load chat
+  // Load chat - only if we have a chatId
   const loadChat = useCallback(async () => {
     try {
-      // For now, we'll show a placeholder
+      // For new chats (no chatId), create a placeholder
+      const effectiveChatId = currentChatId || chatId;
       setChat({
-        id: chatId,
+        id: effectiveChatId || 'pending',
         user_id: userId || 'anonymous',
         space_id: spaceId,
-        title: 'Chat',
+        title: effectiveChatId ? 'Chat' : 'New Chat',
         pinned: false,
         archived_at: null,
         last_message_snippet: null,
@@ -184,16 +182,23 @@ export default function ChatThreadScreen({ route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [chatId, userId, spaceId]);
+  }, [currentChatId, chatId, userId, spaceId]);
 
   useEffect(() => {
     loadChat();
   }, [loadChat]);
 
-  // Initialize search index
+  // Fetch space name for header
   useEffect(() => {
-    searchIndex.initialize();
-  }, []);
+    if (spaceId && repo) {
+      repo
+        .getSpaceById(spaceId)
+        .then((space) => {
+          if (space?.name) setSpaceName(space.name);
+        })
+        .catch(() => {});
+    }
+  }, [spaceId, repo]);
 
   // Listen for entity:created events to add SavedItemCard to chat
   useEffect(() => {
@@ -249,23 +254,6 @@ export default function ChatThreadScreen({ route }: Props) {
     };
   }, [spaceId, messages, appendSavedItemCard]);
 
-  // Index messages as they're added
-  useEffect(() => {
-    messages.forEach((msg) => {
-      // Only index user and assistant messages (exclude system, action, etc.)
-      if (msg.role !== 'user' && msg.role !== 'assistant') return;
-
-      searchIndex.addMessage({
-        id: msg.id,
-        content: msg.content,
-        role: msg.role,
-        timestamp: new Date(msg.created_at).getTime(),
-        type: msg.metadata_json?.entryType as 'habit' | 'note' | 'task' | 'person' | undefined,
-        metadata: msg.metadata_json,
-      });
-    });
-  }, [messages]);
-
   const handleSend = useCallback(
     async (text: string) => {
       const trimmedText = text.trim();
@@ -298,8 +286,8 @@ export default function ChatThreadScreen({ route }: Props) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
 
-        // 1. Send user message via hook
-        await sendUserMessage(trimmedText);
+        // 1. Send user message via hook - capture the chat ID (important for new chats)
+        const activeChatId = await sendUserMessage(trimmedText);
 
         // Phase 10.6: Emit user message sent event
         emitChatEvent({
@@ -327,10 +315,15 @@ export default function ChatThreadScreen({ route }: Props) {
             const responseText = getQuickResponseText(quickResponse);
 
             // Append assistant message with quick response metadata
-            await appendAssistantMessage(responseText, {
-              isQuickResponse: true,
-              confidence: quickResponse.confidence,
-            });
+            // Pass activeChatId to avoid race condition with state update
+            await appendAssistantMessage(
+              responseText,
+              {
+                isQuickResponse: true,
+                confidence: quickResponse.confidence,
+              },
+              activeChatId,
+            );
 
             // Phase 10.6: Transition to replying state
             mascot.replying();
@@ -615,7 +608,7 @@ export default function ChatThreadScreen({ route }: Props) {
           }
         }
 
-        console.log('[Analytics] space_chat_message_sent', { chatId });
+        console.log('[Analytics] space_chat_message_sent', { chatId: currentChatId || chatId });
       } catch (error) {
         console.error('Failed to send message:', error);
         Alert.alert('Error', 'Failed to send message');
@@ -626,6 +619,7 @@ export default function ChatThreadScreen({ route }: Props) {
     [
       chat,
       chatId,
+      currentChatId,
       repo,
       userId,
       sendUserMessage,
@@ -666,7 +660,8 @@ export default function ChatThreadScreen({ route }: Props) {
     return <Placeholder text="Chat temporarily disabled" />;
   }
 
-  if (loading || messagesLoading) {
+  // Don't show loading screen if we're actively sending - prevents flash on new chat creation
+  if ((loading || messagesLoading) && !sending) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator size="large" color={lightTokens.colors.primary} />
@@ -702,19 +697,8 @@ export default function ChatThreadScreen({ route }: Props) {
               >
                 <Text style={styles.backButtonText}>← Space</Text>
               </TouchableOpacity>
-              <Text style={styles.headerTitle}>Chat</Text>
-              <View style={styles.headerRight}>
-                <TouchableOpacity
-                  onPress={() => setSearchVisible(true)}
-                  style={styles.searchButton}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  accessibilityLabel="Search messages"
-                  accessibilityRole="button"
-                >
-                  <SearchIcon size={24} color="#2E5540" />
-                </TouchableOpacity>
-                {shouldShowMascot() && <Mascot size="md" />}
-              </View>
+              <Text style={styles.headerTitle}>{spaceName || 'Chat'}</Text>
+              <View style={styles.headerRight}>{shouldShowMascot() && <Mascot size="md" />}</View>
             </View>
           </View>
 
@@ -931,13 +915,7 @@ export default function ChatThreadScreen({ route }: Props) {
 
                   // Wrap assistant messages with MessageWithSave for save button support
                   const messageBubble = (
-                    <View
-                      key={message.id}
-                      style={[
-                        styles.messageContainer,
-                        highlightedMessageId === message.id && styles.highlightedMessage,
-                      ]}
-                    >
+                    <View key={message.id} style={styles.messageContainer}>
                       <ChatBubble message={message} testID={`chat-bubble-${message.id}`} />
                     </View>
                   );
@@ -1160,27 +1138,6 @@ export default function ChatThreadScreen({ route }: Props) {
               }}
             />
           )}
-
-        {/* Message Search Modal */}
-        <MessageSearch
-          visible={searchVisible}
-          onClose={() => setSearchVisible(false)}
-          onSelectMessage={(messageId) => {
-            // Find message index and scroll to it
-            const index = messages.findIndex((m) => m.id === messageId);
-            if (index >= 0) {
-              // Highlight the message briefly
-              setHighlightedMessageId(messageId);
-              setTimeout(() => setHighlightedMessageId(null), 2000);
-
-              // Scroll to show the message
-              scrollViewRef.current?.scrollTo({
-                y: index * 100, // Approximate message height
-                animated: true,
-              });
-            }
-          }}
-        />
       </SafeAreaView>
     </MascotProvider>
   );
@@ -1215,9 +1172,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: lightTokens.spacing[2],
-  },
-  searchButton: {
-    padding: lightTokens.spacing[2],
   },
   headerTitle: {
     fontSize: lightTokens.typography.size.lg,
@@ -1272,12 +1226,6 @@ const styles = StyleSheet.create({
   },
   messageContainer: {
     marginBottom: lightTokens.spacing[3],
-  },
-  highlightedMessage: {
-    backgroundColor: 'rgba(46, 85, 64, 0.1)', // Moss green with transparency
-    borderRadius: 8,
-    padding: 8,
-    marginHorizontal: -8,
   },
   loading: {
     flex: 1,

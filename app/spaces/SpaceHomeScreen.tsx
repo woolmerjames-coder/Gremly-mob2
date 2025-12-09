@@ -19,6 +19,8 @@ import {
   Pressable,
   useColorScheme,
   BackHandler,
+  Platform,
+  ActionSheetIOS,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -59,6 +61,7 @@ import {
   Settings as SettingsIcon,
   MessageSquare,
   Plus,
+  MoreVertical,
 } from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
@@ -73,6 +76,8 @@ import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import type { CanonicalType } from '../../lib/cortex/canonicalMap';
 import { BRAND } from '../../design/brand';
+import { stripMarkdown } from '../../lib/markdown/stripMarkdown';
+import { getRelativeTime } from '../../lib/utils/getRelativeTime';
 // Phase 6: Space quick add imports
 import { SpaceQuickAddModal } from '../../components/spaces/SpaceQuickAddModal';
 import { AttachExistingModal } from '../../components/spaces/AttachExistingModal';
@@ -1036,20 +1041,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Chat actions
   const handleNewChat = useCallback(async () => {
-    try {
-      const newChat = await spaceChatRepo.create(spaceId, {
-        title: 'New Chat',
-      });
-      // TODO: Fire analytics
-      // analytics.track('space_chat_created', { spaceId, chatId: newChat.id });
-      console.log('[Analytics] space_chat_created', { spaceId, chatId: newChat.id }); // Phase 8 polish
-      navigation.navigate('ChatThread', { spaceId, chatId: newChat.id });
-      reload();
-    } catch (error) {
-      console.error('Failed to create chat:', error);
-      Alert.alert('Error', 'Failed to create chat');
-    }
-  }, [spaceId, spaceChatRepo, navigation, reload]);
+    // Navigate to ChatThreadScreen without a chatId - chat will be created on first message
+    navigation.navigate('ChatThread', { spaceId });
+  }, [spaceId, navigation]);
 
   const handleChatPress = useCallback(
     (chatId: string) => {
@@ -1506,25 +1500,67 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                               backgroundColor: BRAND.colors.linenCream,
                               borderRadius: BRAND.radius.md,
                               padding: 14,
+                              flexDirection: 'row',
+                              alignItems: 'center',
                               ...BRAND.elevation.one,
                             }}
                             testID={`space-chat-${c.id}`}
                           >
-                            <Text
-                              style={{
-                                fontSize: 15,
-                                fontWeight: '500',
-                                color: BRAND.colors.charcoalInk,
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={{
+                                  fontSize: 15,
+                                  fontWeight: '500',
+                                  color: BRAND.colors.charcoalInk,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {stripMarkdown(c.title || 'Chat')}
+                              </Text>
+                              <Text
+                                style={{
+                                  fontSize: 12,
+                                  color: BRAND.colors.inkSubtle,
+                                  marginTop: 4,
+                                }}
+                              >
+                                {aiSummaries[c.id] || c.last_message_snippet
+                                  ? stripMarkdown(aiSummaries[c.id] || c.last_message_snippet || '')
+                                  : getRelativeTime(c.updated_at)}
+                              </Text>
+                            </View>
+                            <Pressable
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                if (Platform.OS === 'ios') {
+                                  ActionSheetIOS.showActionSheetWithOptions(
+                                    {
+                                      options: ['Cancel', 'Delete Chat'],
+                                      destructiveButtonIndex: 1,
+                                      cancelButtonIndex: 0,
+                                    },
+                                    (buttonIndex) => {
+                                      if (buttonIndex === 1) {
+                                        handleDeleteChat(c.id);
+                                      }
+                                    },
+                                  );
+                                } else {
+                                  Alert.alert('Chat Options', '', [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Delete Chat',
+                                      style: 'destructive',
+                                      onPress: () => handleDeleteChat(c.id),
+                                    },
+                                  ]);
+                                }
                               }}
-                              numberOfLines={1}
+                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                              style={{ padding: 4 }}
                             >
-                              {c.title || 'Chat'}
-                            </Text>
-                            <Text
-                              style={{ fontSize: 12, color: BRAND.colors.inkSubtle, marginTop: 4 }}
-                            >
-                              {aiSummaries[c.id] || c.last_message_snippet || 'Tap to view'}
-                            </Text>
+                              <MoreVertical size={18} color={BRAND.colors.inkSubtle} />
+                            </Pressable>
                           </Pressable>
                         ))}
                       </View>
@@ -1874,7 +1910,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                           onArchive={handleArchiveChat}
                           onDelete={handleDeleteChat}
                           aiSummary={
-                            aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'
+                            aiSummaries[chat.id] || chat.last_message_snippet
+                              ? stripMarkdown(
+                                  aiSummaries[chat.id] || chat.last_message_snippet || '',
+                                )
+                              : getRelativeTime(chat.updated_at)
                           }
                         />
                       ))}
@@ -2263,8 +2303,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     {chats.slice(0, 7).map((c) => (
                       <ThreadCard
                         key={c.id}
-                        title={c.title}
-                        snippet={aiSummaries[c.id] || c.last_message_snippet || 'Tap to view'}
+                        title={stripMarkdown(c.title || 'Chat')}
+                        snippet={
+                          aiSummaries[c.id] || c.last_message_snippet
+                            ? stripMarkdown(aiSummaries[c.id] || c.last_message_snippet || '')
+                            : getRelativeTime(c.updated_at)
+                        }
                         lastActive={new Date(c.updated_at).toLocaleDateString(undefined, {
                           weekday: 'short',
                           month: 'short',

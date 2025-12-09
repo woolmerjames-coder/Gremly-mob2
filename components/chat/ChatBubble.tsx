@@ -77,8 +77,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   bubble: {
-    borderRadius: 14, // 12-14px for glass effect
-    paddingVertical: 12,
+    borderRadius: 8,
+    paddingVertical: 8,
     paddingHorizontal: 16,
     maxWidth: '85%',
     minWidth: 40,
@@ -93,9 +93,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   assistantBubble: {
-    backgroundColor: lightTokens.colors.sageMistTranslucent,
-    // Glass effect shadow (more subtle)
-    ...lightTokens.elevation.chatGremly,
+    backgroundColor: 'transparent',
+    borderLeftWidth: 3,
+    borderLeftColor: lightTokens.colors.sageMist,
+    borderRadius: 0,
+    paddingLeft: 12,
+    maxWidth: '95%',
   },
   text: {
     fontSize: 16,
