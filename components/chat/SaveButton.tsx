@@ -18,6 +18,7 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { View, Text, Pressable, Animated, StyleSheet, Platform } from 'react-native';
+import { CheckSquare, Repeat, Bookmark } from 'lucide-react-native';
 import type { SaveableType } from '../../lib/chat/saveableTypes';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,16 +43,16 @@ export interface SaveButtonProps {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface TypeDisplay {
-  emoji: string;
+  icon: React.ComponentType<{ size: number; color: string }>;
   label: string;
 }
 
 const TYPE_DISPLAY: Record<SaveableType, TypeDisplay> = {
-  todo: { emoji: '📋', label: 'Save as task' },
-  habit: { emoji: '🔁', label: 'Save as habit' },
-  'log-general': { emoji: '📝', label: 'Save as note' },
-  'log-list': { emoji: '📝', label: 'Save as list' },
-  'log-idea': { emoji: '💡', label: 'Save as idea' },
+  todo: { icon: CheckSquare, label: 'Save as To-Do' },
+  habit: { icon: Repeat, label: 'Save as Habit' },
+  'log-general': { icon: Bookmark, label: 'Save for Later' },
+  'log-list': { icon: Bookmark, label: 'Save for Later' },
+  'log-idea': { icon: Bookmark, label: 'Save for Later' },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,13 +84,16 @@ export default function SaveButton({
   }
 
   const display = TYPE_DISPLAY[suggestedType] || TYPE_DISPLAY['log-general'];
-  const accessibilityLabelText = `${display.label}. Tap to save this ${suggestedType === 'todo' ? 'task' : suggestedType === 'habit' ? 'habit' : 'note'} to your collection.`;
+  const IconComponent = display.icon;
+  const accessibilityLabelText = `${display.label}. Tap to save this content.`;
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]} accessibilityRole="none">
       {/* Type Icon & Label */}
       <View style={styles.labelContainer}>
-        <Text style={styles.emoji}>{display.emoji}</Text>
+        <View style={styles.icon}>
+          <IconComponent size={18} color="#2E5540" />
+        </View>
         <Text style={styles.labelText}>{display.label}</Text>
       </View>
 
@@ -158,8 +162,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
-  emoji: {
-    fontSize: 18,
+  icon: {
     marginRight: 8,
   },
   labelText: {
