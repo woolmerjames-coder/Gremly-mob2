@@ -69,6 +69,10 @@ import { useSpaceNotes } from '../../hooks/useSpaceNotes';
 // v33 components (Space v3.3)
 import HeaderV33 from '../../components/spaces/v33/Header';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
+// Phase 12: MilestoneHeader and supporting hooks
+import { MilestoneHeader } from '../../components/spaces/MilestoneHeader';
+import { useSpaceMilestone } from '../../hooks/useSpaceMilestone';
+import { usePinnedCount } from '../../hooks/usePinnedCount';
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
 import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
@@ -565,6 +569,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const { space, chats, items, stats, upcoming, intent, nextItem, weekly, reload } =
     useSpaceAggregate(spaceId);
   const { totalCount: notesCount } = useSpaceNotes(spaceId);
+  // Phase 12: Milestone and pinned hooks
+  const { milestone, countdown, refetch: refetchMilestone } = useSpaceMilestone(spaceId);
+  const { count: pinnedCount, refetch: refetchPinned } = usePinnedCount(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   // Phase 5: Removed searchVisible, searchQuery, searchActiveV33 state (search via filter bar now)
   const isFocused = useIsFocused();
@@ -1045,6 +1052,30 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     navigation.navigate('ChatThread', { spaceId });
   }, [spaceId, navigation]);
 
+  // Phase 12: MilestoneHeader handlers
+  const handleGremlyPress = useCallback(() => {
+    // Open chat - use existing chat opening logic
+    handleNewChat();
+  }, [handleNewChat]);
+
+  const handleNudgePress = useCallback(() => {
+    // TODO: Open milestone entry modal (Phase 8)
+    console.log('[SpaceHome] Nudge pressed - will open milestone modal');
+  }, []);
+
+  const handleSettingsPress = useCallback(() => {
+    Alert.alert(
+      'Space Settings',
+      "Coming soon! Here you'll be able to:\n\n• Edit milestone & deadline\n• Add success criteria\n• Manage pinned items\n• Archive or delete Space",
+      [{ text: 'OK' }],
+    );
+  }, []);
+
+  const handlePinnedPress = useCallback(() => {
+    // TODO: Open pinned items modal (Phase 5)
+    console.log('[SpaceHome] Pinned pressed - will open pinned modal');
+  }, []);
+
   const handleChatPress = useCallback(
     (chatId: string) => {
       // TODO: Fire analytics
@@ -1256,11 +1287,18 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           >
-            <HeaderV33
-              title={space?.name ?? 'Space'}
-              lastVisited={buildLastVisitedLabel(items, chats)}
-              wittyLine={v33WittyLine}
-              mood={v33Mood}
+            {/* Phase 12: MilestoneHeader replaces HeaderV33 */}
+            <MilestoneHeader
+              spaceName={space?.name ?? 'Space'}
+              milestone={milestone}
+              countdown={countdown}
+              pinnedCount={pinnedCount}
+              onGremlyPress={handleGremlyPress}
+              onAddPress={() => setShowQuickAddModal(true)}
+              onPinnedPress={handlePinnedPress}
+              onNudgePress={handleNudgePress}
+              onSettingsPress={handleSettingsPress}
+              onBackPress={() => navigation.goBack()}
             />
 
             {/* Top-level mode toggle: Actions vs Chats (Segmented Control) */}
