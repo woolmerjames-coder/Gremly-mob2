@@ -1582,19 +1582,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     ]);
   }, [spaceInsight]);
 
-  if (loading && !space) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="small" color={BRAND.colors.mossGreen} />
-        <Text style={styles.loadingText}>Loading Space...</Text>
-      </View>
-    );
-  }
-
+  // Always show loading spinner if no space yet
+  // This prevents the "Space not found" flash during initial load
   if (!space) {
     return (
-      <View style={styles.error}>
-        <Text style={styles.errorText}>Space not found</Text>
+      <View style={[styles.loading, { backgroundColor: BRAND.colors.linenCream }]}>
+        <ActivityIndicator size="large" color={BRAND.colors.mossGreen} />
       </View>
     );
   }

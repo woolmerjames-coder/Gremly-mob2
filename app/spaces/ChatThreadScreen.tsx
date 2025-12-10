@@ -13,23 +13,27 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert,
-  SafeAreaView,
   Image,
   TouchableOpacity,
   Pressable,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { ChevronLeft } from 'lucide-react-native';
+import { BRAND } from '../../design/brand';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
-import type { SpaceChat } from '../../lib/types';
+import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
@@ -43,8 +47,7 @@ import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { EntryCard } from '../../components/chat/EntryCard';
 import { SavedItemCard } from '../../src/components/chat/SavedItemCard';
-import { ChatActionBar } from '../../components/chat/ChatActionBar';
-// Removed PersistentActionBar to reduce clutter per UX polish
+// Removed PersistentActionBar and ChatActionBar to reduce clutter per UX polish
 import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
 // Phase 10.6: New mascot system
@@ -59,14 +62,14 @@ import { openUnifiedFromChat, saveableTypeToOverlayKind } from './chat/openUnifi
 import type { OverlayKind } from './chat/openUnifiedFromChat';
 import { smartTitle } from './chat/prefillUtils';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useActionToast, type ActionToastInput } from '../../src/hooks/useActionToast';
 
 // Space Chat enhanced context imports
 import { useSpaceChatEnhanced } from '../../hooks/useSpaceChatEnhanced';
 import { type ChatMessageForResolution } from '../../lib/chat/thisResolver';
-import MessageWithSave from '../../components/chat/MessageWithSave';
+// MessageWithSave import removed - saveable card now rendered inline in ChatBubble
 import { eventBus } from '../../lib/events/EventBus';
+import { addOverlaySavedListener, type OverlaySavedPayload } from '../../lib/events/overlaySaved';
 import { buildSpaceContext, type SpaceContext } from '../../lib/chat/buildSpaceContext';
 import { useSpaceMilestone } from '../../hooks/useSpaceMilestone';
 import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
@@ -82,8 +85,11 @@ export default function ChatThreadScreen({ route }: Props) {
   // Navigation
   const navigation = useNavigation();
 
+  // Safe area insets for bottom padding
+  const insets = useSafeAreaInsets();
+
   // Scroll ref for auto-scrolling to the latest message
-  const scrollViewRef = useRef<import('react-native').ScrollView | null>(null);
+  const flatListRef = useRef<FlatList>(null);
 
   const { spaceId, chatId } = route.params;
   const auth = useAuth();
@@ -94,6 +100,13 @@ export default function ChatThreadScreen({ route }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [spaceName, setSpaceName] = useState<string | null>(null);
+
+  // Enable LayoutAnimation on Android
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
 
   // Fetch space aggregate (items) and milestone for space context
   const spaceAggregate = useSpaceAggregate(spaceId);
@@ -170,6 +183,11 @@ export default function ChatThreadScreen({ route }: Props) {
   // Overlay controller for conversion
   const overlayController = useUnifiedOverlayController();
 
+  // Track which message has the active saveable being saved
+  // Use BOTH state and ref - ref survives closure staleness, state triggers re-renders
+  const [activeMessageWithSaveable, setActiveMessageWithSaveable] = useState<string | null>(null);
+  const activeMessageWithSaveableRef = useRef<string | null>(null);
+
   const actionToastOffset = React.useMemo(
     () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,
     [],
@@ -191,8 +209,8 @@ export default function ChatThreadScreen({ route }: Props) {
     appendAssistantMessage,
     appendActionConfirmation,
     appendEntryCard,
-    appendSavedItemCard,
     removeMessage,
+    updateMessage,
   } = useChatMessages(chatId, spaceId);
 
   // Helper function to convert messages for resolution
@@ -223,8 +241,167 @@ export default function ChatThreadScreen({ route }: Props) {
 
   // Auto-scroll when messages change (e.g., new assistant/user messages)
   useEffect(() => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
+    // Small delay to let layout settle before scrolling
+    const timer = setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 150);
+    return () => clearTimeout(timer);
   }, [messages]);
+
+  // Phase 12: Global overlay saved event listener
+  // This fires when OverlayHost saves (the real overlay) and includes sourceMessageId
+  useEffect(() => {
+    const handleOverlaySaved = async (payload: OverlaySavedPayload) => {
+      if (__DEV__) {
+        console.log('[ChatThreadScreen] Global overlay saved event received', {
+          payloadId: payload.id,
+          payloadType: payload.type,
+          sourceMessageId: payload.sourceMessageId,
+        });
+      }
+
+      // Only process if this save came from our chat (has sourceMessageId matching a message)
+      if (!payload.sourceMessageId) {
+        if (__DEV__) {
+          console.log('[ChatThreadScreen] No sourceMessageId, ignoring overlay saved event');
+        }
+        return;
+      }
+
+      // Check if the sourceMessageId matches one of our messages
+      const matchingMessage = messages.find((m) => m.id === payload.sourceMessageId);
+      if (!matchingMessage) {
+        if (__DEV__) {
+          console.log(
+            '[ChatThreadScreen] sourceMessageId does not match any of our messages, ignoring',
+          );
+        }
+        return;
+      }
+
+      if (__DEV__) {
+        console.log(
+          '🔥🔥🔥 [ChatThreadScreen] GLOBAL OVERLAY SAVED - processing for message:',
+          payload.sourceMessageId,
+        );
+      }
+
+      // Get the full record for tap-to-edit
+      const record = await repo.getById(payload.id);
+
+      // Remove the action confirmation toast after successful creation
+      const actionConfirmation = messages.find(
+        (msg) => msg.metadata_json?.type === 'action-confirmation',
+      );
+      if (actionConfirmation) {
+        console.log('[Toast] Removing action confirmation after save:', actionConfirmation.id);
+        removeMessage(actionConfirmation.id);
+      }
+
+      // Phase 11.6: Add entry card to chat thread
+      try {
+        if (
+          record &&
+          (payload.type === 'note' || payload.type === 'todo' || payload.type === 'habit')
+        ) {
+          // Helper function to get continuation message based on type
+          const getContinuationMessage = (
+            type: 'habit' | 'todo' | 'note',
+            itemName?: string,
+          ): string => {
+            switch (type) {
+              case 'habit':
+                return `Great! Your ${itemName || 'habit'} is set. What else would you like to work on?`;
+              case 'todo':
+                return 'Task added to your list. Anything else you need to get done?';
+              case 'note':
+                return "Got it! Note saved. What's next?";
+              default:
+                return 'Done! What would you like to do next?';
+            }
+          };
+
+          // Add locked confirmation message for all types
+          console.log('🔥🔥🔥 LOCKED CARD - About to add for type:', payload.type);
+          if (payload.type === 'habit') {
+            const habitRecord = record as any;
+            await appendAssistantMessage('', {
+              type: 'habit-locked',
+              habitName: habitRecord.name || 'Habit',
+              frequency: habitRecord.frequency || 'regularly',
+              habitId: record.id,
+              locked: true,
+              itemType: 'habit',
+            });
+
+            // Add follow-up message after short delay
+            setTimeout(async () => {
+              try {
+                await appendAssistantMessage(getContinuationMessage('habit', habitRecord.name));
+                console.log('[Chat] Follow-up message added after habit creation');
+              } catch (err) {
+                console.error('[Chat] Failed to add follow-up message:', err);
+              }
+            }, 1500);
+          } else if (payload.type === 'todo') {
+            const todoRecord = record as any;
+            await appendAssistantMessage('', {
+              type: 'todo-locked',
+              todoTitle: todoRecord.title || 'Task',
+              dueDate: todoRecord.due_date || null,
+              todoId: record.id,
+              locked: true,
+              itemType: 'todo',
+            });
+
+            // Add follow-up message after short delay
+            setTimeout(async () => {
+              try {
+                await appendAssistantMessage(getContinuationMessage('todo'));
+                console.log('[Chat] Follow-up message added after todo creation');
+              } catch (err) {
+                console.error('[Chat] Failed to add follow-up message:', err);
+              }
+            }, 1500);
+          } else if (payload.type === 'note') {
+            const noteRecord = record as any;
+            console.log('🔥🔥🔥 NOTE-LOCKED - Creating card for:', noteRecord?.title);
+            await appendAssistantMessage('', {
+              type: 'note-locked',
+              noteContent: noteRecord.content || noteRecord.title || 'Note',
+              noteId: record.id,
+              locked: true,
+              itemType: 'note',
+            });
+            console.log('[ChatThread] note-locked card should be added now');
+
+            // Add follow-up message after short delay
+            setTimeout(async () => {
+              try {
+                await appendAssistantMessage(getContinuationMessage('note'));
+                console.log('[Chat] Follow-up message added after note creation');
+              } catch (err) {
+                console.error('[Chat] Failed to add follow-up message:', err);
+              }
+            }, 1500);
+          }
+        }
+      } catch (err) {
+        console.error('[EntryCard] Failed to add entry card to chat:', err);
+      }
+
+      // Dismiss the saveable card on the source message
+      if (__DEV__) {
+        console.log('[Chat] Dismissing saveable after save for message:', payload.sourceMessageId);
+      }
+      updateMessage(payload.sourceMessageId, { saveableDismissed: true });
+      activeMessageWithSaveableRef.current = null;
+      setActiveMessageWithSaveable(null);
+    };
+
+    const unsubscribe = addOverlaySavedListener(handleOverlaySaved);
+    return () => unsubscribe();
+  }, [messages, repo, appendAssistantMessage, removeMessage, updateMessage]);
 
   // Create SpaceChatRepo instance (unused but kept for potential future use)
   const _spaceChatRepo = React.useMemo(() => {
@@ -275,59 +452,8 @@ export default function ChatThreadScreen({ route }: Props) {
     }
   }, [spaceId, repo]);
 
-  // Listen for entity:created events to add SavedItemCard to chat
-  useEffect(() => {
-    if (!spaceId) return;
-
-    const handleEntityCreated = (payload: {
-      entity: any;
-      type: string;
-      spaceId?: string | null;
-    }) => {
-      // Only handle events for this space
-      if (payload.spaceId !== spaceId) return;
-
-      const entityType = payload.type as 'habit' | 'todo' | 'note' | 'person';
-      if (!['habit', 'todo', 'note', 'person'].includes(entityType)) return;
-
-      const entityId = payload.entity?.id;
-      if (!entityId) {
-        console.warn('[ChatThread] entity:created missing entity id');
-        return;
-      }
-
-      // CRITICAL: Check if we already have a card for this entity
-      // This prevents duplicates when editing existing items
-      const existingCard = messages.find(
-        (m) =>
-          m.role === 'system' &&
-          m.metadata_json?.type === 'saved-item' &&
-          m.metadata_json?.entityId === entityId,
-      );
-
-      if (existingCard) {
-        console.log('[ChatThread] Skipping duplicate card for entity:', entityId);
-        return;
-      }
-
-      if (__DEV__) {
-        console.log('[ChatThread] entity:created event received', {
-          entityId,
-          type: entityType,
-          title: payload.entity?.title || payload.entity?.name,
-        });
-      }
-
-      appendSavedItemCard(payload.entity, entityType).catch((err) => {
-        console.error('[ChatThread] Failed to append saved item card:', err);
-      });
-    };
-
-    const unsub = eventBus.on('entity:created', handleEntityCreated);
-    return () => {
-      if (typeof unsub === 'function') unsub();
-    };
-  }, [spaceId, messages, appendSavedItemCard]);
+  // NOTE: entity:created event listener removed - SavedItemCard is now rendered
+  // inline within ChatBubble via message.saveable property
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -542,30 +668,76 @@ export default function ChatThreadScreen({ route }: Props) {
           const assistantText = response.explanation?.trim() || response.replyText?.trim() || '';
 
           if (assistantText) {
-            const appendedMessage = await appendAssistantMessage(assistantText);
+            // Run saveable detection BEFORE adding message (single state update)
+            let saveableData: {
+              type: 'todo' | 'habit' | 'note';
+              title: string;
+              content?: string;
+              prefillData?: any;
+            } | null = null;
 
-            // Space Chat: Run saveable detection for assistant message
-            if (appendedMessage?.id) {
-              try {
-                console.log('[ChatThread] Running saveable detection', {
-                  assistantText: assistantText.slice(0, 50),
-                  messageId: appendedMessage.id,
+            let detectionResult: any = null;
+
+            try {
+              console.log('[ChatThread] Running saveable detection BEFORE append', {
+                assistantText: assistantText.slice(0, 50),
+              });
+
+              // Run detection without messageId (we don't have it yet)
+              detectionResult = await spaceChatEnhanced.runSaveableDetection(
+                assistantText,
+                trimmedText,
+                'pending', // Temporary ID, will be updated
+              );
+
+              // Log detection result
+              if (__DEV__) {
+                console.log('[Chat] Saveable detection result:', {
+                  detected: detectionResult?.isSaveable ?? false,
+                  type: detectionResult?.suggestedType,
+                  title: detectionResult?.prefill?.title,
                 });
-
-                const detectionResult = await spaceChatEnhanced.runSaveableDetection(
-                  assistantText,
-                  trimmedText,
-                  appendedMessage.id,
-                );
-
-                console.log('[ChatThread] Saveable detection result', {
-                  result: detectionResult,
-                  messageId: appendedMessage.id,
-                });
-              } catch (err) {
-                console.error('[ChatThread] Saveable detection failed:', err);
               }
+
+              if (detectionResult?.isSaveable && detectionResult.suggestedType) {
+                // Map SaveableType to simpler type for message storage
+                const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
+                  todo: 'todo',
+                  habit: 'habit',
+                  'log-general': 'note',
+                  'log-list': 'note',
+                  'log-idea': 'note',
+                };
+                saveableData = {
+                  type: typeMap[detectionResult.suggestedType] || 'note',
+                  title: detectionResult.prefill?.title || '',
+                  content: detectionResult.prefill?.content,
+                  prefillData: detectionResult.prefill,
+                };
+              }
+            } catch (err) {
+              console.error('[ChatThread] Saveable detection failed:', err);
             }
+
+            // Add message with saveable data attached (single state update)
+            const appendedMessage = await appendAssistantMessage(
+              assistantText,
+              undefined,
+              undefined,
+              saveableData,
+            );
+
+            // Log AI message addition
+            if (__DEV__) {
+              console.log('[Chat] Adding AI message with saveable:', {
+                messageId: appendedMessage?.id,
+                hasSaveable: !!saveableData,
+                saveableType: saveableData?.type,
+              });
+            }
+
+            // NOTE: showSaveButton call removed - saveable data is now embedded
+            // in the message itself via message.saveable property
 
             // Phase 10.8: Maybe refresh Space Insight summary (background, fire-and-forget)
             if (getEnv('EXPO_PUBLIC_SPACE_SUMMARY_BG') === 'on' && spaceId) {
@@ -736,6 +908,64 @@ export default function ChatThreadScreen({ route }: Props) {
     [handleSend],
   );
 
+  // Handle dismiss saveable card from ChatBubble
+  const handleDismissSaveable = useCallback(
+    (messageId: string) => {
+      if (__DEV__) {
+        console.log('[Chat] Dismissing saveable for message:', messageId);
+      }
+      spaceChatEnhanced.dismissSaveButton();
+      spaceChatEnhanced.markSaveDismissed();
+      // Update message to mark saveable as dismissed
+      updateMessage(messageId, { saveableDismissed: true });
+    },
+    [spaceChatEnhanced, updateMessage],
+  );
+
+  // Handle save from ChatBubble's embedded save button
+  // Moved outside renderItem to prevent re-creation on each render
+  const handleBubbleSave = useCallback(
+    (message: SpaceChatMessage) => {
+      const saveable = message.saveable;
+      if (!saveable) return;
+
+      if (__DEV__) {
+        console.log('[Chat] Save pressed for saveable:', { messageId: message.id, saveable });
+      }
+      // Track which message is being saved - set BOTH state and ref
+      // Ref survives closure staleness in onSaved callback
+      setActiveMessageWithSaveable(message.id);
+      activeMessageWithSaveableRef.current = message.id;
+      spaceChatEnhanced.startSaving();
+      // Map saveable type to overlay kind
+      const kind = saveable.type === 'todo' ? 'todo' : saveable.type === 'habit' ? 'habit' : 'note';
+      const prefill = saveable.prefillData || {};
+      // Notes/Logs: full assistant response; Todos/Habits: AI-summarized content
+      const note = kind === 'note' ? message.content : prefill.content || '';
+      openUnifiedFromChat(
+        kind,
+        {
+          title: saveable.title || smartTitle(message.content),
+          note,
+          tags: prefill.tags || [],
+          frequency: prefill.frequency ?? undefined,
+          frequencyValue: prefill.frequencyValue,
+          dueDate: prefill.dueDate ?? undefined,
+          fromChat: true,
+        },
+        {
+          lane: 'space_chat',
+          spaceId: spaceId || null,
+          messageId: message.id,
+        },
+        overlayController,
+      );
+      spaceChatEnhanced.finishSaving();
+      spaceChatEnhanced.markSaveTapped();
+    },
+    [spaceChatEnhanced, spaceId, overlayController],
+  );
+
   // Environment gate - wrap entire chat UI
   if (process.env.EXPO_PUBLIC_FEATURE_CHAT !== 'on') {
     return <Placeholder text="Chat temporarily disabled" />;
@@ -760,15 +990,19 @@ export default function ChatThreadScreen({ route }: Props) {
 
   return (
     <MascotProvider lane="space_chat">
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView
+        style={[styles.container, { paddingBottom: 0 }]}
+        edges={['top', 'left', 'right']}
+      >
         <KeyboardAvoidingView
           style={[styles.flex, isActionToastVisible && { paddingBottom: actionToastOffset }]}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
           {/* Header - always shown for navigation */}
           <View style={styles.header}>
             <View style={styles.headerContent}>
+              {/* Back button - chevron only */}
               <TouchableOpacity
                 onPress={handleBackPress}
                 style={styles.backButton}
@@ -776,468 +1010,215 @@ export default function ChatThreadScreen({ route }: Props) {
                 accessibilityLabel="Go back to Space"
                 accessibilityRole="button"
               >
-                <Text style={styles.backButtonText}>← Space</Text>
+                <ChevronLeft size={28} color={BRAND.colors.charcoalInk} strokeWidth={2} />
               </TouchableOpacity>
-              <Text style={styles.headerTitle}>{spaceName || 'Chat'}</Text>
+
+              {/* Centered title with golden underline */}
+              <View style={styles.headerTitleContainer}>
+                <Text style={styles.headerTitle}>{spaceName || 'Chat'}</Text>
+                <View style={styles.headerUnderline} />
+              </View>
+
+              {/* Right spacer for centering (or mascot if enabled) */}
               <View style={styles.headerRight}>{shouldShowMascot() && <Mascot size="md" />}</View>
             </View>
           </View>
 
-          {/* Messages ScrollView */}
-          <ScrollView
-            ref={scrollViewRef}
+          {/* Messages FlatList */}
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={(item, index) => item.id || `msg-${index}`}
             style={styles.messages}
-            contentContainerStyle={styles.messagesContent}
-            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-          >
-            {messages.length === 0 ? (
+            contentContainerStyle={[
+              styles.messagesContent,
+              messages.length === 0 && styles.emptyListContent,
+            ]}
+            // Performance optimizations to reduce re-render flash
+            removeClippedSubviews={false}
+            maxToRenderPerBatch={10}
+            windowSize={10}
+            initialNumToRender={15}
+            onContentSizeChange={() => {
+              // Small delay prevents flash during rapid updates
+              setTimeout(() => {
+                flatListRef.current?.scrollToEnd({ animated: true });
+              }, 100);
+            }}
+            ListEmptyComponent={
               <View style={styles.placeholder}>
-                {/* Centered text */}
+                {/* Mascot */}
+                <Image
+                  source={require('../../assets/mascot/spaceschatchair.png')}
+                  style={styles.emptyMascot}
+                  resizeMode="contain"
+                />
+
+                {/* Centered text with Space context */}
                 <View style={styles.emptyTextContainer}>
                   <Text style={styles.placeholderTitle}>Start typing what's on your mind.</Text>
                   <Text style={styles.placeholderText}>
-                    Gremly can help you sort ideas, set habits, or create next steps
+                    {milestone?.name
+                      ? `Gremly can help you plan for ${milestone.name} — sort ideas, set habits, or create next steps.`
+                      : `Gremly can help you with ${spaceName || 'this space'} — sort ideas, set habits, or create next steps.`}
                   </Text>
                 </View>
               </View>
-            ) : (
-              <>
-                {/* Debug: Check for duplicate message IDs */}
-                {__DEV__ &&
-                  (() => {
-                    const ids = messages.map((m) => m.id);
-                    const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
-                    if (duplicates.length > 0) {
-                      console.warn('[ChatThread] Duplicate message IDs found:', duplicates);
-                    }
-                    return null;
-                  })()}
-                {messages.map((message) => {
-                  // Helper function to get icon for each type
-                  const getIconForType = (type: string): string => {
-                    switch (type) {
-                      case 'habit':
-                        return '🔒';
-                      case 'todo':
-                        return '✓';
-                      case 'note':
-                        return '📝';
-                      case 'person':
-                        return '👤';
-                      default:
-                        return '📌';
-                    }
-                  };
+            }
+            ListFooterComponent={
+              mascot.state === 'thinking' ? (
+                <View style={styles.typingContainer}>
+                  <ChatThinkingIndicator visible variant="both" />
+                </View>
+              ) : null
+            }
+            renderItem={({ item: message }) => {
+              // Helper function to get title for each locked type
+              const getLockedTitle = (metadata: any): string => {
+                const itemType = metadata.itemType;
+                switch (itemType) {
+                  case 'habit':
+                    return `Habit locked in for ${metadata.frequency}`;
+                  case 'todo':
+                    return `Task added${metadata.dueDate ? ` for ${metadata.dueDate}` : ''}`;
+                  case 'note':
+                    return 'Note captured';
+                  case 'person':
+                    return `${metadata.personName} added to connections`;
+                  default:
+                    return 'Item created';
+                }
+              };
 
-                  // Helper function to get title for each locked type
-                  const getLockedTitle = (metadata: any): string => {
-                    const itemType = metadata.itemType;
-                    switch (itemType) {
-                      case 'habit':
-                        return `Habit locked in for ${metadata.frequency}`;
-                      case 'todo':
-                        return `Task added${metadata.dueDate ? ` for ${metadata.dueDate}` : ''}`;
-                      case 'note':
-                        return 'Note captured';
-                      case 'person':
-                        return `${metadata.personName} added to connections`;
-                      default:
-                        return 'Item created';
-                    }
-                  };
+              // Helper function to get subtext for each locked type
+              const getLockedSubtext = (metadata: any): string => {
+                const itemType = metadata.itemType;
+                if (itemType === 'note' && metadata.noteContent) {
+                  return metadata.noteContent.substring(0, 50);
+                }
+                return 'Click this entry or find it in the Space to edit';
+              };
 
-                  // Helper function to get subtext for each locked type
-                  const getLockedSubtext = (metadata: any): string => {
-                    const itemType = metadata.itemType;
-                    if (itemType === 'note' && metadata.noteContent) {
-                      return metadata.noteContent.substring(0, 50);
-                    }
-                    return 'Click this entry or find it in the Space to edit';
-                  };
+              // Helper function to get item ID based on type
+              const getItemId = (metadata: any): string | undefined => {
+                const itemType = metadata.itemType;
+                switch (itemType) {
+                  case 'habit':
+                    return metadata.habitId;
+                  case 'todo':
+                    return metadata.todoId;
+                  case 'note':
+                    return metadata.noteId;
+                  case 'person':
+                    return metadata.personId;
+                  default:
+                    return undefined;
+                }
+              };
 
-                  // Helper function to get item ID based on type
-                  const getItemId = (metadata: any): string | undefined => {
-                    const itemType = metadata.itemType;
-                    switch (itemType) {
-                      case 'habit':
-                        return metadata.habitId;
-                      case 'todo':
-                        return metadata.todoId;
-                      case 'note':
-                        return metadata.noteId;
-                      case 'person':
-                        return metadata.personId;
-                      default:
-                        return undefined;
-                    }
-                  };
+              // Unified renderer for all locked confirmation types
+              if (
+                message.role === 'assistant' &&
+                (message.metadata_json as any)?.type?.includes('-locked')
+              ) {
+                const metadata = message.metadata_json || {};
+                const itemType = metadata.itemType as 'habit' | 'todo' | 'note' | 'person';
+                const itemId = getItemId(metadata);
+                const title = getLockedTitle(metadata);
+                const subtext = getLockedSubtext(metadata);
 
-                  // Unified renderer for all locked confirmation types
-                  if (
-                    message.role === 'assistant' &&
-                    (message.metadata_json as any)?.type?.includes('-locked')
-                  ) {
-                    const metadata = message.metadata_json || {};
-                    const itemType = metadata.itemType;
-                    const itemId = getItemId(metadata);
-                    const icon = getIconForType(itemType);
-                    const title = getLockedTitle(metadata);
-                    const subtext = getLockedSubtext(metadata);
+                return (
+                  <SavedItemCard
+                    itemType={itemType || 'note'}
+                    title={title}
+                    subtitle={subtext}
+                    onPress={() => {
+                      if (itemId && itemType) {
+                        console.log(`[Locked${itemType}] Tapped, itemId:`, itemId);
+                        overlayController.openEdit({
+                          record: { id: itemId, type: itemType } as any,
+                          spaceId: spaceId ?? undefined,
+                        });
+                      }
+                    }}
+                  />
+                );
+              }
 
-                    // Determine which style to use based on itemType
-                    const lockedStyle =
-                      itemType === 'habit'
-                        ? styles.lockedHabit
-                        : itemType === 'todo'
-                          ? styles.lockedTodo
-                          : itemType === 'note'
-                            ? styles.lockedNote
-                            : itemType === 'person'
-                              ? styles.lockedPerson
-                              : styles.lockedHabit; // fallback
+              // Phase 11.6: Render entry card
+              // Check for system role with type 'entry-card' in metadata
+              if (message.role === 'system' && message.metadata_json?.type === 'entry-card') {
+                const metadata = message.metadata_json || {};
+                const entry = metadata.entry;
+                const entryType = metadata.entryType;
 
-                    return (
-                      <Pressable
-                        key={message.id}
-                        style={lockedStyle}
-                        onPress={() => {
-                          if (itemId && itemType) {
-                            console.log(`[Locked${itemType}] Tapped, itemId:`, itemId);
-                            overlayController.openEdit({
-                              record: { id: itemId, type: itemType } as any,
-                              spaceId: spaceId ?? undefined,
-                            });
-                          }
-                        }}
-                      >
-                        <View style={styles.lockedContent}>
-                          <Text style={styles.lockIcon}>{icon}</Text>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.lockedTitle}>{title}</Text>
-                            <Text
-                              style={styles.lockedSubtext}
-                              numberOfLines={itemType === 'note' ? 1 : undefined}
-                            >
-                              {subtext}
-                            </Text>
-                          </View>
-                        </View>
-                      </Pressable>
-                    );
-                  }
+                if (entry && entryType) {
+                  // Add type property to entry object
+                  const typedEntry = { ...entry, type: entryType };
 
-                  // Phase 11.6: Render entry card
-                  // Check for system role with type 'entry-card' in metadata
-                  if (message.role === 'system' && message.metadata_json?.type === 'entry-card') {
-                    const metadata = message.metadata_json || {};
-                    const entry = metadata.entry;
-                    const entryType = metadata.entryType;
-
-                    if (entry && entryType) {
-                      // Add type property to entry object
-                      const typedEntry = { ...entry, type: entryType };
-
-                      return (
-                        <EntryCard
-                          key={message.id}
-                          entry={typedEntry}
-                          onPress={(entry) => {
-                            // Open unified overlay with full entry data
-                            overlayController.openEdit({
-                              record: entry as any, // Full entry object includes all required fields
-                              spaceId: spaceId ?? undefined,
-                            });
-                          }}
-                          testID={`entry-card-${message.id}`}
-                        />
-                      );
-                    }
-                  }
-
-                  // Phase 11.8: Render saved-item card for Space Chat save confirmations
-                  if (message.role === 'system' && message.metadata_json?.type === 'saved-item') {
-                    const metadata = message.metadata_json || {};
-                    const savedEntity = metadata.entity || {};
-                    const entityType = (metadata.entityType || 'note') as
-                      | 'habit'
-                      | 'todo'
-                      | 'note'
-                      | 'person';
-
-                    return (
-                      <SavedItemCard
-                        key={message.id}
-                        itemType={entityType}
-                        title={
-                          metadata.title || savedEntity.title || savedEntity.name || 'Untitled'
-                        }
-                        subtitle={metadata.subtitle}
-                        onPress={() => {
-                          if (savedEntity.id) {
-                            // Notes/logs open in view mode (pretty, formatted)
-                            // Todos/Habits open in edit mode (actionable)
-                            if (entityType === 'note') {
-                              overlayController.openView({
-                                record: { ...savedEntity, type: entityType } as any,
-                                spaceId: spaceId ?? undefined,
-                                fromChat: true, // Triggers preview mode
-                              });
-                            } else {
-                              overlayController.openEdit({
-                                record: { ...savedEntity, type: entityType } as any,
-                                spaceId: spaceId ?? undefined,
-                              });
-                            }
-                          }
-                        }}
-                      />
-                    );
-                  }
-
-                  // Phase 11.3/11.5: Skip action confirmations - they're rendered outside ScrollView
-                  // CRITICAL FIX: Check for system role with type 'action-confirmation' in metadata
-                  if (
-                    message.role === 'system' &&
-                    message.metadata_json?.type === 'action-confirmation'
-                  ) {
-                    // Don't render inside ScrollView - will be rendered as overlay below
-                    return null;
-                  }
-
-                  // Space Chat: Get save button state for this message
-                  const saveButtonState =
-                    message.role === 'assistant'
-                      ? spaceChatEnhanced.getButtonStateForMessage(message.id)
-                      : null;
-                  const showSaveButton = saveButtonState?.isVisible ?? false;
-                  const isSaving = saveButtonState?.isSaving ?? false;
-                  const saveableResult = saveButtonState?.result ?? null;
-
-                  // Wrap assistant messages with MessageWithSave for save button support
-                  const messageBubble = (
-                    <View key={message.id} style={styles.messageContainer}>
-                      <ChatBubble message={message} testID={`chat-bubble-${message.id}`} />
-                    </View>
+                  return (
+                    <EntryCard
+                      entry={typedEntry}
+                      onPress={(entry) => {
+                        // Open unified overlay with full entry data
+                        overlayController.openEdit({
+                          record: entry as any, // Full entry object includes all required fields
+                          spaceId: spaceId ?? undefined,
+                        });
+                      }}
+                      testID={`entry-card-${message.id}`}
+                    />
                   );
+                }
+              }
 
-                  // For assistant messages with save button, wrap with MessageWithSave
-                  if (message.role === 'assistant' && (showSaveButton || saveableResult)) {
-                    return (
-                      <MessageWithSave
-                        key={message.id}
-                        messageId={message.id}
-                        saveableResult={saveableResult}
-                        showSaveButton={showSaveButton}
-                        isSaving={isSaving}
-                        onSave={(result) => {
-                          spaceChatEnhanced.startSaving();
-                          // Open save overlay with prefilled data
-                          // AI-generated prefill takes priority, fallback to extracted content
-                          const prefill = result.prefill || {};
-                          const kind = saveableTypeToOverlayKind(result.suggestedType);
-                          // Notes/Logs: full assistant response; Todos/Habits: AI-summarized content
-                          const note = kind === 'note' ? message.content : prefill.content || '';
-                          openUnifiedFromChat(
-                            kind,
-                            {
-                              // AI title first, fallback to smartTitle extraction
-                              title: prefill.title || smartTitle(message.content),
-                              // Notes: full response; Todos/Habits: AI summary (or empty)
-                              note,
-                              // Pass tags from AI, or empty array to avoid stale tags
-                              tags: prefill.tags || [],
-                              // Habit-specific fields
-                              frequency: prefill.frequency ?? undefined,
-                              frequencyValue: prefill.frequencyValue,
-                              // Todo-specific fields
-                              dueDate: prefill.dueDate ?? undefined,
-                              // Enable preview mode for logs
-                              fromChat: true,
-                            },
-                            {
-                              lane: 'space_chat',
-                              spaceId: spaceId || null,
-                              messageId: message.id,
-                            },
-                            overlayController,
-                          );
-                          // Track save completion
-                          spaceChatEnhanced.finishSaving();
-                          spaceChatEnhanced.markSaveTapped();
-                        }}
-                        onDismiss={() => {
-                          spaceChatEnhanced.dismissSaveButton();
-                          spaceChatEnhanced.markSaveDismissed();
-                        }}
-                      >
-                        {messageBubble}
-                      </MessageWithSave>
-                    );
-                  }
+              // NOTE: SavedItemCard rendering removed - now rendered inline in ChatBubble
+              // via message.saveable property
 
-                  return messageBubble;
-                })}
+              // Phase 11.3/11.5: Skip action confirmations - they're rendered outside FlatList
+              // CRITICAL FIX: Check for system role with type 'action-confirmation' in metadata
+              if (
+                message.role === 'system' &&
+                message.metadata_json?.type === 'action-confirmation'
+              ) {
+                // Don't render inside FlatList - will be rendered as overlay below
+                return null;
+              }
 
-                {/* Typing indicator - Phase 10.6 */}
-                {mascot.state === 'thinking' && (
-                  <View style={styles.typingContainer}>
-                    <ChatThinkingIndicator visible variant="both" />
-                  </View>
-                )}
-              </>
-            )}
-          </ScrollView>
+              // NOTE: buttonState variables removed - saveable card now uses message.saveable
+              // NOTE: handleBubbleSave moved to useCallback above renderItem to prevent re-creation
+
+              // Render message bubble with inline saveable card support
+              const messageBubble = (
+                <View style={styles.messageContainer}>
+                  <ChatBubble
+                    message={message}
+                    testID={`chat-bubble-${message.id}`}
+                    onSavePress={() => handleBubbleSave(message)}
+                    onDismissSaveable={handleDismissSaveable}
+                  />
+                </View>
+              );
+
+              // NOTE: MessageWithSave wrapper removed - saveable card is now rendered
+              // inline within ChatBubble via message.saveable property
+
+              return messageBubble;
+            }}
+          />
 
           {/* Persistent Action Bar removed */}
 
           {/* Chat Composer */}
-          <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />
-
-          {/* Phase 11.7: Calm Action Bar with centered + button */}
-          <ChatActionBar
-            onAddPress={() => {
-              overlayController.openCreate({ spaceId: spaceId ?? undefined });
-            }}
-            lastCreatedItem={null}
-          />
+          <View style={{ paddingBottom: Math.max(insets.bottom, 8) }}>
+            <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />
+          </View>
 
           {ActionToast}
         </KeyboardAvoidingView>
 
-        {/* Unified Create Overlay for Chat Conversions */}
-        {overlayController.state.visible &&
-          (overlayController.state.mode === 'create' ||
-            overlayController.state.mode === 'edit') && (
-            <UnifiedCreateOverlay
-              visible={overlayController.state.visible}
-              mode={overlayController.state.mode}
-              initialEntity={overlayController.state.initialEntity}
-              initialSpaceId={overlayController.state.initialSpaceId}
-              conversionMeta={overlayController.state.conversionMeta}
-              onClose={overlayController.close}
-              onSaved={async (result) => {
-                if (__DEV__) {
-                  console.log('[ChatThreadScreen] onSaved called', {
-                    resultId: result?.id,
-                    resultType: result?.type,
-                    resultSpaceId: (result as any)?.space_id,
-                    spaceId,
-                  });
-                }
-                // Get the full record for tap-to-edit
-                const record = await repo.getById(result.id);
-
-                // NOTE: Toast removed - SavedItemCard is now added via entity:created event listener
-                // This provides inline chat feedback instead of floating toast
-
-                // Remove the action confirmation toast after successful creation
-                const actionConfirmation = messages.find(
-                  (msg) => msg.metadata_json?.type === 'action-confirmation',
-                );
-                if (actionConfirmation) {
-                  console.log(
-                    '[Toast] Removing action confirmation after save:',
-                    actionConfirmation.id,
-                  );
-                  removeMessage(actionConfirmation.id);
-                }
-
-                // Phase 11.6: Add entry card to chat thread
-                try {
-                  // Fetch the created record
-                  const record = await repo.getById(result.id);
-
-                  if (
-                    record &&
-                    (result.type === 'note' || result.type === 'todo' || result.type === 'habit')
-                  ) {
-                    // Helper function to get continuation message based on type
-                    const getContinuationMessage = (
-                      type: 'habit' | 'todo' | 'note',
-                      itemName?: string,
-                    ): string => {
-                      switch (type) {
-                        case 'habit':
-                          return `Great! Your ${itemName || 'habit'} is set. What else would you like to work on?`;
-                        case 'todo':
-                          return 'Task added to your list. Anything else you need to get done?';
-                        case 'note':
-                          return "Got it! Note saved. What's next?";
-                        default:
-                          return 'Done! What would you like to do next?';
-                      }
-                    };
-
-                    // Add locked confirmation message for all types
-                    if (result.type === 'habit') {
-                      const habitRecord = record as any;
-                      await appendAssistantMessage('', {
-                        type: 'habit-locked',
-                        habitName: habitRecord.name || 'Habit',
-                        frequency: habitRecord.frequency || 'regularly',
-                        habitId: record.id,
-                        locked: true,
-                        itemType: 'habit',
-                      });
-
-                      // Add follow-up message after short delay
-                      setTimeout(async () => {
-                        try {
-                          await appendAssistantMessage(
-                            getContinuationMessage('habit', habitRecord.name),
-                          );
-                          console.log('[Chat] Follow-up message added after habit creation');
-                        } catch (err) {
-                          console.error('[Chat] Failed to add follow-up message:', err);
-                        }
-                      }, 1500);
-                    } else if (result.type === 'todo') {
-                      const todoRecord = record as any;
-                      await appendAssistantMessage('', {
-                        type: 'todo-locked',
-                        todoTitle: todoRecord.title || 'Task',
-                        dueDate: todoRecord.due_date || null,
-                        todoId: record.id,
-                        locked: true,
-                        itemType: 'todo',
-                      });
-
-                      // Add follow-up message after short delay
-                      setTimeout(async () => {
-                        try {
-                          await appendAssistantMessage(getContinuationMessage('todo'));
-                          console.log('[Chat] Follow-up message added after todo creation');
-                        } catch (err) {
-                          console.error('[Chat] Failed to add follow-up message:', err);
-                        }
-                      }, 1500);
-                    } else if (result.type === 'note') {
-                      const noteRecord = record as any;
-                      await appendAssistantMessage('', {
-                        type: 'note-locked',
-                        noteContent: noteRecord.content || noteRecord.title || 'Note',
-                        noteId: record.id,
-                        locked: true,
-                        itemType: 'note',
-                      });
-
-                      // Add follow-up message after short delay
-                      setTimeout(async () => {
-                        try {
-                          await appendAssistantMessage(getContinuationMessage('note'));
-                          console.log('[Chat] Follow-up message added after note creation');
-                        } catch (err) {
-                          console.error('[Chat] Failed to add follow-up message:', err);
-                        }
-                      }, 1500);
-                    }
-                  }
-                } catch (err) {
-                  console.error('[EntryCard] Failed to add entry card to chat:', err);
-                }
-              }}
-            />
-          )}
+        {/* Phase 12: UnifiedCreateOverlay removed - global OverlayHost handles saves,
+            and ChatThreadScreen listens to overlay saved events via addOverlaySavedListener */}
       </SafeAreaView>
     </MascotProvider>
   );
@@ -1268,25 +1249,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  headerRight: {
-    flexDirection: 'row',
+  headerTitleContainer: {
     alignItems: 'center',
-    gap: lightTokens.spacing[2],
+    flex: 1,
   },
   headerTitle: {
-    fontSize: lightTokens.typography.size.lg,
+    fontSize: 18,
     fontWeight: '600',
-    color: lightTokens.colors.charcoalInk,
+    color: '#222222',
+  },
+  headerUnderline: {
+    width: 40,
+    height: 3,
+    backgroundColor: '#E0C47A', // goldenPear
+    borderRadius: 2,
+    marginTop: 4,
+  },
+  headerRight: {
+    width: 44, // Match back button width for centering
+    alignItems: 'flex-end',
   },
   backButton: {
-    paddingVertical: lightTokens.spacing[2],
-    paddingHorizontal: lightTokens.spacing[2],
-    marginRight: lightTokens.spacing[3],
-  },
-  backButtonText: {
-    fontSize: lightTokens.typography.size.md,
-    color: lightTokens.colors.mossGreen,
-    fontWeight: '500',
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   messages: {
     flex: 1,
@@ -1295,6 +1282,10 @@ const styles = StyleSheet.create({
   messagesContent: {
     padding: lightTokens.spacing[4],
     paddingBottom: lightTokens.spacing[6],
+  },
+  emptyListContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   typingContainer: {
     alignSelf: 'flex-start',
@@ -1306,6 +1297,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 100, // Account for input field
     paddingHorizontal: 32,
+  },
+  emptyMascot: {
+    width: 140,
+    height: 140,
+    marginBottom: 24,
   },
   emptyTextContainer: {
     alignItems: 'center',
@@ -1332,59 +1328,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: lightTokens.colors.linenCream,
-  },
-  lockedHabit: {
-    backgroundColor: '#E8F5E9', // Light green background
-    borderLeftWidth: 4,
-    borderLeftColor: '#2E5540', // Moss Green
-    padding: 12,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    borderRadius: 8,
-  },
-  lockedTodo: {
-    backgroundColor: '#E3F2FD', // Light blue background
-    borderLeftWidth: 4,
-    borderLeftColor: '#1976D2', // Blue
-    padding: 12,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    borderRadius: 8,
-  },
-  lockedNote: {
-    backgroundColor: '#FFF9E6', // Light yellow background
-    borderLeftWidth: 4,
-    borderLeftColor: '#F9A825', // Amber
-    padding: 12,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    borderRadius: 8,
-  },
-  lockedPerson: {
-    backgroundColor: '#F3E5F5', // Light purple background
-    borderLeftWidth: 4,
-    borderLeftColor: '#7B1FA2', // Purple
-    padding: 12,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    borderRadius: 8,
-  },
-  lockedContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  lockIcon: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  lockedTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#2E5540', // Moss Green
-  },
-  lockedSubtext: {
-    fontSize: 13,
-    color: '#666',
-    marginTop: 2,
   },
 });

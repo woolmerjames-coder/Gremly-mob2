@@ -340,6 +340,15 @@ export interface SpaceChatMessage {
     [key: string]: any;
   } | null;
   created_at: string; // ISO 8601
+
+  // Saveable card data (attached to assistant messages)
+  saveable?: {
+    type: 'todo' | 'habit' | 'note';
+    title: string;
+    content?: string;
+    prefillData?: any;
+  } | null;
+  saveableDismissed?: boolean;
 }
 
 /**

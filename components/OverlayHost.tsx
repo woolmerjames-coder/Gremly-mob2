@@ -389,7 +389,12 @@ export const OverlayHost = () => {
 
   const handleSaved = React.useCallback(
     async (result: OverlaySavedPayload) => {
-      emitOverlaySaved(result);
+      // Phase 12: Include source_message_id for saveable card transformation
+      const payloadWithSource: OverlaySavedPayload = {
+        ...result,
+        sourceMessageId: conversionMeta?.source_message_id ?? null,
+      };
+      emitOverlaySaved(payloadWithSource);
       try {
         eventBus.emit('OverlaySaved', { id: result.id, type: (result as any).type });
       } catch (e) {
@@ -397,7 +402,7 @@ export const OverlayHost = () => {
       }
       close();
     },
-    [close],
+    [close, conversionMeta],
   );
 
   return (

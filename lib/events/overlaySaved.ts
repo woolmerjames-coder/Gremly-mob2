@@ -7,6 +7,8 @@ export type OverlaySavedPayload = {
     due_at?: string | null;
     [key: string]: any;
   };
+  // Phase 12: Source message ID for saveable card transformation
+  sourceMessageId?: string | null;
 };
 
 type Listener = (payload: OverlaySavedPayload) => void;

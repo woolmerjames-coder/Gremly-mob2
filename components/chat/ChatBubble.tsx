@@ -10,13 +10,19 @@ import { Text } from '../../ui/Text';
 import { SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
+import SaveButton from './SaveButton';
+import type { SaveableType } from '../../lib/chat/saveableTypes';
 
 interface ChatBubbleProps {
   message: SpaceChatMessage;
   testID?: string;
+  /** Called when user taps save on the saveable card */
+  onSavePress?: (saveable: NonNullable<SpaceChatMessage['saveable']>) => void;
+  /** Called when user dismisses the saveable card */
+  onDismissSaveable?: (messageId: string) => void;
 }
 
-export function ChatBubble({ message, testID }: ChatBubbleProps) {
+export function ChatBubble({ message, testID, onSavePress, onDismissSaveable }: ChatBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
 
@@ -41,6 +47,13 @@ export function ChatBubble({ message, testID }: ChatBubbleProps) {
   // Use regular View in tests, Animated.View in prod
   const ViewComponent = isTestEnv ? View : Animated.View;
 
+  // Map saveable type from message to SaveableType
+  const getSaveableType = (type: string): SaveableType => {
+    if (type === 'todo') return 'todo';
+    if (type === 'habit') return 'habit';
+    return 'log-general'; // 'note' maps to 'log-general'
+  };
+
   return (
     <ViewComponent
       entering={isUser ? userAnimation : assistantAnimation}
@@ -61,6 +74,19 @@ export function ChatBubble({ message, testID }: ChatBubbleProps) {
           <Text style={[styles.text, isUser && styles.userText]}>{message.content}</Text>
         )}
       </View>
+
+      {/* Saveable card - render if exists and not dismissed */}
+      {isAssistant && message.saveable && !message.saveableDismissed && (
+        <View style={styles.saveableCardContainer}>
+          <SaveButton
+            suggestedType={getSaveableType(message.saveable.type)}
+            onSave={() => onSavePress?.(message.saveable!)}
+            onDismiss={() => onDismissSaveable?.(message.id)}
+            visible={true}
+            disabled={false}
+          />
+        </View>
+      )}
     </ViewComponent>
   );
 }
@@ -99,6 +125,10 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     paddingLeft: 12,
     maxWidth: '95%',
+  },
+  saveableCardContainer: {
+    marginTop: 12,
+    alignItems: 'flex-start',
   },
   text: {
     fontSize: 16,

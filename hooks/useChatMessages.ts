@@ -50,6 +50,12 @@ export interface UseChatMessagesResult {
     text: string,
     metadata?: Record<string, unknown>,
     overrideChatId?: string,
+    saveable?: {
+      type: 'todo' | 'habit' | 'note';
+      title: string;
+      content?: string;
+      prefillData?: any;
+    } | null,
   ) => Promise<SpaceChatMessage | undefined>;
   appendActionConfirmation: (
     content: string,
@@ -64,6 +70,7 @@ export interface UseChatMessagesResult {
     entityType: 'note' | 'todo' | 'habit' | 'person',
   ) => Promise<SpaceChatMessage | undefined>;
   removeMessage: (messageId: string) => void;
+  updateMessage: (messageId: string, updates: Partial<SpaceChatMessage>) => void;
 }
 
 export function useChatMessages(
@@ -86,6 +93,17 @@ export function useChatMessages(
   // Track if we've already set the chat title from first message
   const titleSetRef = useRef(false);
 
+  // CRITICAL: Prevent duplicate messages during send/append operations
+  // When isAddingMessageRef is true, refresh() will skip to avoid race conditions
+  // where a database refresh overwrites in-flight optimistic UI updates
+  const isAddingMessageRef = useRef(false);
+
+  // Preserve saveable data across refresh cycles
+  // Maps message ID -> { saveable, saveableDismissed }, so refresh doesn't lose detection results
+  const saveableDataRef = useRef<Map<string, { saveable: any; saveableDismissed: boolean }>>(
+    new Map(),
+  );
+
   const { user } = useAuth();
 
   const messageRepo = useMemo(() => new SupabaseSpaceChatMessageRepo(user?.id), [user?.id]);
@@ -101,6 +119,14 @@ export function useChatMessages(
   }, [chatId]);
 
   const refresh = useCallback(async () => {
+    // Skip refresh during active send/append operations to prevent race conditions
+    if (isAddingMessageRef.current) {
+      if (__DEV__) {
+        console.log('[useChatMessages] Skipping refresh - message operation in progress');
+      }
+      return;
+    }
+
     if (!currentChatId || !spaceId || !user?.id) {
       setLoading(false);
       return;
@@ -110,7 +136,21 @@ export function useChatMessages(
       setLoading(true);
       setError(null);
       const fetchedMessages = await messageRepo.list(currentChatId);
-      setMessages(fetchedMessages);
+
+      // Restore saveable data that was preserved across refresh
+      const messagesWithSaveable = fetchedMessages.map((msg) => {
+        const savedData = saveableDataRef.current.get(msg.id);
+        if (savedData) {
+          return {
+            ...msg,
+            saveable: savedData.saveable,
+            saveableDismissed: savedData.saveableDismissed,
+          };
+        }
+        return msg;
+      });
+
+      setMessages(messagesWithSaveable);
     } catch (err) {
       console.error('Failed to refresh chat messages:', err);
       setError(err instanceof Error ? err.message : 'Failed to load messages');
@@ -126,6 +166,9 @@ export function useChatMessages(
   const sendUserMessage = useCallback(
     async (text: string): Promise<string | undefined> => {
       if (!text.trim() || !spaceId || !user?.id) return undefined;
+
+      // Set flag to prevent refresh() from overwriting our optimistic update
+      isAddingMessageRef.current = true;
 
       try {
         setError(null);
@@ -183,6 +226,9 @@ export function useChatMessages(
         console.error('Failed to send user message:', err);
         setError(err instanceof Error ? err.message : 'Failed to send message');
         throw err; // Re-throw so caller can handle
+      } finally {
+        // Always clear the flag, even on error
+        isAddingMessageRef.current = false;
       }
     },
     [currentChatId, spaceId, user?.id, messageRepo, chatRepo, messages],
@@ -193,15 +239,36 @@ export function useChatMessages(
       text: string,
       metadata?: Record<string, unknown>,
       overrideChatId?: string,
+      saveable?: {
+        type: 'todo' | 'habit' | 'note';
+        title: string;
+        content?: string;
+        prefillData?: any;
+      } | null,
     ): Promise<SpaceChatMessage | undefined> => {
+      console.log('[useChatMessages] appendAssistantMessage called', {
+        text: text.substring(0, 50),
+        metadata,
+        targetChatId: overrideChatId || currentChatIdRef.current || currentChatId,
+      });
       // Priority: overrideChatId > ref (sync) > state (may be stale)
       const targetChatId = overrideChatId || currentChatIdRef.current || currentChatId;
-      if (!text.trim() || !targetChatId || !spaceId || !user?.id) {
+      // Allow empty text if metadata is provided (for locked cards, confirmations)
+      const hasContent = text.trim() || (metadata && Object.keys(metadata).length > 0);
+      if (!hasContent || !targetChatId || !spaceId || !user?.id) {
         if (!targetChatId) {
           console.error('[useChatMessages] Cannot append assistant message - no chat ID');
         }
+        if (!hasContent) {
+          console.error(
+            '[useChatMessages] Cannot append assistant message - no content or metadata',
+          );
+        }
         return undefined;
       }
+
+      // Set flag to prevent refresh() from overwriting our optimistic update
+      isAddingMessageRef.current = true;
 
       try {
         setError(null);
@@ -210,23 +277,53 @@ export function useChatMessages(
           chat_id: targetChatId,
           space_id: spaceId,
           role: 'assistant',
-          content: text.trim(),
+          content: text.trim() || `[${(metadata as any)?.type || 'system'}]`,
           metadata_json: metadata || null,
         };
 
         const newMessage = await messageRepo.append(input);
-        setMessages((prev) => [...prev, newMessage]);
+
+        // Attach saveable data to message (local state only, not persisted)
+        const messageWithSaveable: SpaceChatMessage = {
+          ...newMessage,
+          saveable: saveable || null,
+          saveableDismissed: false,
+        };
+
+        // Preserve saveable data in ref so refresh() can restore it
+        if (saveable) {
+          saveableDataRef.current.set(newMessage.id, { saveable, saveableDismissed: false });
+        }
+
+        setMessages((prev) => {
+          // Prevent duplicate: check if message already exists
+          const exists = prev.some((m) => m.id === newMessage.id);
+          if (exists) {
+            if (__DEV__) {
+              console.log(
+                '[useChatMessages] Preventing duplicate assistant message:',
+                newMessage.id,
+              );
+            }
+            return prev;
+          }
+          console.log('[useChatMessages] Adding new message to state:', newMessage.id, metadata);
+          return [...prev, messageWithSaveable];
+        });
 
         // Update chat's last message snippet
         await chatRepo.update(targetChatId, {
           last_message_snippet: text.trim(),
         });
 
-        return newMessage;
+        return messageWithSaveable;
       } catch (err) {
         console.error('Failed to append assistant message:', err);
         setError(err instanceof Error ? err.message : 'Failed to append assistant message');
         throw err;
+      } finally {
+        // Always clear the flag, even on error
+        isAddingMessageRef.current = false;
       }
     },
     [currentChatId, spaceId, user?.id, messageRepo, chatRepo],
@@ -310,7 +407,25 @@ export function useChatMessages(
   );
 
   const removeMessage = useCallback((messageId: string) => {
+    // Clean up saveable data when message is removed
+    saveableDataRef.current.delete(messageId);
     setMessages((prev) => prev.filter((m) => m.id !== messageId));
+  }, []);
+
+  const updateMessage = useCallback((messageId: string, updates: Partial<SpaceChatMessage>) => {
+    // If updating saveable or saveableDismissed, update the ref so refresh() preserves it
+    if ('saveable' in updates || 'saveableDismissed' in updates) {
+      const existing = saveableDataRef.current.get(messageId);
+      saveableDataRef.current.set(messageId, {
+        saveable: 'saveable' in updates ? updates.saveable : existing?.saveable,
+        saveableDismissed:
+          'saveableDismissed' in updates
+            ? updates.saveableDismissed!
+            : (existing?.saveableDismissed ?? false),
+      });
+    }
+
+    setMessages((prev) => prev.map((msg) => (msg.id === messageId ? { ...msg, ...updates } : msg)));
   }, []);
 
   /**
@@ -403,5 +518,6 @@ export function useChatMessages(
     appendEntryCard,
     appendSavedItemCard,
     removeMessage,
+    updateMessage,
   };
 }
