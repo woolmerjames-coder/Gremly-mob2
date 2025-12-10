@@ -8,7 +8,7 @@
  * Now integrated with message persistence + new UI components
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -67,6 +67,14 @@ import { useSpaceChatEnhanced } from '../../hooks/useSpaceChatEnhanced';
 import { type ChatMessageForResolution } from '../../lib/chat/thisResolver';
 import MessageWithSave from '../../components/chat/MessageWithSave';
 import { eventBus } from '../../lib/events/EventBus';
+import { buildSpaceContext, type SpaceContext } from '../../lib/chat/buildSpaceContext';
+import { useSpaceMilestone } from '../../hooks/useSpaceMilestone';
+import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
+import {
+  listTodosForSpace,
+  listHabitsForSpace,
+  listNotesForSpace,
+} from '../../lib/selectors/spaceSelectors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
@@ -86,6 +94,58 @@ export default function ChatThreadScreen({ route }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [spaceName, setSpaceName] = useState<string | null>(null);
+
+  // Fetch space aggregate (items) and milestone for space context
+  const spaceAggregate = useSpaceAggregate(spaceId);
+  const { milestone, meta, countdown } = useSpaceMilestone(spaceId);
+
+  // Build space context for AI
+  const spaceContext = useMemo(() => {
+    if (!spaceAggregate.space) return undefined;
+    const todos = listTodosForSpace(spaceAggregate.items, spaceId);
+    const habits = listHabitsForSpace(spaceAggregate.items, spaceId);
+    const notes = listNotesForSpace(spaceAggregate.items, spaceId);
+
+    // Map milestone to expected format (name falls back to title for legacy)
+    const milestoneName = milestone?.name || milestone?.title;
+    const milestoneData =
+      milestoneName && milestone?.date
+        ? {
+            name: milestoneName,
+            target_date: milestone.date,
+            status: 'active',
+          }
+        : null;
+
+    // Map meta fields (success_criteria -> why, other_context -> notes)
+    const metaData = meta
+      ? {
+          why: meta.success_criteria || undefined,
+          notes: meta.other_context || undefined,
+        }
+      : null;
+
+    // Map countdown (handle null days)
+    const countdownData =
+      countdown && countdown.days !== null
+        ? {
+            days: countdown.days,
+            isPast: countdown.isPast,
+          }
+        : null;
+
+    return (
+      buildSpaceContext({
+        space: spaceAggregate.space,
+        milestone: milestoneData,
+        meta: metaData,
+        countdown: countdownData,
+        todos: todos.map((t) => ({ completed_at: t.completed_at ?? null })),
+        habits,
+        notes,
+      }) ?? undefined
+    );
+  }, [spaceAggregate.space, spaceAggregate.items, spaceId, milestone, meta, countdown]);
 
   // Phase 10.7D: Debounce timer ref
   const sendDebounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -134,6 +194,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const spaceChatEnhanced = useSpaceChatEnhanced({
     spaceId,
     chatId: currentChatId ?? undefined,
+    spaceContext,
   });
 
   // Back button handler

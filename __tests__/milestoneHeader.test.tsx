@@ -22,6 +22,7 @@ describe('MilestoneHeader', () => {
     onNudgePress: jest.fn(),
     onSettingsPress: jest.fn(),
     onBackPress: jest.fn(),
+    onMilestonePress: jest.fn(),
   };
 
   beforeEach(() => {
