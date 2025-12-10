@@ -28,6 +28,7 @@ interface MilestoneHeaderProps {
   onAddPress: () => void;
   onPinnedPress: () => void;
   onNudgePress: () => void;
+  onMilestonePress: () => void;
   onSettingsPress: () => void;
   onBackPress: () => void;
 }
@@ -41,6 +42,7 @@ export function MilestoneHeader({
   onAddPress,
   onPinnedPress,
   onNudgePress,
+  onMilestonePress,
   onSettingsPress,
   onBackPress,
 }: MilestoneHeaderProps) {
@@ -95,8 +97,13 @@ export function MilestoneHeader({
         {/* Milestone or Nudge */}
         <View style={styles.milestoneSection}>
           {hasMilestone ? (
-            // Milestone display
-            <>
+            // Milestone display - tappable to edit
+            <Pressable
+              onPress={onMilestonePress}
+              accessibilityRole="button"
+              accessibilityLabel="Edit goal"
+              testID="header-milestone-button"
+            >
               <Text style={styles.milestoneName} numberOfLines={2}>
                 {milestone.name}
               </Text>
@@ -117,7 +124,7 @@ export function MilestoneHeader({
                   )}
                 </Text>
               )}
-            </>
+            </Pressable>
           ) : (
             // Nudge to set a goal
             <Pressable

@@ -101,6 +101,7 @@ import {
 } from '../../components/spaces/sections';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
+import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -614,6 +615,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const localUncheckedHabitIdsRef = useRef<Set<string>>(new Set()); // Track habits user unchecked this session
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
+  const [showMilestoneModal, setShowMilestoneModal] = useState(false);
 
   // Handler to change filter and collapse list
   const handleFilterChange = useCallback((newFilter: FilterTab) => {
@@ -1240,6 +1242,60 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     setShowPinnedModal(false);
   }, []);
 
+  const handleMilestonePress = useCallback(() => {
+    setShowMilestoneModal(true);
+  }, []);
+
+  const handleMilestoneModalClose = useCallback(() => {
+    setShowMilestoneModal(false);
+  }, []);
+
+  const handleMilestoneSave = useCallback(
+    async (name: string, targetDate: Date) => {
+      if (!spaceId) return;
+
+      console.log('[SpaceHome] Saving milestone:', name, targetDate);
+
+      try {
+        if (milestone) {
+          // Update existing
+          await repo.updateMilestone(milestone.id, {
+            name,
+            date: targetDate.toISOString().split('T')[0],
+          });
+        } else {
+          // Create new
+          await repo.createMilestone(spaceId, {
+            name,
+            date: targetDate.toISOString().split('T')[0],
+            is_active: true,
+          });
+        }
+
+        // Refresh milestone data
+        refetchMilestone();
+      } catch (error) {
+        console.error('[SpaceHome] Milestone save error:', error);
+        throw error;
+      }
+    },
+    [spaceId, milestone, repo, refetchMilestone],
+  );
+
+  const handleMilestoneRemove = useCallback(async () => {
+    if (!milestone) return;
+
+    console.log('[SpaceHome] Removing milestone:', milestone.id);
+
+    try {
+      await repo.deleteMilestone(milestone.id);
+      refetchMilestone();
+    } catch (error) {
+      console.error('[SpaceHome] Milestone remove error:', error);
+      throw error;
+    }
+  }, [milestone, repo, refetchMilestone]);
+
   const handlePinnedItemPress = useCallback(
     (item: any, type: 'todo' | 'habit' | 'note') => {
       setShowPinnedModal(false);
@@ -1549,7 +1605,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onGremlyPress={handleGremlyPress}
               onAddPress={() => setShowQuickAddModal(true)}
               onPinnedPress={handlePinnedPress}
-              onNudgePress={handleNudgePress}
+              onNudgePress={handleMilestonePress}
+              onMilestonePress={handleMilestonePress}
               onSettingsPress={handleSettingsPress}
               onBackPress={() => navigation.goBack()}
             />
@@ -1761,6 +1818,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onClose={handlePinnedModalClose}
           onItemPress={handlePinnedItemPress}
           onUnpin={refetchPinned}
+        />
+
+        {/* Milestone Entry Modal */}
+        <MilestoneEntryModal
+          visible={showMilestoneModal}
+          onClose={handleMilestoneModalClose}
+          onSave={handleMilestoneSave}
+          onRemove={milestone ? handleMilestoneRemove : undefined}
+          initialName={milestone?.name}
+          initialDate={milestone?.date ? new Date(milestone.date) : undefined}
+          isEditing={!!milestone}
         />
       </View>
     );
