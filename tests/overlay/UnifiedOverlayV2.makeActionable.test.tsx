@@ -176,38 +176,38 @@ describe('Favorite Toggle', () => {
 
   describe('star icon visibility', () => {
     it('shows star when entity has id (via fullEntity)', () => {
-      const fullEntity = { id: 'note-123' };
-      const initialEntity = null;
+      const fullEntity = { id: 'note-123' } as { id?: string } | null;
+      const initialEntity = null as { id?: string } | null;
 
       // Logic: show star if fullEntity?.id || initialEntity?.id exists
-      const shouldShowStar = !!(fullEntity?.id || (initialEntity as any)?.id);
+      const shouldShowStar = !!(fullEntity?.id || initialEntity?.id);
 
       expect(shouldShowStar).toBe(true);
     });
 
     it('shows star when entity has id (via initialEntity fallback)', () => {
-      const fullEntity = null;
-      const initialEntity = { id: 'note-456' };
+      const fullEntity = null as { id?: string } | null;
+      const initialEntity = { id: 'note-456' } as { id?: string } | null;
 
-      const shouldShowStar = !!(fullEntity?.id || (initialEntity as any)?.id);
+      const shouldShowStar = !!(fullEntity?.id || initialEntity?.id);
 
       expect(shouldShowStar).toBe(true);
     });
 
     it('hides star when no entity id available', () => {
-      const fullEntity = null;
-      const initialEntity = null;
+      const fullEntity = null as { id?: string } | null;
+      const initialEntity = null as { id?: string } | null;
 
-      const shouldShowStar = !!(fullEntity?.id || (initialEntity as any)?.id);
+      const shouldShowStar = !!(fullEntity?.id || initialEntity?.id);
 
       expect(shouldShowStar).toBe(false);
     });
 
     it('hides star in create mode (no existing entity)', () => {
-      const fullEntity = null;
-      const initialEntity = {}; // No id property
+      const fullEntity = null as { id?: string } | null;
+      const initialEntity = {} as { id?: string } | null; // No id property
 
-      const shouldShowStar = !!(fullEntity?.id || (initialEntity as any)?.id);
+      const shouldShowStar = !!(fullEntity?.id || initialEntity?.id);
 
       expect(shouldShowStar).toBe(false);
     });
