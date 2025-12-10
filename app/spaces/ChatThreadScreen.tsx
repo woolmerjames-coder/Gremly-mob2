@@ -147,6 +147,20 @@ export default function ChatThreadScreen({ route }: Props) {
     );
   }, [spaceAggregate.space, spaceAggregate.items, spaceId, milestone, meta, countdown]);
 
+  // Debug: Log space context for AI
+  useEffect(() => {
+    if (__DEV__ && spaceContext) {
+      console.log('[ChatThread] Space context for AI:', {
+        spaceName: spaceContext.spaceName,
+        hasMilestone: !!spaceContext.milestone,
+        milestoneName: spaceContext.milestone?.name,
+        daysRemaining: spaceContext.milestone?.daysRemaining,
+        hasWhy: !!spaceContext.meta?.why,
+        summary: spaceContext.summary,
+      });
+    }
+  }, [spaceContext]);
+
   // Phase 10.7D: Debounce timer ref
   const sendDebounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
@@ -788,6 +802,16 @@ export default function ChatThreadScreen({ route }: Props) {
               </View>
             ) : (
               <>
+                {/* Debug: Check for duplicate message IDs */}
+                {__DEV__ &&
+                  (() => {
+                    const ids = messages.map((m) => m.id);
+                    const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
+                    if (duplicates.length > 0) {
+                      console.warn('[ChatThread] Duplicate message IDs found:', duplicates);
+                    }
+                    return null;
+                  })()}
                 {messages.map((message) => {
                   // Helper function to get icon for each type
                   const getIconForType = (type: string): string => {

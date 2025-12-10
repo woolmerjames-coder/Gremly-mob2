@@ -4,7 +4,7 @@
  * Provides Gremly with awareness of:
  * - Space goal/milestone
  * - User's "why" (from space_meta)
- * - Items in the Space
+ * - Summary counts
  */
 
 export interface SpaceContext {
@@ -70,32 +70,36 @@ export function buildSpaceContext(params: {
 export function formatSpaceContextForPrompt(context: SpaceContext): string {
   const lines: string[] = [];
 
-  lines.push(`## Space: ${context.spaceName}`);
+  lines.push(`Space: ${context.spaceName}`);
 
   if (context.milestone) {
-    const { name, targetDate, daysRemaining, isPast } = context.milestone;
+    const { name, daysRemaining, isPast } = context.milestone;
     if (isPast) {
-      lines.push(`Goal: "${name}" (target was ${targetDate}, ${Math.abs(daysRemaining)} days ago)`);
+      lines.push(`Goal: "${name}" (${Math.abs(daysRemaining)} days past target)`);
     } else if (daysRemaining === 0) {
-      lines.push(`Goal: "${name}" (target is TODAY!)`);
+      lines.push(`Goal: "${name}" (target is today)`);
     } else {
-      lines.push(`Goal: "${name}" (${daysRemaining} days remaining, target: ${targetDate})`);
+      lines.push(`Goal: "${name}" (${daysRemaining} days remaining)`);
     }
   }
 
   if (context.meta?.why) {
-    lines.push(`Why this matters: ${context.meta.why}`);
+    lines.push(`Why: ${context.meta.why}`);
   }
 
-  if (context.meta?.notes) {
-    lines.push(`Notes: ${context.meta.notes}`);
+  const { todoCount, completedTodoCount, habitCount } = context.summary;
+  if (todoCount > 0) {
+    lines.push(`${todoCount - completedTodoCount} open todos, ${completedTodoCount} completed`);
+  }
+  if (habitCount > 0) {
+    lines.push(`${habitCount} habit${habitCount > 1 ? 's' : ''} being tracked`);
   }
 
-  const { todoCount, completedTodoCount, habitCount, noteCount } = context.summary;
-  const progress =
-    todoCount > 0 ? `${completedTodoCount}/${todoCount} todos complete` : 'No todos yet';
-
-  lines.push(`Progress: ${progress}, ${habitCount} habits, ${noteCount} notes/guides`);
+  // Guardrail
+  lines.push('');
+  lines.push(
+    'Use this only for general awareness. Do not make suggestions based on the Space topic alone.',
+  );
 
   return lines.join('\n');
 }
