@@ -12,7 +12,7 @@ module.exports = {
     '^.+\\.(js|jsx|ts|tsx)$': 'babel-jest',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(nativewind|react-native|@react-native|@react-native-community|react-native-.*|@react-navigation/.*|expo|expo-.*)/)',
+    'node_modules/(?!(nativewind|react-native|@react-native|@react-native-community|react-native-.*|@react-navigation/.*|expo|expo-.*|nanoid)/)',
   ],
   setupFiles: ['<rootDir>/jest-setup.ts', 'react-native-gesture-handler/jestSetup'],
   setupFilesAfterEnv: [

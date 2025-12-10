@@ -1,5 +1,10 @@
 /**
  * Unit tests for SaveButton component
+ *
+ * Note: SaveButton was updated to use Lucide icons and simplified labels:
+ * - todo: "Save as To-Do"
+ * - habit: "Save as Habit"
+ * - log-*: "Save for Later"
  */
 
 import React from 'react';
@@ -31,42 +36,47 @@ describe('SaveButton', () => {
 
     test('shows correct label for log-general', () => {
       const { getByText } = render(<SaveButton {...defaultProps} suggestedType="log-general" />);
-      expect(getByText(/note/i)).toBeTruthy();
+      expect(getByText(/save for later/i)).toBeTruthy();
     });
 
     test('shows correct label for todo', () => {
       const { getByText } = render(<SaveButton {...defaultProps} suggestedType="todo" />);
-      expect(getByText(/task/i)).toBeTruthy();
+      expect(getByText(/save as to-do/i)).toBeTruthy();
     });
 
     test('shows correct label for habit', () => {
       const { getByText } = render(<SaveButton {...defaultProps} suggestedType="habit" />);
-      expect(getByText(/habit/i)).toBeTruthy();
+      expect(getByText(/save as habit/i)).toBeTruthy();
     });
 
     test('shows correct label for log-list', () => {
       const { getByText } = render(<SaveButton {...defaultProps} suggestedType="log-list" />);
-      expect(getByText(/list/i)).toBeTruthy();
+      expect(getByText(/save for later/i)).toBeTruthy();
     });
 
     test('shows correct label for log-idea', () => {
       const { getByText } = render(<SaveButton {...defaultProps} suggestedType="log-idea" />);
-      expect(getByText(/idea/i)).toBeTruthy();
+      expect(getByText(/save for later/i)).toBeTruthy();
     });
 
-    test('shows correct emoji for todo', () => {
+    // Icons are now Lucide components (CheckSquare, Repeat, Bookmark)
+    // Instead of emojis, we verify the labels are correct
+    test('renders todo with appropriate UI', () => {
       const { getByText } = render(<SaveButton {...defaultProps} suggestedType="todo" />);
-      expect(getByText('📋')).toBeTruthy();
+      expect(getByText(/save as to-do/i)).toBeTruthy();
+      expect(getByText('Save')).toBeTruthy();
     });
 
-    test('shows correct emoji for habit', () => {
+    test('renders habit with appropriate UI', () => {
       const { getByText } = render(<SaveButton {...defaultProps} suggestedType="habit" />);
-      expect(getByText('🔁')).toBeTruthy();
+      expect(getByText(/save as habit/i)).toBeTruthy();
+      expect(getByText('Save')).toBeTruthy();
     });
 
-    test('shows correct emoji for log-idea', () => {
+    test('renders log-idea with appropriate UI', () => {
       const { getByText } = render(<SaveButton {...defaultProps} suggestedType="log-idea" />);
-      expect(getByText('💡')).toBeTruthy();
+      expect(getByText(/save for later/i)).toBeTruthy();
+      expect(getByText('Save')).toBeTruthy();
     });
   });
 
@@ -115,16 +125,16 @@ describe('SaveButton', () => {
       expect(buttons.length).toBeGreaterThanOrEqual(1);
     });
 
-    test('has accessibility label for save action', () => {
+    test('has accessibility label for save action (log-general)', () => {
       const { getByLabelText } = render(
         <SaveButton {...defaultProps} suggestedType="log-general" />,
       );
-      expect(getByLabelText(/save as note/i)).toBeTruthy();
+      expect(getByLabelText(/save for later/i)).toBeTruthy();
     });
 
     test('has accessibility label for todo type', () => {
       const { getByLabelText } = render(<SaveButton {...defaultProps} suggestedType="todo" />);
-      expect(getByLabelText(/save as task/i)).toBeTruthy();
+      expect(getByLabelText(/save as to-do/i)).toBeTruthy();
     });
 
     test('has accessibility label for habit type', () => {
@@ -139,7 +149,7 @@ describe('SaveButton', () => {
 
     test('indicates disabled state for accessibility', () => {
       const { getByLabelText } = render(<SaveButton {...defaultProps} disabled={true} />);
-      const saveButton = getByLabelText(/save as note/i);
+      const saveButton = getByLabelText(/save for later/i);
       expect(saveButton.props.accessibilityState?.disabled).toBe(true);
     });
   });
