@@ -3,7 +3,7 @@
  * Header + context + summary + upcoming + progress + tabs (compact)
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useReducer } from 'react';
 import {
   View,
   ScrollView,
@@ -93,6 +93,12 @@ import {
   EntityCard,
   type EntityType,
 } from '../../components/shared';
+// Phase 4: Content sections (aliased to avoid conflict with local legacy sections)
+import {
+  TodoSection as TodoSectionV2,
+  HabitsSection as HabitsSectionV2,
+  GuidesLogsSection,
+} from '../../components/spaces/sections';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -589,15 +595,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showNotepad, setShowNotepad] = useState(false);
   const [showPeople, setShowPeople] = useState(false);
 
-  // NEW: Top-level view toggle (Actions vs Chats)
+  // Phase 4: Keep spaceView for v22 backwards compatibility, but v33 uses sections
   type SpaceViewMode = 'actions' | 'chats';
   const [spaceView, setSpaceView] = useState<SpaceViewMode>('actions');
 
-  // NEW: Filter bar state
+  // Filter bar state (legacy - kept for v22)
   const [filter, setFilter] = useState<FilterTab>('all');
 
   // Expanded state for "View more" button
   const [expanded, setExpanded] = useState(false);
+
+  // Phase 12: Optimistic completion tracking (useRef persists across aggregate refreshes)
+  const localCompletedIdsRef = useRef<Set<string>>(new Set());
+  const localLoggedHabitIdsRef = useRef<Set<string>>(new Set()); // Track optimistically logged habits
+  const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
 
   // Handler to change filter and collapse list
   const handleFilterChange = useCallback((newFilter: FilterTab) => {
@@ -675,6 +686,69 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     };
   }, [items, spaceId, filter, optimisticQuickAdd, expanded]);
 
+  // Phase 4: Section data for new layout with optimistic completion
+  const todosForSpace = useMemo(() => {
+    const allTodos = listTodosForSpace(items, spaceId);
+    // Apply optimistic completion state from ref - show ALL todos (completed ones at bottom)
+    const withOptimistic = allTodos.map((todo: any) => {
+      const locallyToggled = localCompletedIdsRef.current.has(todo.id);
+      const wasCompleted = !!todo.completed_at;
+      // XOR: if locally toggled, flip the completion state
+      const isCompleted = locallyToggled ? !wasCompleted : wasCompleted;
+      return {
+        ...todo,
+        completed_at: isCompleted ? todo.completed_at || new Date().toISOString() : null,
+      };
+    });
+    // Debug logging
+    console.log(
+      '[SpaceHome] todosForSpace - all:',
+      allTodos.length,
+      'localCompletedIds:',
+      localCompletedIdsRef.current.size,
+      'optimisticVersion:',
+      optimisticVersion,
+    );
+    return withOptimistic;
+  }, [items, spaceId, optimisticVersion]); // optimisticVersion triggers recalc on forceUpdate
+
+  const habitsForSpace = useMemo(() => {
+    return listHabitsForSpace(items, spaceId);
+  }, [items, spaceId]);
+
+  const notesForSpace = useMemo(() => {
+    return listNotesForSpace(items, spaceId).filter((n: any) => !n.is_list && n.subtype !== 'list');
+  }, [items, spaceId]);
+
+  // Phase 4: Streak map from weekly habit data
+  const streakMap = useMemo(() => {
+    const map = new Map<string, number>();
+    (weekly?.habits || []).forEach((h: { id: string; dayStreak: number }) => {
+      if (h.dayStreak !== undefined && h.dayStreak > 0) {
+        map.set(h.id, h.dayStreak);
+      }
+    });
+    return map;
+  }, [weekly]);
+
+  // Phase 4: Transform weeklyById to match HabitProgress interface with optimistic updates
+  const habitProgressMap = useMemo(() => {
+    const map = new Map<string, { done: number; target: number }>();
+    weeklyById.forEach((progress, id) => {
+      const locallyLogged = localLoggedHabitIdsRef.current.has(id);
+      // If locally logged, add 1 to done count
+      const done = locallyLogged ? progress.doneCount + 1 : progress.doneCount;
+      map.set(id, { done, target: progress.target });
+    });
+    // For habits not in weeklyById but locally logged, add them with done=1, target=1
+    localLoggedHabitIdsRef.current.forEach((id) => {
+      if (!map.has(id)) {
+        map.set(id, { done: 1, target: 1 });
+      }
+    });
+    return map;
+  }, [weeklyById, optimisticVersion]); // optimisticVersion triggers recalc
+
   // Helper to determine EntityCard type from record
   const getEntityType = useCallback((record: any): EntityType => {
     if (record.type === 'todo') return 'todo';
@@ -694,36 +768,65 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [overlay, spaceId],
   );
 
-  // Handler for todo completion
+  // Handler for todo completion with optimistic update using ref
   const handleTodoComplete = useCallback(
     async (item: AppRecord) => {
-      console.log('[SpaceHome] Todo complete:', item.id);
+      const todoId = item.id;
+      console.log('[SpaceHome] Todo complete:', todoId);
+
+      // Toggle in our local ref (persists across re-renders)
+      if (localCompletedIdsRef.current.has(todoId)) {
+        localCompletedIdsRef.current.delete(todoId);
+      } else {
+        localCompletedIdsRef.current.add(todoId);
+      }
+
+      // Force re-render to show the change immediately
+      forceUpdate();
+
       try {
-        await repo.completeTodo(item.id, new Date().toISOString());
+        await repo.completeTodo(todoId, new Date().toISOString());
         setShowConfetti(true);
-        await reload();
+        // Don't clear local override - keep the optimistic state
+        // The local toggle will persist until user leaves the screen
       } catch (e) {
         console.warn('[SpaceHome] Failed to complete todo:', e);
+        // Revert optimistic update on error
+        if (localCompletedIdsRef.current.has(todoId)) {
+          localCompletedIdsRef.current.delete(todoId);
+        } else {
+          localCompletedIdsRef.current.add(todoId);
+        }
+        forceUpdate();
         Alert.alert('Error', 'Failed to complete todo');
       }
     },
-    [repo, reload],
+    [repo],
   );
 
-  // Handler for habit progress logging
+  // Handler for habit progress logging with optimistic update
   const handleHabitLogProgress = useCallback(
     async (item: AppRecord) => {
-      console.log('[SpaceHome] Habit log progress:', item.id);
+      const habitId = item.id;
+      console.log('[SpaceHome] Habit log progress:', habitId);
+
+      // Optimistic update - add to logged set
+      localLoggedHabitIdsRef.current.add(habitId);
+      forceUpdate();
+
       try {
-        await repo.logHabitProgress(item.id, new Date().toISOString());
+        await repo.logHabitProgress(habitId, new Date().toISOString());
         setShowConfetti(true);
-        await reload();
+        // Keep optimistic state - don't clear until user leaves
       } catch (e) {
         console.warn('[SpaceHome] Failed to log habit progress:', e);
+        // Revert on error
+        localLoggedHabitIdsRef.current.delete(habitId);
+        forceUpdate();
         Alert.alert('Error', 'Failed to log progress');
       }
     },
-    [repo, reload],
+    [repo],
   );
 
   // Phase 6: Space quick add hook
@@ -1301,57 +1404,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onBackPress={() => navigation.goBack()}
             />
 
-            {/* Top-level mode toggle: Actions vs Chats (Segmented Control) */}
-            <View style={sectionStyles.actionsChatsContainer}>
-              <View style={sectionStyles.actionsChatsSegmentedControl} testID="space-view-toggle">
-                {(['actions', 'chats'] as const).map((mode) => {
-                  const isActive = spaceView === mode;
-                  const label = mode === 'actions' ? 'Actions' : 'Chats';
-                  return (
-                    <Pressable
-                      key={mode}
-                      onPress={() => setSpaceView(mode)}
-                      style={sectionStyles.actionsChatsTab}
-                      testID={`space-view-toggle-${mode}`}
-                      accessibilityRole="tab"
-                      accessibilityLabel={label}
-                      accessibilityState={{ selected: isActive }}
-                    >
-                      <Text
-                        style={[
-                          sectionStyles.actionsChatsTabText,
-                          isActive
-                            ? sectionStyles.actionsChatsTabActive
-                            : sectionStyles.actionsChatsTabInactive,
-                        ]}
-                      >
-                        {label}
-                      </Text>
-                      {isActive && <View style={sectionStyles.actionsChatsUnderline} />}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Secondary category selector - only in Actions mode */}
-            {spaceView === 'actions' && (
-              <View
-                style={{
-                  paddingHorizontal: CONTENT_HORIZONTAL_PAD,
-                  marginBottom: 20,
-                }}
-              >
-                <SegmentedPills
-                  options={FILTER_OPTIONS}
-                  selected={filter}
-                  onSelect={handleFilterChange}
-                  variant="secondary"
-                  fullWidth
-                  testID="space-filter-bar"
-                />
-              </View>
-            )}
+            {/* Phase 12: Actions/Chats toggle removed - content sections below */}
 
             {/* Optimistic quick add card */}
             {optimisticQuickAdd && (
@@ -1398,251 +1451,64 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             {/* Zone A removed - Add to Space moved to persistent bottom bar */}
 
             {/* ═══════════════════════════════════════════════════════════════════
-                ZONE B — Content Zone
+                ZONE B — Phase 12 Content Sections
                 ═══════════════════════════════════════════════════════════════════ */}
-            <View testID="space-zone-b">
-              {/* Unified compact items list - only shown in Actions mode */}
-              {spaceView === 'actions' && (
-                <View style={{ paddingBottom: 24 }}>
-                  {itemsToShow.length > 0 ? (
-                    <View style={sectionStyles.itemsList}>
-                      {itemsToShow.map((item: any, index: number) => {
-                        const entityType = getEntityType(item);
-                        const progress =
-                          entityType === 'habit' ? weeklyById.get(item.id) : undefined;
-                        return (
-                          <EntityCard
-                            key={item.id}
-                            record={item}
-                            type={entityType}
-                            onPress={() => handleItemPress(item)}
-                            onToggleComplete={
-                              entityType === 'todo' ? () => handleTodoComplete(item) : undefined
-                            }
-                            onLogProgress={
-                              entityType === 'habit'
-                                ? () => handleHabitLogProgress(item)
-                                : undefined
-                            }
-                            showCheckbox={entityType === 'todo' || entityType === 'habit'}
-                            showTypePill={true}
-                            isFirst={index === 0}
-                            completed={entityType === 'todo' && !!item.completed_at}
-                            habitProgress={
-                              progress
-                                ? { done: progress.doneCount, target: progress.target }
-                                : undefined
-                            }
-                            habitDayFlags={
-                              entityType === 'habit' ? getHabitDayFlags(item.id) : undefined
-                            }
-                            listProgress={
-                              entityType === 'list' && item.list_items
-                                ? {
-                                    done: (item.list_items || []).filter((li: any) => li.checked)
-                                      .length,
-                                    total: (item.list_items || []).length,
-                                  }
-                                : undefined
-                            }
-                            testID={`space-compact-item-${item.id}`}
-                          />
-                        );
-                      })}
-                    </View>
-                  ) : (
-                    <View style={{ paddingHorizontal: 16 }}>
-                      <Text
-                        style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
-                      >
-                        No items yet. Add something to get started!
-                      </Text>
-                    </View>
+            <View testID="space-zone-b" style={{ paddingHorizontal: CONTENT_HORIZONTAL_PAD }}>
+              {/* Show sections if any content exists */}
+              {todosForSpace.length > 0 || habitsForSpace.length > 0 || notesForSpace.length > 0 ? (
+                <View style={{ gap: 24 }}>
+                  {/* Todos Section */}
+                  {todosForSpace.length > 0 && (
+                    <>
+                      {/* Debug: log todos being passed */}
+                      {console.log(
+                        '[SpaceHome] todosForSpace:',
+                        todosForSpace.map((t) => ({
+                          id: t.id,
+                          title: t.title,
+                          completed_at: t.completed_at,
+                        })),
+                      )}
+                      <TodoSectionV2
+                        todos={todosForSpace}
+                        onTodoPress={(todo) => handleItemPress(todo)}
+                        onTodoComplete={(todo) => handleTodoComplete(todo)}
+                        maxVisible={4}
+                      />
+                    </>
                   )}
 
-                  {/* View X more / Show less pill */}
-                  {(moreCount > 0 || expanded) && (
-                    <View style={{ alignItems: 'center', marginTop: 12 }}>
-                      <Pressable
-                        onPress={() => setExpanded(!expanded)}
-                        style={({ pressed }) => ({
-                          backgroundColor: pressed
-                            ? 'rgba(191, 216, 192, 0.25)'
-                            : 'rgba(191, 216, 192, 0.18)',
-                          borderRadius: 999,
-                          paddingVertical: 8,
-                          paddingHorizontal: 16,
-                        })}
-                        testID="space-view-more"
-                      >
-                        <Text
-                          style={{ fontSize: 13, fontWeight: '500', color: BRAND.colors.mossGreen }}
-                        >
-                          {expanded ? 'Show less' : `View ${moreCount} more`}
-                        </Text>
-                      </Pressable>
-                    </View>
+                  {/* Habits Section */}
+                  {habitsForSpace.length > 0 && (
+                    <HabitsSectionV2
+                      habits={habitsForSpace}
+                      progressMap={habitProgressMap}
+                      streakMap={streakMap}
+                      onHabitPress={(habit) => handleItemPress(habit)}
+                      onHabitLog={(habit) => handleHabitLogProgress(habit)}
+                    />
+                  )}
+
+                  {/* Guides & Logs Section */}
+                  {notesForSpace.length > 0 && (
+                    <GuidesLogsSection
+                      notes={notesForSpace}
+                      onNotePress={(note) => handleItemPress(note)}
+                      maxVisible={3}
+                    />
                   )}
                 </View>
-              )}
-
-              {/* ═══════════════════════════════════════════════════════════════════
-                  CHATS MODE — Show only conversations
-                  ═══════════════════════════════════════════════════════════════════ */}
-              {spaceView === 'chats' && (
-                <View style={{ paddingTop: 4, paddingBottom: 24 }}>
-                  {/* New Chat CTA */}
-                  <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
-                    <Pressable
-                      onPress={handleNewChat}
-                      testID="space-chat-cta"
-                      accessibilityRole="button"
-                      accessibilityLabel="Start a new chat with Gremly"
-                      style={({ pressed }) => ({
-                        backgroundColor: BRAND.colors.mossGreen,
-                        borderRadius: 999,
-                        paddingVertical: 12,
-                        paddingHorizontal: 20,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 10,
-                        opacity: pressed ? 0.9 : 1,
-                        ...BRAND.elevation.one,
-                      })}
-                    >
-                      <MessageSquare size={18} color={BRAND.colors.surface} />
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          fontWeight: '600',
-                          color: BRAND.colors.surface,
-                        }}
-                      >
-                        Start a new chat with Gremly
-                      </Text>
-                    </Pressable>
-                  </View>
-
-                  {/* Conversations list */}
-                  {chats.length > 0 ? (
-                    <View style={{ paddingHorizontal: 16 }}>
-                      <View style={{ gap: 10 }}>
-                        {chats.slice(0, 7).map((c) => (
-                          <Pressable
-                            key={c.id}
-                            onPress={() =>
-                              navigation.navigate('ChatThread', { spaceId, chatId: c.id })
-                            }
-                            style={{
-                              backgroundColor: BRAND.colors.linenCream,
-                              borderRadius: BRAND.radius.md,
-                              padding: 14,
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              ...BRAND.elevation.one,
-                            }}
-                            testID={`space-chat-${c.id}`}
-                          >
-                            <View style={{ flex: 1 }}>
-                              <Text
-                                style={{
-                                  fontSize: 15,
-                                  fontWeight: '500',
-                                  color: BRAND.colors.charcoalInk,
-                                }}
-                                numberOfLines={1}
-                              >
-                                {stripMarkdown(c.title || 'Chat')}
-                              </Text>
-                              <Text
-                                style={{
-                                  fontSize: 12,
-                                  color: BRAND.colors.inkSubtle,
-                                  marginTop: 4,
-                                }}
-                              >
-                                {aiSummaries[c.id] || c.last_message_snippet
-                                  ? stripMarkdown(aiSummaries[c.id] || c.last_message_snippet || '')
-                                  : getRelativeTime(c.updated_at)}
-                              </Text>
-                            </View>
-                            <Pressable
-                              onPress={(e) => {
-                                e.stopPropagation();
-                                if (Platform.OS === 'ios') {
-                                  ActionSheetIOS.showActionSheetWithOptions(
-                                    {
-                                      options: ['Cancel', 'Delete Chat'],
-                                      destructiveButtonIndex: 1,
-                                      cancelButtonIndex: 0,
-                                    },
-                                    (buttonIndex) => {
-                                      if (buttonIndex === 1) {
-                                        handleDeleteChat(c.id);
-                                      }
-                                    },
-                                  );
-                                } else {
-                                  Alert.alert('Chat Options', '', [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    {
-                                      text: 'Delete Chat',
-                                      style: 'destructive',
-                                      onPress: () => handleDeleteChat(c.id),
-                                    },
-                                  ]);
-                                }
-                              }}
-                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                              style={{ padding: 4 }}
-                            >
-                              <MoreVertical size={18} color={BRAND.colors.inkSubtle} />
-                            </Pressable>
-                          </Pressable>
-                        ))}
-                      </View>
-
-                      {/* View older conversations pill */}
-                      {chats.length > 7 && (
-                        <View style={{ alignItems: 'center', marginTop: 12 }}>
-                          <Pressable
-                            onPress={() => {
-                              // TODO: Navigate to full chat list
-                              console.log('[SpaceHome] View older conversations pressed');
-                            }}
-                            style={({ pressed }) => ({
-                              backgroundColor: pressed
-                                ? 'rgba(191, 216, 192, 0.25)'
-                                : 'rgba(191, 216, 192, 0.18)',
-                              borderRadius: 999,
-                              paddingVertical: 8,
-                              paddingHorizontal: 16,
-                            })}
-                            testID="space-view-older-chats"
-                          >
-                            <Text
-                              style={{
-                                fontSize: 13,
-                                fontWeight: '500',
-                                color: BRAND.colors.mossGreen,
-                              }}
-                            >
-                              View {chats.length - 7} older conversations
-                            </Text>
-                          </Pressable>
-                        </View>
-                      )}
-                    </View>
-                  ) : (
-                    <View style={{ paddingHorizontal: 16 }}>
-                      <Text
-                        style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
-                      >
-                        No conversations yet. Start chatting with Gremly!
-                      </Text>
-                    </View>
-                  )}
+              ) : (
+                <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      color: BRAND.colors.inkSubtle,
+                      textAlign: 'center',
+                    }}
+                  >
+                    No items yet. Add something to get started!
+                  </Text>
                 </View>
               )}
             </View>

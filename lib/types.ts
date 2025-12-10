@@ -133,6 +133,9 @@ export interface Todo {
 
   // Phase 12: Pinned items feature
   is_pinned?: boolean;
+
+  // Completion tracking (soft delete)
+  completed_at?: string | null;
 }
 
 /**
