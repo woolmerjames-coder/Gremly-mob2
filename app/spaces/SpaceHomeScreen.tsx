@@ -99,6 +99,7 @@ import {
   HabitsSection as HabitsSectionV2,
   GuidesLogsSection,
 } from '../../components/spaces/sections';
+import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -607,9 +608,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Phase 12: Optimistic completion tracking (useRef persists across aggregate refreshes)
   const localCompletedIdsRef = useRef<Set<string>>(new Set());
+  const localPinnedIdsRef = useRef<Set<string>>(new Set()); // Track locally toggled pinned state
   const localLoggedHabitIdsRef = useRef<Set<string>>(new Set()); // Track optimistically logged habits
   const localUncheckedHabitIdsRef = useRef<Set<string>>(new Set()); // Track habits user unchecked this session
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
+  const [showPinnedModal, setShowPinnedModal] = useState(false);
 
   // Handler to change filter and collapse list
   const handleFilterChange = useCallback((newFilter: FilterTab) => {
@@ -689,13 +692,25 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Phase 4: Section data for new layout with optimistic completion
   const todosForSpace = useMemo(() => {
+    const rawTodos = items.filter((item: any) => item.type === 'todo');
+    console.log(
+      '[SpaceHome] Raw todos from items:',
+      rawTodos.map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        completed_at: t.completed_at,
+        status: t.status,
+      })),
+    );
+
     const allTodos = listTodosForSpace(items, spaceId);
     // Apply optimistic completion state from ref - show ALL todos (completed ones at bottom)
     const withOptimistic = allTodos.map((todo: any) => {
+      // Get database completion state - check both completed_at AND status field
+      const dbCompleted = !!todo.completed_at || todo.status === 'completed';
       const locallyToggled = localCompletedIdsRef.current.has(todo.id);
-      const wasCompleted = !!todo.completed_at;
-      // XOR: if locally toggled, flip the completion state
-      const isCompleted = locallyToggled ? !wasCompleted : wasCompleted;
+      // XOR: if locally toggled, flip the DB state
+      const isCompleted = locallyToggled ? !dbCompleted : dbCompleted;
       return {
         ...todo,
         completed_at: isCompleted ? todo.completed_at || new Date().toISOString() : null,
@@ -1217,9 +1232,101 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   }, []);
 
   const handlePinnedPress = useCallback(() => {
-    // TODO: Open pinned items modal (Phase 5)
-    console.log('[SpaceHome] Pinned pressed - will open pinned modal');
+    setShowPinnedModal(true);
   }, []);
+
+  const handlePinnedModalClose = useCallback(() => {
+    setShowPinnedModal(false);
+  }, []);
+
+  const handlePinnedItemPress = useCallback(
+    (item: any, type: 'todo' | 'habit' | 'note') => {
+      setShowPinnedModal(false);
+      handleItemPress(item);
+    },
+    [handleItemPress],
+  );
+
+  // Pin handlers for long-press
+  const handlePinItem = useCallback(
+    async (item: any, type: 'todo' | 'habit' | 'note') => {
+      // Check both database state and local toggle state
+      const dbPinned = !!item.is_pinned;
+      const localToggled = localPinnedIdsRef.current.has(item.id);
+      const currentlyPinned = localToggled ? !dbPinned : dbPinned;
+      const newPinned = !currentlyPinned;
+
+      console.log(
+        '[SpaceHome] Pin item:',
+        item.id,
+        'type:',
+        type,
+        'newPinned:',
+        newPinned,
+        'dbPinned:',
+        dbPinned,
+        'localToggled:',
+        localToggled,
+      );
+
+      // Toggle local state
+      if (localPinnedIdsRef.current.has(item.id)) {
+        localPinnedIdsRef.current.delete(item.id);
+      } else {
+        localPinnedIdsRef.current.add(item.id);
+      }
+
+      try {
+        if (type === 'todo') {
+          await repo.toggleTodoPinned(item.id, newPinned);
+        } else if (type === 'habit') {
+          await repo.toggleHabitPinned(item.id, newPinned);
+        } else {
+          await repo.toggleNotePinned(item.id, newPinned);
+        }
+        // Refresh pinned count
+        refetchPinned();
+        // Show feedback
+        Alert.alert(
+          newPinned ? 'Pinned!' : 'Unpinned',
+          newPinned
+            ? `"${item.title || item.name}" has been pinned for quick access.`
+            : `"${item.title || item.name}" has been unpinned.`,
+        );
+      } catch (error) {
+        console.error('[SpaceHome] Failed to pin item:', error);
+        // Revert local state on error
+        if (localPinnedIdsRef.current.has(item.id)) {
+          localPinnedIdsRef.current.delete(item.id);
+        } else {
+          localPinnedIdsRef.current.add(item.id);
+        }
+        Alert.alert('Error', 'Failed to update pin status');
+      }
+    },
+    [repo, refetchPinned],
+  );
+
+  const handleTodoLongPress = useCallback(
+    (todo: any) => {
+      handlePinItem(todo, 'todo');
+    },
+    [handlePinItem],
+  );
+
+  const handleHabitLongPress = useCallback(
+    (habit: any) => {
+      handlePinItem(habit, 'habit');
+    },
+    [handlePinItem],
+  );
+
+  const handleNoteLongPress = useCallback(
+    (note: any) => {
+      handlePinItem(note, 'note');
+    },
+    [handlePinItem],
+  );
 
   const handleChatPress = useCallback(
     (chatId: string) => {
@@ -1519,6 +1626,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                         todos={todosForSpace}
                         onTodoPress={(todo) => handleItemPress(todo)}
                         onTodoComplete={(todo) => handleTodoComplete(todo)}
+                        onTodoLongPress={(todo) => handleTodoLongPress(todo)}
                         maxVisible={4}
                       />
                     </>
@@ -1532,6 +1640,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       streakMap={streakMap}
                       onHabitPress={(habit) => handleItemPress(habit)}
                       onHabitLog={(habit) => handleHabitLogProgress(habit)}
+                      onHabitLongPress={(habit) => handleHabitLongPress(habit)}
                     />
                   )}
 
@@ -1540,6 +1649,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     <GuidesLogsSection
                       notes={notesForSpace}
                       onNotePress={(note) => handleItemPress(note)}
+                      onNoteLongPress={(note) => handleNoteLongPress(note)}
                       maxVisible={3}
                     />
                   )}
@@ -1651,6 +1761,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           spaceName={space?.name ?? 'Space'}
           onClose={() => setShowAttachExistingModal(false)}
           onAttached={handleAttachExistingComplete}
+        />
+
+        {/* Pinned Items Modal */}
+        <PinnedItemsModal
+          visible={showPinnedModal}
+          spaceId={spaceId}
+          onClose={handlePinnedModalClose}
+          onItemPress={handlePinnedItemPress}
+          onUnpin={refetchPinned}
         />
       </View>
     );

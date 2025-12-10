@@ -10,13 +10,14 @@
 
 import React, { useState, useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
-import { FileText, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { FileText, ChevronDown, ChevronUp, Pin } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import type { Note } from '../../../lib/types';
 
 interface GuidesLogsSectionProps {
   notes: Note[];
   onNotePress: (note: Note) => void;
+  onNoteLongPress?: (note: Note) => void;
   maxVisible?: number;
 }
 
@@ -25,6 +26,7 @@ const MAX_VISIBLE_DEFAULT = 3;
 export function GuidesLogsSection({
   notes,
   onNotePress,
+  onNoteLongPress,
   maxVisible = MAX_VISIBLE_DEFAULT,
 }: GuidesLogsSectionProps) {
   const [expanded, setExpanded] = useState(false);
@@ -73,7 +75,12 @@ export function GuidesLogsSection({
           contentContainerStyle={styles.pillsContainer}
         >
           {visibleNotes.map((note) => (
-            <NotePill key={note.id} note={note} onPress={() => onNotePress(note)} />
+            <NotePill
+              key={note.id}
+              note={note}
+              onPress={() => onNotePress(note)}
+              onLongPress={onNoteLongPress ? () => onNoteLongPress(note) : undefined}
+            />
           ))}
           {showMore && (
             <Pressable
@@ -92,7 +99,12 @@ export function GuidesLogsSection({
       {expanded && notes.length > maxVisible && (
         <View style={styles.expandedGrid}>
           {notes.slice(maxVisible).map((note) => (
-            <NotePill key={note.id} note={note} onPress={() => onNotePress(note)} />
+            <NotePill
+              key={note.id}
+              note={note}
+              onPress={() => onNotePress(note)}
+              onLongPress={onNoteLongPress ? () => onNoteLongPress(note) : undefined}
+            />
           ))}
         </View>
       )}
@@ -103,9 +115,10 @@ export function GuidesLogsSection({
 interface NotePillProps {
   note: Note;
   onPress: () => void;
+  onLongPress?: () => void;
 }
 
-function NotePill({ note, onPress }: NotePillProps) {
+function NotePill({ note, onPress, onLongPress }: NotePillProps) {
   // Truncate title for pill display
   const title = note.title || 'Untitled';
   const displayTitle = title.length > 20 ? title.substring(0, 18) + '...' : title;
@@ -113,11 +126,18 @@ function NotePill({ note, onPress }: NotePillProps) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.pill, pressed && styles.pillPressed]}
+      onLongPress={onLongPress}
+      delayLongPress={500}
+      style={({ pressed }) => [
+        styles.pill,
+        pressed && styles.pillPressed,
+        note.is_pinned && styles.pillPinned,
+      ]}
       accessibilityRole="button"
-      accessibilityLabel={`Open ${title}`}
+      accessibilityLabel={`Open ${title}. Long press to pin.`}
       testID={`note-pill-${note.id}`}
     >
+      {note.is_pinned && <Pin size={12} color={BRAND.colors.mossGreen} />}
       <FileText size={14} color={BRAND.colors.mossGreen} />
       <Text style={styles.pillText} numberOfLines={1}>
         {displayTitle}
@@ -164,6 +184,10 @@ const styles = StyleSheet.create({
   },
   pillPressed: {
     backgroundColor: 'rgba(191, 216, 192, 0.5)',
+  },
+  pillPinned: {
+    borderWidth: 1,
+    borderColor: BRAND.colors.mossGreen,
   },
   pillText: {
     fontSize: 14,

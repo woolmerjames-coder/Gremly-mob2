@@ -10,7 +10,7 @@
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Circle, CheckCircle2, Flame } from 'lucide-react-native';
+import { Circle, CheckCircle2, Flame, Pin } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import type { Habit } from '../../../lib/types';
 
@@ -25,6 +25,7 @@ interface HabitsSectionProps {
   streakMap: Map<string, number>;
   onHabitPress: (habit: Habit) => void;
   onHabitLog: (habit: Habit) => void;
+  onHabitLongPress?: (habit: Habit) => void;
 }
 
 export function HabitsSection({
@@ -33,6 +34,7 @@ export function HabitsSection({
   streakMap,
   onHabitPress,
   onHabitLog,
+  onHabitLongPress,
 }: HabitsSectionProps) {
   const count = habits.length;
 
@@ -68,6 +70,7 @@ export function HabitsSection({
               streak={streak}
               onPress={() => onHabitPress(habit)}
               onLog={() => onHabitLog(habit)}
+              onLongPress={onHabitLongPress ? () => onHabitLongPress(habit) : undefined}
             />
           );
         })}
@@ -82,9 +85,10 @@ interface HabitRowProps {
   streak: number;
   onPress: () => void;
   onLog: () => void;
+  onLongPress?: () => void;
 }
 
-function HabitRow({ habit, progress, streak, onPress, onLog }: HabitRowProps) {
+function HabitRow({ habit, progress, streak, onPress, onLog, onLongPress }: HabitRowProps) {
   // Show checkmark if any progress logged today (done > 0), not just when target met
   const isDoneToday = progress ? progress.done > 0 : false;
 
@@ -124,14 +128,19 @@ function HabitRow({ habit, progress, streak, onPress, onLog }: HabitRowProps) {
       {/* Middle: Habit name - with strikethrough when done */}
       <Pressable
         onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={500}
         style={styles.rowContent}
         accessibilityRole="button"
-        accessibilityLabel={`Open ${habit.name}`}
+        accessibilityLabel={`Open ${habit.name}. Long press to pin.`}
         testID={`habit-row-${habit.id}`}
       >
         <Text style={[styles.rowText, isDoneToday && styles.rowTextCompleted]} numberOfLines={1}>
           {habit.name}
         </Text>
+        {habit.is_pinned && (
+          <Pin size={14} color={BRAND.colors.mossGreen} style={{ marginLeft: 6 }} />
+        )}
       </Pressable>
 
       {/* Right: Streak indicator */}

@@ -10,7 +10,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Circle, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { Circle, CheckCircle2, ChevronDown, ChevronUp, Pin } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import type { Todo } from '../../../lib/types';
 
@@ -18,6 +18,7 @@ interface TodoSectionProps {
   todos: Todo[];
   onTodoPress: (todo: Todo) => void;
   onTodoComplete: (todo: Todo) => void;
+  onTodoLongPress?: (todo: Todo) => void;
   maxVisible?: number;
 }
 
@@ -27,6 +28,7 @@ export function TodoSection({
   todos,
   onTodoPress,
   onTodoComplete,
+  onTodoLongPress,
   maxVisible = MAX_VISIBLE_DEFAULT,
 }: TodoSectionProps) {
   const [expanded, setExpanded] = useState(false);
@@ -83,6 +85,7 @@ export function TodoSection({
             todo={todo}
             onPress={() => onTodoPress(todo)}
             onToggle={() => onTodoComplete(todo)}
+            onLongPress={onTodoLongPress ? () => onTodoLongPress(todo) : undefined}
           />
         ))}
       </View>
@@ -106,9 +109,10 @@ interface TodoRowProps {
   todo: Todo;
   onPress: () => void;
   onToggle: () => void;
+  onLongPress?: () => void;
 }
 
-function TodoRow({ todo, onPress, onToggle }: TodoRowProps) {
+function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
   const isCompleted = !!todo.completed_at;
 
   // Debug: log completion state
@@ -144,14 +148,19 @@ function TodoRow({ todo, onPress, onToggle }: TodoRowProps) {
       </Pressable>
       <Pressable
         onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={500}
         style={styles.rowContent}
         accessibilityRole="button"
         accessibilityLabel={`Open ${todo.title || todo.name}`}
         testID={`todo-row-${todo.id}`}
       >
-        <Text style={[styles.rowText, isCompleted && styles.rowTextCompleted]} numberOfLines={1}>
-          {todo.title || todo.name}
-        </Text>
+        <View style={styles.rowTextContainer}>
+          <Text style={[styles.rowText, isCompleted && styles.rowTextCompleted]} numberOfLines={1}>
+            {todo.title || todo.name}
+          </Text>
+          {todo.is_pinned && <Pin size={14} color={BRAND.colors.inkMuted} style={styles.pinIcon} />}
+        </View>
       </Pressable>
     </View>
   );
@@ -190,9 +199,17 @@ const styles = StyleSheet.create({
   rowContent: {
     flex: 1,
   },
+  rowTextContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   rowText: {
     fontSize: 16,
     color: BRAND.colors.charcoalInk,
+    flex: 1,
+  },
+  pinIcon: {
+    marginLeft: 6,
   },
   rowTextCompleted: {
     textDecorationLine: 'line-through',
