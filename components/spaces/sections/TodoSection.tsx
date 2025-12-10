@@ -125,7 +125,10 @@ function TodoRow({ todo, onPress, onToggle }: TodoRowProps) {
   return (
     <View style={styles.row}>
       <Pressable
-        onPress={onToggle}
+        onPress={() => {
+          console.log('[TodoSection] Checkbox pressed for:', todo.id, todo.title || todo.name);
+          onToggle();
+        }}
         hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
         style={styles.checkbox}
         accessibilityRole="checkbox"

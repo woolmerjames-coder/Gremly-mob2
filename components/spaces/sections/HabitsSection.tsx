@@ -36,6 +36,11 @@ export function HabitsSection({
 }: HabitsSectionProps) {
   const count = habits.length;
 
+  // Debug: log what we're receiving
+  console.log('[HabitsSection] render - habits:', habits.length, 'progressMap:', [
+    ...progressMap.entries(),
+  ]);
+
   // Hide section if no habits
   if (count === 0) {
     return null;
@@ -80,17 +85,33 @@ interface HabitRowProps {
 }
 
 function HabitRow({ habit, progress, streak, onPress, onLog }: HabitRowProps) {
-  const isDoneToday = progress ? progress.done >= progress.target : false;
+  // Show checkmark if any progress logged today (done > 0), not just when target met
+  const isDoneToday = progress ? progress.done > 0 : false;
+
+  // Debug: log what HabitRow is rendering
+  console.log(
+    '[HabitRow]',
+    habit.id,
+    habit.name,
+    'progress:',
+    progress,
+    'isDoneToday:',
+    isDoneToday,
+  );
 
   return (
     <View style={styles.row}>
-      {/* Left: Checkbox/Progress indicator */}
+      {/* Left: Checkbox - toggle like todos */}
       <Pressable
-        onPress={onLog}
+        onPress={() => {
+          console.log('[HabitRow] Checkbox pressed for:', habit.id, habit.name);
+          onLog();
+        }}
         hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
         style={styles.checkbox}
-        accessibilityRole="button"
-        accessibilityLabel={`Log progress for ${habit.name}`}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: isDoneToday }}
+        accessibilityLabel={`Mark ${habit.name} as ${isDoneToday ? 'not done' : 'done'}`}
         testID={`habit-checkbox-${habit.id}`}
       >
         {isDoneToday ? (
@@ -100,7 +121,7 @@ function HabitRow({ habit, progress, streak, onPress, onLog }: HabitRowProps) {
         )}
       </Pressable>
 
-      {/* Middle: Habit name */}
+      {/* Middle: Habit name - with strikethrough when done */}
       <Pressable
         onPress={onPress}
         style={styles.rowContent}
@@ -108,7 +129,7 @@ function HabitRow({ habit, progress, streak, onPress, onLog }: HabitRowProps) {
         accessibilityLabel={`Open ${habit.name}`}
         testID={`habit-row-${habit.id}`}
       >
-        <Text style={styles.rowText} numberOfLines={1}>
+        <Text style={[styles.rowText, isDoneToday && styles.rowTextCompleted]} numberOfLines={1}>
           {habit.name}
         </Text>
       </Pressable>
@@ -160,6 +181,10 @@ const styles = StyleSheet.create({
   rowText: {
     fontSize: 16,
     color: BRAND.colors.charcoalInk,
+  },
+  rowTextCompleted: {
+    textDecorationLine: 'line-through',
+    color: BRAND.colors.inkMuted,
   },
   streakContainer: {
     flexDirection: 'row',

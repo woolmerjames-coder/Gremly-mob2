@@ -608,6 +608,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Phase 12: Optimistic completion tracking (useRef persists across aggregate refreshes)
   const localCompletedIdsRef = useRef<Set<string>>(new Set());
   const localLoggedHabitIdsRef = useRef<Set<string>>(new Set()); // Track optimistically logged habits
+  const localUncheckedHabitIdsRef = useRef<Set<string>>(new Set()); // Track habits user unchecked this session
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
 
   // Handler to change filter and collapse list
@@ -734,10 +735,26 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Phase 4: Transform weeklyById to match HabitProgress interface with optimistic updates
   const habitProgressMap = useMemo(() => {
     const map = new Map<string, { done: number; target: number }>();
+    console.log(
+      '[SpaceHome] habitProgressMap recalc - weeklyById size:',
+      weeklyById.size,
+      'localLoggedHabitIds:',
+      [...localLoggedHabitIdsRef.current],
+      'localUncheckedHabitIds:',
+      [...localUncheckedHabitIdsRef.current],
+    );
     weeklyById.forEach((progress, id) => {
       const locallyLogged = localLoggedHabitIdsRef.current.has(id);
+      const locallyUnchecked = localUncheckedHabitIdsRef.current.has(id);
+      // If locally unchecked, show as 0 done (overrides server)
       // If locally logged, add 1 to done count
-      const done = locallyLogged ? progress.doneCount + 1 : progress.doneCount;
+      // Otherwise use server value
+      let done = progress.doneCount;
+      if (locallyUnchecked) {
+        done = 0; // Override to unchecked
+      } else if (locallyLogged) {
+        done = progress.doneCount + 1;
+      }
       map.set(id, { done, target: progress.target });
     });
     // For habits not in weeklyById but locally logged, add them with done=1, target=1
@@ -746,6 +763,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         map.set(id, { done: 1, target: 1 });
       }
     });
+    console.log('[SpaceHome] habitProgressMap result:', [...map.entries()]);
     return map;
   }, [weeklyById, optimisticVersion]); // optimisticVersion triggers recalc
 
@@ -804,14 +822,38 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [repo],
   );
 
-  // Handler for habit progress logging with optimistic update
+  // Handler for habit progress logging with optimistic toggle (like todo completion)
   const handleHabitLogProgress = useCallback(
     async (item: AppRecord) => {
       const habitId = item.id;
-      console.log('[SpaceHome] Habit log progress:', habitId);
+      const progress = habitProgressMap.get(habitId);
+      const isDoneToday = progress ? progress.done > 0 : false;
+      const wasLocallyUnchecked = localUncheckedHabitIdsRef.current.has(habitId);
 
-      // Optimistic update - add to logged set
-      localLoggedHabitIdsRef.current.add(habitId);
+      console.log(
+        '[SpaceHome] Habit toggle:',
+        habitId,
+        'isDoneToday:',
+        isDoneToday,
+        'wasLocallyUnchecked:',
+        wasLocallyUnchecked,
+      );
+
+      // Toggle behavior like todos:
+      // If currently shown as done → mark as unchecked (visual only)
+      // If currently shown as not done → log progress and show as done
+      if (isDoneToday) {
+        // Currently checked → uncheck it
+        localLoggedHabitIdsRef.current.delete(habitId); // Remove any local log
+        localUncheckedHabitIdsRef.current.add(habitId); // Mark as unchecked
+        forceUpdate();
+        // Note: We don't call the API to undo - just visual toggle for this session
+        return;
+      }
+
+      // Currently unchecked → check it
+      localUncheckedHabitIdsRef.current.delete(habitId); // Remove unchecked override
+      localLoggedHabitIdsRef.current.add(habitId); // Add optimistic log
       forceUpdate();
 
       try {
@@ -826,7 +868,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         Alert.alert('Error', 'Failed to log progress');
       }
     },
-    [repo],
+    [repo, habitProgressMap],
   );
 
   // Phase 6: Space quick add hook
@@ -1468,6 +1510,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                           title: t.title,
                           completed_at: t.completed_at,
                         })),
+                      )}
+                      {console.log(
+                        '[SpaceHome] Passing handleTodoComplete:',
+                        typeof handleTodoComplete,
                       )}
                       <TodoSectionV2
                         todos={todosForSpace}
