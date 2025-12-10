@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import * as Haptics from 'expo-haptics';
 import {
   View,
   Text,
@@ -70,6 +71,7 @@ export function MilestoneEntryModal({
     setSaving(true);
     try {
       await onSave(name.trim(), targetDate);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
     } catch (error) {
       console.error('[MilestoneEntry] Save error:', error);
@@ -100,6 +102,7 @@ export function MilestoneEntryModal({
           style: 'destructive',
           onPress: async () => {
             setSaving(true);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
             try {
               await onRemove();
               onClose();

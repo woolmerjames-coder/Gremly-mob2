@@ -150,7 +150,7 @@ function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
         onPress={onPress}
         onLongPress={onLongPress}
         delayLongPress={500}
-        style={styles.rowContent}
+        style={({ pressed }) => [styles.rowContent, pressed && { opacity: 0.7 }]}
         accessibilityRole="button"
         accessibilityLabel={`Open ${todo.title || todo.name}`}
         testID={`todo-row-${todo.id}`}
@@ -168,7 +168,7 @@ function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 24,
+    // No marginBottom - parent gap handles spacing
   },
   header: {
     flexDirection: 'row',
@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 46,
+    height: 38,
   },
   checkbox: {
     marginRight: 12,
@@ -226,4 +226,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default TodoSection;
+export default React.memo(TodoSection);

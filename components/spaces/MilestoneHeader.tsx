@@ -3,15 +3,14 @@
  *
  * Shows:
  * - Gremly mascot (tappable → chat)
- * - Milestone name + countdown (if set)
+ * - Milestone name + countdown (if set) + pinned pill
  * - OR Nudge to set a goal (if no milestone)
- * - Action buttons: [+ Add], [[PIN] X pinned]
  */
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Flag, Plus, Pin, MoreHorizontal } from 'lucide-react-native';
+import { Flag, Plus, Pin, MoreHorizontal, ChevronLeft } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import type { SpaceMilestone } from '../../lib/types';
 
@@ -25,7 +24,6 @@ interface MilestoneHeaderProps {
   };
   pinnedCount: number;
   onGremlyPress: () => void;
-  onAddPress: () => void;
   onPinnedPress: () => void;
   onNudgePress: () => void;
   onMilestonePress: () => void;
@@ -39,7 +37,6 @@ export function MilestoneHeader({
   countdown,
   pinnedCount,
   onGremlyPress,
-  onAddPress,
   onPinnedPress,
   onNudgePress,
   onMilestonePress,
@@ -61,11 +58,14 @@ export function MilestoneHeader({
           accessibilityLabel="Go back"
           testID="header-back-button"
         >
-          <Text style={styles.backArrow}>←</Text>
+          <ChevronLeft size={28} color={BRAND.colors.inkMuted} />
         </Pressable>
-        <Text style={styles.spaceName} numberOfLines={1}>
-          {spaceName}
-        </Text>
+        <View style={styles.titleContainer}>
+          <Text style={styles.spaceName} numberOfLines={1}>
+            {spaceName}
+          </Text>
+          <View style={styles.titleUnderline} />
+        </View>
         <Pressable
           onPress={onSettingsPress}
           hitSlop={8}
@@ -141,42 +141,21 @@ export function MilestoneHeader({
               <Text style={styles.nudgeSubtitle}>Goals help you get things done</Text>
             </Pressable>
           )}
+
+          {/* Pinned pill - below milestone/nudge */}
+          {pinnedCount > 0 && (
+            <Pressable
+              onPress={onPinnedPress}
+              style={({ pressed }) => [styles.pinnedButton, pressed && styles.actionButtonPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`${pinnedCount} pinned items`}
+              testID="header-pinned-button"
+            >
+              <Pin size={14} color={BRAND.colors.mossGreen} />
+              <Text style={styles.pinnedButtonText}>{pinnedCount} pinned</Text>
+            </Pressable>
+          )}
         </View>
-      </View>
-
-      {/* Action buttons row */}
-      <View style={styles.actionRow}>
-        <Pressable
-          onPress={onAddPress}
-          style={({ pressed }) => [
-            styles.actionButton,
-            styles.addButton,
-            pressed && styles.actionButtonPressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Add to Space"
-          testID="header-add-button"
-        >
-          <Plus size={18} color={BRAND.colors.mossGreen} />
-          <Text style={styles.addButtonText}>Add</Text>
-        </Pressable>
-
-        {pinnedCount > 0 && (
-          <Pressable
-            onPress={onPinnedPress}
-            style={({ pressed }) => [
-              styles.actionButton,
-              styles.pinnedButton,
-              pressed && styles.actionButtonPressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`${pinnedCount} pinned items`}
-            testID="header-pinned-button"
-          >
-            <Pin size={16} color={BRAND.colors.mossGreen} />
-            <Text style={styles.pinnedButtonText}>{pinnedCount} pinned</Text>
-          </Pressable>
-        )}
       </View>
     </View>
   );
@@ -184,7 +163,7 @@ export function MilestoneHeader({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: BRAND.colors.linenCream,
+    backgroundColor: '#F5F1EB', // Slightly darker than linenCream for subtle header distinction
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 16,
@@ -203,25 +182,29 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: -8,
   },
-  backArrow: {
-    fontSize: 28,
-    color: BRAND.colors.charcoalInk,
-    fontWeight: '600',
+  titleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 16,
   },
   spaceName: {
     fontSize: 24,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
-    flex: 1,
     textAlign: 'center',
-    marginHorizontal: 16,
+  },
+  titleUnderline: {
+    width: 48,
+    height: 3,
+    backgroundColor: BRAND.colors.goldenPear,
+    borderRadius: 2,
+    marginTop: 4,
   },
 
   // Main content
   mainContent: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 16,
   },
   gremlyContainer: {
     marginRight: 16,
@@ -275,31 +258,19 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
   },
 
-  // Action row
-  actionRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-  },
+  // Action row (removed - pinned now inline)
   actionButtonPressed: {
     opacity: 0.7,
   },
-  addButton: {
-    backgroundColor: 'rgba(191, 216, 192, 0.4)',
-  },
-  addButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
   pinnedButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 5,
+    marginTop: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
     backgroundColor: 'rgba(191, 216, 192, 0.25)',
   },
   pinnedButtonText: {

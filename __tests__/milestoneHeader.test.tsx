@@ -17,7 +17,6 @@ describe('MilestoneHeader', () => {
     countdown: { days: null, dateFormatted: null, isPast: false },
     pinnedCount: 0,
     onGremlyPress: jest.fn(),
-    onAddPress: jest.fn(),
     onPinnedPress: jest.fn(),
     onNudgePress: jest.fn(),
     onSettingsPress: jest.fn(),
@@ -164,12 +163,6 @@ describe('MilestoneHeader', () => {
       const { getByTestId } = render(<MilestoneHeader {...defaultProps} />);
       fireEvent.press(getByTestId('header-gremly-button'));
       expect(defaultProps.onGremlyPress).toHaveBeenCalled();
-    });
-
-    it('calls onAddPress when Add button tapped', () => {
-      const { getByTestId } = render(<MilestoneHeader {...defaultProps} />);
-      fireEvent.press(getByTestId('header-add-button'));
-      expect(defaultProps.onAddPress).toHaveBeenCalled();
     });
 
     it('calls onSettingsPress when settings tapped', () => {

@@ -1,11 +1,6 @@
-/**
- * EmptySpaceState - Guides users to the bottom bar actions
- *
- * No duplicate buttons - just friendly guidance to existing UI
- */
-
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Compass } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 
 interface EmptySpaceStateProps {
@@ -15,12 +10,14 @@ interface EmptySpaceStateProps {
 export function EmptySpaceState({ spaceName }: EmptySpaceStateProps) {
   return (
     <View style={styles.container}>
-      <Text style={styles.message}>
-        <Text style={styles.bold}>{spaceName}</Text> is ready.
-      </Text>
-      <Text style={styles.guidance}>
-        Tap <Text style={styles.bold}>Add to Space</Text> to create todos, habits, or notes.{'\n'}
-        Or chat with <Text style={styles.bold}>Gremly</Text> to brainstorm what belongs here.
+      <View style={styles.iconCircle}>
+        <Compass size={28} color={BRAND.colors.mossGreen} />
+      </View>
+
+      <Text style={styles.title}>{spaceName} is ready</Text>
+
+      <Text style={styles.body}>
+        Use the buttons below to add your first item or brainstorm with Gremly.
       </Text>
     </View>
   );
@@ -28,27 +25,33 @@ export function EmptySpaceState({ spaceName }: EmptySpaceStateProps) {
 
 const styles = StyleSheet.create({
   container: {
-    minHeight: 400,
-    justifyContent: 'flex-end',
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
-    paddingBottom: 40, // Point toward bottom bar
+    paddingHorizontal: 48,
+    paddingBottom: 120,
   },
-  message: {
+  iconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(191, 216, 192, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  title: {
     fontSize: 18,
+    fontWeight: '600',
     color: BRAND.colors.charcoalInk,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
-  guidance: {
+  body: {
     fontSize: 15,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
-    lineHeight: 24,
-  },
-  bold: {
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
+    lineHeight: 22,
   },
 });
 

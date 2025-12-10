@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef, useReducer } from 'react';
+import * as Haptics from 'expo-haptics';
 import {
   View,
   ScrollView,
@@ -99,6 +100,7 @@ import {
   HabitsSection as HabitsSectionV2,
   GuidesLogsSection,
 } from '../../components/spaces/sections';
+import { SectionDivider } from '../../components/spaces/sections/SectionDivider';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
@@ -697,17 +699,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Phase 4: Section data for new layout with optimistic completion
   const todosForSpace = useMemo(() => {
-    const rawTodos = items.filter((item: any) => item.type === 'todo');
-    console.log(
-      '[SpaceHome] Raw todos from items:',
-      rawTodos.map((t: any) => ({
-        id: t.id,
-        title: t.title,
-        completed_at: t.completed_at,
-        status: t.status,
-      })),
-    );
-
     const allTodos = listTodosForSpace(items, spaceId);
     // Apply optimistic completion state from ref - show ALL todos (completed ones at bottom)
     const withOptimistic = allTodos.map((todo: any) => {
@@ -721,15 +712,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         completed_at: isCompleted ? todo.completed_at || new Date().toISOString() : null,
       };
     });
-    // Debug logging
-    console.log(
-      '[SpaceHome] todosForSpace - all:',
-      allTodos.length,
-      'localCompletedIds:',
-      localCompletedIdsRef.current.size,
-      'optimisticVersion:',
-      optimisticVersion,
-    );
     return withOptimistic;
   }, [items, spaceId, optimisticVersion]); // optimisticVersion triggers recalc on forceUpdate
 
@@ -755,14 +737,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Phase 4: Transform weeklyById to match HabitProgress interface with optimistic updates
   const habitProgressMap = useMemo(() => {
     const map = new Map<string, { done: number; target: number }>();
-    console.log(
-      '[SpaceHome] habitProgressMap recalc - weeklyById size:',
-      weeklyById.size,
-      'localLoggedHabitIds:',
-      [...localLoggedHabitIdsRef.current],
-      'localUncheckedHabitIds:',
-      [...localUncheckedHabitIdsRef.current],
-    );
     weeklyById.forEach((progress, id) => {
       const locallyLogged = localLoggedHabitIdsRef.current.has(id);
       const locallyUnchecked = localUncheckedHabitIdsRef.current.has(id);
@@ -812,6 +786,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       const todoId = item.id;
       console.log('[SpaceHome] Todo complete:', todoId);
 
+      // Haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
       // Toggle in our local ref (persists across re-renders)
       if (localCompletedIdsRef.current.has(todoId)) {
         localCompletedIdsRef.current.delete(todoId);
@@ -849,6 +826,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       const progress = habitProgressMap.get(habitId);
       const isDoneToday = progress ? progress.done > 0 : false;
       const wasLocallyUnchecked = localUncheckedHabitIdsRef.current.has(habitId);
+
+      // Haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
       console.log(
         '[SpaceHome] Habit toggle:',
@@ -1293,6 +1273,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     async (name: string, targetDate: Date) => {
       if (!spaceId) return;
 
+      // Haptic feedback on save
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
       console.log('[SpaceHome] Saving milestone:', name, targetDate);
 
       try {
@@ -1346,6 +1329,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Pin handlers for long-press
   const handlePinItem = useCallback(
     async (item: any, type: 'todo' | 'habit' | 'note') => {
+      // Haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
       // Check both database state and local toggle state
       const dbPinned = !!item.is_pinned;
       const localToggled = localPinnedIdsRef.current.has(item.id);
@@ -1598,8 +1584,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   if (loading && !space) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={T.colors.primary} />
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="small" color={BRAND.colors.mossGreen} />
+        <Text style={styles.loadingText}>Loading Space...</Text>
       </View>
     );
   }
@@ -1642,7 +1629,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               countdown={countdown}
               pinnedCount={pinnedCount}
               onGremlyPress={handleGremlyPress}
-              onAddPress={() => setShowQuickAddModal(true)}
               onPinnedPress={handlePinnedPress}
               onNudgePress={handleMilestonePress}
               onMilestonePress={handleMilestonePress}
@@ -1699,26 +1685,31 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             {/* ═══════════════════════════════════════════════════════════════════
                 ZONE B — Phase 12 Content Sections
                 ═══════════════════════════════════════════════════════════════════ */}
-            <View testID="space-zone-b" style={{ paddingHorizontal: CONTENT_HORIZONTAL_PAD }}>
+            <View
+              testID="space-zone-b"
+              style={{ paddingHorizontal: CONTENT_HORIZONTAL_PAD, marginTop: 20 }}
+            >
               {/* Show sections if any content exists */}
               {todosForSpace.length > 0 || habitsForSpace.length > 0 || notesForSpace.length > 0 ? (
-                <View style={{ gap: 24 }}>
+                <View style={{ gap: 8 }}>
+                  {/* Guides & Logs Section - Reference material first */}
+                  {notesForSpace.length > 0 && (
+                    <>
+                      <GuidesLogsSection
+                        notes={notesForSpace}
+                        onNotePress={(note) => handleItemPress(note)}
+                        onNoteLongPress={(note) => handleNoteLongPress(note)}
+                        maxVisible={4}
+                      />
+                      {(todosForSpace.length > 0 || habitsForSpace.length > 0) && (
+                        <SectionDivider />
+                      )}
+                    </>
+                  )}
+
                   {/* Todos Section */}
                   {todosForSpace.length > 0 && (
                     <>
-                      {/* Debug: log todos being passed */}
-                      {console.log(
-                        '[SpaceHome] todosForSpace:',
-                        todosForSpace.map((t) => ({
-                          id: t.id,
-                          title: t.title,
-                          completed_at: t.completed_at,
-                        })),
-                      )}
-                      {console.log(
-                        '[SpaceHome] Passing handleTodoComplete:',
-                        typeof handleTodoComplete,
-                      )}
                       <TodoSectionV2
                         todos={todosForSpace}
                         onTodoPress={(todo) => handleItemPress(todo)}
@@ -1726,6 +1717,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                         onTodoLongPress={(todo) => handleTodoLongPress(todo)}
                         maxVisible={4}
                       />
+                      {habitsForSpace.length > 0 && <SectionDivider />}
                     </>
                   )}
 
@@ -1738,16 +1730,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                       onHabitPress={(habit) => handleItemPress(habit)}
                       onHabitLog={(habit) => handleHabitLogProgress(habit)}
                       onHabitLongPress={(habit) => handleHabitLongPress(habit)}
-                    />
-                  )}
-
-                  {/* Guides & Logs Section */}
-                  {notesForSpace.length > 0 && (
-                    <GuidesLogsSection
-                      notes={notesForSpace}
-                      onNotePress={(note) => handleItemPress(note)}
-                      onNoteLongPress={(note) => handleNoteLongPress(note)}
-                      maxVisible={3}
                     />
                   )}
                 </View>
@@ -1783,7 +1765,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             style={({ pressed }) => ({
               flex: 1,
               height: 48,
-              backgroundColor: pressed ? 'rgba(191, 216, 192, 0.35)' : 'rgba(191, 216, 192, 0.25)',
+              backgroundColor: pressed ? 'rgba(191, 216, 192, 0.4)' : 'rgba(191, 216, 192, 0.2)',
+              borderWidth: 1,
+              borderColor: 'rgba(191, 216, 192, 0.6)',
               borderRadius: 24,
               flexDirection: 'row',
               alignItems: 'center',
@@ -2162,7 +2146,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             style={({ pressed }) => ({
               flex: 1,
               height: 48,
-              backgroundColor: pressed ? 'rgba(191, 216, 192, 0.35)' : 'rgba(191, 216, 192, 0.25)',
+              backgroundColor: pressed ? 'rgba(191, 216, 192, 0.4)' : 'rgba(191, 216, 192, 0.2)',
+              borderWidth: 1,
+              borderColor: 'rgba(191, 216, 192, 0.6)',
               borderRadius: 24,
               flexDirection: 'row',
               alignItems: 'center',
@@ -2578,7 +2564,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           style={({ pressed }) => ({
             flex: 1,
             height: 48,
-            backgroundColor: pressed ? 'rgba(191, 216, 192, 0.35)' : 'rgba(191, 216, 192, 0.25)',
+            backgroundColor: pressed ? 'rgba(191, 216, 192, 0.4)' : 'rgba(191, 216, 192, 0.2)',
+            borderWidth: 1,
+            borderColor: 'rgba(191, 216, 192, 0.6)',
             borderRadius: 24,
             flexDirection: 'row',
             alignItems: 'center',
@@ -2732,6 +2720,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: BRAND.colors.linenCream,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: BRAND.colors.linenCream,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
   },
   error: {
     flex: 1,

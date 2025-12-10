@@ -38,11 +38,6 @@ export function HabitsSection({
 }: HabitsSectionProps) {
   const count = habits.length;
 
-  // Debug: log what we're receiving
-  console.log('[HabitsSection] render - habits:', habits.length, 'progressMap:', [
-    ...progressMap.entries(),
-  ]);
-
   // Hide section if no habits
   if (count === 0) {
     return null;
@@ -130,7 +125,7 @@ function HabitRow({ habit, progress, streak, onPress, onLog, onLongPress }: Habi
         onPress={onPress}
         onLongPress={onLongPress}
         delayLongPress={500}
-        style={styles.rowContent}
+        style={({ pressed }) => [styles.rowContent, pressed && { opacity: 0.7 }]}
         accessibilityRole="button"
         accessibilityLabel={`Open ${habit.name}. Long press to pin.`}
         testID={`habit-row-${habit.id}`}
@@ -156,7 +151,7 @@ function HabitRow({ habit, progress, streak, onPress, onLog, onLongPress }: Habi
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 24,
+    // No marginBottom - parent gap handles spacing
   },
   header: {
     flexDirection: 'row',
@@ -179,7 +174,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 46,
+    height: 38,
   },
   checkbox: {
     marginRight: 12,
@@ -208,4 +203,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default HabitsSection;
+export default React.memo(HabitsSection);
