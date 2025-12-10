@@ -19,52 +19,77 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
     style={
       [
         {
-          "borderRadius": 14,
+          "borderRadius": 8,
           "maxWidth": "85%",
           "minWidth": 40,
           "paddingHorizontal": 16,
-          "paddingVertical": 12,
+          "paddingVertical": 8,
         },
         false,
         {
-          "backgroundColor": "rgba(191, 216, 192, 0.85)",
-          "elevation": 1,
-          "shadowColor": "#000",
-          "shadowOffset": {
-            "height": 1,
-            "width": 0,
-          },
-          "shadowOpacity": 0.04,
-          "shadowRadius": 2,
+          "backgroundColor": "transparent",
+          "borderLeftColor": "#BFD8C0",
+          "borderLeftWidth": 3,
+          "borderRadius": 0,
+          "maxWidth": "95%",
+          "paddingLeft": 12,
         },
       ]
     }
   >
-    <Text
+    <View
       style={
-        [
-          {
-            "color": "#0E1116",
-            "fontFamily": "Inter-Regular",
-            "fontSize": 16,
-            "fontWeight": "400",
-            "lineHeight": 22.4,
-          },
-          [
-            {
-              "fontSize": 16,
-              "lineHeight": 22,
-            },
-            false,
-            {
-              "color": "#222222",
-            },
-          ],
-        ]
+        {
+          "paddingVertical": 2,
+        }
       }
     >
-      Hi there! This is an assistant response with some longer text to test the bubble styling.
-    </Text>
+      <View
+        style={
+          {
+            "marginBottom": 4,
+          }
+        }
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#0E1116",
+                "fontFamily": "Inter-Regular",
+                "fontSize": 16,
+                "fontWeight": "400",
+                "lineHeight": 22.4,
+              },
+              {
+                "color": "#222222",
+                "fontSize": 16,
+                "lineHeight": 22,
+              },
+            ]
+          }
+        >
+          <Text
+            style={
+              [
+                {
+                  "color": "#0E1116",
+                  "fontFamily": "Inter-Regular",
+                  "fontSize": 16,
+                  "fontWeight": "400",
+                  "lineHeight": 22.4,
+                },
+                {
+                  "color": "#222222",
+                },
+              ]
+            }
+          >
+            Hi there! This is an assistant response with some longer text to test the bubble styling.
+          </Text>
+        </Text>
+      </View>
+    </View>
   </View>
 </View>
 `;
@@ -86,11 +111,11 @@ exports[`ChatBubble renders system message correctly 1`] = `
     style={
       [
         {
-          "borderRadius": 14,
+          "borderRadius": 8,
           "maxWidth": "85%",
           "minWidth": 40,
           "paddingHorizontal": 16,
-          "paddingVertical": 12,
+          "paddingVertical": 8,
         },
         false,
         false,
@@ -112,7 +137,6 @@ exports[`ChatBubble renders system message correctly 1`] = `
               "fontSize": 16,
               "lineHeight": 22,
             },
-            false,
             false,
           ],
         ]
@@ -143,11 +167,11 @@ exports[`ChatBubble renders user message correctly 1`] = `
     style={
       [
         {
-          "borderRadius": 14,
+          "borderRadius": 8,
           "maxWidth": "85%",
           "minWidth": 40,
           "paddingHorizontal": 16,
-          "paddingVertical": 12,
+          "paddingVertical": 8,
         },
         {
           "backgroundColor": "#2E5540",
@@ -185,7 +209,6 @@ exports[`ChatBubble renders user message correctly 1`] = `
             {
               "color": "#F9F6F1",
             },
-            false,
           ],
         ]
       }

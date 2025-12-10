@@ -19,6 +19,8 @@ import {
   Pressable,
   useColorScheme,
   BackHandler,
+  Platform,
+  ActionSheetIOS,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -59,6 +61,7 @@ import {
   Settings as SettingsIcon,
   MessageSquare,
   Plus,
+  MoreVertical,
 } from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
@@ -73,6 +76,8 @@ import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import type { CanonicalType } from '../../lib/cortex/canonicalMap';
 import { BRAND } from '../../design/brand';
+import { stripMarkdown } from '../../lib/markdown/stripMarkdown';
+import { getRelativeTime } from '../../lib/utils/getRelativeTime';
 // Phase 6: Space quick add imports
 import { SpaceQuickAddModal } from '../../components/spaces/SpaceQuickAddModal';
 import { AttachExistingModal } from '../../components/spaces/AttachExistingModal';
@@ -442,7 +447,7 @@ const sectionStyles = StyleSheet.create({
   actionsChatsContainer: {
     paddingHorizontal: CONTENT_HORIZONTAL_PAD,
     marginTop: 16,
-    marginBottom: 20,
+    marginBottom: 8,
   },
   actionsChatsSegmentedControl: {
     flexDirection: 'row',
@@ -584,6 +589,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // NEW: Filter bar state
   const [filter, setFilter] = useState<FilterTab>('all');
 
+  // Expanded state for "View more" button
+  const [expanded, setExpanded] = useState(false);
+
+  // Handler to change filter and collapse list
+  const handleFilterChange = useCallback((newFilter: FilterTab) => {
+    setFilter(newFilter);
+    setExpanded(false);
+  }, []);
+
   // Phase 6: Quick add state
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [showAttachExistingModal, setShowAttachExistingModal] = useState(false);
@@ -604,20 +618,22 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return map;
   }, [weekly]);
 
+  // Helper to get habit day flags from weekly data
+  const getHabitDayFlags = useCallback(
+    (habitId: string): boolean[] | undefined => {
+      const habitWeekly = weekly?.habits?.find((h: any) => h.id === habitId);
+      return habitWeekly?.dayFlags;
+    },
+    [weekly],
+  );
+
   // Build unified filtered items array
   const { itemsToShow, moreCount } = useMemo(() => {
     // Get all items by type for this space
     const todos = listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
     const habits = listHabitsForSpace(items, spaceId);
     const notes = listNotesForSpace(items, spaceId);
-    const logs = notes.filter(
-      (n: any) =>
-        !n.is_list &&
-        (n.subtype === 'journal' ||
-          n.subtype === 'idea' ||
-          n.subtype === 'reference' ||
-          !n.subtype),
-    );
+    const logs = notes.filter((n: any) => !n.is_list && n.subtype !== 'list');
     const lists = notes.filter((n: any) => n.is_list || n.subtype === 'list');
 
     // Apply filter
@@ -647,10 +663,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     });
 
     return {
-      itemsToShow: filtered.slice(0, MAX_COMPACT_ITEMS),
+      itemsToShow: expanded ? filtered : filtered.slice(0, MAX_COMPACT_ITEMS),
       moreCount: Math.max(0, filtered.length - MAX_COMPACT_ITEMS),
     };
-  }, [items, spaceId, filter, optimisticQuickAdd]);
+  }, [items, spaceId, filter, optimisticQuickAdd, expanded]);
 
   // Helper to determine EntityCard type from record
   const getEntityType = useCallback((record: any): EntityType => {
@@ -1025,20 +1041,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Chat actions
   const handleNewChat = useCallback(async () => {
-    try {
-      const newChat = await spaceChatRepo.create(spaceId, {
-        title: 'New Chat',
-      });
-      // TODO: Fire analytics
-      // analytics.track('space_chat_created', { spaceId, chatId: newChat.id });
-      console.log('[Analytics] space_chat_created', { spaceId, chatId: newChat.id }); // Phase 8 polish
-      navigation.navigate('ChatThread', { spaceId, chatId: newChat.id });
-      reload();
-    } catch (error) {
-      console.error('Failed to create chat:', error);
-      Alert.alert('Error', 'Failed to create chat');
-    }
-  }, [spaceId, spaceChatRepo, navigation, reload]);
+    // Navigate to ChatThreadScreen without a chatId - chat will be created on first message
+    navigation.navigate('ChatThread', { spaceId });
+  }, [spaceId, navigation]);
 
   const handleChatPress = useCallback(
     (chatId: string) => {
@@ -1302,7 +1307,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 <SegmentedPills
                   options={FILTER_OPTIONS}
                   selected={filter}
-                  onSelect={setFilter}
+                  onSelect={handleFilterChange}
                   variant="secondary"
                   fullWidth
                   testID="space-filter-bar"
@@ -1390,12 +1395,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                                 ? { done: progress.doneCount, target: progress.target }
                                 : undefined
                             }
-                            subtitle={
-                              entityType === 'log'
-                                ? formatRelativeDate(item.updated_at || item.created_at)
-                                : entityType === 'list'
-                                  ? `${item.body ? (item.body.match(/^[-•*]\s/gm) || []).length : 0} items`
-                                  : undefined
+                            habitDayFlags={
+                              entityType === 'habit' ? getHabitDayFlags(item.id) : undefined
+                            }
+                            listProgress={
+                              entityType === 'list' && item.list_items
+                                ? {
+                                    done: (item.list_items || []).filter((li: any) => li.checked)
+                                      .length,
+                                    total: (item.list_items || []).length,
+                                  }
+                                : undefined
                             }
                             testID={`space-compact-item-${item.id}`}
                           />
@@ -1412,14 +1422,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     </View>
                   )}
 
-                  {/* View X more pill */}
-                  {moreCount > 0 && (
+                  {/* View X more / Show less pill */}
+                  {(moreCount > 0 || expanded) && (
                     <View style={{ alignItems: 'center', marginTop: 12 }}>
                       <Pressable
-                        onPress={() => {
-                          // TODO: Navigate to full filtered list view
-                          console.log('[SpaceHome] View more pressed, moreCount:', moreCount);
-                        }}
+                        onPress={() => setExpanded(!expanded)}
                         style={({ pressed }) => ({
                           backgroundColor: pressed
                             ? 'rgba(191, 216, 192, 0.25)'
@@ -1433,7 +1440,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                         <Text
                           style={{ fontSize: 13, fontWeight: '500', color: BRAND.colors.mossGreen }}
                         >
-                          View {moreCount} more
+                          {expanded ? 'Show less' : `View ${moreCount} more`}
                         </Text>
                       </Pressable>
                     </View>
@@ -1493,25 +1500,67 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                               backgroundColor: BRAND.colors.linenCream,
                               borderRadius: BRAND.radius.md,
                               padding: 14,
+                              flexDirection: 'row',
+                              alignItems: 'center',
                               ...BRAND.elevation.one,
                             }}
                             testID={`space-chat-${c.id}`}
                           >
-                            <Text
-                              style={{
-                                fontSize: 15,
-                                fontWeight: '500',
-                                color: BRAND.colors.charcoalInk,
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={{
+                                  fontSize: 15,
+                                  fontWeight: '500',
+                                  color: BRAND.colors.charcoalInk,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {stripMarkdown(c.title || 'Chat')}
+                              </Text>
+                              <Text
+                                style={{
+                                  fontSize: 12,
+                                  color: BRAND.colors.inkSubtle,
+                                  marginTop: 4,
+                                }}
+                              >
+                                {aiSummaries[c.id] || c.last_message_snippet
+                                  ? stripMarkdown(aiSummaries[c.id] || c.last_message_snippet || '')
+                                  : getRelativeTime(c.updated_at)}
+                              </Text>
+                            </View>
+                            <Pressable
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                if (Platform.OS === 'ios') {
+                                  ActionSheetIOS.showActionSheetWithOptions(
+                                    {
+                                      options: ['Cancel', 'Delete Chat'],
+                                      destructiveButtonIndex: 1,
+                                      cancelButtonIndex: 0,
+                                    },
+                                    (buttonIndex) => {
+                                      if (buttonIndex === 1) {
+                                        handleDeleteChat(c.id);
+                                      }
+                                    },
+                                  );
+                                } else {
+                                  Alert.alert('Chat Options', '', [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    {
+                                      text: 'Delete Chat',
+                                      style: 'destructive',
+                                      onPress: () => handleDeleteChat(c.id),
+                                    },
+                                  ]);
+                                }
                               }}
-                              numberOfLines={1}
+                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                              style={{ padding: 4 }}
                             >
-                              {c.title || 'Chat'}
-                            </Text>
-                            <Text
-                              style={{ fontSize: 12, color: BRAND.colors.inkSubtle, marginTop: 4 }}
-                            >
-                              {aiSummaries[c.id] || c.last_message_snippet || 'Tap to view'}
-                            </Text>
+                              <MoreVertical size={18} color={BRAND.colors.inkSubtle} />
+                            </Pressable>
                           </Pressable>
                         ))}
                       </View>
@@ -1714,7 +1763,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               <SegmentedPills
                 options={FILTER_OPTIONS}
                 selected={filter}
-                onSelect={setFilter}
+                onSelect={handleFilterChange}
                 variant="secondary"
                 fullWidth
                 testID="space-filter-bar"
@@ -1861,7 +1910,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                           onArchive={handleArchiveChat}
                           onDelete={handleDeleteChat}
                           aiSummary={
-                            aiSummaries[chat.id] || chat.last_message_snippet || 'Tap to view'
+                            aiSummaries[chat.id] || chat.last_message_snippet
+                              ? stripMarkdown(
+                                  aiSummaries[chat.id] || chat.last_message_snippet || '',
+                                )
+                              : getRelativeTime(chat.updated_at)
                           }
                         />
                       ))}
@@ -2111,7 +2164,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             <SegmentedPills
               options={FILTER_OPTIONS}
               selected={filter}
-              onSelect={setFilter}
+              onSelect={handleFilterChange}
               variant="secondary"
               fullWidth
               testID="space-filter-bar"
@@ -2250,8 +2303,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     {chats.slice(0, 7).map((c) => (
                       <ThreadCard
                         key={c.id}
-                        title={c.title}
-                        snippet={aiSummaries[c.id] || c.last_message_snippet || 'Tap to view'}
+                        title={stripMarkdown(c.title || 'Chat')}
+                        snippet={
+                          aiSummaries[c.id] || c.last_message_snippet
+                            ? stripMarkdown(aiSummaries[c.id] || c.last_message_snippet || '')
+                            : getRelativeTime(c.updated_at)
+                        }
                         lastActive={new Date(c.updated_at).toLocaleDateString(undefined, {
                           weekday: 'short',
                           month: 'short',

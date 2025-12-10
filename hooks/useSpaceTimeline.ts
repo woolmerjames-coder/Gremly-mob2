@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { startOfWeek, addDays, formatISO, isSameDay, parseISO } from 'date-fns';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { startOfWeek, addDays, formatISO } from 'date-fns';
 import { useRepo } from '../providers/RepoProvider';
 import { supabase } from '../lib/supabase/client';
 import { eventBus } from '../lib/events/EventBus';
@@ -58,7 +58,11 @@ export function useSpaceTimeline(spaceId: string | null | undefined): UseSpaceTi
   }, []);
 
   const groupIntoWindow = useCallback(
-    (all: AppRecord[], windowDays: string[]): TimelineDay[] => {
+    (
+      all: AppRecord[],
+      windowDays: string[],
+      habitProgressMap: Map<string, Set<string>>,
+    ): TimelineDay[] => {
       const dayMap = new Map<string, TimelineItem[]>();
       for (const iso of windowDays) dayMap.set(iso, []);
 
@@ -89,10 +93,10 @@ export function useSpaceTimeline(spaceId: string | null | undefined): UseSpaceTi
           });
         } else if (rec.type === 'habit') {
           const h = rec as any;
-          // Habits aren't date-specific yet; show on each day with done=true if completed_at falls on that day
+          // Check habit_progress for each day
+          const habitDays = habitProgressMap.get(h.id) || new Set<string>();
           for (const iso of windowDays) {
-            const completedAt = h.completed_at ? new Date(h.completed_at) : null;
-            const done = completedAt ? isSameDay(completedAt, parseISO(iso)) : false;
+            const done = habitDays.has(iso);
             dayMap.get(iso)!.push({ id: h.id, type: 'habit', title: safeTitle(rec), done });
           }
         } else if (rec.type === 'note') {
@@ -113,20 +117,68 @@ export function useSpaceTimeline(spaceId: string | null | undefined): UseSpaceTi
     [spaceId],
   );
 
+  // Fetch habit progress for the week from habit_progress table
+  const fetchHabitProgress = useCallback(
+    async (habitIds: string[], windowDays: string[]): Promise<Map<string, Set<string>>> => {
+      const progressMap = new Map<string, Set<string>>();
+      if (habitIds.length === 0 || backend !== 'supabase') return progressMap;
+
+      try {
+        const startDay = windowDays[0];
+        const endDay = windowDays[windowDays.length - 1];
+
+        const { data, error } = await supabase
+          .from('habit_progress')
+          .select('habit_id, occurred_day')
+          .in('habit_id', habitIds)
+          .gte('occurred_day', startDay)
+          .lte('occurred_day', endDay);
+
+        if (error) {
+          if (__DEV__) console.warn('[useSpaceTimeline] habit_progress query failed:', error);
+          return progressMap;
+        }
+
+        for (const row of data || []) {
+          if (!progressMap.has(row.habit_id)) {
+            progressMap.set(row.habit_id, new Set<string>());
+          }
+          if (row.occurred_day) {
+            progressMap.get(row.habit_id)!.add(row.occurred_day);
+          }
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('[useSpaceTimeline] fetchHabitProgress failed:', e);
+      }
+
+      return progressMap;
+    },
+    [backend],
+  );
+
   const reload = useCallback(async () => {
     if (!spaceId || reloadingRef.current) return;
     reloadingRef.current = true;
     try {
-      const [all] = await Promise.all([repo.listBySpace(spaceId)]);
+      const all = await repo.listBySpace(spaceId);
       const windowDays = computeWindow();
-      setDays(groupIntoWindow(all || [], windowDays));
+
+      // Get habit IDs for progress lookup
+      const habitIds = (all || [])
+        .filter((r) => r.type === 'habit' && (r as any).space_id === spaceId)
+        .map((r) => r.id);
+
+      // Fetch habit progress for the week
+      const habitProgressMap = await fetchHabitProgress(habitIds, windowDays);
+
+      setDays(groupIntoWindow(all || [], windowDays, habitProgressMap));
     } catch (e) {
       if (__DEV__) console.warn('[useSpaceTimeline] reload failed', e);
       setDays(computeWindow().map((d) => ({ dateISO: d, items: [] })));
     } finally {
       reloadingRef.current = false;
     }
-  }, [spaceId, repo, computeWindow, groupIntoWindow]);
+  }, [spaceId, repo, computeWindow, groupIntoWindow, fetchHabitProgress]);
 
   // initial load
   useEffect(() => {
@@ -158,6 +210,11 @@ export function useSpaceTimeline(spaceId: string | null | undefined): UseSpaceTi
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notes', filter: `space_id=eq.${spaceId}` },
+        scheduleReload,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'habit_progress' },
         scheduleReload,
       )
       .subscribe((status) => {

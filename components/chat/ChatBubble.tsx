@@ -9,6 +9,7 @@ import Animated, { FadeIn, SlideInRight, Layout } from 'react-native-reanimated'
 import { Text } from '../../ui/Text';
 import { SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
+import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
 
 interface ChatBubbleProps {
   message: SpaceChatMessage;
@@ -54,9 +55,11 @@ export function ChatBubble({ message, testID }: ChatBubbleProps) {
       <View
         style={[styles.bubble, isUser && styles.userBubble, isAssistant && styles.assistantBubble]}
       >
-        <Text style={[styles.text, isUser && styles.userText, isAssistant && styles.assistantText]}>
-          {message.content}
-        </Text>
+        {isAssistant ? (
+          <View style={{ paddingVertical: 2 }}>{renderFormattedContent(message.content)}</View>
+        ) : (
+          <Text style={[styles.text, isUser && styles.userText]}>{message.content}</Text>
+        )}
       </View>
     </ViewComponent>
   );
@@ -74,8 +77,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   bubble: {
-    borderRadius: 14, // 12-14px for glass effect
-    paddingVertical: 12,
+    borderRadius: 8,
+    paddingVertical: 8,
     paddingHorizontal: 16,
     maxWidth: '85%',
     minWidth: 40,
@@ -90,9 +93,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   assistantBubble: {
-    backgroundColor: lightTokens.colors.sageMistTranslucent,
-    // Glass effect shadow (more subtle)
-    ...lightTokens.elevation.chatGremly,
+    backgroundColor: 'transparent',
+    borderLeftWidth: 3,
+    borderLeftColor: lightTokens.colors.sageMist,
+    borderRadius: 0,
+    paddingLeft: 12,
+    maxWidth: '95%',
   },
   text: {
     fontSize: 16,

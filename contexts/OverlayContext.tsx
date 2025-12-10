@@ -25,6 +25,8 @@ interface ConversionMeta {
   // Phase 10.8: Habit frequency prefill from Space Chat
   initialFrequency?: string;
   initialFrequencyValue?: number;
+  // Indicates content came from chat (for preview mode)
+  fromChat?: boolean;
 }
 
 interface OverlayState {
@@ -59,6 +61,7 @@ interface CreateOptions {
 interface EditOptions {
   record: AppRecord;
   spaceId?: string | null;
+  fromChat?: boolean; // Opens notes in preview mode when true
 }
 
 interface OverlayContextValue {
@@ -192,7 +195,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     }, 600);
   }, []);
 
-  const openView = useCallback(({ record, spaceId }: EditOptions) => {
+  const openView = useCallback(({ record, spaceId, fromChat }: EditOptions) => {
     if (isOpeningRef.current) {
       console.log('[GlobalOverlay] open already in progress, ignoring');
       return;
@@ -236,6 +239,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       initialText: null,
       entity: record, // Store full record for pre-fill
       views: safeViews, // Pass through views (ai_title_frozen, ai_tags_frozen, etc.)
+      conversionMeta: fromChat ? { fromChat: true } : undefined,
     };
 
     console.log('[GlobalOverlay] openView called with state:', newState);

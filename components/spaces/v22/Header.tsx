@@ -82,27 +82,23 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        <TouchableOpacity
-          onPress={onBack}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          {/* Back chevron as text glyph to avoid adding another icon */}
-          <Text style={styles.chevron}>‹</Text>
-        </TouchableOpacity>
-
-        <View style={styles.center}>
-          <Text style={styles.title} numberOfLines={1}>
+        {/* Left side: back chevron + title inline */}
+        <View style={styles.leftGroup}>
+          <TouchableOpacity
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.backButton}
+          >
+            <Text style={styles.chevron}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.titleInline} numberOfLines={1}>
             {title}
           </Text>
-          {!!lastVisited && (
-            <Text style={styles.subline} numberOfLines={1}>
-              {lastVisited}
-            </Text>
-          )}
         </View>
 
+        {/* Right side: actions */}
         <View style={styles.actions}>
           {/* Small Gremly avatar */}
           <Animated.View
@@ -138,6 +134,13 @@ export const Header: React.FC<HeaderProps> = ({
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Last visited line below title row */}
+      {!!lastVisited && (
+        <Text style={styles.subline} numberOfLines={1}>
+          {lastVisited}
+        </Text>
+      )}
 
       {!!contextLine?.text && (
         <Text style={[styles.context, { color: contextColor }]} numberOfLines={2}>
@@ -186,24 +189,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  leftGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+  },
+  backButton: {
+    padding: 4,
+  },
   chevron: {
     color: COLORS.Linen,
     fontSize: 22,
     lineHeight: 24,
   },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: SPACE.sm,
-  },
-  title: {
+  titleInline: {
     color: COLORS.Linen,
-    fontSize: 21,
+    fontSize: 24,
     fontWeight: '700',
     fontFamily: 'Inter-Bold',
+    flex: 1,
   },
   subline: {
-    marginTop: 2,
+    marginTop: 4,
     color: COLORS.Sage,
     fontSize: 12,
     fontFamily: 'Inter-Regular',

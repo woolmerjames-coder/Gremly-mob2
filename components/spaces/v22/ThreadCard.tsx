@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SPACE, COLORS } from './_tokens';
 import { MessageSquare } from '../../icons';
+import { stripMarkdown } from '../../../lib/markdown/stripMarkdown';
 
 export type ThreadCardProps = {
   title: string;
@@ -51,14 +52,14 @@ export const ThreadCard: React.FC<ThreadCardProps> = ({
           style={[styles.title, isDark ? { color: '#EEEEEE' } : { color: '#111111' }]}
           numberOfLines={1}
         >
-          {title}
+          {stripMarkdown(title || 'Chat')}
         </Text>
         {!!snippet && (
           <Text
             style={[styles.snippet, isDark ? { color: '#DDDDDD' } : { color: '#333333' }]}
             numberOfLines={1}
           >
-            {snippet}
+            {stripMarkdown(snippet)}
           </Text>
         )}
         {!!lastActive && (

@@ -64,8 +64,8 @@ import { SaveThisIntent } from '../lib/chat/metaIntents';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface UseSpaceChatEnhancedProps {
-  /** ID of the chat */
-  chatId: string;
+  /** ID of the chat (optional for new chats) */
+  chatId?: string;
   /** ID of the space */
   spaceId: string;
   /** Optional name of the space for context */
@@ -182,11 +182,12 @@ function extractTopicsFromMessages(userMessage: string, assistantMessage: string
  */
 export function useSpaceChatEnhanced({
   chatId,
-  spaceId,
+  spaceId: _spaceId,
   spaceName,
 }: UseSpaceChatEnhancedProps): UseSpaceChatEnhancedReturn {
   // Initialize all sub-hooks
-  const { context, updateContext } = useChatContext(chatId);
+  // Pass empty string to useChatContext when chatId is undefined (new chat)
+  const { context, updateContext } = useChatContext(chatId ?? '');
   const cooldown = useSaveableCooldown();
   const detection = useSaveableDetection();
   const buttonState = useSaveButtonState();

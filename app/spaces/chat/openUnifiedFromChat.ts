@@ -41,6 +41,7 @@ export interface OverlayInitial {
   frequency?: string;
   frequencyValue?: number;
   tags?: string[];
+  fromChat?: boolean; // Indicates content came from chat (for preview mode)
   // add others as your overlay supports (due_date, cadence, etc.)
 }
 
@@ -84,6 +85,7 @@ export function openUnifiedFromChat(
       initialFrequency: initial.frequency,
       initialFrequencyValue: initial.frequencyValue,
       initialTags: initial.tags || [],
+      fromChat: initial.fromChat ?? true, // Default true when coming from chat
     },
     suppressOverlayOpen: options?.suppressOverlayOpen,
   });

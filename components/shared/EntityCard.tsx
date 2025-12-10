@@ -64,6 +64,14 @@ export interface EntityCardProps {
   testID?: string;
   /** Optional container style override */
   containerStyle?: ViewStyle;
+  /** Day-by-day completion flags for habits (7 booleans, Mon-Sun) */
+  habitDayFlags?: boolean[];
+  /** Relative time label for logs (e.g., "Today", "Yest", "Dec 5") */
+  timeLabel?: string;
+  /** Topic tag for logs (e.g., "Plan", "Reflection") */
+  topicTag?: string;
+  /** List progress for lists */
+  listProgress?: { done: number; total: number };
 }
 
 // =============================================================================
@@ -128,14 +136,94 @@ function formatDueDate(dueDay?: string | null): string {
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) return 'Overdue';
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Tomorrow';
-    if (diffDays < 7) return `${diffDays} days`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    if (diffDays === 0) return 'Due: Today';
+    if (diffDays === 1) return 'Due: Tomorrow';
+    if (diffDays < 7) {
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      return `Due: ${dayName}`;
+    }
+    return `Due: ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
   } catch {
     return '';
   }
 }
+
+// =============================================================================
+// SUB-COMPONENTS
+// =============================================================================
+
+/** 7-dot week strip showing daily habit completion */
+function HabitWeekStrip({ dayFlags, accentColor }: { dayFlags: boolean[]; accentColor: string }) {
+  return (
+    <View style={habitStripStyles.container}>
+      {dayFlags.map((done, index) => (
+        <View
+          key={index}
+          style={[
+            habitStripStyles.dot,
+            done ? { backgroundColor: accentColor } : { backgroundColor: '#E5E5E5' },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+const habitStripStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+  },
+});
+
+/** Horizontal progress bar for lists */
+function ListProgressBar({ done, total }: { done: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
+
+  return (
+    <View style={listProgressStyles.container}>
+      <View style={listProgressStyles.barTrack}>
+        <View style={[listProgressStyles.barFill, { width: `${pct}%` }]} />
+      </View>
+      <Text style={listProgressStyles.label}>
+        {done}/{total}
+      </Text>
+    </View>
+  );
+}
+
+const listProgressStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+  },
+  barTrack: {
+    flex: 1,
+    height: 4,
+    backgroundColor: 'rgba(224, 196, 122, 0.25)', // Golden Pear at 25%
+    borderRadius: 2,
+    overflow: 'hidden',
+    maxWidth: 80,
+  },
+  barFill: {
+    height: '100%',
+    backgroundColor: '#E0C47A', // Golden Pear
+    borderRadius: 2,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#666666',
+  },
+});
 
 // =============================================================================
 // COMPONENT
@@ -155,6 +243,10 @@ export function EntityCard({
   subtitle,
   testID,
   containerStyle,
+  habitDayFlags,
+  timeLabel,
+  topicTag,
+  listProgress,
 }: EntityCardProps) {
   const accentColor = ACCENT_COLORS[type];
   const pillBg = TYPE_PILL_BG[type];
@@ -171,6 +263,11 @@ export function EntityCard({
       if (type === 'habit' && habitProgress) {
         return `${habitProgress.done}/${habitProgress.target} this week`;
       }
+      if (type === 'log' && record.body) {
+        // Show first ~50 chars of body as preview
+        const preview = String(record.body).replace(/\n/g, ' ').trim();
+        return preview.length > 50 ? preview.slice(0, 50) + '...' : preview;
+      }
       return '';
     })();
 
@@ -179,20 +276,21 @@ export function EntityCard({
       {/* Top divider - only show if not first item */}
       {!isFirst && <View style={styles.divider} />}
 
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [styles.container, pressed && styles.pressed]}
-        testID={testID}
-        accessibilityRole="button"
-        accessibilityLabel={`${typeLabel}: ${title}`}
-      >
-        {/* Left accent bar */}
-        <View style={styles.accentContainer}>
-          <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
-        </View>
+      {/* Card row - horizontal layout with card pressable and action button as siblings */}
+      <View style={styles.cardRow}>
+        {/* Main card pressable - covers accent bar and text content */}
+        <Pressable
+          onPress={onPress}
+          style={({ pressed }) => [styles.cardPressable, pressed && styles.pressed]}
+          testID={testID}
+          accessibilityRole="button"
+          accessibilityLabel={`${typeLabel}: ${title}`}
+        >
+          {/* Left accent bar */}
+          <View style={styles.accentContainer}>
+            <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+          </View>
 
-        {/* Content area */}
-        <View style={styles.content}>
           {/* Text block */}
           <View style={styles.textContainer}>
             {/* Title row */}
@@ -210,63 +308,73 @@ export function EntityCard({
                   <Text style={styles.typePillText}>{typeLabel}</Text>
                 </View>
               )}
-              {displaySubtitle ? (
+              {type === 'list' && listProgress && (
+                <ListProgressBar done={listProgress.done} total={listProgress.total} />
+              )}
+              {type === 'habit' && habitDayFlags ? (
+                <View style={styles.habitMetaRow}>
+                  <HabitWeekStrip dayFlags={habitDayFlags} accentColor={accentColor} />
+                  {habitProgress && (
+                    <Text style={styles.habitFraction}>
+                      {habitProgress.done}/{habitProgress.target} this week
+                    </Text>
+                  )}
+                </View>
+              ) : displaySubtitle ? (
                 <Text style={styles.subtitle} numberOfLines={1}>
                   {displaySubtitle}
                 </Text>
               ) : null}
             </View>
           </View>
+        </Pressable>
 
-          {/* Right side action - Checkbox for todos */}
-          {type === 'todo' && showCheckbox && onToggleComplete && (
-            <Pressable
-              onPress={onToggleComplete}
-              style={styles.checkboxContainer}
-              testID={testID ? `${testID}-checkbox` : undefined}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: completed }}
-              accessibilityLabel={`Mark ${title} as complete`}
-            >
-              <View style={[styles.checkbox, completed && styles.checkboxChecked]}>
-                {completed && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-            </Pressable>
-          )}
-
-          {/* Right side action - Checkbox + Progress bar for habits */}
-          {type === 'habit' && showCheckbox && (
-            <View style={styles.habitRight}>
-              {onLogProgress && (
-                <Pressable
-                  onPress={onLogProgress}
-                  style={styles.habitLogButton}
-                  testID={testID ? `${testID}-log` : undefined}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Log progress for ${title}`}
-                >
-                  <Text style={styles.habitLogIcon}>+</Text>
-                </Pressable>
-              )}
-              {habitProgress && (
-                <View style={styles.progressBar}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${Math.min(100, (habitProgress.done / habitProgress.target) * 100)}%`,
-                      },
-                    ]}
-                  />
-                </View>
-              )}
+        {/* Right side action - Checkbox for todos (sibling to card pressable) */}
+        {type === 'todo' && showCheckbox && onToggleComplete && (
+          <Pressable
+            onPress={() => {
+              console.log('[EntityCard] Checkbox pressed');
+              onToggleComplete();
+            }}
+            style={styles.checkboxContainer}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            testID={testID ? `${testID}-checkbox` : undefined}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: completed }}
+            accessibilityLabel={`Mark ${title} as complete`}
+          >
+            <View style={[styles.checkbox, completed && styles.checkboxChecked]}>
+              {completed && <Text style={styles.checkmark}>✓</Text>}
             </View>
-          )}
+          </Pressable>
+        )}
 
-          {/* Right side action - Chevron for logs/lists */}
-          {(type === 'log' || type === 'list') && <Text style={styles.chevron}>›</Text>}
-        </View>
-      </Pressable>
+        {/* Right side action - Log button for habits (sibling to card pressable) */}
+        {type === 'habit' && showCheckbox && onLogProgress && (
+          <Pressable
+            onPress={() => {
+              console.log('[EntityCard] Habit + pressed');
+              onLogProgress();
+            }}
+            style={styles.habitLogContainer}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            testID={testID ? `${testID}-log` : undefined}
+            accessibilityRole="button"
+            accessibilityLabel={`Log progress for ${title}`}
+          >
+            <View style={styles.habitLogButton}>
+              <Text style={styles.habitLogIcon}>+</Text>
+            </View>
+          </Pressable>
+        )}
+
+        {/* Right side action - Chevron for logs/lists */}
+        {(type === 'log' || type === 'list') && (
+          <View style={styles.chevronContainer}>
+            <Text style={styles.chevron}>›</Text>
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -284,12 +392,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.divider,
     marginLeft: 20,
   },
-  container: {
+  cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 14, // Match NowFocusRow increased bottom padding
-    paddingRight: 4,
+    paddingRight: 8,
+  },
+  cardPressable: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 14,
+    paddingBottom: 18,
   },
   pressed: {
     opacity: 0.7,
@@ -302,14 +415,8 @@ const styles = StyleSheet.create({
   },
   accentBar: {
     width: 3,
-    height: 36, // Match NowFocusRow
+    height: 44,
     borderRadius: 4,
-  },
-  content: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
   },
   textContainer: {
     flex: 1,
@@ -328,7 +435,8 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 5, // Match NowFocusRow
+    marginTop: 6,
+    gap: 6,
   },
   typePill: {
     borderRadius: 4,
@@ -345,6 +453,16 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     fontSize: 11,
     lineHeight: 13,
+    color: COLORS.inkSubtle,
+  },
+  habitMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  habitFraction: {
+    fontSize: 11,
+    fontWeight: '500',
     color: COLORS.inkSubtle,
   },
   // Checkbox styles - match NowFocusRow exactly
@@ -376,11 +494,13 @@ const styles = StyleSheet.create({
     lineHeight: 12,
     textAlign: 'center',
   },
-  // Habit progress styles
-  habitRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  // Habit log button styles
+  habitLogContainer: {
     marginLeft: 8,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   habitLogButton: {
     width: 28,
@@ -389,7 +509,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.mossGreen,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
   },
   habitLogIcon: {
     color: COLORS.surface,
@@ -397,24 +516,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 16,
   },
-  progressBar: {
-    width: 60,
-    height: 6,
-    backgroundColor: 'rgba(46, 85, 64, 0.15)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: COLORS.mossGreen,
-    borderRadius: 3,
-  },
   // Chevron for logs/lists
-  chevron: {
-    fontSize: 20,
-    color: COLORS.inkSubtle,
+  chevronContainer: {
     marginLeft: 8,
-    marginRight: 8,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chevron: {
+    fontSize: 22,
+    color: COLORS.inkSubtle,
   },
 });
 

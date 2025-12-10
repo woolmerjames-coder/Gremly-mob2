@@ -48,6 +48,7 @@ export type SpaceAggregate = {
       doneCount: number;
       target: number;
       dayStreak: number; // simple within-week consecutive-day streak
+      dayFlags: boolean[]; // 7 booleans for Mon-Sun, true = completed
     }>;
   };
   reload: () => Promise<void>;
@@ -391,7 +392,17 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
     const freq = habit.frequency;
     const freqValue = habit.frequency_value;
 
-    // If frequency_value has explicit target (n_per_period with period=week)
+    // If frequency_value is a simple number, use it directly as the weekly target
+    if (typeof freqValue === 'number' && freqValue > 0) {
+      // If frequency is 'weekly', freqValue is the times per week
+      if (freq === 'weekly') return freqValue;
+      // If frequency is 'daily', freqValue might mean something else - default to 7
+      if (freq === 'daily') return 7;
+      // For other frequencies, use the number directly
+      return freqValue;
+    }
+
+    // If frequency_value is an object with explicit target
     if (freqValue && typeof freqValue === 'object') {
       if (freqValue.kind === 'n_per_period' && freqValue.period === 'week') {
         return freqValue.n || 1;
@@ -430,6 +441,7 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
       doneCount: number;
       target: number;
       dayStreak: number;
+      dayFlags: boolean[];
     }> = [];
     for (const h of habits as any[]) {
       // Build done flags for the week by checking timeline days
@@ -447,7 +459,14 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
         else break;
       }
       const target = calculateWeeklyTarget(h);
-      out.push({ id: h.id, title: h.title || h.name, doneCount, target, dayStreak: streak });
+      out.push({
+        id: h.id,
+        title: h.title || h.name,
+        doneCount,
+        target,
+        dayStreak: streak,
+        dayFlags: flags,
+      });
     }
     return { weekStartISO: weekISO, habits: out };
   }, [items, timelineDays, calculateWeeklyTarget]);
