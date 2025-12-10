@@ -100,6 +100,7 @@ import {
   GuidesLogsSection,
 } from '../../components/spaces/sections';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
+import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -1655,17 +1656,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                   )}
                 </View>
               ) : (
-                <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-                  <Text
-                    style={{
-                      fontSize: 14,
-                      color: BRAND.colors.inkSubtle,
-                      textAlign: 'center',
-                    }}
-                  >
-                    No items yet. Add something to get started!
-                  </Text>
-                </View>
+                <EmptySpaceState spaceName={space?.name || 'This space'} />
               )}
             </View>
           </ScrollView>
@@ -1888,13 +1879,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                     })}
                   </View>
                 ) : (
-                  <View style={{ paddingHorizontal: 16 }}>
-                    <Text
-                      style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
-                    >
-                      No items yet. Add something to get started!
-                    </Text>
-                  </View>
+                  <EmptySpaceState spaceName={space?.name || 'This space'} />
                 )}
 
                 {/* View X more pill */}
@@ -2289,13 +2274,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                   })}
                 </View>
               ) : (
-                <View style={{ paddingHorizontal: 16 }}>
-                  <Text
-                    style={{ fontSize: 14, color: BRAND.colors.inkSubtle, textAlign: 'center' }}
-                  >
-                    No items yet. Add something to get started!
-                  </Text>
-                </View>
+                <EmptySpaceState spaceName={space?.name || 'This space'} />
               )}
 
               {/* View X more pill */}
