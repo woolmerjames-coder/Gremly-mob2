@@ -4315,6 +4315,23 @@ export class SupabaseSpaceChatRepo {
     return data as import('../types').SpaceChat;
   }
 
+  /**
+   * List all chats for a space (simplified version for modal)
+   */
+  async listBySpace(spaceId: string): Promise<import('../types').SpaceChat[]> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .select('*')
+      .eq('space_id', spaceId)
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+
   async list(
     spaceId: string,
     opts?: { includeArchived?: boolean },

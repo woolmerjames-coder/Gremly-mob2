@@ -76,6 +76,7 @@ import { useSpaceMilestone } from '../../hooks/useSpaceMilestone';
 import { usePinnedCount } from '../../hooks/usePinnedCount';
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
+import { SpaceChatListModal } from '../../components/chat/SpaceChatListModal';
 import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -620,6 +621,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showPinnedModal, setShowPinnedModal] = useState(false);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [chatListModalVisible, setChatListModalVisible] = useState(false);
 
   // Handler to change filter and collapse list
   const handleFilterChange = useCallback((newFilter: FilterTab) => {
@@ -1196,6 +1198,23 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     // Navigate to ChatThreadScreen without a chatId - chat will be created on first message
     navigation.navigate('ChatThread', { spaceId });
   }, [spaceId, navigation]);
+
+  // Chat list modal handlers
+  const handleChatButtonPress = useCallback(() => {
+    console.log('[SpaceHome] Chat button pressed, opening modal');
+    setChatListModalVisible(true);
+  }, []);
+
+  const handleSelectChat = useCallback(
+    (chatId: string) => {
+      navigation.navigate('ChatThread', { spaceId, chatId });
+    },
+    [navigation, spaceId],
+  );
+
+  const handleNewChatFromModal = useCallback(() => {
+    navigation.navigate('ChatThread', { spaceId, chatId: undefined });
+  }, [navigation, spaceId]);
 
   // Phase 12: MilestoneHeader handlers
   const handleGremlyPress = useCallback(() => {
@@ -1778,7 +1797,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </Pressable>
 
           <Pressable
-            onPress={handleNewChat}
+            onPress={handleChatButtonPress}
             style={({ pressed }) => ({
               flex: 1,
               height: 48,
@@ -1856,6 +1875,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onEditMilestone={handleEditMilestoneFromSettings}
           onSaveSpaceName={handleSaveSpaceName}
           onDeleteSpace={handleDeleteSpace}
+        />
+
+        {/* Space Chat List Modal */}
+        <SpaceChatListModal
+          visible={chatListModalVisible}
+          onClose={() => setChatListModalVisible(false)}
+          spaceId={space?.id || spaceId}
+          spaceName={space?.name || 'this Space'}
+          onSelectChat={handleSelectChat}
+          onNewChat={handleNewChatFromModal}
         />
       </View>
     );
@@ -2014,7 +2043,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 {/* New Chat CTA */}
                 <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
                   <Pressable
-                    onPress={handleNewChat}
+                    onPress={handleChatButtonPress}
                     testID="space-chat-cta"
                     accessibilityRole="button"
                     accessibilityLabel="Start a new chat with Gremly"
@@ -2159,7 +2188,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </Pressable>
 
           <Pressable
-            onPress={handleNewChat}
+            onPress={handleChatButtonPress}
             style={({ pressed }) => ({
               flex: 1,
               height: 48,
@@ -2411,7 +2440,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               {/* New Chat CTA */}
               <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
                 <Pressable
-                  onPress={handleNewChat}
+                  onPress={handleChatButtonPress}
                   testID="space-chat-cta"
                   accessibilityRole="button"
                   accessibilityLabel="Start a new chat with Gremly"
@@ -2577,7 +2606,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         </Pressable>
 
         <Pressable
-          onPress={handleNewChat}
+          onPress={handleChatButtonPress}
           style={({ pressed }) => ({
             flex: 1,
             height: 48,
@@ -2675,6 +2704,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </Animated.View>
       )}
+
+      {/* Space Chat List Modal */}
+      <SpaceChatListModal
+        visible={chatListModalVisible}
+        onClose={() => setChatListModalVisible(false)}
+        spaceId={space?.id || spaceId}
+        spaceName={space?.name || 'this Space'}
+        onSelectChat={handleSelectChat}
+        onNewChat={handleNewChatFromModal}
+      />
     </View>
   );
 }
