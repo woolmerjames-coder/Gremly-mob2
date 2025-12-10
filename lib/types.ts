@@ -79,6 +79,9 @@ export interface Habit {
   triggers?: string[] | null;
   replacement_habit_id?: ID | null;
   replacement_text?: string | null;
+
+  // Phase 12: Pinned items feature
+  is_pinned?: boolean;
 }
 
 /**
@@ -127,6 +130,9 @@ export interface Todo {
   commitment_archived_at?: string | null;
 
   tags_meta?: TagsMeta | null;
+
+  // Phase 12: Pinned items feature
+  is_pinned?: boolean;
 }
 
 /**
@@ -175,6 +181,9 @@ export interface Note {
   is_favorite?: boolean;
   has_list?: boolean;
   list_items?: Array<{ id: string; text: string; checked: boolean }> | null;
+
+  // Phase 12: Pinned items feature
+  is_pinned?: boolean;
 }
 
 /**
@@ -203,16 +212,55 @@ export interface Space {
 }
 
 /**
- * SpaceMilestone - user-authored milestone/event for a space timeline
+ * SpaceMilestone - goal/direction for a Space journey
+ * Phase 12: Redesigned for "Spaces as dashboards for journeys"
+ *
+ * TRANSITION: Both `title` (legacy) and `name` (new) are supported.
+ * New code should use `name`. Legacy code using `title` continues to work.
  */
 export interface SpaceMilestone {
   id: ID;
-  owner_id: ID;
   space_id: ID;
-  title: string;
-  date: string; // ISO date (YYYY-MM-DD)
+  owner_id: ID;
+  // New field (Phase 12) - preferred
+  name?: string;
+  // Legacy field - kept for backward compatibility
+  title?: string;
+  // Now optional - direction without deadline is valid
+  date: string | null;
+  // Legacy field - kept for backward compatibility
   note?: string | null;
-  created_at: string; // ISO 8601
+  // New fields (Phase 12)
+  completed: boolean;
+  completed_at: string | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * SpaceMeta - enrichment data for AI context
+ * Stores user-defined success criteria and additional context
+ */
+export interface SpaceMeta {
+  id: ID;
+  space_id: ID;
+  success_criteria: string | null;
+  other_context: string | null;
+  owner_id: ID;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * SpaceWithContext - Space with milestone and meta data joined
+ * Used for dashboard display and AI context building
+ */
+export interface SpaceWithContext extends Space {
+  active_milestone: SpaceMilestone | null;
+  milestones: SpaceMilestone[];
+  meta: SpaceMeta | null;
 }
 
 /**

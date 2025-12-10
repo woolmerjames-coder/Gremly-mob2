@@ -15,6 +15,7 @@ import useSpaceTimeline from '../../../../hooks/useSpaceTimeline';
 import { format } from 'date-fns';
 import { SupabaseSpaceMilestoneRepo } from '../../../../lib/repo/supabase';
 import { useAuth } from '../../../../providers/AuthProvider';
+import type { SpaceMilestone } from '../../../../lib/types';
 
 export type TimelineOverlayProps = {
   visible: boolean;
@@ -35,14 +36,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
     () => new SupabaseSpaceMilestoneRepo(userId || undefined),
     [userId],
   );
-  const [milestones, setMilestones] = React.useState<
-    Array<{
-      id: string;
-      title: string;
-      date: string;
-      note?: string | null;
-    }>
-  >([]);
+  const [milestones, setMilestones] = React.useState<SpaceMilestone[]>([]);
   const [adding, setAdding] = React.useState(false);
   const [title, setTitle] = React.useState('');
   const [date, setDate] = React.useState<string>(format(new Date(), 'yyyy-MM-dd'));
@@ -69,11 +63,12 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
       if (!title.trim()) return;
       const created = await milestoneRepo.create({
         space_id: spaceId,
-        title: title.trim(),
+        name: title.trim(),
         date,
-        note: note.trim() ? note.trim() : null,
       });
-      setMilestones((prev) => [...prev, created].sort((a, b) => a.date.localeCompare(b.date)));
+      setMilestones((prev) =>
+        [...prev, created].sort((a, b) => (a.date || '').localeCompare(b.date || '')),
+      );
       setTitle('');
       setDate(format(new Date(), 'yyyy-MM-dd'));
       setNote('');
@@ -117,10 +112,10 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
                   <View style={styles.pearDot} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.milestoneTitle} numberOfLines={1}>
-                      {m.title}
+                      {m.name || m.title}
                     </Text>
                     <Text style={styles.milestoneMeta}>
-                      {format(new Date(m.date), 'EEE, MMM d, yyyy')}
+                      {m.date ? format(new Date(m.date), 'EEE, MMM d, yyyy') : 'No date'}
                     </Text>
                     {!!m.note && (
                       <Text style={styles.milestoneNote} numberOfLines={2}>
@@ -131,7 +126,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
                   <TouchableOpacity
                     onPress={() => handleDelete(m.id)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Delete milestone ${m.title}`}
+                    accessibilityLabel={`Delete milestone ${m.name || m.title}`}
                   >
                     <Text style={styles.deleteText}>Delete</Text>
                   </TouchableOpacity>

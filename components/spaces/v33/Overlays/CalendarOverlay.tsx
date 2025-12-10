@@ -140,14 +140,9 @@ export default function CalendarOverlay({
 
   // Milestones state and repo wiring
   const { userId } = useAuth();
-  const [milestones, setMilestones] = useState<
-    Array<{
-      id: string;
-      title: string;
-      date: string;
-      note?: string | null;
-    }>
-  >([]);
+  const [milestones, setMilestones] = useState<import('../../../../lib/types').SpaceMilestone[]>(
+    [],
+  );
   const [loadingMs, setLoadingMs] = useState(false);
   const [errorMs, setErrorMs] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -178,7 +173,9 @@ export default function CalendarOverlay({
   const milestonesByDate = useMemo(() => {
     const m = new Map<string, number>();
     for (const ms of milestones) {
-      m.set(ms.date, (m.get(ms.date) || 0) + 1);
+      if (ms.date) {
+        m.set(ms.date, (m.get(ms.date) || 0) + 1);
+      }
     }
     return m;
   }, [milestones]);
@@ -396,15 +393,13 @@ export default function CalendarOverlay({
                     try {
                       if (editingId) {
                         await repo.update(editingId, {
-                          title: draftTitle.trim() || 'Milestone',
-                          note: draftNote.trim() || null,
+                          name: draftTitle.trim() || 'Milestone',
                         });
                       } else {
                         await repo.create({
                           space_id: spaceId,
-                          title: draftTitle.trim() || 'Milestone',
+                          name: draftTitle.trim() || 'Milestone',
                           date: dateIso,
-                          note: draftNote.trim() || null,
                         });
                       }
                       setAdding(false);
@@ -444,7 +439,7 @@ export default function CalendarOverlay({
             <View style={{ gap: 6 }}>
               {dayMilestones.map((m) => (
                 <View key={m.id} style={styles.milestoneRow}>
-                  <Text style={styles.milestoneItem}>• {m.title}</Text>
+                  <Text style={styles.milestoneItem}>• {m.name || m.title}</Text>
                   <View style={{ position: 'relative' }}>
                     <TouchableOpacity
                       onPress={() => setMenuMilestoneId(m.id)}
@@ -464,7 +459,7 @@ export default function CalendarOverlay({
                             if (key === 'edit') {
                               setEditingId(m.id);
                               setAdding(false);
-                              setDraftTitle(m.title);
+                              setDraftTitle(m.name || m.title || '');
                               setDraftNote(m.note || '');
                             } else if (key === 'delete') {
                               if (!userId) return;
