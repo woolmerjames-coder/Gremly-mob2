@@ -3951,205 +3951,6 @@ export class SupabaseRepo implements IRepo {
       throw new Error(`Failed to delete log photo: ${error.message}`);
     }
   }
-}
-
-/**
- * SupabaseSpaceChatRepo - Space chat management (Phase 8+ Spaces v2)
- */
-export class SupabaseSpaceChatRepo {
-  constructor(private currentUserId?: string) {}
-
-  private ensureUserId(): string {
-    if (!this.currentUserId) throw new Error('User ID not available');
-    return this.currentUserId;
-  }
-
-  /**
-   * Get a single chat by ID
-   */
-  async getById(chatId: string): Promise<import('../types').SpaceChat | null> {
-    const userId = this.ensureUserId();
-
-    const { data, error } = await supabase
-      .from('space_chats')
-      .select('*')
-      .eq('id', chatId)
-      .eq('user_id', userId)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') return null; // Not found
-      throw new Error(`Failed to get space chat: ${error.message}`);
-    }
-
-    return data as import('../types').SpaceChat;
-  }
-
-  async list(
-    spaceId: string,
-    opts?: { includeArchived?: boolean },
-  ): Promise<import('../types').SpaceChat[]> {
-    const userId = this.ensureUserId();
-
-    let query = supabase
-      .from('space_chats')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('space_id', spaceId);
-
-    if (!opts?.includeArchived) {
-      query = query.is('archived_at', null);
-    }
-
-    query = query.order('pinned', { ascending: false }).order('updated_at', { ascending: false });
-
-    const { data, error } = await query;
-
-    if (error) throw new Error(`Failed to list space chats: ${error.message}`);
-
-    return (data || []) as import('../types').SpaceChat[];
-  }
-
-  async create(
-    spaceId: string,
-    input: import('../types').SpaceChatCreateInput,
-  ): Promise<import('../types').SpaceChat> {
-    const userId = this.ensureUserId();
-
-    const { data, error } = await supabase
-      .from('space_chats')
-      .insert({
-        user_id: userId,
-        space_id: spaceId,
-        title: input.title,
-        pinned: false,
-      })
-      .select()
-      .single();
-
-    if (error) throw new Error(`Failed to create space chat: ${error.message}`);
-    if (!data) throw new Error('No data returned from create space chat');
-
-    return data as import('../types').SpaceChat;
-  }
-
-  async update(
-    chatId: string,
-    patch: import('../types').SpaceChatUpdateInput,
-  ): Promise<import('../types').SpaceChat> {
-    const userId = this.ensureUserId();
-
-    const updatePayload: Record<string, unknown> = {};
-
-    if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
-    if ('pinned' in patch) updatePayload.pinned = patch.pinned;
-    if ('last_message_snippet' in patch)
-      updatePayload.last_message_snippet = patch.last_message_snippet ?? null;
-    if ('running_summary' in patch) updatePayload.running_summary = patch.running_summary ?? null;
-    if ('context_json' in patch) updatePayload.context_json = patch.context_json ?? null;
-    if ('metadata_json' in patch) updatePayload.metadata_json = patch.metadata_json ?? null;
-
-    const { data, error } = await supabase
-      .from('space_chats')
-      .update(updatePayload)
-      .eq('id', chatId)
-      .eq('user_id', userId)
-      .select()
-      .single();
-
-    if (error) throw new Error(`Failed to update space chat: ${error.message}`);
-    if (!data) throw new Error('No data returned from update space chat');
-
-    return data as import('../types').SpaceChat;
-  }
-
-  /**
-   * Soft-archive a chat by setting archived_at.
-   */
-  async archive(chatId: string): Promise<void> {
-    const userId = this.ensureUserId();
-    const { error } = await supabase
-      .from('space_chats')
-      .update({ archived_at: new Date().toISOString() })
-      .eq('id', chatId)
-      .eq('user_id', userId);
-    if (error) throw new Error(`Failed to archive space chat: ${error.message}`);
-  }
-
-  /**
-   * Hard delete a chat. If FK cascade is not configured, delete messages first.
-   */
-  async delete(chatId: string): Promise<void> {
-    const userId = this.ensureUserId();
-    // Best-effort: delete messages first (safe even if FK cascade exists)
-    const msgDel = await supabase
-      .from('space_chat_messages')
-      .delete()
-      .eq('chat_id', chatId)
-      .eq('user_id', userId);
-    if (msgDel.error) {
-      // Log but attempt to delete chat anyway (some schemas may not include user_id on messages)
-      console.warn('[SupabaseSpaceChatRepo.delete] message delete warning:', msgDel.error.message);
-    }
-
-    const chatDel = await supabase
-      .from('space_chats')
-      .delete()
-      .eq('id', chatId)
-      .eq('user_id', userId);
-    if (chatDel.error) throw new Error(`Failed to delete space chat: ${chatDel.error.message}`);
-  }
-}
-
-/**
- * SupabaseSpaceChatMessageRepo - Space chat message management (Phase 10.5)
- */
-export class SupabaseSpaceChatMessageRepo {
-  constructor(private currentUserId?: string) {}
-
-  private ensureUserId(): string {
-    if (!this.currentUserId) throw new Error('User ID not available');
-    return this.currentUserId;
-  }
-
-  async list(chatId: string): Promise<import('../types').SpaceChatMessage[]> {
-    const userId = this.ensureUserId();
-
-    let query = supabase.from('space_chat_messages').select('*').eq('chat_id', chatId);
-    // Jest Supabase mock may not support multiple chained filters; apply user filter outside tests
-    if (process.env.JEST_WORKAROUND !== '1') {
-      query = query.eq('user_id', userId);
-    }
-    const { data, error } = await query.order('created_at', { ascending: true });
-
-    if (error) throw new Error(`Failed to list space chat messages: ${error.message}`);
-
-    return (data || []) as import('../types').SpaceChatMessage[];
-  }
-
-  async append(
-    input: import('../types').SpaceChatMessageInsert,
-  ): Promise<import('../types').SpaceChatMessage> {
-    const userId = this.ensureUserId();
-
-    const { data, error } = await supabase
-      .from('space_chat_messages')
-      .insert({
-        chat_id: input.chat_id,
-        space_id: input.space_id,
-        user_id: userId,
-        role: input.role,
-        content: input.content,
-        metadata_json: input.metadata_json ?? null,
-      })
-      .select()
-      .single();
-
-    if (error) throw new Error(`Failed to create space chat message: ${error.message}`);
-    if (!data) throw new Error('No data returned from create space chat message');
-
-    return data as import('../types').SpaceChatMessage;
-  }
 
   // ==========================
   // Phase 12: Milestones CRUD (redesigned)
@@ -4171,9 +3972,7 @@ export class SupabaseSpaceChatMessageRepo {
     }
     return (data || []).map((row: any) => ({
       ...row,
-      // Normalize: ensure name is populated (prefer name, fallback to title)
       name: row.name || row.title || 'Untitled',
-      // Ensure new fields have defaults if missing from old rows
       completed: row.completed ?? false,
       completed_at: row.completed_at ?? null,
       is_active: row.is_active ?? true,
@@ -4214,7 +4013,6 @@ export class SupabaseSpaceChatMessageRepo {
       date?: string | null;
       is_active?: boolean;
       sort_order?: number;
-      // Legacy support
       title?: string;
       note?: string | null;
     },
@@ -4227,7 +4025,7 @@ export class SupabaseSpaceChatMessageRepo {
         owner_id: userId,
         space_id: spaceId,
         name: nameValue,
-        title: nameValue, // Keep in sync for legacy code
+        title: nameValue,
         date: payload.date ?? null,
         note: payload.note ?? null,
         is_active: payload.is_active ?? true,
@@ -4256,9 +4054,9 @@ export class SupabaseSpaceChatMessageRepo {
     id: string,
     patch: Partial<{
       name: string;
-      title: string; // Legacy
+      title: string;
       date: string | null;
-      note: string | null; // Legacy
+      note: string | null;
       completed: boolean;
       completed_at: string | null;
       is_active: boolean;
@@ -4270,7 +4068,6 @@ export class SupabaseSpaceChatMessageRepo {
       ...compact(patch),
       updated_at: new Date().toISOString(),
     };
-    // Keep name and title in sync
     if (patch.name) updatePayload.title = patch.name;
     if (patch.title && !patch.name) updatePayload.name = patch.title;
 
@@ -4483,6 +4280,205 @@ export class SupabaseSpaceChatMessageRepo {
     ]);
 
     return (todosRes.count || 0) + (habitsRes.count || 0) + (notesRes.count || 0);
+  }
+}
+
+/**
+ * SupabaseSpaceChatRepo - Space chat management (Phase 8+ Spaces v2)
+ */
+export class SupabaseSpaceChatRepo {
+  constructor(private currentUserId?: string) {}
+
+  private ensureUserId(): string {
+    if (!this.currentUserId) throw new Error('User ID not available');
+    return this.currentUserId;
+  }
+
+  /**
+   * Get a single chat by ID
+   */
+  async getById(chatId: string): Promise<import('../types').SpaceChat | null> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .select('*')
+      .eq('id', chatId)
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null; // Not found
+      throw new Error(`Failed to get space chat: ${error.message}`);
+    }
+
+    return data as import('../types').SpaceChat;
+  }
+
+  async list(
+    spaceId: string,
+    opts?: { includeArchived?: boolean },
+  ): Promise<import('../types').SpaceChat[]> {
+    const userId = this.ensureUserId();
+
+    let query = supabase
+      .from('space_chats')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('space_id', spaceId);
+
+    if (!opts?.includeArchived) {
+      query = query.is('archived_at', null);
+    }
+
+    query = query.order('pinned', { ascending: false }).order('updated_at', { ascending: false });
+
+    const { data, error } = await query;
+
+    if (error) throw new Error(`Failed to list space chats: ${error.message}`);
+
+    return (data || []) as import('../types').SpaceChat[];
+  }
+
+  async create(
+    spaceId: string,
+    input: import('../types').SpaceChatCreateInput,
+  ): Promise<import('../types').SpaceChat> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .insert({
+        user_id: userId,
+        space_id: spaceId,
+        title: input.title,
+        pinned: false,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create space chat: ${error.message}`);
+    if (!data) throw new Error('No data returned from create space chat');
+
+    return data as import('../types').SpaceChat;
+  }
+
+  async update(
+    chatId: string,
+    patch: import('../types').SpaceChatUpdateInput,
+  ): Promise<import('../types').SpaceChat> {
+    const userId = this.ensureUserId();
+
+    const updatePayload: Record<string, unknown> = {};
+
+    if ('title' in patch && patch.title !== undefined) updatePayload.title = patch.title;
+    if ('pinned' in patch) updatePayload.pinned = patch.pinned;
+    if ('last_message_snippet' in patch)
+      updatePayload.last_message_snippet = patch.last_message_snippet ?? null;
+    if ('running_summary' in patch) updatePayload.running_summary = patch.running_summary ?? null;
+    if ('context_json' in patch) updatePayload.context_json = patch.context_json ?? null;
+    if ('metadata_json' in patch) updatePayload.metadata_json = patch.metadata_json ?? null;
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .update(updatePayload)
+      .eq('id', chatId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update space chat: ${error.message}`);
+    if (!data) throw new Error('No data returned from update space chat');
+
+    return data as import('../types').SpaceChat;
+  }
+
+  /**
+   * Soft-archive a chat by setting archived_at.
+   */
+  async archive(chatId: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('space_chats')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', chatId)
+      .eq('user_id', userId);
+    if (error) throw new Error(`Failed to archive space chat: ${error.message}`);
+  }
+
+  /**
+   * Hard delete a chat. If FK cascade is not configured, delete messages first.
+   */
+  async delete(chatId: string): Promise<void> {
+    const userId = this.ensureUserId();
+    // Best-effort: delete messages first (safe even if FK cascade exists)
+    const msgDel = await supabase
+      .from('space_chat_messages')
+      .delete()
+      .eq('chat_id', chatId)
+      .eq('user_id', userId);
+    if (msgDel.error) {
+      // Log but attempt to delete chat anyway (some schemas may not include user_id on messages)
+      console.warn('[SupabaseSpaceChatRepo.delete] message delete warning:', msgDel.error.message);
+    }
+
+    const chatDel = await supabase
+      .from('space_chats')
+      .delete()
+      .eq('id', chatId)
+      .eq('user_id', userId);
+    if (chatDel.error) throw new Error(`Failed to delete space chat: ${chatDel.error.message}`);
+  }
+}
+
+/**
+ * SupabaseSpaceChatMessageRepo - Space chat message management (Phase 10.5)
+ */
+export class SupabaseSpaceChatMessageRepo {
+  constructor(private currentUserId?: string) {}
+
+  private ensureUserId(): string {
+    if (!this.currentUserId) throw new Error('User ID not available');
+    return this.currentUserId;
+  }
+
+  async list(chatId: string): Promise<import('../types').SpaceChatMessage[]> {
+    const userId = this.ensureUserId();
+
+    let query = supabase.from('space_chat_messages').select('*').eq('chat_id', chatId);
+    // Jest Supabase mock may not support multiple chained filters; apply user filter outside tests
+    if (process.env.JEST_WORKAROUND !== '1') {
+      query = query.eq('user_id', userId);
+    }
+    const { data, error } = await query.order('created_at', { ascending: true });
+
+    if (error) throw new Error(`Failed to list space chat messages: ${error.message}`);
+
+    return (data || []) as import('../types').SpaceChatMessage[];
+  }
+
+  async append(
+    input: import('../types').SpaceChatMessageInsert,
+  ): Promise<import('../types').SpaceChatMessage> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chat_messages')
+      .insert({
+        chat_id: input.chat_id,
+        space_id: input.space_id,
+        user_id: userId,
+        role: input.role,
+        content: input.content,
+        metadata_json: input.metadata_json ?? null,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create space chat message: ${error.message}`);
+    if (!data) throw new Error('No data returned from create space chat message');
+
+    return data as import('../types').SpaceChatMessage;
   }
 }
 

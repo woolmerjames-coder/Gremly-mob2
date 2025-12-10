@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
-import NewSpaceModal from './NewSpaceModal';
+import CreateSpaceModal from './CreateSpaceModal';
 import { OverlayComponent } from './overlay';
 import { eventBus } from '../lib/events/EventBus';
 import { useGlobalOverlay } from '../contexts/OverlayContext';
@@ -402,7 +402,7 @@ export const OverlayHost = () => {
 
   return (
     <>
-      <NewSpaceModal />
+      <CreateSpaceModal />
 
       {/* Global Unified Overlay - single instance for entire app
           Mount the overlay into a top-level absolute container so it renders

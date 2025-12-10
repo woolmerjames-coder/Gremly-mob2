@@ -67,7 +67,7 @@ import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { setNewSpaceCallback } from '../../components/NewSpaceModal';
+import { setNewSpaceCallback } from '../../components/CreateSpaceModal';
 import { useReducedMotion } from '../../design/animations';
 
 // Helper to get space icon based on name

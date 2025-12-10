@@ -8,11 +8,14 @@ import type {
   NoteSubtype,
   HabitSubtype,
   Space,
+  SpaceMilestone,
+  SpaceMeta,
   Tag,
   Person,
   EntityType,
   LegacyCanonicalType,
   TagsMeta,
+  Habit,
 } from '../types';
 import type { SpaceInsert } from '../schemas';
 
@@ -307,6 +310,53 @@ export interface IRepo {
 
   // Spaces v2 methods (Phase 8+)
   getSpaceSummary(spaceId: string): Promise<string | null>;
+
+  // Phase 12 - Milestone methods
+  listMilestones(spaceId: string): Promise<SpaceMilestone[]>;
+  getActiveMilestone(spaceId: string): Promise<SpaceMilestone | null>;
+  createMilestone(
+    spaceId: string,
+    payload: {
+      name: string;
+      date?: string | null;
+      is_active?: boolean;
+      sort_order?: number;
+      title?: string;
+      note?: string | null;
+    },
+  ): Promise<SpaceMilestone>;
+  updateMilestone(
+    id: string,
+    patch: Partial<{
+      name: string;
+      title: string;
+      date: string | null;
+      note: string | null;
+      completed: boolean;
+      completed_at: string | null;
+      is_active: boolean;
+      sort_order: number;
+    }>,
+  ): Promise<SpaceMilestone>;
+  completeMilestone(milestoneId: string): Promise<SpaceMilestone>;
+  deleteMilestone(milestoneId: string): Promise<void>;
+
+  // Phase 12 - SpaceMeta methods
+  getSpaceMeta(spaceId: string): Promise<SpaceMeta | null>;
+  upsertSpaceMeta(
+    spaceId: string,
+    payload: { success_criteria?: string | null; other_context?: string | null },
+  ): Promise<SpaceMeta>;
+  deleteSpaceMeta(spaceId: string): Promise<void>;
+
+  // Phase 12 - Pinned items methods
+  toggleTodoPinned(todoId: string, isPinned: boolean): Promise<void>;
+  toggleHabitPinned(habitId: string, isPinned: boolean): Promise<void>;
+  toggleNotePinned(noteId: string, isPinned: boolean): Promise<void>;
+  getPinnedItemsForSpace(
+    spaceId: string,
+  ): Promise<{ todos: Todo[]; habits: Habit[]; notes: Note[] }>;
+  getPinnedCountForSpace(spaceId: string): Promise<number>;
 
   // Phase 10.8: Space Insight methods
   getLatestSpaceInsight(spaceId: string): Promise<{
