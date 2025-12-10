@@ -102,6 +102,7 @@ import {
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
+import { SpaceSettingsModal } from '../../components/spaces/SpaceSettingsModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -616,6 +617,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Handler to change filter and collapse list
   const handleFilterChange = useCallback((newFilter: FilterTab) => {
@@ -1227,11 +1229,48 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   }, []);
 
   const handleSettingsPress = useCallback(() => {
-    Alert.alert(
-      'Space Settings',
-      "Coming soon! Here you'll be able to:\n\n• Edit milestone & deadline\n• Add success criteria\n• Manage pinned items\n• Archive or delete Space",
-      [{ text: 'OK' }],
-    );
+    setShowSettingsModal(true);
+  }, []);
+
+  const handleSettingsClose = useCallback(() => {
+    setShowSettingsModal(false);
+  }, []);
+
+  const handleSaveSpaceName = useCallback(
+    async (name: string) => {
+      if (!spaceId) return;
+
+      console.log('[SpaceHome] Saving space name:', name);
+
+      try {
+        await repo.updateSpace(spaceId, { name });
+        // Refetch space data
+        reload?.();
+      } catch (error) {
+        console.error('[SpaceHome] Save space name error:', error);
+        throw error;
+      }
+    },
+    [spaceId, repo, reload],
+  );
+
+  const handleDeleteSpace = useCallback(async () => {
+    if (!spaceId) return;
+
+    console.log('[SpaceHome] Deleting space:', spaceId);
+
+    try {
+      await repo.deleteSpace(spaceId);
+      // Navigate back to spaces list
+      navigation.goBack();
+    } catch (error) {
+      console.error('[SpaceHome] Delete space error:', error);
+      throw error;
+    }
+  }, [spaceId, repo, navigation]);
+
+  const handleEditMilestoneFromSettings = useCallback(() => {
+    setShowMilestoneModal(true);
   }, []);
 
   const handlePinnedPress = useCallback(() => {
@@ -1829,6 +1868,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           initialName={milestone?.name}
           initialDate={milestone?.date ? new Date(milestone.date) : undefined}
           isEditing={!!milestone}
+        />
+
+        {/* Space Settings Modal */}
+        <SpaceSettingsModal
+          visible={showSettingsModal}
+          onClose={handleSettingsClose}
+          space={space}
+          hasMilestone={!!milestone}
+          onEditMilestone={handleEditMilestoneFromSettings}
+          onSaveSpaceName={handleSaveSpaceName}
+          onDeleteSpace={handleDeleteSpace}
         />
       </View>
     );

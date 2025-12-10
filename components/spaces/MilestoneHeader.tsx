@@ -11,7 +11,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Flag, Plus, Pin, Settings } from 'lucide-react-native';
+import { Flag, Plus, Pin, MoreHorizontal } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import type { SpaceMilestone } from '../../lib/types';
 
@@ -73,7 +73,7 @@ export function MilestoneHeader({
           accessibilityLabel="Space settings"
           testID="header-settings-button"
         >
-          <Settings size={24} color={BRAND.colors.charcoalInk} />
+          <MoreHorizontal size={24} color={BRAND.colors.charcoalInk} />
         </Pressable>
       </View>
 
