@@ -1,10 +1,11 @@
 /**
  * useMindDropSubmit Hook
  *
- * BRIDGE VERSION: Uses the NEW Zustand store but calls EXISTING repo create methods.
- * This allows incremental migration without breaking existing functionality.
+ * Two-phase Mind Drop pipeline:
+ * - Phase 1 runs synchronously for classification (with 2s timeout)
+ * - Phase 2 runs in background after entity is saved (enrichment)
  *
- * TODO: Phase C will replace direct repo.create with Phase 1 + Phase 2 pipeline
+ * Uses the Zustand store for optimistic UI and existing repo for persistence.
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -18,6 +19,8 @@ import {
 } from '../lib/minddrop/photoDrop';
 import { generateDropId } from '../lib/minddrop/ids';
 import { eventBus } from '../lib/events/EventBus';
+import { runPhase1 } from '../lib/minddrop/phase1';
+import { runPhase2 } from '../lib/minddrop/phase2';
 import type { MindDropBucket, LogSubtype } from '../lib/minddrop/types';
 
 /**
@@ -123,7 +126,7 @@ export function useMindDropSubmit(): {
           };
         }
 
-        // Classify the drop
+        // Classify the drop - immediate heuristic for optimistic UI
         let bucket: MindDropBucket;
         let subtypeHint: LogSubtype | null;
 
@@ -132,15 +135,16 @@ export function useMindDropSubmit(): {
           bucket = defaults.bucket;
           subtypeHint = defaults.subtype;
         } else {
-          const classification = heuristicClassify(text, {
+          // Heuristic for immediate optimistic UI
+          const heuristic = heuristicClassify(text, {
             hasAttachments: photoUris.length > 0,
             spaceId: context.spaceId,
           });
-          bucket = classification.bucket;
-          subtypeHint = classification.subtypeHint;
+          bucket = heuristic.bucket;
+          subtypeHint = heuristic.subtypeHint;
         }
 
-        // Add to pending items (optimistic UI)
+        // Add to pending items (optimistic UI with heuristic prediction)
         addPendingItem({
           dropId,
           text: effectiveText,
@@ -150,8 +154,25 @@ export function useMindDropSubmit(): {
           spaceId: context.spaceId ?? null,
         });
 
-        // BRIDGE: Create entity directly using existing repo
-        // TODO: Phase C will replace direct repo.create with Phase 1 + Phase 2 pipeline
+        // Phase 1: Run classification (may confirm or correct heuristic)
+        // Phase 1 runs synchronously, Phase 2 runs in background after entity is saved
+        const phase1Result = await runPhase1(effectiveText, {
+          hasAttachments: photoUris.length > 0,
+          spaceId: context.spaceId ?? null,
+        });
+
+        // Use Phase 1 result for entity creation (may differ from heuristic)
+        bucket = phase1Result.bucket;
+        subtypeHint = phase1Result.subtype;
+
+        console.log('[MindDrop:Submit] Phase 1 complete', {
+          bucket,
+          subtype: subtypeHint,
+          confidence: phase1Result.confidence,
+          source: phase1Result.source,
+        });
+
+        // Create entity using Phase 1 classification
         const entityType = bucketToEntityType(bucket);
 
         // For 'today' source, set due_at/start_date to today
@@ -210,6 +231,23 @@ export function useMindDropSubmit(): {
           type: entityType,
           spaceId: context.spaceId ?? null,
         });
+
+        // Phase 2: Run enrichment in background (don't await)
+        // This will update the entity with smart title, tags, time estimates, etc.
+        runPhase2(entity.id, effectiveText, phase1Result.bucket, phase1Result.subtype, repo)
+          .then((enrichment) => {
+            if (enrichment) {
+              console.log('[MindDrop:Phase2] Enrichment complete', {
+                entityId: entity.id,
+                smartTitle: enrichment.smartTitle.substring(0, 30) + '...',
+                tagsCount: enrichment.tags.length,
+              });
+              // EventBus will notify views of the update via repo.update
+            }
+          })
+          .catch((err) => {
+            console.warn('[MindDrop:Phase2] Enrichment failed', err);
+          });
 
         submitLockRef.current = false;
         setIsSubmitting(false);
