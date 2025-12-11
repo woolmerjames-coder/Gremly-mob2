@@ -126,28 +126,7 @@ export function validateEnrichmentResult(
     needsCorrection = true;
   }
 
-  // --- 2. Title Relevance Validation ---
-  if (!corrections.smartTitle) {
-    const titleWords = extractWords(result.smartTitle);
-    const textWords = extractWords(originalText, 20);
-
-    // Check if any title word (>3 chars) appears in first 20 words of text
-    let hasOverlap = false;
-    for (const word of titleWords) {
-      if (textWords.has(word)) {
-        hasOverlap = true;
-        break;
-      }
-    }
-
-    if (!hasOverlap && titleWords.size > 0) {
-      issues.push('title_no_overlap');
-      corrections.smartTitle = fallbackTitle;
-      needsCorrection = true;
-    }
-  }
-
-  // --- 3. Generic Title Check ---
+  // --- 2. Generic Title Check ---
   if (!corrections.smartTitle) {
     const normalizedTitle = result.smartTitle.trim().toLowerCase();
     if (GENERIC_TITLES.has(normalizedTitle)) {
@@ -157,7 +136,7 @@ export function validateEnrichmentResult(
     }
   }
 
-  // --- 4. People Validation (hallucination check) ---
+  // --- 3. People Validation (hallucination check) ---
   if (result.people.length > 0) {
     const validPeople = result.people.filter((person) => appearsInText(person, originalText));
 
@@ -168,7 +147,7 @@ export function validateEnrichmentResult(
     }
   }
 
-  // --- 5. Date Validation ---
+  // --- 4. Date Validation ---
   if (result.extractedDate) {
     const parsed = parseDate(result.extractedDate);
 
@@ -193,7 +172,7 @@ export function validateEnrichmentResult(
     }
   }
 
-  // --- 6. Time Estimate Validation ---
+  // --- 5. Time Estimate Validation ---
   if (result.timeEstimateMinutes !== null && bucket !== 'todo') {
     issues.push('time_estimate_wrong_bucket');
     corrections.timeEstimateMinutes = null;
