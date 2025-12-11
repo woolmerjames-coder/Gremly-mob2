@@ -114,6 +114,8 @@ import { buildMindDropDerivedFields } from '../../lib/minddrop/minddropShared';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { hashString } from '../../lib/telemetry/catchallLogger';
+import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
+import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -2155,6 +2157,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const repo = useRepo();
   const { decideWithContext } = useCortex();
   const { user, userId } = useAuth();
+  const { submit: mindDropSubmit, isSubmitting: isMindDropSubmitting } = useMindDropSubmit();
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
@@ -2789,7 +2792,48 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     decisionConfidence?: number;
   };
 
+  /**
+   * New Mind Drop submit handler using unified useMindDropSubmit hook.
+   * Enabled via FEATURE_FLAGS.MIND_DROP_V4_ENABLED.
+   */
+  const handleMindDropSubmit = useCallback(async (): Promise<SaveResult> => {
+    console.log('[MindDrop:NewPipeline] Submitting via unified hook');
+    const trimmed = clampNoteLength(note.trim());
+
+    if (!trimmed && pendingPhotoUris.length === 0) {
+      resetState();
+      return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
+    }
+
+    const result = await mindDropSubmit(trimmed, {
+      spaceId: null, // CatchAllNotepad is global, no space
+      photoUris: pendingPhotoUris,
+      source: 'minddrop',
+    });
+
+    if (result.success) {
+      setNote('');
+      setPendingPhotoUris([]);
+      return {
+        created: {
+          todos: result.bucket === 'todo' ? [result.entityId!] : [],
+          notes: result.bucket === 'log' ? [result.entityId!] : [],
+          habits: result.bucket === 'habit' ? [result.entityId!] : [],
+        },
+        createdDetails: [{ kind: result.bucket === 'log' ? 'note' : result.bucket! }],
+      };
+    } else {
+      console.error('[MindDrop:NewPipeline] Submit failed:', result.error);
+      return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
+    }
+  }, [note, pendingPhotoUris, mindDropSubmit, resetState]);
+
   const performSave = useCallback(async (): Promise<SaveResult> => {
+    // Feature flag check for new Mind Drop pipeline
+    if (FEATURE_FLAGS.MIND_DROP_V4_ENABLED) {
+      return handleMindDropSubmit();
+    }
+
     const trimmed = clampNoteLength(note.trim());
     const trace = startCatchallTrace('minddrop');
     step(trace, 'submit', { length: trimmed.length });
