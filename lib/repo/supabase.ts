@@ -697,36 +697,68 @@ export class SupabaseRepo implements IRepo {
       .single();
 
     if (error) {
-      // Defensive handling: If we hit duplicate key error on notes_owner_drop_id_active_unique,
-      // treat as "already exists" and fetch the existing note instead of throwing.
+      // Defensive handling: If we hit duplicate key error on owner_drop_id constraints,
+      // treat as "already exists" and fetch the existing entity instead of throwing.
       // This provides a safety net for race conditions between concurrent Mind Drop submissions.
-      const isDuplicateNoteError =
-        input.type === 'note' &&
+      const isDuplicateDropIdError =
         error?.code === '23505' &&
-        error?.message?.includes('notes_owner_drop_id_active_unique');
+        input.dropId &&
+        (error?.message?.includes('drop_id') ||
+          error?.message?.includes('owner_drop_id') ||
+          error?.message?.includes('notes_owner_drop_id_active_unique') ||
+          error?.message?.includes('habits_owner_drop_id_unique') ||
+          error?.message?.includes('todos_owner_drop_id_active_unique'));
 
-      if (isDuplicateNoteError && input.dropId) {
+      if (isDuplicateDropIdError) {
         // Log warning instead of error - this is expected defensive behavior
         console.warn(
-          `[SupabaseRepo.create] Duplicate note detected for drop_id=${input.dropId}, fetching existing note`,
+          `[SupabaseRepo.create] Duplicate ${input.type} detected for drop_id=${input.dropId}, fetching existing entity`,
           {
             code: error.code,
-            constraint: 'notes_owner_drop_id_active_unique',
+            message: error.message,
             userId: this.currentUserId,
           },
         );
 
-        // Fetch the existing active note by drop_id + owner_id
-        const { data: existingNote, error: fetchError } = await supabase
-          .from('notes')
-          .select('*')
-          .eq('drop_id', input.dropId)
-          .eq('owner_id', this.currentUserId)
-          .eq('archived', false)
-          .single();
+        // Fetch the existing entity by drop_id + owner_id
+        let existingEntity: any = null;
+        let fetchError: any = null;
 
-        if (fetchError || !existingNote) {
-          // If we can't fetch the existing note, fall back to original error
+        if (input.type === 'note') {
+          const result = await supabase
+            .from('notes')
+            .select('*')
+            .eq('drop_id', input.dropId)
+            .eq('owner_id', this.currentUserId)
+            .eq('archived', false)
+            .single();
+          existingEntity = result.data;
+          fetchError = result.error;
+        } else if (input.type === 'habit') {
+          // Habits constraint doesn't have archived filter
+          const result = await supabase
+            .from('habits')
+            .select('*')
+            .eq('drop_id', input.dropId)
+            .eq('owner_id', this.currentUserId)
+            .single();
+          existingEntity = result.data;
+          fetchError = result.error;
+        } else if (input.type === 'todo') {
+          // Todos constraint is on active (non-archived) todos
+          const result = await supabase
+            .from('todos')
+            .select('*')
+            .eq('drop_id', input.dropId)
+            .eq('owner_id', this.currentUserId)
+            .eq('archived', false)
+            .single();
+          existingEntity = result.data;
+          fetchError = result.error;
+        }
+
+        if (fetchError || !existingEntity) {
+          // If we can't fetch the existing entity, fall back to original error
           logSupabaseError(
             `${input.type}.insert.duplicate.fetch_failed`,
             fetchError ?? error,
@@ -737,15 +769,22 @@ export class SupabaseRepo implements IRepo {
           throw new Error(`Failed to create ${input.type}: ${friendlyMsg}`);
         }
 
-        // Successfully fetched existing note - return it as if create succeeded
+        // Successfully fetched existing entity - return it as if create succeeded
         if (__DEV__) {
           console.log(
-            `[SupabaseRepo.create] Returning existing note id=${existingNote.id} for drop_id=${input.dropId}`,
+            `[SupabaseRepo.create] Returning existing ${input.type} id=${existingEntity.id} for drop_id=${input.dropId}`,
           );
         }
 
-        const record = { ...existingNote, type: 'note' as const };
-        const parsedRecord = noteZ.parse(mapNoteFromDb(record));
+        const record = { ...existingEntity, type: input.type };
+        let parsedRecord: AppRecord;
+        if (input.type === 'habit') {
+          parsedRecord = habitZ.parse(mapHabitFromDb(record)) as Habit;
+        } else if (input.type === 'todo') {
+          parsedRecord = todoZ.parse(mapTodoFromDb(record)) as Todo;
+        } else {
+          parsedRecord = noteZ.parse(mapNoteFromDb(record)) as Note;
+        }
         eventBus.emit('ItemSaved', { id: parsedRecord.id });
         return parsedRecord;
       }
