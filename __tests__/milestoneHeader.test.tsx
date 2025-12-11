@@ -7,7 +7,8 @@ jest.mock('lucide-react-native', () => ({
   Flag: () => null,
   Plus: () => null,
   Pin: () => null,
-  Settings: () => null,
+  MoreHorizontal: () => null,
+  ChevronLeft: () => null,
 }));
 
 describe('MilestoneHeader', () => {

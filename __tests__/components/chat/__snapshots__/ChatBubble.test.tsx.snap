@@ -11,6 +11,7 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
       false,
       {
         "alignItems": "flex-start",
+        "marginBottom": 4,
       },
     ]
   }
@@ -19,20 +20,23 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
     style={
       [
         {
-          "borderRadius": 8,
+          "borderRadius": 14,
           "maxWidth": "85%",
           "minWidth": 40,
-          "paddingHorizontal": 16,
-          "paddingVertical": 8,
+          "paddingHorizontal": 14,
+          "paddingVertical": 10,
         },
         false,
         {
+          "alignSelf": "flex-start",
           "backgroundColor": "transparent",
-          "borderLeftColor": "#BFD8C0",
-          "borderLeftWidth": 3,
+          "borderLeftColor": "rgba(212, 164, 74, 0.60)",
+          "borderLeftWidth": 2,
           "borderRadius": 0,
+          "marginLeft": -4,
+          "marginTop": -6,
           "maxWidth": "95%",
-          "paddingLeft": 12,
+          "paddingLeft": 14,
         },
       ]
     }
@@ -47,7 +51,7 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
       <View
         style={
           {
-            "marginBottom": 4,
+            "marginBottom": 12,
           }
         }
       >
@@ -62,9 +66,10 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
                 "lineHeight": 22.4,
               },
               {
-                "color": "#222222",
-                "fontSize": 16,
-                "lineHeight": 22,
+                "color": "#2D2D2D",
+                "fontSize": 15,
+                "letterSpacing": -0.2,
+                "lineHeight": 21,
               },
             ]
           }
@@ -80,7 +85,8 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
                   "lineHeight": 22.4,
                 },
                 {
-                  "color": "#222222",
+                  "color": "#2D2D2D",
+                  "letterSpacing": -0.2,
                 },
               ]
             }
@@ -111,11 +117,11 @@ exports[`ChatBubble renders system message correctly 1`] = `
     style={
       [
         {
-          "borderRadius": 8,
+          "borderRadius": 14,
           "maxWidth": "85%",
           "minWidth": 40,
-          "paddingHorizontal": 16,
-          "paddingVertical": 8,
+          "paddingHorizontal": 14,
+          "paddingVertical": 10,
         },
         false,
         false,
@@ -134,8 +140,10 @@ exports[`ChatBubble renders system message correctly 1`] = `
           },
           [
             {
-              "fontSize": 16,
-              "lineHeight": 22,
+              "fontSize": 15,
+              "fontWeight": "400",
+              "letterSpacing": -0.2,
+              "lineHeight": 21,
             },
             false,
           ],
@@ -158,6 +166,7 @@ exports[`ChatBubble renders user message correctly 1`] = `
       },
       {
         "alignItems": "flex-end",
+        "marginBottom": 16,
       },
       false,
     ]
@@ -167,18 +176,22 @@ exports[`ChatBubble renders user message correctly 1`] = `
     style={
       [
         {
-          "borderRadius": 8,
+          "borderRadius": 14,
           "maxWidth": "85%",
           "minWidth": 40,
-          "paddingHorizontal": 16,
-          "paddingVertical": 8,
+          "paddingHorizontal": 14,
+          "paddingVertical": 10,
         },
         {
-          "backgroundColor": "#2E5540",
+          "alignSelf": "flex-end",
+          "backgroundColor": "rgba(92, 107, 90, 0.87)",
           "borderColor": "rgba(255, 255, 255, 0.05)",
+          "borderRadius": 14,
           "borderWidth": 0.5,
           "elevation": 1,
-          "marginRight": 12,
+          "maxWidth": "85%",
+          "paddingHorizontal": 14,
+          "paddingVertical": 10,
           "shadowColor": "#000",
           "shadowOffset": {
             "height": 1,
@@ -203,11 +216,17 @@ exports[`ChatBubble renders user message correctly 1`] = `
           },
           [
             {
-              "fontSize": 16,
-              "lineHeight": 22,
+              "fontSize": 15,
+              "fontWeight": "400",
+              "letterSpacing": -0.2,
+              "lineHeight": 21,
             },
             {
-              "color": "#F9F6F1",
+              "color": "#FFFFFF",
+              "fontSize": 15,
+              "fontWeight": "400",
+              "letterSpacing": -0.2,
+              "lineHeight": 21,
             },
           ],
         ]

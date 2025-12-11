@@ -67,7 +67,8 @@ describe('TodoSection', () => {
     const todos = [mockTodo('1', 'Task 1'), mockTodo('2', 'Task 2')];
     const { getByText } = render(<TodoSection {...defaultProps} todos={todos} />);
     expect(getByText(/To Do/)).toBeTruthy();
-    expect(getByText(/(2)/)).toBeTruthy();
+    // Header shows "To Do (2)" format
+    expect(getByText(/To Do \(2\)/)).toBeTruthy();
   });
 
   it('shows max 4 items by default', () => {
@@ -194,7 +195,7 @@ describe('GuidesLogsSection', () => {
     const { getByText } = render(
       <GuidesLogsSection {...defaultProps} notes={notes} maxVisible={3} />,
     );
-    expect(getByText('+2')).toBeTruthy();
+    expect(getByText('+2 more...')).toBeTruthy();
   });
 
   it('calls onNotePress when pill pressed', () => {

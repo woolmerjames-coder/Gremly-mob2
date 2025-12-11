@@ -22,13 +22,16 @@ const mockToggleTodoPinned = jest.fn();
 const mockToggleHabitPinned = jest.fn();
 const mockToggleNotePinned = jest.fn();
 
+// Create a stable mock repo object to avoid infinite re-renders
+const mockRepo = {
+  getPinnedItemsForSpace: mockGetPinnedItemsForSpace,
+  toggleTodoPinned: mockToggleTodoPinned,
+  toggleHabitPinned: mockToggleHabitPinned,
+  toggleNotePinned: mockToggleNotePinned,
+};
+
 jest.mock('../providers/RepoProvider', () => ({
-  useRepo: () => ({
-    getPinnedItemsForSpace: mockGetPinnedItemsForSpace,
-    toggleTodoPinned: mockToggleTodoPinned,
-    toggleHabitPinned: mockToggleHabitPinned,
-    toggleNotePinned: mockToggleNotePinned,
-  }),
+  useRepo: () => mockRepo,
 }));
 
 describe('PinnedItemsModal', () => {
@@ -104,6 +107,7 @@ describe('PinnedItemsModal', () => {
   });
 
   it('calls onUnpin when unpin button pressed', async () => {
+    // Set up mock to return a todo
     mockGetPinnedItemsForSpace.mockResolvedValue({
       todos: [{ id: 'todo-1', title: 'Test Todo', is_pinned: true }],
       habits: [],
@@ -111,15 +115,20 @@ describe('PinnedItemsModal', () => {
     });
     mockToggleTodoPinned.mockResolvedValue({});
 
-    const { findByLabelText } = render(<PinnedItemsModal {...defaultProps} />);
+    const { findByText, findByLabelText } = render(<PinnedItemsModal {...defaultProps} />);
 
+    // Wait for the todo text to appear (component done loading)
+    await findByText('Test Todo');
+
+    // Find and press the unpin button
     const unpinButton = await findByLabelText('Unpin');
     fireEvent.press(unpinButton);
 
     await waitFor(() => {
       expect(mockToggleTodoPinned).toHaveBeenCalledWith('todo-1', false);
-      expect(defaultProps.onUnpin).toHaveBeenCalled();
     });
+
+    expect(defaultProps.onUnpin).toHaveBeenCalled();
   });
 });
 
