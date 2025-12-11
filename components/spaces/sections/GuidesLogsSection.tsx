@@ -63,7 +63,7 @@ export function GuidesLogsSection({
           >
             <FileText size={16} color={BRAND.colors.mossGreen} style={{ marginTop: 2 }} />
             <Text style={styles.pillText} numberOfLines={2}>
-              {note.title || note.name || 'Untitled'}
+              {note.title || 'Untitled'}
             </Text>
           </Pressable>
         ))}
