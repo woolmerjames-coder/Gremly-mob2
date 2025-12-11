@@ -233,39 +233,61 @@ Return ONLY JSON: { "bucket": "todo"|"habit"|"log", "confidence": 0.0-1.0, "subt
     const subtype = body.subtype || null;
     const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
 
-    const phase2Prompt = `You are enriching items for Gremly, a productivity app for ADHD users.
+    const phase2Prompt = `You are enriching items for Gremly, a productivity app. Your job is to make items SCANNABLE and ORGANIZED.
 
-Given an item classified as "${bucket}"${subtype ? ` (${subtype})` : ''}, generate metadata.
+ITEM TYPE: "${bucket}"${subtype ? ` (${subtype})` : ''}
 
-RULES:
-1. smart_title: Concise title (max 60 chars)
-   - Todos: Start with verb ("Call doctor about prescription")
-   - Habits: Describe behavior ("Morning meditation routine")
-   - Logs: Summarize key point ("Reflection on career goals")
+=== SMART TITLE RULES ===
+Create a SHORT, scannable title (3-5 words ideal, max 7 words).
+- AGGRESSIVELY remove filler words: "about", "for", "the", "a", "some", "my"
+- Keep: core verb + key noun/person
+- Remove context that belongs in tags instead
 
-2. tags: 3-5 lowercase keyword tags, hyphens for spaces, no special chars
-   - Avoid generic tags like "note", "thought", "stuff"
-   - Include topic tags (#work, #health, #family)
+EXAMPLES:
+- "Pick up Bella from the walker" → "Pick up Bella"
+- "Call mom about weekend plans" → "Call mom" 
+- "Buy groceries for dinner" → "Buy groceries"
+- "Schedule dentist appointment for next week" → "Schedule dentist"
+- "Research best hotels in Kyoto for January trip" → "Research Kyoto hotels"
+- "I need to remember to take out the trash tonight" → "Take out trash"
 
-3. time_estimate_minutes (todos only): Use ONLY: 5, 10, 15, 30, 45, 60, 90, 120
-   - Return null if unclear or not a todo
+=== TAG RULES ===
+Generate 2-4 SEMANTIC CATEGORY tags that help with filtering. 
+- GOOD tags: errands, family, health, work, home, finance, travel, shopping, self-care, social
+- BAD tags: call, pickup, buy, groceries, mom (too literal - these are in the title already)
+- Tags describe WHAT KIND of task, not WHAT the task says
 
-4. extracted_date: Parse dates like "tomorrow", "next Friday", "Jan 15"
-   - Return ISO format (YYYY-MM-DD) or null
-   - Today is ${currentDate}
+EXAMPLES:
+- "Pick up Bella from walker" → tags: ["errands", "pets"]
+- "Call mom" → tags: ["family", "communication"]
+- "Buy groceries" → tags: ["errands", "shopping"]
+- "Schedule dentist" → tags: ["health", "appointments"]
 
-5. extracted_frequency (habits only): "daily", "weekly", "3x/week", etc.
+=== PEOPLE RULES ===
+Extract proper names as people, NOT as tags.
+- "Bella", "Mom", "Dr. Smith" → people array
+- These should NEVER appear in tags
 
-6. people: Names mentioned (["Sarah", "Dr. Smith", "Mom"])
+=== TIME ESTIMATE (todos only) ===
+Pick from: 5, 10, 15, 30, 45, 60, 90, 120 minutes
+Be realistic. Quick calls = 5-10min. Errands = 15-30min.
 
-Return ONLY JSON:
+=== DATE EXTRACTION ===
+Parse dates like "tomorrow", "next Friday", "Jan 15"
+- Return ISO format (YYYY-MM-DD) or null
+- Today is ${currentDate}
+
+=== FREQUENCY (habits only) ===
+"daily", "weekly", "3x/week", etc.
+
+Return ONLY valid JSON:
 {
   "smart_title": "...",
-  "tags": ["tag1", "tag2"],
+  "tags": ["category1", "category2"],
   "time_estimate_minutes": number|null,
   "extracted_date": "YYYY-MM-DD"|null,
   "extracted_frequency": "..."|null,
-  "people": []
+  "people": ["Name1", "Name2"]
 }`;
 
     const phase2Messages = [
@@ -328,6 +350,14 @@ Return ONLY JSON:
         )
         .filter((t: string) => t.length >= 2 && t.length <= 30)
         .slice(0, 5); // Max 5 tags
+
+      // Filter out people names from tags (BUG 3 fix)
+      if (Array.isArray(parsed.people) && parsed.people.length > 0) {
+        const peopleNamesLower = parsed.people.map((p: string) =>
+          p.toLowerCase().replace(/\s+/g, '-'),
+        );
+        tags = tags.filter((t: string) => !peopleNamesLower.includes(t));
+      }
 
       // Validate time estimate
       let timeEstimate = parsed.time_estimate_minutes;

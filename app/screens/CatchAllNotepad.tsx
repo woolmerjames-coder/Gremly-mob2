@@ -1724,8 +1724,16 @@ const RecentDrops: React.FC<{
       },
     );
 
-    return unsubscribe;
-  }, []);
+    const unsubEntityCreated = eventBus.on('entity:created', () => {
+      console.log('[CatchAllNotepad] entity:created received, refreshing list');
+      load();
+    });
+
+    return () => {
+      unsubscribe();
+      unsubEntityCreated();
+    };
+  }, [load]);
 
   const handleEdit = async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
     try {

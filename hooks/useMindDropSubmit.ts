@@ -226,11 +226,17 @@ export function useMindDropSubmit(): {
         }
 
         // Emit event to sync store (storeSync will handle confirmation)
+        console.log('[MindDrop:Submit] Emitting entity:created event');
         eventBus.emit('entity:created', {
           entity: { ...entity, drop_id: dropId },
           type: entityType,
           spaceId: context.spaceId ?? null,
         });
+
+        // Resolve the pending item now that entity is created
+        // This removes the "Organizing..." state and allows the real item to show
+        removePendingItem(dropId);
+        console.log('[MindDrop:Submit] Resolved pending item', { dropId, entityId: entity.id });
 
         // Phase 2: Run enrichment in background (don't await)
         // This will update the entity with smart title, tags, time estimates, etc.

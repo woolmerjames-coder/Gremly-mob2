@@ -8,6 +8,7 @@
 import type { MindDropBucket, LogSubtype } from './types';
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { env, getEnv } from '../env';
+import { validateEnrichmentResult } from './phase2Validation';
 
 // --- Types ---
 
@@ -69,7 +70,16 @@ async function callEnrichAPI(
     return null;
   }
 
-  const currentDate = new Date().toISOString().split('T')[0];
+  // Use local date, not UTC
+  const now = new Date();
+  const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  console.log('[Phase2] Date context', {
+    currentDate,
+    localDate: now.toLocaleDateString(),
+    isoFull: now.toISOString(),
+    timezoneOffset: now.getTimezoneOffset(),
+  });
 
   // Create timeout promise
   const controller = new AbortController();
@@ -210,6 +220,32 @@ export async function runPhase2(
   // 6. Handle success
   if (result) {
     try {
+      // 6a. Validate and correct AI output
+      const validation = validateEnrichmentResult(result, text, bucket);
+
+      if (!validation.isValid) {
+        console.log('[Phase2] Validation issues found', {
+          entityId,
+          issues: validation.issues,
+        });
+
+        // Apply corrections if any
+        if (validation.correctedResult) {
+          if (validation.correctedResult.smartTitle !== undefined) {
+            result.smartTitle = validation.correctedResult.smartTitle;
+          }
+          if (validation.correctedResult.people !== undefined) {
+            result.people = validation.correctedResult.people;
+          }
+          if (validation.correctedResult.extractedDate !== undefined) {
+            result.extractedDate = validation.correctedResult.extractedDate;
+          }
+          if (validation.correctedResult.timeEstimateMinutes !== undefined) {
+            result.timeEstimateMinutes = validation.correctedResult.timeEstimateMinutes;
+          }
+        }
+      }
+
       // Build update payload based on bucket type
       const updatePayload: Record<string, any> = {
         views: {
@@ -223,6 +259,10 @@ export async function runPhase2(
       // Set title/name based on entity type
       if (bucket === 'todo') {
         updatePayload.name = result.smartTitle;
+        // Preserve original text in body if not already set
+        if (!entity.body) {
+          updatePayload.body = text;
+        }
         if (result.timeEstimateMinutes !== null) {
           updatePayload.time_estimate_minutes = result.timeEstimateMinutes;
         }
@@ -232,12 +272,20 @@ export async function runPhase2(
       } else if (bucket === 'habit') {
         updatePayload.name = result.smartTitle;
         updatePayload.title = result.smartTitle;
+        // Preserve original text in notes if not already set
+        if (!entity.notes) {
+          updatePayload.notes = text;
+        }
         if (result.extractedFrequency) {
           updatePayload.frequency = result.extractedFrequency;
         }
       } else {
         // log (note)
         updatePayload.title = result.smartTitle;
+        // Preserve original text in body if not already set
+        if (!entity.body || entity.body === entity.title) {
+          updatePayload.body = text;
+        }
       }
 
       await repo.update({ id: entityId, patch: updatePayload });
