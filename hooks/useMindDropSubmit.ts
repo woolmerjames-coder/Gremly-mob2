@@ -33,6 +33,8 @@ export interface SubmitContext {
   photoUris?: string[];
   /** Source of the submission for analytics */
   source: 'minddrop' | 'today' | 'space' | 'photo';
+  /** Optional pre-generated drop ID for pending item correlation */
+  dropId?: string;
 }
 
 /**
@@ -97,7 +99,8 @@ export function useMindDropSubmit(): {
 
   const submit = useCallback(
     async (text: string, context: SubmitContext): Promise<SubmitResult> => {
-      const dropId = generateDropId();
+      // Use provided dropId for pending item correlation, or generate a new one
+      const dropId = context.dropId ?? generateDropId();
 
       // Prevent double submission
       if (submitLockRef.current) {

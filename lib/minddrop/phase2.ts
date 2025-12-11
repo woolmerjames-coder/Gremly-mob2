@@ -9,6 +9,7 @@ import type { MindDropBucket, LogSubtype } from './types';
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { env, getEnv } from '../env';
 import { validateEnrichmentResult } from './phase2Validation';
+import { eventBus } from '../events/EventBus';
 
 // --- Types ---
 
@@ -296,6 +297,15 @@ export async function runPhase2(
         tagsCount: result.tags.length,
         hasTimeEstimate: result.timeEstimateMinutes !== null,
         hasDate: result.extractedDate !== null,
+      });
+
+      // Emit event for UI to update card smoothly without refresh
+      eventBus.emit('entity:enriched', {
+        entityId,
+        smartTitle: result.smartTitle,
+        tags: result.tags,
+        timeEstimate: result.timeEstimateMinutes,
+        dueDate: result.extractedDate,
       });
 
       return result;
