@@ -1141,14 +1141,27 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [sourceNote, setSourceNote] = useState<{ id: string; title: string } | null>(null);
 
+  // View mode: store fetched entity for display
+  const [viewModeEntity, setViewModeEntity] = useState<any>(null);
+
   // Keep this for other parts of the component that need the body
-  const noteBody = state.log?.body || fullEntity?.body || (initialEntity as any)?.body || '';
+  const noteBody =
+    state.log?.body ||
+    fullEntity?.body ||
+    viewModeEntity?.body ||
+    (initialEntity as any)?.body ||
+    '';
 
   // Make Actionable: compute whether to show the button
   const showMakeActionable = useMemo(() => {
     // Compute body inside useMemo - check all possible sources
-    const body = state.log?.body || fullEntity?.body || (initialEntity as any)?.body || '';
-    const entity = fullEntity || (initialEntity as any);
+    const body =
+      state.log?.body ||
+      fullEntity?.body ||
+      viewModeEntity?.body ||
+      (initialEntity as any)?.body ||
+      '';
+    const entity = fullEntity || viewModeEntity || (initialEntity as any);
 
     const result = {
       mode,
@@ -1164,7 +1177,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (entity?.has_list) return false; // Already a checklist in DB
     if (checklistItems && checklistItems.length > 0) return false; // Already showing checklist
     return hasActionableList(body);
-  }, [mode, baseType, state.log?.body, fullEntity, initialEntity, checklistItems]);
+  }, [mode, baseType, state.log?.body, fullEntity, viewModeEntity, initialEntity, checklistItems]);
 
   // Swipe-down-to-close: track drag offset and store onClose ref
   const sheetDragY = useRef(new RNAnimated.Value(0)).current;
@@ -2344,6 +2357,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     };
 
     hydrateEditMode();
+  }, [mode, initialEntity, repo]);
+
+  // View mode: Fetch full entity from database for display
+  // initialEntity from chat only has {id, type, logSubtype} - we need the full entity with body/title
+  useEffect(() => {
+    const fetchViewModeEntity = async () => {
+      if (mode !== 'view' || !initialEntity) return;
+
+      const entityId = (initialEntity as any)?.id;
+      if (!entityId) return;
+
+      try {
+        console.log('[UnifiedOverlayV2] View mode: Fetching full entity:', entityId);
+        const freshEntity = await repo.getById(entityId);
+        if (freshEntity) {
+          console.log('[UnifiedOverlayV2] View mode: Entity fetched:', {
+            id: freshEntity.id,
+            type: freshEntity.type,
+            title: (freshEntity as any).title || (freshEntity as any).name,
+            hasBody: !!(freshEntity as any).body,
+          });
+          setViewModeEntity(freshEntity);
+        } else {
+          console.warn('[UnifiedOverlayV2] View mode: Could not fetch entity');
+        }
+      } catch (err) {
+        console.error('[UnifiedOverlayV2] View mode: Error fetching entity:', err);
+      }
+    };
+
+    fetchViewModeEntity();
   }, [mode, initialEntity, repo]);
 
   // Load existing log photos from database (Phase L5)
@@ -4102,11 +4146,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // ============================================================================
   // Renders a read-optimized display layout for viewing entities
   const renderViewModeContent = () => {
-    const entity = fullEntity || initialEntity;
+    const entity = fullEntity || viewModeEntity || initialEntity;
     if (!entity) return null;
 
     const entityTitle = (entity as any).name || (entity as any).title || 'Untitled';
-    const entityBody = (entity as any).body || (entity as any).notes || '';
+    const entityBody =
+      (entity as any).body || (entity as any).notes || (entity as any).content || '';
     const entityTags = state.tags || [];
     const entitySpaceName = state.spaceId ? spaces.find((s) => s.id === state.spaceId)?.name : null;
     const entityDueDay = state.todo.due_day;

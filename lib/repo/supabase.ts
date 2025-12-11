@@ -374,12 +374,15 @@ function mapNoteFromDb(dbRecord: any): any {
     is_favorite: dbRecord.is_favorite ?? false,
     has_list: dbRecord.has_list ?? false,
     list_items: dbRecord.list_items ?? null,
+    // Content field
+    body: dbRecord.body ?? null,
   };
 
   if (__DEV__) {
     console.log('[NoteFromRow]', {
       id: mapped.id,
       title: mapped.title,
+      body: mapped.body ? `${mapped.body.substring(0, 50)}...` : null,
       subtype: mapped.subtype,
       mood: mapped.mood,
       date: mapped.date,
@@ -3951,6 +3954,336 @@ export class SupabaseRepo implements IRepo {
       throw new Error(`Failed to delete log photo: ${error.message}`);
     }
   }
+
+  // ==========================
+  // Phase 12: Milestones CRUD (redesigned)
+  // Supports both legacy (title/note) and new (name) fields during transition
+  // ==========================
+
+  async listMilestones(spaceId: string): Promise<import('../types').SpaceMilestone[]> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) {
+      logSupabaseError('listMilestones', error);
+      throw new Error(`Failed to list milestones: ${error.message}`);
+    }
+    return (data || []).map((row: any) => ({
+      ...row,
+      name: row.name || row.title || 'Untitled',
+      completed: row.completed ?? false,
+      completed_at: row.completed_at ?? null,
+      is_active: row.is_active ?? true,
+      sort_order: row.sort_order ?? 0,
+      updated_at: row.updated_at ?? row.created_at,
+    })) as import('../types').SpaceMilestone[];
+  }
+
+  async getActiveMilestone(spaceId: string): Promise<import('../types').SpaceMilestone | null> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .eq('is_active', true)
+      .single();
+    if (error && error.code !== 'PGRST116') {
+      logSupabaseError('getActiveMilestone', error);
+      throw new Error(`Failed to get active milestone: ${error.message}`);
+    }
+    if (!data) return null;
+    return {
+      ...data,
+      name: data.name || data.title || 'Untitled',
+      completed: data.completed ?? false,
+      completed_at: data.completed_at ?? null,
+      is_active: data.is_active ?? true,
+      sort_order: data.sort_order ?? 0,
+      updated_at: data.updated_at ?? data.created_at,
+    } as import('../types').SpaceMilestone;
+  }
+
+  async createMilestone(
+    spaceId: string,
+    payload: {
+      name: string;
+      date?: string | null;
+      is_active?: boolean;
+      sort_order?: number;
+      title?: string;
+      note?: string | null;
+    },
+  ): Promise<import('../types').SpaceMilestone> {
+    const userId = this.ensureUserId();
+    const nameValue = payload.name || payload.title || 'Untitled';
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .insert({
+        owner_id: userId,
+        space_id: spaceId,
+        name: nameValue,
+        title: nameValue,
+        date: payload.date ?? null,
+        note: payload.note ?? null,
+        is_active: payload.is_active ?? true,
+        sort_order: payload.sort_order ?? 0,
+        completed: false,
+        completed_at: null,
+      })
+      .select()
+      .single();
+    if (error) {
+      logSupabaseError('createMilestone', error);
+      throw new Error(`Failed to create milestone: ${error.message}`);
+    }
+    if (!data) throw new Error('No data returned from createMilestone');
+    return {
+      ...data,
+      name: data.name || data.title,
+      completed: data.completed ?? false,
+      is_active: data.is_active ?? true,
+      sort_order: data.sort_order ?? 0,
+      updated_at: data.updated_at ?? data.created_at,
+    } as import('../types').SpaceMilestone;
+  }
+
+  async updateMilestone(
+    id: string,
+    patch: Partial<{
+      name: string;
+      title: string;
+      date: string | null;
+      note: string | null;
+      completed: boolean;
+      completed_at: string | null;
+      is_active: boolean;
+      sort_order: number;
+    }>,
+  ): Promise<import('../types').SpaceMilestone> {
+    const userId = this.ensureUserId();
+    const updatePayload: Record<string, any> = {
+      ...compact(patch),
+      updated_at: new Date().toISOString(),
+    };
+    if (patch.name) updatePayload.title = patch.name;
+    if (patch.title && !patch.name) updatePayload.name = patch.title;
+
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .update(updatePayload)
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .select()
+      .single();
+    if (error) {
+      logSupabaseError('updateMilestone', error);
+      throw new Error(`Failed to update milestone: ${error.message}`);
+    }
+    if (!data) throw new Error('No data returned from updateMilestone');
+    return {
+      ...data,
+      name: data.name || data.title,
+      completed: data.completed ?? false,
+      is_active: data.is_active ?? true,
+      sort_order: data.sort_order ?? 0,
+      updated_at: data.updated_at ?? data.created_at,
+    } as import('../types').SpaceMilestone;
+  }
+
+  async completeMilestone(id: string): Promise<import('../types').SpaceMilestone> {
+    return this.updateMilestone(id, {
+      completed: true,
+      completed_at: new Date().toISOString(),
+      is_active: false,
+    });
+  }
+
+  async deleteMilestone(id: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('space_milestones')
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', userId);
+    if (error) {
+      logSupabaseError('deleteMilestone', error);
+      throw new Error(`Failed to delete milestone: ${error.message}`);
+    }
+  }
+
+  // ==========================
+  // Phase 12: SpaceMeta CRUD
+  // ==========================
+
+  async getSpaceMeta(spaceId: string): Promise<import('../types').SpaceMeta | null> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_meta')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .single();
+    if (error && error.code !== 'PGRST116') {
+      logSupabaseError('getSpaceMeta', error);
+      throw new Error(`Failed to get space meta: ${error.message}`);
+    }
+    return (data as import('../types').SpaceMeta) || null;
+  }
+
+  async upsertSpaceMeta(
+    spaceId: string,
+    payload: { success_criteria?: string | null; other_context?: string | null },
+  ): Promise<import('../types').SpaceMeta> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_meta')
+      .upsert(
+        {
+          space_id: spaceId,
+          owner_id: userId,
+          success_criteria: payload.success_criteria ?? null,
+          other_context: payload.other_context ?? null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'space_id' },
+      )
+      .select()
+      .single();
+    if (error) {
+      logSupabaseError('upsertSpaceMeta', error);
+      throw new Error(`Failed to upsert space meta: ${error.message}`);
+    }
+    if (!data) throw new Error('No data returned from upsertSpaceMeta');
+    return data as import('../types').SpaceMeta;
+  }
+
+  async deleteSpaceMeta(spaceId: string): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('space_meta')
+      .delete()
+      .eq('space_id', spaceId)
+      .eq('owner_id', userId);
+    if (error) {
+      logSupabaseError('deleteSpaceMeta', error);
+      throw new Error(`Failed to delete space meta: ${error.message}`);
+    }
+  }
+
+  // ==========================
+  // Phase 12: Pinned Items
+  // ==========================
+
+  async toggleTodoPinned(todoId: string, isPinned: boolean): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('todos')
+      .update({ is_pinned: isPinned, updated_at: new Date().toISOString() })
+      .eq('id', todoId)
+      .eq('owner_id', userId);
+    if (error) {
+      logSupabaseError('toggleTodoPinned', error);
+      throw new Error(`Failed to toggle todo pinned: ${error.message}`);
+    }
+  }
+
+  async toggleHabitPinned(habitId: string, isPinned: boolean): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('habits')
+      .update({ is_pinned: isPinned, updated_at: new Date().toISOString() })
+      .eq('id', habitId)
+      .eq('owner_id', userId);
+    if (error) {
+      logSupabaseError('toggleHabitPinned', error);
+      throw new Error(`Failed to toggle habit pinned: ${error.message}`);
+    }
+  }
+
+  async toggleNotePinned(noteId: string, isPinned: boolean): Promise<void> {
+    const userId = this.ensureUserId();
+    const { error } = await supabase
+      .from('notes')
+      .update({ is_pinned: isPinned, updated_at: new Date().toISOString() })
+      .eq('id', noteId)
+      .eq('owner_id', userId);
+    if (error) {
+      logSupabaseError('toggleNotePinned', error);
+      throw new Error(`Failed to toggle note pinned: ${error.message}`);
+    }
+  }
+
+  async getPinnedItemsForSpace(spaceId: string): Promise<{
+    todos: import('../types').Todo[];
+    habits: import('../types').Habit[];
+    notes: import('../types').Note[];
+  }> {
+    const userId = this.ensureUserId();
+
+    const [todosRes, habitsRes, notesRes] = await Promise.all([
+      supabase
+        .from('todos')
+        .select('*')
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId)
+        .eq('is_pinned', true),
+      supabase
+        .from('habits')
+        .select('*')
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId)
+        .eq('is_pinned', true),
+      supabase
+        .from('notes')
+        .select('*')
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId)
+        .eq('is_pinned', true),
+    ]);
+
+    if (todosRes.error) logSupabaseError('getPinnedItems.todos', todosRes.error);
+    if (habitsRes.error) logSupabaseError('getPinnedItems.habits', habitsRes.error);
+    if (notesRes.error) logSupabaseError('getPinnedItems.notes', notesRes.error);
+
+    return {
+      todos: ((todosRes.data || []) as any[]).map((row) => ({ ...row, type: 'todo' as const })),
+      habits: ((habitsRes.data || []) as any[]).map((row) => ({ ...row, type: 'habit' as const })),
+      notes: ((notesRes.data || []) as any[]).map((row) => ({ ...row, type: 'note' as const })),
+    };
+  }
+
+  async getPinnedCountForSpace(spaceId: string): Promise<number> {
+    const userId = this.ensureUserId();
+
+    const [todosRes, habitsRes, notesRes] = await Promise.all([
+      supabase
+        .from('todos')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId)
+        .eq('is_pinned', true),
+      supabase
+        .from('habits')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId)
+        .eq('is_pinned', true),
+      supabase
+        .from('notes')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId)
+        .eq('is_pinned', true),
+    ]);
+
+    return (todosRes.count || 0) + (habitsRes.count || 0) + (notesRes.count || 0);
+  }
 }
 
 /**
@@ -3983,6 +4316,23 @@ export class SupabaseSpaceChatRepo {
     }
 
     return data as import('../types').SpaceChat;
+  }
+
+  /**
+   * List all chats for a space (simplified version for modal)
+   */
+  async listBySpace(spaceId: string): Promise<import('../types').SpaceChat[]> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chats')
+      .select('*')
+      .eq('space_id', spaceId)
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
   }
 
   async list(
@@ -4150,72 +4500,11 @@ export class SupabaseSpaceChatMessageRepo {
 
     return data as import('../types').SpaceChatMessage;
   }
-
-  // Phase 10.6: Milestones CRUD (space_milestones)
-  async listMilestones(spaceId: string): Promise<import('../types').SpaceMilestone[]> {
-    const userId = this.ensureUserId();
-    const { data, error } = await supabase
-      .from('space_milestones')
-      .select('*')
-      .eq('owner_id', userId)
-      .eq('space_id', spaceId)
-      .order('date', { ascending: true })
-      .order('created_at', { ascending: true });
-    if (error) throw new Error(`Failed to list milestones: ${error.message}`);
-    return (data || []) as import('../types').SpaceMilestone[];
-  }
-
-  async createMilestone(
-    spaceId: string,
-    payload: { title: string; date: string; note?: string | null },
-  ): Promise<import('../types').SpaceMilestone> {
-    const userId = this.ensureUserId();
-    const { data, error } = await supabase
-      .from('space_milestones')
-      .insert({
-        owner_id: userId,
-        space_id: spaceId,
-        title: payload.title,
-        date: payload.date,
-        note: payload.note ?? null,
-      })
-      .select()
-      .single();
-    if (error) throw new Error(`Failed to create milestone: ${error.message}`);
-    if (!data) throw new Error('No data returned from createMilestone');
-    return data as import('../types').SpaceMilestone;
-  }
-
-  async updateMilestone(
-    id: string,
-    patch: Partial<{ title: string; date: string; note: string | null }>,
-  ): Promise<import('../types').SpaceMilestone> {
-    const userId = this.ensureUserId();
-    const { data, error } = await supabase
-      .from('space_milestones')
-      .update(stripNulls(compact(patch)))
-      .eq('id', id)
-      .eq('owner_id', userId)
-      .select()
-      .single();
-    if (error) throw new Error(`Failed to update milestone: ${error.message}`);
-    if (!data) throw new Error('No data returned from updateMilestone');
-    return data as import('../types').SpaceMilestone;
-  }
-
-  async deleteMilestone(id: string): Promise<void> {
-    const userId = this.ensureUserId();
-    const { error } = await supabase
-      .from('space_milestones')
-      .delete()
-      .eq('id', id)
-      .eq('owner_id', userId);
-    if (error) throw new Error(`Failed to delete milestone: ${error.message}`);
-  }
 }
 
 /**
- * SupabaseSpaceMilestoneRepo - CRUD for space_milestones (Phase 11.x)
+ * SupabaseSpaceMilestoneRepo - Standalone CRUD for space_milestones
+ * Phase 12: Updated to support new schema with backward compatibility
  */
 export class SupabaseSpaceMilestoneRepo {
   constructor(private currentUserId?: string) {}
@@ -4232,17 +4521,49 @@ export class SupabaseSpaceMilestoneRepo {
       .select('*')
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
-      .order('date', { ascending: true })
+      .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
     if (error) throw new Error(`Failed to list milestones: ${error.message}`);
-    return (data || []) as import('../types').SpaceMilestone[];
+    return (data || []).map((row: any) => ({
+      ...row,
+      name: row.name || row.title || 'Untitled',
+      completed: row.completed ?? false,
+      completed_at: row.completed_at ?? null,
+      is_active: row.is_active ?? true,
+      sort_order: row.sort_order ?? 0,
+      updated_at: row.updated_at ?? row.created_at,
+    })) as import('../types').SpaceMilestone[];
+  }
+
+  async getActive(spaceId: string): Promise<import('../types').SpaceMilestone | null> {
+    const userId = this.ensureUserId();
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('space_id', spaceId)
+      .eq('is_active', true)
+      .single();
+    if (error && error.code !== 'PGRST116') {
+      throw new Error(`Failed to get active milestone: ${error.message}`);
+    }
+    if (!data) return null;
+    return {
+      ...data,
+      name: data.name || data.title || 'Untitled',
+      completed: data.completed ?? false,
+      is_active: data.is_active ?? true,
+      sort_order: data.sort_order ?? 0,
+      updated_at: data.updated_at ?? data.created_at,
+    } as import('../types').SpaceMilestone;
   }
 
   async create(input: {
     space_id: string;
-    title: string;
-    date: string; // YYYY-MM-DD
-    note?: string | null;
+    name: string;
+    date?: string | null;
+    is_active?: boolean;
+    sort_order?: number;
   }): Promise<import('../types').SpaceMilestone> {
     const userId = this.ensureUserId();
     const { data, error } = await supabase
@@ -4250,14 +4571,61 @@ export class SupabaseSpaceMilestoneRepo {
       .insert({
         owner_id: userId,
         space_id: input.space_id,
-        title: input.title,
-        date: input.date,
-        note: input.note ?? null,
+        name: input.name,
+        title: input.name, // Sync for legacy
+        date: input.date ?? null,
+        is_active: input.is_active ?? true,
+        sort_order: input.sort_order ?? 0,
+        completed: false,
+        completed_at: null,
       })
       .select()
       .single();
     if (error) throw new Error(`Failed to create milestone: ${error.message}`);
-    return data as import('../types').SpaceMilestone;
+    return {
+      ...data,
+      name: data.name || data.title,
+    } as import('../types').SpaceMilestone;
+  }
+
+  async update(
+    id: string,
+    patch: Partial<{
+      name: string;
+      date: string | null;
+      completed: boolean;
+      completed_at: string | null;
+      is_active: boolean;
+      sort_order: number;
+    }>,
+  ): Promise<import('../types').SpaceMilestone> {
+    const userId = this.ensureUserId();
+    const updatePayload: Record<string, any> = {
+      ...patch,
+      updated_at: new Date().toISOString(),
+    };
+    if (patch.name) updatePayload.title = patch.name; // Sync for legacy
+
+    const { data, error } = await supabase
+      .from('space_milestones')
+      .update(updatePayload)
+      .eq('id', id)
+      .eq('owner_id', userId)
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to update milestone: ${error.message}`);
+    return {
+      ...data,
+      name: data.name || data.title,
+    } as import('../types').SpaceMilestone;
+  }
+
+  async complete(id: string): Promise<import('../types').SpaceMilestone> {
+    return this.update(id, {
+      completed: true,
+      completed_at: new Date().toISOString(),
+      is_active: false,
+    });
   }
 
   async delete(id: string): Promise<void> {
@@ -4268,22 +4636,6 @@ export class SupabaseSpaceMilestoneRepo {
       .eq('id', id)
       .eq('owner_id', userId);
     if (error) throw new Error(`Failed to delete milestone: ${error.message}`);
-  }
-
-  async update(
-    id: string,
-    patch: Partial<{ title: string; date: string; note: string | null }>,
-  ): Promise<import('../types').SpaceMilestone> {
-    const userId = this.ensureUserId();
-    const { data, error } = await supabase
-      .from('space_milestones')
-      .update(stripNulls(compact(patch)))
-      .eq('id', id)
-      .eq('owner_id', userId)
-      .select()
-      .single();
-    if (error) throw new Error(`Failed to update milestone: ${error.message}`);
-    return data as import('../types').SpaceMilestone;
   }
 }
 

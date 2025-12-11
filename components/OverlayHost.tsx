@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
-import NewSpaceModal from './NewSpaceModal';
+import CreateSpaceModal from './CreateSpaceModal';
 import { OverlayComponent } from './overlay';
 import { eventBus } from '../lib/events/EventBus';
 import { useGlobalOverlay } from '../contexts/OverlayContext';
@@ -389,7 +389,12 @@ export const OverlayHost = () => {
 
   const handleSaved = React.useCallback(
     async (result: OverlaySavedPayload) => {
-      emitOverlaySaved(result);
+      // Phase 12: Include source_message_id for saveable card transformation
+      const payloadWithSource: OverlaySavedPayload = {
+        ...result,
+        sourceMessageId: conversionMeta?.source_message_id ?? null,
+      };
+      emitOverlaySaved(payloadWithSource);
       try {
         eventBus.emit('OverlaySaved', { id: result.id, type: (result as any).type });
       } catch (e) {
@@ -397,12 +402,12 @@ export const OverlayHost = () => {
       }
       close();
     },
-    [close],
+    [close, conversionMeta],
   );
 
   return (
     <>
-      <NewSpaceModal />
+      <CreateSpaceModal />
 
       {/* Global Unified Overlay - single instance for entire app
           Mount the overlay into a top-level absolute container so it renders

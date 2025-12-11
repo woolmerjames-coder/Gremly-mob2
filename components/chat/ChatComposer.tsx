@@ -96,9 +96,10 @@ export function ChatComposer({
           placeholder={placeholder}
           placeholderTextColor="rgba(34, 34, 34, 0.4)"
           multiline
-          numberOfLines={3}
+          numberOfLines={1}
           onContentSizeChange={handleContentSizeChange}
           scrollEnabled={true}
+          textAlignVertical="center"
           blurOnSubmit={true} // Prevent adding newline on submit
           returnKeyType="send"
           onSubmitEditing={(_e: NativeSyntheticEvent<TextInputSubmitEditingEventData>) => {
@@ -143,19 +144,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: 'transparent',
-    marginBottom: 64, // Space for ChatActionBar (height: 64)
+    marginBottom: 8, // Reduced since ChatActionBar was removed
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    // Glass effect background
-    backgroundColor: 'rgba(249, 246, 241, 0.7)', // Semi-translucent Linen Cream
+    // White background for contrast against sage green chat area
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
+    borderColor: 'rgba(0, 0, 0, 0.08)',
     paddingHorizontal: 16,
     paddingVertical: 0,
     minHeight: 44,
+    maxHeight: 120, // ~5 lines before scrolling
     // Subtle shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -168,7 +170,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
     color: lightTokens.colors.charcoalInk,
-    maxHeight: 104, // 120 - 16 padding
+    minHeight: 44,
+    maxHeight: 120, // ~5 lines before scrolling
     textAlignVertical: 'center',
     // Consistent padding on all platforms
     paddingTop: 12,

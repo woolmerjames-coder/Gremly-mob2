@@ -15,11 +15,43 @@ interface RenderOptions {
   boldFontFamily?: string;
 }
 
+// Markdown style constants
+const MARKDOWN_STYLES = {
+  body: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: '#2D2D2D',
+    letterSpacing: -0.2,
+  },
+  paragraph: {
+    marginBottom: 12, // Space between paragraphs
+  },
+  strong: {
+    fontWeight: '600' as const, // Medium, not bold
+    color: '#1D1D1D',
+  },
+  list: {
+    marginVertical: 4,
+  },
+  listItem: {
+    marginBottom: 8, // Increased bullet spacing
+  },
+  bullet: {
+    fontSize: 13, // 85% of 15 - smaller bullet
+    lineHeight: 21,
+    marginRight: 6, // Reduced indent
+    color: '#888', // Subtle bullet color
+  },
+  emptyLine: {
+    height: 10, // Slightly more breathing room
+  },
+} as const;
+
 export function renderFormattedContent(text: string, options: RenderOptions = {}) {
   const {
-    textColor = lightTokens.colors.charcoalInk,
-    fontSize = 16,
-    lineHeight = 22,
+    textColor = MARKDOWN_STYLES.body.color,
+    fontSize = MARKDOWN_STYLES.body.fontSize,
+    lineHeight = MARKDOWN_STYLES.body.lineHeight,
     boldFontFamily = lightTokens.typography.fontFamily.bold,
   } = options;
 
@@ -30,7 +62,7 @@ export function renderFormattedContent(text: string, options: RenderOptions = {}
 
     // Skip empty lines but add spacing
     if (trimmed === '') {
-      return <View key={index} style={{ height: 8 }} />;
+      return <View key={index} style={{ height: MARKDOWN_STYLES.emptyLine.height }} />;
     }
 
     // Helper to parse bold syntax within text
@@ -43,7 +75,10 @@ export function renderFormattedContent(text: string, options: RenderOptions = {}
       while ((match = boldRegex.exec(content)) !== null) {
         if (match.index > lastIndex) {
           parts.push(
-            <Text key={`${keyPrefix}-norm-${lastIndex}`} style={{ color: textColor }}>
+            <Text
+              key={`${keyPrefix}-norm-${lastIndex}`}
+              style={{ color: textColor, letterSpacing: MARKDOWN_STYLES.body.letterSpacing }}
+            >
               {content.slice(lastIndex, match.index)}
             </Text>,
           );
@@ -51,7 +86,12 @@ export function renderFormattedContent(text: string, options: RenderOptions = {}
         parts.push(
           <Text
             key={`${keyPrefix}-bold-${match.index}`}
-            style={{ fontFamily: boldFontFamily, color: textColor }}
+            style={{
+              fontFamily: boldFontFamily,
+              fontWeight: MARKDOWN_STYLES.strong.fontWeight,
+              color: MARKDOWN_STYLES.strong.color,
+              letterSpacing: MARKDOWN_STYLES.body.letterSpacing,
+            }}
           >
             {match[1]}
           </Text>,
@@ -61,7 +101,10 @@ export function renderFormattedContent(text: string, options: RenderOptions = {}
 
       if (lastIndex < content.length) {
         parts.push(
-          <Text key={`${keyPrefix}-tail-${lastIndex}`} style={{ color: textColor }}>
+          <Text
+            key={`${keyPrefix}-tail-${lastIndex}`}
+            style={{ color: textColor, letterSpacing: MARKDOWN_STYLES.body.letterSpacing }}
+          >
             {content.slice(lastIndex)}
           </Text>,
         );
@@ -74,9 +117,29 @@ export function renderFormattedContent(text: string, options: RenderOptions = {}
     if (trimmed.startsWith('• ') || trimmed.startsWith('- ')) {
       const bulletContent = trimmed.slice(2);
       return (
-        <View key={index} style={{ flexDirection: 'row', marginBottom: 4 }}>
-          <Text style={{ marginRight: 6, color: textColor }}>•</Text>
-          <Text style={{ flex: 1, color: textColor, fontSize, lineHeight }}>
+        <View
+          key={index}
+          style={{ flexDirection: 'row', marginBottom: MARKDOWN_STYLES.listItem.marginBottom }}
+        >
+          <Text
+            style={{
+              marginRight: MARKDOWN_STYLES.bullet.marginRight,
+              color: MARKDOWN_STYLES.bullet.color,
+              fontSize: MARKDOWN_STYLES.bullet.fontSize,
+              lineHeight: MARKDOWN_STYLES.bullet.lineHeight,
+            }}
+          >
+            •
+          </Text>
+          <Text
+            style={{
+              flex: 1,
+              color: textColor,
+              fontSize,
+              lineHeight,
+              letterSpacing: MARKDOWN_STYLES.body.letterSpacing,
+            }}
+          >
             {parseBold(bulletContent, `bullet-${index}`)}
           </Text>
         </View>
@@ -87,9 +150,29 @@ export function renderFormattedContent(text: string, options: RenderOptions = {}
     const numberedMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
     if (numberedMatch) {
       return (
-        <View key={index} style={{ flexDirection: 'row', marginBottom: 4 }}>
-          <Text style={{ marginRight: 6, color: textColor }}>{numberedMatch[1]}.</Text>
-          <Text style={{ flex: 1, color: textColor, fontSize, lineHeight }}>
+        <View
+          key={index}
+          style={{ flexDirection: 'row', marginBottom: MARKDOWN_STYLES.listItem.marginBottom }}
+        >
+          <Text
+            style={{
+              marginRight: MARKDOWN_STYLES.bullet.marginRight,
+              color: MARKDOWN_STYLES.bullet.color,
+              fontSize: MARKDOWN_STYLES.bullet.fontSize,
+              lineHeight: MARKDOWN_STYLES.bullet.lineHeight,
+            }}
+          >
+            {numberedMatch[1]}.
+          </Text>
+          <Text
+            style={{
+              flex: 1,
+              color: textColor,
+              fontSize,
+              lineHeight,
+              letterSpacing: MARKDOWN_STYLES.body.letterSpacing,
+            }}
+          >
             {parseBold(numberedMatch[2], `num-${index}`)}
           </Text>
         </View>
@@ -98,8 +181,15 @@ export function renderFormattedContent(text: string, options: RenderOptions = {}
 
     // Regular paragraph
     return (
-      <View key={index} style={{ marginBottom: 4 }}>
-        <Text style={{ color: textColor, fontSize, lineHeight }}>
+      <View key={index} style={{ marginBottom: MARKDOWN_STYLES.paragraph.marginBottom }}>
+        <Text
+          style={{
+            color: textColor,
+            fontSize,
+            lineHeight,
+            letterSpacing: MARKDOWN_STYLES.body.letterSpacing,
+          }}
+        >
           {parseBold(trimmed, `para-${index}`)}
         </Text>
       </View>

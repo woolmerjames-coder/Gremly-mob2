@@ -1772,6 +1772,129 @@ export class MemoryRepo implements IRepo {
   async deleteLogPhoto(_photoId: string): Promise<void> {
     // Memory backend stub - no-op
   }
+
+  // ============================================================================
+  // Phase 12: Milestones (stub implementations)
+  // ============================================================================
+
+  async listMilestones(_spaceId: string): Promise<import('../types').SpaceMilestone[]> {
+    return [];
+  }
+
+  async getActiveMilestone(_spaceId: string): Promise<import('../types').SpaceMilestone | null> {
+    return null;
+  }
+
+  async createMilestone(
+    spaceId: string,
+    payload: {
+      name: string;
+      date?: string | null;
+      is_active?: boolean;
+      sort_order?: number;
+      title?: string;
+      note?: string | null;
+    },
+  ): Promise<import('../types').SpaceMilestone> {
+    const now = new Date().toISOString();
+    return {
+      id: genId('milestone'),
+      space_id: spaceId,
+      owner_id: this.currentUserId,
+      name: payload.name || payload.title || 'Untitled',
+      title: payload.name || payload.title || 'Untitled',
+      date: payload.date ?? null,
+      note: payload.note ?? null,
+      completed: false,
+      completed_at: null,
+      is_active: payload.is_active ?? true,
+      sort_order: payload.sort_order ?? 0,
+      created_at: now,
+      updated_at: now,
+    };
+  }
+
+  async updateMilestone(
+    _id: string,
+    _patch: Partial<{
+      name: string;
+      title: string;
+      date: string | null;
+      note: string | null;
+      completed: boolean;
+      completed_at: string | null;
+      is_active: boolean;
+      sort_order: number;
+    }>,
+  ): Promise<import('../types').SpaceMilestone> {
+    throw new Error('MemoryRepo.updateMilestone not implemented');
+  }
+
+  async completeMilestone(_milestoneId: string): Promise<import('../types').SpaceMilestone> {
+    throw new Error('MemoryRepo.completeMilestone not implemented');
+  }
+
+  async deleteMilestone(_milestoneId: string): Promise<void> {
+    // no-op
+  }
+
+  // ============================================================================
+  // Phase 12: SpaceMeta (stub implementations)
+  // ============================================================================
+
+  async getSpaceMeta(_spaceId: string): Promise<import('../types').SpaceMeta | null> {
+    return null;
+  }
+
+  async upsertSpaceMeta(
+    spaceId: string,
+    payload: { success_criteria?: string | null; other_context?: string | null },
+  ): Promise<import('../types').SpaceMeta> {
+    const now = new Date().toISOString();
+    return {
+      id: genId('spacemeta'),
+      space_id: spaceId,
+      owner_id: this.currentUserId,
+      success_criteria: payload.success_criteria ?? null,
+      other_context: payload.other_context ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+  }
+
+  async deleteSpaceMeta(_spaceId: string): Promise<void> {
+    // no-op
+  }
+
+  // ============================================================================
+  // Phase 12: Pinned Items (stub implementations)
+  // ============================================================================
+
+  async toggleTodoPinned(_todoId: string, _isPinned: boolean): Promise<void> {
+    // no-op
+  }
+
+  async toggleHabitPinned(_habitId: string, _isPinned: boolean): Promise<void> {
+    // no-op
+  }
+
+  async toggleNotePinned(_noteId: string, _isPinned: boolean): Promise<void> {
+    // no-op
+  }
+
+  async getPinnedItemsForSpace(
+    _spaceId: string,
+  ): Promise<{
+    todos: import('../types').Todo[];
+    habits: import('../types').Habit[];
+    notes: import('../types').Note[];
+  }> {
+    return { todos: [], habits: [], notes: [] };
+  }
+
+  async getPinnedCountForSpace(_spaceId: string): Promise<number> {
+    return 0;
+  }
 }
 
 /**

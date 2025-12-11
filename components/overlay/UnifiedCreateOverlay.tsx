@@ -1360,6 +1360,13 @@ export function UnifiedCreateOverlay({
 
   // Phase 10.6: Helper to emit success event and call onSaved
   const handleSaved = (result: OverlaySavedPayload) => {
+    console.log(
+      '🔥🔥🔥 OVERLAY handleSaved called:',
+      result.type,
+      result.id,
+      'onSaved prop exists:',
+      !!onSaved,
+    );
     emitChatEvent({
       type: 'overlay_success',
       payload: { type: result.type, created: result },

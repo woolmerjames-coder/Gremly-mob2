@@ -104,7 +104,10 @@ export default function SaveButton({
           pressed && styles.saveButtonPressed,
           disabled && styles.saveButtonDisabled,
         ]}
-        onPress={onSave}
+        onPress={() => {
+          console.log('[SaveButton] Save button pressed!');
+          onSave();
+        }}
         disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabelText}

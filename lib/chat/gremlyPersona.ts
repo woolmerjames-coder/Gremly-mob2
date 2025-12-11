@@ -6,6 +6,7 @@
  */
 
 import { ChatContext } from './rollingContext';
+import { SpaceContext, formatSpaceContextForPrompt } from './buildSpaceContext';
 
 // ============================================================================
 // CORE PERSONA
@@ -61,9 +62,13 @@ When in doubt: acknowledge and stop. Let them lead.`;
 
 /**
  * Builds the full system prompt for Space Chat by combining the Gremly persona
- * with conversation context and optional space name.
+ * with conversation context, optional space name, and optional rich space context.
  */
-export function buildSpaceChatSystemPrompt(context: ChatContext, spaceName?: string): string {
+export function buildSpaceChatSystemPrompt(
+  context: ChatContext,
+  spaceName?: string,
+  spaceContext?: SpaceContext | null,
+): string {
   let prompt = GREMLY_SPACE_CHAT_PERSONA;
 
   // Add running summary if available
@@ -71,8 +76,11 @@ export function buildSpaceChatSystemPrompt(context: ChatContext, spaceName?: str
     prompt += `\n\nCONVERSATION CONTEXT:\n${context.runningSummary.trim()}`;
   }
 
-  // Add space context if provided
-  if (spaceName && spaceName.trim()) {
+  // Add rich space context if provided (includes milestone, meta, summary)
+  if (spaceContext) {
+    prompt += `\n\nSPACE CONTEXT:\n${formatSpaceContextForPrompt(spaceContext)}`;
+  } else if (spaceName && spaceName.trim()) {
+    // Fallback to just space name if no rich context
     prompt += `\n\nThis conversation is in the user's "${spaceName.trim()}" space.`;
   }
 

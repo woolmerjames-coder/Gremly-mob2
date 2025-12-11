@@ -53,6 +53,7 @@ import {
 } from './useMetaIntentHandler';
 import { detectConversationMode } from '../lib/chat/conversationMode';
 import { buildSpaceChatSystemPrompt } from '../lib/chat/gremlyPersona';
+import { SpaceContext } from '../lib/chat/buildSpaceContext';
 import { incrementTurnCount, addKeyTopic, ChatContext } from '../lib/chat/rollingContext';
 import { shouldShowSaveButton, mightBeSaveable } from '../lib/chat/saveableDetector';
 import { SaveableResult } from '../lib/chat/saveableTypes';
@@ -70,6 +71,8 @@ export interface UseSpaceChatEnhancedProps {
   spaceId: string;
   /** Optional name of the space for context */
   spaceName?: string;
+  /** Optional rich space context (milestone, meta, summary) */
+  spaceContext?: SpaceContext | null;
 }
 
 export interface UseSpaceChatEnhancedReturn {
@@ -184,6 +187,7 @@ export function useSpaceChatEnhanced({
   chatId,
   spaceId: _spaceId,
   spaceName,
+  spaceContext,
 }: UseSpaceChatEnhancedProps): UseSpaceChatEnhancedReturn {
   // Initialize all sub-hooks
   // Pass empty string to useChatContext when chatId is undefined (new chat)
@@ -193,10 +197,10 @@ export function useSpaceChatEnhanced({
   const buttonState = useSaveButtonState();
   const metaIntent = useMetaIntentHandler();
 
-  // Build system prompt from context
+  // Build system prompt from context (includes space context if provided)
   const systemPrompt = useMemo(
-    () => buildSpaceChatSystemPrompt(context, spaceName),
-    [context, spaceName],
+    () => buildSpaceChatSystemPrompt(context, spaceName, spaceContext),
+    [context, spaceName, spaceContext],
   );
 
   // ─────────────────────────────────────────────────────────────────────────

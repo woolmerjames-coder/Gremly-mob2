@@ -110,6 +110,7 @@ export const habitZ = baseRecordZ.extend({
   commitment: z.boolean().nullable().optional(),
   commitmentNote: z.string().nullable().optional(),
   commitmentStartedAt: z.string().nullable().optional(),
+  is_pinned: z.boolean().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const todoZ = baseRecordZ.extend({
@@ -135,6 +136,7 @@ export const todoZ = baseRecordZ.extend({
   commitmentStartedAt: z.string().nullable().optional(),
   // Make Actionable: reference to source note (when todo was created from a note)
   source_note_id: z.string().uuid().nullable().optional(),
+  is_pinned: z.boolean().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const noteZ = baseRecordZ.extend({
@@ -176,6 +178,7 @@ export const noteZ = baseRecordZ.extend({
     )
     .nullable()
     .optional(),
+  is_pinned: z.boolean().optional(),
 }); // Removed satisfies for flexibility with preprocess
 
 export const recordZ = z.union([habitZ, todoZ, noteZ]) as z.ZodType<AppRecord>;
@@ -395,6 +398,92 @@ export const entityPersonInsertSchema = z.object({
   entity_type: entityTypeZ,
   entity_id: z.string().uuid(),
 });
+
+// ==========================
+// MILESTONE SCHEMAS (Phase 12)
+// ==========================
+
+/**
+ * Row schema - validates data from database
+ * Supports both legacy (title/note) and new (name) fields
+ */
+export const milestoneZ = z.object({
+  id: z.string().uuid(),
+  space_id: z.string().uuid(),
+  owner_id: z.string().uuid(),
+  // New field (preferred)
+  name: z.string().optional(),
+  // Legacy field (backward compat)
+  title: z.string().optional(),
+  date: z.string().nullable(),
+  // Legacy field
+  note: z.string().nullable().optional(),
+  completed: z.boolean().default(false),
+  completed_at: z.string().nullable(),
+  is_active: z.boolean().default(true),
+  sort_order: z.number().int().default(0),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+/**
+ * Insert schema - for creating new milestones
+ * Uses `name` (new spec), not `title`
+ */
+export const milestoneInsertZ = z.object({
+  space_id: z.string().uuid(),
+  name: z.string().min(1, 'Milestone name is required'),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD format')
+    .nullable()
+    .optional(),
+  is_active: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+});
+
+/**
+ * Update schema - for partial updates
+ */
+export const milestoneUpdateZ = z.object({
+  name: z.string().min(1).optional(),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  completed: z.boolean().optional(),
+  completed_at: z.string().nullable().optional(),
+  is_active: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+});
+
+export type Milestone = z.infer<typeof milestoneZ>;
+export type MilestoneInsert = z.infer<typeof milestoneInsertZ>;
+export type MilestoneUpdate = z.infer<typeof milestoneUpdateZ>;
+
+// ==========================
+// SPACE META SCHEMAS (Phase 12)
+// ==========================
+
+export const spaceMetaZ = z.object({
+  id: z.string().uuid(),
+  space_id: z.string().uuid(),
+  success_criteria: z.string().nullable(),
+  other_context: z.string().nullable(),
+  owner_id: z.string().uuid(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export const spaceMetaUpsertZ = z.object({
+  space_id: z.string().uuid(),
+  success_criteria: z.string().nullable().optional(),
+  other_context: z.string().nullable().optional(),
+});
+
+export type SpaceMetaRow = z.infer<typeof spaceMetaZ>;
+export type SpaceMetaUpsert = z.infer<typeof spaceMetaUpsertZ>;
 
 // ==========================
 // Helper functions
