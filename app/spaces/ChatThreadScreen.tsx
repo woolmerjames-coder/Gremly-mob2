@@ -1122,23 +1122,35 @@ export default function ChatThreadScreen({ route }: Props) {
                 (message.metadata_json as any)?.type?.includes('-locked')
               ) {
                 const metadata = message.metadata_json || {};
-                const itemType = metadata.itemType as 'habit' | 'todo' | 'note' | 'person';
+                const rawItemType = metadata.itemType as 'habit' | 'todo' | 'note' | 'person';
+                // Filter to supported types for SavedItemCard
+                const itemType: 'habit' | 'todo' | 'note' =
+                  rawItemType === 'person' ? 'note' : rawItemType || 'note';
                 const itemId = getItemId(metadata);
                 const title = getLockedTitle(metadata);
                 const subtext = getLockedSubtext(metadata);
 
                 return (
                   <SavedItemCard
-                    itemType={itemType || 'note'}
+                    itemType={itemType}
                     title={title}
                     subtitle={subtext}
                     onPress={() => {
                       if (itemId && itemType) {
                         console.log(`[Locked${itemType}] Tapped, itemId:`, itemId);
-                        overlayController.openEdit({
-                          record: { id: itemId, type: itemType } as any,
-                          spaceId: spaceId ?? undefined,
-                        });
+                        // Notes open in view mode, todos/habits open in edit mode
+                        if (itemType === 'note') {
+                          overlayController.openView({
+                            record: { id: itemId, type: itemType } as any,
+                            spaceId: spaceId ?? undefined,
+                          });
+                        } else {
+                          // todo or habit
+                          overlayController.openEdit({
+                            record: { id: itemId, type: itemType } as any,
+                            spaceId: spaceId ?? undefined,
+                          });
+                        }
                       }
                     }}
                   />
@@ -1160,11 +1172,19 @@ export default function ChatThreadScreen({ route }: Props) {
                     <EntryCard
                       entry={typedEntry}
                       onPress={(entry) => {
-                        // Open unified overlay with full entry data
-                        overlayController.openEdit({
-                          record: entry as any, // Full entry object includes all required fields
-                          spaceId: spaceId ?? undefined,
-                        });
+                        // Notes open in view mode, todos/habits open in edit mode
+                        if (entryType === 'note' || entryType === 'log') {
+                          overlayController.openView({
+                            record: entry as any,
+                            spaceId: spaceId ?? undefined,
+                          });
+                        } else {
+                          // todo or habit
+                          overlayController.openEdit({
+                            record: entry as any,
+                            spaceId: spaceId ?? undefined,
+                          });
+                        }
                       }}
                       testID={`entry-card-${message.id}`}
                     />

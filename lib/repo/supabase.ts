@@ -374,12 +374,15 @@ function mapNoteFromDb(dbRecord: any): any {
     is_favorite: dbRecord.is_favorite ?? false,
     has_list: dbRecord.has_list ?? false,
     list_items: dbRecord.list_items ?? null,
+    // Content field
+    body: dbRecord.body ?? null,
   };
 
   if (__DEV__) {
     console.log('[NoteFromRow]', {
       id: mapped.id,
       title: mapped.title,
+      body: mapped.body ? `${mapped.body.substring(0, 50)}...` : null,
       subtype: mapped.subtype,
       mood: mapped.mood,
       date: mapped.date,

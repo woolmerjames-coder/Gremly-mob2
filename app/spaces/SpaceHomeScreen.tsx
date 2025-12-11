@@ -773,11 +773,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   const overlay = useGlobalOverlay();
 
-  // Handler for item press (opens view overlay for read-only mode)
+  // Handler for item press (opens view for notes, edit for todos/habits)
   const handleItemPress = useCallback(
     (item: AppRecord) => {
       console.log('[SpaceHome] Item pressed:', item.id, item.type);
-      overlay.openView({ record: item, spaceId });
+      // Notes open in view mode, todos/habits open in edit mode
+      if (item.type === 'todo' || item.type === 'habit') {
+        overlay.openEdit({ record: item, spaceId });
+      } else {
+        // note (default)
+        overlay.openView({ record: item, spaceId });
+      }
     },
     [overlay, spaceId],
   );
