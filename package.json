@@ -62,7 +62,8 @@
     "react-native-svg": "15.12.1",
     "react-native-url-polyfill": "3.0.0",
     "uuid": "13.0.0",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "zustand": "5.0.9"
   },
   "devDependencies": {
     "@babel/core": "^7.28.4",
