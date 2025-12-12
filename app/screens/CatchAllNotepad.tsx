@@ -950,11 +950,12 @@ const EnrichingSkeleton: React.FC<{
   c: any;
 }> = ({ item, effectiveKind, displayKind, badgeStyleKey, styles, c }) => {
   // Breathing border animation - 1.2s in/out
-  const borderOpacity = React.useRef(new Animated.Value(0.1)).current;
-  const borderWidth = React.useRef(new Animated.Value(1)).current;
+  // Using useMemo for Animated.Value to satisfy lint rules while maintaining stable refs
+  const borderOpacity = React.useMemo(() => new Animated.Value(0.1), []);
+  const borderWidth = React.useMemo(() => new Animated.Value(1), []);
 
   // Tag shimmer animation
-  const shimmerPosition = React.useRef(new Animated.Value(0)).current;
+  const shimmerPosition = React.useMemo(() => new Animated.Value(0), []);
 
   React.useEffect(() => {
     // Breathing border glow
@@ -1128,30 +1129,9 @@ const AnimatedMindDropCard: React.FC<{
   // Get full visual state
   const visualState = getMindDropVisualState(item);
 
-  // Phase 1: Still creating entity - show basic skeleton
-  if (visualState === 'pending') {
-    return <PendingSkeleton styles={styles} c={c} />;
-  }
-
-  // Phase 2: Entity exists, enriching in progress - show breathing card
-  if (visualState === 'enriching') {
-    return (
-      <EnrichingSkeleton
-        item={item}
-        effectiveKind={effectiveKind}
-        displayKind={displayKind}
-        badgeStyleKey={badgeStyleKey}
-        styles={styles}
-        c={c}
-      />
-    );
-  }
-
-  // Complete or Failed: Show full content with crossfade animation
-  const isFailed = visualState === 'failed';
-
-  // Track state transitions for crossfade effect
-  const fadeAnim = React.useRef(new Animated.Value(1)).current;
+  // Track state transitions for crossfade effect - MUST be before any early returns
+  // Using useMemo for Animated.Value to satisfy lint rules
+  const fadeAnim = React.useMemo(() => new Animated.Value(1), []);
   const prevStateRef = React.useRef<MindDropVisualState>(visualState);
 
   // Crossfade when transitioning from enriching to complete
@@ -1173,6 +1153,28 @@ const AnimatedMindDropCard: React.FC<{
     }
     prevStateRef.current = visualState;
   }, [visualState, fadeAnim]);
+
+  // Phase 1: Still creating entity - show basic skeleton
+  if (visualState === 'pending') {
+    return <PendingSkeleton styles={styles} c={c} />;
+  }
+
+  // Phase 2: Entity exists, enriching in progress - show breathing card
+  if (visualState === 'enriching') {
+    return (
+      <EnrichingSkeleton
+        item={item}
+        effectiveKind={effectiveKind}
+        displayKind={displayKind}
+        badgeStyleKey={badgeStyleKey}
+        styles={styles}
+        c={c}
+      />
+    );
+  }
+
+  // Complete or Failed: Show full content with crossfade animation
+  const isFailed = visualState === 'failed';
 
   return (
     <Animated.View style={{ opacity: fadeAnim }}>
