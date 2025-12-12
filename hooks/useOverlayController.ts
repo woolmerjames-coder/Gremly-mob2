@@ -26,7 +26,6 @@ const isFlagEnabled = (value?: string | null): boolean => {
 };
 
 type EntityType = CanonicalType;
-const CATCHALL_LABEL = 'catchall';
 const NEEDS_REVIEW_LABEL = 'needs_review';
 
 interface OverlayState {
@@ -122,7 +121,9 @@ function useLegacyOverlayController(): OverlayController {
         const labels = (record as any)?.labels as string[] | undefined;
         const recordSubtype = (record as any)?.subtype as string | undefined;
 
-        if (labels?.includes?.(NEEDS_REVIEW_LABEL) || recordSubtype === CATCHALL_LABEL) {
+        // Only notes with needs_review label are truly unsorted
+        // Notes with subtype: 'catchall' are classified logs (log-general)
+        if (labels?.includes?.(NEEDS_REVIEW_LABEL)) {
           return { entityType: 'unsorted', logSubtype: null };
         }
 
@@ -132,7 +133,7 @@ function useLegacyOverlayController(): OverlayController {
         };
       }
 
-      return { entityType: 'log', logSubtype: 'everything_else' };
+      return { entityType: 'log', logSubtype: 'general' };
     },
     [],
   );

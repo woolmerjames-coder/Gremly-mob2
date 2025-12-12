@@ -160,6 +160,14 @@ const resetOtherMocks = () => {
   mockShowActionToast.mockReset();
 };
 
+/**
+ * Helper to get the text from a create call.
+ * Depending on entity type, text can be in `name`, `title`, or `body`.
+ */
+const getTextFromCreateCall = (callArgs: Record<string, unknown>): string | undefined => {
+  return (callArgs.name as string) ?? (callArgs.title as string) ?? (callArgs.body as string);
+};
+
 describe('Phase 1B: Mind Drop Submission Mutex', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -192,7 +200,7 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
 
     // Should only create ONE entity, not two
     expect(mockRepo.create).toHaveBeenCalledTimes(1);
-    expect(mockRepo.create.mock.calls[0][0].body).toBe('buy groceries');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('buy groceries');
   });
 
   it('blocks triple-tap submission of identical text', async () => {
@@ -212,7 +220,7 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
 
     // Should only create ONE entity
     expect(mockRepo.create).toHaveBeenCalledTimes(1);
-    expect(mockRepo.create.mock.calls[0][0].body).toBe('call dentist');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('call dentist');
   });
 
   it('allows submission of different text immediately', async () => {
@@ -234,8 +242,8 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 4000 });
 
     // Verify both were created
-    expect(mockRepo.create.mock.calls[0][0].body).toBe('buy milk');
-    expect(mockRepo.create.mock.calls[1][0].body).toBe('call mom');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('buy milk');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[1][0])).toBe('call mom');
   });
 
   it('treats text with different whitespace as identical (trimming)', async () => {
@@ -290,7 +298,7 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     fireEvent.press(submitButton);
 
     await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 4000 });
-    expect(mockRepo.create.mock.calls[1][0].body).toBe('different text');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[1][0])).toBe('different text');
   });
 
   it('handles network jitter scenario (3 rapid identical submits)', async () => {
@@ -316,7 +324,7 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
 
     // Should only create ONE entity despite 3 taps
     expect(mockRepo.create).toHaveBeenCalledTimes(1);
-    expect(mockRepo.create.mock.calls[0][0].body).toBe('fix bug in app');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('fix bug in app');
   });
 
   it('successfully blocks duplicate rapid submissions', async () => {
@@ -337,7 +345,7 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
 
     // Critical assertion: Only ONE entity created despite 3 rapid taps
     expect(mockRepo.create).toHaveBeenCalledTimes(1);
-    expect(mockRepo.create.mock.calls[0][0].body).toBe('test blocking');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('test blocking');
   });
 
   it('independent mutex per unique text hash', async () => {
@@ -362,8 +370,8 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
 
     // Verify both unique texts were created exactly once
     expect(mockRepo.create).toHaveBeenCalledTimes(2);
-    expect(mockRepo.create.mock.calls[0][0].body).toBe('task A');
-    expect(mockRepo.create.mock.calls[1][0].body).toBe('task B');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('task A');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[1][0])).toBe('task B');
   });
 
   it('mutex survives empty text submission attempts', async () => {
@@ -388,6 +396,6 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     fireEvent.press(submitButton);
 
     await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
-    expect(mockRepo.create.mock.calls[0][0].body).toBe('real task');
+    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('real task');
   });
 });

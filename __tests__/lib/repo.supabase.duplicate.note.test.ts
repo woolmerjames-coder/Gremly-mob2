@@ -145,7 +145,7 @@ describe('SupabaseRepo - Duplicate Note Handling (23505)', () => {
       expect.stringContaining('Duplicate note detected'),
       expect.objectContaining({
         code: '23505',
-        constraint: 'notes_owner_drop_id_active_unique',
+        message: expect.stringContaining('notes_owner_drop_id_active_unique'),
       }),
     );
   });

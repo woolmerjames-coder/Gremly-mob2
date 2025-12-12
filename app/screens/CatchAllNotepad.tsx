@@ -1285,25 +1285,12 @@ function getDisplayKindForDrop(item: UnifiedDrop, canonicalTypesOn: boolean): st
     return effectiveKind;
   }
 
-  // Prefer canonical_type if available (from buildCanonicalFromMindDrop)
-  if (item.canonical_type) {
-    return item.canonical_type;
-  }
+  // Habits and todos display as-is
+  if (effectiveKind === 'habit') return 'habit';
+  if (effectiveKind === 'todo') return 'todo';
 
-  // Check labels to detect confirmed logs/todos/habits
-  // Items with labels=['log'] should show "log", not "unsorted"
-  if (Array.isArray(item.labels)) {
-    if (item.labels.includes('log')) return 'log';
-    if (item.labels.includes('todo')) return 'todo';
-    if (item.labels.includes('habit')) return 'habit';
-  }
-
-  // Fallback to kindToDisplayLabel for items without canonical_type or labels
-  return kindToDisplayLabel(
-    effectiveKind,
-    effectiveKind === 'note' ? (item.noteSubtype ?? null) : null,
-    canonicalTypesOn,
-  );
+  // All notes in Mind Drop are logs - never "unsorted"
+  return 'log';
 }
 
 type OverlayContextValue = ReturnType<typeof useGlobalOverlay>;
@@ -1644,7 +1631,8 @@ const RecentDrops: React.FC<{
           const labels = Array.isArray(n?.labels) ? n.labels : [];
           const unsorted = labels.includes(UNSORTED_LABEL);
           const rawSubtype = typeof n?.subtype === 'string' ? n.subtype : null;
-          const noteSubtype = rawSubtype ?? (unsorted ? 'catchall' : null);
+          // Default to 'catchall' for all Mind Drop notes - ensures they display as "log" not "unsorted"
+          const noteSubtype = rawSubtype ?? 'catchall';
           const rawText = n.body || n.title || n.text || n.content || '';
           const { compact: derivedTitle } = deriveCompactTitle(
             [n.title, n.body, n.text, n.content, rawText],
@@ -2022,7 +2010,7 @@ const RecentDrops: React.FC<{
               tags: Array.isArray(record.tags) ? record.tags : [],
               views: record.views ?? {},
               labels: Array.isArray(record.labels) ? record.labels : [],
-              noteSubtype: record.subtype ?? null,
+              noteSubtype: record.subtype ?? 'catchall',
               archived: record.archived ?? false,
             };
 
@@ -3236,7 +3224,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       dropId,
       text: effectiveText,
       kind: probableKind,
-      noteSubtype: probableKind === 'note' ? 'everything_else' : undefined,
+      noteSubtype: probableKind === 'note' ? 'general' : undefined,
     });
 
     const result = await mindDropSubmit(effectiveText, {
@@ -3249,6 +3237,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     if (result.success) {
       setNote('');
       setPendingPhotoUris([]);
+      // CRITICAL: Clear drop_id ref so next submission generates a new one
+      // Without this, subsequent submissions would reuse the same drop_id,
+      // causing the database constraint to return the existing entity instead of creating a new one
+      dropIdRef.current = null;
+      submissionIdRef.current = null;
       return {
         created: {
           todos: result.bucket === 'todo' ? [result.entityId!] : [],
@@ -3259,6 +3252,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       };
     } else {
       console.error('[MindDrop:NewPipeline] Submit failed:', result.error);
+      // Also clear refs on failure so user can retry with fresh IDs
+      dropIdRef.current = null;
+      submissionIdRef.current = null;
       return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
     }
   }, [note, pendingPhotoUris, mindDropSubmit, resetState, ensureSubmissionAndDropIds]);
@@ -3608,7 +3604,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                     ? 'list'
                     : (firstAction.payload.subtype ??
                       decision.mindDropDecision?.logSubtype ??
-                      'everything_else');
+                      'general');
 
                 const subtype =
                   rawSubtype === 'journal'
@@ -3619,7 +3615,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                         ? 'idea'
                         : rawSubtype === 'reference'
                           ? 'reference'
-                          : 'everything_else';
+                          : 'general';
 
                 const canonicalType = persistedToCanonical('note', subtype);
                 const whyUpdate = appendLineageToWhyString('Auto-organizing via Mind Drop', {
@@ -3814,12 +3810,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   ...classificationTagsMeta,
                 ]);
                 const canonicalSubtypeMeta = decisionMeta?.canonicalSubtype ?? null;
+                // Valid log subtypes: journal, idea, general (stored as 'catchall')
+                // 'list' is a NoteSubtype but not a LogSubtype
                 const fallbackSubtype =
                   canonicalSubtypeMeta === 'journal' ||
-                  canonicalSubtypeMeta === 'list' ||
                   canonicalSubtypeMeta === 'idea'
                     ? (canonicalSubtypeMeta as NoteSubtype)
-                    : 'catchall';
+                    : 'catchall'; // log-general
                 const extractionSubtype =
                   fallbackSubtype === 'catchall' ? undefined : fallbackSubtype;
                 const fallbackTags =
@@ -4927,7 +4924,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           dropId,
           text: effectiveText,
           kind: probableKind,
-          noteSubtype: probableKind === 'note' ? 'everything_else' : undefined,
+          noteSubtype: probableKind === 'note' ? 'general' : undefined,
         });
 
         // Capture photos for background upload (they will be cleared from state)

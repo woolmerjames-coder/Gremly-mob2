@@ -17,19 +17,19 @@ export function canonicalToPersisted(
     case 'todo':
       return { recordType: 'todo' };
     case 'log': {
+      // Map LogSubtype to NoteSubtype for persistence:
+      // - log-journal → 'journal'
+      // - log-idea → 'idea'
+      // - log-general → 'catchall'
       const noteSubtype = (() => {
         switch (sub) {
           case 'journal':
             return 'journal';
           case 'idea':
             return 'idea';
-          case 'list':
-            return 'list';
-          // Person is a UI subtype. Persist as catchall for now and let UI/labels handle person linking.
-          case 'person':
-          case 'everything_else':
+          case 'general':
           default:
-            return 'catchall';
+            return 'catchall'; // log-general
         }
       })();
       return { recordType: 'note', noteSubtype };

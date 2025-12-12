@@ -12,9 +12,12 @@
  * - Right side: checkbox (todos), progress bar (habits), or chevron (logs/lists)
  */
 
-import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import React, { useCallback } from 'react';
+import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import type { Habit, Todo, Note } from '../../lib/types';
+import { isTestMode } from '../../lib/config/testMode';
+import { testLogger } from '../../src/utils/TestLogger';
 
 // =============================================================================
 // TYPES
@@ -171,6 +174,20 @@ export function UnifiedEntityCard({
       return '';
     })();
 
+  // Long-press to copy entity ID (TEST_MODE only)
+  const handleLongPress = useCallback(async () => {
+    if (!isTestMode()) return;
+
+    const entityId = entity.id;
+    try {
+      await Clipboard.setStringAsync(entityId);
+      testLogger.step('copy_id', { entityId });
+      Alert.alert('Copied ID', entityId);
+    } catch {
+      Alert.alert('Failed to copy', entityId);
+    }
+  }, [entity.id]);
+
   return (
     <View style={styles.wrapper}>
       {/* Top divider - only show if not first item */}
@@ -178,6 +195,8 @@ export function UnifiedEntityCard({
 
       <Pressable
         onPress={onPress}
+        onLongPress={handleLongPress}
+        delayLongPress={500}
         style={({ pressed }) => [styles.container, pressed && styles.pressed]}
         testID={testID}
         accessibilityRole="button"

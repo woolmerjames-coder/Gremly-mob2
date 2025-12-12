@@ -9,6 +9,11 @@ import {
   UnifiedEntityRecord,
 } from '../../components/entities/UnifiedEntityCard';
 
+// Mock expo-clipboard
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn(),
+}));
+
 // Mock entity data
 const mockTodo: UnifiedEntityRecord = {
   id: 'todo-1',

@@ -1,0 +1,605 @@
+{
+  "version": "1.0.0",
+  "description": "Golden dataset for Mind Drop classification validation",
+  "test_cases": [
+    {
+      "id": "todo-001",
+      "raw_text": "Buy milk",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Simple imperative todo",
+      "tags": ["basic", "imperative"]
+    },
+    {
+      "id": "todo-002",
+      "raw_text": "Call mom tomorrow",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "expected_due_date": "tomorrow",
+      "description": "Todo with relative date",
+      "tags": ["date-parsing", "relative-date"]
+    },
+    {
+      "id": "todo-003",
+      "raw_text": "Email John about the project proposal by Friday",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "expected_due_date": "friday",
+      "description": "Todo with deadline keyword and day",
+      "tags": ["date-parsing", "deadline"]
+    },
+    {
+      "id": "todo-004",
+      "raw_text": "Schedule dentist appointment for next week",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Todo with scheduling verb",
+      "tags": ["basic", "scheduling"]
+    },
+    {
+      "id": "todo-005",
+      "raw_text": "Pick up dry cleaning",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Phrasal verb todo",
+      "tags": ["basic", "phrasal-verb"]
+    },
+    {
+      "id": "todo-006",
+      "raw_text": "Need to finish the report ASAP",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Todo with urgency marker",
+      "tags": ["urgency", "deadline"]
+    },
+    {
+      "id": "todo-007",
+      "raw_text": "Book flight to NYC for Dec 20",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "expected_due_date": "2025-12-20",
+      "description": "Todo with specific date",
+      "tags": ["date-parsing", "specific-date"]
+    },
+    {
+      "id": "todo-008",
+      "raw_text": "Fix the leaky faucet",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Home repair todo",
+      "tags": ["basic", "home"]
+    },
+    {
+      "id": "todo-009",
+      "raw_text": "Submit expense report before end of month",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Work todo with deadline",
+      "tags": ["work", "deadline"]
+    },
+    {
+      "id": "todo-010",
+      "raw_text": "Remind Sarah about the meeting",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Todo with person mention",
+      "tags": ["basic", "people"]
+    },
+    {
+      "id": "todo-011",
+      "raw_text": "Get groceries:\n- eggs\n- bread\n- butter\n- cheese",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "expected_has_list": true,
+      "expected_list_items_count": 4,
+      "description": "Todo with embedded list",
+      "tags": ["list", "groceries"]
+    },
+    {
+      "id": "todo-012",
+      "raw_text": "Packing list for trip:\n1. Passport\n2. Charger\n3. Toiletries\n4. Clothes for 5 days",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "expected_has_list": true,
+      "expected_list_items_count": 4,
+      "description": "Todo with numbered list",
+      "tags": ["list", "travel"]
+    },
+    {
+      "id": "todo-013",
+      "raw_text": "I should probably call the insurance company",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Soft commitment phrasing - should classify as todo",
+      "tags": ["edge-case", "soft-commitment"]
+    },
+    {
+      "id": "todo-014",
+      "raw_text": "Must remember to pay rent by the 1st",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Strong obligation with date",
+      "tags": ["obligation", "deadline"]
+    },
+    {
+      "id": "todo-015",
+      "raw_text": "Update my resume",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Simple self-directed todo",
+      "tags": ["basic", "career"]
+    },
+    {
+      "id": "habit-001",
+      "raw_text": "Meditate every morning",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Classic daily habit",
+      "tags": ["basic", "daily"]
+    },
+    {
+      "id": "habit-002",
+      "raw_text": "Go to gym 3x a week",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Habit with frequency pattern",
+      "tags": ["frequency", "fitness"]
+    },
+    {
+      "id": "habit-003",
+      "raw_text": "Read for 30 minutes daily",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Habit with duration and frequency",
+      "tags": ["daily", "duration"]
+    },
+    {
+      "id": "habit-004",
+      "raw_text": "Practice piano every evening",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Evening routine habit",
+      "tags": ["daily", "routine"]
+    },
+    {
+      "id": "habit-005",
+      "raw_text": "Drink 8 glasses of water each day",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Health habit with quantity",
+      "tags": ["daily", "health"]
+    },
+    {
+      "id": "habit-006",
+      "raw_text": "Weekly meal prep on Sundays",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Weekly habit with specific day",
+      "tags": ["weekly", "food"]
+    },
+    {
+      "id": "habit-007",
+      "raw_text": "Stop checking phone before bed",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Breaking a habit (quit pattern)",
+      "tags": ["break-habit", "health"]
+    },
+    {
+      "id": "habit-008",
+      "raw_text": "Start doing morning stretches",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Starting new habit",
+      "tags": ["new-habit", "fitness"]
+    },
+    {
+      "id": "habit-009",
+      "raw_text": "Keep doing daily journal entries",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Continuing existing habit",
+      "tags": ["continue-habit", "writing"]
+    },
+    {
+      "id": "habit-010",
+      "raw_text": "Take vitamins with breakfast routine",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Habit tied to routine",
+      "tags": ["routine", "health"]
+    },
+    {
+      "id": "log-journal-001",
+      "raw_text": "I feel really grateful for my friends today",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Gratitude journal entry",
+      "tags": ["basic", "gratitude"]
+    },
+    {
+      "id": "log-journal-002",
+      "raw_text": "I think I'm finally starting to understand why I've been so stressed",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Reflective journal entry",
+      "tags": ["reflection", "emotional"]
+    },
+    {
+      "id": "log-journal-003",
+      "raw_text": "Today was a really tough day at work. I'm exhausted.",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Daily recap journal",
+      "tags": ["daily-recap", "work"]
+    },
+    {
+      "id": "log-journal-004",
+      "raw_text": "I realized that I've been avoiding difficult conversations",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Self-awareness reflection",
+      "tags": ["reflection", "insight"]
+    },
+    {
+      "id": "log-journal-005",
+      "raw_text": "Feeling anxious about the presentation tomorrow",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Emotional state journal",
+      "tags": ["emotional", "anxiety"]
+    },
+    {
+      "id": "log-journal-006",
+      "raw_text": "I wonder if I made the right decision about the job offer",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Uncertainty reflection",
+      "tags": ["reflection", "career"]
+    },
+    {
+      "id": "log-journal-007",
+      "raw_text": "Grateful for: sunny weather, good coffee, and a productive morning",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Gratitude list style journal",
+      "tags": ["gratitude", "list-style"]
+    },
+    {
+      "id": "log-journal-008",
+      "raw_text": "I noticed I get defensive when people give me feedback",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Self-observation journal",
+      "tags": ["reflection", "self-awareness"]
+    },
+    {
+      "id": "log-idea-001",
+      "raw_text": "Idea: an app that tracks your daily energy levels",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "description": "Explicit idea prefix",
+      "tags": ["basic", "app-idea"]
+    },
+    {
+      "id": "log-idea-002",
+      "raw_text": "What if we could automate the weekly reports?",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "description": "What-if framing",
+      "tags": ["work", "automation"]
+    },
+    {
+      "id": "log-idea-003",
+      "raw_text": "Maybe we could do a team offsite in January",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "description": "Suggestion/possibility",
+      "tags": ["work", "team"]
+    },
+    {
+      "id": "log-idea-004",
+      "raw_text": "How about a standing desk for better posture?",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "description": "How-about framing",
+      "tags": ["personal", "health"]
+    },
+    {
+      "id": "log-idea-005",
+      "raw_text": "Imagine if we had a dashboard showing all project statuses",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "description": "Imagine-if framing",
+      "tags": ["work", "tooling"]
+    },
+    {
+      "id": "log-idea-006",
+      "raw_text": "Could we use AI to summarize meeting notes automatically?",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "description": "Could-we framing",
+      "tags": ["work", "ai"]
+    },
+    {
+      "id": "log-general-001",
+      "raw_text": "Met with Jake for lunch, talked about his new startup",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "description": "Simple event log",
+      "tags": ["basic", "social"]
+    },
+    {
+      "id": "log-general-002",
+      "raw_text": "The new coffee shop on Main St has great pastries",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "description": "Observation note",
+      "tags": ["basic", "observation"]
+    },
+    {
+      "id": "log-general-003",
+      "raw_text": "Recipe: 2 cups flour, 1 cup sugar, 3 eggs, vanilla extract",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "description": "Recipe capture",
+      "tags": ["recipe", "reference"]
+    },
+    {
+      "id": "log-general-004",
+      "raw_text": "WiFi password: GuestNetwork2024",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "description": "Quick reference note",
+      "tags": ["reference", "short"]
+    },
+    {
+      "id": "log-general-005",
+      "raw_text": "Meeting notes from standup: discussed Q1 priorities, Sarah taking lead on onboarding",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "description": "Meeting notes",
+      "tags": ["work", "meeting-notes"]
+    },
+    {
+      "id": "log-general-006",
+      "raw_text": "Book recommendation from Tom: Atomic Habits by James Clear",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "description": "Recommendation capture",
+      "tags": ["reference", "book"]
+    },
+    {
+      "id": "edge-001",
+      "raw_text": "I should meditate more",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: 'should' + habit-like activity - classify as todo (one-off intent)",
+      "tags": ["edge-case", "ambiguous"]
+    },
+    {
+      "id": "edge-002",
+      "raw_text": "I feel like I should exercise more",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Edge: 'I feel' + should - journal takes precedence",
+      "tags": ["edge-case", "ambiguous"]
+    },
+    {
+      "id": "edge-003",
+      "raw_text": "Great idea for the project: add dark mode!",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "description": "Edge: exclamation but it's an idea not action",
+      "tags": ["edge-case", "idea"]
+    },
+    {
+      "id": "edge-004",
+      "raw_text": "Buy groceries every week",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Edge: todo verb + habit frequency - habit wins",
+      "tags": ["edge-case", "todo-vs-habit"]
+    },
+    {
+      "id": "edge-005",
+      "raw_text": "Call mom",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: very short todo",
+      "tags": ["edge-case", "short"]
+    },
+    {
+      "id": "edge-006",
+      "raw_text": "🏃‍♂️ morning run",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: emoji + fragment - one-off todo",
+      "tags": ["edge-case", "emoji", "short"]
+    },
+    {
+      "id": "edge-007",
+      "raw_text": "🏃‍♂️ morning run every day",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Edge: emoji + habit pattern",
+      "tags": ["edge-case", "emoji", "habit"]
+    },
+    {
+      "id": "edge-008",
+      "raw_text": "Things to pack:\n• laptop\n• charger\n• headphones\n• notebook\n• snacks",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "expected_has_list": true,
+      "expected_list_items_count": 5,
+      "description": "Edge: list with bullet points",
+      "tags": ["list", "bullets"]
+    },
+    {
+      "id": "edge-009",
+      "raw_text": "Had a thought while walking: maybe I should start a blog",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "description": "Edge: narrative + idea embedded",
+      "tags": ["edge-case", "narrative-idea"]
+    },
+    {
+      "id": "edge-010",
+      "raw_text": "Next Friday: dentist at 2pm",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "expected_due_date": "friday",
+      "description": "Edge: date-first format",
+      "tags": ["date-parsing", "appointment"]
+    },
+    {
+      "id": "edge-011",
+      "raw_text": "Don't forget to water the plants!",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: negative imperative reminder",
+      "tags": ["edge-case", "reminder"]
+    },
+    {
+      "id": "edge-012",
+      "raw_text": "Remember: team dinner is at 7",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: remember prefix",
+      "tags": ["edge-case", "reminder"]
+    },
+    {
+      "id": "edge-013",
+      "raw_text": "✅ Finished the presentation",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "description": "Edge: completed item log (checkmark)",
+      "tags": ["edge-case", "completed", "emoji"]
+    },
+    {
+      "id": "edge-014",
+      "raw_text": "TODO: review PR #123",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: explicit TODO prefix",
+      "tags": ["explicit-prefix", "work"]
+    },
+    {
+      "id": "edge-015",
+      "raw_text": "2pm call with client",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: time + event (implicit todo)",
+      "tags": ["edge-case", "time", "appointment"]
+    },
+    {
+      "id": "edge-016",
+      "raw_text": "Went for a run this morning, felt great!",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Edge: past tense activity - journal not habit",
+      "tags": ["edge-case", "past-tense"]
+    },
+    {
+      "id": "edge-017",
+      "raw_text": "Stop procrastinating on taxes",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: 'stop' + one-off action - todo not break-habit",
+      "tags": ["edge-case", "stop"]
+    },
+    {
+      "id": "edge-018",
+      "raw_text": "Stop biting nails",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Edge: 'stop' + ongoing behavior - break habit",
+      "tags": ["edge-case", "break-habit"]
+    },
+    {
+      "id": "edge-019",
+      "raw_text": "Project ideas:\n1. Mobile app\n2. Web dashboard\n3. API integration",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "expected_has_list": true,
+      "expected_list_items_count": 3,
+      "description": "Edge: idea list",
+      "tags": ["list", "idea"]
+    },
+    {
+      "id": "edge-020",
+      "raw_text": "Maybe I should call John? Not sure if he's free",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "description": "Edge: uncertain intent - not a firm todo",
+      "tags": ["edge-case", "uncertain"]
+    },
+    {
+      "id": "edge-021",
+      "raw_text": "🎯 Focus: ship the feature by EOD",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: emoji + focus marker",
+      "tags": ["emoji", "work", "deadline"]
+    },
+    {
+      "id": "edge-022",
+      "raw_text": "Every Monday: review goals",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Edge: weekly recurring with day",
+      "tags": ["weekly", "recurring"]
+    },
+    {
+      "id": "edge-023",
+      "raw_text": "Interesting article about productivity I read today",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "description": "Edge: past reading - general log",
+      "tags": ["edge-case", "past-tense"]
+    },
+    {
+      "id": "edge-024",
+      "raw_text": "Read that article about productivity",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "description": "Edge: imperative read - todo",
+      "tags": ["edge-case", "imperative"]
+    },
+    {
+      "id": "edge-025",
+      "raw_text": "I'm worried about the deadline",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "description": "Edge: anxiety expression",
+      "tags": ["emotional", "worry"]
+    },
+    {
+      "id": "complex-001",
+      "raw_text": "Had a great meeting with the team. We decided to: 1) ship v2 by Friday 2) hire a designer 3) revisit pricing. I'm excited but nervous!",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "expected_has_list": true,
+      "description": "Complex: narrative + embedded actions + emotion",
+      "tags": ["complex", "mixed"]
+    },
+    {
+      "id": "complex-002",
+      "raw_text": "Goals for Q1:\n- Launch mobile app\n- Reach 1000 users\n- Hire 2 engineers\n- Improve NPS to 50+",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "expected_has_list": true,
+      "expected_list_items_count": 4,
+      "description": "Complex: goals list (not immediate todos)",
+      "tags": ["complex", "goals", "list"]
+    },
+    {
+      "id": "complex-003",
+      "raw_text": "Morning routine: wake at 6, meditate 10min, exercise 30min, cold shower, journal",
+      "expected_type": "habit",
+      "expected_subtype": null,
+      "description": "Complex: multi-step routine",
+      "tags": ["complex", "routine"]
+    }
+  ]
+}

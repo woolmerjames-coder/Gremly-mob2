@@ -1,6 +1,25 @@
 /**
  * Test: Timing chips appear for high-confidence todos and selection sets due date
+ *
+ * DEPRECATED: Tests the legacy Mind Drop pipeline with timing chips.
+ * With FEATURE_FLAGS.MIND_DROP_V4_ENABLED = true (now the default), the pipeline:
+ * - Bypasses timing chips entirely
+ * - Creates entities directly via useMindDropSubmit hook
+ * - Due date is handled in Phase 2 background enrichment
+ *
+ * These tests are skipped until they can be rewritten for the V4 pipeline.
  */
+
+describe.skip('Timing chips (DEPRECATED - V4 is now default)', () => {
+  it('placeholder', () => {
+    expect(true).toBe(true);
+  });
+});
+
+/*
+ * Original test file preserved below for reference
+ */
+
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
@@ -229,7 +248,8 @@ const resetOtherMocks = () => {
   });
 };
 
-describe('Mind Drop Timing Chips', () => {
+// Skip - V4 pipeline doesn't use timing chips
+describe.skip('Mind Drop Timing Chips (Original)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetRepo();

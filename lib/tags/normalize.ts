@@ -1,12 +1,14 @@
 import type { LogSubtype } from '../types';
 import { TAG_STOP_WORDS } from './constants';
 
+// Star tags that map to log subtypes
+// Note: *list and *meeting are UI conveniences that map to log-general
 const STAR_TAGS = ['*journal', '*list', '*meeting', '*idea'] as const;
 
 const STAR_TAG_SUBTYPE: Record<(typeof STAR_TAGS)[number], LogSubtype> = {
   '*journal': 'journal',
-  '*list': 'list',
-  '*meeting': 'list',
+  '*list': 'general', // Lists are notes with has_list=true, not a separate log subtype
+  '*meeting': 'general', // Meetings map to general logs
   '*idea': 'idea',
 };
 
@@ -305,8 +307,8 @@ export function deriveLogSubtypeFromTags(tags?: string[]): LogSubtype {
     | undefined;
 
   if (!starTag) {
-    return 'everything_else';
+    return 'general';
   }
 
-  return STAR_TAG_SUBTYPE[starTag] ?? 'everything_else';
+  return STAR_TAG_SUBTYPE[starTag] ?? 'general';
 }

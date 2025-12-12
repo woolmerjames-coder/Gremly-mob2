@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { eventBus } from '../events';
+import { probeMembership } from '../config/surfaceProbe';
 import type { Habit, Todo, Note } from '../types';
 import type {
   NowLockedItem,
@@ -310,6 +311,15 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
         allHabits: habits,
         allTodos: todos,
       });
+
+      // Surface membership probes for test mode
+      probeMembership('TodayLocked', lockedItems);
+      probeMembership('TodayActive', activeItems);
+      probeMembership('TodayFuture', futureItems);
+      probeMembership('TodayCompleted', completedToday);
+      probeMembership('AllTodos', todos);
+      probeMembership('AllHabits', habits);
+
       isLoadingRef.current = false;
       console.log('[useNowData] ✅ Load complete');
     } catch (error) {

@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler'; // must be first
 import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useColorScheme, Linking } from 'react-native';
@@ -20,12 +20,24 @@ import { supabase } from './lib/supabase/client';
 import { runCortexProxyDiag } from './lib/cortex/diag';
 import { env } from './lib/env';
 import { useBrandFonts } from './app/theme/fonts';
+import { testLogger } from './src/utils/TestLogger';
 
 export default function App() {
   const { fontsLoaded, fontsError } = useBrandFonts();
   const scheme = useColorScheme();
+  const bootProbeRan = useRef(false);
 
   useEffect(() => {
+    // Dev-only boot probe: emit 3 [TEST] lines on every app boot
+    if (__DEV__ && !bootProbeRan.current) {
+      bootProbeRan.current = true;
+      testLogger.start('BOOT_TEST', { source: 'app' });
+      testLogger.step('mounted');
+      setTimeout(() => {
+        testLogger.end(true);
+      }, 250);
+    }
+
     console.log('[ENV][summary]', {
       engine: process.env.EXPO_PUBLIC_CORTEX_ENGINE,
       classify: process.env.EXPO_PUBLIC_CORTEX_CLASSIFY_CATCHALL,

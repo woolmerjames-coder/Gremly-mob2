@@ -22,6 +22,11 @@ import { eventBus } from '../lib/events/EventBus';
 import { runPhase1 } from '../lib/minddrop/phase1';
 import { runPhase2 } from '../lib/minddrop/phase2';
 import type { MindDropBucket, LogSubtype } from '../lib/minddrop/types';
+import { isTestMode } from '../lib/config/testMode';
+import { testLogger } from '../src/utils/TestLogger';
+import { setTestProbeEntityId } from '../lib/config/surfaceProbe';
+import { QARunner } from '../src/qa/QARunner';
+import { checkAllInvariants } from '../lib/minddrop/invariants';
 
 /**
  * Context for submitting a mind drop
@@ -35,6 +40,8 @@ export interface SubmitContext {
   source: 'minddrop' | 'today' | 'space' | 'photo';
   /** Optional pre-generated drop ID for pending item correlation */
   dropId?: string;
+  /** Optional test case name to enable structured test logging */
+  testCase?: string;
 }
 
 /**
@@ -68,14 +75,19 @@ function bucketToEntityType(bucket: MindDropBucket): 'todo' | 'habit' | 'note' {
 }
 
 /**
- * Map LogSubtype to NoteSubtype for repo operations
- * NoteSubtype is: 'journal' | 'list' | 'catchall' | 'idea' | 'reference'
- * LogSubtype is: 'journal' | 'idea' | 'general'
+ * Map LogSubtype to NoteSubtype for database persistence.
+ *
+ * Log classification subtypes:
+ * - log-journal → subtype: 'journal'
+ * - log-idea → subtype: 'idea'
+ * - log-general → subtype: 'catchall' (default for all other logs)
+ *
+ * The 'catchall' subtype in the database represents log-general.
  */
 function logSubtypeToNoteSubtype(subtype: LogSubtype | null): 'journal' | 'idea' | 'catchall' {
   if (subtype === 'journal') return 'journal';
   if (subtype === 'idea') return 'idea';
-  return 'catchall'; // 'general' maps to 'catchall'
+  return 'catchall'; // log-general → stored as 'catchall'
 }
 
 /**
@@ -102,8 +114,23 @@ export function useMindDropSubmit(): {
       // Use provided dropId for pending item correlation, or generate a new one
       const dropId = context.dropId ?? generateDropId();
 
+      // Test logging setup
+      const testCase = context.testCase;
+      const testEnabled = testCase && isTestMode();
+      if (testEnabled) {
+        testLogger.start(testCase, { source: 'MindDrop' });
+        testLogger.step('submit_start', {
+          textLength: text.length,
+          hasAttachments: (context.photoUris?.length ?? 0) > 0,
+        });
+      }
+
       // Prevent double submission
       if (submitLockRef.current) {
+        if (testEnabled) {
+          testLogger.assert('error', false, { where: 'submit_lock', message: 'Submission already in progress' });
+          testLogger.end(false);
+        }
         return {
           success: false,
           dropId,
@@ -122,6 +149,10 @@ export function useMindDropSubmit(): {
         if (!effectiveText) {
           submitLockRef.current = false;
           setIsSubmitting(false);
+          if (testEnabled) {
+            testLogger.assert('error', false, { where: 'empty_text', message: 'Cannot submit empty drop' });
+            testLogger.end(false);
+          }
           return {
             success: false,
             dropId,
@@ -148,6 +179,7 @@ export function useMindDropSubmit(): {
         }
 
         // Add to pending items (optimistic UI with heuristic prediction)
+        const tempId = `local-${dropId}`;
         addPendingItem({
           dropId,
           text: effectiveText,
@@ -156,6 +188,10 @@ export function useMindDropSubmit(): {
           createdAt: new Date().toISOString(),
           spaceId: context.spaceId ?? null,
         });
+
+        if (testEnabled) {
+          testLogger.step('optimistic_added', { dropId, tempId });
+        }
 
         // Phase 1: Run classification (may confirm or correct heuristic)
         // Phase 1 runs synchronously, Phase 2 runs in background after entity is saved
@@ -174,6 +210,15 @@ export function useMindDropSubmit(): {
           confidence: phase1Result.confidence,
           source: phase1Result.source,
         });
+
+        if (testEnabled) {
+          testLogger.step('phase1_complete', {
+            bucket,
+            subtype: subtypeHint,
+            confidence: phase1Result.confidence,
+            source: phase1Result.source,
+          });
+        }
 
         // Create entity using Phase 1 classification
         const entityType = bucketToEntityType(bucket);
@@ -236,26 +281,98 @@ export function useMindDropSubmit(): {
           spaceId: context.spaceId ?? null,
         });
 
+        // Tap for QA runner (dev-only, no-op in prod)
+        if (__DEV__) {
+          QARunner.captureEntityCreated({
+            entityId: entity.id,
+            dropId,
+            type: entityType,
+          });
+        }
+
+        if (testEnabled) {
+          testLogger.assert('entity_created', true, { entityId: entity.id, dropId });
+          // Set up surface probe to track this entity across surfaces
+          setTestProbeEntityId(entity.id);
+        }
+
+        // Run invariant checks on newly created entity (dev only)
+        if (__DEV__) {
+          // Safe property access for different entity types
+          const entityAny = entity as unknown as Record<string, unknown>;
+          const invariantResult = checkAllInvariants({
+            id: entity.id,
+            bucket: phase1Result.bucket,
+            title: (entityAny.title as string) ?? (entityAny.name as string),
+            name: (entityAny.name as string) ?? (entityAny.title as string),
+            body: entityAny.body as string | null | undefined,
+            has_list: entityAny.has_list as boolean | undefined,
+            list_items: entityAny.list_items as unknown[] | null | undefined,
+            due_date: entityAny.due_date as string | null | undefined,
+            due_day: entityAny.due_day as string | null | undefined,
+          });
+          if (!invariantResult.valid) {
+            console.warn('[MindDrop:Submit] Invariant violations:', invariantResult.violations);
+          }
+        }
+
         // Resolve the pending item now that entity is created
         // This removes the "Organizing..." state and allows the real item to show
         removePendingItem(dropId);
         console.log('[MindDrop:Submit] Resolved pending item', { dropId, entityId: entity.id });
 
+        if (testEnabled) {
+          testLogger.step('pending_resolved', { entityId: entity.id, tempId, dropId });
+        }
+
         // Phase 2: Run enrichment in background (don't await)
         // This will update the entity with smart title, tags, time estimates, etc.
-        runPhase2(entity.id, effectiveText, phase1Result.bucket, phase1Result.subtype, repo)
+        if (testEnabled) {
+          testLogger.step('phase2_start', { entityId: entity.id });
+        }
+
+        // Capture entityId and testEnabled for closure
+        const entityIdForPhase2 = entity.id;
+        const testEnabledForPhase2 = testEnabled;
+
+        runPhase2(entityIdForPhase2, effectiveText, phase1Result.bucket, phase1Result.subtype, repo)
           .then((enrichment) => {
             if (enrichment) {
               console.log('[MindDrop:Phase2] Enrichment complete', {
-                entityId: entity.id,
+                entityId: entityIdForPhase2,
                 smartTitle: enrichment.smartTitle.substring(0, 30) + '...',
                 tagsCount: enrichment.tags.length,
               });
+
+              if (testEnabledForPhase2) {
+                testLogger.assert('phase2_enriched', true, {
+                  entityId: entityIdForPhase2,
+                  smartTitle: enrichment.smartTitle,
+                  tagsCount: enrichment.tags.length,
+                  hasDate: !!enrichment.extractedDate,
+                  hasTimeEstimate: enrichment.timeEstimateMinutes !== null,
+                });
+                testLogger.end(true);
+              }
               // EventBus will notify views of the update via repo.update
+            } else if (testEnabledForPhase2) {
+              // Phase 2 returned null (no enrichment needed or skipped)
+              testLogger.assert('phase2_enriched', true, {
+                entityId: entityIdForPhase2,
+                skipped: true,
+              });
+              testLogger.end(true);
             }
           })
           .catch((err) => {
             console.warn('[MindDrop:Phase2] Enrichment failed', err);
+            if (testEnabledForPhase2) {
+              testLogger.assert('error', false, {
+                where: 'phase2',
+                message: err instanceof Error ? err.message : String(err),
+              });
+              testLogger.end(false);
+            }
           });
 
         submitLockRef.current = false;
@@ -273,6 +390,14 @@ export function useMindDropSubmit(): {
 
         submitLockRef.current = false;
         setIsSubmitting(false);
+
+        if (testEnabled) {
+          testLogger.assert('error', false, {
+            where: 'submit',
+            message: error instanceof Error ? error.message : String(error),
+          });
+          testLogger.end(false);
+        }
 
         return {
           success: false,

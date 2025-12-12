@@ -9,7 +9,6 @@ import { useGlobalOverlay } from '../contexts/OverlayContext';
 
 type EntityType = CanonicalType;
 
-const CATCHALL_LABEL = 'catchall';
 const NEEDS_REVIEW_LABEL = 'needs_review';
 
 interface ConversionMeta {
@@ -92,7 +91,9 @@ export function useUnifiedOverlayController() {
       const labels = noteRecord.labels;
       const recordSubtype = noteRecord.subtype ?? undefined;
 
-      if (labels?.includes?.(NEEDS_REVIEW_LABEL) || recordSubtype === CATCHALL_LABEL) {
+      // Only notes with needs_review label are truly unsorted
+      // Notes with subtype: 'catchall' are classified logs (log-general)
+      if (labels?.includes?.(NEEDS_REVIEW_LABEL)) {
         entityType = 'unsorted';
         logSubtype = null;
       } else {
@@ -101,7 +102,7 @@ export function useUnifiedOverlayController() {
       }
     } else {
       entityType = 'log';
-      logSubtype = 'everything_else';
+      logSubtype = 'general';
     }
 
     return { entityType, logSubtype };

@@ -110,16 +110,16 @@ export function ManualAddOverlay({
 
           if (res.type === 'note') {
             const derivedLogSubtype = deriveLogSubtypeFromTags(normalizedTags);
+            // Map LogSubtype to NoteSubtype for persistence
             const adaptedSubtype: NoteSubtype | null = (() => {
               switch (derivedLogSubtype) {
                 case 'journal':
                   return 'journal';
-                case 'list':
-                  return 'list';
                 case 'idea':
                   return 'idea';
+                case 'general':
                 default:
-                  return null;
+                  return 'catchall';
               }
             })();
             const derivedSubtype: NoteSubtype =

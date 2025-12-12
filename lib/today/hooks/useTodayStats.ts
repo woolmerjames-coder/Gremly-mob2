@@ -10,10 +10,11 @@
  * sets, which adjust the counts immediately before server sync.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { useNowData, type UseNowDataReturn } from '../../now/useNowData';
 import { selectSweepCandidates, type SweepCandidate } from '../sweepSelectors';
 import { getTodayDayString, computeDueDay } from '../../date/computeDueDay';
+import { probeMembership } from '../../config/surfaceProbe';
 import type {
   NowLockedItem,
   NowActiveItem,
@@ -108,7 +109,7 @@ export interface TodayStats {
 }
 
 /**
- * Hook providing centralized statistics for Today/Now page
+ * Internal hook providing centralized statistics for Today/Now page
  *
  * Reuses the same filtered collections from useNowData to ensure
  * consistency across all Today-related UI components.
@@ -119,7 +120,7 @@ export interface TodayStats {
  * @param options - Configuration options including optimistic state
  * @returns TodayStats object with all derived statistics
  */
-export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
+function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
   const {
     today,
     completedTodoIds = new Set<string>(),
@@ -362,4 +363,23 @@ export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
       completionSummary,
     };
   }, [nowData, completedTodoIds, completedHabitIds, deletedItemIds]);
+}
+
+/**
+ * Hook providing centralized statistics for Today/Now page with surface probing
+ *
+ * Wrapper around internal computation that adds surface membership probes
+ * for TEST_MODE.
+ */
+export function useTodayStats(options: UseTodayStatsOptions = {}): TodayStats {
+  const stats = useTodayStatsInternal(options);
+
+  // Surface membership probes - only fires when data changes
+  useEffect(() => {
+    probeMembership('SweepCandidates', stats.sweepCandidates);
+    probeMembership('RecentDrops', stats.recentDrops);
+    probeMembership('OverdueTodos', stats.overdueTodos);
+  }, [stats.sweepCandidates, stats.recentDrops, stats.overdueTodos]);
+
+  return stats;
 }

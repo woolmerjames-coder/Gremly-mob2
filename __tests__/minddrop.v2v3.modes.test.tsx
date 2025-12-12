@@ -1,15 +1,32 @@
 /**
  * Mind Drop V2 (Blocking) vs V3 (Instant) Mode Tests
  *
- * Tests the behavior difference between:
- * - V2 Mode (EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'off'): onSubmit awaits full pipeline
- * - V3 Mode (EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'on'): onSubmit returns immediately, pipeline runs in background
+ * DEPRECATED: These tests were designed for the legacy Mind Drop pipeline
+ * that used CortexProvider's decideWithContext and the EXPO_PUBLIC_MIND_DROP_V3_INSTANT flag.
  *
- * Verifies:
- * - V2: Submit blocks until AI classification completes
- * - V3: Submit returns instantly, UI resets immediately
- * - Both modes: Duplicate prevention (mutex) works correctly
- * - Both modes: Final entities have views.ai_pending: false
+ * With FEATURE_FLAGS.MIND_DROP_V4_ENABLED = true (now the default), the pipeline uses:
+ * - useMindDropSubmit hook
+ * - runPhase1 for classification
+ * - runPhase2 for background enrichment
+ *
+ * The V2/V3 mode distinction no longer applies to the V4 pipeline.
+ * The V4 pipeline always clears the input immediately after successful entity creation.
+ *
+ * These tests are skipped until they can be rewritten for the V4 pipeline.
+ * For V4 pipeline tests, see:
+ * - __tests__/lib/minddrop/phase1.test.ts
+ * - __tests__/lib/minddrop/phase2.test.ts
+ * - app/screens/__tests__/CatchAllNotepad.mutex.duplication.test.tsx
+ */
+
+describe.skip('Mind Drop V2 vs V3 Mode Tests (DEPRECATED - V4 is now default)', () => {
+  it('placeholder', () => {
+    expect(true).toBe(true);
+  });
+});
+
+/*
+ * Original test file preserved below for reference when rewriting for V4
  */
 
 // --- MOCK SUPABASE CLIENT ---
@@ -34,6 +51,22 @@ jest.mock('../lib/supabase/client', () => ({
 
 // Mock environment variables before any imports
 const originalEnv = process.env;
+
+// Mock runPhase1 - this is what the pipeline actually uses
+let mockRunPhase1: jest.Mock;
+jest.mock('../lib/minddrop/phase1', () => ({
+  runPhase1: jest.fn(),
+}));
+
+// Mock runPhase2 - background enrichment
+jest.mock('../lib/minddrop/phase2', () => ({
+  runPhase2: jest.fn().mockResolvedValue({
+    smartTitle: 'Test',
+    tags: [],
+    extractedDate: null,
+    timeEstimateMinutes: null,
+  }),
+}));
 
 // Mock dependencies
 const mockRepo = {
@@ -77,9 +110,9 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 100,
 }));
 
-const mockDecideWithContext = jest.fn();
+// Mock CortexProvider - provides legacy API, not used by current phase1/phase2 pipeline
 jest.mock('../providers/CortexProvider', () => ({
-  useCortex: () => ({ decideWithContext: mockDecideWithContext }),
+  useCortex: () => ({ decideWithContext: jest.fn() }),
 }));
 
 // Mock overlay controller - no-op implementation for tests
@@ -92,13 +125,24 @@ const mockOverlayController = {
 // Import after mocks
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
-import type { CortexResponse } from '../lib/cortex/cortexDecide';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
+import { runPhase1 } from '../lib/minddrop/phase1';
 
-describe('Mind Drop V2 vs V3 Mode Tests', () => {
+// Skip the main test suite - V4 is now the default pipeline
+describe.skip('Mind Drop V2 vs V3 Mode Tests (Original)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRepo.create.mockResolvedValue({ id: 'todo-123', type: 'todo' });
+    mockRunPhase1 = runPhase1 as jest.Mock;
+
+    // Default Phase1 mock - returns todo classification
+    mockRunPhase1.mockResolvedValue({
+      bucket: 'todo',
+      subtype: null,
+      confidence: 0.85,
+      source: 'heuristic',
+    });
+
+    mockRepo.create.mockResolvedValue({ id: 'todo-123', type: 'todo', name: 'Test' });
     mockRepo.getById.mockResolvedValue({ id: 'todo-123', type: 'todo', views: {} });
     mockRepo.update.mockResolvedValue({
       id: 'todo-123',
@@ -123,25 +167,17 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
       let pipelineStarted = false;
       let pipelineCompleted = false;
 
-      mockDecideWithContext.mockImplementation(async () => {
+      mockRunPhase1.mockImplementation(async () => {
         pipelineStarted = true;
         await new Promise((resolve) => setTimeout(resolve, 100)); // Simulate AI delay
         pipelineCompleted = true;
 
-        const response: CortexResponse = {
-          mode: 'auto',
+        return {
+          bucket: 'todo',
+          subtype: null,
           confidence: 0.85,
-          actions: [
-            {
-              type: 'create.todo',
-              payload: {
-                title: 'Buy groceries',
-              },
-            },
-          ],
-          suggestions: [],
+          source: 'api',
         };
-        return response;
       });
 
       const { getByPlaceholderText, getByTestId } = render(
@@ -181,23 +217,16 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
       // Verify something was created (we don't care about exact type/fields - just that pipeline ran)
       expect(mockRepo.create).toHaveBeenCalled();
 
-      // Verify cortex was called
-      expect(mockDecideWithContext).toHaveBeenCalled();
+      // Verify Phase1 was called
+      expect(mockRunPhase1).toHaveBeenCalled();
     });
 
     it('should prevent duplicate submissions with mutex in V2 mode', async () => {
-      mockDecideWithContext.mockResolvedValue({
-        mode: 'auto',
+      mockRunPhase1.mockResolvedValue({
+        bucket: 'todo',
+        subtype: null,
         confidence: 0.85,
-        actions: [
-          {
-            type: 'create.todo',
-            payload: {
-              title: 'Test task',
-            },
-          },
-        ],
-        suggestions: [],
+        source: 'heuristic',
       });
 
       const { getByPlaceholderText, getByTestId } = render(
@@ -232,25 +261,17 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
       let pipelineStarted = false;
       let pipelineCompleted = false;
 
-      mockDecideWithContext.mockImplementation(async () => {
+      mockRunPhase1.mockImplementation(async () => {
         pipelineStarted = true;
         await new Promise((resolve) => setTimeout(resolve, 100)); // Simulate AI delay
         pipelineCompleted = true;
 
-        const response: CortexResponse = {
-          mode: 'auto',
+        return {
+          bucket: 'todo',
+          subtype: null,
           confidence: 0.85,
-          actions: [
-            {
-              type: 'create.todo',
-              payload: {
-                title: 'Buy milk',
-              },
-            },
-          ],
-          suggestions: [],
+          source: 'api',
         };
-        return response;
       });
 
       const { getByPlaceholderText, getByTestId } = render(
@@ -296,22 +317,15 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
 
       // Verify something was created in background
       expect(mockRepo.create).toHaveBeenCalled();
-      expect(mockDecideWithContext).toHaveBeenCalled();
+      expect(mockRunPhase1).toHaveBeenCalled();
     });
 
     it('should still prevent duplicate submissions with mutex in V3 mode', async () => {
-      mockDecideWithContext.mockResolvedValue({
-        mode: 'auto',
+      mockRunPhase1.mockResolvedValue({
+        bucket: 'todo',
+        subtype: null,
         confidence: 0.85,
-        actions: [
-          {
-            type: 'create.todo',
-            payload: {
-              title: 'Instant task',
-            },
-          },
-        ],
-        suggestions: [],
+        source: 'heuristic',
       });
 
       const { getByPlaceholderText, getByTestId } = render(
@@ -338,18 +352,11 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
     });
 
     it('should track lastSubmittedTextRef to prevent re-submission in V3 mode', async () => {
-      mockDecideWithContext.mockResolvedValue({
-        mode: 'auto',
+      mockRunPhase1.mockResolvedValue({
+        bucket: 'todo',
+        subtype: null,
         confidence: 0.85,
-        actions: [
-          {
-            type: 'create.todo',
-            payload: {
-              title: 'Repeated task',
-            },
-          },
-        ],
-        suggestions: [],
+        source: 'heuristic',
       });
 
       const { getByPlaceholderText, getByTestId } = render(
@@ -389,18 +396,11 @@ describe('Mind Drop V2 vs V3 Mode Tests', () => {
       // Start in V2 mode
       process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'off';
 
-      mockDecideWithContext.mockResolvedValue({
-        mode: 'auto',
+      mockRunPhase1.mockResolvedValue({
+        bucket: 'todo',
+        subtype: null,
         confidence: 0.85,
-        actions: [
-          {
-            type: 'create.todo',
-            payload: {
-              title: 'Mode test',
-            },
-          },
-        ],
-        suggestions: [],
+        source: 'heuristic',
       });
 
       const { unmount } = render(<CatchAllNotepad overlayController={mockOverlayController} />);

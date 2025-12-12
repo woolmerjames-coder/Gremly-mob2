@@ -5,12 +5,12 @@
  * - classifyLogSubtypeSync: Pattern-based classification (fast, deterministic)
  * - classifyLogSubtype: AI-powered with deterministic fallback (async)
  *
- * Subtypes:
+ * Subtypes (aligned with core LogSubtype):
  * - journal: Personal reflections, feelings, daily experiences
- * - list: Items to check off or remember
- * - reference: Information to remember later
  * - idea: Creative thoughts or brainstorming
- * - plain: Default/unclassified
+ * - general: Default for all other logs (lists, references, reminders, etc.)
+ *
+ * Note: 'list' is detected separately as an attribute (has_list flag), not a log subtype.
  */
 
 import { classifyLogSubtypeSync } from '../lib/cortex/classifyLogSubtype';
@@ -53,34 +53,29 @@ describe('classifyLogSubtype (Sync/Deterministic)', () => {
     });
   });
 
-  describe('List entries', () => {
-    it('detects bullet lists', () => {
-      expect(classifyLogSubtypeSync('- Buy milk\n- Buy bread\n- Buy eggs')).toBe('list');
-      expect(classifyLogSubtypeSync('* Item 1\n* Item 2\n* Item 3')).toBe('list');
-      expect(classifyLogSubtypeSync('• First\n• Second\n• Third')).toBe('list');
+  describe('List entries - now return general (list is an attribute)', () => {
+    it('returns general for bullet lists (list detection is separate)', () => {
+      expect(classifyLogSubtypeSync('- Buy milk\n- Buy bread\n- Buy eggs')).toBe('general');
+      expect(classifyLogSubtypeSync('* Item 1\n* Item 2\n* Item 3')).toBe('general');
+      expect(classifyLogSubtypeSync('• First\n• Second\n• Third')).toBe('general');
     });
 
-    it('detects numbered lists', () => {
-      expect(classifyLogSubtypeSync('1. First task\n2. Second task\n3. Third task')).toBe('list');
+    it('returns general for numbered lists', () => {
+      expect(classifyLogSubtypeSync('1. First task\n2. Second task\n3. Third task')).toBe('general');
     });
 
-    it('detects checkbox lists', () => {
+    it('returns general for checkbox lists', () => {
       expect(classifyLogSubtypeSync('[ ] Buy groceries\n[ ] Call mom\n[x] Finish report')).toBe(
-        'list',
+        'general',
       );
-      expect(classifyLogSubtypeSync('[X] Done task\n[ ] Pending task')).toBe('list');
+      expect(classifyLogSubtypeSync('[X] Done task\n[ ] Pending task')).toBe('general');
     });
 
-    it('detects single-line list indicators', () => {
-      expect(classifyLogSubtypeSync('Groceries to buy')).toBe('list');
-      expect(classifyLogSubtypeSync('Shopping list for the week')).toBe('list');
-      expect(classifyLogSubtypeSync('Things to pack for the trip')).toBe('list');
-      expect(classifyLogSubtypeSync('Items to remember')).toBe('list');
-    });
-
-    it('prioritizes list structure over other content', () => {
-      expect(classifyLogSubtypeSync('I feel great about:\n- Task 1\n- Task 2')).toBe('list');
-      expect(classifyLogSubtypeSync('Idea for app:\n* Feature A\n* Feature B')).toBe('list');
+    it('returns general for single-line list indicators', () => {
+      expect(classifyLogSubtypeSync('Groceries to buy')).toBe('general');
+      expect(classifyLogSubtypeSync('Shopping list for the week')).toBe('general');
+      expect(classifyLogSubtypeSync('Things to pack for the trip')).toBe('general');
+      expect(classifyLogSubtypeSync('Items to remember')).toBe('general');
     });
   });
 
@@ -105,60 +100,55 @@ describe('classifyLogSubtype (Sync/Deterministic)', () => {
     });
   });
 
-  describe('Reference entries', () => {
-    it('detects information storage language', () => {
-      expect(classifyLogSubtypeSync('Remember to call Sarah at 555-1234')).toBe('reference');
-      expect(classifyLogSubtypeSync('Note: meeting is in Building C')).toBe('reference');
+  describe('Reference entries - now return general', () => {
+    it('returns general for information storage language', () => {
+      expect(classifyLogSubtypeSync('Remember to call Sarah at 555-1234')).toBe('general');
+      expect(classifyLogSubtypeSync('Note: meeting is in Building C')).toBe('general');
       expect(classifyLogSubtypeSync('Sarah mentioned the deadline is next Friday')).toBe(
-        'reference',
+        'general',
       );
-      expect(classifyLogSubtypeSync('He told me the password is abc123')).toBe('reference');
+      expect(classifyLogSubtypeSync('He told me the password is abc123')).toBe('general');
     });
 
-    it('detects credential/technical info', () => {
-      expect(classifyLogSubtypeSync('The password is securePass123')).toBe('reference');
-      expect(classifyLogSubtypeSync('WiFi code: GUEST2024')).toBe('reference');
-      expect(classifyLogSubtypeSync('Link: https://example.com/docs')).toBe('reference');
-      expect(classifyLogSubtypeSync('Email: support@company.com')).toBe('reference');
-      expect(classifyLogSubtypeSync('Phone number: 555-123-4567')).toBe('reference');
+    it('returns general for credential/technical info', () => {
+      expect(classifyLogSubtypeSync('The password is securePass123')).toBe('general');
+      expect(classifyLogSubtypeSync('WiFi code: GUEST2024')).toBe('general');
+      expect(classifyLogSubtypeSync('Link: https://example.com/docs')).toBe('general');
+      expect(classifyLogSubtypeSync('Email: support@company.com')).toBe('general');
+      expect(classifyLogSubtypeSync('Phone number: 555-123-4567')).toBe('general');
     });
 
-    it('detects information keywords', () => {
-      expect(classifyLogSubtypeSync('Info about the new policy')).toBe('reference');
-      expect(classifyLogSubtypeSync('Details for the project timeline')).toBe('reference');
-      expect(classifyLogSubtypeSync('Facts about the implementation')).toBe('reference');
+    it('returns general for information keywords', () => {
+      expect(classifyLogSubtypeSync('Info about the new policy')).toBe('general');
+      expect(classifyLogSubtypeSync('Details for the project timeline')).toBe('general');
+      expect(classifyLogSubtypeSync('Facts about the implementation')).toBe('general');
     });
   });
 
-  describe('Plain/default entries', () => {
-    it('returns plain for empty or generic text', () => {
-      expect(classifyLogSubtypeSync('')).toBe('plain');
-      expect(classifyLogSubtypeSync('   ')).toBe('plain');
-      expect(classifyLogSubtypeSync('Just a regular note')).toBe('plain');
-      expect(classifyLogSubtypeSync('Some random text without keywords')).toBe('plain');
+  describe('General/default entries', () => {
+    it('returns general for empty or generic text', () => {
+      expect(classifyLogSubtypeSync('')).toBe('general');
+      expect(classifyLogSubtypeSync('   ')).toBe('general');
+      expect(classifyLogSubtypeSync('Just a regular note')).toBe('general');
+      expect(classifyLogSubtypeSync('Some random text without keywords')).toBe('general');
     });
 
-    it('returns plain when no clear category matches', () => {
-      expect(classifyLogSubtypeSync('Meeting at 3pm')).toBe('plain');
-      expect(classifyLogSubtypeSync('Project update')).toBe('plain');
-      expect(classifyLogSubtypeSync('Call dentist')).toBe('plain');
+    it('returns general when no clear category matches', () => {
+      expect(classifyLogSubtypeSync('Meeting at 3pm')).toBe('general');
+      expect(classifyLogSubtypeSync('Project update')).toBe('general');
+      expect(classifyLogSubtypeSync('Call dentist')).toBe('general');
     });
   });
 
   describe('Priority and edge cases', () => {
-    it('prioritizes list over journal when both present', () => {
+    it('detects journal over general when emotional language present', () => {
       expect(
-        classifyLogSubtypeSync('I feel great today:\n- Accomplished task 1\n- Finished task 2'),
-      ).toBe('list');
+        classifyLogSubtypeSync('I feel great today about my accomplishments'),
+      ).toBe('journal');
     });
 
     it('handles mixed content correctly', () => {
-      // List structure takes priority
-      expect(
-        classifyLogSubtypeSync('Thinking about improvements:\n1. Better UI\n2. Faster performance'),
-      ).toBe('list');
-
-      // Journal wins when no list structure
+      // Journal wins when emotional language present
       expect(classifyLogSubtypeSync('Today I thought about maybe improving things')).toBe(
         'journal',
       );
@@ -167,14 +157,11 @@ describe('classifyLogSubtype (Sync/Deterministic)', () => {
     it('handles case insensitivity', () => {
       expect(classifyLogSubtypeSync('I FEEL GREAT TODAY')).toBe('journal');
       expect(classifyLogSubtypeSync('IDEA: NEW FEATURE')).toBe('idea');
-      expect(classifyLogSubtypeSync('REMEMBER TO CALL')).toBe('reference');
     });
 
-    it('handles partial line breaks', () => {
-      // Single-line list indicator + multiple lines = list
-      expect(classifyLogSubtypeSync('Buy groceries:\nmilk\nbread')).toBe('list'); // "groceries" triggers list
-      // Formatted list structure
-      expect(classifyLogSubtypeSync('Buy groceries:\n- milk\n- bread')).toBe('list');
+    it('returns general for list-like content (list detection is separate)', () => {
+      expect(classifyLogSubtypeSync('Buy groceries:\nmilk\nbread')).toBe('general');
+      expect(classifyLogSubtypeSync('Buy groceries:\n- milk\n- bread')).toBe('general');
     });
   });
 });
@@ -239,14 +226,15 @@ describe('classifyLogSubtype (Async/AI with Fallback)', () => {
 
     const result = await classifyLogSubtype('Some text');
     // Should fall back to sync classifier for invalid AI response
-    expect(result).toBe('plain');
+    expect(result).toBe('general');
   });
 
   it('handles AI exceptions gracefully', async () => {
     callClassify.mockRejectedValue(new Error('Network error'));
 
     const result = await classifyLogSubtype('- Item 1\n- Item 2');
-    expect(result).toBe('list'); // Fallback should detect list structure
+    // List content returns 'general' (list detection is separate)
+    expect(result).toBe('general');
   });
 
   it('limits text length sent to AI', async () => {
@@ -254,7 +242,7 @@ describe('classifyLogSubtype (Async/AI with Fallback)', () => {
       ok: true,
       id: 'test-id',
       classification: {
-        category: 'plain',
+        category: 'general',
         tags: [],
         spaceName: null,
         confidence: 0.5,
