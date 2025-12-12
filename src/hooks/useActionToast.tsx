@@ -492,9 +492,9 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
             case 'idea':
               return 'idea';
             case 'list':
-              return 'list';
+              return 'general'; // list is not a valid LogSubtype, default to general
             default:
-              return 'everything_else';
+              return 'general';
           }
         })();
         return { type: 'log' as CanonicalType, logSubtype };

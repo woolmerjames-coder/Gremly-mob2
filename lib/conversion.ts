@@ -1,5 +1,5 @@
 import type { CreateRecordInput, IRepo } from './repo/IRepo';
-import type { Note, Todo, Habit } from './types';
+import type { Note, Todo, Habit, LogSubtype } from './types';
 import {
   logConversionStart,
   logConversionSuccess,
@@ -341,7 +341,7 @@ export const convertUnsortedToLog = async (
   repo: IRepo,
   noteId: string,
   options: {
-    subtype?: 'journal' | 'idea' | 'list' | 'reference' | 'plain';
+    subtype?: LogSubtype;
     skipAI?: boolean; // For photo-only logs or manual override cases
   } = {},
 ): Promise<{ note: Note }> => {
@@ -356,14 +356,14 @@ export const convertUnsortedToLog = async (
     const note = record as Note;
 
     // Determine subtype: manual override > AI classification > fallback to 'journal'
-    let targetSubtype: 'journal' | 'idea' | 'list' | 'reference' | 'plain';
+    let targetSubtype: LogSubtype;
 
     if (options.subtype) {
       // Manual override provided
       targetSubtype = options.subtype;
     } else if (options.skipAI) {
       // Skip AI (e.g., photo-only logs) - use fallback
-      targetSubtype = 'plain';
+      targetSubtype = 'general';
     } else {
       // Use AI classification
       const rawText = note.body ?? note.title ?? '';
@@ -390,8 +390,19 @@ export const convertUnsortedToLog = async (
       source: 'log_confirmation',
     });
 
-    // Convert 'plain' to null for database (plain means no specific subtype)
-    const subtypeForDb = targetSubtype === 'plain' ? null : targetSubtype;
+    // Map LogSubtype to NoteSubtype for database persistence
+    // journal→journal, idea→idea, general→catchall
+    const subtypeForDb = (() => {
+      switch (targetSubtype) {
+        case 'journal':
+          return 'journal';
+        case 'idea':
+          return 'idea';
+        case 'general':
+        default:
+          return 'catchall';
+      }
+    })();
 
     const updatedNote = (await repo.update({
       id: note.id,

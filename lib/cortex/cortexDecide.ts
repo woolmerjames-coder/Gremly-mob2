@@ -229,7 +229,7 @@ function buildMindDropDecision(
   let effectiveSubtype = canonicalSubtype;
   if (shouldForceLogForPhotoDrop) {
     probableKind = 'log';
-    effectiveSubtype = 'everything_else'; // log-general
+    effectiveSubtype = 'general'; // log-general
     console.log(
       '[buildMindDropDecision] Photo drop defaulting to log-general due to uncertain classification',
     );
@@ -498,7 +498,7 @@ export async function cortexDecide(
             ],
             confidence: detected.confidence,
             canonicalType: 'log',
-            canonicalSubtype: 'everything_else',
+            canonicalSubtype: 'general',
           };
         } else if (detected.kind === 'todo') {
           normalized = {
@@ -671,8 +671,12 @@ export async function cortexDecide(
     // BUT: Only override if the engine didn't classify the same type with low confidence
     const engineHasSpecificSubtype =
       normalized.canonicalSubtype &&
-      normalized.canonicalSubtype !== 'everything_else' &&
+      normalized.canonicalSubtype !== 'general' &&
       normalized.canonicalSubtype !== null;
+
+    // Check if engine returned an add.to.list action (list intent from engine)
+    // This is separate from listHeuristicApplied which is text-based
+    const engineReturnedListAction = candidateActions.some((a) => a.type === 'add.to.list');
 
     // Check if engine returned the same type as canonical with low/medium confidence
     // In that case, respect the engine's confidence assessment
@@ -688,6 +692,7 @@ export async function cortexDecide(
       (canonicalIntent.type === 'todo' || canonicalIntent.type === 'habit') &&
       canonicalIntent.confidence >= 0.8 &&
       !engineHasSpecificSubtype && // Don't override specific engine subtypes like 'list', 'journal', etc.
+      !engineReturnedListAction && // Don't override when engine returned add.to.list action
       !engineSameTypeWithLowConfidence; // Respect engine's low-confidence assessment for same type
 
     const engineTypeOverride =
@@ -756,7 +761,8 @@ export async function cortexDecide(
         ];
       } else if (
         effectiveType === 'log' &&
-        normalized.canonicalSubtype !== 'list' && // Don't add create.note for lists (will use add.to.list)
+        !listHeuristicApplied && // Don't add create.note for text-based lists (will use add.to.list)
+        !engineReturnedListAction && // Don't add create.note for engine-detected lists
         !effectiveCandidateActions.some((a) => a.type === 'create.note')
       ) {
         effectiveCandidateActions = [
@@ -764,7 +770,7 @@ export async function cortexDecide(
             type: 'create.note' as const,
             payload: {
               text: userText,
-              subtype: 'everything_else' as any,
+              subtype: 'general' as any,
               spaceId: null,
             },
           },
@@ -877,7 +883,7 @@ export async function cortexDecide(
             type: 'create.note' as const,
             payload: {
               text: userText,
-              subtype: 'everything_else' as any,
+              subtype: 'general' as any,
               spaceId: null,
             },
           });
@@ -979,10 +985,11 @@ export async function cortexDecide(
         : generateExplanation(effectiveCandidateActions, mode, tone, normalizedCtx);
 
     const candidateCanonical = canonicalFromAction(effectiveCandidateActions[0]);
+    // Lists detected by heuristic map to log-general (list is a NoteSubtype, not LogSubtype)
     const canonicalHint = listHeuristicApplied
       ? {
           canonicalType: 'log' as CanonicalType,
-          canonicalSubtype: 'list' as LogSubtype,
+          canonicalSubtype: 'general' as LogSubtype, // Lists are log-general
           score: listAnalysis.score,
           reasons: [...listAnalysis.reasons],
           source: 'list-heuristic' as const,
@@ -1054,7 +1061,7 @@ export async function cortexDecide(
       // Force auto mode for photo drops that were defaulted to log-general
       finalMode = 'auto';
       finalCanonicalType = 'log';
-      finalCanonicalSubtype = 'everything_else';
+      finalCanonicalSubtype = 'general';
       // Ensure we have a create.note action
       if (!finalActions.some((a) => a.type === 'create.note')) {
         finalActions = [
@@ -1062,7 +1069,7 @@ export async function cortexDecide(
             type: 'create.note' as const,
             payload: {
               text: userText,
-              subtype: 'everything_else' as any,
+              subtype: 'general' as any,
               spaceId: null,
             },
           },
@@ -1348,20 +1355,25 @@ function canonicalFromAction(action: CortexAction | undefined): {
         return { canonicalType: 'unsorted', canonicalSubtype: null };
       }
 
+      // Map NoteSubtype to LogSubtype:
+      // - journal → log-journal
+      // - idea → log-idea
+      // - list, reference, catchall → log-general
       switch (subtype) {
         case 'journal':
+          return { canonicalType: 'log', canonicalSubtype: 'journal' };
         case 'idea':
+          return { canonicalType: 'log', canonicalSubtype: 'idea' };
         case 'list':
-          return { canonicalType: 'log', canonicalSubtype: subtype };
         case 'reference':
-          return { canonicalType: 'log', canonicalSubtype: 'everything_else' };
+          return { canonicalType: 'log', canonicalSubtype: 'general' };
         case 'catchall':
         default:
           return { canonicalType: 'unsorted', canonicalSubtype: null };
       }
     }
     case 'add.to.list':
-      return { canonicalType: 'log', canonicalSubtype: 'list' };
+      return { canonicalType: 'log', canonicalSubtype: 'general' }; // Lists are log-general
     default:
       return { canonicalType: undefined, canonicalSubtype: null };
   }
@@ -1416,13 +1428,18 @@ function normalizeEngineOutput(
   let canonicalType: CanonicalType | undefined;
   let canonicalSubtype: LogSubtype | null | undefined = null;
 
+  // Track raw list subtype for list-specific handling later
+  // List is an attribute that can apply to any type, not a LogSubtype itself
+  const rawSubtype =
+    typeof engineOutput.subtype === 'string' ? engineOutput.subtype.toLowerCase() : '';
+  const isListIntent = rawSubtype === 'list';
+
   if (engineType === 'todo') {
     canonicalType = 'todo';
   } else if (engineType === 'habit') {
     canonicalType = 'habit';
   } else if (engineType === 'note') {
-    const rawSubtype =
-      typeof engineOutput.subtype === 'string' ? engineOutput.subtype.toLowerCase() : '';
+    // Map engine subtype to LogSubtype (journal, idea, general)
     switch (rawSubtype) {
       case 'journal':
         canonicalType = 'log';
@@ -1432,13 +1449,12 @@ function normalizeEngineOutput(
         canonicalType = 'log';
         canonicalSubtype = 'idea';
         break;
-      case 'person':
-        canonicalType = 'log';
-        canonicalSubtype = 'person';
-        break;
       case 'list':
+      case 'person':
+      case 'reference':
+        // These map to log-general
         canonicalType = 'log';
-        canonicalSubtype = 'list';
+        canonicalSubtype = 'general';
         break;
       case 'catchall':
       case '':
@@ -1447,35 +1463,13 @@ function normalizeEngineOutput(
         break;
       default:
         canonicalType = 'log';
-        canonicalSubtype = 'everything_else';
+        canonicalSubtype = 'general';
         break;
     }
   }
 
-  if (canonicalType === 'todo') {
-    const { title, due } = buildTodoFields(engineOutput.title || fallbackText, engineOutput.due);
-    actions.push({
-      type: 'create.todo',
-      payload: {
-        title,
-        due,
-        spaceId: ctx.activeSpaceId,
-      },
-    });
-  } else if (canonicalType === 'habit') {
-    const { name, freq } = buildHabitFields(
-      engineOutput.name || fallbackText,
-      engineOutput.frequency,
-    );
-    actions.push({
-      type: 'create.habit',
-      payload: {
-        name,
-        freq,
-        spaceId: ctx.activeSpaceId,
-      },
-    });
-  } else if (canonicalType === 'log' && canonicalSubtype === 'list') {
+  // Handle list intent - list is an attribute that can apply to any type
+  if (isListIntent) {
     const todoOverride = convertTodoListCommandToTodo(fallbackText);
     if (todoOverride) {
       actions.push({
@@ -1504,6 +1498,29 @@ function normalizeEngineOutput(
         },
       });
     }
+  } else if (canonicalType === 'todo') {
+    const { title, due } = buildTodoFields(engineOutput.title || fallbackText, engineOutput.due);
+    actions.push({
+      type: 'create.todo',
+      payload: {
+        title,
+        due,
+        spaceId: ctx.activeSpaceId,
+      },
+    });
+  } else if (canonicalType === 'habit') {
+    const { name, freq } = buildHabitFields(
+      engineOutput.name || fallbackText,
+      engineOutput.frequency,
+    );
+    actions.push({
+      type: 'create.habit',
+      payload: {
+        name,
+        freq,
+        spaceId: ctx.activeSpaceId,
+      },
+    });
   } else if (canonicalType === 'log' || canonicalType === 'unsorted') {
     const mapping = canonicalToPersisted(canonicalType, canonicalSubtype ?? null);
     actions.push({

@@ -44,6 +44,14 @@ export type EventMap = {
   'entity:created': { entity: any; type: string; spaceId?: string | null };
   'entity:updated': { entity: any; type: string; spaceId?: string | null };
   'entity:deleted': { id: string; type?: string; spaceId?: string | null };
+  // Phase 2 enrichment completion event
+  'entity:enriched': {
+    entityId: string;
+    smartTitle: string;
+    tags: string[];
+    timeEstimate?: number | null;
+    dueDate?: string | null;
+  };
 };
 
 type Handler<T> = (payload: T) => void;

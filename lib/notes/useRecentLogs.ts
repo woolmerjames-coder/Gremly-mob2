@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabase/client';
 import { useAuth } from '../../providers/AuthProvider';
+import { probeMembership } from '../config/surfaceProbe';
 
 /** Labels that indicate unsorted Mind Drop items */
 const UNSORTED_LABELS = ['catchall', 'needs_review'];
@@ -238,9 +239,9 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
       }
 
       // Transform database rows to LogItem
-      // Filter out unsorted Mind Drop items (catchall/needs_review)
+      // Filter out unsorted Mind Drop items (needs_review label)
       // Keep items that are:
-      // 1. Proper logs (journal, idea, everything_else with log label)
+      // 1. Proper logs: journal, idea, catchall (log-general)
       // 2. Lists (detected via body parsing)
       const transformedLogs: LogItem[] = (data || [])
         .filter((row) => {
@@ -250,18 +251,12 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
           // Always include lists
           if (isList) return true;
 
-          // Filter out unsorted Mind Drop items
+          // Filter out unsorted Mind Drop items (has needs_review label)
           if (isUnsortedMindDropItem(row.subtype, labels)) return false;
 
-          // Include proper logs (journal, idea, or items with 'log' label)
-          if (row.subtype === 'journal' || row.subtype === 'idea') return true;
+          // Include proper logs: journal, idea, catchall (log-general)
+          if (row.subtype === 'journal' || row.subtype === 'idea' || row.subtype === 'catchall') return true;
           if (labels?.includes('log')) return true;
-
-          // Include everything_else items (these are converted logs)
-          if (row.subtype === 'everything_else') return true;
-
-          // Exclude catchall items that weren't caught above
-          if (row.subtype === 'catchall') return false;
 
           // Default: include if no subtype (legacy items)
           return true;
@@ -287,6 +282,9 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
         });
 
       setLogs(transformedLogs);
+
+      // Surface membership probe for test mode
+      probeMembership('RecentLogs', transformedLogs);
     } catch (err) {
       console.error('[useRecentLogs] fetch error:', err);
       setError(err instanceof Error ? err : new Error('Unknown error fetching logs'));

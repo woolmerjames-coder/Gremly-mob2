@@ -2,7 +2,6 @@ jest.mock('../../contexts/OverlayContext', () => {
   const React = require('react');
   const { persistedNoteSubtypeToLogSubtype } = require('../../lib/logSubtypes');
 
-  const CATCHALL_LABEL = 'catchall';
   const NEEDS_REVIEW_LABEL = 'needs_review';
 
   const createDefaultState = () => ({
@@ -27,7 +26,9 @@ jest.mock('../../contexts/OverlayContext', () => {
       const labels = record?.labels as string[] | undefined;
       const recordSubtype = record?.subtype as string | undefined;
 
-      if (labels?.includes?.(NEEDS_REVIEW_LABEL) || recordSubtype === CATCHALL_LABEL) {
+      // Only notes with needs_review label are truly unsorted
+      // Notes with subtype: 'catchall' are classified logs (log-general)
+      if (labels?.includes?.(NEEDS_REVIEW_LABEL)) {
         return { entityType: 'unsorted', logSubtype: null } as const;
       }
 

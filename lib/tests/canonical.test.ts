@@ -12,9 +12,10 @@ describe('canonicalToPersisted', () => {
   it.each([
     ['journal', 'journal'],
     ['idea', 'idea'],
-    ['list', 'list'],
+    ['general', 'catchall'], // log-general maps to catchall
+    ['list', 'catchall'], // list is no longer a LogSubtype, maps to catchall
     ['person', 'catchall'],
-    ['everything_else', 'catchall'],
+    ['everything_else', 'catchall'], // legacy value
     [null, 'catchall'],
     [undefined, 'catchall'],
   ])('normalizes log subtype %s to persisted subtype %s', (subtype, expected) => {

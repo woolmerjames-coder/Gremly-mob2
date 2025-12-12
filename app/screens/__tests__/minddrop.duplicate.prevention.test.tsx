@@ -1,13 +1,33 @@
 /**
  * Mind Drop Duplicate Prevention Test
  *
- * Verifies that submitting the same text multiple times in quick succession
- * doesn't create duplicate unsorted notes.
+ * DEPRECATED: Tests the legacy Mind Drop pipeline's duplicate prevention with category chips.
+ * With FEATURE_FLAGS.MIND_DROP_V4_ENABLED = true (now the default), the pipeline:
+ * - Bypasses category chips entirely
+ * - Creates entities directly via useMindDropSubmit hook
+ * - Uses dropId-based deduplication instead of category chip re-display
+ *
+ * Duplicate prevention in V4 is handled by:
+ * - dropId uniqueness constraint in the database
+ * - submissionMutex in CatchAllNotepad.tsx
+ *
+ * See CatchAllNotepad.mutex.duplication.test.tsx for V4-compatible mutex tests.
  */
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { useGlobalOverlay } from '../../../contexts/OverlayContext';
+
+// Skip entire test suite - V4 pipeline doesn't use category chips
+describe.skip('Mind Drop - Duplicate Prevention (DEPRECATED - V4 is now default)', () => {
+  it('placeholder', () => {
+    expect(true).toBe(true);
+  });
+});
+
+/*
+ * Original mocks preserved below for reference
+ */
 
 jest.mock('../../../lib/supabase/client', () => ({
   supabase: {
@@ -163,7 +183,8 @@ const getCreatePayload = (index: number): Record<string, unknown> => {
   return (call?.[0] ?? {}) as Record<string, unknown>;
 };
 
-describe('Mind Drop - Duplicate Prevention', () => {
+// Skip - V4 pipeline doesn't use category chips for duplicate handling
+describe.skip('Mind Drop - Duplicate Prevention (Original)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetRepoMocks();

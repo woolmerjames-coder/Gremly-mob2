@@ -206,18 +206,11 @@ const BASE_TYPE_OPTIONS: TypeOption[] = [
   { value: 'unsorted', label: 'Unsorted', iconName: 'Archive' },
 ];
 
-const TYPE_OPTIONS: TypeOption[] = CANONICAL_TYPES_ENABLED
-  ? BASE_TYPE_OPTIONS
-  : [
-      BASE_TYPE_OPTIONS[0],
-      BASE_TYPE_OPTIONS[1],
-      BASE_TYPE_OPTIONS[2],
-      { value: 'log', label: 'Person', iconName: 'User', logSubtype: 'person' },
-      BASE_TYPE_OPTIONS[3],
-    ];
+// Only the base type options are used - person was removed as it's not a valid log subtype
+const TYPE_OPTIONS: TypeOption[] = BASE_TYPE_OPTIONS;
 
-// Star tags now derive log subtype automatically (see deriveLogSubtypeFromTags).
-const DEFAULT_LOG_SUBTYPE: LogSubtype = 'everything_else';
+// Log subtypes: journal, idea, general (general is the default)
+const DEFAULT_LOG_SUBTYPE: LogSubtype = 'general';
 
 const normalizeInitialSelection = (
   initialEntity: UnifiedCreateOverlayProps['initialEntity'],
@@ -232,8 +225,6 @@ const normalizeInitialSelection = (
   switch (incomingType) {
     case 'journal':
       return { type: 'log', logSubtype: 'journal' };
-    case 'person':
-      return { type: 'log', logSubtype: 'person' };
     case 'note':
       return { type: 'log', logSubtype: fallbackSubtype };
     default:
@@ -577,9 +568,6 @@ export function UnifiedCreateOverlay({
         if ((selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'journal') {
           return 'journal';
         }
-        if ((selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person') {
-          return null;
-        }
         return 'note';
       case 'unsorted':
         return 'catchall';
@@ -680,8 +668,6 @@ export function UnifiedCreateOverlay({
           const subtype = logSubtypeOverride ?? selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE;
           if (subtype === 'journal') {
             setJournalDetails((prev) => ({ ...prev, tags: next }));
-          } else if (subtype === 'person') {
-            setPersonDetails((prev) => ({ ...prev, tags: next }));
           } else {
             setNoteDetails((prev) => ({ ...prev, tags: next }));
           }
@@ -730,7 +716,7 @@ export function UnifiedCreateOverlay({
 
   const derivedLogSubtype = selectedType === 'log' ? deriveLogSubtypeFromTags(tagsState) : null;
   const effectiveLogSubtype =
-    derivedLogSubtype && derivedLogSubtype !== 'everything_else' ? derivedLogSubtype : null;
+    derivedLogSubtype && derivedLogSubtype !== 'general' ? derivedLogSubtype : null;
 
   useEffect(() => {
     latestTagsRef.current = tagsState;
@@ -750,29 +736,13 @@ export function UnifiedCreateOverlay({
     setTagEditorTags(phase8Links.currentTags);
   }, [phase8Links.currentTags, tagEditorTags, usePhase8Features]);
 
-  const isLogPerson =
-    selectedType === 'log' && (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person';
-  const allowPeopleLinking = usePhase8Features && !isLogPerson;
+  const isLogPerson = false;
+  const allowPeopleLinking = usePhase8Features;
   const isEditingPerson =
     (mode === 'edit' || mode === 'view') &&
-    (initialEntity?.type === 'person' ||
-      (initialEntity?.type === 'log' &&
-        (initialEntity?.logSubtype ?? normalizedInitialSubtype ?? DEFAULT_LOG_SUBTYPE) ===
-          'person'));
+    initialEntity?.type === 'person';
 
-  useEffect(() => {
-    if (!visible) return;
-    if (mode !== 'edit') return;
-    if (selectedType !== 'log') return;
-    if ((selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person') return;
-
-    const entity = originalEntityRef.current;
-    if (!entity || entity.type !== 'note') return;
-    if (entity.subtype !== 'catchall') return;
-    if (phase8Links.linkedPeople.length === 0) return;
-
-    setSelectedLogSubtype('person');
-  }, [visible, mode, selectedType, selectedLogSubtype, phase8Links.linkedPeople]);
+  // Person subtype removed - no longer auto-switching to person subtype
 
   // Validation logic
   const getValidationState = (): { isValid: boolean; hint: string | null } => {
@@ -823,13 +793,6 @@ export function UnifiedCreateOverlay({
           return { isValid: true, hint: null };
         }
 
-        if (subtype === 'person') {
-          if (!personName.trim()) {
-            return { isValid: false, hint: 'Name required' };
-          }
-          return { isValid: true, hint: null };
-        }
-
         if (!noteBody.trim()) {
           return { isValid: false, hint: 'Body required' };
         }
@@ -875,40 +838,12 @@ export function UnifiedCreateOverlay({
       try {
         setHydration('loading');
 
-        const treatAsPerson =
-          originalType === 'person' ||
-          (type === 'log' && (logSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person');
+        const treatAsPerson = originalType === 'person';
 
         if (treatAsPerson) {
-          try {
-            const people = await repo.listPeople();
-            const person = people.find((p) => p.id === id);
-
-            if (!person) {
-              setHydration('error');
-              return;
-            }
-
-            const formData = mapPersonToForm(person);
-            setPersonName(formData.name);
-            setPersonDetails(formData.details);
-            setSelectedType('log');
-            setSelectedLogSubtype('person');
-            initializeTags(formData.details.tags ?? [], 'log', 'person');
-            originalEntityRef.current = null;
-            setCommitmentEnabled(false);
-            setCommitmentBusy(false);
-            setCommitmentNote('');
-            setCommitmentNoteDraft('');
-            setCommitmentNoteEditing(false);
-            setCommitmentNoteBusy(false);
-            setHydration('ready');
-            return;
-          } catch (error) {
-            console.error('[UnifiedCreateOverlay] Failed to load person:', error);
-            setHydration('error');
-            return;
-          }
+          // Person type is no longer supported via log subtype
+          setHydration('error');
+          return;
         }
 
         const entity = await repo.getById(id);
@@ -1000,10 +935,8 @@ export function UnifiedCreateOverlay({
                   switch (entity.subtype) {
                     case 'idea':
                       return 'idea';
-                    case 'list':
-                      return 'list';
                     default:
-                      return 'everything_else';
+                      return 'general';
                   }
                 })();
                 setSelectedType('log');
@@ -1406,9 +1339,6 @@ export function UnifiedCreateOverlay({
     subtype: LogSubtype | null,
   ): OverlaySavedPayload['type'] => {
     if (type === 'log') {
-      if (subtype === 'person') {
-        return 'person';
-      }
       return subtype === 'journal' ? 'journal' : 'note';
     }
     return type === 'unsorted' ? 'unsorted' : type;
@@ -1420,14 +1350,8 @@ export function UnifiedCreateOverlay({
     }
     const wasLog = selectedType === 'log';
     if (isEditingPerson) {
-      const proposedSubtype =
-        type === 'log'
-          ? (logSubtypeOverride ??
-            (wasLog ? (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) : DEFAULT_LOG_SUBTYPE))
-          : null;
-      if (type !== 'log' || (proposedSubtype ?? DEFAULT_LOG_SUBTYPE) !== 'person') {
-        return;
-      }
+      // Person editing is no longer supported via log subtype
+      return;
     }
     setSelectedType(type);
     if (type === 'log') {
@@ -1687,7 +1611,7 @@ export function UnifiedCreateOverlay({
     setSubmitting(true);
     try {
       const { note } = await convertTodoToLogList(repo, initialEntity.id, { preserveState: true });
-      const payloadType = resolveOverlayPayloadType('log', 'list');
+      const payloadType = resolveOverlayPayloadType('log', 'general');
       handleSaved({ type: payloadType, id: note.id });
       showToast('Converted to log list.');
       handleClose();
@@ -2032,8 +1956,6 @@ export function UnifiedCreateOverlay({
                           switch (derivedSubtype) {
                             case 'journal':
                               return 'journal';
-                            case 'list':
-                              return 'list';
                             case 'idea':
                               return 'idea';
                             default:
@@ -2318,15 +2240,6 @@ export function UnifiedCreateOverlay({
 
       // Create mode - structured
       if (selectedType) {
-        if (selectedType === 'log' && (selectedLogSubtype ?? DEFAULT_LOG_SUBTYPE) === 'person') {
-          const personInput = buildPersonPayload();
-          const result = await repo.createPerson(personInput);
-          handleSaved({ type: 'person', id: result.id });
-          showToast('Saved to the Hub.');
-          handleClose();
-          return;
-        }
-
         const input = buildCreateInput(selectedType);
         const result = await repo.create(input);
 
@@ -2750,10 +2663,7 @@ export function UnifiedCreateOverlay({
                 const nextSubtypeForOpt =
                   opt.logSubtype ?? (opt.value === 'log' ? DEFAULT_LOG_SUBTYPE : null);
                 const disabled =
-                  typePillsDisabled ||
-                  (isEditingPerson &&
-                    (opt.value !== 'log' ||
-                      (nextSubtypeForOpt ?? DEFAULT_LOG_SUBTYPE) !== 'person'));
+                  typePillsDisabled || isEditingPerson;
                 const chipKey = opt.logSubtype ? `${opt.value}-${opt.logSubtype}` : opt.value;
                 const chipTestId = opt.logSubtype
                   ? `type-pill-${opt.logSubtype}`
@@ -3017,27 +2927,8 @@ export function UnifiedCreateOverlay({
                       />
                     </>
                   )}
-                  {selectedType === 'log' && selectedLogSubtype === 'person' && (
-                    <>
-                      <PersonFields
-                        name={personName}
-                        onNameChange={setPersonName}
-                        details={personDetails}
-                        onDetailsChange={setPersonDetails}
-                        disabled={false}
-                      />
-                      <TagsField
-                        value={tagsState}
-                        onChange={handleTagsChange}
-                        disabled={submitting}
-                        testID="overlay-tags-field"
-                        removedRef={removedTagsRef}
-                      />
-                    </>
-                  )}
                   {selectedType === 'log' &&
-                    selectedLogSubtype !== 'journal' &&
-                    selectedLogSubtype !== 'person' && (
+                    selectedLogSubtype !== 'journal' && (
                       <>
                         <NoteFields
                           title={noteTitle}

@@ -191,8 +191,8 @@ describe('cortexDecide - List Auto-Creation Regression Tests', () => {
       { userId: 'user-1', uiSurface: 'catchall', activeSpaceId: null },
     );
 
-    // Should set canonical subtype to 'list'
-    expect(result.meta?.canonicalSubtype).toBe('list');
+    // Should set canonical subtype to 'general' (lists are log-general)
+    expect(result.meta?.canonicalSubtype).toBe('general');
     expect(result.meta?.canonicalHint).toEqual(
       expect.objectContaining({ source: 'list-heuristic' }),
     );

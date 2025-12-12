@@ -54,7 +54,7 @@ const kindToType: Record<OverlayKind, CanonicalType> = {
 };
 
 const kindToLogSubtype: Partial<Record<OverlayKind, LogSubtype>> = {
-  note: 'everything_else',
+  note: 'general',
   reflection: 'journal',
 };
 

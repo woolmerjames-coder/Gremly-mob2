@@ -1,0 +1,400 @@
+{
+  "run_id": "harness-1765570913573",
+  "run_at": "2025-12-12T20:21:53.573Z",
+  "summary": {
+    "total": 73,
+    "passed": 53,
+    "failed": 20,
+    "accuracy": 72.6027397260274
+  },
+  "failures": [
+    {
+      "id": "todo-012",
+      "raw_text": "Packing list for trip:\n1. Passport\n2. Charger\n3. Toiletries\n4. Clothes for 5 days",
+      "description": "Todo with numbered list",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.1,
+      "heuristic_signals": [],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "todo",
+          "actual": "log"
+        }
+      ]
+    },
+    {
+      "id": "log-journal-003",
+      "raw_text": "Today was a really tough day at work. I'm exhausted.",
+      "description": "Daily recap journal",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.4,
+      "heuristic_signals": [
+        "narrativeIndicators"
+      ],
+      "mismatches": [
+        {
+          "field": "subtype",
+          "expected": "journal",
+          "actual": "general"
+        }
+      ]
+    },
+    {
+      "id": "log-journal-005",
+      "raw_text": "Feeling anxious about the presentation tomorrow",
+      "description": "Emotional state journal",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.4,
+      "heuristic_signals": [
+        "narrativeIndicators"
+      ],
+      "mismatches": [
+        {
+          "field": "subtype",
+          "expected": "journal",
+          "actual": "general"
+        }
+      ]
+    },
+    {
+      "id": "log-idea-001",
+      "raw_text": "Idea: an app that tracks your daily energy levels",
+      "description": "Explicit idea prefix",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "actual_type": "habit",
+      "actual_subtype": null,
+      "actual_confidence": 0.5,
+      "heuristic_signals": [
+        "habitFrequency"
+      ],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "log",
+          "actual": "habit"
+        }
+      ]
+    },
+    {
+      "id": "log-idea-002",
+      "raw_text": "What if we could automate the weekly reports?",
+      "description": "What-if framing",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "actual_type": "habit",
+      "actual_subtype": null,
+      "actual_confidence": 0.5,
+      "heuristic_signals": [
+        "habitFrequency",
+        "ideaPhrases"
+      ],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "log",
+          "actual": "habit"
+        }
+      ]
+    },
+    {
+      "id": "log-general-006",
+      "raw_text": "Book recommendation from Tom: Atomic Habits by James Clear",
+      "description": "Recommendation capture",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "actual_type": "todo",
+      "actual_subtype": null,
+      "actual_confidence": 1,
+      "heuristic_signals": [
+        "todoVerbs",
+        "todoKeywords",
+        "imperativeStart"
+      ],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "log",
+          "actual": "todo"
+        }
+      ]
+    },
+    {
+      "id": "edge-003",
+      "raw_text": "Great idea for the project: add dark mode!",
+      "description": "Edge: exclamation but it's an idea not action",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.1,
+      "heuristic_signals": [],
+      "mismatches": [
+        {
+          "field": "subtype",
+          "expected": "idea",
+          "actual": "general"
+        }
+      ]
+    },
+    {
+      "id": "edge-006",
+      "raw_text": "🏃‍♂️ morning run",
+      "description": "Edge: emoji + fragment - one-off todo",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.1,
+      "heuristic_signals": [],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "todo",
+          "actual": "log"
+        }
+      ]
+    },
+    {
+      "id": "edge-008",
+      "raw_text": "Things to pack:\n• laptop\n• charger\n• headphones\n• notebook\n• snacks",
+      "description": "Edge: list with bullet points",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.1,
+      "heuristic_signals": [],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "todo",
+          "actual": "log"
+        }
+      ]
+    },
+    {
+      "id": "edge-009",
+      "raw_text": "Had a thought while walking: maybe I should start a blog",
+      "description": "Edge: narrative + idea embedded",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.4,
+      "heuristic_signals": [
+        "todoKeywords",
+        "narrativeIndicators"
+      ],
+      "mismatches": [
+        {
+          "field": "subtype",
+          "expected": "idea",
+          "actual": "general"
+        }
+      ]
+    },
+    {
+      "id": "edge-010",
+      "raw_text": "Next Friday: dentist at 2pm",
+      "description": "Edge: date-first format",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.1,
+      "heuristic_signals": [],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "todo",
+          "actual": "log"
+        }
+      ]
+    },
+    {
+      "id": "edge-011",
+      "raw_text": "Don't forget to water the plants!",
+      "description": "Edge: negative imperative reminder",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.1,
+      "heuristic_signals": [],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "todo",
+          "actual": "log"
+        }
+      ]
+    },
+    {
+      "id": "edge-012",
+      "raw_text": "Remember: team dinner is at 7",
+      "description": "Edge: remember prefix",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.1,
+      "heuristic_signals": [],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "todo",
+          "actual": "log"
+        }
+      ]
+    },
+    {
+      "id": "edge-016",
+      "raw_text": "Went for a run this morning, felt great!",
+      "description": "Edge: past tense activity - journal not habit",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.4,
+      "heuristic_signals": [
+        "narrativeIndicators"
+      ],
+      "mismatches": [
+        {
+          "field": "subtype",
+          "expected": "journal",
+          "actual": "general"
+        }
+      ]
+    },
+    {
+      "id": "edge-017",
+      "raw_text": "Stop procrastinating on taxes",
+      "description": "Edge: 'stop' + one-off action - todo not break-habit",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "actual_type": "habit",
+      "actual_subtype": null,
+      "actual_confidence": 0.5,
+      "heuristic_signals": [
+        "habitFrequency"
+      ],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "todo",
+          "actual": "habit"
+        }
+      ]
+    },
+    {
+      "id": "edge-019",
+      "raw_text": "Project ideas:\n1. Mobile app\n2. Web dashboard\n3. API integration",
+      "description": "Edge: idea list",
+      "expected_type": "log",
+      "expected_subtype": "idea",
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.1,
+      "heuristic_signals": [],
+      "mismatches": [
+        {
+          "field": "subtype",
+          "expected": "idea",
+          "actual": "general"
+        }
+      ]
+    },
+    {
+      "id": "edge-020",
+      "raw_text": "Maybe I should call John? Not sure if he's free",
+      "description": "Edge: uncertain intent - not a firm todo",
+      "expected_type": "log",
+      "expected_subtype": "general",
+      "actual_type": "todo",
+      "actual_subtype": null,
+      "actual_confidence": 0.7,
+      "heuristic_signals": [
+        "todoVerbs",
+        "todoKeywords"
+      ],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "log",
+          "actual": "todo"
+        }
+      ]
+    },
+    {
+      "id": "edge-024",
+      "raw_text": "Read that article about productivity",
+      "description": "Edge: imperative read - todo",
+      "expected_type": "todo",
+      "expected_subtype": null,
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.1,
+      "heuristic_signals": [],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "todo",
+          "actual": "log"
+        }
+      ]
+    },
+    {
+      "id": "edge-025",
+      "raw_text": "I'm worried about the deadline",
+      "description": "Edge: anxiety expression",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "actual_type": "todo",
+      "actual_subtype": null,
+      "actual_confidence": 0.3,
+      "heuristic_signals": [
+        "todoKeywords"
+      ],
+      "mismatches": [
+        {
+          "field": "type",
+          "expected": "log",
+          "actual": "todo"
+        }
+      ]
+    },
+    {
+      "id": "complex-001",
+      "raw_text": "Had a great meeting with the team. We decided to: 1) ship v2 by Friday 2) hire a designer 3) revisit pricing. I'm excited but nervous!",
+      "description": "Complex: narrative + embedded actions + emotion",
+      "expected_type": "log",
+      "expected_subtype": "journal",
+      "actual_type": "log",
+      "actual_subtype": "general",
+      "actual_confidence": 0.4,
+      "heuristic_signals": [
+        "todoKeywords",
+        "narrativeIndicators"
+      ],
+      "mismatches": [
+        {
+          "field": "subtype",
+          "expected": "journal",
+          "actual": "general"
+        }
+      ]
+    }
+  ]
+}

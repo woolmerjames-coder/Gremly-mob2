@@ -43,6 +43,7 @@ import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useRepo } from '../../providers/RepoProvider';
+import { useEntityMutations } from '../../hooks/useEntityMutations';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -207,6 +208,7 @@ export default function NowScreenV1() {
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
   const repo = useRepo();
+  const entityMutations = useEntityMutations();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
@@ -263,19 +265,28 @@ export default function NowScreenV1() {
   const handleAddToToday = useCallback(
     async (item: SweepCandidate) => {
       try {
-        // Update the todo's due_day to today (using shared todayDayString)
-        await repo.update({
-          id: item.id,
-          patch: { due_day: todayDayString, carry_forward: false } as any,
-        });
+        // Capture before state for test logging
+        const beforeState = {
+          in_today: item.due_day === todayDayString,
+          space_id: item.space_id ?? null,
+          archived: false,
+          dueDay: item.due_day ?? null,
+        };
 
-        // Refresh Today stats so the item moves from Recent Drops to Today's Focus
-        await reload();
+        // Use entity mutations with test logging
+        const result = await entityMutations.addToToday(item.id, 'todo', beforeState);
+
+        if (result.success) {
+          // Refresh Today stats so the item moves from Recent Drops to Today's Focus
+          await reload();
+        } else {
+          console.warn('[NowScreenV1] Add to Today failed:', result.error);
+        }
       } catch (error) {
         console.warn('[NowScreenV1] Add to Today failed:', error);
       }
     },
-    [repo, reload, todayDayString],
+    [entityMutations, reload, todayDayString],
   );
 
   // Quick add hook - wires to MindDrop pipeline with Today scoping
@@ -367,7 +378,7 @@ export default function NowScreenV1() {
     (text: string, noteType: 'journal' | 'idea' | 'general', _isList: boolean) => {
       setNotesVisible(false);
       // Map UI note type to LogSubtype
-      const logSubtype = noteType === 'general' ? 'everything_else' : noteType;
+      const logSubtype = noteType === 'general' ? 'general' : noteType;
       // Open overlay with prefilled text and type
       overlayController.openCreate({
         type: 'log',

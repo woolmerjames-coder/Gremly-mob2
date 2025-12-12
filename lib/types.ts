@@ -8,7 +8,11 @@ export type RecordType = 'habit' | 'todo' | 'note';
 export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
 export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 export type LegacyCanonicalType = 'note' | 'journal';
-export type LogSubtype = 'journal' | 'idea' | 'person' | 'list' | 'everything_else';
+// Log subtypes for Mind Drop classification:
+// - journal: personal reflections, diary entries
+// - idea: captured ideas, brainstorms
+// - general: default for all other logs (reminders, notes, references, etc.)
+export type LogSubtype = 'journal' | 'idea' | 'general';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
 export type Cadence = 'daily' | 'weekly' | 'monthly';

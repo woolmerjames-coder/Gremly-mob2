@@ -8,7 +8,6 @@ import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
 
 type EntityType = CanonicalType;
 
-const CATCHALL_LABEL = 'catchall';
 const NEEDS_REVIEW_LABEL = 'needs_review';
 
 interface ConversionMeta {
@@ -153,7 +152,9 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       const labels = (record as any)?.labels as string[] | undefined;
       const recordSubtype = (record as any)?.subtype as string | undefined;
 
-      if (labels?.includes?.(NEEDS_REVIEW_LABEL) || recordSubtype === CATCHALL_LABEL) {
+      // Only notes with needs_review label are truly unsorted
+      // Notes with subtype: 'catchall' are classified logs (log-general)
+      if (labels?.includes?.(NEEDS_REVIEW_LABEL)) {
         entityType = 'unsorted';
         logSubtype = null;
       } else {
@@ -162,7 +163,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       }
     } else {
       entityType = 'log';
-      logSubtype = 'everything_else';
+      logSubtype = 'general';
     }
 
     // Extract views from the record to pass through to overlay
@@ -212,7 +213,9 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       const labels = (record as any)?.labels as string[] | undefined;
       const recordSubtype = (record as any)?.subtype as string | undefined;
 
-      if (labels?.includes?.(NEEDS_REVIEW_LABEL) || recordSubtype === CATCHALL_LABEL) {
+      // Only notes with needs_review label are truly unsorted
+      // Notes with subtype: 'catchall' are classified logs (log-general)
+      if (labels?.includes?.(NEEDS_REVIEW_LABEL)) {
         entityType = 'unsorted';
         logSubtype = null;
       } else {
@@ -221,7 +224,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       }
     } else {
       entityType = 'log';
-      logSubtype = 'everything_else';
+      logSubtype = 'general';
     }
 
     // Extract views from the record to pass through to overlay

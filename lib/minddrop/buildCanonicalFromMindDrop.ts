@@ -350,7 +350,7 @@ export async function buildCanonicalFromMindDrop(
       return {
         ...common,
         body: trimmedRawText, // Full raw text goes in body
-        subtype: subtype === 'plain' ? null : subtype, // null for plain, otherwise set subtype
+        subtype, // journal, idea, or general
       };
     }
 
