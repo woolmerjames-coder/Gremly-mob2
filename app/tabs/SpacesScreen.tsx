@@ -295,7 +295,7 @@ function GremlyHomeScreen() {
             {spaces.length === 0 ? (
               <View style={styles.emptySpacesModal}>
                 <Image
-                  source={require('../../assets/mascot/ACTUAL GREMLY.png')}
+                  source={require('../../assets/mascot/gremly-mascot.png')}
                   style={styles.emptyMascot}
                   resizeMode="contain"
                 />

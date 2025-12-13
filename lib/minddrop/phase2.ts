@@ -269,6 +269,12 @@ export async function runPhase2(
         }
         if (result.extractedDate) {
           updatePayload.due_date = result.extractedDate;
+          // CRITICAL: due_day is the canonical field for Today page visibility
+          // Extract YYYY-MM-DD portion, handling both "2025-12-13" and "2025-12-13T09:00:00" formats
+          const dueDayValue = result.extractedDate.split('T')[0];
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dueDayValue)) {
+            updatePayload.due_day = dueDayValue;
+          }
         }
       } else if (bucket === 'habit') {
         updatePayload.name = result.smartTitle;

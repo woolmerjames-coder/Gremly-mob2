@@ -55,7 +55,7 @@ import type { AppRecord } from '../../lib/types';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_MASCOT = require('../../assets/mascot/ACTUAL GREMLY.png');
+const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
