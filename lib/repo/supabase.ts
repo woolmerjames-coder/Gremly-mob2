@@ -1671,6 +1671,7 @@ export class SupabaseRepo implements IRepo {
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
       .is('completed_at', null) // Exclude completed todos
+      .neq('status', 'archived') // Exclude archived todos
       .or(`name.ilike.${q},body.ilike.${q}`);
 
     // Search notes
@@ -1689,6 +1690,7 @@ export class SupabaseRepo implements IRepo {
       .eq('owner_id', userId)
       .eq('space_id', spaceId)
       .is('completed_at', null) // Exclude completed habits
+      .eq('archived', false) // Exclude archived habits
       .or(`name.ilike.${q},title.ilike.${q}`);
 
     // Search chats (title or last_message_snippet)
