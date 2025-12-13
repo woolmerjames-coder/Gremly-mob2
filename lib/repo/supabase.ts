@@ -1614,6 +1614,7 @@ export class SupabaseRepo implements IRepo {
       .select('*')
       .eq('owner_id', userId)
       .is('completed_at', null) // Exclude completed habits
+      .eq('archived', false) // Exclude archived habits
       .ilike('name', `%${q}%`); // Changed from 'title' to 'name' per Phase 7 spec
 
     if (habitsError) throw new Error(`Failed to search habits: ${habitsError.message}`);
@@ -1629,6 +1630,7 @@ export class SupabaseRepo implements IRepo {
       .select('*')
       .eq('owner_id', userId)
       .is('completed_at', null) // Exclude completed todos
+      .neq('status', 'archived') // Exclude archived todos
       .or(`name.ilike.%${q}%,body.ilike.%${q}%`);
 
     if (todosError) throw new Error(`Failed to search todos: ${todosError.message}`);
