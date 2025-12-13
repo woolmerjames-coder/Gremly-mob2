@@ -1570,6 +1570,18 @@ export class SupabaseRepo implements IRepo {
       const table = tableFor(type);
       let query = supabase.from(table).select('*').eq('owner_id', userId).eq('space_id', spaceId);
 
+      // Filter out archived items (different fields per entity type)
+      if (type === 'todo') {
+        // Todos use status field for archive state
+        query = query.neq('status', 'archived');
+      } else if (type === 'habit') {
+        // Habits use archived boolean
+        query = query.eq('archived', false);
+      } else if (type === 'note') {
+        // Notes use archived boolean (may be null for legacy rows)
+        query = query.or('archived.eq.false,archived.is.null');
+      }
+
       if (opts?.tagNames && opts.tagNames.length > 0) {
         query = query.contains('tags', opts.tagNames);
       }
