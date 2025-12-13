@@ -257,9 +257,9 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       return dueDay !== null && dueDay < todayDayString;
     });
 
-    // Derive recentDrops: items captured today that need sorting
+    // Derive recentDrops: items captured in the last 3 days that need sorting
     // These are items that:
-    // 1. Were created today (created_at converted to LOCAL date === todayDayString)
+    // 1. Were created in the last 3 days (created_at converted to LOCAL date >= cutoffDayString)
     // 2. Are NOT already in Today's Focus (locked or active items)
     // 3. Are unscheduled (no due_day) - need triage
     // 4. Are not completed/archived (already filtered in incompleteTodos)
@@ -272,6 +272,14 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       ...habitsToday.map((h) => h.id),
     ]);
 
+    // Calculate 3 days ago cutoff in local timezone
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    const cutoffYear = threeDaysAgo.getFullYear();
+    const cutoffMonth = String(threeDaysAgo.getMonth() + 1).padStart(2, '0');
+    const cutoffDay = String(threeDaysAgo.getDate()).padStart(2, '0');
+    const cutoffDayString = `${cutoffYear}-${cutoffMonth}-${cutoffDay}`;
+
     const recentDrops: SweepCandidate[] = incompleteTodos
       .filter((todo) => {
         // Exclude items already in Today's Focus
@@ -279,9 +287,9 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
           return false;
         }
 
-        // Must be created today (convert UTC created_at to local date)
+        // Must be created in the last 3 days (convert UTC created_at to local date)
         const createdLocalDay = computeDueDay(todo.created_at);
-        if (createdLocalDay !== todayDayString) {
+        if (createdLocalDay === null || createdLocalDay < cutoffDayString) {
           return false;
         }
 

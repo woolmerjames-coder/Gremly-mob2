@@ -195,7 +195,7 @@ function getCandidateTitle(candidate: SweepCandidate): string {
 function getCandidateBody(candidate: SweepCandidate): string | null {
   switch (candidate.kind) {
     case 'todo':
-      return candidate.raw.notes || null;
+      return candidate.raw.body || candidate.raw.notes || null;
     case 'note':
       return candidate.raw.body || null;
   }
@@ -290,9 +290,8 @@ export function SweepCard({
   const bodyPreview = body && body.length > 100 ? `${body.slice(0, 100)}…` : body;
 
   // Photo attachments for note candidates
-  const hasAttachments = candidate.kind === 'note' && 
-    candidate.attachments && 
-    candidate.attachments.length > 0;
+  const hasAttachments =
+    candidate.kind === 'note' && candidate.attachments && candidate.attachments.length > 0;
   const firstAttachment = hasAttachments ? candidate.attachments![0] : null;
   const attachmentCount = hasAttachments ? candidate.attachments!.length : 0;
 
