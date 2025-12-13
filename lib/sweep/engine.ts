@@ -189,55 +189,31 @@ export async function fetchSweepCandidatesForUser(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Fetch NOTES (all Mind Drop captures)
+  // Fetch NOTES (Mind Drop captures) - with subtype-specific time windows
   // ─────────────────────────────────────────────────────────────────────────
   try {
-    // Get today's date string for first-time user fallback
+    // Get today's date string for filtering
     const todayDay = new Date().toISOString().split('T')[0];
 
-    // For notes, we want to include ALL Mind Drop captures that:
-    // 1. Are not archived
-    // 2. Meet one of these conditions:
-    //    - Created after last sweep completed (new captures)
-    //    - Previously skipped (skipped_in_sweep_at is set)
-    //    - For first-time users (no lastSweepAt): created today
-    //
-    // This ensures every Mind Drop entry gets at least one sweep review.
-    //
-    // Note: We exclude 'catchall' subtype as those are still being processed
-    // and haven't been converted to a canonical type yet.
-    const noteOrClause =
-      lastSweepAt != null
-        ? `created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`
-        : `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
-
-    const { data: notes, error: noteError } = await client
-      .from('notes')
-      .select('*, log_photos(id, url, position)')
-      .eq('owner_id', ownerId)
-      .eq('archived', false)
-      .neq('subtype', 'catchall') // Exclude unprocessed catchall items
-      .or(noteOrClause);
-
-    if (noteError) {
-      console.error('[Sweep] Failed to fetch notes:', noteError);
-    } else if (notes) {
-      for (const row of notes) {
+    // Helper to process note rows into candidates
+    const processNoteRows = (rows: any[]) => {
+      for (const row of rows) {
         // Compute isCreatedToday: createdAt is on today's date
         const createdDay = row.created_at ? row.created_at.split('T')[0] : null;
         const isCreatedToday = createdDay === todayDay;
 
         // Extract attachments from the joined log_photos
         const rawPhotos = (row as any).log_photos;
-        const attachments: SweepAttachment[] | undefined = Array.isArray(rawPhotos) && rawPhotos.length > 0
-          ? rawPhotos
-              .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
-              .map((photo: any) => ({
-                id: photo.id,
-                url: photo.url,
-                position: photo.position ?? 0,
-              }))
-          : undefined;
+        const attachments: SweepAttachment[] | undefined =
+          Array.isArray(rawPhotos) && rawPhotos.length > 0
+            ? rawPhotos
+                .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+                .map((photo: any) => ({
+                  id: photo.id,
+                  url: photo.url,
+                  position: photo.position ?? 0,
+                }))
+            : undefined;
 
         candidates.push({
           id: row.id,
@@ -252,6 +228,84 @@ export async function fetchSweepCandidatesForUser(
           attachments,
         });
       }
+    };
+
+    // ─────────────────────────────────────────────────────────────────────
+    // IDEAS - 7 day window (ideas are worth revisiting longer)
+    // ─────────────────────────────────────────────────────────────────────
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const ideaOrClause = `created_at.gt.${sevenDaysAgo},skipped_in_sweep_at.not.is.null`;
+
+    const { data: ideas, error: ideaError } = await client
+      .from('notes')
+      .select('*, log_photos(id, url, position)')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .eq('subtype', 'idea')
+      .or(ideaOrClause);
+
+    if (ideaError) {
+      console.error('[Sweep] Failed to fetch ideas:', ideaError);
+    } else if (ideas) {
+      processNoteRows(ideas);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GENERAL LOGS - today only (recent captures that need triage)
+    // ─────────────────────────────────────────────────────────────────────
+    const generalOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+
+    const { data: generalLogs, error: generalError } = await client
+      .from('notes')
+      .select('*, log_photos(id, url, position)')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .eq('subtype', 'general')
+      .or(generalOrClause);
+
+    if (generalError) {
+      console.error('[Sweep] Failed to fetch general logs:', generalError);
+    } else if (generalLogs) {
+      processNoteRows(generalLogs);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // LISTS - today only (recent captures that need triage)
+    // Note: 'catchall' and 'journal' subtypes are excluded from sweep
+    // ─────────────────────────────────────────────────────────────────────
+    const listOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+
+    const { data: lists, error: listError } = await client
+      .from('notes')
+      .select('*, log_photos(id, url, position)')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .eq('subtype', 'list')
+      .or(listOrClause);
+
+    if (listError) {
+      console.error('[Sweep] Failed to fetch lists:', listError);
+    } else if (lists) {
+      processNoteRows(lists);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // REFERENCE notes - today only
+    // ─────────────────────────────────────────────────────────────────────
+    const refOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+
+    const { data: refs, error: refError } = await client
+      .from('notes')
+      .select('*, log_photos(id, url, position)')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .eq('subtype', 'reference')
+      .or(refOrClause);
+
+    if (refError) {
+      console.error('[Sweep] Failed to fetch reference notes:', refError);
+    } else if (refs) {
+      processNoteRows(refs);
     }
   } catch (error) {
     console.error('[Sweep] Unexpected error fetching notes:', error);

@@ -305,6 +305,8 @@ export function SweepCard({
   // Inline Date Picker State
   // ─────────────────────────────────────────────────────────────────────────
   const [showDatePicker, setShowDatePicker] = useState(false);
+  // Track if date picker was triggered by Keep action on undated todo
+  const [keepAfterDatePick, setKeepAfterDatePick] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() => {
     // Pre-fill with existing date if adjusting
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
@@ -325,6 +327,7 @@ export function SweepCard({
     setClearDateFlag(false);
     setShowTimePicker(false);
     setSelectedTimePreset(null);
+    setKeepAfterDatePick(false);
     // Pre-fill date based on candidate
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
@@ -403,6 +406,16 @@ export function SweepCard({
           } as any, // Todo-specific fields
         });
       }
+
+      // If this was triggered by Keep action on undated todo, call onKeep now
+      if (keepAfterDatePick) {
+        setKeepAfterDatePick(false);
+        setShowDatePicker(false);
+        setClearDateFlag(false);
+        setIsSaving(false);
+        onKeep();
+        return;
+      }
     } catch (error) {
       console.error('[SweepCard] Failed to update date:', error);
     } finally {
@@ -410,7 +423,7 @@ export function SweepCard({
       setShowDatePicker(false);
       setClearDateFlag(false);
     }
-  }, [candidate, selectedDate, clearDateFlag, isSaving, repo]);
+  }, [candidate, selectedDate, clearDateFlag, isSaving, repo, keepAfterDatePick, onKeep]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Reanimated Swipe Gesture Handling
@@ -492,7 +505,15 @@ export function SweepCard({
 
       if (swipedRight) {
         // Swiped right past threshold → Keep
-        animateOut('right', onKeep);
+        // For undated todos, show date picker first
+        if (candidate.kind === 'todo' && !candidate.raw.due_day) {
+          // Spring back to center and show date picker
+          translateX.value = withSpring(0, { damping: 15, stiffness: 150 });
+          runOnJS(setKeepAfterDatePick)(true);
+          runOnJS(setShowDatePicker)(true);
+        } else {
+          animateOut('right', onKeep);
+        }
       } else if (swipedLeft) {
         // Swiped left past threshold → Clear
         animateOut('left', onClear);
@@ -622,6 +643,12 @@ export function SweepCard({
 
   // Button handlers with animation
   const handleKeepPress = useCallback(() => {
+    // For undated todos, show date picker first
+    if (candidate.kind === 'todo' && !candidate.raw.due_day) {
+      setKeepAfterDatePick(true);
+      setShowDatePicker(true);
+      return;
+    }
     // In test mode, call directly without animation
     if (isTestEnv) {
       onKeep();
@@ -635,7 +662,7 @@ export function SweepCard({
       },
     );
     cardOpacity.value = withTiming(0, { duration: 200 });
-  }, [onKeep, translateX, cardOpacity]);
+  }, [onKeep, translateX, cardOpacity, candidate.kind, candidate.raw.due_day]);
 
   const handleClearPress = useCallback(() => {
     // In test mode, call directly without animation
@@ -1034,6 +1061,7 @@ export function SweepCard({
                     setClearDateFlag(false);
                     setShowTimePicker(false);
                     setSelectedTimePreset(null);
+                    setKeepAfterDatePick(false);
                   }}
                 >
                   <Text style={styles.dateModalCancelText}>Cancel</Text>
