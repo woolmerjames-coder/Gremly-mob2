@@ -2029,12 +2029,12 @@ const RecentDrops: React.FC<{
     };
   }, [userId, load, removePendingItem, replacePendingWithReal, mergeDbRecordIntoItems]);
 
-  // Listen for ItemDeleted events from overlay and immediately remove from list
+  // Listen for entity:deleted events from overlay and immediately remove from list
   useEffect(() => {
     const unsubscribe = eventBus.on(
-      'ItemDeleted',
-      (event: { id: string; type: 'habit' | 'todo' | 'note' }) => {
-        console.debug('[RecentDrops] ItemDeleted event:', event.id, event.type);
+      'entity:deleted',
+      (event: { id: string; type?: string; spaceId?: string | null }) => {
+        console.debug('[RecentDrops] entity:deleted event:', event.id, event.type);
         // Remove the item immediately from local state
         setItems((prev) => prev.filter((item) => item.id !== event.id));
         // Also remove from pending items in case it was still pending
