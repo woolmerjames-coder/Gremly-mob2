@@ -2101,10 +2101,23 @@ const RecentDrops: React.FC<{
       );
     });
 
+    // Remove completed items from list immediately
+    const unsubItemCompleted = eventBus.on(
+      'ItemCompleted',
+      (payload: { id: string; type: 'habit' | 'todo' }) => {
+        console.debug('[RecentDrops] ItemCompleted event:', payload.id, payload.type);
+        // Remove the item immediately from local state
+        setItems((prev) => prev.filter((item) => item.id !== payload.id));
+        // Also remove from pending items in case it was still pending
+        setPendingItems((prev) => prev.filter((item) => item.id !== payload.id));
+      },
+    );
+
     return () => {
       unsubscribe();
       unsubEntityCreated();
       unsubEntityEnriched();
+      unsubItemCompleted();
     };
   }, [load, removePendingItem, replacePendingWithReal]);
 
