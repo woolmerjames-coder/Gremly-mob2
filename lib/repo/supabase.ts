@@ -1748,6 +1748,7 @@ export class SupabaseRepo implements IRepo {
       .select('*')
       .eq('owner_id', userId)
       .is('completed_at', null) // Exclude completed todos
+      .neq('status', 'archived') // Exclude archived todos
       .not('due_date', 'is', null);
 
     if (todosError) throw new Error(`Failed to list due todos: ${todosError.message}`);
