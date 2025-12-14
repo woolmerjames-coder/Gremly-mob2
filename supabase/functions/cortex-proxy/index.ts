@@ -252,20 +252,25 @@ EXAMPLES:
 - "I need to remember to take out the trash tonight" → "Take out trash"
 
 === TAG RULES ===
-Generate 2-4 SEMANTIC CATEGORY tags that help with filtering. 
-- GOOD tags: errands, family, health, work, home, finance, travel, shopping, self-care, social
-- BAD tags: call, pickup, buy, groceries, mom (too literal - these are in the title already)
-- Tags describe WHAT KIND of task, not WHAT the task says
+Generate 2-4 CATEGORY tags + 1-2 TOPIC tags (max 5 total).
+
+CATEGORY TAGS (2-4): Semantic categories that help with filtering.
+- GOOD: errands, family, health, work, home, finance, travel, shopping, self-care, social, appointments, communication
+- BAD: call, pickup, buy, groceries (too literal)
+
+TOPIC TAGS (1-2): Specific meaningful nouns from the text.
+- GOOD: ballet, dentist, kyoto, passport, taxes (concrete topics)
+- BAD: than, expected, more, less, the, a, it, this, some, about, for (stopwords)
+- Must be 3-20 chars, no punctuation, clearly meaningful
 
 EXAMPLES:
-- "Pick up Bella from walker" → tags: ["errands", "pets"]
-- "Call mom" → tags: ["family", "communication"]
-- "Buy groceries" → tags: ["errands", "shopping"]
-- "Schedule dentist" → tags: ["health", "appointments"]
+- "Ballet was more fun than expected" → tags: ["social", "entertainment", "ballet"]
+- "Schedule dentist appointment" → tags: ["health", "appointments", "dentist"]
+- "Research Kyoto hotels for January" → tags: ["travel", "planning", "kyoto"]
 
 === PEOPLE RULES ===
 Extract proper names as people, NOT as tags.
-- "Bella", "Mom", "Dr. Smith" → people array
+- "Bella", "Mom", "Dr. Smith", "Dave" → people array
 - These should NEVER appear in tags
 
 === TIME ESTIMATE (todos only) ===
@@ -283,7 +288,7 @@ Parse dates like "tomorrow", "next Friday", "Jan 15"
 Return ONLY valid JSON:
 {
   "smart_title": "...",
-  "tags": ["category1", "category2"],
+  "tags": ["category1", "category2", "topic1"],
   "time_estimate_minutes": number|null,
   "extracted_date": "YYYY-MM-DD"|null,
   "extracted_frequency": "..."|null,
@@ -341,20 +346,121 @@ Return ONLY valid JSON:
 
       // Validate and normalize tags
       let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+
+      // Stopwords to filter out (junk tags)
+      const stopwords = new Set([
+        'than',
+        'expected',
+        'more',
+        'less',
+        'the',
+        'a',
+        'an',
+        'it',
+        'this',
+        'that',
+        'some',
+        'about',
+        'for',
+        'with',
+        'from',
+        'into',
+        'was',
+        'were',
+        'been',
+        'being',
+        'have',
+        'has',
+        'had',
+        'having',
+        'do',
+        'does',
+        'did',
+        'doing',
+        'will',
+        'would',
+        'could',
+        'should',
+        'may',
+        'might',
+        'must',
+        'shall',
+        'can',
+        'need',
+        'want',
+        'just',
+        'very',
+        'really',
+        'much',
+        'too',
+        'also',
+        'even',
+        'still',
+        'already',
+        'always',
+        'never',
+        'often',
+        'sometimes',
+        'now',
+        'then',
+        'here',
+        'there',
+        'when',
+        'where',
+        'why',
+        'how',
+        'what',
+        'which',
+        'who',
+        'whom',
+        'whose',
+        'all',
+        'each',
+        'every',
+        'both',
+        'few',
+        'many',
+        'most',
+        'other',
+        'another',
+        'such',
+        'only',
+        'own',
+        'same',
+        'thing',
+        'things',
+        'stuff',
+        'way',
+        'ways',
+        'time',
+        'times',
+        'day',
+        'days',
+        'good',
+        'great',
+        'nice',
+        'fun',
+        'bad',
+        'new',
+        'old',
+        'first',
+        'last',
+      ]);
+
       tags = tags
         .map((t: unknown) =>
           String(t)
             .toLowerCase()
-            .replace(/\s+/g, '-')
+            .replace(/\\s+/g, '-')
             .replace(/[^a-z0-9-]/g, ''),
         )
-        .filter((t: string) => t.length >= 2 && t.length <= 30)
+        .filter((t: string) => t.length >= 3 && t.length <= 30 && !stopwords.has(t))
         .slice(0, 5); // Max 5 tags
 
       // Filter out people names from tags (BUG 3 fix)
       if (Array.isArray(parsed.people) && parsed.people.length > 0) {
         const peopleNamesLower = parsed.people.map((p: string) =>
-          p.toLowerCase().replace(/\s+/g, '-'),
+          p.toLowerCase().replace(/\\s+/g, '-'),
         );
         tags = tags.filter((t: string) => !peopleNamesLower.includes(t));
       }

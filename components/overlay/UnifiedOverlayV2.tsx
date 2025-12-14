@@ -91,12 +91,9 @@ import { recordOverlayFeedback } from './overlayV2.feedback';
 import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
 import { getTodayISO } from '../../app/utils/recurrence';
-import { TagsRow, type TagsRowTag, type TagsRowSuggestion } from './fields/TagsRow';
-// Phase 2B: useOverlayPrefill hook removed, but keep type for backward compatibility
-import useOverlayPrefill, { type SuggestedTag as PrefillSuggestedTag } from './useOverlayPrefill';
+import { TagsRow, type TagsRowTag } from './fields/TagsRow';
 import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
-import { extractTagsV2 } from '../../lib/tags/extractTagsV2';
 import { getEffectiveTags } from '../../lib/tags/getEffectiveTags';
 import { getEffectiveLogSubtype } from '../../lib/logs/getEffectiveLogSubtype';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
@@ -451,23 +448,13 @@ function extractTagKeysFromEntity(entity: any): TagKey[] {
     }
   }
 
-  // Detect names from entity text to convert #name to @name
-  const rawText = getMindDropRawText(entity) || entity.body || entity.title || entity.name || '';
-  const v2Result = extractTagsV2(rawText, { maxKeywords: 4 });
-  const detectedNames = new Set(v2Result.mentions.map((m) => m.toLowerCase()));
-
+  // IMPORTANT: Only use tags from entity.tags (DB source of truth)
+  // Do NOT extract additional tags from body text here.
+  // People/topic tags should be persisted to DB during Phase 2 enrichment.
   const seen = new Set<TagKey>();
   for (const entry of tagsToProcess) {
-    let tag = normalizeToTagKey(entry);
-    if (!tag) continue;
-
-    // Convert #name to @name if detected as a name
-    const stripped = tag.replace(/^[#@]/, '').toLowerCase();
-    if (detectedNames.has(stripped) && !tag.startsWith('@')) {
-      tag = `@${stripped}` as TagKey;
-    }
-
-    if (!seen.has(tag)) seen.add(tag);
+    const tag = normalizeToTagKey(entry);
+    if (tag && !seen.has(tag)) seen.add(tag);
   }
   return Array.from(seen);
 }
@@ -482,70 +469,6 @@ function mergeTagKeys(base: TagKey[], incoming: TagKey[]): TagKey[] {
     }
   });
   return Array.from(next) as TagKey[];
-}
-
-/**
- * Filter habit tags to keep only single-word, concrete activity tags (max 2).
- *
- * For Mind Drop → habit conversions, AI often returns multi-word phrases like
- * "morning routine" or generic tags. We want to keep only concrete, single-word
- * activity tags like "yoga", "exercise", "meditation".
- *
- * Rules:
- * - Keep only single-word tags (no spaces)
- * - Prioritize tags earlier in the list (AI confidence ordering)
- * - Maximum 2 tags to keep habits focused
- *
- * Example: ["yoga", "morning routine", "exercise"] → ["yoga", "exercise"]
- */
-function filterHabitTags(tags: string[]): string[] {
-  if (!tags || tags.length === 0) return [];
-
-  const singleWordTags = tags
-    .map((tag) => tag.trim().toLowerCase())
-    .filter((tag) => {
-      // Remove tags with spaces (multi-word phrases)
-      if (tag.includes(' ')) return false;
-      // Remove empty tags
-      if (!tag) return false;
-      return true;
-    });
-
-  // Keep max 2 tags (prioritize earlier tags = higher AI confidence)
-  return singleWordTags.slice(0, 2);
-}
-
-/**
- * Generic/placeholder tags that AI creates when it can't extract meaningful habits.
- * These are low-value tags that should be replaced with better AI suggestions.
- */
-const GENERIC_HABIT_TAGS = new Set([
-  'doing',
-  'habit',
-  'routine',
-  'task',
-  'activity',
-  'action',
-  'daily',
-  'practice',
-]);
-
-/**
- * Check if a tag list contains ONLY generic/placeholder habit tags.
- * Returns true if all tags are generic (or empty), meaning we should replace them.
- */
-function hasOnlyGenericHabitTags(tags: string[]): boolean {
-  if (!tags || tags.length === 0) return true;
-
-  const normalizedTags = tags.map((tag) =>
-    tag
-      .trim()
-      .toLowerCase()
-      .replace(/^[#@*]/, ''),
-  );
-
-  // Check if ALL tags are generic
-  return normalizedTags.every((tag) => GENERIC_HABIT_TAGS.has(tag));
 }
 
 /**
@@ -711,44 +634,6 @@ function areTagsEqual(originalTags: string[], newTags: string[]): boolean {
   return normalizedOriginal.every((tag, index) => tag === normalizedNew[index]);
 }
 
-function mergeSuggestionEntries(
-  base: PrefillSuggestedTag[],
-  incoming: PrefillSuggestedTag[],
-): PrefillSuggestedTag[] {
-  if (incoming.length === 0 && base.length === 0) return base;
-  const map = new Map<string, PrefillSuggestedTag>();
-
-  const upsert = (entry: PrefillSuggestedTag | undefined | null) => {
-    if (!entry || typeof entry.name !== 'string') return;
-    const key = normalizeToTagKey(entry.name);
-    if (!key) return;
-    map.set(key, { name: key, lowConfidence: !!entry.lowConfidence });
-  };
-
-  base.forEach(upsert);
-  incoming.forEach(upsert);
-
-  return Array.from(map.values());
-}
-
-function areSuggestionListsEqual(
-  a: PrefillSuggestedTag[] | null | undefined,
-  b: PrefillSuggestedTag[] | null | undefined,
-): boolean {
-  if (a === b) return true;
-  const arrA = Array.isArray(a) ? a : [];
-  const arrB = Array.isArray(b) ? b : [];
-  if (arrA.length !== arrB.length) return false;
-  if (arrA.length === 0) return true;
-  for (let i = 0; i < arrA.length; i += 1) {
-    const left = arrA[i];
-    const right = arrB[i];
-    if (left?.name !== right?.name) return false;
-    if (!!left?.lowConfidence !== !!right?.lowConfidence) return false;
-  }
-  return true;
-}
-
 // ============================================================================
 // Mind Drop Detection Helpers (type-agnostic for todos, habits, notes)
 // ============================================================================
@@ -887,40 +772,6 @@ function isRawSentenceTitle(entity: any, fullEntity?: any): boolean {
 }
 
 // ============================================================================
-
-function normalizePrefillSuggestions(
-  text: string,
-  entries: PrefillSuggestedTag[] | null | undefined,
-  tombstones: Set<string>,
-): PrefillSuggestedTag[] {
-  if (!entries || entries.length === 0) return [];
-
-  const lookup = new Map<string, boolean>();
-  entries.forEach((entry) => {
-    if (!entry || typeof entry.name !== 'string') return;
-    const key = normalizeToTagKey(entry.name);
-    if (!key) return;
-    if (!lookup.has(key)) lookup.set(key, !!entry.lowConfidence);
-  });
-
-  const sanitized = sanitizeSuggestedTags(
-    text,
-    entries.map((entry) => (typeof entry?.name === 'string' ? entry.name : '')),
-  );
-
-  const result: PrefillSuggestedTag[] = [];
-  const seen = new Set<string>();
-  for (const name of sanitized) {
-    const key = normalizeToTagKey(name);
-    if (!key) continue;
-    if (tombstones.has(key)) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push({ name: key, lowConfidence: lookup.get(key) ?? false });
-  }
-
-  return result;
-}
 
 function toMetaCanonical(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -1319,7 +1170,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note',
   );
   const [spaces, setSpaces] = useState<any[]>([]);
-  const [suggestedTags, setSuggestedTags] = useState<PrefillSuggestedTag[]>([]);
   const [isResuggestingTags, setIsResuggestingTags] = useState(false);
   const [isResummarizingTitle, setIsResummarizingTitle] = useState(false);
   const [pendingTitleResummarize, setPendingTitleResummarize] = useState(false);
@@ -2611,64 +2461,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Phase 2: Overlay no longer runs AI prefill on edit. Titles and tags come only from backgroundPrefill.
 
-  const prefillSuggestionsRef = useRef<PrefillSuggestedTag[]>([]);
   const suggestedTitleRef = useRef<string | null>(null);
 
   // Track previous title to detect manual edits after an AI suggestion was applied
   const prevTitleRef = useRef<string | null>(null);
 
-  const tagTombstoneSet = useMemo(() => {
-    const set = new Set<string>();
-    (state.tagTombstones ?? []).forEach((entry) => {
-      const key = normalizeToTagKey(entry);
-      if (key) set.add(key);
-    });
-    return set;
-  }, [state.tagTombstones]);
-
   const resuggestRequestIdRef = useRef(0);
   const resuggestAppliedIdRef = useRef(0);
-
-  // Phase 3: Generate tag suggestions deterministically using extractMeaningfulTags
-  const sanitizedTagSuggestions = useMemo<PrefillSuggestedTag[]>(() => {
-    if (!currentText || currentText.trim().length === 0) return [];
-
-    // Determine subtype for tag extraction
-    let extractionSubtype: string | undefined;
-    if (baseType === 'log') {
-      // Use effectiveLogSubtype for logs
-      extractionSubtype = effectiveLogSubtype === 'general' ? undefined : effectiveLogSubtype;
-    }
-
-    // Extract meaningful tags deterministically
-    const extractedTags = extractMeaningfulTags(currentText, extractionSubtype);
-
-    // Filter out tags that are already added or tombstoned
-    const results: PrefillSuggestedTag[] = [];
-    for (const tag of extractedTags) {
-      const key = normalizeToTagKey(tag);
-      if (!key || tagTombstoneSet.has(key)) continue;
-      if (state.tags.includes(key)) continue; // Skip if already added
-      results.push({ name: key, lowConfidence: false });
-    }
-
-    return results;
-  }, [currentText, baseType, effectiveLogSubtype, tagTombstoneSet, state.tags]);
-
-  const filteredTagSuggestions = useMemo(() => {
-    if (sanitizedTagSuggestions.length === 0) return [];
-
-    let filtered = sanitizedTagSuggestions.filter((entry) => !state.tags.includes(entry.name));
-
-    // For habits, filter to single-word, concrete activity tags (max 2)
-    if (baseType === 'habit') {
-      const tagNames = filtered.map((entry) => entry.name);
-      const habitFiltered = filterHabitTags(tagNames);
-      filtered = filtered.filter((entry) => habitFiltered.includes(entry.name));
-    }
-
-    return filtered;
-  }, [sanitizedTagSuggestions, state.tags, baseType]);
 
   // AI Tag Override for Mind Drop items
   // Phase 2: Removed Mind Drop tag override logic - overlay no longer runs AI prefill
@@ -2681,27 +2480,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       aiTagOverrideAppliedRef.current = false;
     };
   }, [(initialEntity as any)?.id]);
-
-  const suggestionChips = useMemo((): TagsRowSuggestion[] => {
-    if (filteredTagSuggestions.length === 0) return [];
-    const entries: TagsRowSuggestion[] = [];
-    filteredTagSuggestions.forEach((entry) => {
-      const { canonical, slug } = toCanonicalParts(entry.name);
-      if (!canonical || !slug) return;
-      entries.push({
-        canonical,
-        slug,
-        provenance: 'AI',
-        lowConfidence: entry.lowConfidence,
-      });
-    });
-    return entries;
-  }, [filteredTagSuggestions]);
-
-  const hasLowConfidenceSuggestions = useMemo(
-    () => suggestionChips.some((tag) => !!tag.lowConfidence),
-    [suggestionChips],
-  );
 
   const stickyCanonicalMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -2716,30 +2494,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return map;
   }, [state.stickyTags]);
 
-  const suggestionCanonicalMap = useMemo(() => {
-    const map = new Map<string, string>();
-    suggestionChips.forEach((chip) => {
-      if (!map.has(chip.slug)) {
-        map.set(chip.slug, chip.canonical);
-      }
-    });
-    return map;
-  }, [suggestionChips]);
-
   const activeTagChips = useMemo((): TagsRowTag[] => {
     if (!Array.isArray(state.tags)) return [];
     const entries: TagsRowTag[] = [];
     state.tags.forEach((slug) => {
-      const canonicalCandidate =
-        stickyCanonicalMap.get(slug) ??
-        suggestionCanonicalMap.get(slug) ??
-        toCanonicalParts(slug).canonical;
+      const canonicalCandidate = stickyCanonicalMap.get(slug) ?? toCanonicalParts(slug).canonical;
       if (!canonicalCandidate) return;
-      const provenance = stickyCanonicalMap.has(slug)
-        ? 'You'
-        : suggestionCanonicalMap.has(slug)
-          ? 'AI'
-          : undefined;
+      const provenance = stickyCanonicalMap.has(slug) ? 'You' : undefined;
       entries.push({
         canonical: canonicalCandidate,
         slug,
@@ -2747,7 +2508,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       });
     });
     return entries;
-  }, [state.tags, stickyCanonicalMap, suggestionCanonicalMap]);
+  }, [state.tags, stickyCanonicalMap]);
 
   const handleTagToggle = useCallback(
     (tag: string) => {
@@ -2823,21 +2584,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         payload: { stickyTags: nextSticky, tagTombstones: nextTombstones },
       } as any);
 
-      setSuggestedTags((prev) =>
-        prev.filter((entry) => normalizeToTagKey(entry.name) !== normalized),
-      );
-
       setTagsDirty(true); // Mark tags as user-modified
     },
-    [
-      dispatch,
-      state.list,
-      state.mood,
-      state.tags,
-      state.stickyTags,
-      state.tagTombstones,
-      setSuggestedTags,
-    ],
+    [dispatch, state.list, state.mood, state.tags, state.stickyTags, state.tagTombstones],
   );
 
   const handleTelemetryTagAdd = useCallback((canonical: string) => {
@@ -5117,7 +4866,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
                         <TagsRow
                           tags={activeTagChips}
-                          suggested={suggestionChips}
+                          suggested={[]}
                           onToggle={isViewMode ? () => {} : handleTagToggle}
                           onResuggest={
                             isViewMode
@@ -5131,11 +4880,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           onUserAdd={isViewMode ? undefined : handleTelemetryTagAdd}
                           onUserRemove={isViewMode ? undefined : handleTelemetryTagRemove}
                         />
-                        {hasLowConfidenceSuggestions ? (
-                          <Box mt={2}>
-                            <Text variant="subtle">AI suggestions (low confidence)</Text>
-                          </Box>
-                        ) : null}
                       </Box>
 
                       {/* Log meta row: timestamp + mood strip (Phase L4) - ONLY for journal logs */}
