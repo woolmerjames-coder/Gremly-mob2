@@ -10,6 +10,7 @@ import PersonDetailScreen from '../app/people/PersonDetailScreen';
 import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
 import { ListsScreen } from '../app/screens/ListsScreen';
+import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -23,6 +24,7 @@ export type RootStackParamList = {
   ChatThread: { spaceId: string; chatId?: string }; // Phase 10.5 - chatId optional for new chats
   Lists: undefined; // Phase 10.7 Lists UX
   Sweep: undefined; // Phase Sweep - Evening Sweep ritual
+  ArchivedItems: { searchQuery?: string } | undefined; // Hub V1 - Archived items screen
   // NewSpace removed - now using NewSpaceModal (Phase H)
 };
 
@@ -89,6 +91,14 @@ export default function RootNavigator() {
           headerShown: false, // Uses custom header in component
           presentation: 'card',
           gestureEnabled: false, // Disable swipe-to-dismiss
+        }}
+      />
+      {/* Hub V1: Archived Items Screen */}
+      <Stack.Screen
+        name="ArchivedItems"
+        component={ArchivedItemsScreen}
+        options={{
+          headerShown: false, // Uses custom header in component
         }}
       />
       <Stack.Screen

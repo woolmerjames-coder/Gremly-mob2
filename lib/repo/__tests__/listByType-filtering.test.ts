@@ -13,7 +13,18 @@
  */
 
 import { MemoryRepo } from '../memory';
-import type { Todo, Habit, Note } from '../../types';
+import type { Todo, Habit, Note, AppRecord } from '../../types';
+
+/**
+ * Helper to extract the name/title from any record type.
+ * Todos and Habits have 'name', Notes have 'title'.
+ */
+function getName(r: AppRecord): string {
+  if (r.type === 'todo' || r.type === 'habit') {
+    return (r as Todo | Habit).name;
+  }
+  return (r as Note).title ?? '';
+}
 
 describe('listByType Filtering', () => {
   const userId = 'test-user-listbytype-filtering';
@@ -151,7 +162,7 @@ describe('listByType Filtering', () => {
       const results = await repo.listByType('todo');
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Active Todo');
+      expect(getName(results[0])).toBe('Active Todo');
     });
 
     it('returns active habits by default', async () => {
@@ -162,7 +173,7 @@ describe('listByType Filtering', () => {
       const results = await repo.listByType('habit');
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Active Habit');
+      expect(getName(results[0])).toBe('Active Habit');
     });
 
     it('returns non-archived notes by default', async () => {
@@ -182,7 +193,7 @@ describe('listByType Filtering', () => {
       const results = await repo.listByType('todo');
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Active Todo');
+      expect(getName(results[0])).toBe('Active Todo');
     });
   });
 
@@ -201,14 +212,14 @@ describe('listByType Filtering', () => {
       const results = await repo.listByType('todo', { createdAfter: T.feb1 });
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Feb Todo');
+      expect(getName(results[0])).toBe('Feb Todo');
     });
 
     it('createdBefore filters items created before the timestamp (exclusive)', async () => {
       const results = await repo.listByType('todo', { createdBefore: T.feb1 });
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Jan Todo');
+      expect(getName(results[0])).toBe('Jan Todo');
     });
 
     it('createdAfter and createdBefore combine for a range', async () => {
@@ -221,7 +232,7 @@ describe('listByType Filtering', () => {
       });
 
       expect(results).toHaveLength(2);
-      expect(results.map((r) => r.name).sort()).toEqual(['Feb Todo', 'Jan Todo']);
+      expect(results.map((r) => getName(r)).sort()).toEqual(['Feb Todo', 'Jan Todo']);
     });
 
     it('empty result when range matches no items', async () => {
@@ -243,7 +254,7 @@ describe('listByType Filtering', () => {
       const results = await repo.listByType('todo', { createdBefore: T.feb15 });
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Jan Todo');
+      expect(getName(results[0])).toBe('Jan Todo');
     });
   });
 
@@ -263,19 +274,19 @@ describe('listByType Filtering', () => {
         const results = await repo.listByType('todo', { status: 'active' });
 
         expect(results).toHaveLength(1);
-        expect(results[0].name).toBe('Active Todo');
+        expect(getName(results[0])).toBe('Active Todo');
       });
 
       it('excludes completed items', async () => {
         const results = await repo.listByType('todo', { status: 'active' });
 
-        expect(results.find((r) => r.name === 'Completed Todo')).toBeUndefined();
+        expect(results.find((r) => getName(r) === 'Completed Todo')).toBeUndefined();
       });
 
       it('excludes archived items', async () => {
         const results = await repo.listByType('todo', { status: 'active' });
 
-        expect(results.find((r) => r.name === 'Archived Todo')).toBeUndefined();
+        expect(results.find((r) => getName(r) === 'Archived Todo')).toBeUndefined();
       });
     });
 
@@ -284,7 +295,7 @@ describe('listByType Filtering', () => {
         const results = await repo.listByType('todo', { status: 'completed' });
 
         expect(results).toHaveLength(1);
-        expect(results[0].name).toBe('Completed Todo');
+        expect(getName(results[0])).toBe('Completed Todo');
       });
 
       it('returns only completed habits', async () => {
@@ -294,7 +305,7 @@ describe('listByType Filtering', () => {
         const results = await repo.listByType('habit', { status: 'completed' });
 
         expect(results).toHaveLength(1);
-        expect(results[0].name).toBe('Completed Habit');
+        expect(getName(results[0])).toBe('Completed Habit');
       });
 
       it('excludes notes (notes have no completed state)', async () => {
@@ -316,7 +327,7 @@ describe('listByType Filtering', () => {
 
         // Only the original "Completed Todo" should be returned
         expect(results).toHaveLength(1);
-        expect(results[0].name).toBe('Completed Todo');
+        expect(getName(results[0])).toBe('Completed Todo');
       });
     });
 
@@ -325,13 +336,13 @@ describe('listByType Filtering', () => {
         const results = await repo.listByType('todo', { status: 'all' });
 
         expect(results).toHaveLength(2);
-        expect(results.map((r) => r.name).sort()).toEqual(['Active Todo', 'Completed Todo']);
+        expect(results.map((r) => getName(r)).sort()).toEqual(['Active Todo', 'Completed Todo']);
       });
 
       it('excludes archived items', async () => {
         const results = await repo.listByType('todo', { status: 'all' });
 
-        expect(results.find((r) => r.name === 'Archived Todo')).toBeUndefined();
+        expect(results.find((r) => getName(r) === 'Archived Todo')).toBeUndefined();
       });
 
       it('works for habits', async () => {
@@ -342,7 +353,7 @@ describe('listByType Filtering', () => {
         const results = await repo.listByType('habit', { status: 'all' });
 
         expect(results).toHaveLength(2);
-        expect(results.find((r) => r.name === 'Archived Habit')).toBeUndefined();
+        expect(results.find((r) => getName(r) === 'Archived Habit')).toBeUndefined();
       });
 
       it('returns all non-archived notes', async () => {
@@ -374,7 +385,10 @@ describe('listByType Filtering', () => {
       const results = await repo.listByType('todo', { archivedOnly: true });
 
       expect(results).toHaveLength(2);
-      expect(results.map((r) => r.name).sort()).toEqual(['Archived Todo', 'Status Archived Todo']);
+      expect(results.map((r) => getName(r)).sort()).toEqual([
+        'Archived Todo',
+        'Status Archived Todo',
+      ]);
     });
 
     it('returns only archived habits', async () => {
@@ -384,7 +398,7 @@ describe('listByType Filtering', () => {
       const results = await repo.listByType('habit', { archivedOnly: true });
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Archived Habit');
+      expect(getName(results[0])).toBe('Archived Habit');
     });
 
     it('returns only archived notes', async () => {
@@ -433,7 +447,7 @@ describe('listByType Filtering', () => {
       });
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Feb Completed');
+      expect(getName(results[0])).toBe('Feb Completed');
     });
 
     it('time-range + status=all', async () => {
@@ -443,7 +457,7 @@ describe('listByType Filtering', () => {
       });
 
       expect(results).toHaveLength(2);
-      expect(results.map((r) => r.name).sort()).toEqual(['Feb Active', 'Feb Completed']);
+      expect(results.map((r) => getName(r)).sort()).toEqual(['Feb Active', 'Feb Completed']);
     });
 
     it('time-range + archivedOnly', async () => {
@@ -453,7 +467,7 @@ describe('listByType Filtering', () => {
       });
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Feb Archived');
+      expect(getName(results[0])).toBe('Feb Archived');
     });
 
     it('spaceId + status filter', async () => {
@@ -471,7 +485,7 @@ describe('listByType Filtering', () => {
       });
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Space Completed');
+      expect(getName(results[0])).toBe('Space Completed');
     });
   });
 
@@ -491,7 +505,7 @@ describe('listByType Filtering', () => {
       const results = await repo.listByType('todo', { status: 'active' });
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Null Completed');
+      expect(getName(results[0])).toBe('Null Completed');
     });
 
     it('handles undefined archived as not archived', async () => {
@@ -513,7 +527,7 @@ describe('listByType Filtering', () => {
       const results = await repo.listByType('todo', {});
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Active');
+      expect(getName(results[0])).toBe('Active');
     });
 
     it('timestamp comparison works correctly at millisecond precision', async () => {
@@ -529,7 +543,7 @@ describe('listByType Filtering', () => {
       });
 
       expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Precise 1');
+      expect(getName(results[0])).toBe('Precise 1');
     });
   });
 });
