@@ -270,18 +270,18 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
     });
 
-    it('shows action buttons (Clear, Keep)', async () => {
+    it('shows action buttons (Clear, Skip)', async () => {
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
         expect(result.getByRole('button', { name: 'Clear this item' })).toBeTruthy();
-        expect(result.getByRole('button', { name: 'Keep this item' })).toBeTruthy();
+        expect(result.getByRole('button', { name: 'Skip this item' })).toBeTruthy();
       });
     });
 
-    it('advances to next card when Keep is pressed', async () => {
+    it('advances to next card when Skip is pressed', async () => {
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -290,7 +290,7 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText(/1 of 2 items/);
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
       await waitFor(() => {
         expect(result.getByText(/2 of 2 items/)).toBeTruthy();
@@ -320,20 +320,20 @@ describe('SweepFlowScreen - Decision Step', () => {
       mockApplySweepAction.mockClear();
     });
 
-    it('calls applySweepAction with type "keep" when Keep is pressed', async () => {
+    it('calls applySweepAction with type "skip" when Skip is pressed', async () => {
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByRole('button', { name: 'Keep this item' });
+        result.getByRole('button', { name: 'Skip this item' });
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
       await waitFor(() => {
         expect(mockApplySweepAction).toHaveBeenCalledWith(
-          { type: 'keep', id: 'todo-1', kind: 'todo' },
+          { type: 'skip', id: 'todo-1', kind: 'todo' },
           expect.anything(),
         );
       });
@@ -368,7 +368,7 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText(/1 of 2 items/);
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
       // Should still advance despite error
       await waitFor(() => {
@@ -384,10 +384,10 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByRole('button', { name: 'Keep this item' });
+        result.getByRole('button', { name: 'Skip this item' });
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
       // Should auto-advance to Mood step (step 2)
       await waitFor(() => {

@@ -117,6 +117,8 @@ describe('convertUnsortedToTodo', () => {
       id: 'note-123',
       patch: {
         archived: true,
+        archived_at: expect.any(String),
+        archived_reason: 'converted',
         why_string: expect.stringContaining('origin:todo-789'),
       },
     });

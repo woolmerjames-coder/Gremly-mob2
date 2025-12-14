@@ -1,0 +1,14 @@
+
+> gremly-mob2@1.0.0 test
+> jest --bail=false
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+PASS __tests__/lib/minddrop/phase2.test.ts (9.096 s)
+PASS __tests__/hub.scope-tabs-unsorted.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.mutex.duplication.test.tsx
+PASS __tests__/cortex.golden.test.ts
+PASS app/screens/__tests__/SweepFlowScreen.decision.test.tsx
+PASS __tests__/cortex/rate-limit.test.ts
+PASS app/screens/__tests__/SweepFlowScreen.mood.test.tsx
+PASS app/screens/__tests__/SweepFlowScreen.summary.test.tsx
+PASS __tests__/celebration/controller.test.ts

@@ -2343,14 +2343,31 @@ export class SupabaseRepo implements IRepo {
       return;
     }
 
-    // Habits currently ignore sweep actions beyond "keep"
-    if (action === 'archive') {
-      // Placeholder: habits aren't archived via sweep; swallow request for now.
-      return;
-    }
+    // Handle habit actions
+    if (type === 'habit') {
+      if (action === 'archive') {
+        const { error: habitError } = await supabase
+          .from('habits')
+          .update({
+            archived: true,
+            archived_at: new Date().toISOString(),
+            archived_reason: details?.archived_reason ?? 'swept',
+          })
+          .eq('id', id)
+          .eq('owner_id', ownerId);
 
-    if (action === 'carry_forward') {
-      // Habits don't support carry_forward flag; skip.
+        if (habitError) {
+          throw new Error(`Failed to archive habit: ${habitError.message}`);
+        }
+        return;
+      }
+
+      if (action === 'carry_forward') {
+        // Habits don't support carry_forward flag; skip.
+        return;
+      }
+
+      // keep -> no-op
       return;
     }
   }
@@ -2415,12 +2432,17 @@ export class SupabaseRepo implements IRepo {
         }
       })(),
 
-      // Archive habits: soft delete via completed_at timestamp
+      // Archive habits: soft delete via archived flag
       (async () => {
         try {
           const { data, error } = await supabase
             .from('habits')
-            .update({ completed_at: nowIso })
+            .update({
+              archived: true,
+              archived_at: nowIso,
+              archived_reason: archivedReason,
+              // Note: Do NOT set completed_at - that's for check-ins
+            })
             .eq('drop_id', dropId)
             .eq('owner_id', ownerId)
             .select('id');
@@ -2450,7 +2472,11 @@ export class SupabaseRepo implements IRepo {
         try {
           const { data, error } = await supabase
             .from('notes')
-            .update({ archived: true })
+            .update({
+              archived: true,
+              archived_at: nowIso,
+              archived_reason: archivedReason,
+            })
             .eq('drop_id', dropId)
             .eq('owner_id', ownerId)
             .select('id');
@@ -2481,6 +2507,68 @@ export class SupabaseRepo implements IRepo {
     );
 
     return { notesArchived, todosArchived, habitsArchived };
+  }
+
+  /**
+   * Restore an archived item (todo, habit, or note).
+   * - Todos: Reset status to 'active', clear archived/completed fields
+   * - Habits: Clear archived fields
+   * - Notes: Clear archived fields
+   */
+  async restoreItem(id: string, type: 'todo' | 'habit' | 'note'): Promise<void> {
+    const userId = this.ensureUserId();
+
+    if (type === 'todo') {
+      const { error } = await supabase
+        .from('todos')
+        .update({
+          status: 'active',
+          archived: false,
+          archived_at: null,
+          archived_reason: null,
+          completed_at: null,
+        })
+        .eq('id', id)
+        .eq('owner_id', userId);
+
+      if (error) {
+        console.error('[SupabaseRepo.restoreItem] Failed to restore todo:', error);
+        throw new Error(`Failed to restore todo: ${error.message}`);
+      }
+    } else if (type === 'habit') {
+      const { error } = await supabase
+        .from('habits')
+        .update({
+          archived: false,
+          archived_at: null,
+          archived_reason: null,
+        })
+        .eq('id', id)
+        .eq('owner_id', userId);
+
+      if (error) {
+        console.error('[SupabaseRepo.restoreItem] Failed to restore habit:', error);
+        throw new Error(`Failed to restore habit: ${error.message}`);
+      }
+    } else if (type === 'note') {
+      const { error } = await supabase
+        .from('notes')
+        .update({
+          archived: false,
+          archived_at: null,
+          archived_reason: null,
+        })
+        .eq('id', id)
+        .eq('owner_id', userId);
+
+      if (error) {
+        console.error('[SupabaseRepo.restoreItem] Failed to restore note:', error);
+        throw new Error(`Failed to restore note: ${error.message}`);
+      }
+    }
+
+    console.log(`[SupabaseRepo.restoreItem] Restored ${type} id=${id}`);
+    eventBus.emit('ItemUpdated', { id });
   }
 
   /** Count active commitments (habits + todos). No archived predicate yet. */
@@ -2974,6 +3062,40 @@ export class SupabaseRepo implements IRepo {
       .eq('owner_id', userId);
 
     if (error) throw new Error(`Failed to delete space: ${error.message}`);
+  }
+
+  /**
+   * Get counts of items (todos, habits, notes) in a space.
+   * Used for confirmation dialog before space deletion.
+   */
+  async getSpaceItemCounts(
+    spaceId: string,
+  ): Promise<{ todos: number; habits: number; notes: number }> {
+    const userId = this.ensureUserId();
+
+    const [todosResult, habitsResult, notesResult] = await Promise.all([
+      supabase
+        .from('todos')
+        .select('*', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId),
+      supabase
+        .from('habits')
+        .select('*', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId),
+      supabase
+        .from('notes')
+        .select('*', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('space_id', spaceId),
+    ]);
+
+    return {
+      todos: todosResult.count ?? 0,
+      habits: habitsResult.count ?? 0,
+      notes: notesResult.count ?? 0,
+    };
   }
 
   async getSpaceSummary(spaceId: string): Promise<string | null> {

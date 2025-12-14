@@ -100,6 +100,8 @@ describe('convertUnsortedToHabit', () => {
       id: 'note-123',
       patch: {
         archived: true,
+        archived_at: expect.any(String),
+        archived_reason: 'converted',
         why_string: expect.stringContaining('origin:habit-789;source:habit'),
       },
     });

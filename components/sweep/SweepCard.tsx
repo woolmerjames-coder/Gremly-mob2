@@ -103,8 +103,8 @@ export interface SweepCardProps {
   index: number;
   /** Total number of candidates */
   total: number;
-  /** Called when user wants to keep the item */
-  onKeep: () => void;
+  /** Called when user wants to skip/defer the item to next sweep */
+  onSkip: () => void;
   /** Called when user wants to clear/archive the item */
   onClear: () => void;
   /** Called when user wants to edit/fix the item (opens full overlay) */
@@ -252,7 +252,7 @@ export function SweepCard({
   candidate,
   index: _index,
   total: _total,
-  onKeep,
+  onSkip,
   onClear,
   onOpenEdit,
   onPrimaryAction,
@@ -407,13 +407,13 @@ export function SweepCard({
         });
       }
 
-      // If this was triggered by Keep action on undated todo, call onKeep now
+      // If this was triggered by Skip action on undated todo, call onSkip now
       if (keepAfterDatePick) {
         setKeepAfterDatePick(false);
         setShowDatePicker(false);
         setClearDateFlag(false);
         setIsSaving(false);
-        onKeep();
+        onSkip();
         return;
       }
     } catch (error) {
@@ -423,7 +423,7 @@ export function SweepCard({
       setShowDatePicker(false);
       setClearDateFlag(false);
     }
-  }, [candidate, selectedDate, clearDateFlag, isSaving, repo, keepAfterDatePick, onKeep]);
+  }, [candidate, selectedDate, clearDateFlag, isSaving, repo, keepAfterDatePick, onSkip]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Reanimated Swipe Gesture Handling
@@ -512,7 +512,7 @@ export function SweepCard({
           runOnJS(setKeepAfterDatePick)(true);
           runOnJS(setShowDatePicker)(true);
         } else {
-          animateOut('right', onKeep);
+          animateOut('right', onSkip);
         }
       } else if (swipedLeft) {
         // Swiped left past threshold → Clear
@@ -651,18 +651,18 @@ export function SweepCard({
     }
     // In test mode, call directly without animation
     if (isTestEnv) {
-      onKeep();
+      onSkip();
       return;
     }
     translateX.value = withSpring(
       SWIPE_OUT_DISTANCE,
       { damping: 20, stiffness: 200, overshootClamping: true },
       (finished) => {
-        if (finished) runOnJS(onKeep)();
+        if (finished) runOnJS(onSkip)();
       },
     );
     cardOpacity.value = withTiming(0, { duration: 200 });
-  }, [onKeep, translateX, cardOpacity, candidate.kind, candidate.raw.due_day]);
+  }, [onSkip, translateX, cardOpacity, candidate.kind, candidate.raw.due_day]);
 
   const handleClearPress = useCallback(() => {
     // In test mode, call directly without animation
@@ -889,11 +889,11 @@ export function SweepCard({
       {isTestEnv && (
         <View style={{ position: 'absolute', opacity: 0, pointerEvents: 'box-none' }}>
           <TouchableOpacity
-            onPress={onKeep}
-            accessibilityLabel="Keep this item"
+            onPress={onSkip}
+            accessibilityLabel="Skip this item"
             accessibilityRole="button"
           >
-            <Text>Keep</Text>
+            <Text>Skip</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={onClear}

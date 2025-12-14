@@ -280,9 +280,9 @@ describe('fetchSweepCandidatesForUser', () => {
     // Act
     const candidates = await fetchSweepCandidatesForUser('user-1', client);
 
-    // Assert: Only 2 error calls (todos + notes), habits are not included
+    // Assert: 5 error calls (1 todo + 4 note subtypes: ideas, general, lists, reference)
     expect(candidates).toHaveLength(0);
-    expect(console.error).toHaveBeenCalledTimes(2);
+    expect(console.error).toHaveBeenCalledTimes(5);
   });
 
   it('should handle null created_at with fallback to current time', async () => {
@@ -349,7 +349,9 @@ describe('fetchSweepCandidatesForUser', () => {
     expect(candidates[0].kind).toBe('note');
 
     // Should have attachments mapped from log_photos
-    const noteCandidate = candidates[0] as { attachments?: Array<{ id: string; url: string; position: number }> };
+    const noteCandidate = candidates[0] as {
+      attachments?: Array<{ id: string; url: string; position: number }>;
+    };
     expect(noteCandidate.attachments).toHaveLength(2);
     expect(noteCandidate.attachments![0]).toEqual({
       id: 'photo-1',
@@ -463,17 +465,17 @@ describe('applySweepAction', () => {
   });
 
   describe('clear action', () => {
-    it.each(['todo', 'note'] as const)('should update %s with archived fields', async (kind) => {
+    it('should archive todo with archived fields', async () => {
       // Arrange
       const { client, updateCalls } = createMockSupabaseClient({});
-      const action: SweepAction = { type: 'clear', id: `${kind}-456`, kind };
+      const action: SweepAction = { type: 'clear', id: 'todo-456', kind: 'todo' };
 
       // Act
       await applySweepAction(action, client);
 
       // Assert
       expect(updateCalls).toHaveLength(1);
-      expect(updateCalls[0].table).toBe(`${kind}s`);
+      expect(updateCalls[0].table).toBe('todos');
       expect(updateCalls[0].payload).toMatchObject({
         archived: true,
         archived_reason: 'swept',
@@ -483,7 +485,29 @@ describe('applySweepAction', () => {
       expect(payload.archived_at).toBeDefined();
       expect(payload.archived_at.length).toBeGreaterThan(0);
       expect(new Date(payload.archived_at).getTime()).toBeGreaterThan(0);
-      expect(updateCalls[0].id).toBe(`${kind}-456`);
+      expect(updateCalls[0].id).toBe('todo-456');
+    });
+
+    it('should clear skip marker for note (not archive)', async () => {
+      // Notes should stay in Your Notes when cleared during sweep
+      // Clearing just confirms the note was reviewed
+      const { client, updateCalls } = createMockSupabaseClient({});
+      const action: SweepAction = { type: 'clear', id: 'note-456', kind: 'note' };
+
+      // Act
+      await applySweepAction(action, client);
+
+      // Assert
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].table).toBe('notes');
+      expect(updateCalls[0].payload).toMatchObject({
+        skipped_in_sweep_at: null,
+      });
+      // Should NOT have archived fields
+      const payload = updateCalls[0].payload as { archived?: boolean; archived_reason?: string };
+      expect(payload.archived).toBeUndefined();
+      expect(payload.archived_reason).toBeUndefined();
+      expect(updateCalls[0].id).toBe('note-456');
     });
   });
 

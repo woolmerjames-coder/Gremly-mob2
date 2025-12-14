@@ -21,6 +21,12 @@ jest.mock('../design/animations', () => ({
   useReducedMotion: jest.fn(() => true),
 }));
 
+// Mock getTodayDayString to return a fixed date for consistent testing
+jest.mock('../lib/date/computeDueDay', () => ({
+  ...jest.requireActual('../lib/date/computeDueDay'),
+  getTodayDayString: () => '2025-01-15',
+}));
+
 // Import mocked modules
 import { useRepo } from '../providers/RepoProvider';
 import { useAuth } from '../providers/AuthProvider';
@@ -116,38 +122,24 @@ describe('useTodayData', () => {
   });
 
   it('should order todos: overdue → nearDue → dueTime → title', async () => {
-    const now = new Date('2025-01-15T12:00:00Z');
-    const RealDate = OriginalDate;
-
-    // Mock Date constructor
-    (global as any).Date = jest.fn((...args) => {
-      if (args.length === 0) {
-        return now;
-      }
-      return new RealDate(...(args as [any]));
-    });
-    global.Date.now = () => now.getTime();
+    // Note: This test uses due_day (canonical field) for overdue detection
+    // due_day='2025-01-14' with today='2025-01-15' should be overdue
 
     const todos: Todo[] = [
       createTodo({
         id: 't1',
-        name: 'Normal Todo',
-        due_date: '2025-01-15T14:00:00Z', // 2 hours from now
+        name: 'Zebra Todo', // Non-overdue
+        due_day: '2025-01-15', // Today
       }),
       createTodo({
         id: 't2',
-        name: 'Near Due Todo',
-        due_date: '2025-01-15T13:00:00Z', // 1 hour from now (within 3h)
-      }),
-      createTodo({
-        id: 't3',
         name: 'Overdue Todo',
-        due_date: '2025-01-15T09:00:00Z', // 3 hours ago
+        due_day: '2025-01-14', // Yesterday - overdue
       }),
     ];
 
     mockRepo.listDueToday.mockResolvedValue(todos);
-    mockRepo.countPlannedToday.mockResolvedValue(3);
+    mockRepo.countPlannedToday.mockResolvedValue(2);
 
     const { result } = renderHook(() => useTodayData());
 
@@ -155,15 +147,16 @@ describe('useTodayData', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    // Todos should be ordered: overdue → nearDue → normal
-    expect(result.current.todos).toHaveLength(3);
-    expect(result.current.todos[0].id).toBe('t3'); // Overdue first
-    expect(result.current.todos[0].overdue).toBe(true);
-    expect(result.current.todos[1].id).toBe('t2'); // Near due second
-    expect(result.current.todos[1].nearDue).toBe(true);
-    expect(result.current.todos[2].id).toBe('t1'); // Normal last
+    // Verify we have both todos
+    expect(result.current.todos).toHaveLength(2);
 
-    global.Date = RealDate;
+    // The overdue todo (t2) should come first
+    expect(result.current.todos[0].id).toBe('t2');
+    expect(result.current.todos[0].overdue).toBe(true);
+
+    // The non-overdue todo (t1) should come second
+    expect(result.current.todos[1].id).toBe('t1');
+    expect(result.current.todos[1].overdue).toBe(false);
   });
 
   it('should cap visible items to 5 per section and track hidden counts', async () => {

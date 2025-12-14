@@ -1593,8 +1593,15 @@ const RecentDrops: React.FC<{
 
       const [notes, todos, habits] = await Promise.all([fetchNotes(), fetchTodos(), fetchHabits()]);
 
+      // Time boundaries for filtering
       const start = startOfTodayLocal();
-      const cutoff = start.getTime();
+      const todayCutoff = start.getTime();
+
+      // 3 days ago at start of day (for "Show older" toggle)
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      threeDaysAgo.setHours(0, 0, 0, 0);
+      const olderCutoff = threeDaysAgo.getTime();
 
       const toTagList = (raw: unknown): string[] => {
         if (!Array.isArray(raw)) return [];
@@ -1611,17 +1618,10 @@ const RecentDrops: React.FC<{
 
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter((n) => {
-          // Filter to Mind Drop items only
-          const isMindDrop =
-            n?.origin === 'catchall' ||
-            (Array.isArray(n?.labels) && n.labels.includes(CATCHALL_LABEL));
-
-          if (!isMindDrop) return false;
-
+          // Show ALL recent notes regardless of origin (Mind Drop, Space chat, manual add, etc.)
           // Exclude archived notes (converted unsorted notes)
           if (n?.archived === true) return false;
 
-          // Show all Mind Drop items until explicitly archived
           return true;
         })
         .map((n) => {
@@ -1655,13 +1655,13 @@ const RecentDrops: React.FC<{
 
       const todoDrops: UnifiedDrop[] = (Array.isArray(todos) ? todos : [])
         .filter((t) => {
-          // Only include Mind Drop-origin todos
-          if (t?.origin !== 'catchall') return false;
-
-          // Exclude soft-deleted todos (completed_at is set)
+          // Show ALL recent todos regardless of origin (Mind Drop, Space chat, manual add, etc.)
+          // Exclude completed todos
           if ((t as any)?.completed_at) return false;
 
-          // Show all Mind Drop todos until explicitly completed
+          // Exclude archived todos
+          if ((t as any)?.status === 'archived') return false;
+
           return true;
         })
         .map((t) => {
@@ -1688,13 +1688,13 @@ const RecentDrops: React.FC<{
 
       const habitDrops: UnifiedDrop[] = (Array.isArray(habits) ? habits : [])
         .filter((h) => {
-          // Only include Mind Drop-origin habits
-          if (h?.origin !== 'catchall') return false;
-
-          // Exclude soft-deleted habits (completed_at is set)
+          // Show ALL recent habits regardless of origin (Mind Drop, Space chat, manual add, etc.)
+          // Exclude completed habits
           if ((h as any)?.completed_at) return false;
 
-          // Show all Mind Drop habits until explicitly completed
+          // Exclude archived habits
+          if ((h as any)?.archived === true) return false;
+
           return true;
         })
         .map((h) => {
@@ -1788,11 +1788,18 @@ const RecentDrops: React.FC<{
       // Calculate today count before any filtering
       const todayItems = unified.filter((i) => {
         const ts = new Date(i.created_at).getTime();
-        return Number.isFinite(ts) && ts >= cutoff; // "Today"
+        return Number.isFinite(ts) && ts >= todayCutoff; // "Today"
       });
 
       if (!showOlder) {
+        // Today only
         unified = todayItems;
+      } else {
+        // Show older: last 3 days (spec Section 5.3)
+        unified = unified.filter((i) => {
+          const ts = new Date(i.created_at).getTime();
+          return Number.isFinite(ts) && ts >= olderCutoff;
+        });
       }
 
       unified = unified

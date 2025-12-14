@@ -248,6 +248,9 @@ export interface IRepo {
     archivedReason?: string,
   ): Promise<{ notesArchived: number; todosArchived: number; habitsArchived: number }>;
 
+  /** Restore an archived item (todo, habit, or note) */
+  restoreItem(id: ID, type: 'todo' | 'habit' | 'note'): Promise<void>;
+
   /** Commitments */
   listCommitments(): Promise<
     Array<{
@@ -307,6 +310,7 @@ export interface IRepo {
   getSpaceById(spaceId: string): Promise<Space | null>;
   updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space>;
   deleteSpace(spaceId: string): Promise<void>;
+  getSpaceItemCounts(spaceId: string): Promise<{ todos: number; habits: number; notes: number }>;
   listBySpaceGrouped(spaceId: string, opts?: { tagNames?: string[] }): Promise<GroupedByType>;
 
   // Spaces v2 methods (Phase 8+)

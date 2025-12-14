@@ -23,6 +23,12 @@ import { X, Edit3, Flag, Trash2, ChevronRight } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRAND } from '../../design/brand';
 
+interface SpaceItemCounts {
+  todos: number;
+  habits: number;
+  notes: number;
+}
+
 interface SpaceSettingsModalProps {
   visible: boolean;
   onClose: () => void;
@@ -31,6 +37,7 @@ interface SpaceSettingsModalProps {
   onEditMilestone: () => void;
   onSaveSpaceName: (name: string) => Promise<void>;
   onDeleteSpace: () => Promise<void>;
+  getSpaceItemCounts?: () => Promise<SpaceItemCounts>;
 }
 
 export function SpaceSettingsModal({
@@ -41,6 +48,7 @@ export function SpaceSettingsModal({
   onEditMilestone,
   onSaveSpaceName,
   onDeleteSpace,
+  getSpaceItemCounts,
 }: SpaceSettingsModalProps) {
   const insets = useSafeAreaInsets();
 
@@ -83,10 +91,30 @@ export function SpaceSettingsModal({
     }, 300);
   };
 
-  const handleDeleteSpace = () => {
+  const handleDeleteSpace = async () => {
+    // Get item counts if the function is provided
+    let countsMessage = '';
+    if (getSpaceItemCounts) {
+      try {
+        const counts = await getSpaceItemCounts();
+        const parts: string[] = [];
+        if (counts.todos > 0) parts.push(`${counts.todos} todo${counts.todos === 1 ? '' : 's'}`);
+        if (counts.habits > 0)
+          parts.push(`${counts.habits} habit${counts.habits === 1 ? '' : 's'}`);
+        if (counts.notes > 0) parts.push(`${counts.notes} note${counts.notes === 1 ? '' : 's'}`);
+
+        if (parts.length > 0) {
+          countsMessage = `\n\nThis space contains: ${parts.join(', ')}. These items will become unassigned.`;
+        }
+      } catch (error) {
+        console.error('[SpaceSettings] Failed to get item counts:', error);
+        // Continue without counts on error
+      }
+    }
+
     Alert.alert(
       'Delete Space',
-      `Are you sure you want to delete "${space?.name}"? This will remove the Space but keep all items inside it.`,
+      `Are you sure you want to delete "${space?.name}"?${countsMessage || ' This will remove the Space but keep all items inside it.'}`,
       [
         { text: 'Cancel', style: 'cancel' },
         {

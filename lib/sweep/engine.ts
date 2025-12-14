@@ -312,25 +312,41 @@ export async function fetchSweepCandidatesForUser(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Deduplicate candidates by ID
+  // ─────────────────────────────────────────────────────────────────────────
+  // Notes are fetched in multiple queries by subtype. In tests or edge cases,
+  // the same note might appear in multiple query results. Deduplicate by ID.
+  const seenIds = new Set<string>();
+  const deduplicatedCandidates = candidates.filter((candidate) => {
+    if (seenIds.has(candidate.id)) {
+      return false;
+    }
+    seenIds.add(candidate.id);
+    return true;
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Sort by createdAt ascending (oldest first)
   // ─────────────────────────────────────────────────────────────────────────
   // This ensures users process older items first, which makes more sense
   // for a "sweep" workflow where you're catching up on things.
-  candidates.sort((a, b) => {
+  deduplicatedCandidates.sort((a, b) => {
     const dateA = new Date(a.createdAt).getTime();
     const dateB = new Date(b.createdAt).getTime();
     return dateA - dateB;
   });
 
   // Enhanced diagnostic logging for debugging count discrepancy
-  const todoCandidates = candidates.filter((c) => c.kind === 'todo');
-  const noteCandidates = candidates.filter((c) => c.kind === 'note');
+  const todoCandidates = deduplicatedCandidates.filter((c) => c.kind === 'todo');
+  const noteCandidates = deduplicatedCandidates.filter((c) => c.kind === 'note');
 
   console.log('[Sweep] fetchSweepCandidatesForUser:', {
     ownerId,
     cutoffTimestamp,
     lastSweepAt,
-    candidateCount: candidates.length,
+    candidateCount: deduplicatedCandidates.length,
+    rawCandidateCount: candidates.length,
+    deduplicatedCount: candidates.length - deduplicatedCandidates.length,
     breakdown: {
       todos: todoCandidates.length,
       notes: noteCandidates.length,
@@ -350,7 +366,7 @@ export async function fetchSweepCandidatesForUser(
     })),
   });
 
-  return candidates;
+  return deduplicatedCandidates;
 }
 
 /**
@@ -365,10 +381,9 @@ export async function fetchSweepCandidatesForUser(
  *   The user reviewed this item and wants to keep it as-is.
  *   It won't reappear in future sweeps unless new activity occurs.
  *
- * - `clear`: Archives the item by setting:
- *   - `archived = true`
- *   - `archived_reason = 'swept'`
- *   - `archived_at = now()`
+ * - `clear`: Behavior depends on item type:
+ *   - **Todos:** Archives by setting `archived = true`, `archived_reason = 'swept'`, `archived_at = now()`
+ *   - **Notes:** Just clears `skipped_in_sweep_at` (confirms reviewed, keeps in Your Notes)
  *
  * - `skip`: Sets `skipped_in_sweep_at = now()`.
  *   The user deferred the decision — this item will reappear
@@ -401,19 +416,34 @@ export async function applySweepAction(
       }
 
       case 'clear': {
-        // Archive the item with reason 'swept'.
-        // All three tables (todos, habits, notes) have these fields.
-        const { error } = await client
-          .from(tableName)
-          .update({
-            archived: true,
-            archived_reason: 'swept',
-            archived_at: now,
-          })
-          .eq('id', action.id);
+        // Handle 'clear' action differently based on item type:
+        // - Todos: Archive (remove from active views)
+        // - Notes: Just confirm reviewed (clear skip marker, keep in Your Notes)
+        if (action.kind === 'todo') {
+          // Archive todos with reason 'swept'
+          const { error } = await client
+            .from('todos')
+            .update({
+              archived: true,
+              archived_reason: 'swept',
+              archived_at: now,
+            })
+            .eq('id', action.id);
 
-        if (error) {
-          console.error(`[Sweep] Failed to apply 'clear' to ${action.kind}:`, error);
+          if (error) {
+            console.error(`[Sweep] Failed to archive todo:`, error);
+          }
+        } else if (action.kind === 'note') {
+          // For notes (ideas, general logs): just clear the skip marker, don't archive
+          // This confirms the item was reviewed but keeps it in Your Notes
+          const { error } = await client
+            .from('notes')
+            .update({ skipped_in_sweep_at: null })
+            .eq('id', action.id);
+
+          if (error) {
+            console.error(`[Sweep] Failed to confirm note:`, error);
+          }
         }
         break;
       }

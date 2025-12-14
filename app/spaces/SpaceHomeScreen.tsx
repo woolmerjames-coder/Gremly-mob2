@@ -106,6 +106,7 @@ import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
 import { SpaceSettingsModal } from '../../components/spaces/SpaceSettingsModal';
+import { CompletedInSpaceOverlay } from '../../components/spaces/CompletedInSpaceOverlay';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -622,6 +623,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [chatListModalVisible, setChatListModalVisible] = useState(false);
+  const [showCompletedOverlay, setShowCompletedOverlay] = useState(false);
 
   // Handler to change filter and collapse list
   const handleFilterChange = useCallback((newFilter: FilterTab) => {
@@ -702,7 +704,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Phase 4: Section data for new layout with optimistic completion
   const todosForSpace = useMemo(() => {
     const allTodos = listTodosForSpace(items, spaceId);
-    // Apply optimistic completion state from ref - show ALL todos (completed ones at bottom)
+    // Apply optimistic completion state from ref - filter out completed for main section
     const withOptimistic = allTodos.map((todo: any) => {
       // Get database completion state - check both completed_at AND status field
       const dbCompleted = !!todo.completed_at || todo.status === 'completed';
@@ -714,8 +716,26 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         completed_at: isCompleted ? todo.completed_at || new Date().toISOString() : null,
       };
     });
-    return withOptimistic;
+    // Only return incomplete todos for the main section
+    return withOptimistic.filter((t: any) => !t.completed_at);
   }, [items, spaceId, optimisticVersion]); // optimisticVersion triggers recalc on forceUpdate
+
+  // Completed todos for the CompletedInSpaceOverlay
+  const completedTodosForSpace = useMemo(() => {
+    const allTodos = listTodosForSpace(items, spaceId);
+    // Apply optimistic completion state
+    const withOptimistic = allTodos.map((todo: any) => {
+      const dbCompleted = !!todo.completed_at || todo.status === 'completed';
+      const locallyToggled = localCompletedIdsRef.current.has(todo.id);
+      const isCompleted = locallyToggled ? !dbCompleted : dbCompleted;
+      return {
+        ...todo,
+        completed_at: isCompleted ? todo.completed_at || new Date().toISOString() : null,
+      };
+    });
+    // Only return completed todos
+    return withOptimistic.filter((t: any) => !!t.completed_at);
+  }, [items, spaceId, optimisticVersion]);
 
   const habitsForSpace = useMemo(() => {
     return listHabitsForSpace(items, spaceId);
@@ -822,6 +842,41 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         }
         forceUpdate();
         Alert.alert('Error', 'Failed to complete todo');
+      }
+    },
+    [repo],
+  );
+
+  // Handler to restore a completed todo (mark as incomplete)
+  const handleRestoreTodo = useCallback(
+    async (item: AppRecord) => {
+      const todoId = item.id;
+      console.log('[SpaceHome] Restore todo:', todoId);
+
+      // Haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      // Toggle in local ref to show optimistic update
+      if (localCompletedIdsRef.current.has(todoId)) {
+        localCompletedIdsRef.current.delete(todoId);
+      } else {
+        localCompletedIdsRef.current.add(todoId);
+      }
+      forceUpdate();
+
+      try {
+        // Call repo to restore the todo (sets status='active', clears completed_at)
+        await repo.restoreItem(todoId, 'todo');
+      } catch (e) {
+        console.warn('[SpaceHome] Failed to restore todo:', e);
+        // Revert optimistic update on error
+        if (localCompletedIdsRef.current.has(todoId)) {
+          localCompletedIdsRef.current.delete(todoId);
+        } else {
+          localCompletedIdsRef.current.add(todoId);
+        }
+        forceUpdate();
+        Alert.alert('Error', 'Failed to restore todo');
       }
     },
     [repo],
@@ -1274,6 +1329,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }
   }, [spaceId, repo, navigation]);
 
+  const getSpaceItemCounts = useCallback(async () => {
+    if (!spaceId) return { todos: 0, habits: 0, notes: 0 };
+    return repo.getSpaceItemCounts(spaceId);
+  }, [spaceId, repo]);
+
   const handleEditMilestoneFromSettings = useCallback(() => {
     setShowMilestoneModal(true);
   }, []);
@@ -1646,8 +1706,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               milestone={milestone}
               countdown={countdown}
               pinnedCount={pinnedCount}
+              completedCount={completedTodosForSpace.length}
               onGremlyPress={handleGremlyPress}
               onPinnedPress={handlePinnedPress}
+              onCompletedPress={() => setShowCompletedOverlay(true)}
               onNudgePress={handleMilestonePress}
               onMilestonePress={handleMilestonePress}
               onSettingsPress={handleSettingsPress}
@@ -1881,6 +1943,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onEditMilestone={handleEditMilestoneFromSettings}
           onSaveSpaceName={handleSaveSpaceName}
           onDeleteSpace={handleDeleteSpace}
+          getSpaceItemCounts={getSpaceItemCounts}
+        />
+
+        {/* Completed Items Overlay */}
+        <CompletedInSpaceOverlay
+          spaceId={spaceId}
+          spaceName={space?.name || 'this Space'}
+          visible={showCompletedOverlay}
+          onClose={() => setShowCompletedOverlay(false)}
+          completedTodos={completedTodosForSpace}
+          onRestore={handleRestoreTodo}
         />
 
         {/* Space Chat List Modal */}

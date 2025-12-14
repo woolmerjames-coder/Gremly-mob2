@@ -229,7 +229,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       });
 
       // Keep the item - auto-advances to Mood step
-      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
       // Step 2: Mood - skip
       await waitFor(() => {
@@ -385,7 +385,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       await waitFor(() => {
         result.getByText('Task 1');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
       await waitFor(() => {
         result.getByText('Task 2');
@@ -395,7 +395,7 @@ describe('SweepFlowScreen - Summary Step', () => {
       await waitFor(() => {
         result.getByText('Task 3');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
       // Auto-advances to Mood step after last card
       await waitFor(() => {
