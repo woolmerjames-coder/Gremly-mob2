@@ -38,23 +38,17 @@ export function TodoSection({
     setExpanded((prev) => !prev);
   }, []);
 
-  // Filter to incomplete todos first, then completed
-  const sortedTodos = [...todos].sort((a, b) => {
-    if (a.completed_at && !b.completed_at) return 1;
-    if (!a.completed_at && b.completed_at) return -1;
-    return 0;
-  });
-
-  const incompleteTodos = sortedTodos.filter((t) => !t.completed_at);
+  // Filter to ONLY incomplete todos (completed todos shown via CompletedInSpaceOverlay)
+  const incompleteTodos = todos.filter((t) => !t.completed_at && (t as any).status !== 'completed');
   const count = incompleteTodos.length;
 
-  // Hide section if no todos
-  if (todos.length === 0) {
+  // Hide section if no incomplete todos
+  if (incompleteTodos.length === 0) {
     return null;
   }
 
-  const visibleTodos = expanded ? sortedTodos : sortedTodos.slice(0, maxVisible);
-  const moreCount = sortedTodos.length - maxVisible;
+  const visibleTodos = expanded ? incompleteTodos : incompleteTodos.slice(0, maxVisible);
+  const moreCount = incompleteTodos.length - maxVisible;
   const showMore = !expanded && moreCount > 0;
 
   return (
@@ -69,7 +63,7 @@ export function TodoSection({
         <Text style={styles.headerText}>
           To Do <Text style={styles.headerCount}>({count})</Text>
         </Text>
-        {sortedTodos.length > maxVisible &&
+        {incompleteTodos.length > maxVisible &&
           (expanded ? (
             <ChevronUp size={18} color={BRAND.colors.inkMuted} />
           ) : (

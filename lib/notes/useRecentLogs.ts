@@ -222,15 +222,17 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
       threshold.setDate(threshold.getDate() - days);
       const thresholdISO = threshold.toISOString();
 
-      // Query notes table for recent logs
+      // Query notes table for recent logs OR favorited logs
+      // Per GREMLY_MASTER_SPECIFICATION.md Section 4.4:
+      // "Log created today OR marked as favorite → Shows"
       // Notes table stores journals, ideas, and general notes
       // Filter out archived notes (archived = true means deleted/converted)
       // Also fetch labels to filter out unsorted Mind Drop items
       const { data, error: queryError } = await supabase
         .from('notes')
-        .select('id, title, body, subtype, tags, labels, mood, created_at, updated_at')
+        .select('id, title, body, subtype, tags, labels, mood, is_favorite, created_at, updated_at')
         .eq('owner_id', userId)
-        .gte('created_at', thresholdISO)
+        .or(`created_at.gte.${thresholdISO},is_favorite.eq.true`)
         .or('archived.is.null,archived.eq.false')
         .order('created_at', { ascending: false });
 
@@ -255,7 +257,8 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
           if (isUnsortedMindDropItem(row.subtype, labels)) return false;
 
           // Include proper logs: journal, idea, catchall (log-general)
-          if (row.subtype === 'journal' || row.subtype === 'idea' || row.subtype === 'catchall') return true;
+          if (row.subtype === 'journal' || row.subtype === 'idea' || row.subtype === 'catchall')
+            return true;
           if (labels?.includes('log')) return true;
 
           // Default: include if no subtype (legacy items)

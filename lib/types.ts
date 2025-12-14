@@ -35,6 +35,8 @@ export interface Habit {
   space_id?: ID | null;
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type
+  archived_at?: string | null; // ISO 8601 timestamp when archived
+  archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
   origin?: 'catchall' | 'space_chat' | 'manual' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
@@ -109,6 +111,8 @@ export interface Todo {
   subtype?: 'reminder' | 'microproject' | null; // AI-only, never set by front-end
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type
+  archived_at?: string | null; // ISO 8601 timestamp when archived
+  archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
   origin?: 'catchall' | 'space_chat' | 'manual' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
@@ -156,6 +160,8 @@ export interface Note {
   space_id?: ID | null;
   ai_placed: boolean;
   archived?: boolean; // true when converted to another type
+  archived_at?: string | null; // ISO 8601 timestamp when archived
+  archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
   origin?: 'catchall' | 'space_chat' | 'manual' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;

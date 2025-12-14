@@ -453,7 +453,7 @@ describe('SweepCard', () => {
       const { getByRole, getByText } = render(
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} />,
       );
-      expect(getByRole('button', { name: 'Keep this item' })).toBeTruthy();
+      expect(getByRole('button', { name: 'Skip this item' })).toBeTruthy();
       expect(getByRole('button', { name: 'Clear this item' })).toBeTruthy();
       expect(getByText('Still matters →')).toBeTruthy();
       expect(getByText('← Done with this')).toBeTruthy();
@@ -463,7 +463,7 @@ describe('SweepCard', () => {
       const { getByRole, getByText } = render(
         <SweepCard candidate={mockNoteCandidate} {...defaultProps} />,
       );
-      expect(getByRole('button', { name: 'Keep this item' })).toBeTruthy();
+      expect(getByRole('button', { name: 'Skip this item' })).toBeTruthy();
       expect(getByRole('button', { name: 'Clear this item' })).toBeTruthy();
       expect(getByText('Save this →')).toBeTruthy();
       expect(getByText('← Remove this')).toBeTruthy();
@@ -484,7 +484,7 @@ describe('SweepCard', () => {
         <SweepCard candidate={mockTodoCandidate} {...defaultProps} onKeep={onKeep} />,
       );
       // Button should be pressable (animation will trigger and callback happens after)
-      expect(() => fireEvent.press(getByRole('button', { name: 'Keep this item' }))).not.toThrow();
+      expect(() => fireEvent.press(getByRole('button', { name: 'Skip this item' }))).not.toThrow();
     });
 
     it('Clear button is pressable', () => {
@@ -793,9 +793,7 @@ describe('SweepCard', () => {
     const mockNoteWithSingleAttachment: SweepCandidate = {
       ...mockNoteWithAttachments,
       id: 'note-single-photo',
-      attachments: [
-        { id: 'photo-1', url: 'https://example.com/photo1.jpg', position: 0 },
-      ],
+      attachments: [{ id: 'photo-1', url: 'https://example.com/photo1.jpg', position: 0 }],
     };
 
     it('renders photo preview for note with attachments', () => {

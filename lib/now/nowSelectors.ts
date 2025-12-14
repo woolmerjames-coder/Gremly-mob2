@@ -398,6 +398,12 @@ function formatTodoStatusText(todo: Todo, date: Date = new Date()): string {
 
 /**
  * Check if a habit is needed today
+ *
+ * Per GREMLY_MASTER_SPECIFICATION.md Section 4.2:
+ * - Daily habits: Always shown
+ * - Weekly habits with 0 done: Shows every day
+ * - Weekly habits with some done (flexible): Shows dimmed as "X more this week"
+ * - Weekly habits with target hit (week_complete): Hidden
  */
 export function isHabitNeededToday(
   habit: Habit,
@@ -412,8 +418,10 @@ export function isHabitNeededToday(
   }
 
   // Weekly habits - check status
+  // Show if on_track_today, last_chance, OR flexible (shown dimmed)
+  // Only hide if week_complete (target already hit)
   const status = getHabitWeeklyStatus(habit, completionsThisWeek, date);
-  return status === 'on_track_today' || status === 'last_chance';
+  return status === 'on_track_today' || status === 'last_chance' || status === 'flexible';
 }
 
 /**

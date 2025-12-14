@@ -167,15 +167,17 @@ describe('isHabitNeededToday', () => {
     expect(needed).toBe(true);
   });
 
-  it('returns false for weekly habits with flexible status', () => {
+  it('returns true for weekly habits with flexible status (shown dimmed)', () => {
+    // Per GREMLY_MASTER_SPECIFICATION.md Section 4.2:
+    // Flexible weekly habits should show in Today's Focus (dimmed)
     const habit = createMockHabit({
       cadence: 'weekly',
       target_per_period: 3,
     });
 
-    // 1 completion, need 2 more, 4 days left -> flexible
+    // 1 completion, need 2 more, 4 days left -> flexible (but still shown)
     const needed = isHabitNeededToday(habit, 1, testDate);
-    expect(needed).toBe(false);
+    expect(needed).toBe(true);
   });
 
   it('returns false for weekly habits that are week_complete', () => {
@@ -235,7 +237,9 @@ describe('getLockedItems', () => {
     expect(items).toHaveLength(0);
   });
 
-  it('excludes locked habits not needed today', () => {
+  it('includes locked flexible habits (shown dimmed per spec)', () => {
+    // Per GREMLY_MASTER_SPECIFICATION.md Section 4.2:
+    // Flexible weekly habits should show in Today's Focus (dimmed)
     const habit = createMockHabit({
       id: 'habit-weekly',
       cadence: 'weekly',
@@ -243,12 +247,13 @@ describe('getLockedItems', () => {
     });
     (habit as any).commitment = true;
 
-    // 1 completion, 2 needed, 4 days left -> flexible (not needed today)
+    // 1 completion, 2 needed, 4 days left -> flexible (but still shown)
     completionHistory.set('habit-weekly', 1);
 
     const items = getLockedItems([habit], completionHistory, testDate);
 
-    expect(items).toHaveLength(0);
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe('habit-weekly');
   });
 });
 
@@ -383,7 +388,9 @@ describe('getActiveTodayItems', () => {
     });
   });
 
-  it('excludes flexible weekly habits', () => {
+  it('includes flexible weekly habits (shown dimmed per spec)', () => {
+    // Per GREMLY_MASTER_SPECIFICATION.md Section 4.2:
+    // Flexible weekly habits should show in Today's Focus (dimmed)
     const habit = createMockHabit({
       id: 'habit-flexible',
       cadence: 'weekly',
@@ -396,7 +403,8 @@ describe('getActiveTodayItems', () => {
     const items = getActiveTodayItems([habit], completionHistory, testDate);
 
     const found = items.find((item) => item.id === 'habit-flexible');
-    expect(found).toBeUndefined();
+    expect(found).toBeDefined();
+    expect(found?.weeklyStatus).toBe('flexible');
   });
 });
 
@@ -430,7 +438,9 @@ describe('getFutureItems', () => {
     expect(found).toBeUndefined();
   });
 
-  it('includes flexible weekly habits', () => {
+  it('excludes flexible weekly habits (they show in Today Focus now)', () => {
+    // Per GREMLY_MASTER_SPECIFICATION.md Section 4.2:
+    // Flexible weekly habits should show in Today's Focus (dimmed), not Future
     const habit = createMockHabit({
       id: 'habit-flexible',
       cadence: 'weekly',
@@ -442,8 +452,9 @@ describe('getFutureItems', () => {
 
     const items = getFutureItems([habit], completionHistory, testDate);
 
+    // Flexible habits now appear in getActiveTodayItems, not getFutureItems
     const found = items.find((item) => item.id === 'habit-flexible');
-    expect(found).toBeDefined();
+    expect(found).toBeUndefined();
   });
 
   it('excludes todos due today', () => {
@@ -1152,7 +1163,7 @@ describe('archived item filtering', () => {
         status: 'archived',
       } as any);
 
-      // 1 completion makes them "flexible" (not needed today)
+      // 1 completion makes them "flexible" (shown in Today Focus per spec)
       const history = new Map([
         ['habit-flexible', 1],
         ['habit-archived', 1],
@@ -1160,8 +1171,9 @@ describe('archived item filtering', () => {
 
       const items = getFutureItems([flexibleHabit, archivedHabit], history, testDate);
 
-      expect(items).toHaveLength(1);
-      expect(items[0].id).toBe('habit-flexible');
+      // Flexible habits now show in Today's Focus (dimmed), not Future
+      // Only archived habit would be here, but it's filtered out
+      expect(items).toHaveLength(0);
     });
   });
 
@@ -1382,7 +1394,7 @@ describe('archived item filtering', () => {
       (sweptHabit as any).archived = true;
       (sweptHabit as any).archived_reason = 'swept';
 
-      // 1 completion makes them "flexible" (not needed today)
+      // 1 completion makes them "flexible" (shown in Today Focus per spec)
       const history = new Map([
         ['habit-flexible', 1],
         ['habit-swept', 1],
@@ -1390,8 +1402,9 @@ describe('archived item filtering', () => {
 
       const items = getFutureItems([flexibleHabit, sweptHabit], history, testDate);
 
-      expect(items).toHaveLength(1);
-      expect(items[0].id).toBe('habit-flexible');
+      // Flexible habits now show in Today's Focus (dimmed), not Future
+      // Swept habit is filtered out because archived=true
+      expect(items).toHaveLength(0);
     });
 
     it('handles item with both status=archived AND archived=true', () => {

@@ -14,8 +14,11 @@ export type Database = {
           dnd: Json | null;
           encouragement: string | null;
           evening_review: string | null;
+          last_learned_at: string | null;
+          last_sweep_completed_at: string | null;
           morning_preview: string | null;
           owner_id: string;
+          routing_keywords: Json | null;
           tone: string | null;
           updated_at: string | null;
         };
@@ -24,8 +27,11 @@ export type Database = {
           dnd?: Json | null;
           encouragement?: string | null;
           evening_review?: string | null;
+          last_learned_at?: string | null;
+          last_sweep_completed_at?: string | null;
           morning_preview?: string | null;
           owner_id: string;
+          routing_keywords?: Json | null;
           tone?: string | null;
           updated_at?: string | null;
         };
@@ -34,8 +40,11 @@ export type Database = {
           dnd?: Json | null;
           encouragement?: string | null;
           evening_review?: string | null;
+          last_learned_at?: string | null;
+          last_sweep_completed_at?: string | null;
           morning_preview?: string | null;
           owner_id?: string;
+          routing_keywords?: Json | null;
           tone?: string | null;
           updated_at?: string | null;
         };
@@ -46,6 +55,7 @@ export type Database = {
           created_at: string | null;
           entity_id: string;
           entity_type: string;
+          id: string | null;
           item_id: string | null;
           item_type: string | null;
           owner_id: string;
@@ -56,6 +66,7 @@ export type Database = {
           created_at?: string | null;
           entity_id: string;
           entity_type: string;
+          id?: string | null;
           item_id?: string | null;
           item_type?: string | null;
           owner_id: string;
@@ -66,6 +77,7 @@ export type Database = {
           created_at?: string | null;
           entity_id?: string;
           entity_type?: string;
+          id?: string | null;
           item_id?: string | null;
           item_type?: string | null;
           owner_id?: string;
@@ -106,83 +118,274 @@ export type Database = {
         };
         Relationships: [];
       };
+      focus_card: {
+        Row: {
+          created_at: string;
+          entry_id: string | null;
+          entry_type: string | null;
+          expires_at: string;
+          focus_day: string;
+          id: string;
+          owner_id: string;
+          source: string;
+        };
+        Insert: {
+          created_at?: string;
+          entry_id?: string | null;
+          entry_type?: string | null;
+          expires_at: string;
+          focus_day: string;
+          id?: string;
+          owner_id: string;
+          source: string;
+        };
+        Update: {
+          created_at?: string;
+          entry_id?: string | null;
+          entry_type?: string | null;
+          expires_at?: string;
+          focus_day?: string;
+          id?: string;
+          owner_id?: string;
+          source?: string;
+        };
+        Relationships: [];
+      };
+      habit_progress: {
+        Row: {
+          count: number;
+          habit_id: string;
+          id: string;
+          occurred_at: string;
+          occurred_day: string;
+          occurrence_index: number | null;
+          owner_id: string;
+        };
+        Insert: {
+          count?: number;
+          habit_id: string;
+          id?: string;
+          occurred_at?: string;
+          occurred_day: string;
+          occurrence_index?: number | null;
+          owner_id: string;
+        };
+        Update: {
+          count?: number;
+          habit_id?: string;
+          id?: string;
+          occurred_at?: string;
+          occurred_day?: string;
+          occurrence_index?: number | null;
+          owner_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'habit_progress_habit_id_fkey';
+            columns: ['habit_id'];
+            isOneToOne: false;
+            referencedRelation: 'habits';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       habits: {
         Row: {
           ai_placed: boolean;
+          archived: boolean;
+          archived_at: string | null;
+          archived_reason: string | null;
+          body_legacy: string | null;
           buddy_email: string | null;
           buddy_id: string | null;
+          cadence: string;
+          canonical_type: string | null;
+          commitment: boolean | null;
+          commitment_archived_at: string | null;
+          commitment_note: string | null;
+          commitment_started_at: string | null;
           completed_at: string | null;
           created_at: string | null;
+          days_active: string[] | null;
+          drop_id: string | null;
           end_date: string | null;
           frequency: string;
           frequency_json: Json | null;
+          has_list: boolean;
           id: string;
+          is_pinned: boolean | null;
+          labels: Json | null;
+          last_completed_at: string | null;
+          last_reset_date: string | null;
+          list_items: Json | null;
+          list_template_id: string | null;
+          locked_in: boolean;
+          locked_in_at: string | null;
           name: string;
+          notes: string | null;
+          origin: string | null;
           owner_id: string;
+          period_start_at: string | null;
+          period_unit: string;
           reminders_json: Json | null;
           replacement_habit_id: string | null;
           replacement_text: string | null;
+          skipped_in_sweep_at: string | null;
+          source_message_id: string | null;
           space_id: string | null;
           stack_offset_minutes: number | null;
           stack_position: string | null;
           stack_with_id: string | null;
           start_date: string | null;
+          subtype: string;
+          tags: string[] | null;
+          tags_meta: Json | null;
           taper_plan: Json | null;
+          target_count: number;
+          target_per_day: number | null;
+          target_per_period: number | null;
+          time_window: string;
+          title: string;
           triggers_json: Json | null;
           updated_at: string | null;
+          views: Json | null;
+          why_string: string | null;
         };
         Insert: {
           ai_placed?: boolean;
+          archived?: boolean;
+          archived_at?: string | null;
+          archived_reason?: string | null;
+          body_legacy?: string | null;
           buddy_email?: string | null;
           buddy_id?: string | null;
+          cadence?: string;
+          canonical_type?: string | null;
+          commitment?: boolean | null;
+          commitment_archived_at?: string | null;
+          commitment_note?: string | null;
+          commitment_started_at?: string | null;
           completed_at?: string | null;
           created_at?: string | null;
+          days_active?: string[] | null;
+          drop_id?: string | null;
           end_date?: string | null;
           frequency?: string;
           frequency_json?: Json | null;
+          has_list?: boolean;
           id?: string;
+          is_pinned?: boolean | null;
+          labels?: Json | null;
+          last_completed_at?: string | null;
+          last_reset_date?: string | null;
+          list_items?: Json | null;
+          list_template_id?: string | null;
+          locked_in?: boolean;
+          locked_in_at?: string | null;
           name: string;
+          notes?: string | null;
+          origin?: string | null;
           owner_id: string;
+          period_start_at?: string | null;
+          period_unit?: string;
           reminders_json?: Json | null;
           replacement_habit_id?: string | null;
           replacement_text?: string | null;
+          skipped_in_sweep_at?: string | null;
+          source_message_id?: string | null;
           space_id?: string | null;
           stack_offset_minutes?: number | null;
           stack_position?: string | null;
           stack_with_id?: string | null;
           start_date?: string | null;
+          subtype?: string;
+          tags?: string[] | null;
+          tags_meta?: Json | null;
           taper_plan?: Json | null;
+          target_count?: number;
+          target_per_day?: number | null;
+          target_per_period?: number | null;
+          time_window?: string;
+          title: string;
           triggers_json?: Json | null;
           updated_at?: string | null;
+          views?: Json | null;
+          why_string?: string | null;
         };
         Update: {
           ai_placed?: boolean;
+          archived?: boolean;
+          archived_at?: string | null;
+          archived_reason?: string | null;
+          body_legacy?: string | null;
           buddy_email?: string | null;
           buddy_id?: string | null;
+          cadence?: string;
+          canonical_type?: string | null;
+          commitment?: boolean | null;
+          commitment_archived_at?: string | null;
+          commitment_note?: string | null;
+          commitment_started_at?: string | null;
           completed_at?: string | null;
           created_at?: string | null;
+          days_active?: string[] | null;
+          drop_id?: string | null;
           end_date?: string | null;
           frequency?: string;
           frequency_json?: Json | null;
+          has_list?: boolean;
           id?: string;
+          is_pinned?: boolean | null;
+          labels?: Json | null;
+          last_completed_at?: string | null;
+          last_reset_date?: string | null;
+          list_items?: Json | null;
+          list_template_id?: string | null;
+          locked_in?: boolean;
+          locked_in_at?: string | null;
           name?: string;
+          notes?: string | null;
+          origin?: string | null;
           owner_id?: string;
+          period_start_at?: string | null;
+          period_unit?: string;
           reminders_json?: Json | null;
           replacement_habit_id?: string | null;
           replacement_text?: string | null;
+          skipped_in_sweep_at?: string | null;
+          source_message_id?: string | null;
           space_id?: string | null;
           stack_offset_minutes?: number | null;
           stack_position?: string | null;
           stack_with_id?: string | null;
           start_date?: string | null;
+          subtype?: string;
+          tags?: string[] | null;
+          tags_meta?: Json | null;
           taper_plan?: Json | null;
+          target_count?: number;
+          target_per_day?: number | null;
+          target_per_period?: number | null;
+          time_window?: string;
+          title?: string;
           triggers_json?: Json | null;
           updated_at?: string | null;
+          views?: Json | null;
+          why_string?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: 'habits_list_template_fk';
+            columns: ['list_template_id'];
+            isOneToOne: false;
+            referencedRelation: 'list_templates';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       list_items: {
         Row: {
+          completed_at: string | null;
           created_at: string | null;
           id: string;
           label: string;
@@ -192,6 +395,7 @@ export type Database = {
           unit: string | null;
         };
         Insert: {
+          completed_at?: string | null;
           created_at?: string | null;
           id?: string;
           label: string;
@@ -201,6 +405,7 @@ export type Database = {
           unit?: string | null;
         };
         Update: {
+          completed_at?: string | null;
           created_at?: string | null;
           id?: string;
           label?: string;
@@ -218,6 +423,42 @@ export type Database = {
             referencedColumns: ['id'];
           },
         ];
+      };
+      list_templates: {
+        Row: {
+          created_at: string;
+          id: string;
+          items: Json;
+          name: string;
+          owner_id: string;
+          scope: string;
+          source_entity_id: string | null;
+          source_entity_type: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          items?: Json;
+          name: string;
+          owner_id: string;
+          scope?: string;
+          source_entity_id?: string | null;
+          source_entity_type?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          items?: Json;
+          name?: string;
+          owner_id?: string;
+          scope?: string;
+          source_entity_id?: string | null;
+          source_entity_type?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
       };
       lists: {
         Row: {
@@ -246,57 +487,143 @@ export type Database = {
         };
         Relationships: [];
       };
+      log_photos: {
+        Row: {
+          created_at: string;
+          id: string;
+          note_id: string;
+          owner_id: string;
+          position: number;
+          url: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          note_id: string;
+          owner_id: string;
+          position?: number;
+          url: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          note_id?: string;
+          owner_id?: string;
+          position?: number;
+          url?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'log_photos_note_id_fkey';
+            columns: ['note_id'];
+            isOneToOne: false;
+            referencedRelation: 'notes';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       notes: {
         Row: {
           ai_placed: boolean;
+          archived: boolean;
+          archived_at: string | null;
+          archived_reason: string | null;
           body: string | null;
+          body_legacy: string | null;
+          canonical_type: string | null;
           created_at: string | null;
           date: string | null;
+          drop_id: string | null;
           fmt: string | null;
+          has_list: boolean;
           id: string;
+          is_favorite: boolean | null;
+          is_pinned: boolean | null;
           journal_subtype: string | null;
+          labels: Json | null;
+          list_items: Json | null;
           mood: string | null;
+          origin: string | null;
           owner_id: string;
           reminders_json: Json | null;
+          skipped_in_sweep_at: string | null;
+          source_message_id: string | null;
           space_id: string | null;
           subtype: string | null;
           tags: Json | null;
-          title: string | null;
+          tags_meta: Json | null;
+          title: string;
           updated_at: string | null;
+          views: Json | null;
+          why_string: string | null;
         };
         Insert: {
           ai_placed?: boolean;
+          archived?: boolean;
+          archived_at?: string | null;
+          archived_reason?: string | null;
           body?: string | null;
+          body_legacy?: string | null;
+          canonical_type?: string | null;
           created_at?: string | null;
           date?: string | null;
+          drop_id?: string | null;
           fmt?: string | null;
+          has_list?: boolean;
           id?: string;
+          is_favorite?: boolean | null;
+          is_pinned?: boolean | null;
           journal_subtype?: string | null;
+          labels?: Json | null;
+          list_items?: Json | null;
           mood?: string | null;
+          origin?: string | null;
           owner_id: string;
           reminders_json?: Json | null;
+          skipped_in_sweep_at?: string | null;
+          source_message_id?: string | null;
           space_id?: string | null;
           subtype?: string | null;
           tags?: Json | null;
-          title?: string | null;
+          tags_meta?: Json | null;
+          title: string;
           updated_at?: string | null;
+          views?: Json | null;
+          why_string?: string | null;
         };
         Update: {
           ai_placed?: boolean;
+          archived?: boolean;
+          archived_at?: string | null;
+          archived_reason?: string | null;
           body?: string | null;
+          body_legacy?: string | null;
+          canonical_type?: string | null;
           created_at?: string | null;
           date?: string | null;
+          drop_id?: string | null;
           fmt?: string | null;
+          has_list?: boolean;
           id?: string;
+          is_favorite?: boolean | null;
+          is_pinned?: boolean | null;
           journal_subtype?: string | null;
+          labels?: Json | null;
+          list_items?: Json | null;
           mood?: string | null;
+          origin?: string | null;
           owner_id?: string;
           reminders_json?: Json | null;
+          skipped_in_sweep_at?: string | null;
+          source_message_id?: string | null;
           space_id?: string | null;
           subtype?: string | null;
           tags?: Json | null;
-          title?: string | null;
+          tags_meta?: Json | null;
+          title?: string;
           updated_at?: string | null;
+          views?: Json | null;
+          why_string?: string | null;
         };
         Relationships: [];
       };
@@ -378,14 +705,67 @@ export type Database = {
         };
         Relationships: [];
       };
+      space_chat_messages: {
+        Row: {
+          chat_id: string;
+          content: string;
+          created_at: string | null;
+          id: string;
+          metadata: Json | null;
+          metadata_json: Json | null;
+          role: string;
+          space_id: string;
+          user_id: string;
+        };
+        Insert: {
+          chat_id: string;
+          content: string;
+          created_at?: string | null;
+          id?: string;
+          metadata?: Json | null;
+          metadata_json?: Json | null;
+          role?: string;
+          space_id: string;
+          user_id: string;
+        };
+        Update: {
+          chat_id?: string;
+          content?: string;
+          created_at?: string | null;
+          id?: string;
+          metadata?: Json | null;
+          metadata_json?: Json | null;
+          role?: string;
+          space_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'space_chat_messages_chat_id_fkey';
+            columns: ['chat_id'];
+            isOneToOne: false;
+            referencedRelation: 'space_chats';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'space_chat_messages_space_id_fkey';
+            columns: ['space_id'];
+            isOneToOne: false;
+            referencedRelation: 'spaces';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       space_chats: {
         Row: {
           archived_at: string | null;
+          context_json: Json | null;
           created_at: string | null;
           id: string;
           last_message_snippet: string | null;
           metadata_json: Json | null;
           pinned: boolean | null;
+          running_summary: string | null;
           space_id: string | null;
           title: string;
           updated_at: string | null;
@@ -393,11 +773,13 @@ export type Database = {
         };
         Insert: {
           archived_at?: string | null;
+          context_json?: Json | null;
           created_at?: string | null;
           id?: string;
           last_message_snippet?: string | null;
           metadata_json?: Json | null;
           pinned?: boolean | null;
+          running_summary?: string | null;
           space_id?: string | null;
           title: string;
           updated_at?: string | null;
@@ -405,11 +787,13 @@ export type Database = {
         };
         Update: {
           archived_at?: string | null;
+          context_json?: Json | null;
           created_at?: string | null;
           id?: string;
           last_message_snippet?: string | null;
           metadata_json?: Json | null;
           pinned?: boolean | null;
+          running_summary?: string | null;
           space_id?: string | null;
           title?: string;
           updated_at?: string | null;
@@ -425,12 +809,154 @@ export type Database = {
           },
         ];
       };
+      space_meta: {
+        Row: {
+          created_at: string | null;
+          id: string;
+          other_context: string | null;
+          owner_id: string;
+          space_id: string | null;
+          success_criteria: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          created_at?: string | null;
+          id?: string;
+          other_context?: string | null;
+          owner_id: string;
+          space_id?: string | null;
+          success_criteria?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          created_at?: string | null;
+          id?: string;
+          other_context?: string | null;
+          owner_id?: string;
+          space_id?: string | null;
+          success_criteria?: string | null;
+          updated_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'space_meta_space_id_fkey';
+            columns: ['space_id'];
+            isOneToOne: true;
+            referencedRelation: 'spaces';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      space_milestones: {
+        Row: {
+          completed: boolean | null;
+          completed_at: string | null;
+          created_at: string | null;
+          date: string | null;
+          id: string;
+          is_active: boolean | null;
+          name: string | null;
+          note: string | null;
+          owner_id: string;
+          sort_order: number | null;
+          space_id: string | null;
+          title: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          completed?: boolean | null;
+          completed_at?: string | null;
+          created_at?: string | null;
+          date?: string | null;
+          id?: string;
+          is_active?: boolean | null;
+          name?: string | null;
+          note?: string | null;
+          owner_id: string;
+          sort_order?: number | null;
+          space_id?: string | null;
+          title: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          completed?: boolean | null;
+          completed_at?: string | null;
+          created_at?: string | null;
+          date?: string | null;
+          id?: string;
+          is_active?: boolean | null;
+          name?: string | null;
+          note?: string | null;
+          owner_id?: string;
+          sort_order?: number | null;
+          space_id?: string | null;
+          title?: string;
+          updated_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'space_milestones_space_id_fkey';
+            columns: ['space_id'];
+            isOneToOne: false;
+            referencedRelation: 'spaces';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      space_summaries: {
+        Row: {
+          created_at: string;
+          extracted_bullets: Json;
+          id: string;
+          last_message_id: string | null;
+          model: string;
+          source_window: number;
+          space_id: string;
+          summary: string;
+          token_usage: number;
+        };
+        Insert: {
+          created_at?: string;
+          extracted_bullets?: Json;
+          id?: string;
+          last_message_id?: string | null;
+          model: string;
+          source_window?: number;
+          space_id: string;
+          summary: string;
+          token_usage?: number;
+        };
+        Update: {
+          created_at?: string;
+          extracted_bullets?: Json;
+          id?: string;
+          last_message_id?: string | null;
+          model?: string;
+          source_window?: number;
+          space_id?: string;
+          summary?: string;
+          token_usage?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'space_summaries_space_id_fkey';
+            columns: ['space_id'];
+            isOneToOne: false;
+            referencedRelation: 'spaces';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       spaces: {
         Row: {
           archived_at: string | null;
           created_at: string | null;
+          defaults_json: Json | null;
           icon: string | null;
           id: string;
+          last_summary: string | null;
+          last_summary_at: string | null;
+          last_summary_tokens: number | null;
           layout_state_json: Json | null;
           name: string;
           owner_id: string;
@@ -442,8 +968,12 @@ export type Database = {
         Insert: {
           archived_at?: string | null;
           created_at?: string | null;
+          defaults_json?: Json | null;
           icon?: string | null;
           id?: string;
+          last_summary?: string | null;
+          last_summary_at?: string | null;
+          last_summary_tokens?: number | null;
           layout_state_json?: Json | null;
           name: string;
           owner_id: string;
@@ -455,8 +985,12 @@ export type Database = {
         Update: {
           archived_at?: string | null;
           created_at?: string | null;
+          defaults_json?: Json | null;
           icon?: string | null;
           id?: string;
+          last_summary?: string | null;
+          last_summary_at?: string | null;
+          last_summary_tokens?: number | null;
           layout_state_json?: Json | null;
           name?: string;
           owner_id?: string;
@@ -476,6 +1010,7 @@ export type Database = {
           item_type: string | null;
           owner_id: string;
           tag_id: string;
+          user_id: string | null;
         };
         Insert: {
           created_at?: string | null;
@@ -485,6 +1020,7 @@ export type Database = {
           item_type?: string | null;
           owner_id: string;
           tag_id: string;
+          user_id?: string | null;
         };
         Update: {
           created_at?: string | null;
@@ -494,6 +1030,7 @@ export type Database = {
           item_type?: string | null;
           owner_id?: string;
           tag_id?: string;
+          user_id?: string | null;
         };
         Relationships: [
           {
@@ -507,94 +1044,253 @@ export type Database = {
       };
       tags: {
         Row: {
+          color: string | null;
           created_at: string | null;
           id: string;
           name: string;
           owner_id: string;
           updated_at: string | null;
+          user_id: string | null;
         };
         Insert: {
+          color?: string | null;
           created_at?: string | null;
           id?: string;
           name: string;
           owner_id: string;
           updated_at?: string | null;
+          user_id?: string | null;
         };
         Update: {
+          color?: string | null;
           created_at?: string | null;
           id?: string;
           name?: string;
           owner_id?: string;
           updated_at?: string | null;
+          user_id?: string | null;
         };
         Relationships: [];
       };
       todos: {
         Row: {
           ai_placed: boolean;
+          archived: boolean;
+          archived_at: string | null;
+          archived_reason: string | null;
+          body: string | null;
+          body_legacy: string | null;
+          canonical_type: string | null;
+          carry_forward: boolean;
+          commitment: boolean | null;
+          commitment_archived_at: string | null;
+          commitment_note: string | null;
+          commitment_started_at: string | null;
           completed_at: string | null;
           created_at: string | null;
+          drop_id: string | null;
           due_date: string | null;
+          due_day: string | null;
           due_time: string | null;
+          has_list: boolean;
           id: string;
+          is_pinned: boolean | null;
+          labels: Json | null;
+          list_items: Json | null;
+          locked_in: boolean;
+          locked_in_at: string | null;
           name: string;
           notes: string | null;
+          origin: string | null;
           owner_id: string;
           reminders_json: Json | null;
+          skipped_in_sweep_at: string | null;
+          source_message_id: string | null;
+          source_note_id: string | null;
           space_id: string | null;
+          status: string;
           subtype: string | null;
           tags: Json | null;
-          title: string | null;
+          tags_meta: Json | null;
+          title: string;
           undefined_due: boolean | null;
           updated_at: string | null;
+          views: Json | null;
+          why_string: string | null;
         };
         Insert: {
           ai_placed?: boolean;
+          archived?: boolean;
+          archived_at?: string | null;
+          archived_reason?: string | null;
+          body?: string | null;
+          body_legacy?: string | null;
+          canonical_type?: string | null;
+          carry_forward?: boolean;
+          commitment?: boolean | null;
+          commitment_archived_at?: string | null;
+          commitment_note?: string | null;
+          commitment_started_at?: string | null;
           completed_at?: string | null;
           created_at?: string | null;
+          drop_id?: string | null;
           due_date?: string | null;
+          due_day?: string | null;
           due_time?: string | null;
+          has_list?: boolean;
           id?: string;
+          is_pinned?: boolean | null;
+          labels?: Json | null;
+          list_items?: Json | null;
+          locked_in?: boolean;
+          locked_in_at?: string | null;
           name: string;
           notes?: string | null;
+          origin?: string | null;
           owner_id: string;
           reminders_json?: Json | null;
+          skipped_in_sweep_at?: string | null;
+          source_message_id?: string | null;
+          source_note_id?: string | null;
           space_id?: string | null;
+          status?: string;
           subtype?: string | null;
           tags?: Json | null;
-          title?: string | null;
+          tags_meta?: Json | null;
+          title: string;
           undefined_due?: boolean | null;
           updated_at?: string | null;
+          views?: Json | null;
+          why_string?: string | null;
         };
         Update: {
           ai_placed?: boolean;
+          archived?: boolean;
+          archived_at?: string | null;
+          archived_reason?: string | null;
+          body?: string | null;
+          body_legacy?: string | null;
+          canonical_type?: string | null;
+          carry_forward?: boolean;
+          commitment?: boolean | null;
+          commitment_archived_at?: string | null;
+          commitment_note?: string | null;
+          commitment_started_at?: string | null;
           completed_at?: string | null;
           created_at?: string | null;
+          drop_id?: string | null;
           due_date?: string | null;
+          due_day?: string | null;
           due_time?: string | null;
+          has_list?: boolean;
           id?: string;
+          is_pinned?: boolean | null;
+          labels?: Json | null;
+          list_items?: Json | null;
+          locked_in?: boolean;
+          locked_in_at?: string | null;
           name?: string;
           notes?: string | null;
+          origin?: string | null;
           owner_id?: string;
           reminders_json?: Json | null;
+          skipped_in_sweep_at?: string | null;
+          source_message_id?: string | null;
+          source_note_id?: string | null;
           space_id?: string | null;
+          status?: string;
           subtype?: string | null;
           tags?: Json | null;
-          title?: string | null;
+          tags_meta?: Json | null;
+          title?: string;
           undefined_due?: boolean | null;
           updated_at?: string | null;
+          views?: Json | null;
+          why_string?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'todos_source_note_id_fkey';
+            columns: ['source_note_id'];
+            isOneToOne: false;
+            referencedRelation: 'notes';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+    };
+    Views: {
+      view_today_items: {
+        Row: {
+          completed: boolean | null;
+          due_at: string | null;
+          id: string | null;
+          inserted_at: string | null;
+          kind: string | null;
+          title: string | null;
+          updated_at: string | null;
+          user_id: string | null;
         };
         Relationships: [];
       };
     };
-    Views: {
-      [_ in never]: never;
-    };
     Functions: {
+      complete_habit: { Args: { _id: string }; Returns: Json };
+      complete_item: { Args: { _id: string; _kind: string }; Returns: Json };
+      convert_or_create_from_drop: {
+        Args: {
+          p_drop_id: string;
+          p_owner: string;
+          p_payload: Json;
+          p_target: string;
+        };
+        Returns: string;
+      };
+      get_latest_space_summary: {
+        Args: { p_space: string };
+        Returns: {
+          created_at: string;
+          extracted_bullets: Json;
+          id: string;
+          summary: string;
+        }[];
+      };
+      get_rolling_habits: {
+        Args: never;
+        Returns: {
+          cadence: Database['public']['Enums']['cadence_type'];
+          id: string;
+          last_completed_at: string;
+          name: string;
+          period_count: number;
+          should_surface_today: boolean;
+          target_per_day: number;
+          target_per_period: number;
+          today_count: number;
+        }[];
+      };
+      list_checks: {
+        Args: { tbl: string };
+        Returns: {
+          check_clause: string;
+          constraint_name: string;
+        }[];
+      };
+      list_columns: {
+        Args: { tbl: string };
+        Returns: {
+          column_name: string;
+          data_type: string;
+        }[];
+      };
+      period_start: {
+        Args: { _cadence: Database['public']['Enums']['cadence_type'] };
+        Returns: string;
+      };
       uuid_generate_v4: { Args: never; Returns: string };
     };
     Enums: {
-      [_ in never]: never;
+      cadence_type: 'daily' | 'weekly' | 'monthly';
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -719,6 +1415,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      cadence_type: ['daily', 'weekly', 'monthly'],
+    },
   },
 } as const;

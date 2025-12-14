@@ -359,12 +359,26 @@ export function useSpaceAggregate(spaceId: string): SpaceAggregate {
       }
     };
 
+    const handleItemCompleted = (payload: { id: string; type: 'habit' | 'todo' }) => {
+      if (__DEV__) {
+        console.log('[useSpaceAggregate] ItemCompleted received', {
+          id: payload.id,
+          type: payload.type,
+          currentSpaceId: spaceId,
+        });
+      }
+      // Reload to update completion stats (habits completed, todos completed)
+      reload();
+    };
+
     const unsubCreate = eventBus.on('entity:created', handleEntityCreated);
     const unsubDelete = eventBus.on('entity:deleted', handleEntityDeleted);
+    const unsubComplete = eventBus.on('ItemCompleted', handleItemCompleted);
 
     return () => {
       if (typeof unsubCreate === 'function') unsubCreate();
       if (typeof unsubDelete === 'function') unsubDelete();
+      if (typeof unsubComplete === 'function') unsubComplete();
     };
   }, [spaceId, reload]);
 

@@ -10,7 +10,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Flag, Plus, Pin, MoreHorizontal, ChevronLeft } from 'lucide-react-native';
+import { Flag, Plus, Pin, MoreHorizontal, ChevronLeft, CheckCircle2 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import type { SpaceMilestone } from '../../lib/types';
 
@@ -23,8 +23,10 @@ interface MilestoneHeaderProps {
     isPast: boolean;
   };
   pinnedCount: number;
+  completedCount?: number;
   onGremlyPress: () => void;
   onPinnedPress: () => void;
+  onCompletedPress?: () => void;
   onNudgePress: () => void;
   onMilestonePress: () => void;
   onSettingsPress: () => void;
@@ -36,8 +38,10 @@ export function MilestoneHeader({
   milestone,
   countdown,
   pinnedCount,
+  completedCount = 0,
   onGremlyPress,
   onPinnedPress,
+  onCompletedPress,
   onNudgePress,
   onMilestonePress,
   onSettingsPress,
@@ -142,19 +146,42 @@ export function MilestoneHeader({
             </Pressable>
           )}
 
-          {/* Pinned pill - below milestone/nudge */}
-          {pinnedCount > 0 && (
-            <Pressable
-              onPress={onPinnedPress}
-              style={({ pressed }) => [styles.pinnedButton, pressed && styles.actionButtonPressed]}
-              accessibilityRole="button"
-              accessibilityLabel={`${pinnedCount} pinned items`}
-              testID="header-pinned-button"
-            >
-              <Pin size={14} color={BRAND.colors.mossGreen} />
-              <Text style={styles.pinnedButtonText}>{pinnedCount} pinned</Text>
-            </Pressable>
-          )}
+          {/* Action pills row - pinned and completed */}
+          <View style={styles.pillsRow}>
+            {/* Pinned pill */}
+            {pinnedCount > 0 && (
+              <Pressable
+                onPress={onPinnedPress}
+                style={({ pressed }) => [
+                  styles.pinnedButton,
+                  pressed && styles.actionButtonPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`${pinnedCount} pinned items`}
+                testID="header-pinned-button"
+              >
+                <Pin size={14} color={BRAND.colors.mossGreen} />
+                <Text style={styles.pinnedButtonText}>{pinnedCount} pinned</Text>
+              </Pressable>
+            )}
+
+            {/* Completed pill */}
+            {completedCount > 0 && onCompletedPress && (
+              <Pressable
+                onPress={onCompletedPress}
+                style={({ pressed }) => [
+                  styles.completedButton,
+                  pressed && styles.actionButtonPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`${completedCount} completed items`}
+                testID="header-completed-button"
+              >
+                <CheckCircle2 size={14} color={BRAND.colors.mossGreen} />
+                <Text style={styles.completedButtonText}>{completedCount} completed</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       </View>
     </View>
@@ -262,18 +289,38 @@ const styles = StyleSheet.create({
   actionButtonPressed: {
     opacity: 0.7,
   },
+  pillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 16,
+  },
   pinnedButton: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 5,
-    marginTop: 16,
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 16,
     backgroundColor: 'rgba(191, 216, 192, 0.25)',
   },
   pinnedButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+  },
+  completedButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(191, 216, 192, 0.25)',
+  },
+  completedButtonText: {
     fontSize: 14,
     fontWeight: '500',
     color: BRAND.colors.mossGreen,

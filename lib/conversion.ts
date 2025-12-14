@@ -135,6 +135,8 @@ export const convertLogListToTodo = async (
       id: note.id,
       patch: {
         archived: true,
+        archived_at: new Date().toISOString(),
+        archived_reason: 'converted',
         why_string: noteWhy,
       },
     })) as Note;
@@ -202,6 +204,8 @@ export const convertTodoToLogList = async (
       id: todo.id,
       patch: {
         archived: true,
+        archived_at: new Date().toISOString(),
+        archived_reason: 'converted',
         why_string: todoWhy,
       },
     })) as Todo;
@@ -307,6 +311,8 @@ export const convertUnsortedToTodo = async (
       id: note.id,
       patch: {
         archived: true,
+        archived_at: new Date().toISOString(),
+        archived_reason: 'converted',
         why_string: noteWhy,
       },
     })) as Note;
@@ -518,6 +524,8 @@ export const convertUnsortedToHabit = async (
       id: note.id,
       patch: {
         archived: true,
+        archived_at: new Date().toISOString(),
+        archived_reason: 'converted',
         why_string: noteWhy,
       },
     })) as Note;

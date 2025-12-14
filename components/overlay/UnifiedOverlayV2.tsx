@@ -5539,11 +5539,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                   );
                                                 }
 
-                                                // 2. THEN emit events so reload gets fresh data
-                                                eventBus.emit('ItemDeleted', {
-                                                  id: itemId,
-                                                  type: 'todo',
-                                                });
+                                                // 2. THEN emit event so reload gets fresh data
                                                 if (__DEV__) {
                                                   console.log(
                                                     '[UnifiedOverlayV2] Emitting entity:deleted',
@@ -5683,11 +5679,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                   );
                                                 }
 
-                                                // 2. THEN emit events so reload gets fresh data
-                                                eventBus.emit('ItemDeleted', {
-                                                  id: itemId,
-                                                  type: 'habit',
-                                                });
+                                                // 2. THEN emit event so reload gets fresh data
                                                 if (__DEV__) {
                                                   console.log(
                                                     '[UnifiedOverlayV2] Emitting entity:deleted',
@@ -5996,11 +5988,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                   );
                                                 }
 
-                                                // 2. THEN emit events so reload gets fresh data
-                                                eventBus.emit('ItemDeleted', {
-                                                  id: itemId,
-                                                  type: 'note',
-                                                });
+                                                // 2. THEN emit event so reload gets fresh data
                                                 if (__DEV__) {
                                                   console.log(
                                                     '[UnifiedOverlayV2] Emitting entity:deleted',

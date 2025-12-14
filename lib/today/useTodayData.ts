@@ -13,6 +13,7 @@ import { eventBus } from '../events';
 import type { Habit, Todo } from '../types';
 import { getGreeting, getMascotSubline } from './copy';
 import { env, type TimeWindow } from '../env';
+import { getTodayDayString } from '../date/computeDueDay';
 
 export interface EnrichedHabit {
   id: string;
@@ -622,16 +623,26 @@ export function useTodayData() {
             spaceName = space?.name;
           }
 
-          // Calculate overdue/nearDue
-          const now = new Date();
+          // Calculate overdue using due_day (canonical field) - avoids timezone issues
+          const todayStr = getTodayDayString();
           let overdue = false;
           let nearDue = false;
           let dueDate: Date | undefined;
 
-          if (todo.due_date) {
-            dueDate = new Date(todo.due_date);
-            overdue = dueDate < now;
-            nearDue = !overdue && dueDate.getTime() - now.getTime() < 3 * 60 * 60 * 1000; // Within 3 hours
+          if (todo.due_day) {
+            overdue = todo.due_day < todayStr;
+            // nearDue requires due_time - only set if we have both due_day=today AND due_time
+            if (todo.due_day === todayStr && todo.due_time) {
+              // Parse due_time (HH:mm) and compare to current time
+              const [hours, minutes] = todo.due_time.split(':').map(Number);
+              const dueDateTime = new Date();
+              dueDateTime.setHours(hours, minutes, 0, 0);
+              const msUntilDue = dueDateTime.getTime() - new Date().getTime();
+              nearDue = msUntilDue > 0 && msUntilDue < 3 * 60 * 60 * 1000; // Within 3 hours
+            }
+            // Set dueDate for sorting (use due_day at noon to avoid DST issues)
+            const [year, month, day] = todo.due_day.split('-').map(Number);
+            dueDate = new Date(year, month - 1, day, 12, 0, 0);
           }
 
           return {

@@ -392,9 +392,28 @@ export class MemoryRepo implements IRepo {
       .length;
   }
 
+  /**
+   * Check if an item is archived based on type-specific fields.
+   * - Todos: status='archived' OR archived=true
+   * - Habits: archived=true
+   * - Notes: archived=true (null treated as not archived for legacy data)
+   */
+  private isArchived(r: AppRecord): boolean {
+    if (r.type === 'todo') {
+      return (r as any).status === 'archived' || (r as any).archived === true;
+    }
+    if (r.type === 'habit') {
+      return (r as any).archived === true;
+    }
+    if (r.type === 'note') {
+      return (r as any).archived === true;
+    }
+    return false;
+  }
+
   async listBySpace(spaceId: ID, opts?: { tagNames?: string[] }): Promise<AppRecord[]> {
     let items = this.data.filter(
-      (r) => r.space_id === spaceId && r.owner_id === this.currentUserId,
+      (r) => r.space_id === spaceId && r.owner_id === this.currentUserId && !this.isArchived(r),
     );
 
     if (opts?.tagNames && opts.tagNames.length > 0) {
@@ -409,6 +428,8 @@ export class MemoryRepo implements IRepo {
     const q = text.toLowerCase();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
+      // Exclude archived items
+      if (this.isArchived(r)) return false;
       // For habits/todos, search in 'name'; for notes, search in 'title'
       const titleMatch =
         r.type === 'habit'
@@ -435,6 +456,8 @@ export class MemoryRepo implements IRepo {
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo' && r.type !== 'habit') return false;
+      // Exclude archived items
+      if (this.isArchived(r)) return false;
       const dueDate = r.type === 'todo' ? r.due_date : null;
       if (!dueDate) return false;
       try {
@@ -643,6 +666,8 @@ export class MemoryRepo implements IRepo {
     const activeTodos = this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo') return false;
+      // Exclude archived todos
+      if (this.isArchived(r)) return false;
       const carry = (r as any).carry_forward === true;
       const dueDay = r.due_date ? ensureDay(r.due_date) : null;
       const status = ((r as any).status ?? 'active') as 'active' | 'completed' | 'archived';
@@ -693,7 +718,7 @@ export class MemoryRepo implements IRepo {
     const todoItems = [...activeTodos, ...completedTodos].map(mapTodo);
 
     const habits = this.data.filter(
-      (r) => r.owner_id === this.currentUserId && r.type === 'habit',
+      (r) => r.owner_id === this.currentUserId && r.type === 'habit' && !this.isArchived(r),
     ) as Array<
       Habit &
         Partial<{
@@ -1058,6 +1083,35 @@ export class MemoryRepo implements IRepo {
     return { notesArchived, todosArchived, habitsArchived };
   }
 
+  /**
+   * Restore an archived item (todo, habit, or note).
+   */
+  async restoreItem(id: string, type: 'todo' | 'habit' | 'note'): Promise<void> {
+    const record = this.data.find(
+      (r) => r.id === id && r.owner_id === this.currentUserId && r.type === type,
+    );
+
+    if (!record) {
+      throw new Error(`Item not found: ${type} id=${id}`);
+    }
+
+    if (type === 'todo') {
+      (record as any).status = 'active';
+      (record as any).archived = false;
+      (record as any).archived_at = null;
+      (record as any).archived_reason = null;
+      (record as any).completed_at = null;
+    } else if (type === 'habit') {
+      (record as any).archived = false;
+      (record as any).archived_at = null;
+      (record as any).archived_reason = null;
+    } else if (type === 'note') {
+      (record as any).archived = false;
+      (record as any).archived_at = null;
+      (record as any).archived_reason = null;
+    }
+  }
+
   async countActiveCommitments(): Promise<number> {
     return this.data.filter(
       (row) => row.owner_id === this.currentUserId && (row as any).commitment === true,
@@ -1249,6 +1303,19 @@ export class MemoryRepo implements IRepo {
     this.spaces = this.spaces.filter(
       (s) => !(s.id === spaceId && s.owner_id === this.currentUserId),
     );
+  }
+
+  async getSpaceItemCounts(
+    spaceId: string,
+  ): Promise<{ todos: number; habits: number; notes: number }> {
+    const items = this.data.filter(
+      (r) => r.space_id === spaceId && r.owner_id === this.currentUserId,
+    );
+    return {
+      todos: items.filter((r) => r.type === 'todo').length,
+      habits: items.filter((r) => r.type === 'habit').length,
+      notes: items.filter((r) => r.type === 'note').length,
+    };
   }
 
   async listBySpaceGrouped(
@@ -1882,9 +1949,7 @@ export class MemoryRepo implements IRepo {
     // no-op
   }
 
-  async getPinnedItemsForSpace(
-    _spaceId: string,
-  ): Promise<{
+  async getPinnedItemsForSpace(_spaceId: string): Promise<{
     todos: import('../types').Todo[];
     habits: import('../types').Habit[];
     notes: import('../types').Note[];

@@ -52,10 +52,11 @@ import {
 import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
 import type { AppRecord } from '../../lib/types';
+import { useActionToast } from '../../src/hooks/useActionToast';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_MASCOT = require('../../assets/mascot/ACTUAL GREMLY.png');
+const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -465,6 +466,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const { userId } = useAuth();
   const repo = useRepo();
   const overlayController = useOverlayController();
+  const { showToast, Toast: ActionToast } = useActionToast({ bottomOffset: 100 });
 
   // State for candidates and navigation
   const [candidates, setCandidates] = useState<SweepCandidate[]>([]);
@@ -534,7 +536,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
    * Centralized handler for all sweep card outcomes.
    * Any meaningful action advances the card; "peek and close" stays.
    */
-  type SweepOutcome = 'keep' | 'clear' | 'changed' | 'stay';
+  type SweepOutcome = 'skip' | 'clear' | 'changed' | 'stay';
 
   // Store handleOutcome in a ref so the effect can access the latest version
   const handleOutcomeRef = useRef<(outcome: SweepOutcome) => void>(() => {});
@@ -545,27 +547,61 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       if (!candidate) return;
 
       switch (outcome) {
-        case 'keep': {
+        case 'skip': {
+          // User swiped RIGHT - defer this item to next sweep session
+          // Sets skipped_in_sweep_at = NOW() so it reappears next time
           try {
             await applySweepAction(
-              { type: 'keep', id: candidate.id, kind: candidate.kind },
+              { type: 'skip', id: candidate.id, kind: candidate.kind },
               supabase,
             );
             setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
           } catch (error) {
-            console.error('[SweepDecisionStep] handleOutcome keep error:', error);
+            console.error('[SweepDecisionStep] handleOutcome skip error:', error);
           }
           setCurrentIndex((prev) => prev + 1);
           break;
         }
 
         case 'clear': {
+          // Capture candidate info for undo before modifying state
+          // Get title from raw data: todos have 'name', notes have 'title'
+          const rawTitle =
+            candidate.kind === 'todo'
+              ? (candidate.raw as { name?: string }).name
+              : (candidate.raw as { title?: string }).title;
+          const clearedCandidate = { id: candidate.id, kind: candidate.kind, title: rawTitle };
           try {
             await applySweepAction(
               { type: 'clear', id: candidate.id, kind: candidate.kind },
               supabase,
             );
             setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
+
+            // Show undo toast after successful archive
+            const displayTitle = clearedCandidate.title
+              ? clearedCandidate.title.length > 30
+                ? clearedCandidate.title.slice(0, 30) + '…'
+                : clearedCandidate.title
+              : 'Item';
+            showToast({
+              type: 'success',
+              content: `🗃️ "${displayTitle}" archived`,
+              metadata: {
+                onUndo: async () => {
+                  try {
+                    await repo.restoreItem(
+                      clearedCandidate.id,
+                      clearedCandidate.kind as 'todo' | 'note',
+                    );
+                    setStats((prev) => ({ ...prev, cleared: Math.max(0, prev.cleared - 1) }));
+                    showToast({ type: 'success', content: '✅ Restored' });
+                  } catch (err) {
+                    console.error('[SweepDecisionStep] Undo restore failed:', err);
+                  }
+                },
+              },
+            });
           } catch (error) {
             console.error('[SweepDecisionStep] handleOutcome clear error:', error);
           }
@@ -594,7 +630,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           return;
       }
     },
-    [candidates, currentIndex],
+    [candidates, currentIndex, repo, showToast, supabase],
   );
 
   // Keep the ref updated with the latest handleOutcome
@@ -633,8 +669,8 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // ─────────────────────────────────────────────────────────────────────────
   // Card Action Handlers (wired to unified outcome handler)
   // ─────────────────────────────────────────────────────────────────────────
-  const handleKeep = useCallback(() => {
-    handleOutcome('keep');
+  const handleSkip = useCallback(() => {
+    handleOutcome('skip');
   }, [handleOutcome]);
 
   const handleClear = useCallback(() => {
@@ -898,7 +934,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           candidate={currentCandidate}
           index={currentIndex}
           total={candidates.length}
-          onKeep={handleKeep}
+          onSkip={handleSkip}
           onClear={handleClear}
           onOpenEdit={handleOpenEdit}
           onPrimaryAction={async (config, cand) => {
@@ -910,6 +946,9 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           onClose={onClose}
         />
       </View>
+
+      {/* Undo Toast for archive actions */}
+      {ActionToast}
     </View>
   );
 }

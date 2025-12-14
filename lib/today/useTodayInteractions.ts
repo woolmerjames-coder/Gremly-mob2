@@ -86,12 +86,12 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
     };
   }, []);
 
-  // Listen for ItemDeleted events and optimistically remove items from the list
+  // Listen for entity:deleted events and optimistically remove items from the list
   useEffect(() => {
     const unsubscribe = eventBus.on(
-      'ItemDeleted',
-      (event: { id: string; type: 'habit' | 'todo' | 'note' }) => {
-        console.log('[useTodayInteractions] ItemDeleted event:', event.id);
+      'entity:deleted',
+      (event: { id: string; type?: string; spaceId?: string | null }) => {
+        console.log('[useTodayInteractions] entity:deleted event:', event.id);
         setDeletedItemIds((prev) => new Set(prev).add(event.id));
       },
     );

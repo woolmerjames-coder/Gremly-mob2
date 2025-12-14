@@ -205,8 +205,9 @@ export function CompletedItemsModal({
     async (id: string, type: 'habit' | 'todo') => {
       try {
         // Use sweepApplyAction with archive action
+        // Note: 'manual' reason since this is from review modal, not Sweep swipe
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (repo as any).sweepApplyAction?.(id, type, 'archive', { archived_reason: 'swept' });
+        await (repo as any).sweepApplyAction?.(id, type, 'archive', { archived_reason: 'manual' });
         actionsRef.current.total += 1;
         actionsRef.current.archived += 1;
         await onActionComplete?.();

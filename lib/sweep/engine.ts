@@ -189,55 +189,31 @@ export async function fetchSweepCandidatesForUser(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Fetch NOTES (all Mind Drop captures)
+  // Fetch NOTES (Mind Drop captures) - with subtype-specific time windows
   // ─────────────────────────────────────────────────────────────────────────
   try {
-    // Get today's date string for first-time user fallback
+    // Get today's date string for filtering
     const todayDay = new Date().toISOString().split('T')[0];
 
-    // For notes, we want to include ALL Mind Drop captures that:
-    // 1. Are not archived
-    // 2. Meet one of these conditions:
-    //    - Created after last sweep completed (new captures)
-    //    - Previously skipped (skipped_in_sweep_at is set)
-    //    - For first-time users (no lastSweepAt): created today
-    //
-    // This ensures every Mind Drop entry gets at least one sweep review.
-    //
-    // Note: We exclude 'catchall' subtype as those are still being processed
-    // and haven't been converted to a canonical type yet.
-    const noteOrClause =
-      lastSweepAt != null
-        ? `created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`
-        : `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
-
-    const { data: notes, error: noteError } = await client
-      .from('notes')
-      .select('*, log_photos(id, url, position)')
-      .eq('owner_id', ownerId)
-      .eq('archived', false)
-      .neq('subtype', 'catchall') // Exclude unprocessed catchall items
-      .or(noteOrClause);
-
-    if (noteError) {
-      console.error('[Sweep] Failed to fetch notes:', noteError);
-    } else if (notes) {
-      for (const row of notes) {
+    // Helper to process note rows into candidates
+    const processNoteRows = (rows: any[]) => {
+      for (const row of rows) {
         // Compute isCreatedToday: createdAt is on today's date
         const createdDay = row.created_at ? row.created_at.split('T')[0] : null;
         const isCreatedToday = createdDay === todayDay;
 
         // Extract attachments from the joined log_photos
         const rawPhotos = (row as any).log_photos;
-        const attachments: SweepAttachment[] | undefined = Array.isArray(rawPhotos) && rawPhotos.length > 0
-          ? rawPhotos
-              .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
-              .map((photo: any) => ({
-                id: photo.id,
-                url: photo.url,
-                position: photo.position ?? 0,
-              }))
-          : undefined;
+        const attachments: SweepAttachment[] | undefined =
+          Array.isArray(rawPhotos) && rawPhotos.length > 0
+            ? rawPhotos
+                .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+                .map((photo: any) => ({
+                  id: photo.id,
+                  url: photo.url,
+                  position: photo.position ?? 0,
+                }))
+            : undefined;
 
         candidates.push({
           id: row.id,
@@ -252,31 +228,125 @@ export async function fetchSweepCandidatesForUser(
           attachments,
         });
       }
+    };
+
+    // ─────────────────────────────────────────────────────────────────────
+    // IDEAS - 7 day window (ideas are worth revisiting longer)
+    // ─────────────────────────────────────────────────────────────────────
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const ideaOrClause = `created_at.gt.${sevenDaysAgo},skipped_in_sweep_at.not.is.null`;
+
+    const { data: ideas, error: ideaError } = await client
+      .from('notes')
+      .select('*, log_photos(id, url, position)')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .eq('subtype', 'idea')
+      .or(ideaOrClause);
+
+    if (ideaError) {
+      console.error('[Sweep] Failed to fetch ideas:', ideaError);
+    } else if (ideas) {
+      processNoteRows(ideas);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GENERAL LOGS - today only (recent captures that need triage)
+    // ─────────────────────────────────────────────────────────────────────
+    const generalOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+
+    const { data: generalLogs, error: generalError } = await client
+      .from('notes')
+      .select('*, log_photos(id, url, position)')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .eq('subtype', 'general')
+      .or(generalOrClause);
+
+    if (generalError) {
+      console.error('[Sweep] Failed to fetch general logs:', generalError);
+    } else if (generalLogs) {
+      processNoteRows(generalLogs);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // LISTS - today only (recent captures that need triage)
+    // Note: 'catchall' and 'journal' subtypes are excluded from sweep
+    // ─────────────────────────────────────────────────────────────────────
+    const listOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+
+    const { data: lists, error: listError } = await client
+      .from('notes')
+      .select('*, log_photos(id, url, position)')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .eq('subtype', 'list')
+      .or(listOrClause);
+
+    if (listError) {
+      console.error('[Sweep] Failed to fetch lists:', listError);
+    } else if (lists) {
+      processNoteRows(lists);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // REFERENCE notes - today only
+    // ─────────────────────────────────────────────────────────────────────
+    const refOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+
+    const { data: refs, error: refError } = await client
+      .from('notes')
+      .select('*, log_photos(id, url, position)')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .eq('subtype', 'reference')
+      .or(refOrClause);
+
+    if (refError) {
+      console.error('[Sweep] Failed to fetch reference notes:', refError);
+    } else if (refs) {
+      processNoteRows(refs);
     }
   } catch (error) {
     console.error('[Sweep] Unexpected error fetching notes:', error);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Deduplicate candidates by ID
+  // ─────────────────────────────────────────────────────────────────────────
+  // Notes are fetched in multiple queries by subtype. In tests or edge cases,
+  // the same note might appear in multiple query results. Deduplicate by ID.
+  const seenIds = new Set<string>();
+  const deduplicatedCandidates = candidates.filter((candidate) => {
+    if (seenIds.has(candidate.id)) {
+      return false;
+    }
+    seenIds.add(candidate.id);
+    return true;
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Sort by createdAt ascending (oldest first)
   // ─────────────────────────────────────────────────────────────────────────
   // This ensures users process older items first, which makes more sense
   // for a "sweep" workflow where you're catching up on things.
-  candidates.sort((a, b) => {
+  deduplicatedCandidates.sort((a, b) => {
     const dateA = new Date(a.createdAt).getTime();
     const dateB = new Date(b.createdAt).getTime();
     return dateA - dateB;
   });
 
   // Enhanced diagnostic logging for debugging count discrepancy
-  const todoCandidates = candidates.filter((c) => c.kind === 'todo');
-  const noteCandidates = candidates.filter((c) => c.kind === 'note');
+  const todoCandidates = deduplicatedCandidates.filter((c) => c.kind === 'todo');
+  const noteCandidates = deduplicatedCandidates.filter((c) => c.kind === 'note');
 
   console.log('[Sweep] fetchSweepCandidatesForUser:', {
     ownerId,
     cutoffTimestamp,
     lastSweepAt,
-    candidateCount: candidates.length,
+    candidateCount: deduplicatedCandidates.length,
+    rawCandidateCount: candidates.length,
+    deduplicatedCount: candidates.length - deduplicatedCandidates.length,
     breakdown: {
       todos: todoCandidates.length,
       notes: noteCandidates.length,
@@ -296,7 +366,7 @@ export async function fetchSweepCandidatesForUser(
     })),
   });
 
-  return candidates;
+  return deduplicatedCandidates;
 }
 
 /**
@@ -311,10 +381,9 @@ export async function fetchSweepCandidatesForUser(
  *   The user reviewed this item and wants to keep it as-is.
  *   It won't reappear in future sweeps unless new activity occurs.
  *
- * - `clear`: Archives the item by setting:
- *   - `archived = true`
- *   - `archived_reason = 'swept'`
- *   - `archived_at = now()`
+ * - `clear`: Behavior depends on item type:
+ *   - **Todos:** Archives by setting `archived = true`, `archived_reason = 'swept'`, `archived_at = now()`
+ *   - **Notes:** Just clears `skipped_in_sweep_at` (confirms reviewed, keeps in Your Notes)
  *
  * - `skip`: Sets `skipped_in_sweep_at = now()`.
  *   The user deferred the decision — this item will reappear
@@ -347,19 +416,34 @@ export async function applySweepAction(
       }
 
       case 'clear': {
-        // Archive the item with reason 'swept'.
-        // All three tables (todos, habits, notes) have these fields.
-        const { error } = await client
-          .from(tableName)
-          .update({
-            archived: true,
-            archived_reason: 'swept',
-            archived_at: now,
-          })
-          .eq('id', action.id);
+        // Handle 'clear' action differently based on item type:
+        // - Todos: Archive (remove from active views)
+        // - Notes: Just confirm reviewed (clear skip marker, keep in Your Notes)
+        if (action.kind === 'todo') {
+          // Archive todos with reason 'swept'
+          const { error } = await client
+            .from('todos')
+            .update({
+              archived: true,
+              archived_reason: 'swept',
+              archived_at: now,
+            })
+            .eq('id', action.id);
 
-        if (error) {
-          console.error(`[Sweep] Failed to apply 'clear' to ${action.kind}:`, error);
+          if (error) {
+            console.error(`[Sweep] Failed to archive todo:`, error);
+          }
+        } else if (action.kind === 'note') {
+          // For notes (ideas, general logs): just clear the skip marker, don't archive
+          // This confirms the item was reviewed but keeps it in Your Notes
+          const { error } = await client
+            .from('notes')
+            .update({ skipped_in_sweep_at: null })
+            .eq('id', action.id);
+
+          if (error) {
+            console.error(`[Sweep] Failed to confirm note:`, error);
+          }
         }
         break;
       }

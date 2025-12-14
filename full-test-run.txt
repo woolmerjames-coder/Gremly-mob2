@@ -1,0 +1,5 @@
+
+> gremly-mob2@1.0.0 test
+> jest --bail=false --no-coverage
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`

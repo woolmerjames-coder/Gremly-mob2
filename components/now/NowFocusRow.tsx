@@ -117,6 +117,10 @@ export function NowFocusRow({
   const tokens = useTokens();
   const reducedMotion = useReducedMotion();
 
+  // Check if this is a flexible weekly habit (should be dimmed)
+  const isFlexible =
+    item.type === 'habit' && 'weeklyStatus' in item && item.weeklyStatus === 'flexible';
+
   // Debug: Log reducedMotion value
   console.log('[NowFocusRow] reducedMotion:', reducedMotion);
 
@@ -351,8 +355,8 @@ export function NowFocusRow({
 
           {/* Content area */}
           <Box style={styles.content}>
-            {/* Text block */}
-            <Box style={[styles.textContainer, isFuture && styles.futureText]}>
+            {/* Text block - dimmed for flexible weekly habits and future items */}
+            <Box style={[styles.textContainer, (isFuture || isFlexible) && styles.dimmedText]}>
               {/* Title row - full width for task name */}
               <Text
                 numberOfLines={1}
@@ -487,7 +491,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  futureText: {
+  dimmedText: {
     opacity: 0.6,
   },
   itemText: {

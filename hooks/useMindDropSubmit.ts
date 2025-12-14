@@ -27,6 +27,7 @@ import { testLogger } from '../src/utils/TestLogger';
 import { setTestProbeEntityId } from '../lib/config/surfaceProbe';
 import { QARunner } from '../src/qa/QARunner';
 import { checkAllInvariants } from '../lib/minddrop/invariants';
+import { buildTodoFields } from '../lib/cortex/textNormalization';
 
 /**
  * Context for submitting a mind drop
@@ -128,7 +129,10 @@ export function useMindDropSubmit(): {
       // Prevent double submission
       if (submitLockRef.current) {
         if (testEnabled) {
-          testLogger.assert('error', false, { where: 'submit_lock', message: 'Submission already in progress' });
+          testLogger.assert('error', false, {
+            where: 'submit_lock',
+            message: 'Submission already in progress',
+          });
           testLogger.end(false);
         }
         return {
@@ -150,7 +154,10 @@ export function useMindDropSubmit(): {
           submitLockRef.current = false;
           setIsSubmitting(false);
           if (testEnabled) {
-            testLogger.assert('error', false, { where: 'empty_text', message: 'Cannot submit empty drop' });
+            testLogger.assert('error', false, {
+              where: 'empty_text',
+              message: 'Cannot submit empty drop',
+            });
             testLogger.end(false);
           }
           return {
@@ -229,13 +236,36 @@ export function useMindDropSubmit(): {
         let entity;
 
         if (entityType === 'todo') {
+          // Extract date from text using local parsing (fast, no AI needed)
+          // This provides immediate due_day even before Phase 2 enrichment
+          const parsedFields = buildTodoFields(effectiveText);
+
+          // Determine due_day: explicit from text > today source > null
+          let initialDueDay: string | null = null;
+          let initialDueDate: string | null = null;
+          let initialDueTime: string | null = null;
+
+          if (parsedFields.dueDay) {
+            // User said "tomorrow", "next monday", etc.
+            initialDueDay = parsedFields.dueDay;
+            initialDueDate = parsedFields.dueDay;
+            initialDueTime = parsedFields.dueTime ?? null;
+          } else if (context.source === 'today') {
+            // Dropped from Today tab → due today
+            initialDueDay = today;
+            initialDueDate = today;
+          }
+
           entity = await repo.create({
             type: 'todo',
-            name: effectiveText,
+            name: parsedFields.title || effectiveText, // Use cleaned title (without "tomorrow")
+            body: effectiveText, // Preserve original text
             space_id: context.spaceId ?? null,
             dropId,
             origin: context.source === 'space' ? 'space_chat' : 'catchall',
-            due_date: context.source === 'today' ? today : null,
+            due_day: initialDueDay,
+            due_date: initialDueDate,
+            due_time: initialDueTime,
             views: {
               minddrop_stage: 'classified',
               ai_pending: true,
