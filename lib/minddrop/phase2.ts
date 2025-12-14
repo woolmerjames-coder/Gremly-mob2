@@ -248,13 +248,28 @@ export async function runPhase2(
       }
 
       // Build update payload based on bucket type
+      // Merge people[] into tags as @name format for persistence
+      const peopleTags = (result.people || [])
+        .map((name: string) => {
+          const normalized = name
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, '-')
+            .replace(/[^a-z0-9-]/g, '');
+          return normalized ? `@${normalized}` : null;
+        })
+        .filter((t): t is string => t !== null && t.length >= 2);
+
+      // Combine category tags + people tags (deduped)
+      const allTags = Array.from(new Set([...result.tags, ...peopleTags]));
+
       const updatePayload: Record<string, any> = {
         views: {
           ...entity.views,
           minddrop_stage: 'enriched',
           ai_pending: false,
         },
-        tags: result.tags.length > 0 ? result.tags : undefined,
+        tags: allTags.length > 0 ? allTags : undefined,
       };
 
       // Set title/name based on entity type
