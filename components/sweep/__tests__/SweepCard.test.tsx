@@ -190,7 +190,7 @@ const mockLogCandidate: SweepCandidate = {
 const defaultProps: Omit<SweepCardProps, 'candidate'> = {
   index: 0,
   total: 5,
-  onKeep: jest.fn(),
+  onSkip: jest.fn(),
   onClear: jest.fn(),
   onOpenEdit: jest.fn(),
   onConvertToTodo: jest.fn(),
@@ -479,9 +479,9 @@ describe('SweepCard', () => {
 
   describe('Button Interactions', () => {
     it('Keep button is pressable', () => {
-      const onKeep = jest.fn();
+      const onSkip = jest.fn();
       const { getByRole } = render(
-        <SweepCard candidate={mockTodoCandidate} {...defaultProps} onKeep={onKeep} />,
+        <SweepCard candidate={mockTodoCandidate} {...defaultProps} onSkip={onSkip} />,
       );
       // Button should be pressable (animation will trigger and callback happens after)
       expect(() => fireEvent.press(getByRole('button', { name: 'Skip this item' }))).not.toThrow();

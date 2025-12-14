@@ -644,7 +644,8 @@ export function SweepCard({
   // Button handlers with animation
   const handleKeepPress = useCallback(() => {
     // For undated todos, show date picker first
-    if (candidate.kind === 'todo' && !candidate.raw.due_day) {
+    const hasDueDay = candidate.kind === 'todo' && candidate.raw.due_day;
+    if (candidate.kind === 'todo' && !hasDueDay) {
       setKeepAfterDatePick(true);
       setShowDatePicker(true);
       return;
@@ -662,7 +663,7 @@ export function SweepCard({
       },
     );
     cardOpacity.value = withTiming(0, { duration: 200 });
-  }, [onSkip, translateX, cardOpacity, candidate.kind, candidate.raw.due_day]);
+  }, [onSkip, translateX, cardOpacity, candidate.kind, candidate]);
 
   const handleClearPress = useCallback(() => {
     // In test mode, call directly without animation
