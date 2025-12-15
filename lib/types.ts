@@ -144,6 +144,9 @@ export interface Todo {
 
   // Completion tracking (soft delete)
   completed_at?: string | null;
+
+  // Sweep tracking
+  skipped_in_sweep_at?: string | null;
 }
 
 /**
@@ -197,6 +200,9 @@ export interface Note {
 
   // Phase 12: Pinned items feature
   is_pinned?: boolean;
+
+  // Sweep tracking
+  skipped_in_sweep_at?: string | null;
 }
 
 /**

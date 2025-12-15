@@ -29,17 +29,19 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
 import { Icon } from '../../design-system/Icon';
-import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
-import { useTodayEntries, type TodayMergedEntry } from '../../lib/today/hooks/useTodayEntries';
-import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
-import { supabase } from '../../lib/supabase/client';
+// Zustand store - used for all Sweep data operations
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import {
-  fetchSweepCandidatesForUser,
-  applySweepAction,
-  markSweepCompleted,
-} from '../../lib/sweep/engine';
+  useTodayHabits,
+  useHabitsCompletedToday,
+  useIsLoading,
+  useSweepCandidatesUnified,
+} from '../../lib/store/selectors';
+import type { Habit } from '../../lib/types';
+import { supabase } from '../../lib/supabase/client';
+import { markSweepCompleted } from '../../lib/sweep/engine';
 import type { SweepCandidate, SweepPrimaryActionConfig, SweepSummary } from '../../lib/sweep/types';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { useOverlayController } from '../../hooks/useOverlayController';
@@ -215,9 +217,12 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
  * On Continue:
  * - If mood or journal text is provided, creates a journal note
  * - Tags the note with sweep_reflection metadata
+ *
+ * MIGRATED: Now uses Zustand store's createNote instead of useRepo
  */
 function SweepMoodStep({ onContinue }: StepProps) {
-  const repo = useRepo();
+  // Use store's createNote mutation
+  const createNote = useGremlyStore((state) => state.createNote);
   const [selectedMood, setSelectedMood] = useState<MoodValue | null>(null);
   const [journalText, setJournalText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -231,10 +236,8 @@ function SweepMoodStep({ onContinue }: StepProps) {
 
     setIsSaving(true);
     try {
-      // Create a journal note for the sweep reflection
-      // Following the same pattern as UnifiedOverlayV2 for journal/log creation
-      await repo.create({
-        type: 'note',
+      // Create a journal note for the sweep reflection using store mutation
+      await createNote({
         subtype: 'journal',
         title: journalText.trim() || `Evening reflection`,
         body: journalText.trim() || undefined,
@@ -259,7 +262,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
       setIsSaving(false);
       onContinue();
     }
-  }, [repo, selectedMood, journalText, onContinue]);
+  }, [createNote, selectedMood, journalText, onContinue]);
 
   const handleSkip = useCallback(() => {
     // Skip without saving anything
@@ -363,49 +366,94 @@ function SweepMoodStep({ onContinue }: StepProps) {
  *
  * Habits-only step to mark what the user managed today.
  * Everything resets tomorrow - just a simple checklist.
+ *
+ * MIGRATED: Now uses Zustand store instead of useTodayEntries/useTodayInteractions
  */
 function SweepWrapUpStep({ onContinue }: StepProps) {
-  const { items, loading, reload } = useTodayEntries();
-  const interactions = useTodayInteractions({
-    onReload: reload,
-    celebrationEnabled: false,
-    showCelebrationToast: false,
-  });
+  // Zustand store selectors
+  const loading = useIsLoading();
+  const todayHabits = useTodayHabits(); // Habits due today (not completed)
+  const completedHabits = useHabitsCompletedToday(); // Habits completed today
 
-  // Filter to habits only
+  // Store mutations
+  const completeHabit = useGremlyStore((state) => state.completeHabit);
+  const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
+
+  // Track locally completed habits during this session for optimistic UI
+  const [sessionCompletedIds, setSessionCompletedIds] = useState<Set<string>>(new Set());
+
+  // Build the set of completed habit IDs (from store + session)
+  const completedHabitIds = useMemo(() => {
+    const ids = new Set<string>();
+    completedHabits.forEach((h) => ids.add(h.id));
+    sessionCompletedIds.forEach((id) => ids.add(id));
+    return ids;
+  }, [completedHabits, sessionCompletedIds]);
+
+  // Filter to only uncompleted habits for this checklist
   const habits = useMemo(() => {
-    const habitsList: TodayMergedEntry[] = [];
+    return todayHabits.filter((h) => !completedHabitIds.has(h.id));
+  }, [todayHabits, completedHabitIds]);
 
-    for (const item of items) {
-      // Skip items that have been optimistically completed
-      if (item.type === 'habit' && interactions.completedHabitIds.has(item.id)) continue;
-      if (interactions.deletedItemIds.has(item.id)) continue;
-
-      if (item.type === 'habit') {
-        habitsList.push(item);
-      }
-    }
-
-    return habitsList;
-  }, [items, interactions.completedHabitIds, interactions.deletedItemIds]);
-
-  // Handle habit completion
+  // Handle habit completion toggle
   const handleHabitToggle = useCallback(
-    async (habit: TodayMergedEntry) => {
-      if (habit.type !== 'habit') return;
-      await interactions.toggleHabitComplete({
-        id: habit.id,
-        name: habit.name,
-      });
+    async (habit: Habit) => {
+      const isCompleted = completedHabitIds.has(habit.id);
+
+      if (isCompleted) {
+        // Uncomplete - remove from session completed
+        setSessionCompletedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(habit.id);
+          return next;
+        });
+        try {
+          await uncompleteHabit(habit.id);
+        } catch (error) {
+          console.error('[SweepWrapUpStep] Failed to uncomplete habit:', error);
+          // Add back to session on failure
+          setSessionCompletedIds((prev) => new Set(prev).add(habit.id));
+        }
+      } else {
+        // Complete - add to session completed optimistically
+        setSessionCompletedIds((prev) => new Set(prev).add(habit.id));
+        try {
+          await completeHabit(habit.id);
+        } catch (error) {
+          console.error('[SweepWrapUpStep] Failed to complete habit:', error);
+          // Remove from session on failure
+          setSessionCompletedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(habit.id);
+            return next;
+          });
+        }
+      }
     },
-    [interactions],
+    [completedHabitIds, completeHabit, uncompleteHabit],
   );
 
   // Check if there are no habits
-  const isEmpty = habits.length === 0;
+  const isEmpty =
+    habits.length === 0 && completedHabits.length === 0 && sessionCompletedIds.size === 0;
 
   // Count open habits for the reminder message
   const openHabitsCount = habits.length;
+
+  // Combine uncompleted and completed habits for display
+  // Show uncompleted first, then completed (for checking off)
+  // NOTE: Must be before any early returns to avoid conditional hook error
+  const allHabits = useMemo(() => {
+    // Get all habits that should be shown (due today or already completed)
+    const combined = [...habits];
+    // Add completed habits that aren't already in the list
+    for (const h of completedHabits) {
+      if (!combined.some((c) => c.id === h.id)) {
+        combined.push(h);
+      }
+    }
+    return combined;
+  }, [habits, completedHabits]);
 
   if (loading) {
     return (
@@ -451,12 +499,12 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
         ) : (
           <View style={styles.wrapUpSection}>
             <View style={styles.wrapUpItemsList}>
-              {habits.map((habit, index) => (
+              {allHabits.map((habit, index) => (
                 <TouchableOpacity
                   key={habit.id}
                   style={[
                     styles.wrapUpItemRow,
-                    index < habits.length - 1 && styles.wrapUpItemRowBorder,
+                    index < allHabits.length - 1 && styles.wrapUpItemRowBorder,
                   ]}
                   onPress={() => handleHabitToggle(habit)}
                   activeOpacity={0.7}
@@ -466,11 +514,10 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
                     <View
                       style={[
                         styles.wrapUpCheckbox,
-                        interactions.completedHabitIds.has(habit.id) &&
-                          styles.wrapUpCheckboxChecked,
+                        completedHabitIds.has(habit.id) && styles.wrapUpCheckboxChecked,
                       ]}
                     >
-                      {interactions.completedHabitIds.has(habit.id) && (
+                      {completedHabitIds.has(habit.id) && (
                         <Text style={styles.wrapUpCheckmark}>✓</Text>
                       )}
                     </View>
@@ -523,15 +570,48 @@ interface DecisionStepProps {
   onClose?: () => void;
 }
 
+/**
+ * Hook to snapshot sweep candidates on initial load.
+ * Prevents items from disappearing mid-sweep when they're archived/skipped.
+ */
+function useSweepSnapshot(allCandidates: SweepCandidate[], storeIsLoading: boolean) {
+  const [snapshot, setSnapshot] = useState<SweepCandidate[] | null>(null);
+
+  // Take snapshot once when store finishes loading
+  // This is intentional initialization, not a cascading update
+  if (!storeIsLoading && snapshot === null) {
+    // Using conditional setState is acceptable for one-time initialization
+    // when the condition is based on loading state
+    setSnapshot(allCandidates);
+  }
+
+  return {
+    candidates: snapshot ?? [],
+    isLoading: storeIsLoading || snapshot === null,
+  };
+}
+
 function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
-  const { userId } = useAuth();
-  const repo = useRepo();
+  // Get candidates from unified store selector (single source of truth)
+  const allCandidates = useSweepCandidatesUnified();
+  const storeIsLoading = useIsLoading();
+
+  // Snapshot candidates at session start (prevents items disappearing mid-sweep)
+  const { candidates, isLoading } = useSweepSnapshot(allCandidates, storeIsLoading);
+
+  // Store mutations for sweep actions
+  const updateTodo = useGremlyStore((state) => state.updateTodo);
+  const archiveTodo = useGremlyStore((state) => state.archiveTodo);
+  const updateNote = useGremlyStore((state) => state.updateNote);
+  const archiveNote = useGremlyStore((state) => state.archiveNote);
+
+  // Use store data for overlay lookups
+  const todos = useGremlyStore((state) => state.todos);
+  const notes = useGremlyStore((state) => state.notes);
   const overlayController = useOverlayController();
 
-  // State for candidates and navigation
-  const [candidates, setCandidates] = useState<SweepCandidate[]>([]);
+  // Local state for navigation
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
 
   // Swipe feedback state
   const [swipeFeedback, setSwipeFeedback] = useState<'clear' | 'keep' | null>(null);
@@ -546,50 +626,21 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
 
-  // Fetch candidates on mount
+  // Log candidates for debugging (using snapshot)
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadCandidates() {
-      if (!userId) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const items = await fetchSweepCandidatesForUser(userId, supabase);
-
-        console.log('[SweepFlow] Candidates received:', {
-          total: items?.length ?? 0,
-          todos: items?.filter((c) => c.kind === 'todo').length ?? 0,
-          notes: items?.filter((c) => c.kind === 'note').length ?? 0,
-          ids:
-            items?.map((c) => ({
-              id: c.id.slice(0, 8),
-              kind: c.kind,
-              title: (c.raw as any)?.name || (c.raw as any)?.title,
-            })) ?? [],
-        });
-
-        if (!cancelled) {
-          setCandidates(items ?? []);
-          setIsLoading(false);
-        }
-      } catch (error) {
-        console.error('[SweepDecisionStep] Failed to fetch candidates:', error);
-        if (!cancelled) {
-          setCandidates([]);
-          setIsLoading(false);
-        }
-      }
+    if (!isLoading && candidates.length > 0) {
+      console.log('[SweepFlow] Candidates from store:', {
+        total: candidates.length,
+        todos: candidates.filter((c) => c.kind === 'todo').length,
+        notes: candidates.filter((c) => c.kind === 'note').length,
+        ids: candidates.map((c) => ({
+          id: c.id.slice(0, 8),
+          kind: c.kind,
+          title: (c.raw as any)?.name || (c.raw as any)?.title,
+        })),
+      });
     }
-
-    loadCandidates();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
+  }, [isLoading, candidates]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Unified Outcome Handler
@@ -613,10 +664,12 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           // User swiped RIGHT - defer this item to next sweep session
           // Sets skipped_in_sweep_at = NOW() so it reappears next time
           try {
-            await applySweepAction(
-              { type: 'skip', id: candidate.id, kind: candidate.kind },
-              supabase,
-            );
+            const now = new Date().toISOString();
+            if (candidate.kind === 'todo') {
+              await updateTodo(candidate.id, { skipped_in_sweep_at: now } as any);
+            } else {
+              await updateNote(candidate.id, { skipped_in_sweep_at: now } as any);
+            }
             setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
           } catch (error) {
             console.error('[SweepDecisionStep] handleOutcome skip error:', error);
@@ -626,25 +679,14 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
         }
 
         case 'clear': {
-          // Capture candidate info for undo before modifying state
-          // Get title from raw data: todos have 'name', notes have 'title'
-          const rawTitle =
-            candidate.kind === 'todo'
-              ? (candidate.raw as { name?: string }).name
-              : (candidate.raw as { title?: string }).title;
-          const clearedCandidate = { id: candidate.id, kind: candidate.kind, title: rawTitle };
+          // Archive the candidate
           try {
-            await applySweepAction(
-              { type: 'clear', id: candidate.id, kind: candidate.kind },
-              supabase,
-            );
-
-            // Notify other screens this item is archived/gone
+            // Archive with reason 'swept'
             if (candidate.kind === 'todo') {
-              eventBus.emit('entity:deleted', {
-                id: candidate.id,
-                type: 'todo',
-              });
+              await archiveTodo(candidate.id, 'swept');
+              // EventBus emission handled by store mutation
+            } else {
+              await archiveNote(candidate.id, 'swept');
             }
 
             setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
@@ -658,11 +700,13 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
         case 'changed': {
           // User made a meaningful change (via primary action or edit overlay)
           // Treat as "kept but changed" - count as kept and advance
+          // Clear skipped_in_sweep_at to mark as reviewed
           try {
-            await applySweepAction(
-              { type: 'keep', id: candidate.id, kind: candidate.kind },
-              supabase,
-            );
+            if (candidate.kind === 'todo') {
+              await updateTodo(candidate.id, { skipped_in_sweep_at: null } as any);
+            } else {
+              await updateNote(candidate.id, { skipped_in_sweep_at: null } as any);
+            }
             setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
           } catch (error) {
             console.error('[SweepDecisionStep] handleOutcome changed error:', error);
@@ -676,7 +720,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           return;
       }
     },
-    [candidates, currentIndex, repo, supabase],
+    [candidates, currentIndex, updateTodo, updateNote, archiveTodo, archiveNote],
   );
 
   // Keep the ref updated with the latest handleOutcome
@@ -757,76 +801,57 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     }, 450);
   }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
 
-  const handleOpenEdit = useCallback(async () => {
+  const handleOpenEdit = useCallback(() => {
     const candidate = candidates[currentIndex];
     if (!candidate) return;
 
     // Track which candidate is being edited so we can detect saves
     editingCandidateIdRef.current = candidate.id;
 
-    try {
-      // Fetch the full record from DB to ensure all fields are available
-      const fullRecord = await repo.getById(candidate.id);
+    // Look up full record from store (faster than DB fetch)
+    let fullRecord: AppRecord | undefined;
+    if (candidate.kind === 'todo') {
+      const todo = todos.find((t) => t.id === candidate.id);
+      if (todo) fullRecord = { ...todo, type: 'todo' } as AppRecord;
+    } else if (candidate.kind === 'note') {
+      const note = notes.find((n) => n.id === candidate.id);
+      if (note) fullRecord = { ...note, type: 'note' } as AppRecord;
+    }
 
-      if (fullRecord && fullRecord.type === candidate.kind) {
-        // Open UnifiedOverlayV2 with the full record
-        overlayController.openEdit({ record: fullRecord as AppRecord });
-      } else {
-        // Fallback: construct a minimal record from the raw data
-        console.warn(
-          '[SweepDecisionStep] handleOpenEdit: record not found or type mismatch, using raw',
-        );
-        const fallbackRecord = {
-          ...candidate.raw,
-          type: candidate.kind,
-        } as AppRecord;
-        overlayController.openEdit({ record: fallbackRecord });
-      }
-    } catch (error) {
-      console.error('[SweepDecisionStep] handleOpenEdit error:', error);
+    if (fullRecord) {
+      // Open UnifiedOverlayV2 with the full record from store
+      overlayController.openEdit({ record: fullRecord });
+    } else {
       // Fallback: construct a minimal record from the raw data
+      console.warn('[SweepDecisionStep] handleOpenEdit: record not found in store, using raw');
       const fallbackRecord = {
         ...candidate.raw,
         type: candidate.kind,
       } as AppRecord;
       overlayController.openEdit({ record: fallbackRecord });
     }
-  }, [candidates, currentIndex, repo, overlayController]);
+  }, [candidates, currentIndex, todos, notes, overlayController]);
 
-  const handleConvertToTodo = useCallback(async () => {
+  const handleConvertToTodo = useCallback(() => {
     const candidate = candidates[currentIndex];
     if (!candidate || candidate.kind !== 'note') return;
 
-    try {
-      // Fetch the full record from DB
-      const fullRecord = await repo.getById(candidate.id);
-      const record = fullRecord || { ...candidate.raw, type: 'note' };
+    // Look up full record from store
+    const note = notes.find((n) => n.id === candidate.id);
+    const record = note ? { ...note, type: 'note' } : { ...candidate.raw, type: 'note' };
 
-      // Open overlay in create mode with todo type and prefilled content
-      // This mimics the "Turn into a to-do" conversion pattern
-      overlayController.openCreate({
-        type: 'todo',
-        conversionMeta: {
-          initialTitle: ((record as Record<string, unknown>).title as string) || '',
-          initialNote: ((record as Record<string, unknown>).body as string) || '',
-          initialTags: ((record as Record<string, unknown>).tags as string[]) || [],
-          sourceNoteId: candidate.id, // Track source for potential archiving
-        },
-      });
-    } catch (error) {
-      console.error('[SweepDecisionStep] handleConvertToTodo error:', error);
-      // Fallback: open with raw data
-      overlayController.openCreate({
-        type: 'todo',
-        conversionMeta: {
-          initialTitle: candidate.raw.title || '',
-          initialNote: candidate.raw.body || '',
-          initialTags: ((candidate.raw as Record<string, unknown>).tags as string[]) || [],
-          sourceNoteId: candidate.id,
-        },
-      });
-    }
-  }, [candidates, currentIndex, repo, overlayController]);
+    // Open overlay in create mode with todo type and prefilled content
+    // This mimics the "Turn into a to-do" conversion pattern
+    overlayController.openCreate({
+      type: 'todo',
+      conversionMeta: {
+        initialTitle: ((record as Record<string, unknown>).title as string) || '',
+        initialNote: ((record as Record<string, unknown>).body as string) || '',
+        initialTags: ((record as Record<string, unknown>).tags as string[]) || [],
+        sourceNoteId: candidate.id, // Track source for potential archiving
+      },
+    });
+  }, [candidates, currentIndex, notes, overlayController]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Primary Action Handler
@@ -836,80 +861,72 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
    * Opens the appropriate overlay/picker and returns whether to advance.
    *
    * @returns 'advance' if meaningful change was saved, 'stay' if cancelled
+   *
+   * MIGRATED: Now uses Zustand store data instead of repo.getById
    */
   const handlePrimaryAction = useCallback(
-    async (
-      config: SweepPrimaryActionConfig,
-      candidate: SweepCandidate,
-    ): Promise<'advance' | 'stay'> => {
-      try {
-        // Fetch the full record from DB to ensure all fields are available
-        const fullRecord = await repo.getById(candidate.id);
-        const record = fullRecord || { ...candidate.raw, type: candidate.kind };
+    (config: SweepPrimaryActionConfig, candidate: SweepCandidate): 'advance' | 'stay' => {
+      // Look up full record from store
+      let fullRecord: AppRecord | undefined;
+      if (candidate.kind === 'todo') {
+        const todo = todos.find((t) => t.id === candidate.id);
+        if (todo) fullRecord = { ...todo, type: 'todo' } as AppRecord;
+      } else if (candidate.kind === 'note') {
+        const note = notes.find((n) => n.id === candidate.id);
+        if (note) fullRecord = { ...note, type: 'note' } as AppRecord;
+      }
 
-        switch (config.type) {
-          case 'todo_add_due_date':
-          case 'todo_review_due_date': {
-            // Track this candidate for overlay save detection
-            editingCandidateIdRef.current = candidate.id;
-            // Open the todo in edit mode - the overlay has date picker functionality
-            // The user can set/change the due date there
-            if (fullRecord && fullRecord.type === 'todo') {
-              overlayController.openEdit({ record: fullRecord as AppRecord });
-            } else {
-              const fallbackRecord = { ...candidate.raw, type: 'todo' } as AppRecord;
-              overlayController.openEdit({ record: fallbackRecord });
-            }
-            // Return 'stay' - the overlay save listener will advance on save
-            return 'stay';
-          }
+      const record = fullRecord || ({ ...candidate.raw, type: candidate.kind } as AppRecord);
 
-          case 'log_idea_to_todo': {
-            // For conversion, we don't auto-advance since we're creating a new item
-            // The user should explicitly swipe/keep after conversion
-            overlayController.openCreate({
-              type: 'todo',
-              // Note: conversionMeta isn't supported in the current type,
-              // so we use the standard create flow. The user will manually
-              // copy the content if needed, or we can enhance the overlay later.
-            });
-            return 'stay';
-          }
-
-          case 'log_journal_followup': {
-            // For journal follow-up, we're creating a new entry
-            // The user should explicitly keep/clear the original after
-            overlayController.openCreate({
-              type: 'log',
-              logSubtype: 'journal',
-            });
-            return 'stay';
-          }
-
-          case 'log_general_decide': {
-            // Track this candidate for overlay save detection
-            editingCandidateIdRef.current = candidate.id;
-            // Open the full edit overlay for the log
-            // User can convert to todo/habit, add tags, reminders, etc.
-            if (fullRecord && fullRecord.type === 'note') {
-              overlayController.openEdit({ record: fullRecord as AppRecord });
-            } else {
-              const fallbackRecord = { ...candidate.raw, type: 'note' } as AppRecord;
-              overlayController.openEdit({ record: fallbackRecord });
-            }
-            return 'stay';
-          }
-
-          default:
-            console.warn('[SweepDecisionStep] Unknown primary action type:', config.type);
-            return 'stay';
+      switch (config.type) {
+        case 'todo_add_due_date':
+        case 'todo_review_due_date': {
+          // Track this candidate for overlay save detection
+          editingCandidateIdRef.current = candidate.id;
+          // Open the todo in edit mode - the overlay has date picker functionality
+          // The user can set/change the due date there
+          overlayController.openEdit({ record });
+          // Return 'stay' - the overlay save listener will advance on save
+          return 'stay';
         }
-      } catch (error) {
-        console.error('[SweepDecisionStep] handlePrimaryAction error:', error);
-        return 'stay';
+
+        case 'log_idea_to_todo': {
+          // For conversion, we don't auto-advance since we're creating a new item
+          // The user should explicitly swipe/keep after conversion
+          overlayController.openCreate({
+            type: 'todo',
+            // Note: conversionMeta isn't supported in the current type,
+            // so we use the standard create flow. The user will manually
+            // copy the content if needed, or we can enhance the overlay later.
+          });
+          return 'stay';
+        }
+
+        case 'log_journal_followup': {
+          // For journal follow-up, we're creating a new entry
+          // The user should explicitly keep/clear the original after
+          overlayController.openCreate({
+            type: 'log',
+            logSubtype: 'journal',
+          });
+          return 'stay';
+        }
+
+        case 'log_general_decide': {
+          // Track this candidate for overlay save detection
+          editingCandidateIdRef.current = candidate.id;
+          // Open the full edit overlay for the log
+          // User can convert to todo/habit, add tags, reminders, etc.
+          overlayController.openEdit({ record });
+          return 'stay';
+        }
+
+        default:
+          console.warn('[SweepDecisionStep] Unknown primary action type:', config.type);
+          return 'stay';
       }
     },
-    [repo, overlayController],
+    [todos, notes, overlayController],
   );
 
   // Auto-advance to summary when all cards are processed

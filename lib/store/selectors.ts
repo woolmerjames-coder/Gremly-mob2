@@ -1,6 +1,7 @@
 import { createSelector } from 'reselect';
 import { useGremlyStore, type HabitProgressRow } from './useGremlyStore';
 import type { Todo, Habit, Note, Space } from '../types';
+import type { SweepCandidate, SweepCandidateTodo, SweepCandidateNote } from '../sweep/types';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -389,6 +390,124 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
   );
 });
 
+/**
+ * Full SweepCandidate selector - transforms store todos + notes into SweepCandidate[]
+ *
+ * This selector replicates the filtering logic from fetchSweepCandidatesForUser
+ * to enable Sweep to read from the Zustand store (single source of truth).
+ *
+ * Filtering rules:
+ *
+ * TODOS included if:
+ * - Not archived
+ * - Not completed
+ * - Either: overdue, due today, OR undated (needs triage)
+ * - Has skipped_in_sweep_at set (deferred from previous sweep)
+ *
+ * NOTES included if:
+ * - Not archived
+ * - subtype = 'idea' AND created within last 7 days
+ * - OR subtype = 'general'/'catchall'/'list'/'reference' AND created today
+ * - OR has skipped_in_sweep_at set (deferred from previous sweep)
+ * - Exclude journals (subtype = 'journal')
+ */
+export const selectSweepCandidatesUnified = createSelector(
+  [selectTodos, selectNotes],
+  (todos, notes): SweepCandidate[] => {
+    const today = getTodayDayString();
+    const sevenDaysAgo = getDaysAgoDayString(7);
+    const result: SweepCandidate[] = [];
+
+    // Process todos
+    for (const todo of todos) {
+      // Skip archived or completed
+      if (todo.archived || todo.completed_at) continue;
+
+      const dueDay = todo.due_day;
+      const isOverdue = dueDay ? dueDay < today : false;
+      const isDueToday = dueDay === today;
+      const isUndated = !dueDay;
+      const isCreatedToday = todo.created_at?.startsWith(today) ?? false;
+      const wasSkipped = !!todo.skipped_in_sweep_at;
+
+      // Include if: overdue, due today, undated, OR previously skipped
+      if (isOverdue || isDueToday || isUndated || wasSkipped) {
+        result.push({
+          id: todo.id,
+          kind: 'todo',
+          createdAt: todo.created_at,
+          dropId: todo.drop_id ?? null,
+          skippedInSweepAt: todo.skipped_in_sweep_at ?? null,
+          isOverdue,
+          isDueToday,
+          isCreatedToday,
+          raw: todo as any, // Cast to SweepTodoRow - store Todo matches DB row
+        } satisfies SweepCandidateTodo);
+      }
+    }
+
+    // Process notes
+    for (const note of notes) {
+      // Skip archived
+      if (note.archived) continue;
+
+      // Skip journals - they don't appear in sweep
+      if (note.subtype === 'journal') continue;
+
+      const createdDay = note.created_at?.split('T')[0];
+      const isCreatedToday = createdDay === today;
+      const wasSkipped = !!note.skipped_in_sweep_at;
+
+      // Ideas: include if created within last 7 days OR skipped
+      const isIdea = note.subtype === 'idea';
+      const isRecentIdea = isIdea && createdDay && createdDay >= sevenDaysAgo;
+
+      // General/catchall/list/reference: include if created today OR skipped
+      // Note: 'general' is a LogSubtype but not NoteSubtype - in practice DB may have
+      // 'general' entries but TypeScript types them as 'catchall'
+      const isOtherSubtype =
+        note.subtype === 'catchall' || note.subtype === 'list' || note.subtype === 'reference';
+      const isTodayOther = isOtherSubtype && isCreatedToday;
+
+      // Include if matches time criteria OR was skipped
+      if (isRecentIdea || isTodayOther || wasSkipped) {
+        result.push({
+          id: note.id,
+          kind: 'note',
+          createdAt: note.created_at,
+          dropId: note.drop_id ?? null,
+          skippedInSweepAt: note.skipped_in_sweep_at ?? null,
+          isOverdue: false, // Notes don't have due dates
+          isDueToday: false,
+          isCreatedToday,
+          raw: note as any, // Cast to SweepNoteRow
+          attachments: [], // Attachments loaded separately if needed
+        } satisfies SweepCandidateNote);
+      }
+    }
+
+    // Sort: overdue first, then due today, then notes, then by created_at desc
+    result.sort((a, b) => {
+      // Overdue todos first
+      if (a.isOverdue && !b.isOverdue) return -1;
+      if (!a.isOverdue && b.isOverdue) return 1;
+      // Due today second
+      if (a.isDueToday && !b.isDueToday) return -1;
+      if (!a.isDueToday && b.isDueToday) return 1;
+      // Then by created_at ascending (oldest first for sweep review)
+      return (a.createdAt ?? '').localeCompare(b.createdAt ?? '');
+    });
+
+    return result;
+  },
+);
+
+/** Count of unified sweep candidates */
+export const selectSweepCandidateCountUnified = createSelector(
+  [selectSweepCandidatesUnified],
+  (candidates): number => candidates.length,
+);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // NOTE SELECTORS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -620,6 +739,8 @@ export const useTodayProgress = () => useGremlyStore(selectTodayProgress);
 
 export const useSweepCandidates = () => useGremlyStore(selectSweepCandidates);
 export const useSweepCount = () => useGremlyStore(selectSweepCandidateCount);
+export const useSweepCandidatesUnified = () => useGremlyStore(selectSweepCandidatesUnified);
+export const useSweepCountUnified = () => useGremlyStore(selectSweepCandidateCountUnified);
 
 export const useRecentDrops = () => useGremlyStore(selectRecentDrops);
 export const useForgottenTodos = () => useGremlyStore(selectForgottenTodos);
