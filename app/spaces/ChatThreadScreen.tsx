@@ -71,13 +71,14 @@ import { type ChatMessageForResolution } from '../../lib/chat/thisResolver';
 import { eventBus } from '../../lib/events/EventBus';
 import { addOverlaySavedListener, type OverlaySavedPayload } from '../../lib/events/overlaySaved';
 import { buildSpaceContext, type SpaceContext } from '../../lib/chat/buildSpaceContext';
-import { useSpaceMilestone } from '../../hooks/useSpaceMilestone';
-import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import {
-  listTodosForSpace,
-  listHabitsForSpace,
-  listNotesForSpace,
-} from '../../lib/selectors/spaceSelectors';
+  useSpaceTodosFromStore,
+  useSpaceHabitsFromStore,
+  useSpaceNotesFromStore,
+  useSpaceMilestoneFromStore,
+  useMilestoneCountdown,
+} from '../../lib/store/selectors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
@@ -108,16 +109,17 @@ export default function ChatThreadScreen({ route }: Props) {
     }
   }, []);
 
-  // Fetch space aggregate (items) and milestone for space context
-  const spaceAggregate = useSpaceAggregate(spaceId);
-  const { milestone, meta, countdown } = useSpaceMilestone(spaceId);
+  // Fetch space data from Zustand store
+  const space = useGremlyStore((s) => s.spaces.find((sp) => sp.id === spaceId) ?? null);
+  const todos = useSpaceTodosFromStore(spaceId);
+  const habits = useSpaceHabitsFromStore(spaceId);
+  const notes = useSpaceNotesFromStore(spaceId);
+  const milestone = useSpaceMilestoneFromStore(spaceId);
+  const countdown = useMilestoneCountdown(spaceId);
 
   // Build space context for AI
   const spaceContext = useMemo(() => {
-    if (!spaceAggregate.space) return undefined;
-    const todos = listTodosForSpace(spaceAggregate.items, spaceId);
-    const habits = listHabitsForSpace(spaceAggregate.items, spaceId);
-    const notes = listNotesForSpace(spaceAggregate.items, spaceId);
+    if (!space) return undefined;
 
     // Map milestone to expected format (name falls back to title for legacy)
     const milestoneName = milestone?.name || milestone?.title;
@@ -130,11 +132,11 @@ export default function ChatThreadScreen({ route }: Props) {
           }
         : null;
 
-    // Map meta fields (success_criteria -> why, other_context -> notes)
-    const metaData = meta
+    // Map meta fields from milestone (success_criteria -> why, other_context -> notes)
+    const metaData = milestone
       ? {
-          why: meta.success_criteria || undefined,
-          notes: meta.other_context || undefined,
+          why: (milestone as any).success_criteria || undefined,
+          notes: (milestone as any).other_context || undefined,
         }
       : null;
 
@@ -149,7 +151,7 @@ export default function ChatThreadScreen({ route }: Props) {
 
     return (
       buildSpaceContext({
-        space: spaceAggregate.space,
+        space,
         milestone: milestoneData,
         meta: metaData,
         countdown: countdownData,
@@ -158,7 +160,7 @@ export default function ChatThreadScreen({ route }: Props) {
         notes,
       }) ?? undefined
     );
-  }, [spaceAggregate.space, spaceAggregate.items, spaceId, milestone, meta, countdown]);
+  }, [space, todos, habits, notes, milestone, countdown]);
 
   // Debug: Log space context for AI
   useEffect(() => {
