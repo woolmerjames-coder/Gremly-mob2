@@ -70,6 +70,8 @@ const FEEDBACK_COLORS = {
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/fistbumpgremly.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -118,6 +120,32 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
       stats.dropped.habits.length > 0 ||
       stats.dropped.notes.length > 0);
 
+  // Calculate total completed and captured
+  const totalCompleted =
+    (stats?.completed.todos.length ?? 0) + (stats?.completed.habits.length ?? 0);
+  const totalCaptured =
+    (stats?.dropped.todos.length ?? 0) +
+    (stats?.dropped.habits.length ?? 0) +
+    (stats?.dropped.notes.length ?? 0);
+
+  // Determine headline based on activity level
+  let headline = 'Time to Sweep your day';
+  let subcopy = "Let's clear the mental clutter and set you up for tomorrow.";
+
+  if (stats?.isFirstSweep) {
+    headline = 'Your first Sweep';
+    subcopy = "Let's see what you've captured and get it all sorted.";
+  } else if (totalCompleted >= 5) {
+    headline = 'Look at you go';
+    subcopy = "Solid progress today. Let's tidy up and close out strong.";
+  } else if (totalCompleted >= 2) {
+    headline = "You've been busy";
+    subcopy = "Nice work today. Let's clear the rest and set up tomorrow.";
+  } else if (totalCaptured >= 5) {
+    headline = 'Lots on your mind';
+    subcopy = "You caught a lot today. Let's sort through it together.";
+  }
+
   return (
     <View style={styles.moodStepContainer}>
       <ScrollView
@@ -128,23 +156,20 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
         {/* Gremly mascot - friendly anchor at top */}
         <View style={styles.introMascotContainer}>
           <Image
-            source={GREMLY_MASCOT}
+            source={GREMLY_MASCOT_CELEBRATE}
             style={styles.introMascotImage}
             resizeMode="contain"
             testID="sweep-intro-mascot"
-            accessibilityLabel="Gremly mascot"
+            accessibilityLabel="Gremly mascot celebrating"
           />
         </View>
 
         {/* Title */}
         <View style={styles.introHeaderSection}>
           <Text variant="title" style={styles.moodStepTitle}>
-            Time to Sweep your day
+            {headline}
           </Text>
-          <Text style={styles.moodStepSubcopy}>
-            We'll review what came into your world today. Clear what's done. Keep what still
-            matters.
-          </Text>
+          <Text style={styles.moodStepSubcopy}>{subcopy}</Text>
         </View>
 
         {/* Activity Stats Card */}
@@ -1010,29 +1035,49 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
         />
       </View>
 
-      {/* Feedback Overlay - Using Modal with its own background to guarantee no clipping */}
-      <Modal
-        visible={!!swipeFeedback}
-        transparent={false}
-        animationType="fade"
-        statusBarTranslucent={true}
-      >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: swipeFeedback === 'clear' ? '#34D399' : '#FBBF24',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-        >
-          <Animated.View style={{ opacity: feedbackOpacity, alignItems: 'center' }}>
-            <Text style={styles.swipeFeedbackText}>{feedbackMessage}</Text>
-            <Text style={styles.swipeFeedbackSubtext}>
-              {swipeFeedback === 'clear' ? '(archived)' : '(keeping)'}
-            </Text>
-          </Animated.View>
-        </View>
-      </Modal>
+      {/* Feedback Overlay - Floating text, no background */}
+      {swipeFeedback && (
+        <Modal visible={true} transparent={true} animationType="none" statusBarTranslucent={true}>
+          <View
+            style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+            pointerEvents="none"
+          >
+            <Animated.View
+              style={{
+                alignItems: 'center',
+                opacity: feedbackOpacity,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 28,
+                  fontWeight: '700',
+                  color: swipeFeedback === 'keep' ? '#4A3F2F' : '#FFFFFF',
+                  lineHeight: 40,
+                  letterSpacing: 2,
+                  textAlign: 'center',
+                  textShadowColor: 'rgba(0, 0, 0, 0.3)',
+                  textShadowOffset: { width: 0, height: 2 },
+                  textShadowRadius: 4,
+                }}
+              >
+                {feedbackMessage}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: '500',
+                  color:
+                    swipeFeedback === 'keep' ? 'rgba(74, 63, 47, 0.8)' : 'rgba(255,255,255,0.8)',
+                  marginTop: 8,
+                }}
+              >
+                {swipeFeedback === 'clear' ? '(archived)' : '(keeping)'}
+              </Text>
+            </Animated.View>
+          </View>
+        </Modal>
+      )}
     </Animated.View>
   );
 }

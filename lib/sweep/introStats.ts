@@ -259,8 +259,8 @@ export function formatIntroStatsSummary(stats: SweepIntroStats): {
   const droppedHabitCount = stats.dropped.habits.length;
 
   if (droppedTodoCount > 0) droppedParts.push(pluralize(droppedTodoCount, 'todo')!);
-  // Notes are called "logs" in user-facing copy
-  if (droppedNoteCount > 0) droppedParts.push(pluralize(droppedNoteCount, 'log')!);
+  // Notes are called "thoughts" in user-facing copy (feels more Gremly-like)
+  if (droppedNoteCount > 0) droppedParts.push(pluralize(droppedNoteCount, 'thought')!);
   if (droppedHabitCount > 0) droppedParts.push(pluralize(droppedHabitCount, 'habit')!);
 
   const droppedLine = droppedParts.length > 0 ? droppedParts.join(', ') : null;

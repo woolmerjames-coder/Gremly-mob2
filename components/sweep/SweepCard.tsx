@@ -263,7 +263,7 @@ export function SweepCard({
   onConvertToTodo,
   onClose,
   feedbackMessage: _feedbackMessage,
-  feedbackType: _feedbackType,
+  feedbackType,
 }: SweepCardProps) {
   const repo = useRepo();
   const typeLabel = getTypeChipLabel(candidate);
@@ -678,16 +678,20 @@ export function SweepCard({
     <View style={styles.cardWrapper}>
       {/* Left Scrim - Moss Green (archive/clear action) */}
       <Animated.View style={[styles.swipeScrimLeft, animatedLeftScrimStyle]} pointerEvents="none">
-        <Animated.View style={[styles.swipeScrimIcon, animatedLeftIconStyle]}>
-          <Archive size={32} color="rgba(255, 255, 255, 0.9)" strokeWidth={1.5} />
-        </Animated.View>
+        {!feedbackType && (
+          <Animated.View style={[styles.swipeScrimIcon, animatedLeftIconStyle]}>
+            <Archive size={32} color="rgba(255, 255, 255, 0.9)" strokeWidth={1.5} />
+          </Animated.View>
+        )}
       </Animated.View>
 
       {/* Right Scrim - Golden Pear (keep action) */}
       <Animated.View style={[styles.swipeScrimRight, animatedRightScrimStyle]} pointerEvents="none">
-        <Animated.View style={[styles.swipeScrimIcon, animatedRightIconStyle]}>
-          <Check size={32} color="rgba(255, 255, 255, 0.9)" strokeWidth={2} />
-        </Animated.View>
+        {!feedbackType && (
+          <Animated.View style={[styles.swipeScrimIcon, animatedRightIconStyle]}>
+            <Check size={32} color="rgba(255, 255, 255, 0.9)" strokeWidth={2} />
+          </Animated.View>
+        )}
       </Animated.View>
 
       {/* Swipe Cue Labels - ABOVE the card (contextual based on item type) */}

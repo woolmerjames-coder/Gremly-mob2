@@ -1,28 +1,16 @@
 /**
- * SweepIntroStatsCard - Expandable card showing activity since last sweep
+ * SweepIntroStatsCard - Hero number stats that expand to show item details
  *
- * Displays completed items and newly captured items in a calm, brand-styled card.
- * Each section can be tapped to expand and show individual item names.
+ * Shows big prominent numbers for completed and captured items,
+ * with tap-to-expand functionality to see individual item names.
  */
 
-import React, { useState, useCallback } from 'react';
-import {
-  View,
-  StyleSheet,
-  Pressable,
-  LayoutAnimation,
-  Platform,
-  UIManager,
-  ActivityIndicator,
-} from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Text } from '../../ui';
+import { Icon } from '../../design-system/Icon';
 import { BRAND } from '../../design/brand';
-import {
-  formatIntroStatsSummary,
-  type SweepIntroStats,
-  type SweepIntroItem,
-} from '../../lib/sweep/introStats';
-import { Check, Plus, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { type SweepIntroStats } from '../../lib/sweep/introStats';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -39,154 +27,103 @@ interface SweepIntroStatsCardProps {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-const MAX_VISIBLE_ITEMS = 8;
-const GOLDEN_PEAR = '#E0C47A';
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function SweepIntroStatsCard({ stats, isLoading }: SweepIntroStatsCardProps) {
-  const [completedExpanded, setCompletedExpanded] = useState(false);
-  const [capturedExpanded, setCapturedExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
-  const { completedLine, droppedLine } = formatIntroStatsSummary(stats);
-
-  // Toggle handlers with animation
-  const toggleCompleted = useCallback(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setCompletedExpanded((prev) => !prev);
-  }, []);
-
-  const toggleCaptured = useCallback(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setCapturedExpanded((prev) => !prev);
-  }, []);
-
-  // Combine all completed items
-  const completedItems: SweepIntroItem[] = [...stats.completed.todos, ...stats.completed.habits];
-
-  // Combine all captured items
-  const capturedItems: SweepIntroItem[] = [
+  // Calculate totals
+  const totalCompleted = stats.completed.todos.length + stats.completed.habits.length;
+  const totalCaptured =
+    stats.dropped.todos.length + stats.dropped.habits.length + stats.dropped.notes.length;
+  const allCompletedItems = [...stats.completed.todos, ...stats.completed.habits];
+  const allCapturedItems = [
     ...stats.dropped.todos,
     ...stats.dropped.habits,
     ...stats.dropped.notes,
   ];
 
-  // Return null if nothing to show and not loading
-  if (!isLoading && !completedLine && !droppedLine) {
+  // Return null if nothing to show
+  if (!isLoading && totalCompleted === 0 && totalCaptured === 0) {
     return null;
   }
 
+  const handleToggle = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded(!expanded);
+  };
+
   return (
-    <View style={styles.container}>
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color={BRAND.colors.inkSubtle} />
-          <Text style={styles.loadingText}>Loading activity...</Text>
+    <Pressable style={styles.container} onPress={handleToggle}>
+      {/* Stats row */}
+      <View style={styles.statsRow}>
+        {totalCompleted > 0 && (
+          <View style={styles.statColumn}>
+            <Text style={styles.statNumber}>{totalCompleted}</Text>
+            <Text style={styles.statLabel}>checked off</Text>
+          </View>
+        )}
+
+        {totalCompleted > 0 && totalCaptured > 0 && <View style={styles.verticalDivider} />}
+
+        {totalCaptured > 0 && (
+          <View style={styles.statColumn}>
+            <Text style={styles.statNumber}>{totalCaptured}</Text>
+            <Text style={styles.statLabel}>caught</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Chevron indicator */}
+      <View style={styles.chevronRow}>
+        <Icon
+          name={expanded ? 'ChevronUp' : 'ChevronDown'}
+          size="sm"
+          color={BRAND.colors.inkSubtle}
+          strokeWidth={2}
+        />
+      </View>
+
+      {/* Expanded item lists */}
+      {expanded && (
+        <View style={styles.expandedContainer}>
+          {allCompletedItems.length > 0 && (
+            <View style={styles.itemSection}>
+              <Text style={styles.sectionLabel}>Checked off</Text>
+              {allCompletedItems.slice(0, 10).map((item) => (
+                <View key={item.id} style={styles.itemRow}>
+                  <View style={[styles.itemDot, styles.itemDotCompleted]} />
+                  <Text style={styles.itemName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                </View>
+              ))}
+              {allCompletedItems.length > 10 && (
+                <Text style={styles.moreText}>+{allCompletedItems.length - 10} more</Text>
+              )}
+            </View>
+          )}
+
+          {allCapturedItems.length > 0 && (
+            <View style={styles.itemSection}>
+              <Text style={styles.sectionLabel}>Caught</Text>
+              {allCapturedItems.slice(0, 10).map((item) => (
+                <View key={item.id} style={styles.itemRow}>
+                  <View style={[styles.itemDot, styles.itemDotCaptured]} />
+                  <Text style={styles.itemName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                </View>
+              ))}
+              {allCapturedItems.length > 10 && (
+                <Text style={styles.moreText}>+{allCapturedItems.length - 10} more</Text>
+              )}
+            </View>
+          )}
         </View>
-      ) : (
-        <>
-          {/* Completed Row */}
-          {completedLine && (
-            <View style={styles.section}>
-              <Pressable
-                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                onPress={toggleCompleted}
-              >
-                <View style={[styles.iconCircle, styles.completedIconCircle]}>
-                  <Check size={16} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-                </View>
-                <View style={styles.rowContent}>
-                  <Text style={styles.rowLabel}>COMPLETED</Text>
-                  <Text style={styles.rowValue}>{completedLine}</Text>
-                </View>
-                {completedExpanded ? (
-                  <ChevronUp size={18} color={BRAND.colors.inkSubtle} />
-                ) : (
-                  <ChevronDown size={18} color={BRAND.colors.inkSubtle} />
-                )}
-              </Pressable>
-
-              {/* Expanded Items */}
-              {completedExpanded && (
-                <View style={styles.expandedList}>
-                  {completedItems.slice(0, MAX_VISIBLE_ITEMS).map((item) => (
-                    <View key={item.id} style={styles.expandedItem}>
-                      <View style={[styles.itemDot, styles.completedDot]} />
-                      <Text style={styles.itemName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <View style={styles.typeBadge}>
-                        <Text style={styles.typeBadgeText}>{item.type}</Text>
-                      </View>
-                    </View>
-                  ))}
-                  {completedItems.length > MAX_VISIBLE_ITEMS && (
-                    <Text style={styles.moreText}>
-                      +{completedItems.length - MAX_VISIBLE_ITEMS} more
-                    </Text>
-                  )}
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* Divider */}
-          {completedLine && droppedLine && <View style={styles.divider} />}
-
-          {/* Captured Row */}
-          {droppedLine && (
-            <View style={styles.section}>
-              <Pressable
-                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                onPress={toggleCaptured}
-              >
-                <View style={[styles.iconCircle, styles.capturedIconCircle]}>
-                  <Plus size={16} color={GOLDEN_PEAR} strokeWidth={2.5} />
-                </View>
-                <View style={styles.rowContent}>
-                  <Text style={styles.rowLabel}>CAPTURED</Text>
-                  <Text style={styles.rowValue}>{droppedLine}</Text>
-                </View>
-                {capturedExpanded ? (
-                  <ChevronUp size={18} color={BRAND.colors.inkSubtle} />
-                ) : (
-                  <ChevronDown size={18} color={BRAND.colors.inkSubtle} />
-                )}
-              </Pressable>
-
-              {/* Expanded Items */}
-              {capturedExpanded && (
-                <View style={styles.expandedList}>
-                  {capturedItems.slice(0, MAX_VISIBLE_ITEMS).map((item) => (
-                    <View key={item.id} style={styles.expandedItem}>
-                      <View style={[styles.itemDot, styles.capturedDot]} />
-                      <Text style={styles.itemName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <View style={styles.typeBadge}>
-                        <Text style={styles.typeBadgeText}>
-                          {item.type === 'note' ? 'log' : item.type}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                  {capturedItems.length > MAX_VISIBLE_ITEMS && (
-                    <Text style={styles.moreText}>
-                      +{capturedItems.length - MAX_VISIBLE_ITEMS} more
-                    </Text>
-                  )}
-                </View>
-              )}
-            </View>
-          )}
-        </>
       )}
-    </View>
+    </Pressable>
   );
 }
 
@@ -196,114 +133,96 @@ export function SweepIntroStatsCard({ stats, isLoading }: SweepIntroStatsCardPro
 
 const styles = StyleSheet.create({
   container: {
+    marginHorizontal: 24,
+    marginTop: 28,
     backgroundColor: BRAND.colors.surface,
     borderRadius: BRAND.radius.lg,
     borderWidth: 1,
     borderColor: BRAND.colors.borderSubtle,
-    overflow: 'hidden',
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: 20,
-    gap: 10,
-  },
-  loadingText: {
-    fontSize: 13,
-    color: BRAND.colors.inkSubtle,
-  },
-  section: {
-    // Container for each expandable section
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
     paddingHorizontal: 16,
-    gap: 12,
+    // Subtle shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  rowPressed: {
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
-  },
-  iconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  statsRow: {
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 36,
   },
-  completedIconCircle: {
-    backgroundColor: `${BRAND.colors.mossGreen}1A`, // 10% opacity
+  statColumn: {
+    alignItems: 'center',
   },
-  capturedIconCircle: {
-    backgroundColor: `${GOLDEN_PEAR}1A`, // 10% opacity
+  statNumber: {
+    fontSize: 40,
+    fontWeight: '700',
+    color: BRAND.colors.mossGreen,
+    lineHeight: 48,
   },
-  rowContent: {
-    flex: 1,
+  statLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: BRAND.colors.inkSubtle,
+    marginTop: 2,
+    letterSpacing: 0.2,
   },
-  rowLabel: {
+  verticalDivider: {
+    width: 1,
+    height: 44,
+    backgroundColor: BRAND.colors.borderSubtle,
+  },
+  chevronRow: {
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  expandedContainer: {
+    marginTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: BRAND.colors.borderSubtle,
+    paddingTop: 16,
+  },
+  itemSection: {
+    marginBottom: 16,
+  },
+  sectionLabel: {
     fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.5,
     color: BRAND.colors.inkSubtle,
     textTransform: 'uppercase',
-    marginBottom: 2,
+    letterSpacing: 0.5,
+    marginBottom: 10,
   },
-  rowValue: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: BRAND.colors.borderSubtle,
-    marginHorizontal: 16,
-  },
-  expandedList: {
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    paddingTop: 4,
-    gap: 8,
-  },
-  expandedItem: {
+  itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    paddingVertical: 6,
   },
   itemDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 12,
   },
-  completedDot: {
+  itemDotCompleted: {
     backgroundColor: BRAND.colors.mossGreen,
   },
-  capturedDot: {
-    backgroundColor: GOLDEN_PEAR,
+  itemDotCaptured: {
+    backgroundColor: '#E0C47A',
   },
   itemName: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 14,
     color: BRAND.colors.charcoalInk,
   },
-  typeBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-  },
-  typeBadgeText: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: BRAND.colors.inkSubtle,
-    textTransform: 'lowercase',
-  },
   moreText: {
-    fontSize: 12,
+    fontSize: 13,
     color: BRAND.colors.inkSubtle,
     fontStyle: 'italic',
-    marginLeft: 14,
     marginTop: 4,
+    marginLeft: 20,
   },
 });
