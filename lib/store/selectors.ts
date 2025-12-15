@@ -885,12 +885,12 @@ export const useOverdueTodos = () => useGremlyStore(selectOverdueTodos);
 export const useTodayLogsCount = () => useGremlyStore(selectTodayLogsCount);
 export const useHabitsCompletedToday = () => useGremlyStore(selectHabitsCompletedToday);
 
-// Parameterized hooks
-export const useSpaceTodos = (spaceId: string) =>
+// Parameterized hooks (renamed to avoid conflict with legacy hooks)
+export const useSpaceTodosFromStore = (spaceId: string) =>
   useGremlyStore((state) => selectTodosBySpace(state, spaceId));
-export const useSpaceHabits = (spaceId: string) =>
+export const useSpaceHabitsFromStore = (spaceId: string) =>
   useGremlyStore((state) => selectHabitsBySpace(state, spaceId));
-export const useSpaceNotes = (spaceId: string) =>
+export const useSpaceNotesFromStore = (spaceId: string) =>
   useGremlyStore((state) => selectNotesBySpace(state, spaceId));
 
 // Loading state
@@ -906,3 +906,59 @@ export const useDiscoveredPeople = () => useGremlyStore(selectDiscoveredPeople);
 export const useDiscoveredLists = () => useGremlyStore(selectDiscoveredLists);
 export const useUnsortedItems = () => useGremlyStore(selectUnsortedItems);
 export const useAllActiveItemsHub = () => useGremlyStore(selectAllActiveItems);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPACE AGGREGATE SELECTORS (for SpaceHomeScreen)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Select a specific space by ID */
+export const selectSpaceById = createSelector(
+  [selectSpaces, (_state: GremlyState, spaceId: string) => spaceId],
+  (spaces, spaceId): Space | null => spaces.find((s) => s.id === spaceId) ?? null,
+);
+
+/** Select all items for a space as AppRecord-compatible objects */
+export const selectSpaceItems = createSelector(
+  [
+    selectTodosBySpace,
+    selectHabitsBySpace,
+    selectNotesBySpace,
+    (_state: GremlyState, spaceId: string) => spaceId,
+  ],
+  (todos, habits, notes): (Todo | Habit | Note)[] => [...todos, ...habits, ...notes],
+);
+
+/** Select open (incomplete) todo count for a space */
+export const selectSpaceOpenTodosCount = createSelector(
+  [selectTodosBySpace],
+  (todos): number => todos.filter((t) => !t.completed_at).length,
+);
+
+/** Select journal notes for a space */
+export const selectSpaceJournals = createSelector([selectNotesBySpace], (notes): Note[] =>
+  notes.filter((n) => n.subtype === 'journal'),
+);
+
+/** Select logs (non-journal, non-list notes) for a space */
+export const selectSpaceLogs = createSelector([selectNotesBySpace], (notes): Note[] =>
+  notes.filter((n) => n.subtype !== 'list' && n.subtype !== 'journal'),
+);
+
+/** Select lists for a space */
+export const selectSpaceLists = createSelector([selectNotesBySpace], (notes): Note[] =>
+  notes.filter((n) => n.subtype === 'list'),
+);
+
+// Space hooks
+export const useSpaceById = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceById(state, spaceId));
+export const useSpaceItems = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceItems(state, spaceId));
+export const useSpaceOpenTodosCount = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceOpenTodosCount(state, spaceId));
+export const useSpaceJournals = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceJournals(state, spaceId));
+export const useSpaceLogs = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceLogs(state, spaceId));
+export const useSpaceLists = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceLists(state, spaceId));

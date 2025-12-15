@@ -26,6 +26,14 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useRepo } from '../../providers/RepoProvider';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import {
+  useSpaceById,
+  useSpaceTodosFromStore,
+  useSpaceHabitsFromStore,
+  useSpaceNotesFromStore,
+  useSpaceItems,
+} from '../../lib/store/selectors';
 import { SupabaseSpaceChatRepo, SupabaseSpaceChatMessageRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
@@ -43,7 +51,7 @@ import { SpaceBanner } from '../../components/spaces/SpaceBanner';
 import { ChatCard } from '../../components/spaces/ChatCard';
 import { WhatWeDiscussedCard } from '../../components/spaces/WhatWeDiscussedCard';
 import { useAuth } from '../../providers/AuthProvider';
-import { useSpaceAggregate } from '../../hooks/useSpaceAggregate';
+// useSpaceAggregate removed - now using Zustand store selectors
 import { summarizeChatForCard } from '../../lib/ai/chatSummaries';
 // v4 components (FocusCard, CalendarStrip, QuickStatsRow, ChatCTA) removed in Phase 5
 import HeaderV22 from '../../components/spaces/v22/Header';
@@ -579,9 +587,131 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     });
   }
 
-  // State
-  const { space, chats, items, stats, upcoming, intent, nextItem, weekly, reload } =
-    useSpaceAggregate(spaceId);
+  // State - Zustand store for primary data
+  const space = useSpaceById(spaceId);
+  const storeTodos = useSpaceTodosFromStore(spaceId);
+  const storeHabits = useSpaceHabitsFromStore(spaceId);
+  const storeNotes = useSpaceNotesFromStore(spaceId);
+
+  // Timeline hook - needed for weekly habit progress computation
+  const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
+
+  // Combine items for backward compatibility with listXForSpace selectors
+  const items = useMemo(
+    () => [...storeTodos, ...storeHabits, ...storeNotes] as AppRecord[],
+    [storeTodos, storeHabits, storeNotes],
+  );
+
+  // Compute weekly habit progress from store items + timeline data
+  const weekly = useMemo(() => {
+    const start = startOfWeek(new Date());
+    const weekDates = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
+    const weekISO = formatISO(start, { representation: 'date' });
+
+    // Helper: Calculate weekly target from habit frequency
+    const calculateWeeklyTarget = (habit: any): number => {
+      const freq = habit.frequency;
+      const freqValue = habit.frequency_value;
+
+      if (typeof freqValue === 'number' && freqValue > 0) {
+        if (freq === 'weekly') return freqValue;
+        if (freq === 'daily') return 7;
+        return freqValue;
+      }
+
+      if (freqValue && typeof freqValue === 'object') {
+        if (freqValue.kind === 'n_per_period' && freqValue.period === 'week') {
+          return freqValue.n || 1;
+        }
+        if (freqValue.kind === 'custom_days' && Array.isArray(freqValue.days)) {
+          return freqValue.days.length;
+        }
+      }
+
+      if (typeof freq === 'string') {
+        if (freq === 'daily') return 7;
+        if (freq === 'weekly') return 1;
+        if (freq === 'monthly') return 1;
+        const match = freq.match(/(\d+)\s*[×x]/i);
+        if (match) return parseInt(match[1], 10);
+      }
+
+      return 3; // Default fallback
+    };
+
+    const out: Array<{
+      id: string;
+      title: string;
+      doneCount: number;
+      target: number;
+      dayStreak: number;
+      dayFlags: boolean[];
+    }> = [];
+
+    for (const h of storeHabits as any[]) {
+      const flags = weekDates.map((d) => {
+        const iso = formatISO(d, { representation: 'date' });
+        const day = (timelineDays || []).find((x: any) => x.dateISO === iso);
+        const match = (day?.items || []).find((it: any) => it.type === 'habit' && it.id === h.id);
+        return !!match?.done;
+      });
+      const doneCount = flags.filter(Boolean).length;
+
+      // Simple within-week trailing streak
+      let streak = 0;
+      for (let i = flags.length - 1; i >= 0; i--) {
+        if (flags[i]) streak++;
+        else break;
+      }
+
+      const target = calculateWeeklyTarget(h);
+      out.push({
+        id: h.id,
+        title: h.title || h.name,
+        doneCount,
+        target,
+        dayStreak: streak,
+        dayFlags: flags,
+      });
+    }
+
+    return { weekStartISO: weekISO, habits: out };
+  }, [storeHabits, timelineDays]);
+
+  // Chats - load from SpaceChatRepo (hybrid - not in store yet)
+  const [chats, setChats] = useState<SpaceChat[]>([]);
+  const backend = (process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory').toLowerCase();
+  const spaceChatRepo = useMemo(() => {
+    if (backend === 'supabase') return new SupabaseSpaceChatRepo(user?.id);
+    return new MemorySpaceChatRepo(user?.id || 'memory-user');
+  }, [backend, user?.id]);
+
+  // Load chats on mount
+  useEffect(() => {
+    const loadChats = async () => {
+      try {
+        const cs = await spaceChatRepo.list(spaceId);
+        setChats(Array.isArray(cs) ? cs : []);
+      } catch (err) {
+        console.error('[SpaceHome] Failed to load chats:', err);
+      }
+    };
+    loadChats();
+  }, [spaceChatRepo, spaceId]);
+
+  // Reload function - refreshes store and chats
+  const store = useGremlyStore();
+  const reload = useCallback(async () => {
+    try {
+      await Promise.all([
+        store.refreshFromServer(),
+        spaceChatRepo.list(spaceId).then((cs) => setChats(Array.isArray(cs) ? cs : [])),
+      ]);
+    } catch (err) {
+      console.error('[SpaceHome] reload failed:', err);
+    }
+  }, [store, spaceChatRepo, spaceId]);
+
   const { totalCount: notesCount } = useSpaceNotes(spaceId);
   // Phase 12: Milestone and pinned hooks
   const { milestone, countdown, refetch: refetchMilestone } = useSpaceMilestone(spaceId);
@@ -828,7 +958,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       forceUpdate();
 
       try {
-        await repo.completeTodo(todoId, new Date().toISOString());
+        await store.completeTodo(todoId);
         setShowConfetti(true);
         // Don't clear local override - keep the optimistic state
         // The local toggle will persist until user leaves the screen
@@ -844,7 +974,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         Alert.alert('Error', 'Failed to complete todo');
       }
     },
-    [repo],
+    [store],
   );
 
   // Handler to restore a completed todo (mark as incomplete)
@@ -865,8 +995,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       forceUpdate();
 
       try {
-        // Call repo to restore the todo (sets status='active', clears completed_at)
-        await repo.restoreItem(todoId, 'todo');
+        // Call store to uncomplete the todo (sets status='active', clears completed_at)
+        await store.uncompleteTodo(todoId);
       } catch (e) {
         console.warn('[SpaceHome] Failed to restore todo:', e);
         // Revert optimistic update on error
@@ -879,7 +1009,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         Alert.alert('Error', 'Failed to restore todo');
       }
     },
-    [repo],
+    [store],
   );
 
   // Handler for habit progress logging with optimistic toggle (like todo completion)
@@ -920,7 +1050,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       forceUpdate();
 
       try {
-        await repo.logHabitProgress(habitId, new Date().toISOString());
+        await store.completeHabit(habitId);
         setShowConfetti(true);
         // Keep optimistic state - don't clear until user leaves
       } catch (e) {
@@ -931,7 +1061,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         Alert.alert('Error', 'Failed to log progress');
       }
     },
-    [repo, habitProgressMap],
+    [store, habitProgressMap],
   );
 
   // Phase 6: Space quick add hook
@@ -998,8 +1128,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [undoText, setUndoText] = useState<string>('Marked complete');
   const undoOpacity = React.useMemo(() => new Animated.Value(0), []);
   const undoHandlerRef = React.useRef<null | (() => Promise<void>)>(null);
-  // Unified timeline hook (v22)
-  const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
+  // Note: timelineDays and weekly are now computed earlier in the component
+
   // v33 page load motion
   // Safe defaults so content is visible even if animation doesn’t kick in
   const oV33 = React.useMemo(() => new Animated.Value(1), []);
@@ -1184,13 +1314,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }
   }, [isSpaceV3]);
 
-  // Create SpaceChatRepo instance (for actions)
-  const spaceChatRepo = React.useMemo(() => {
-    const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-    return backend === 'supabase'
-      ? new SupabaseSpaceChatRepo(userId || undefined)
-      : new MemorySpaceChatRepo(userId || 'anonymous');
-  }, [userId]);
+  // spaceChatRepo already defined at component top - removed duplicate
 
   // Initial visual loading phase mirrors hook's first fetch
   useEffect(() => {
@@ -1241,7 +1365,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     async (newState: LayoutState) => {
       if (!space) return;
       try {
-        await repo.updateSpace(spaceId, {
+        await store.updateSpace(spaceId, {
           layout_state_json: newState,
         });
         setLayoutState(newState);
@@ -1251,7 +1375,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         console.warn('Failed to persist layout state:', error);
       }
     },
-    [space, spaceId, repo],
+    [space, spaceId, store],
   );
 
   // Chat actions
@@ -1303,15 +1427,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       console.log('[SpaceHome] Saving space name:', name);
 
       try {
-        await repo.updateSpace(spaceId, { name });
-        // Refetch space data
-        reload?.();
+        await store.updateSpace(spaceId, { name });
+        // Store auto-updates state - no need to reload
       } catch (error) {
         console.error('[SpaceHome] Save space name error:', error);
         throw error;
       }
     },
-    [spaceId, repo, reload],
+    [spaceId, store],
   );
 
   const handleDeleteSpace = useCallback(async () => {
@@ -1320,19 +1443,24 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     console.log('[SpaceHome] Deleting space:', spaceId);
 
     try {
-      await repo.deleteSpace(spaceId);
+      await store.deleteSpace(spaceId);
       // Navigate back to spaces list
       navigation.goBack();
     } catch (error) {
       console.error('[SpaceHome] Delete space error:', error);
       throw error;
     }
-  }, [spaceId, repo, navigation]);
+  }, [spaceId, store, navigation]);
 
   const getSpaceItemCounts = useCallback(async () => {
     if (!spaceId) return { todos: 0, habits: 0, notes: 0 };
-    return repo.getSpaceItemCounts(spaceId);
-  }, [spaceId, repo]);
+    // Compute from store selectors instead of repo call
+    return {
+      todos: storeTodos.filter((t) => !t.completed_at).length,
+      habits: storeHabits.length,
+      notes: storeNotes.length,
+    };
+  }, [spaceId, storeTodos, storeHabits, storeNotes]);
 
   const handleEditMilestoneFromSettings = useCallback(() => {
     setShowMilestoneModal(true);
@@ -1445,11 +1573,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
       try {
         if (type === 'todo') {
-          await repo.toggleTodoPinned(item.id, newPinned);
+          await store.updateTodo(item.id, { is_pinned: newPinned });
         } else if (type === 'habit') {
-          await repo.toggleHabitPinned(item.id, newPinned);
+          await store.updateHabit(item.id, { is_pinned: newPinned });
         } else {
-          await repo.toggleNotePinned(item.id, newPinned);
+          await store.updateNote(item.id, { is_pinned: newPinned });
         }
         // Refresh pinned count
         refetchPinned();
@@ -1471,7 +1599,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         Alert.alert('Error', 'Failed to update pin status');
       }
     },
-    [repo, refetchPinned],
+    [store, refetchPinned],
   );
 
   const handleTodoLongPress = useCallback(
@@ -1613,8 +1741,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     if (!spaceInsight) return;
 
     try {
-      await repo.create({
-        type: 'note',
+      await store.createNote({
         title: 'Conversation Summary',
         body: spaceInsight.summary,
         subtype: 'reference',
@@ -1624,13 +1751,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       });
 
       Alert.alert('Success', `Summary saved as ${NOTE_SAVE_LABELS.singular.toLowerCase()}`);
-      // Refresh to show new note
-      await reload();
+      // Store auto-updates state - no need for explicit reload
     } catch (error) {
       console.error(`Failed to save insight as ${NOTE_SAVE_LABELS.singular.toLowerCase()}:`, error);
       Alert.alert('Error', `Failed to save ${NOTE_SAVE_LABELS.singular.toLowerCase()}`);
     }
-  }, [spaceInsight, spaceId, repo, reload]);
+  }, [spaceInsight, spaceId, store]);
 
   // Compute AI summaries for visible chats (top 3)
   useEffect(() => {
