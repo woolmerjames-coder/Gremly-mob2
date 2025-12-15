@@ -1102,3 +1102,79 @@ export const selectAllMilestonesForSpace = createSelector(
 
 export const useAllSpaceMilestones = (spaceId: string) =>
   useGremlyStore((state) => selectAllMilestonesForSpace(state, spaceId));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ITEM LOOKUP SELECTORS (for Mind Drop / CatchAllNotepad)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Select any item by ID - searches todos, habits, notes */
+export const selectItemById = createSelector(
+  [selectTodos, selectHabits, selectNotes, (_state: GremlyState, id: string) => id],
+  (todos, habits, notes, id): (Todo | Habit | Note) | null => {
+    return (
+      todos.find((t) => t.id === id) ??
+      habits.find((h) => h.id === id) ??
+      notes.find((n) => n.id === id) ??
+      null
+    );
+  },
+);
+
+export const useItemById = (id: string) => useGremlyStore((state) => selectItemById(state, id));
+
+/** Find note by source_message_id (for deduplication in Mind Drop) */
+export const selectNoteBySourceMessageId = createSelector(
+  [selectNotes, (_state: GremlyState, sourceMessageId: string) => sourceMessageId],
+  (notes, sourceMessageId): Note | null => {
+    return (
+      notes.find((n) => (n as Record<string, unknown>).source_message_id === sourceMessageId) ??
+      null
+    );
+  },
+);
+
+export const useNoteBySourceMessageId = (sourceMessageId: string) =>
+  useGremlyStore((state) => selectNoteBySourceMessageId(state, sourceMessageId));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RECENT ITEMS SELECTORS (for Mind Drop suggestions)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Recent notes (non-archived, sorted by created_at desc) */
+export const selectRecentNotes = createSelector(
+  [selectNotes, (_state: GremlyState, limit: number) => limit],
+  (notes, limit) =>
+    notes
+      .filter((n) => !n.archived)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+      .slice(0, limit),
+);
+
+export const useRecentNotes = (limit: number = 50) =>
+  useGremlyStore((state) => selectRecentNotes(state, limit));
+
+/** Recent todos (non-archived, sorted by created_at desc) */
+export const selectRecentTodos = createSelector(
+  [selectTodos, (_state: GremlyState, limit: number) => limit],
+  (todos, limit) =>
+    todos
+      .filter((t) => !t.archived)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+      .slice(0, limit),
+);
+
+export const useRecentTodos = (limit: number = 50) =>
+  useGremlyStore((state) => selectRecentTodos(state, limit));
+
+/** Recent habits (non-archived, sorted by created_at desc) */
+export const selectRecentHabits = createSelector(
+  [selectHabits, (_state: GremlyState, limit: number) => limit],
+  (habits, limit) =>
+    habits
+      .filter((h) => !h.archived)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+      .slice(0, limit),
+);
+
+export const useRecentHabits = (limit: number = 50) =>
+  useGremlyStore((state) => selectRecentHabits(state, limit));

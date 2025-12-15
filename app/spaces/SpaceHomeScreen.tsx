@@ -43,13 +43,6 @@ import {
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import { startOfWeek, formatISO, addDays } from 'date-fns';
-// Space selectors for filtering combined items arrays
-import {
-  listTodosForSpace,
-  listHabitsForSpace,
-  listNotesForSpace,
-  countJournalForSpace,
-} from '../../lib/selectors/spaceSelectors';
 
 // Components
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
@@ -192,279 +185,6 @@ const sectionMoreTextStyle = {
   color: BRAND.colors.inkSubtle,
 };
 
-/** Todos Section - shows incomplete todos for this space (max 5, sorted by most recent) */
-function TodosSection({
-  items,
-  spaceId,
-  onItemPress,
-  onToggleComplete,
-  testID,
-}: {
-  items: AppRecord[];
-  spaceId: string;
-  onItemPress: (item: AppRecord) => void;
-  onToggleComplete: (item: AppRecord) => void;
-  testID?: string;
-}) {
-  const allTodos = React.useMemo(() => {
-    const incomplete = listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
-    // Sort by most recently updated
-    return [...incomplete].sort((a: any, b: any) => {
-      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
-      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
-      return bDate - aDate;
-    });
-  }, [items, spaceId]);
-
-  const displayTodos = allTodos.slice(0, 5);
-  const moreCount = allTodos.length - 5;
-
-  if (allTodos.length === 0) return null;
-
-  return (
-    <View style={sectionStyles.section} testID={testID}>
-      <View style={sectionStyles.itemsList}>
-        {displayTodos.map((todo: any, index: number) => (
-          <EntityCard
-            key={todo.id}
-            record={todo}
-            type="todo"
-            onPress={() => onItemPress(todo)}
-            onToggleComplete={() => onToggleComplete(todo)}
-            showCheckbox={true}
-            showTypePill={true}
-            isFirst={index === 0}
-            completed={!!todo.completed_at}
-            testID={`${testID}-item-${todo.id}`}
-          />
-        ))}
-      </View>
-      {moreCount > 0 && (
-        <Pressable
-          style={sectionMoreFooterStyle}
-          onPress={() => {
-            // TODO: Wire to full list view or search
-            console.log('[TodosSection] + X more pressed');
-          }}
-          testID={`${testID}-more`}
-        >
-          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
-/** Habits Section - shows habits with weekly progress (max 5, sorted by most recent) */
-/** Habits Section - shows habits with weekly progress (max 5, sorted by most recent) */
-function HabitsSection({
-  items,
-  spaceId,
-  weekly,
-  onItemPress,
-  onLogProgress,
-  testID,
-}: {
-  items: AppRecord[];
-  spaceId: string;
-  weekly?: { habits: Array<{ id: string; doneCount: number; target: number }> };
-  onItemPress: (item: AppRecord) => void;
-  onLogProgress: (item: AppRecord) => void;
-  testID?: string;
-}) {
-  const allHabits = React.useMemo(() => {
-    const habits = listHabitsForSpace(items, spaceId);
-    // Sort by most recently updated
-    return [...habits].sort((a: any, b: any) => {
-      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
-      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
-      return bDate - aDate;
-    });
-  }, [items, spaceId]);
-
-  const displayHabits = allHabits.slice(0, 5);
-  const moreCount = allHabits.length - 5;
-
-  const weeklyById = React.useMemo(() => {
-    const map = new Map<string, { doneCount: number; target: number }>();
-    (weekly?.habits || []).forEach((h) =>
-      map.set(h.id, { doneCount: h.doneCount, target: h.target }),
-    );
-    return map;
-  }, [weekly]);
-
-  if (allHabits.length === 0) return null;
-
-  return (
-    <View style={sectionStyles.section} testID={testID}>
-      <View style={sectionStyles.itemsList}>
-        {displayHabits.map((habit: any, index: number) => {
-          const progress = weeklyById.get(habit.id);
-          const doneCount = progress?.doneCount ?? 0;
-          const target = progress?.target ?? 3;
-          return (
-            <EntityCard
-              key={habit.id}
-              record={habit}
-              type="habit"
-              onPress={() => onItemPress(habit)}
-              onLogProgress={() => onLogProgress(habit)}
-              showCheckbox={true}
-              showTypePill={true}
-              isFirst={index === 0}
-              habitProgress={{ done: doneCount, target }}
-              testID={`${testID}-item-${habit.id}`}
-            />
-          );
-        })}
-      </View>
-      {moreCount > 0 && (
-        <Pressable
-          style={sectionMoreFooterStyle}
-          onPress={() => {
-            // TODO: Wire to full list view or search
-            console.log('[HabitsSection] + X more pressed');
-          }}
-          testID={`${testID}-more`}
-        >
-          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
-/** Logs/Notes Section - shows journal, idea, reference notes (excludes lists, max 5, sorted by most recent) */
-/** Logs/Notes Section - shows journal, idea, reference notes (excludes lists, max 5, sorted by most recent) */
-function LogsNotesSection({
-  items,
-  spaceId,
-  onItemPress,
-  testID,
-}: {
-  items: AppRecord[];
-  spaceId: string;
-  onItemPress: (item: AppRecord) => void;
-  testID?: string;
-}) {
-  const allLogs = React.useMemo(() => {
-    const notes = listNotesForSpace(items, spaceId);
-    const filtered = notes
-      .filter((n: any) => {
-        const subtype = n.subtype;
-        return subtype === 'journal' || subtype === 'idea' || subtype === 'reference' || !subtype;
-      })
-      .filter((n: any) => !n.is_list);
-    // Sort by most recently updated
-    return [...filtered].sort((a: any, b: any) => {
-      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
-      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
-      return bDate - aDate;
-    });
-  }, [items, spaceId]);
-
-  const displayLogs = allLogs.slice(0, 5);
-  const moreCount = allLogs.length - 5;
-
-  if (allLogs.length === 0) return null;
-
-  return (
-    <View style={sectionStyles.section} testID={testID}>
-      <View style={sectionStyles.itemsList}>
-        {displayLogs.map((log: any, index: number) => (
-          <EntityCard
-            key={log.id}
-            record={log}
-            type="log"
-            onPress={() => onItemPress(log)}
-            showCheckbox={false}
-            showTypePill={true}
-            isFirst={index === 0}
-            subtitle={formatRelativeDate(log.updated_at || log.created_at)}
-            testID={`${testID}-item-${log.id}`}
-          />
-        ))}
-      </View>
-      {moreCount > 0 && (
-        <Pressable
-          style={sectionMoreFooterStyle}
-          onPress={() => {
-            // TODO: Wire to full list view or search
-            console.log('[LogsNotesSection] + X more pressed');
-          }}
-          testID={`${testID}-more`}
-        >
-          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
-/** Lists Section - shows notes with is_list=true or subtype='list' (max 5, sorted by most recent) */
-function ListsSection({
-  items,
-  spaceId,
-  onItemPress,
-  testID,
-}: {
-  items: AppRecord[];
-  spaceId: string;
-  onItemPress: (item: AppRecord) => void;
-  testID?: string;
-}) {
-  const allLists = React.useMemo(() => {
-    const notes = listNotesForSpace(items, spaceId);
-    const filtered = notes.filter((n: any) => n.is_list || n.subtype === 'list');
-    // Sort by most recently updated
-    return [...filtered].sort((a: any, b: any) => {
-      const aDate = new Date(a.updated_at || a.created_at || 0).getTime();
-      const bDate = new Date(b.updated_at || b.created_at || 0).getTime();
-      return bDate - aDate;
-    });
-  }, [items, spaceId]);
-
-  const displayLists = allLists.slice(0, 5);
-  const moreCount = allLists.length - 5;
-
-  if (allLists.length === 0) return null;
-
-  return (
-    <View style={sectionStyles.section} testID={testID}>
-      <View style={sectionStyles.itemsList}>
-        {displayLists.map((list: any, index: number) => {
-          const itemCount = list.body ? (list.body.match(/^[-•*]\s/gm) || []).length : 0;
-          return (
-            <EntityCard
-              key={list.id}
-              record={list}
-              type="list"
-              onPress={() => onItemPress(list)}
-              showCheckbox={false}
-              showTypePill={true}
-              isFirst={index === 0}
-              subtitle={itemCount > 0 ? `${itemCount} items` : 'List'}
-              testID={`${testID}-item-${list.id}`}
-            />
-          );
-        })}
-      </View>
-      {moreCount > 0 && (
-        <Pressable
-          style={sectionMoreFooterStyle}
-          onPress={() => {
-            // TODO: Wire to full list view or search
-            console.log('[ListsSection] + X more pressed');
-          }}
-          testID={`${testID}-more`}
-        >
-          <Text style={sectionMoreTextStyle}>+ {moreCount} more in this space</Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
 /** Section styles - matches Gremly design system */
 const sectionStyles = StyleSheet.create({
   section: {
@@ -597,7 +317,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Timeline hook - needed for weekly habit progress computation
   const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
 
-  // Combine items for backward compatibility with listXForSpace selectors
+  // Combined items array - used for mood calculations (lastItemTs)
   const items = useMemo(
     () => [...storeTodos, ...storeHabits, ...storeNotes] as AppRecord[],
     [storeTodos, storeHabits, storeNotes],
@@ -773,10 +493,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Build unified filtered items array
   const { itemsToShow, moreCount } = useMemo(() => {
-    // Get all items by type for this space
-    const todos = listTodosForSpace(items, spaceId).filter((t: any) => !t.completed_at);
-    const habits = listHabitsForSpace(items, spaceId);
-    const notes = listNotesForSpace(items, spaceId);
+    // Store data is already filtered by spaceId
+    const todos = storeTodos.filter((t: any) => !t.completed_at);
+    const habits = storeHabits;
+    const notes = storeNotes;
     const logs = notes.filter((n: any) => !n.is_list && n.subtype !== 'list');
     const lists = notes.filter((n: any) => n.is_list || n.subtype === 'list');
 
@@ -810,13 +530,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       itemsToShow: expanded ? filtered : filtered.slice(0, MAX_COMPACT_ITEMS),
       moreCount: Math.max(0, filtered.length - MAX_COMPACT_ITEMS),
     };
-  }, [items, spaceId, filter, optimisticQuickAdd, expanded]);
+  }, [storeTodos, storeHabits, storeNotes, filter, optimisticQuickAdd, expanded]);
 
   // Phase 4: Section data for new layout with optimistic completion
   const todosForSpace = useMemo(() => {
-    const allTodos = listTodosForSpace(items, spaceId);
     // Apply optimistic completion state from ref - filter out completed for main section
-    const withOptimistic = allTodos.map((todo: any) => {
+    const withOptimistic = storeTodos.map((todo: any) => {
       // Get database completion state - check both completed_at AND status field
       const dbCompleted = !!todo.completed_at || todo.status === 'completed';
       const locallyToggled = localCompletedIdsRef.current.has(todo.id);
@@ -829,13 +548,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     });
     // Only return incomplete todos for the main section
     return withOptimistic.filter((t: any) => !t.completed_at);
-  }, [items, spaceId, optimisticVersion]); // optimisticVersion triggers recalc on forceUpdate
+  }, [storeTodos, optimisticVersion]); // optimisticVersion triggers recalc on forceUpdate
 
   // Completed todos for the CompletedInSpaceOverlay
   const completedTodosForSpace = useMemo(() => {
-    const allTodos = listTodosForSpace(items, spaceId);
     // Apply optimistic completion state
-    const withOptimistic = allTodos.map((todo: any) => {
+    const withOptimistic = storeTodos.map((todo: any) => {
       const dbCompleted = !!todo.completed_at || todo.status === 'completed';
       const locallyToggled = localCompletedIdsRef.current.has(todo.id);
       const isCompleted = locallyToggled ? !dbCompleted : dbCompleted;
@@ -846,15 +564,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     });
     // Only return completed todos
     return withOptimistic.filter((t: any) => !!t.completed_at);
-  }, [items, spaceId, optimisticVersion]);
+  }, [storeTodos, optimisticVersion]);
 
   const habitsForSpace = useMemo(() => {
-    return listHabitsForSpace(items, spaceId);
-  }, [items, spaceId]);
+    return storeHabits;
+  }, [storeHabits]);
 
   const notesForSpace = useMemo(() => {
-    return listNotesForSpace(items, spaceId).filter((n: any) => !n.is_list && n.subtype !== 'list');
-  }, [items, spaceId]);
+    return storeNotes.filter((n: any) => !n.is_list && n.subtype !== 'list');
+  }, [storeNotes]);
 
   // Phase 4: Streak map from weekly habit data
   const streakMap = useMemo(() => {
@@ -1694,13 +1412,19 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [store],
   );
 
-  // Compute preview data using selectors
+  // Compute preview data from store (already filtered by spaceId)
   const weekStart = formatISO(startOfWeek(new Date()), { representation: 'date' });
-  const habits = listHabitsForSpace(items, spaceId, { limit: 3 });
-  const todos = listTodosForSpace(items, spaceId, { limit: 3 });
-  const notes = listNotesForSpace(items, spaceId, { limit: 5 });
-  const journals = listNotesForSpace(items, spaceId, { subtype: 'journal', limit: 3 });
-  const journalCount = countJournalForSpace(items, spaceId);
+  const previewHabits = useMemo(() => storeHabits.slice(0, 3), [storeHabits]);
+  const previewTodos = useMemo(() => storeTodos.slice(0, 3), [storeTodos]);
+  const previewNotes = useMemo(() => storeNotes.slice(0, 5), [storeNotes]);
+  const previewJournals = useMemo(
+    () => storeNotes.filter((n: any) => n.subtype === 'journal').slice(0, 3),
+    [storeNotes],
+  );
+  const journalCount = useMemo(
+    () => storeNotes.filter((n: any) => n.subtype === 'journal').length,
+    [storeNotes],
+  );
 
   // Phase 10.8: Space Insight action handlers
   const handleSaveInsightAsNote = useCallback(async () => {

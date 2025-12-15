@@ -8,13 +8,14 @@
  */
 
 import { useCallback, useRef } from 'react';
-import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { saveToUnsortedTray } from '../../app/screens/CatchAllNotepad';
 import { runMindDropStageAClassification } from '../minddrop/pipelineStages';
 import { runMindDropStageBPrefill } from '../minddrop/pipelineStages';
 import { parseDue } from '../nlp/datetime/parseDue';
+import { useGremlyStore } from '../store/useGremlyStore';
+import { selectItemById } from '../store/selectors';
 import type { CortexContext } from '../cortex/cortexDecide';
 
 /**
@@ -75,9 +76,21 @@ export interface UseNowQuickAddResult {
 }
 
 export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResult {
-  const repo = useRepo();
   const { decideWithContext } = useCortex();
   const { user } = useAuth();
+  // Direct store mutations
+  const createNote = useGremlyStore((s) => s.createNote);
+  const createTodo = useGremlyStore((s) => s.createTodo);
+  const createHabit = useGremlyStore((s) => s.createHabit);
+  const updateTodo = useGremlyStore((s) => s.updateTodo);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
+  const updateNote = useGremlyStore((s) => s.updateNote);
+  const deleteNote = useGremlyStore((s) => s.deleteNote);
+  // Synchronous lookup helper
+  const getItemById = useCallback(
+    (id: string) => selectItemById(useGremlyStore.getState(), id),
+    [],
+  );
   // Use ref to track in-flight submissions to prevent double-submits
   const isProcessingRef = useRef(false);
 
@@ -110,7 +123,7 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
           console.log('[NowQuickAdd] Starting pipeline', { dropId, textLength: trimmed.length });
 
           // Step 1: Create unsorted note (same as MindDrop)
-          const unsortedNoteId = await saveToUnsortedTray(repo, trimmed, {
+          const unsortedNoteId = await saveToUnsortedTray(createNote, trimmed, {
             dropId,
             whyString: 'Quick Add from Today screen',
           });
@@ -147,8 +160,48 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
           });
 
           // Step 3: Run Stage A classification (creates todo/habit/note)
+          // Create adapter for pipeline stages that expect repo interface
+          const pipelineAdapter = {
+            getById: getItemById,
+            create: async (input: { type: string; data: any }) => {
+              if (input.type === 'todo') return createTodo(input.data);
+              if (input.type === 'habit') return createHabit(input.data);
+              if (input.type === 'note') return createNote(input.data);
+              throw new Error(`Unknown type: ${input.type}`);
+            },
+            update: async (params: { id: string; patch: any }) => {
+              const existing = getItemById(params.id);
+              if (!existing) throw new Error(`Item not found: ${params.id}`);
+              if (existing.type === 'todo') return updateTodo(params.id, params.patch);
+              if (existing.type === 'habit') return updateHabit(params.id, params.patch);
+              if (existing.type === 'note') return updateNote(params.id, params.patch);
+              throw new Error(`Unknown type: ${existing.type}`);
+            },
+            remove: async (id: string) => {
+              const existing = getItemById(id);
+              if (!existing) return;
+              if (existing.type === 'note') return deleteNote(id);
+              // Pipeline rarely deletes todos/habits during classification
+            },
+            notes: {
+              create: createNote,
+              list: async () => [] as any[],
+              update: async (id: string, patch: any) => updateNote(id, patch),
+              remove: async (id: string) => deleteNote(id),
+            },
+            todos: {
+              create: createTodo,
+              list: async () => [] as any[],
+              update: async (id: string, patch: any) => updateTodo(id, patch),
+            },
+            habits: {
+              create: createHabit,
+              list: async () => [] as any[],
+              update: async (id: string, patch: any) => updateHabit(id, patch),
+            },
+          };
           const stageAResult = await runMindDropStageAClassification({
-            repo,
+            repo: pipelineAdapter as any,
             text: trimmed,
             cleanedText: trimmed,
             decision,
@@ -170,7 +223,7 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
 
           for (const todoId of stageAResult.entities.todos) {
             try {
-              const todo = await repo.getById(todoId);
+              const todo = getItemById(todoId);
               if (todo && todo.type === 'todo') {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const existingDueDay = (todo as any).due_day;
@@ -180,15 +233,12 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
 
                 if (!hasDueDate) {
                   console.log('[NowQuickAdd] Setting todo due_day to today', { todoId, todayDate });
-                  await repo.update({
-                    id: todoId,
-                    patch: {
-                      due_day: todayDate,
-                      due_date: todayDate,
-                      undefined_due: false,
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    } as any,
-                  });
+                  await updateTodo(todoId, {
+                    due_day: todayDate,
+                    due_date: todayDate,
+                    undefined_due: false,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  } as any);
                   finalTodoDueDay = todayDate;
                 } else {
                   finalTodoDueDay = existingDueDay ?? null;
@@ -205,7 +255,7 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
 
           for (const habitId of stageAResult.entities.habits) {
             try {
-              const habit = await repo.getById(habitId);
+              const habit = getItemById(habitId);
               if (habit && habit.type === 'habit') {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const hasStartDate = !!(habit as any).start_date;
@@ -214,13 +264,10 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
                     habitId,
                     todayDate,
                   });
-                  await repo.update({
-                    id: habitId,
-                    patch: {
-                      start_date: todayDate,
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    } as any,
-                  });
+                  await updateHabit(habitId, {
+                    start_date: todayDate,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  } as any);
                 }
                 finalHabitId = habitId;
               }
@@ -243,7 +290,7 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
           ) {
             // Fire and forget - don't await
             runMindDropStageBPrefill({
-              repo,
+              repo: pipelineAdapter as any,
               entityIds: allEntityIds,
               rawText: trimmed,
             }).catch((err) => {
@@ -287,7 +334,19 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
         }
       })();
     },
-    [repo, decideWithContext, user, options],
+    [
+      createNote,
+      createTodo,
+      createHabit,
+      updateTodo,
+      updateHabit,
+      updateNote,
+      deleteNote,
+      getItemById,
+      decideWithContext,
+      user,
+      options,
+    ],
   );
 
   return {

@@ -60,6 +60,20 @@ jest.mock('../providers/RepoProvider', () => ({
   }),
 }));
 
+// Mock useStoreAsRepo (CatchAllNotepad now uses store adapter instead of useRepo)
+jest.mock('../lib/store/useStoreAsRepo', () => ({
+  useStoreAsRepo: () => ({
+    notes: { list: mockNotesList },
+    todos: { list: mockTodosList },
+    habits: { list: mockHabitsList },
+    getById: mockGetById,
+    remove: mockRemove,
+    archiveItemsByDropId: mockArchiveItemsByDropId,
+    findTodoByDropId: jest.fn().mockResolvedValue(null),
+    findHabitByDropId: jest.fn().mockResolvedValue(null),
+  }),
+}));
+
 import { RecentDropsTestable as RecentDrops } from '../app/screens/CatchAllNotepad';
 
 const overlayStub = {

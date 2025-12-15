@@ -61,6 +61,19 @@ jest.mock('../providers/RepoProvider', () => ({
   }),
 }));
 
+// Mock useStoreAsRepo (CatchAllNotepad now uses store adapter instead of useRepo)
+jest.mock('../lib/store/useStoreAsRepo', () => ({
+  useStoreAsRepo: () => ({
+    create: mockCreate,
+    notes: { list: mockNotesList, delete: mockNotesDelete },
+    remove: undefined,
+    todos: { list: mockTodosList },
+    habits: { list: mockHabitsList },
+    findTodoByDropId: jest.fn().mockResolvedValue(null),
+    findHabitByDropId: jest.fn().mockResolvedValue(null),
+  }),
+}));
+
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
 function makeNote(

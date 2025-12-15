@@ -25,6 +25,11 @@ jest.mock('../../../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
+// Mock useStoreAsRepo (CatchAllNotepad now uses store adapter instead of useRepo)
+jest.mock('../../../lib/store/useStoreAsRepo', () => ({
+  useStoreAsRepo: () => mockRepo,
+}));
+
 jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'test-user' } }),
 }));

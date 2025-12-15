@@ -9,13 +9,14 @@
  */
 
 import { useCallback, useRef } from 'react';
-import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { saveToUnsortedTray } from '../../app/screens/CatchAllNotepad';
 import { runMindDropStageAClassification } from '../minddrop/pipelineStages';
 import { runMindDropStageBPrefill } from '../minddrop/pipelineStages';
 import { parseDue } from '../nlp/datetime/parseDue';
+import { useGremlyStore } from '../store/useGremlyStore';
+import { selectItemById } from '../store/selectors';
 import type { CortexContext } from '../cortex/cortexDecide';
 
 /**
@@ -67,9 +68,21 @@ export interface UseSpaceQuickAddResult {
 
 export function useSpaceQuickAdd(options: SpaceQuickAddOptions): UseSpaceQuickAddResult {
   const { spaceId, onStart, onComplete, onError } = options;
-  const repo = useRepo();
   const { decideWithContext } = useCortex();
   const { user } = useAuth();
+  // Direct store mutations
+  const createNote = useGremlyStore((s) => s.createNote);
+  const createTodo = useGremlyStore((s) => s.createTodo);
+  const createHabit = useGremlyStore((s) => s.createHabit);
+  const updateTodo = useGremlyStore((s) => s.updateTodo);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
+  const updateNote = useGremlyStore((s) => s.updateNote);
+  const deleteNote = useGremlyStore((s) => s.deleteNote);
+  // Synchronous lookup helper
+  const getItemById = useCallback(
+    (id: string) => selectItemById(useGremlyStore.getState(), id),
+    [],
+  );
   const isProcessingRef = useRef(false);
 
   const onQuickAdd = useCallback(
@@ -102,7 +115,7 @@ export function useSpaceQuickAdd(options: SpaceQuickAddOptions): UseSpaceQuickAd
           });
 
           // Step 1: Create unsorted note with space attachment
-          const unsortedNoteId = await saveToUnsortedTray(repo, trimmed, {
+          const unsortedNoteId = await saveToUnsortedTray(createNote, trimmed, {
             dropId,
             whyString: `Quick Add from Space: ${spaceId}`,
             spaceId, // Attach to space from the start
@@ -140,8 +153,47 @@ export function useSpaceQuickAdd(options: SpaceQuickAddOptions): UseSpaceQuickAd
           });
 
           // Step 3: Run Stage A classification
+          // Create adapter for pipeline stages that expect repo interface
+          const pipelineAdapter = {
+            getById: getItemById,
+            create: async (input: { type: string; data: any }) => {
+              if (input.type === 'todo') return createTodo(input.data);
+              if (input.type === 'habit') return createHabit(input.data);
+              if (input.type === 'note') return createNote(input.data);
+              throw new Error(`Unknown type: ${input.type}`);
+            },
+            update: async (params: { id: string; patch: any }) => {
+              const existing = getItemById(params.id);
+              if (!existing) throw new Error(`Item not found: ${params.id}`);
+              if (existing.type === 'todo') return updateTodo(params.id, params.patch);
+              if (existing.type === 'habit') return updateHabit(params.id, params.patch);
+              if (existing.type === 'note') return updateNote(params.id, params.patch);
+              throw new Error(`Unknown type: ${(existing as any).type}`);
+            },
+            remove: async (id: string) => {
+              const existing = getItemById(id);
+              if (!existing) return;
+              if (existing.type === 'note') return deleteNote(id);
+            },
+            notes: {
+              create: createNote,
+              list: async () => [] as any[],
+              update: async (id: string, patch: any) => updateNote(id, patch),
+              remove: async (id: string) => deleteNote(id),
+            },
+            todos: {
+              create: createTodo,
+              list: async () => [] as any[],
+              update: async (id: string, patch: any) => updateTodo(id, patch),
+            },
+            habits: {
+              create: createHabit,
+              list: async () => [] as any[],
+              update: async (id: string, patch: any) => updateHabit(id, patch),
+            },
+          };
           const stageAResult = await runMindDropStageAClassification({
-            repo,
+            repo: pipelineAdapter as any,
             text: trimmed,
             cleanedText: trimmed,
             decision,
@@ -168,13 +220,16 @@ export function useSpaceQuickAdd(options: SpaceQuickAddOptions): UseSpaceQuickAd
 
           for (const entityId of allEntityIds) {
             try {
-              const entity = await repo.getById(entityId);
+              const entity = getItemById(entityId);
               if (entity && !(entity as any).space_id) {
                 console.log('[SpaceQuickAdd] Setting space_id for entity', { entityId, spaceId });
-                await repo.update({
-                  id: entityId,
-                  patch: { space_id: spaceId } as any,
-                });
+                if (entity.type === 'todo') {
+                  await updateTodo(entityId, { space_id: spaceId } as any);
+                } else if (entity.type === 'habit') {
+                  await updateHabit(entityId, { space_id: spaceId } as any);
+                } else if (entity.type === 'note') {
+                  await updateNote(entityId, { space_id: spaceId } as any);
+                }
               }
             } catch (err) {
               console.warn('[SpaceQuickAdd] Failed to update entity space_id', { entityId, err });
@@ -194,7 +249,7 @@ export function useSpaceQuickAdd(options: SpaceQuickAddOptions): UseSpaceQuickAd
             entityIds.notes.length > 0
           ) {
             runMindDropStageBPrefill({
-              repo,
+              repo: pipelineAdapter as any,
               entityIds,
               rawText: trimmed,
             }).catch((err) => {
@@ -232,7 +287,22 @@ export function useSpaceQuickAdd(options: SpaceQuickAddOptions): UseSpaceQuickAd
         }
       })();
     },
-    [repo, decideWithContext, user, spaceId, onStart, onComplete, onError],
+    [
+      createNote,
+      createTodo,
+      createHabit,
+      updateTodo,
+      updateHabit,
+      updateNote,
+      deleteNote,
+      getItemById,
+      decideWithContext,
+      user,
+      spaceId,
+      onStart,
+      onComplete,
+      onError,
+    ],
   );
 
   return {

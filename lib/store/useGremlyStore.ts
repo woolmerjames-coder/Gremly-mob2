@@ -113,6 +113,15 @@ interface GremlyState {
   deleteMilestone: (milestoneId: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // LOG PHOTO MUTATIONS (for Mind Drop attachments)
+  // ═══════════════════════════════════════════════════════════════════
+  insertLogPhoto: (params: {
+    noteId: string;
+    url: string;
+    position: number;
+  }) => Promise<{ id: string }>;
+
+  // ═══════════════════════════════════════════════════════════════════
   // BULK/UTILITY
   // ═══════════════════════════════════════════════════════════════════
   refreshFromServer: () => Promise<void>;
@@ -1332,6 +1341,33 @@ export const useGremlyStore = create<GremlyState>()(
         console.error('[GremlyStore] deleteMilestone failed:', error);
         throw error;
       }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // LOG PHOTO MUTATIONS (for Mind Drop attachments)
+    // ═══════════════════════════════════════════════════════════════════
+
+    insertLogPhoto: async (params: { noteId: string; url: string; position: number }) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const { data, error } = await supabase
+        .from('log_photos')
+        .insert({
+          note_id: params.noteId,
+          owner_id: userId,
+          url: params.url,
+          position: params.position,
+        })
+        .select('id')
+        .single();
+
+      if (error) {
+        console.error('[GremlyStore] insertLogPhoto failed:', error);
+        throw new Error(`Failed to insert log photo: ${error.message}`);
+      }
+
+      return { id: data.id };
     },
 
     // ═══════════════════════════════════════════════════════════════════
