@@ -1129,13 +1129,13 @@ export const selectMilestoneCountdown = createSelector(
 export const useMilestoneCountdown = (spaceId: string) =>
   useGremlyStore((state) => selectMilestoneCountdown(state, spaceId));
 
-/** All milestones for a space (including completed) */
+/** All milestones for a space (including completed), sorted by date ascending */
 export const selectAllMilestonesForSpace = createSelector(
   [selectMilestones, (_state: GremlyState, spaceId: string) => spaceId],
   (milestones, spaceId) =>
     milestones
       .filter((m) => m.space_id === spaceId)
-      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')),
+      .sort((a, b) => (a.date || '').localeCompare(b.date || '')),
 );
 
 export const useAllSpaceMilestones = (spaceId: string) =>
