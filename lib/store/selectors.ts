@@ -1235,3 +1235,115 @@ export const selectSpaceNotes = createSelector(
 
 export const useSpaceNotesSelector = (spaceId: string | null | undefined) =>
   useGremlyStore((state) => selectSpaceNotes(state, spaceId));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPACE TIMELINE SELECTOR (for weekly habit progress)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export type TimelineItem = {
+  id: string;
+  type: 'habit' | 'todo' | 'note';
+  title: string;
+  dueAt?: string | null;
+  done?: boolean;
+};
+
+export type TimelineDay = {
+  dateISO: string; // YYYY-MM-DD
+  items: TimelineItem[];
+};
+
+/** Get current week's date range (Sunday to Saturday) */
+function getWeekDateRange(): string[] {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sunday
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - dayOfWeek);
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+}
+
+/** Timeline for a specific space - groups items by day for the current week */
+export const selectSpaceTimeline = createSelector(
+  [
+    selectHabits,
+    selectTodos,
+    selectNotes,
+    selectHabitProgress,
+    (_state: GremlyState, spaceId: string | null | undefined) => spaceId,
+  ],
+  (habits, todos, notes, habitProgress, spaceId): TimelineDay[] => {
+    if (!spaceId) return [];
+
+    const weekDays = getWeekDateRange();
+    const dayMap = new Map<string, TimelineItem[]>();
+    for (const iso of weekDays) dayMap.set(iso, []);
+
+    // Build habit progress lookup: habitId -> Set of occurred_day strings
+    const habitProgressMap = new Map<string, Set<string>>();
+    for (const p of habitProgress) {
+      if (!habitProgressMap.has(p.habit_id)) {
+        habitProgressMap.set(p.habit_id, new Set());
+      }
+      if (p.occurred_day) {
+        habitProgressMap.get(p.habit_id)!.add(p.occurred_day);
+      }
+    }
+
+    // Add habits for each day (showing completion status)
+    const spaceHabits = habits.filter((h) => h.space_id === spaceId && !h.archived);
+    for (const h of spaceHabits) {
+      const habitDays = habitProgressMap.get(h.id) || new Set<string>();
+      for (const iso of weekDays) {
+        const done = habitDays.has(iso);
+        dayMap.get(iso)!.push({
+          id: h.id,
+          type: 'habit',
+          title: (h as any).name || (h as any).title || 'Habit',
+          done,
+        });
+      }
+    }
+
+    // Add todos with due dates in this week
+    const spaceTodos = todos.filter((t) => t.space_id === spaceId && !t.archived);
+    for (const t of spaceTodos) {
+      const dueDate = (t as any).due_date;
+      if (dueDate && dayMap.has(dueDate)) {
+        const dueAt = (t as any).due_time ? `${dueDate}T${(t as any).due_time}:00` : dueDate;
+        dayMap.get(dueDate)!.push({
+          id: t.id,
+          type: 'todo',
+          title: (t as any).name || (t as any).title || 'To-do',
+          dueAt,
+          done: !!(t as any).completed_at,
+        });
+      }
+    }
+
+    // Add notes with date in this week
+    const spaceNotes = notes.filter((n) => n.space_id === spaceId && !n.archived);
+    for (const n of spaceNotes) {
+      const noteDate = (n as any).date || (n as any).created_at?.slice(0, 10);
+      if (noteDate && dayMap.has(noteDate)) {
+        dayMap.get(noteDate)!.push({
+          id: n.id,
+          type: 'note',
+          title: (n as any).title || (n as any).body?.split('\n')[0]?.slice(0, 80) || 'Note',
+        });
+      }
+    }
+
+    return weekDays.map((iso) => ({
+      dateISO: iso,
+      items: dayMap.get(iso)!,
+    }));
+  },
+);
+
+export const useSpaceTimelineFromStore = (spaceId: string | null | undefined) =>
+  useGremlyStore((state) => selectSpaceTimeline(state, spaceId));

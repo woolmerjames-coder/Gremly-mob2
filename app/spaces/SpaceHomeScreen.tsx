@@ -39,6 +39,7 @@ import {
   useChatMessages,
   useSpaceMilestoneFromStore,
   useMilestoneCountdown,
+  useSpaceTimelineFromStore,
 } from '../../lib/store/selectors';
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
@@ -71,7 +72,6 @@ import {
   MoreVertical,
 } from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import useSpaceTimeline from '../../hooks/useSpaceTimeline';
 // v33 components (Space v3.3)
 import HeaderV33 from '../../components/spaces/v33/Header';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
@@ -314,8 +314,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const storeHabits = useSpaceHabitsFromStore(spaceId);
   const storeNotes = useSpaceNotesFromStore(spaceId);
 
-  // Timeline hook - needed for weekly habit progress computation
-  const { days: timelineDays, reload: reloadTimeline } = useSpaceTimeline(spaceId);
+  // Timeline from store - needed for weekly habit progress computation
+  const timelineDays = useSpaceTimelineFromStore(spaceId);
 
   // Combined items array - used for mood calculations (lastItemTs)
   const items = useMemo(
