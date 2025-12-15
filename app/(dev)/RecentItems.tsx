@@ -11,6 +11,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { FlatList, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRepo } from '../../providers/RepoProvider';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { Habit } from '../../lib/types';
 import { Text } from '../../ui/Text';
 import { Box } from '../../ui/Box';
@@ -25,6 +26,7 @@ import { HabitDetailModal } from '../../components/habits/HabitDetailModal';
 
 export default function RecentItems() {
   const repo = useRepo();
+  const storeHabits = useGremlyStore((s) => s.habits);
   const [habits, setHabits] = useState<RawHabit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,8 +58,8 @@ export default function RecentItems() {
       setLoading(true);
       setError(null);
 
-      // Fetch all habits
-      const allHabits = (await repo.listByType('habit')) as Habit[];
+      // Use habits from Zustand store
+      const allHabits = storeHabits as Habit[];
 
       // Get week date range for fetching progress
       const today = new Date();
@@ -67,7 +69,7 @@ export default function RecentItems() {
       const weekStartIso = toDateString(weekStart);
       const weekEndIso = toDateString(weekEnd);
 
-      // Fetch progress dates for each habit and enrich
+      // Fetch progress dates for each habit and enrich (still uses repo for progress dates)
       const enrichedHabits: RawHabit[] = await Promise.all(
         allHabits.map(async (habit) => {
           const progressDates = await repo.getHabitProgressDates(

@@ -4,19 +4,58 @@
  * React hook for fetching and tracking user activity streaks.
  */
 
-import { useState, useEffect } from 'react';
-import { useRepo } from '../../../providers/RepoProvider';
+import { useState, useEffect, useMemo } from 'react';
+import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useAuth } from '../../../providers/AuthProvider';
 import { getEnv } from '../../../lib/env';
 import { getCurrentStreak, type StreakResult } from './streakService';
 import { format, startOfDay, subDays } from 'date-fns';
 
 export function useStreak() {
-  const repo = useRepo();
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
   const { userId } = useAuth();
   const [streak, setStreak] = useState<StreakResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+
+  // Compute activity dates from store data
+  const activityDates = useMemo(() => {
+    const lookbackDays = parseInt(getEnv('EXPO_PUBLIC_STREAK_LOOKBACK_DAYS') || '30', 10);
+    const dates = new Set<string>();
+    const sinceDate = format(subDays(startOfDay(new Date()), lookbackDays), 'yyyy-MM-dd');
+
+    // Get dates from completed todos
+    todos.forEach((todo) => {
+      if (todo.completed_at) {
+        const completedDate = format(startOfDay(new Date(todo.completed_at)), 'yyyy-MM-dd');
+        if (completedDate >= sinceDate) {
+          dates.add(completedDate);
+        }
+      }
+    });
+
+    // Get dates from habit checkins
+    habits.forEach((habit) => {
+      const habitAny = habit as any;
+      if (habitAny.checkins && Array.isArray(habitAny.checkins)) {
+        habitAny.checkins.forEach((checkin: any) => {
+          if (checkin.date) {
+            const checkinDate =
+              typeof checkin.date === 'string'
+                ? checkin.date
+                : format(startOfDay(new Date(checkin.date)), 'yyyy-MM-dd');
+
+            if (checkinDate >= sinceDate) {
+              dates.add(checkinDate);
+            }
+          }
+        });
+      }
+    });
+
+    return Array.from(dates).sort();
+  }, [todos, habits]);
 
   useEffect(() => {
     if (!userId) {
@@ -30,20 +69,11 @@ export function useStreak() {
       return;
     }
 
-    fetchStreak();
-  }, [userId]);
-
-  async function fetchStreak() {
     try {
       setLoading(true);
       setError(null);
 
-      const lookbackDays = parseInt(getEnv('EXPO_PUBLIC_STREAK_LOOKBACK_DAYS') || '30', 10);
-
-      // Fetch activity dates from repository
-      const activityDates = await fetchActivityDates(lookbackDays);
-
-      // Calculate streak
+      // Calculate streak from memoized activity dates
       const result = getCurrentStreak(activityDates);
       setStreak(result);
     } catch (err) {
@@ -52,59 +82,14 @@ export function useStreak() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function fetchActivityDates(sinceDays: number): Promise<string[]> {
-    const dates = new Set<string>();
-    const sinceDate = format(subDays(startOfDay(new Date()), sinceDays), 'yyyy-MM-dd');
-
-    try {
-      // Fetch completed todos
-      const todos = await repo.listByType('todo');
-      todos.forEach((todo) => {
-        if (todo.type === 'todo') {
-          const todoAny = todo as any;
-          if (todoAny.completed_at) {
-            const completedDate = format(startOfDay(new Date(todoAny.completed_at)), 'yyyy-MM-dd');
-            if (completedDate >= sinceDate) {
-              dates.add(completedDate);
-            }
-          }
-        }
-      });
-
-      // Fetch habits with checkins
-      const habits = await repo.listByType('habit');
-      habits.forEach((habit) => {
-        if (habit.type === 'habit') {
-          const habitAny = habit as any;
-          if (habitAny.checkins && Array.isArray(habitAny.checkins)) {
-            habitAny.checkins.forEach((checkin: any) => {
-              if (checkin.date) {
-                const checkinDate =
-                  typeof checkin.date === 'string'
-                    ? checkin.date
-                    : format(startOfDay(new Date(checkin.date)), 'yyyy-MM-dd');
-
-                if (checkinDate >= sinceDate) {
-                  dates.add(checkinDate);
-                }
-              }
-            });
-          }
-        }
-      });
-    } catch (err) {
-      console.error('[useStreak] Error fetching activity:', err);
-    }
-
-    return Array.from(dates).sort((a, b) => b.localeCompare(a));
-  }
+  }, [userId, activityDates]);
 
   return {
     streak,
     loading,
     error,
-    refetch: fetchStreak,
+    refetch: () => {
+      // With Zustand, data is always fresh - this is a no-op but kept for API compatibility
+    },
   };
 }

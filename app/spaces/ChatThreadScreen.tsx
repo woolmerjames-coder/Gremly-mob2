@@ -36,7 +36,6 @@ import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
-import { useRepo } from '../../providers/RepoProvider';
 import { callSpaceChat } from '../../lib/cortex/CortexClient';
 import { checkQuickResponse, getQuickResponseText } from '../../lib/chat/quickResponses';
 import { perfMonitor } from '../../lib/chat/performanceMonitor';
@@ -78,6 +77,7 @@ import {
   useSpaceNotesFromStore,
   useSpaceMilestoneFromStore,
   useMilestoneCountdown,
+  selectItemById,
 } from '../../lib/store/selectors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
@@ -95,7 +95,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const { spaceId, chatId } = route.params;
   const auth = useAuth();
   const { userId } = auth;
-  const repo = useRepo();
+  const getItemById = useGremlyStore((s) => (id: string) => selectItemById(s, id));
 
   const [chat, setChat] = useState<SpaceChat | null>(null);
   const [loading, setLoading] = useState(true);
@@ -288,8 +288,8 @@ export default function ChatThreadScreen({ route }: Props) {
         );
       }
 
-      // Get the full record for tap-to-edit
-      const record = await repo.getById(payload.id);
+      // Get the full record for tap-to-edit from Zustand store
+      const record = getItemById(payload.id);
 
       // Remove the action confirmation toast after successful creation
       const actionConfirmation = messages.find(
@@ -403,7 +403,7 @@ export default function ChatThreadScreen({ route }: Props) {
 
     const unsubscribe = addOverlaySavedListener(handleOverlaySaved);
     return () => unsubscribe();
-  }, [messages, repo, appendAssistantMessage, removeMessage, updateMessage]);
+  }, [messages, getItemById, appendAssistantMessage, removeMessage, updateMessage]);
 
   // Create SpaceChatRepo instance (unused but kept for potential future use)
   const _spaceChatRepo = React.useMemo(() => {
@@ -442,17 +442,12 @@ export default function ChatThreadScreen({ route }: Props) {
     loadChat();
   }, [loadChat]);
 
-  // Fetch space name for header
+  // Fetch space name from Zustand store
   useEffect(() => {
-    if (spaceId && repo) {
-      repo
-        .getSpaceById(spaceId)
-        .then((space) => {
-          if (space?.name) setSpaceName(space.name);
-        })
-        .catch(() => {});
+    if (space?.name) {
+      setSpaceName(space.name);
     }
-  }, [spaceId, repo]);
+  }, [space]);
 
   // NOTE: entity:created event listener removed - SavedItemCard is now rendered
   // inline within ChatBubble via message.saveable property
@@ -875,7 +870,6 @@ export default function ChatThreadScreen({ route }: Props) {
       chat,
       chatId,
       currentChatId,
-      repo,
       userId,
       sendUserMessage,
       appendAssistantMessage,

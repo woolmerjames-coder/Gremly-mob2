@@ -896,6 +896,44 @@ export const useSpaceHabitsFromStore = (spaceId: string) =>
 export const useSpaceNotesFromStore = (spaceId: string) =>
   useGremlyStore((state) => selectNotesBySpace(state, spaceId));
 
+/** Grouped items by type for Space detail view */
+export interface GroupedByType {
+  habits: Habit[];
+  todos: Todo[];
+  notes: Note[];
+}
+
+/** Select items grouped by type for a space, with optional tag filtering */
+export const selectSpaceItemsGrouped = (
+  state: GremlyState,
+  spaceId: string,
+  tagNames?: string[],
+): GroupedByType => {
+  const todos = selectTodosBySpace(state, spaceId);
+  const habits = selectHabitsBySpace(state, spaceId);
+  const notes = selectNotesBySpace(state, spaceId);
+
+  // Apply tag filtering if specified
+  if (tagNames && tagNames.length > 0) {
+    const filterByTags = <T extends { tags?: string[] | null }>(items: T[]): T[] =>
+      items.filter((item) => {
+        const itemTags = item.tags ?? [];
+        return tagNames.some((tag) => itemTags.includes(tag));
+      });
+
+    return {
+      habits: filterByTags(habits),
+      todos: filterByTags(todos),
+      notes: filterByTags(notes),
+    };
+  }
+
+  return { habits, todos, notes };
+};
+
+export const useSpaceItemsGrouped = (spaceId: string, tagNames?: string[]) =>
+  useGremlyStore((state) => selectSpaceItemsGrouped(state, spaceId, tagNames));
+
 // Loading state
 export const useIsLoading = () => useGremlyStore(selectIsLoading);
 export const useIsInitialized = () => useGremlyStore(selectIsInitialized);

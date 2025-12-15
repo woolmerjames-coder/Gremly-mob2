@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { Text, Box, Button } from '../../../ui';
 import { useRepo } from '../../../providers/RepoProvider';
+import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { selectItemById } from '../../../lib/store/selectors';
 import { eventBus } from '../../../lib/events';
 import { useTodayEntries, type TodayMergedEntry } from '../../../lib/today/hooks/useTodayEntries';
 import { BRAND } from '../../../design/brand';
@@ -37,6 +39,8 @@ type HabitTickPayload = {
 
 export default function TaskHabitStack() {
   const repo = useRepo();
+  const completeTodo = useGremlyStore((s) => s.completeTodo);
+  const getItemById = useGremlyStore((s) => (id: string) => selectItemById(s, id));
   const overlay = useGlobalOverlay();
   const { width } = useWindowDimensions();
   const { items, doneItems, completed, remaining, loading, /* error */ reload } = useTodayEntries();
@@ -101,15 +105,15 @@ export default function TaskHabitStack() {
   const handleTodoComplete = async (id: string, title: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     recordCompletion(id, 'todo', title);
-    await repo.completeTodo(id, new Date().toISOString());
+    await completeTodo(id);
     eventBus.emit('ItemCompleted', { id, type: 'todo' });
     void reload();
   };
 
   const handleEntryPress = useCallback(
-    async (entry: TodayMergedEntry | SessionDone) => {
+    (entry: TodayMergedEntry | SessionDone) => {
       try {
-        const record = await repo.getById(entry.id);
+        const record = getItemById(entry.id);
         if (!record) {
           console.warn('[TaskHabitStack] Unable to load record for overlay:', entry);
           return;
@@ -129,7 +133,7 @@ export default function TaskHabitStack() {
         console.error('[TaskHabitStack] Failed to open overlay for entry:', entry, error);
       }
     },
-    [overlay, repo],
+    [overlay, getItemById],
   );
 
   const sessionHiddenIds = useMemo(

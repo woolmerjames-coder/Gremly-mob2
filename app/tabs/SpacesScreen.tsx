@@ -46,7 +46,7 @@
  * =============================================================================
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
@@ -61,7 +61,8 @@ import GREMLY_WORDMARK from '../../assets/gremly_wordmark-removebg.png';
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import SPACES_TITLE from '../../assets/spacestitle.png';
 
-import { useRepo } from '../../providers/RepoProvider';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useActiveSpaces } from '../../lib/store/selectors';
 import { useAuth } from '../../providers/AuthProvider';
 import { useTheme } from '../../providers/ThemeProvider';
 import { Screen, Box, Text, Button } from '../../ui';
@@ -81,16 +82,15 @@ const getSpaceIcon = (name: string) => {
 };
 
 function GremlyHomeScreen() {
-  const repo = useRepo();
+  const activeSpaces = useActiveSpaces();
+  const deleteSpace = useGremlyStore((s) => s.deleteSpace);
   const { user } = useAuth();
   const { theme } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const isReducedMotion = useReducedMotion();
 
-  // State
-  const [spaces, setSpaces] = useState<Array<{ id: string; name: string; description?: string }>>(
-    [],
-  );
+  // Use activeSpaces directly - no mapping needed
+  const spaces = activeSpaces;
   const [error, setError] = useState<string | null>(null);
   const [spacesModalVisible, setSpacesModalVisible] = useState(false);
 
@@ -103,37 +103,9 @@ function GremlyHomeScreen() {
     </Box>
   ) : null;
 
-  // Load on mount and when dependencies change
-  useEffect(() => {
-    let mounted = true;
-    const loadData = async () => {
-      // Skip if not authenticated - don't set error to avoid infinite loop
-      if (!user) {
-        return;
-      }
-
-      setError(null);
-      try {
-        const data = await repo.listSpaces();
-        if (mounted) setSpaces(data);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to load spaces';
-        console.error('Failed to load spaces:', err);
-        if (mounted) setError(message);
-      }
-    };
-    void loadData();
-    return () => {
-      mounted = false;
-    };
-  }, [repo, user]);
-
   // Navigate to create (now opens modal instead of screen route)
   const onCreateSpace = useCallback(() => {
-    // Set callback to refresh spaces list when new space is created
-    setNewSpaceCallback((newSpace) => {
-      setSpaces((prev) => [...prev, newSpace]);
-    });
+    // Zustand store handles state updates automatically when space is created
     SheetManager.show('new-space');
   }, []);
 
@@ -146,8 +118,8 @@ function GremlyHomeScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await repo.deleteSpace(space.id);
-              setSpaces((prev) => prev.filter((s) => s.id !== space.id));
+              await deleteSpace(space.id);
+              // Zustand store handles state updates automatically
             } catch (err) {
               const message = err instanceof Error ? err.message : 'Failed to delete space';
               Alert.alert('Error', message);
@@ -160,7 +132,7 @@ function GremlyHomeScreen() {
         },
       ]);
     },
-    [repo],
+    [deleteSpace],
   );
 
   // Use all spaces directly (search removed for simplified tile UI)
