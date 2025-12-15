@@ -1,0 +1,648 @@
+import { createSelector } from 'reselect';
+import { useGremlyStore, type HabitProgressRow } from './useGremlyStore';
+import type { Todo, Habit, Note, Space } from '../types';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DATE HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Get today's date as YYYY-MM-DD in local timezone */
+function getTodayDayString(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+/** Get start of current week (Sunday) as YYYY-MM-DD */
+function getWeekStartDayString(): string {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sunday
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - dayOfWeek);
+  return `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
+}
+
+/** Get N days ago as YYYY-MM-DD */
+function getDaysAgoDayString(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** Check if a date string is today */
+function isToday(dateStr: string | null | undefined): boolean {
+  if (!dateStr) return false;
+  return dateStr.startsWith(getTodayDayString());
+}
+
+/** Get day of week (0-6, Sunday = 0) from YYYY-MM-DD string */
+function getDayOfWeek(dayString: string): number {
+  const [year, month, day] = dayString.split('-').map(Number);
+  return new Date(year, month - 1, day).getDay();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BASE SELECTORS (access raw store data)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+type GremlyState = ReturnType<typeof useGremlyStore.getState>;
+
+const selectTodos = (state: GremlyState) => state.todos;
+const selectHabits = (state: GremlyState) => state.habits;
+const selectNotes = (state: GremlyState) => state.notes;
+const selectSpaces = (state: GremlyState) => state.spaces;
+const selectTags = (state: GremlyState) => state.tags;
+const selectHabitProgress = (state: GremlyState) => state.habitProgress;
+const selectIsLoading = (state: GremlyState) => state.isLoading;
+const selectIsInitialized = (state: GremlyState) => state.isInitialized;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HABIT COMPLETION TRACKING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Map of habitId -> completion count this week */
+export const selectCompletionsThisWeek = createSelector(
+  [selectHabitProgress],
+  (progress): Map<string, number> => {
+    const weekStart = getWeekStartDayString();
+    const map = new Map<string, number>();
+
+    for (const row of progress) {
+      if (row.occurred_day >= weekStart) {
+        map.set(row.habit_id, (map.get(row.habit_id) ?? 0) + row.count);
+      }
+    }
+    return map;
+  },
+);
+
+/** Map of habitId -> completion count this month */
+export const selectCompletionsThisMonth = createSelector(
+  [selectHabitProgress],
+  (progress): Map<string, number> => {
+    const now = new Date();
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const map = new Map<string, number>();
+
+    for (const row of progress) {
+      if (row.occurred_day >= monthStart) {
+        map.set(row.habit_id, (map.get(row.habit_id) ?? 0) + row.count);
+      }
+    }
+    return map;
+  },
+);
+
+/** Map of habitId -> Set of occurred_day strings this week */
+export const selectCompletionDaysThisWeek = createSelector(
+  [selectHabitProgress],
+  (progress): Map<string, Set<string>> => {
+    const weekStart = getWeekStartDayString();
+    const map = new Map<string, Set<string>>();
+
+    for (const row of progress) {
+      if (row.occurred_day >= weekStart) {
+        if (!map.has(row.habit_id)) {
+          map.set(row.habit_id, new Set());
+        }
+        map.get(row.habit_id)!.add(row.occurred_day);
+      }
+    }
+    return map;
+  },
+);
+
+/** Check if habit was completed today */
+export const selectHabitCompletedToday = createSelector(
+  [selectHabitProgress],
+  (progress): Set<string> => {
+    const today = getTodayDayString();
+    const set = new Set<string>();
+
+    for (const row of progress) {
+      if (row.occurred_day === today) {
+        set.add(row.habit_id);
+      }
+    }
+    return set;
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HABIT DUE TODAY LOGIC
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Determine if a habit is "due" or "available" today.
+ *
+ * Philosophy (ADHD-friendly):
+ * - Scheduled habits: specific days_active array defines when it shows
+ * - Flexible habits: show as available anytime they haven't hit weekly/monthly target
+ * - No "overdue" shame - just "available to log"
+ */
+function isHabitDueToday(
+  habit: Habit,
+  completionsThisWeek: number,
+  completionsThisMonth: number,
+  completedToday: boolean,
+): boolean {
+  // Already completed today - not "due" anymore (but may show in completed section)
+  if (completedToday) return false;
+
+  // Archived habits don't show
+  if (habit.archived) return false;
+
+  const cadence = habit.cadence ?? 'daily';
+  const targetPerPeriod = habit.target_per_period ?? 1;
+  const daysActive = habit.days_active;
+
+  switch (cadence) {
+    case 'daily':
+      // Daily habits are always due (unless completed today)
+      return true;
+
+    case 'weekly':
+      // Option A: specific days mode (days_active array)
+      if (daysActive && daysActive.length > 0) {
+        const todayDayOfWeek = new Date().getDay();
+        // days_active contains day numbers (0-6) or day names
+        const isDayActive = daysActive.some((day) => {
+          if (typeof day === 'number') return day === todayDayOfWeek;
+          if (typeof day === 'string') {
+            const dayNum = parseInt(day, 10);
+            if (!isNaN(dayNum)) return dayNum === todayDayOfWeek;
+            // Handle day names like 'monday', 'tuesday', etc.
+            const dayNames = [
+              'sunday',
+              'monday',
+              'tuesday',
+              'wednesday',
+              'thursday',
+              'friday',
+              'saturday',
+            ];
+            return dayNames[todayDayOfWeek]?.toLowerCase() === day.toLowerCase();
+          }
+          return false;
+        });
+        return isDayActive;
+      }
+      // Option B: flexible "X times per week" mode
+      return completionsThisWeek < targetPerPeriod;
+
+    case 'monthly':
+      // Flexible monthly - show if haven't hit target this month
+      return completionsThisMonth < targetPerPeriod;
+
+    default:
+      // Unknown cadence - default to showing it
+      return true;
+  }
+}
+
+/** All habits that are due/available today (not completed today, not archived) */
+export const selectHabitsDueToday = createSelector(
+  [selectHabits, selectCompletionsThisWeek, selectCompletionsThisMonth, selectHabitCompletedToday],
+  (habits, weeklyCompletions, monthlyCompletions, completedTodaySet): Habit[] => {
+    return habits.filter((habit) =>
+      isHabitDueToday(
+        habit,
+        weeklyCompletions.get(habit.id) ?? 0,
+        monthlyCompletions.get(habit.id) ?? 0,
+        completedTodaySet.has(habit.id),
+      ),
+    );
+  },
+);
+
+/** All habits completed today */
+export const selectHabitsCompletedToday = createSelector(
+  [selectHabits, selectHabitCompletedToday],
+  (habits, completedTodaySet): Habit[] => {
+    return habits.filter((habit) => completedTodaySet.has(habit.id) && !habit.archived);
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TODO SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Active (non-archived, non-completed) todos */
+export const selectActiveTodos = createSelector([selectTodos], (todos): Todo[] =>
+  todos.filter((t) => !t.archived && !t.completed_at),
+);
+
+/** Todos due today (due_day = today, not completed, not archived) */
+export const selectTodosDueToday = createSelector([selectActiveTodos], (todos): Todo[] => {
+  const today = getTodayDayString();
+  return todos.filter((t) => t.due_day === today);
+});
+
+/** Overdue todos (due_day < today, not completed, not archived) */
+export const selectOverdueTodos = createSelector([selectActiveTodos], (todos): Todo[] => {
+  const today = getTodayDayString();
+  return todos.filter((t) => t.due_day && t.due_day < today);
+});
+
+/** Todos completed today */
+export const selectTodosCompletedToday = createSelector([selectTodos], (todos): Todo[] => {
+  const today = getTodayDayString();
+  return todos.filter((t) => t.completed_at && t.completed_at.startsWith(today));
+});
+
+/** Todos with commitment = true (locked in) */
+export const selectLockedTodos = createSelector([selectActiveTodos], (todos): Todo[] =>
+  todos.filter((t) => t.commitment === true),
+);
+
+/** Undated todos (no due_day, for triage) */
+export const selectUndatedTodos = createSelector([selectActiveTodos], (todos): Todo[] =>
+  todos.filter((t) => !t.due_day),
+);
+
+/** Recent drops: undated todos created in last 3 days */
+export const selectRecentDrops = createSelector([selectUndatedTodos], (todos): Todo[] => {
+  const threeDaysAgo = getDaysAgoDayString(3);
+  return todos.filter((t) => {
+    const createdDay = t.created_at?.split('T')[0];
+    return createdDay && createdDay >= threeDaysAgo;
+  });
+});
+
+/** "So You Don't Forget" - undated todos 5+ days old */
+export const selectForgottenTodos = createSelector([selectUndatedTodos], (todos): Todo[] => {
+  const fiveDaysAgo = getDaysAgoDayString(5);
+  return todos.filter((t) => {
+    const createdDay = t.created_at?.split('T')[0];
+    return createdDay && createdDay < fiveDaysAgo;
+  });
+});
+
+/** Archived todos */
+export const selectArchivedTodos = createSelector([selectTodos], (todos): Todo[] =>
+  todos.filter((t) => t.archived === true),
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TODAY PAGE COMBINED SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Locked items for Today (todos + habits with commitment = true) */
+export const selectTodayLockedItems = createSelector(
+  [selectLockedTodos, selectHabitsDueToday],
+  (lockedTodos, habitsDueToday): (Todo | Habit)[] => {
+    const lockedHabits = habitsDueToday.filter((h) => h.commitment === true);
+    return [...lockedTodos, ...lockedHabits];
+  },
+);
+
+/** Active items for Today Focus (due today, not locked, not completed) */
+export const selectTodayActiveItems = createSelector(
+  [selectTodosDueToday, selectHabitsDueToday, selectLockedTodos],
+  (todosDueToday, habitsDueToday, lockedTodos): (Todo | Habit)[] => {
+    const lockedIds = new Set(lockedTodos.map((t) => t.id));
+
+    // Todos due today that aren't locked
+    const activeTodos = todosDueToday.filter((t) => !lockedIds.has(t.id));
+
+    // Habits due today that aren't locked
+    const activeHabits = habitsDueToday.filter((h) => h.commitment !== true);
+
+    return [...activeTodos, ...activeHabits];
+  },
+);
+
+/** All items completed today (todos + habits) */
+export const selectTodayCompletedItems = createSelector(
+  [selectTodosCompletedToday, selectHabitsCompletedToday],
+  (completedTodos, completedHabits): (Todo | Habit)[] => {
+    return [...completedTodos, ...completedHabits];
+  },
+);
+
+/** Today progress stats */
+export const selectTodayProgress = createSelector(
+  [selectTodayLockedItems, selectTodayActiveItems, selectTodayCompletedItems],
+  (locked, active, completed) => {
+    const totalEligible = locked.length + active.length + completed.length;
+    const completedCount = completed.length;
+    const percent = totalEligible > 0 ? Math.round((completedCount / totalEligible) * 100) : 0;
+
+    return {
+      completedCount,
+      totalEligible,
+      percent,
+      fraction: totalEligible > 0 ? completedCount / totalEligible : 0,
+    };
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWEEP SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Sweep candidates: todos that need attention
+ * - Due today or overdue
+ * - Undated (need triage)
+ * - Not completed, not archived
+ */
+export const selectSweepCandidates = createSelector(
+  [selectTodosDueToday, selectOverdueTodos, selectUndatedTodos],
+  (dueToday, overdue, undated): Todo[] => {
+    // Combine and dedupe
+    const allIds = new Set<string>();
+    const result: Todo[] = [];
+
+    for (const todo of [...overdue, ...dueToday, ...undated]) {
+      if (!allIds.has(todo.id)) {
+        allIds.add(todo.id);
+        result.push(todo);
+      }
+    }
+
+    return result;
+  },
+);
+
+/** Sweep candidate count (for pill badge) */
+export const selectSweepCandidateCount = createSelector(
+  [selectSweepCandidates],
+  (candidates): number => candidates.length,
+);
+
+/** Ideas for sweep (notes with subtype='idea', created in last 7 days) */
+export const selectSweepIdeas = createSelector([selectNotes], (notes): Note[] => {
+  const sevenDaysAgo = getDaysAgoDayString(7);
+  return notes.filter(
+    (n) => n.subtype === 'idea' && !n.archived && n.created_at?.split('T')[0] >= sevenDaysAgo,
+  );
+});
+
+/** General logs for sweep (notes with subtype='general', created today) */
+export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Note[] => {
+  const today = getTodayDayString();
+  return notes.filter(
+    (n) =>
+      (n.subtype === 'general' || n.subtype === 'catchall') &&
+      !n.archived &&
+      n.created_at?.startsWith(today),
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NOTE SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Active (non-archived) notes */
+export const selectActiveNotes = createSelector([selectNotes], (notes): Note[] =>
+  notes.filter((n) => !n.archived),
+);
+
+/** Journal entries (subtype = 'journal') */
+export const selectJournals = createSelector([selectActiveNotes], (notes): Note[] =>
+  notes.filter((n) => n.subtype === 'journal'),
+);
+
+/** Recent journals (last 7 days) */
+export const selectRecentJournals = createSelector([selectJournals], (journals): Note[] => {
+  const sevenDaysAgo = getDaysAgoDayString(7);
+  return journals
+    .filter((j) => j.created_at?.split('T')[0] >= sevenDaysAgo)
+    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+});
+
+/** Ideas (subtype = 'idea') */
+export const selectIdeas = createSelector([selectActiveNotes], (notes): Note[] =>
+  notes.filter((n) => n.subtype === 'idea'),
+);
+
+/** Forgotten ideas (7+ days old, no due conversion) */
+export const selectForgottenIdeas = createSelector([selectIdeas], (ideas): Note[] => {
+  const sevenDaysAgo = getDaysAgoDayString(7);
+  return ideas.filter((i) => {
+    const createdDay = i.created_at?.split('T')[0];
+    return createdDay && createdDay < sevenDaysAgo;
+  });
+});
+
+/** Your Notes for Today page - created today OR favorited, last 7 days */
+export const selectYourNotes = createSelector([selectActiveNotes], (notes): Note[] => {
+  const today = getTodayDayString();
+  const sevenDaysAgo = getDaysAgoDayString(7);
+
+  return notes.filter((n) => {
+    const createdDay = n.created_at?.split('T')[0] ?? '';
+    const isCreatedToday = createdDay === today;
+    const isFavorite = n.is_favorite === true;
+    const isRecent = createdDay >= sevenDaysAgo;
+
+    return (isCreatedToday || isFavorite) && isRecent;
+  });
+});
+
+/** Archived notes */
+export const selectArchivedNotes = createSelector([selectNotes], (notes): Note[] =>
+  notes.filter((n) => n.archived === true),
+);
+
+/** Logs count for today (journals, ideas, general notes created today) */
+export const selectTodayLogsCount = createSelector([selectActiveNotes], (notes): number => {
+  const today = getTodayDayString();
+  return notes.filter(
+    (n) =>
+      ['journal', 'idea', 'general', 'catchall'].includes(n.subtype) &&
+      n.created_at?.startsWith(today),
+  ).length;
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPACE SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Active (non-archived) spaces */
+export const selectActiveSpaces = createSelector([selectSpaces], (spaces): Space[] =>
+  spaces.filter((s) => !s.archived_at),
+);
+
+/** Get todos for a specific space */
+export const selectTodosBySpace = createSelector(
+  [selectActiveTodos, (_state: GremlyState, spaceId: string) => spaceId],
+  (todos, spaceId): Todo[] => todos.filter((t) => t.space_id === spaceId),
+);
+
+/** Get habits for a specific space */
+export const selectHabitsBySpace = createSelector(
+  [selectHabits, (_state: GremlyState, spaceId: string) => spaceId],
+  (habits, spaceId): Habit[] => habits.filter((h) => h.space_id === spaceId && !h.archived),
+);
+
+/** Get notes for a specific space */
+export const selectNotesBySpace = createSelector(
+  [selectActiveNotes, (_state: GremlyState, spaceId: string) => spaceId],
+  (notes, spaceId): Note[] => notes.filter((n) => n.space_id === spaceId),
+);
+
+/** Get completed todos count for a space */
+export const selectCompletedTodosCountBySpace = createSelector(
+  [selectTodos, (_state: GremlyState, spaceId: string) => spaceId],
+  (todos, spaceId): number => todos.filter((t) => t.space_id === spaceId && t.completed_at).length,
+);
+
+/** Spaces with item counts */
+export const selectSpacesWithCounts = createSelector(
+  [selectActiveSpaces, selectTodos, selectHabits, selectNotes],
+  (spaces, todos, habits, notes) => {
+    return spaces.map((space) => {
+      const spaceTodos = todos.filter((t) => t.space_id === space.id && !t.archived);
+      const spaceHabits = habits.filter((h) => h.space_id === space.id && !h.archived);
+      const spaceNotes = notes.filter((n) => n.space_id === space.id && !n.archived);
+
+      return {
+        ...space,
+        todoCount: spaceTodos.filter((t) => !t.completed_at).length,
+        habitCount: spaceHabits.length,
+        noteCount: spaceNotes.length,
+        completedCount: spaceTodos.filter((t) => t.completed_at).length,
+      };
+    });
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAG SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Popular tags with usage counts */
+export const selectPopularTags = createSelector(
+  [selectTodos, selectHabits, selectNotes, selectTags],
+  (todos, habits, notes, tags) => {
+    const tagCounts = new Map<string, number>();
+
+    // Count tag usage across all entities
+    const countTags = (items: { tags?: string[] | null }[]) => {
+      for (const item of items) {
+        if (item.tags) {
+          for (const tag of item.tags) {
+            tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+          }
+        }
+      }
+    };
+
+    countTags(todos);
+    countTags(habits);
+    countTags(notes);
+
+    // Sort by count descending
+    return Array.from(tagCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SEARCH SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Search across all items (todos, habits, notes) */
+export const createSearchSelector = (
+  query: string,
+  filters?: { type?: string; spaceId?: string; tag?: string },
+) =>
+  createSelector(
+    [selectTodos, selectHabits, selectNotes],
+    (todos, habits, notes): (Todo | Habit | Note)[] => {
+      const lowerQuery = query.toLowerCase().trim();
+      if (!lowerQuery && !filters?.type && !filters?.spaceId && !filters?.tag) {
+        return [];
+      }
+
+      const results: (Todo | Habit | Note)[] = [];
+
+      const matchesQuery = (item: { name?: string; title?: string; body?: string }) => {
+        if (!lowerQuery) return true;
+        const name = (item.name ?? '').toLowerCase();
+        const title = (item.title ?? '').toLowerCase();
+        const body = (item.body ?? '').toLowerCase();
+        return name.includes(lowerQuery) || title.includes(lowerQuery) || body.includes(lowerQuery);
+      };
+
+      const matchesFilters = (item: {
+        type: string;
+        space_id?: string | null;
+        tags?: string[] | null;
+      }) => {
+        if (filters?.type && item.type !== filters.type) return false;
+        if (filters?.spaceId && item.space_id !== filters.spaceId) return false;
+        if (filters?.tag && !item.tags?.includes(filters.tag)) return false;
+        return true;
+      };
+
+      if (!filters?.type || filters.type === 'todo') {
+        results.push(...todos.filter((t) => !t.archived && matchesQuery(t) && matchesFilters(t)));
+      }
+      if (!filters?.type || filters.type === 'habit') {
+        results.push(...habits.filter((h) => !h.archived && matchesQuery(h) && matchesFilters(h)));
+      }
+      if (!filters?.type || filters.type === 'note') {
+        results.push(...notes.filter((n) => !n.archived && matchesQuery(n) && matchesFilters(n)));
+      }
+
+      return results;
+    },
+  );
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ARCHIVED ITEMS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** All archived items across all types */
+export const selectAllArchivedItems = createSelector(
+  [selectArchivedTodos, selectArchivedNotes, selectHabits],
+  (archivedTodos, archivedNotes, habits): (Todo | Habit | Note)[] => {
+    const archivedHabits = habits.filter((h) => h.archived === true);
+    return [...archivedTodos, ...archivedHabits, ...archivedNotes];
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// REACT HOOKS (convenience wrappers)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// These hooks use Zustand's useStore with selectors for automatic re-renders
+
+export const useTodayTodos = () => useGremlyStore(selectTodosDueToday);
+export const useTodayHabits = () => useGremlyStore(selectHabitsDueToday);
+export const useLockedItems = () => useGremlyStore(selectTodayLockedItems);
+export const useActiveItems = () => useGremlyStore(selectTodayActiveItems);
+export const useCompletedToday = () => useGremlyStore(selectTodayCompletedItems);
+export const useTodayProgress = () => useGremlyStore(selectTodayProgress);
+
+export const useSweepCandidates = () => useGremlyStore(selectSweepCandidates);
+export const useSweepCount = () => useGremlyStore(selectSweepCandidateCount);
+
+export const useRecentDrops = () => useGremlyStore(selectRecentDrops);
+export const useForgottenTodos = () => useGremlyStore(selectForgottenTodos);
+export const useYourNotes = () => useGremlyStore(selectYourNotes);
+export const useRecentJournals = () => useGremlyStore(selectRecentJournals);
+
+export const useActiveSpaces = () => useGremlyStore(selectActiveSpaces);
+export const useSpacesWithCounts = () => useGremlyStore(selectSpacesWithCounts);
+export const usePopularTags = () => useGremlyStore(selectPopularTags);
+
+export const useArchivedItems = () => useGremlyStore(selectAllArchivedItems);
+
+export const useOverdueTodos = () => useGremlyStore(selectOverdueTodos);
+export const useTodayLogsCount = () => useGremlyStore(selectTodayLogsCount);
+
+// Parameterized hooks
+export const useSpaceTodos = (spaceId: string) =>
+  useGremlyStore((state) => selectTodosBySpace(state, spaceId));
+export const useSpaceHabits = (spaceId: string) =>
+  useGremlyStore((state) => selectHabitsBySpace(state, spaceId));
+export const useSpaceNotes = (spaceId: string) =>
+  useGremlyStore((state) => selectNotesBySpace(state, spaceId));
+
+// Loading state
+export const useIsLoading = () => useGremlyStore(selectIsLoading);
+export const useIsInitialized = () => useGremlyStore(selectIsInitialized);
