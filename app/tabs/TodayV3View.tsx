@@ -9,7 +9,11 @@ import TodayHeader from '../../components/today/v3/TodayHeader';
 import CompletedItemsModal from '../../components/today/v3/CompletedItemsModal';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useCommitments } from '../../lib/today/hooks/useCommitments';
-import { useTodayEntries, getTodayCompletionSummary } from '../../lib/today/hooks/useTodayEntries';
+import { useTodayTodos, useTodayHabits, useCompletedToday } from '../../lib/store/selectors';
+import {
+  getTodayCompletionSummary,
+  type TodayMergedEntry,
+} from '../../lib/today/hooks/useTodayEntries';
 import CommitmentsSection from '../today/CommitmentsSection';
 import { useRepo } from '../../providers/RepoProvider';
 import { eventBus } from '../../lib/events';
@@ -37,8 +41,53 @@ export default function TodayV3View() {
   );
   const { items: commitmentItems } = useCommitments(showCommitments);
 
-  // Get today's entries for progress header
-  const { items: activeItems, doneItems, reload: reloadEntries } = useTodayEntries();
+  // Get today's entries from Zustand store
+  const todayTodos = useTodayTodos();
+  const todayHabits = useTodayHabits();
+  const completedItems = useCompletedToday();
+
+  // Convert store data to TodayMergedEntry format for compatibility
+  const activeItems: TodayMergedEntry[] = useMemo(
+    () => [
+      ...todayTodos
+        .filter((t) => !t.completed_at)
+        .map((t) => ({
+          type: 'todo' as const,
+          id: t.id,
+          name: t.title || '',
+          due_date: t.due_date,
+          due_day: t.due_day,
+          space_id: t.space_id,
+          tags: t.tags ?? [],
+          completed_at: t.completed_at,
+          commitment: t.commitment,
+        })),
+      ...todayHabits.map((h) => ({
+        type: 'habit' as const,
+        id: h.id,
+        name: h.name,
+        space_id: h.space_id,
+        tags: h.tags ?? [],
+        commitment: h.commitment,
+      })),
+    ],
+    [todayTodos, todayHabits],
+  );
+
+  // Completed items today (from store selector)
+  const doneItems: TodayMergedEntry[] = useMemo(
+    () =>
+      completedItems.map((item) => ({
+        type: item.type as 'todo' | 'habit',
+        id: item.id,
+        name: item.type === 'todo' ? (item as any).title : (item as any).name,
+        completed_at:
+          item.type === 'todo'
+            ? (item as any).completed_at
+            : ((item as any).last_completed_at ?? null),
+      })),
+    [completedItems],
+  );
 
   // Compute completion summary using shared helper
   const completion = useMemo(
@@ -154,7 +203,6 @@ export default function TodayV3View() {
         visible={completedModalOpen}
         onClose={() => setCompletedModalOpen(false)}
         completedItems={doneItems}
-        onActionComplete={reloadEntries}
         onSweepComplete={handleSweepComplete}
       />
 
