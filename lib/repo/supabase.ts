@@ -1411,25 +1411,94 @@ export class SupabaseRepo implements IRepo {
         query = query.in('subtype', opts.subtypes);
       }
 
-      // ZOMBIE PREVENTION: Exclude archived/completed entities from all list queries
-      // This ensures deleted Mind Drops don't resurrect in Recent Drops or other UI lists
-
-      if (type === 'note') {
-        // Notes: soft delete via archived boolean flag (migration 20251116)
-        // Filter: archived = false OR archived IS NULL (for legacy rows)
-        query = query.or('archived.eq.false,archived.is.null');
+      // =====================================================================
+      // Time-range filtering (Phase Hub/Search)
+      // Uses idx_notes_created_at, idx_todos_created_at for efficient queries
+      // =====================================================================
+      if (opts?.createdAfter) {
+        query = query.gte('created_at', opts.createdAfter);
+      }
+      if (opts?.createdBefore) {
+        query = query.lt('created_at', opts.createdBefore);
       }
 
-      if (type === 'todo') {
-        // Todos: soft delete via completed_at timestamp
-        // Filter: completed_at IS NULL (only show active todos)
-        query = query.is('completed_at', null);
-      }
+      // =====================================================================
+      // Status/Archive filtering (Phase Hub/Search)
+      // Replaces hardcoded ZOMBIE PREVENTION with configurable filters
+      // Default behavior (status undefined) = 'active' = exclude archived/completed
+      // =====================================================================
+      const statusFilter = opts?.status ?? 'active';
+      const archivedOnly = opts?.archivedOnly ?? false;
 
-      if (type === 'habit') {
-        // Habits: soft delete via completed_at timestamp
-        // Filter: completed_at IS NULL (only show active habits)
-        query = query.is('completed_at', null);
+      if (archivedOnly) {
+        // Archived-only mode: show only archived items (for Archived view)
+        if (type === 'note') {
+          query = query.eq('archived', true);
+        }
+        if (type === 'todo') {
+          // Todos: archived via status='archived' OR archived=true
+          query = query.or('archived.eq.true,status.eq.archived');
+        }
+        if (type === 'habit') {
+          query = query.eq('archived', true);
+        }
+      } else if (statusFilter === 'active') {
+        // ZOMBIE PREVENTION: Exclude archived/completed entities from all list queries
+        // This ensures deleted Mind Drops don't resurrect in Recent Drops or other UI lists
+        // This is the DEFAULT behavior when no status option is provided
+
+        if (type === 'note') {
+          // Notes: soft delete via archived boolean flag (migration 20251116)
+          // Filter: archived = false OR archived IS NULL (for legacy rows)
+          query = query.or('archived.eq.false,archived.is.null');
+        }
+
+        if (type === 'todo') {
+          // Todos: soft delete via completed_at timestamp
+          // Filter: completed_at IS NULL (only show active todos)
+          query = query.is('completed_at', null);
+        }
+
+        if (type === 'habit') {
+          // Habits: soft delete via completed_at timestamp
+          // Filter: completed_at IS NULL (only show active habits)
+          query = query.is('completed_at', null);
+        }
+      } else if (statusFilter === 'completed') {
+        // Completed-only mode: show only completed items (exclude archived)
+        if (type === 'note') {
+          // Notes don't have a completed_at, so this returns empty for notes
+          // Keep non-archived filter and return nothing (notes can't be "completed")
+          query = query.or('archived.eq.false,archived.is.null');
+          // Add impossible condition to return empty set for notes
+          query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+        }
+
+        if (type === 'todo') {
+          // Todos: completed_at IS NOT NULL AND not archived
+          query = query.not('completed_at', 'is', null);
+          query = query.or('archived.eq.false,archived.is.null,status.neq.archived');
+        }
+
+        if (type === 'habit') {
+          // Habits: completed_at IS NOT NULL AND not archived
+          query = query.not('completed_at', 'is', null);
+          query = query.or('archived.eq.false,archived.is.null');
+        }
+      } else if (statusFilter === 'all') {
+        // All mode: include both active and completed (exclude archived)
+        if (type === 'note') {
+          query = query.or('archived.eq.false,archived.is.null');
+        }
+
+        if (type === 'todo') {
+          // Include all non-archived todos (both active and completed)
+          query = query.or('archived.eq.false,archived.is.null,status.neq.archived');
+        }
+
+        if (type === 'habit') {
+          query = query.or('archived.eq.false,archived.is.null');
+        }
       }
 
       if (applyTagFilter && opts?.tagNames && opts.tagNames.length > 0) {

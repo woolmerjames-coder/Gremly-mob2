@@ -6,6 +6,7 @@
 
 import React, { useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
+import { Sparkles } from 'lucide-react-native';
 import { Card } from '../../design-system/Card';
 import { Button } from '../../design-system/Button';
 import { Text } from '../../ui';
@@ -58,7 +59,9 @@ export default function TodaySuggestionCard({
           {/* Left: Sparkle icon and text */}
           <View style={styles.content}>
             <View style={styles.titleRow}>
-              <Text style={styles.sparkle}>✨</Text>
+              <View testID="suggestion-sparkle-icon">
+                <Sparkles size={16} color={t.colors.accentPeri} />
+              </View>
               <Text variant="body" style={styles.title}>
                 {suggestion.title}
               </Text>
@@ -98,9 +101,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  sparkle: {
-    fontSize: 20,
-  },
+
   title: {
     flex: 1,
     fontWeight: '600',
