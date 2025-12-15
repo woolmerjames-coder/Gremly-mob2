@@ -77,6 +77,65 @@ export function computeLast30DaysRange(now: Date = new Date()): Last30DaysQueryO
 }
 
 // =============================================================================
+// Archived Items Query Options
+// =============================================================================
+
+export type ArchivedTimeRange = 'week' | 'month' | '3months' | 'all';
+
+/**
+ * Status filter behavior for archived items:
+ * - 'archived': Show only archived items (default) - uses archivedOnly: true
+ * - 'all': Show all items regardless of archive status - includes both archived and non-archived
+ *
+ * Note: For archived items, "active" vs "completed" distinction is less meaningful
+ * since archived items are typically "done" with. We provide 'archived' and 'all'
+ * to allow users to optionally see non-archived items too.
+ */
+export type ArchivedStatusFilter = 'archived' | 'all';
+
+export interface ArchivedQueryOptions {
+  archivedOnly?: boolean;
+  createdAfter?: string;
+  createdBefore?: string;
+}
+
+/**
+ * Compute query options for fetching archived items.
+ *
+ * @param timeRange - Time range filter (week, month, 3months, all)
+ * @param statusFilter - Status filter (archived, all)
+ * @param now - Optional date to use as "now" (for testing determinism)
+ */
+export function computeArchivedQueryOptions(
+  timeRange: ArchivedTimeRange,
+  statusFilter: ArchivedStatusFilter,
+  now: Date = new Date(),
+): ArchivedQueryOptions {
+  const options: ArchivedQueryOptions = {};
+
+  // Status filter
+  // 'archived' => archivedOnly: true (only archived items)
+  // 'all' => archivedOnly: false (show both archived and non-archived)
+  if (statusFilter === 'archived') {
+    options.archivedOnly = true;
+  }
+  // For 'all', we don't set archivedOnly (defaults to false in repo)
+
+  // Time range filter
+  if (timeRange !== 'all') {
+    const timeResult = computeTimeRange(timeRange, now);
+    if (timeResult.createdAfter) {
+      options.createdAfter = timeResult.createdAfter;
+    }
+    if (timeResult.createdBefore) {
+      options.createdBefore = timeResult.createdBefore;
+    }
+  }
+
+  return options;
+}
+
+// =============================================================================
 // Top Tags Computation
 // =============================================================================
 

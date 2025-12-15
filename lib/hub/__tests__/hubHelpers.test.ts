@@ -14,9 +14,12 @@ import {
   isJournal,
   groupJournalsByMonth,
   computeLast30DaysRange,
+  computeArchivedQueryOptions,
   type HubV1TimeRange as _HubV1TimeRange,
   type TagCount as _TagCount,
   type JournalEntry,
+  type ArchivedTimeRange,
+  type ArchivedStatusFilter,
 } from '../hubHelpers';
 
 // =============================================================================
@@ -131,6 +134,97 @@ describe('computeLast30DaysRange', () => {
       (createdBefore.getTime() - createdAfter.getTime()) / (1000 * 60 * 60 * 24),
     );
     expect(diffDays).toBe(30);
+  });
+});
+
+// =============================================================================
+// computeArchivedQueryOptions tests
+// =============================================================================
+
+describe('computeArchivedQueryOptions', () => {
+  // Fixed reference date: Dec 14, 2025 at noon UTC
+  const NOW = new Date('2025-12-14T12:00:00.000Z');
+
+  describe('status filter', () => {
+    it('returns archivedOnly: true for "archived" status', () => {
+      const result = computeArchivedQueryOptions('all', 'archived', NOW);
+
+      expect(result.archivedOnly).toBe(true);
+    });
+
+    it('does not set archivedOnly for "all" status', () => {
+      const result = computeArchivedQueryOptions('all', 'all', NOW);
+
+      expect(result.archivedOnly).toBeUndefined();
+    });
+  });
+
+  describe('time range filter', () => {
+    it('returns no time filter for "all" range', () => {
+      const result = computeArchivedQueryOptions('all', 'archived', NOW);
+
+      expect(result.createdAfter).toBeUndefined();
+      expect(result.createdBefore).toBeUndefined();
+    });
+
+    it('returns createdAfter for "week" range', () => {
+      const result = computeArchivedQueryOptions('week', 'archived', NOW);
+
+      expect(result.createdAfter).toBe('2025-12-07T12:00:00.000Z');
+    });
+
+    it('returns createdAfter for "month" range', () => {
+      const result = computeArchivedQueryOptions('month', 'archived', NOW);
+
+      expect(result.createdAfter).toBe('2025-11-14T12:00:00.000Z');
+    });
+
+    it('returns createdAfter for "3months" range', () => {
+      const result = computeArchivedQueryOptions('3months', 'archived', NOW);
+
+      const createdAfter = new Date(result.createdAfter!);
+      const diffDays = Math.round((NOW.getTime() - createdAfter.getTime()) / (1000 * 60 * 60 * 24));
+      // Should be roughly 90 days
+      expect(diffDays).toBeGreaterThanOrEqual(89);
+      expect(diffDays).toBeLessThanOrEqual(92);
+    });
+  });
+
+  describe('combined filters', () => {
+    it('combines archivedOnly with time range', () => {
+      const result = computeArchivedQueryOptions('week', 'archived', NOW);
+
+      expect(result.archivedOnly).toBe(true);
+      expect(result.createdAfter).toBe('2025-12-07T12:00:00.000Z');
+    });
+
+    it('returns only time range without archivedOnly for "all" status', () => {
+      const result = computeArchivedQueryOptions('month', 'all', NOW);
+
+      expect(result.archivedOnly).toBeUndefined();
+      expect(result.createdAfter).toBe('2025-11-14T12:00:00.000Z');
+    });
+
+    it('returns only archivedOnly without time range for "all" time', () => {
+      const result = computeArchivedQueryOptions('all', 'archived', NOW);
+
+      expect(result.archivedOnly).toBe(true);
+      expect(result.createdAfter).toBeUndefined();
+      expect(result.createdBefore).toBeUndefined();
+    });
+  });
+
+  it('uses current date when no reference date provided', () => {
+    const result = computeArchivedQueryOptions('week', 'archived');
+
+    expect(result.archivedOnly).toBe(true);
+    expect(result.createdAfter).toBeDefined();
+
+    // createdAfter should be roughly 7 days ago
+    const createdAfter = new Date(result.createdAfter!);
+    const now = new Date();
+    const diffDays = Math.round((now.getTime() - createdAfter.getTime()) / (1000 * 60 * 60 * 24));
+    expect(diffDays).toBe(7);
   });
 });
 
