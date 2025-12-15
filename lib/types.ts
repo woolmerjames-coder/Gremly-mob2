@@ -38,7 +38,7 @@ export interface Habit {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
@@ -114,7 +114,7 @@ export interface Todo {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
@@ -166,7 +166,7 @@ export interface Note {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {

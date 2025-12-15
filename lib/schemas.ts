@@ -62,7 +62,7 @@ const baseRecordZ = z.object({
   space_id: z.string().optional().nullable(),
   ai_placed: z.boolean(),
   why_string: z.string().optional().nullable(),
-  origin: z.literal('catchall').optional().nullable(),
+  origin: z.enum(['catchall', 'space_chat', 'manual', 'overlay']).optional().nullable(),
   canonicalType: z.enum(['habit', 'todo', 'log', 'unsorted', 'note', 'journal']).optional(),
   labels: z.array(z.string()).optional(),
   views: z
@@ -200,7 +200,7 @@ export const habitInsertSchema = z
     subtype: z.enum(['start_habit', 'break_habit']).optional(), // Strictly enforce valid subtypes
     ai_placed: z.boolean().default(false),
     why_string: z.string().optional().nullable(),
-    origin: z.literal('catchall').optional(),
+    origin: z.enum(['catchall', 'space_chat', 'manual', 'overlay']).optional(),
     canonicalType: z.enum(['habit', 'todo', 'log', 'unsorted', 'note', 'journal']).optional(),
     labels: z.array(z.string()).optional(),
     views: z
@@ -265,7 +265,7 @@ export const todoInsertSchema = z.object({
   tags: tagsZ, // Searchable, AI-editable JSON array persisted in DB
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
-  origin: z.literal('catchall').optional(),
+  origin: z.enum(['catchall', 'space_chat', 'manual', 'overlay']).optional(),
   canonicalType: z.enum(['habit', 'todo', 'log', 'unsorted', 'note', 'journal']).optional(),
   source_message_id: z.string().min(1).optional(),
   source_note_id: z.string().uuid().nullable().optional(), // Make Actionable: reference to source note
@@ -286,7 +286,7 @@ export const noteInsertSchema = z.object({
   subtype: z.enum(['journal', 'list', 'catchall', 'idea', 'reference']).nullable().optional(), // Optional in database
   ai_placed: z.boolean().default(false),
   why_string: z.string().optional().nullable(),
-  origin: z.literal('catchall').optional(),
+  origin: z.enum(['catchall', 'space_chat', 'manual', 'overlay']).optional(),
   canonicalType: z.enum(['habit', 'todo', 'log', 'unsorted', 'note', 'journal']).optional(),
   source_message_id: z.string().min(1).optional(),
   drop_id: z.string().uuid().nullable().optional(),

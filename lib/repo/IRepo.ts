@@ -35,7 +35,7 @@ export interface CreateRecordInput {
   undefined_due?: boolean; // for todos
   ai_placed?: boolean;
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual';
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay';
   canonicalType?: CanonicalType | LegacyCanonicalType;
   sourceMessageId?: string | null; // For chat conversion tracking
   dropId?: string | null; // Mind Drop identifier for idempotent conversions
