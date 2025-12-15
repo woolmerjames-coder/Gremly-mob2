@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Modal, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { Box, Text, Button } from '../../../ui';
-import { useRepo } from '../../../providers/RepoProvider';
+import { useActiveSpaces } from '../../../lib/store/selectors';
 
 export default function SpacePicker({
   value,
@@ -12,26 +12,8 @@ export default function SpacePicker({
   onChange: (space: { id: string; display: string } | null) => void;
   placeholder?: string;
 }) {
-  const repo = useRepo();
+  const spaces = useActiveSpaces();
   const [open, setOpen] = useState(false);
-  const [spaces, setSpaces] = useState<any[]>([]);
-
-  useEffect(() => {
-    let mounted = true;
-    if (!open) return;
-    (async () => {
-      try {
-        const s = await repo.listSpaces();
-        if (mounted) setSpaces(s || []);
-      } catch (e) {
-        if (__DEV__) console.warn('[SpacePicker] listSpaces failed', e);
-        if (mounted) setSpaces([]);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [open, repo]);
 
   return (
     <>
