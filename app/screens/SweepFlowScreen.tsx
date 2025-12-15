@@ -22,6 +22,7 @@ import {
   Animated,
   TouchableOpacity,
   Image,
+  Modal,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -52,7 +53,19 @@ import {
 import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
 import type { AppRecord } from '../../lib/types';
-import { useActionToast } from '../../src/hooks/useActionToast';
+import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
+import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
+
+// Swipe feedback constants
+const CLEAR_MESSAGES = ['BYE ✌️', 'SEE YA', 'GONE', 'CLEARED', 'SWEPT'];
+const KEEP_MESSAGES = ['KEEPING IT', 'STILL ON', 'NOTED', 'ON IT'];
+const getRandomClearMessage = () =>
+  CLEAR_MESSAGES[Math.floor(Math.random() * CLEAR_MESSAGES.length)];
+const getRandomKeepMessage = () => KEEP_MESSAGES[Math.floor(Math.random() * KEEP_MESSAGES.length)];
+const FEEDBACK_COLORS = {
+  clear: '#34D399', // Vibrant emerald green
+  keep: '#FBBF24', // Punchy amber/gold
+};
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -95,6 +108,16 @@ const SWEEP_MOOD_OPTIONS: Array<{ value: MoodValue; label: string; icon: string 
  * Shows the Gremly mascot and explains what the user will do.
  */
 function SweepIntroStep({ onStart }: { onStart: () => void }) {
+  const { stats, isLoading } = useSweepIntroStats();
+
+  const hasActivity =
+    stats &&
+    (stats.completed.todos.length > 0 ||
+      stats.completed.habits.length > 0 ||
+      stats.dropped.todos.length > 0 ||
+      stats.dropped.habits.length > 0 ||
+      stats.dropped.notes.length > 0);
+
   return (
     <View style={styles.moodStepContainer}>
       <ScrollView
@@ -123,6 +146,13 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
             matters.
           </Text>
         </View>
+
+        {/* Activity Stats Card */}
+        {(isLoading || hasActivity) && stats && (
+          <View style={styles.introStatsContainer}>
+            <SweepIntroStatsCard stats={stats} isLoading={isLoading} />
+          </View>
+        )}
       </ScrollView>
 
       {/* Start Button */}
@@ -466,12 +496,18 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const { userId } = useAuth();
   const repo = useRepo();
   const overlayController = useOverlayController();
-  const { showToast, Toast: ActionToast } = useActionToast({ bottomOffset: 100 });
 
   // State for candidates and navigation
   const [candidates, setCandidates] = useState<SweepCandidate[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Swipe feedback state
+  const [swipeFeedback, setSwipeFeedback] = useState<'clear' | 'keep' | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  // Use useMemo instead of useRef(...).current to avoid lint errors about refs during render
+  const feedbackOpacity = useMemo(() => new Animated.Value(0), []);
+  const feedbackBgProgress = useMemo(() => new Animated.Value(0), []);
 
   // Track summary stats for the sweep completion screen
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
@@ -576,32 +612,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
               { type: 'clear', id: candidate.id, kind: candidate.kind },
               supabase,
             );
-            setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
 
-            // Show undo toast after successful archive
-            const displayTitle = clearedCandidate.title
-              ? clearedCandidate.title.length > 30
-                ? clearedCandidate.title.slice(0, 30) + '…'
-                : clearedCandidate.title
-              : 'Item';
-            showToast({
-              type: 'success',
-              content: `🗃️ "${displayTitle}" archived`,
-              metadata: {
-                onUndo: async () => {
-                  try {
-                    await repo.restoreItem(
-                      clearedCandidate.id,
-                      clearedCandidate.kind as 'todo' | 'note',
-                    );
-                    setStats((prev) => ({ ...prev, cleared: Math.max(0, prev.cleared - 1) }));
-                    showToast({ type: 'success', content: '✅ Restored' });
-                  } catch (err) {
-                    console.error('[SweepDecisionStep] Undo restore failed:', err);
-                  }
-                },
-              },
-            });
+            // Notify other screens this item is archived/gone
+            if (candidate.kind === 'todo') {
+              eventBus.emit('entity:deleted', {
+                id: candidate.id,
+                type: 'todo',
+              });
+            }
+
+            setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
           } catch (error) {
             console.error('[SweepDecisionStep] handleOutcome clear error:', error);
           }
@@ -630,7 +650,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           return;
       }
     },
-    [candidates, currentIndex, repo, showToast, supabase],
+    [candidates, currentIndex, repo, supabase],
   );
 
   // Keep the ref updated with the latest handleOutcome
@@ -670,12 +690,46 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Card Action Handlers (wired to unified outcome handler)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
-    handleOutcome('skip');
-  }, [handleOutcome]);
+    setFeedbackMessage(getRandomKeepMessage());
+    setSwipeFeedback('keep');
+
+    Animated.parallel([
+      Animated.timing(feedbackOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+      Animated.timing(feedbackBgProgress, { toValue: 1, duration: 200, useNativeDriver: false }),
+    ]).start();
+
+    setTimeout(() => {
+      handleOutcome('skip');
+      Animated.parallel([
+        Animated.timing(feedbackOpacity, { toValue: 0, duration: 100, useNativeDriver: true }),
+        Animated.timing(feedbackBgProgress, { toValue: 0, duration: 150, useNativeDriver: false }),
+      ]).start(() => {
+        setSwipeFeedback(null);
+        setFeedbackMessage('');
+      });
+    }, 350);
+  }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
 
   const handleClear = useCallback(() => {
-    handleOutcome('clear');
-  }, [handleOutcome]);
+    setFeedbackMessage(getRandomClearMessage());
+    setSwipeFeedback('clear');
+
+    Animated.parallel([
+      Animated.timing(feedbackOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+      Animated.timing(feedbackBgProgress, { toValue: 1, duration: 200, useNativeDriver: false }),
+    ]).start();
+
+    setTimeout(() => {
+      handleOutcome('clear');
+      Animated.parallel([
+        Animated.timing(feedbackOpacity, { toValue: 0, duration: 100, useNativeDriver: true }),
+        Animated.timing(feedbackBgProgress, { toValue: 0, duration: 150, useNativeDriver: false }),
+      ]).start(() => {
+        setSwipeFeedback(null);
+        setFeedbackMessage('');
+      });
+    }, 450);
+  }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
 
   const handleOpenEdit = useCallback(async () => {
     const candidate = candidates[currentIndex];
@@ -891,8 +945,15 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Current candidate to display
   const currentCandidate = candidates[currentIndex];
 
+  const currentBgColor = swipeFeedback
+    ? feedbackBgProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [BRAND.colors.linenCream, FEEDBACK_COLORS[swipeFeedback]],
+      })
+    : BRAND.colors.linenCream;
+
   return (
-    <View style={styles.decisionStepContainer}>
+    <Animated.View style={[styles.decisionStepContainer, { backgroundColor: currentBgColor }]}>
       {/* Decision Step Header - Counter left, pill + close right */}
       <View style={styles.decisionHeader}>
         {/* Left - Item counter with progress bar */}
@@ -944,12 +1005,23 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           }}
           onConvertToTodo={handleConvertToTodo}
           onClose={onClose}
+          feedbackMessage={feedbackMessage}
+          feedbackType={swipeFeedback}
         />
       </View>
 
-      {/* Undo Toast for archive actions */}
-      {ActionToast}
-    </View>
+      {/* Feedback Overlay - Using Modal to guarantee it's on top */}
+      <Modal visible={!!swipeFeedback} transparent animationType="none">
+        <View style={styles.swipeFeedbackContainer}>
+          <Animated.View style={{ opacity: feedbackOpacity, alignItems: 'center' }}>
+            <Text style={styles.swipeFeedbackText}>{feedbackMessage}</Text>
+            <Text style={styles.swipeFeedbackSubtext}>
+              {swipeFeedback === 'clear' ? '(archived)' : '(keeping)'}
+            </Text>
+          </Animated.View>
+        </View>
+      </Modal>
+    </Animated.View>
   );
 }
 
@@ -1345,6 +1417,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
   },
+  introStatsContainer: {
+    marginTop: 24,
+    paddingHorizontal: 16,
+  },
   // ─────────────────────────────────────────────────────────────────────────
   // SweepMoodStep styles - Gremly Brand Reskin
   // ─────────────────────────────────────────────────────────────────────────
@@ -1705,6 +1781,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BRAND.colors.linenCream, // Cream background
   },
+  swipeFeedbackContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+    elevation: 9999,
+  },
+  swipeFeedbackText: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 8,
+  },
+  swipeFeedbackSubtext: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 10,
+    letterSpacing: 1.5,
+  },
   decisionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1713,6 +1817,7 @@ const styles = StyleSheet.create({
     paddingTop: 28,
     paddingBottom: 12,
     backgroundColor: BRAND.colors.linenCream, // Match container
+    zIndex: 1, // Low zIndex so feedback overlay can appear on top
   },
   decisionHeaderLeft: {
     flexDirection: 'column',

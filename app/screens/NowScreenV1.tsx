@@ -455,7 +455,7 @@ export default function NowScreenV1() {
         pointerEvents="box-none"
       >
         <SweepPill
-          count={sweepCandidateCount}
+          count={sweepCandidateCount + recentDrops.length}
           onPress={() => {
             navigation.navigate('Sweep');
           }}
