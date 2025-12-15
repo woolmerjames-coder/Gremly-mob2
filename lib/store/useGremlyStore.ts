@@ -120,6 +120,9 @@ interface GremlyState {
     url: string;
     position: number;
   }) => Promise<{ id: string }>;
+  deleteLogPhoto: (photoId: string) => Promise<void>;
+  updateLogPhotoPosition: (photoId: string, position: number) => Promise<void>;
+  listLogPhotos: (noteId: string) => Promise<Array<{ id: string; url: string; position: number }>>;
 
   // ═══════════════════════════════════════════════════════════════════
   // BULK/UTILITY
@@ -1090,7 +1093,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         eventBus.emit('entity:created', {
           type: 'space_chat',
-          entityId: data.id,
+          entity: data,
           source: STORE_EVENT_SOURCE,
         });
         return data;
@@ -1124,10 +1127,12 @@ export const useGremlyStore = create<GremlyState>()(
           .eq('id', chatId);
 
         if (error) throw error;
+
+        // Get the updated entity from store for the event
+        const updated = get().spaceChats.find((c) => c.id === chatId);
         eventBus.emit('entity:updated', {
           type: 'space_chat',
-          entityId: chatId,
-          patch,
+          entity: updated,
           source: STORE_EVENT_SOURCE,
         });
       } catch (error) {
@@ -1158,7 +1163,7 @@ export const useGremlyStore = create<GremlyState>()(
         if (error) throw error;
         eventBus.emit('entity:deleted', {
           type: 'space_chat',
-          entityId: chatId,
+          id: chatId,
           source: STORE_EVENT_SOURCE,
         });
       } catch (error) {
@@ -1368,6 +1373,39 @@ export const useGremlyStore = create<GremlyState>()(
       }
 
       return { id: data.id };
+    },
+
+    deleteLogPhoto: async (photoId: string) => {
+      const { error } = await supabase.from('log_photos').delete().eq('id', photoId);
+
+      if (error) {
+        console.error('[GremlyStore] deleteLogPhoto failed:', error);
+        throw new Error(`Failed to delete log photo: ${error.message}`);
+      }
+    },
+
+    updateLogPhotoPosition: async (photoId: string, position: number) => {
+      const { error } = await supabase.from('log_photos').update({ position }).eq('id', photoId);
+
+      if (error) {
+        console.error('[GremlyStore] updateLogPhotoPosition failed:', error);
+        throw new Error(`Failed to update log photo position: ${error.message}`);
+      }
+    },
+
+    listLogPhotos: async (noteId: string) => {
+      const { data, error } = await supabase
+        .from('log_photos')
+        .select('id, url, position')
+        .eq('note_id', noteId)
+        .order('position', { ascending: true });
+
+      if (error) {
+        console.error('[GremlyStore] listLogPhotos failed:', error);
+        throw new Error(`Failed to list log photos: ${error.message}`);
+      }
+
+      return data ?? [];
     },
 
     // ═══════════════════════════════════════════════════════════════════

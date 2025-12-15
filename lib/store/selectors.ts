@@ -1127,8 +1127,9 @@ export const selectNoteBySourceMessageId = createSelector(
   [selectNotes, (_state: GremlyState, sourceMessageId: string) => sourceMessageId],
   (notes, sourceMessageId): Note | null => {
     return (
-      notes.find((n) => (n as Record<string, unknown>).source_message_id === sourceMessageId) ??
-      null
+      notes.find(
+        (n) => (n as unknown as Record<string, unknown>).source_message_id === sourceMessageId,
+      ) ?? null
     );
   },
 );
