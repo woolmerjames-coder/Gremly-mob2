@@ -4,6 +4,17 @@ import { supabase } from '../supabase/client';
 import type { Todo, Habit, Note, Space, Tag } from '../types';
 import { eventBus } from '../events';
 
+// Habit progress row from Supabase
+export interface HabitProgressRow {
+  id: string;
+  owner_id: string;
+  habit_id: string;
+  occurred_at: string; // ISO timestamp
+  occurred_day: string; // YYYY-MM-DD
+  count: number;
+  occurrence_index: number | null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STORE INTERFACE
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -17,6 +28,7 @@ interface GremlyState {
   notes: Note[];
   spaces: Space[];
   tags: Tag[];
+  habitProgress: HabitProgressRow[];
 
   // Loading/sync state
   isLoading: boolean;
@@ -84,6 +96,7 @@ const initialState = {
   notes: [] as Note[],
   spaces: [] as Space[],
   tags: [] as Tag[],
+  habitProgress: [] as HabitProgressRow[],
   isLoading: false,
   isInitialized: false,
   lastSyncedAt: null as Date | null,
@@ -111,13 +124,23 @@ export const useGremlyStore = create<GremlyState>()(
       set({ isLoading: true, userId });
 
       try {
+        // Calculate date range: last 60 days for monthly cadence + streak calculation
+        const sixtyDaysAgo = new Date();
+        sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+        const sinceDate = sixtyDaysAgo.toISOString().split('T')[0];
+
         // Fetch ALL user data in parallel
-        const [todosRes, habitsRes, notesRes, spacesRes, tagsRes] = await Promise.all([
+        const [todosRes, habitsRes, notesRes, spacesRes, tagsRes, progressRes] = await Promise.all([
           supabase.from('todos').select('*').eq('owner_id', userId),
           supabase.from('habits').select('*').eq('owner_id', userId),
           supabase.from('notes').select('*').eq('owner_id', userId),
           supabase.from('spaces').select('*').eq('owner_id', userId),
           supabase.from('tags').select('*').eq('owner_id', userId),
+          supabase
+            .from('habit_progress')
+            .select('*')
+            .eq('owner_id', userId)
+            .gte('occurred_day', sinceDate),
         ]);
 
         // Check for errors
@@ -126,6 +149,7 @@ export const useGremlyStore = create<GremlyState>()(
         if (notesRes.error) throw notesRes.error;
         if (spacesRes.error) throw spacesRes.error;
         if (tagsRes.error) throw tagsRes.error;
+        if (progressRes.error) throw progressRes.error;
 
         set({
           todos: todosRes.data ?? [],
@@ -133,6 +157,7 @@ export const useGremlyStore = create<GremlyState>()(
           notes: notesRes.data ?? [],
           spaces: spacesRes.data ?? [],
           tags: tagsRes.data ?? [],
+          habitProgress: progressRes.data ?? [],
           isLoading: false,
           isInitialized: true,
           lastSyncedAt: new Date(),
@@ -143,6 +168,7 @@ export const useGremlyStore = create<GremlyState>()(
           habits: habitsRes.data?.length ?? 0,
           notes: notesRes.data?.length ?? 0,
           spaces: spacesRes.data?.length ?? 0,
+          habitProgress: progressRes.data?.length ?? 0,
         });
       } catch (error) {
         console.error('[GremlyStore] ❌ Failed to initialize:', error);
@@ -158,6 +184,7 @@ export const useGremlyStore = create<GremlyState>()(
         notes: [],
         spaces: [],
         tags: [],
+        habitProgress: [],
         isLoading: false,
         isInitialized: false,
         lastSyncedAt: null,
@@ -488,6 +515,20 @@ export const useGremlyStore = create<GremlyState>()(
           throw progressError;
         }
 
+        // Add to local habitProgress array
+        const newProgressRow: HabitProgressRow = {
+          id: `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          habit_id: id,
+          owner_id: userId,
+          occurred_at: now,
+          occurred_day: todayDate,
+          count: 1,
+          occurrence_index: null,
+        };
+        set((state) => ({
+          habitProgress: [...state.habitProgress, newProgressRow],
+        }));
+
         // 3. UPDATE habit's last_completed_at (denormalized field for fast reads)
         const { error: habitError } = await supabase
           .from('habits')
@@ -543,6 +584,13 @@ export const useGremlyStore = create<GremlyState>()(
           .eq('occurred_day', todayDate);
 
         if (progressError) throw progressError;
+
+        // Remove from local habitProgress array
+        set((state) => ({
+          habitProgress: state.habitProgress.filter(
+            (p) => !(p.habit_id === id && p.occurred_day === todayDate),
+          ),
+        }));
 
         // 3. Recalculate last_completed_at from remaining progress records
         const { data: latestProgress, error: fetchError } = await supabase
@@ -899,12 +947,21 @@ export const useGremlyStore = create<GremlyState>()(
       set({ isLoading: true });
 
       try {
-        const [todosRes, habitsRes, notesRes, spacesRes, tagsRes] = await Promise.all([
+        const sixtyDaysAgo = new Date();
+        sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+        const sinceDate = sixtyDaysAgo.toISOString().split('T')[0];
+
+        const [todosRes, habitsRes, notesRes, spacesRes, tagsRes, progressRes] = await Promise.all([
           supabase.from('todos').select('*').eq('owner_id', userId),
           supabase.from('habits').select('*').eq('owner_id', userId),
           supabase.from('notes').select('*').eq('owner_id', userId),
           supabase.from('spaces').select('*').eq('owner_id', userId),
           supabase.from('tags').select('*').eq('owner_id', userId),
+          supabase
+            .from('habit_progress')
+            .select('*')
+            .eq('owner_id', userId)
+            .gte('occurred_day', sinceDate),
         ]);
 
         set({
@@ -913,6 +970,7 @@ export const useGremlyStore = create<GremlyState>()(
           notes: notesRes.data ?? [],
           spaces: spacesRes.data ?? [],
           tags: tagsRes.data ?? [],
+          habitProgress: progressRes.data ?? [],
           isLoading: false,
           lastSyncedAt: new Date(),
         });
