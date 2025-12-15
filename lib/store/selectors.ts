@@ -53,6 +53,9 @@ const selectNotes = (state: GremlyState) => state.notes;
 const selectSpaces = (state: GremlyState) => state.spaces;
 const selectTags = (state: GremlyState) => state.tags;
 const selectHabitProgress = (state: GremlyState) => state.habitProgress;
+const selectSpaceChats = (state: GremlyState) => state.spaceChats;
+const selectSpaceChatMessages = (state: GremlyState) => state.spaceChatMessages;
+const selectMilestones = (state: GremlyState) => state.milestones;
 const selectIsLoading = (state: GremlyState) => state.isLoading;
 const selectIsInitialized = (state: GremlyState) => state.isInitialized;
 
@@ -1007,3 +1010,95 @@ export const selectSpaceJournalCount = createSelector(
 
 export const useSpaceJournalCount = (spaceId: string) =>
   useGremlyStore((state) => selectSpaceJournalCount(state, spaceId));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPACE CHAT SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Chats for a specific space (active, not archived, sorted by updated_at) */
+export const selectChatsForSpace = createSelector(
+  [selectSpaceChats, (_state: GremlyState, spaceId: string) => spaceId],
+  (chats, spaceId) =>
+    chats
+      .filter((c) => c.space_id === spaceId && !c.archived_at)
+      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')),
+);
+
+export const useSpaceChats = (spaceId: string) =>
+  useGremlyStore((state) => selectChatsForSpace(state, spaceId));
+
+/** Messages for a specific chat (sorted by created_at ascending) */
+export const selectMessagesForChat = createSelector(
+  [selectSpaceChatMessages, (_state: GremlyState, chatId: string) => chatId],
+  (messages, chatId) =>
+    messages
+      .filter((m) => m.chat_id === chatId)
+      .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '')),
+);
+
+export const useChatMessages = (chatId: string) =>
+  useGremlyStore((state) => selectMessagesForChat(state, chatId));
+
+/** Pinned chats for a space */
+export const selectPinnedChatsForSpace = createSelector([selectChatsForSpace], (chats) =>
+  chats.filter((c) => c.pinned),
+);
+
+export const useSpacePinnedChats = (spaceId: string) =>
+  useGremlyStore((state) => selectPinnedChatsForSpace(state, spaceId));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MILESTONE SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Active milestone for a space (not completed) */
+export const selectSpaceMilestone = createSelector(
+  [selectMilestones, (_state: GremlyState, spaceId: string) => spaceId],
+  (milestones, spaceId) =>
+    milestones.find((m) => m.space_id === spaceId && !m.completed_at && m.is_active) ?? null,
+);
+
+export const useSpaceMilestoneFromStore = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceMilestone(state, spaceId));
+
+/** Milestone countdown object with days, formatted date, and isPast flag */
+export const selectMilestoneCountdown = createSelector(
+  [selectSpaceMilestone],
+  (milestone): { days: number | null; dateFormatted: string | null; isPast: boolean } => {
+    if (!milestone?.date) {
+      return { days: null, dateFormatted: null, isPast: false };
+    }
+    const target = new Date(milestone.date);
+    const now = new Date();
+    // Reset time to start of day for accurate day calculation
+    target.setHours(0, 0, 0, 0);
+    now.setHours(0, 0, 0, 0);
+    const diffMs = target.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    const isPast = diffDays < 0;
+
+    // Format date as "Mon DD" or "Mon DD, YYYY" if different year
+    const dateFormatted = target.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      ...(target.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
+    });
+
+    return { days: diffDays, dateFormatted, isPast };
+  },
+);
+
+export const useMilestoneCountdown = (spaceId: string) =>
+  useGremlyStore((state) => selectMilestoneCountdown(state, spaceId));
+
+/** All milestones for a space (including completed) */
+export const selectAllMilestonesForSpace = createSelector(
+  [selectMilestones, (_state: GremlyState, spaceId: string) => spaceId],
+  (milestones, spaceId) =>
+    milestones
+      .filter((m) => m.space_id === spaceId)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')),
+);
+
+export const useAllSpaceMilestones = (spaceId: string) =>
+  useGremlyStore((state) => selectAllMilestonesForSpace(state, spaceId));

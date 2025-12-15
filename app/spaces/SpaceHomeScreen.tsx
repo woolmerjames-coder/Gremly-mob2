@@ -35,9 +35,11 @@ import {
   useSpacePinnedItems,
   useSpaceNotesCount,
   useSpaceJournalCount,
+  useSpaceChats,
+  useChatMessages,
+  useSpaceMilestoneFromStore,
+  useMilestoneCountdown,
 } from '../../lib/store/selectors';
-import { SupabaseSpaceChatRepo, SupabaseSpaceChatMessageRepo } from '../../lib/repo/supabase';
-import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import { startOfWeek, formatISO, addDays } from 'date-fns';
@@ -80,10 +82,8 @@ import useSpaceTimeline from '../../hooks/useSpaceTimeline';
 // v33 components (Space v3.3)
 import HeaderV33 from '../../components/spaces/v33/Header';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
-// Phase 12: MilestoneHeader and supporting hooks
+// Phase 12: MilestoneHeader (milestone data now from Zustand store)
 import { MilestoneHeader } from '../../components/spaces/MilestoneHeader';
-import { useSpaceMilestone } from '../../hooks/useSpaceMilestone';
-import { useRepo } from '../../providers/RepoProvider'; // Keep for milestone operations (hybrid)
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
 import { SpaceChatListModal } from '../../components/chat/SpaceChatListModal';
@@ -566,7 +566,6 @@ const NOTE_SAVE_LABELS = deriveDisplayLabels('note', 'reference', CANONICAL_TYPE
 
 export default function SpaceHomeScreen({ route, navigation }: Props) {
   const { spaceId } = route.params;
-  const repo = useRepo(); // Keep for milestone operations (hybrid)
   const { userId, user } = useAuth();
   const colorScheme = useColorScheme();
   const T = colorScheme === 'dark' ? darkTokens : lightTokens;
@@ -680,43 +679,23 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return { weekStartISO: weekISO, habits: out };
   }, [storeHabits, timelineDays]);
 
-  // Chats - load from SpaceChatRepo (hybrid - not in store yet)
-  const [chats, setChats] = useState<SpaceChat[]>([]);
-  const backend = (process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory').toLowerCase();
-  const spaceChatRepo = useMemo(() => {
-    if (backend === 'supabase') return new SupabaseSpaceChatRepo(user?.id);
-    return new MemorySpaceChatRepo(user?.id || 'memory-user');
-  }, [backend, user?.id]);
+  // Chats - now from Zustand store
+  const chats = useSpaceChats(spaceId);
 
-  // Load chats on mount
-  useEffect(() => {
-    const loadChats = async () => {
-      try {
-        const cs = await spaceChatRepo.list(spaceId);
-        setChats(Array.isArray(cs) ? cs : []);
-      } catch (err) {
-        console.error('[SpaceHome] Failed to load chats:', err);
-      }
-    };
-    loadChats();
-  }, [spaceChatRepo, spaceId]);
-
-  // Reload function - refreshes store and chats
+  // Reload function - refreshes store data
   const store = useGremlyStore();
   const reload = useCallback(async () => {
     try {
-      await Promise.all([
-        store.refreshFromServer(),
-        spaceChatRepo.list(spaceId).then((cs) => setChats(Array.isArray(cs) ? cs : [])),
-      ]);
+      await store.refreshFromServer();
     } catch (err) {
       console.error('[SpaceHome] reload failed:', err);
     }
-  }, [store, spaceChatRepo, spaceId]);
+  }, [store]);
 
   const notesCount = useSpaceNotesCount(spaceId);
-  // Phase 12: Milestone and pinned hooks
-  const { milestone, countdown, refetch: refetchMilestone } = useSpaceMilestone(spaceId);
+  // Phase 12: Milestone and pinned - now from Zustand store
+  const milestone = useSpaceMilestoneFromStore(spaceId);
+  const countdown = useMilestoneCountdown(spaceId);
   const { count: pinnedCount } = useSpacePinnedItems(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   // Phase 5: Removed searchVisible, searchQuery, searchActiveV33 state (search via filter bar now)
@@ -1316,7 +1295,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }
   }, [isSpaceV3]);
 
-  // spaceChatRepo already defined at component top - removed duplicate
+  // Chat data now comes from Zustand store (useSpaceChats hook)
 
   // Initial visual loading phase mirrors hook's first fetch
   useEffect(() => {
@@ -1343,22 +1322,24 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         console.warn('Failed to parse layout state', e);
       }
     }
-    repo
-      .getLatestSpaceInsight(spaceId)
-      .then(setSpaceInsight)
-      .catch(() => undefined);
-  }, [spaceId, space, repo]);
+    // Space insight is stored on the space object itself (last_summary fields)
+    // These fields exist in DB but not in Space type, so use type assertion
+    const spaceWithInsight = space as any;
+    if (spaceWithInsight?.last_summary) {
+      setSpaceInsight({
+        summary: spaceWithInsight.last_summary,
+        summary_at: spaceWithInsight.last_summary_at || new Date().toISOString(),
+        tokens: spaceWithInsight.last_summary_tokens || 0,
+      });
+    } else {
+      setSpaceInsight(null);
+    }
+  }, [spaceId, space]);
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    Promise.all([
-      reload(),
-      repo
-        .getLatestSpaceInsight(spaceId)
-        .then(setSpaceInsight)
-        .catch(() => undefined),
-    ]).finally(() => setRefreshing(false));
-  }, [reload, repo, spaceId]);
+    reload().finally(() => setRefreshing(false));
+  }, [reload]);
 
   // Phase 5: Removed handleSearchPress, v33FilteredResults (search via filter bar now)
 
@@ -1496,27 +1477,24 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       try {
         if (milestone) {
           // Update existing
-          await repo.updateMilestone(milestone.id, {
+          await store.updateMilestone(milestone.id, {
             name,
             date: targetDate.toISOString().split('T')[0],
           });
         } else {
           // Create new
-          await repo.createMilestone(spaceId, {
+          await store.createMilestone(spaceId, {
             name,
             date: targetDate.toISOString().split('T')[0],
-            is_active: true,
           });
         }
-
-        // Refresh milestone data
-        refetchMilestone();
+        // Store update triggers automatic UI refresh via subscription
       } catch (error) {
         console.error('[SpaceHome] Milestone save error:', error);
         throw error;
       }
     },
-    [spaceId, milestone, repo, refetchMilestone],
+    [spaceId, milestone, store],
   );
 
   const handleMilestoneRemove = useCallback(async () => {
@@ -1525,13 +1503,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     console.log('[SpaceHome] Removing milestone:', milestone.id);
 
     try {
-      await repo.deleteMilestone(milestone.id);
-      refetchMilestone();
+      await store.deleteMilestone(milestone.id);
+      // Store update triggers automatic UI refresh via subscription
     } catch (error) {
       console.error('[SpaceHome] Milestone remove error:', error);
       throw error;
     }
-  }, [milestone, repo, refetchMilestone]);
+  }, [milestone, store]);
 
   const handlePinnedItemPress = useCallback(
     (item: any, type: 'todo' | 'habit' | 'note') => {
@@ -1637,27 +1615,27 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handlePinChat = useCallback(
     async (chatId: string) => {
       try {
-        await spaceChatRepo.update(chatId, { pinned: true });
-        await reload();
+        await store.updateSpaceChat(chatId, { pinned: true });
+        // Store update triggers automatic UI refresh
       } catch (error) {
         console.warn('Failed to pin chat:', error);
         Alert.alert('Error', 'Failed to pin chat');
       }
     },
-    [spaceChatRepo, reload],
+    [store],
   );
 
   const handleUnpinChat = useCallback(
     async (chatId: string) => {
       try {
-        await spaceChatRepo.update(chatId, { pinned: false });
-        await reload();
+        await store.updateSpaceChat(chatId, { pinned: false });
+        // Store update triggers automatic UI refresh
       } catch (error) {
         console.warn('Failed to unpin chat:', error);
         Alert.alert('Error', 'Failed to unpin chat');
       }
     },
-    [spaceChatRepo, reload],
+    [store],
   );
 
   // Phase 5: Removed handleRenameChat (used removed state), kept handleRenameChatV22
@@ -1666,14 +1644,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handleRenameChatV22 = useCallback(
     async (chatId: string, newTitle: string) => {
       try {
-        await spaceChatRepo.update(chatId, { title: newTitle });
-        await reload();
+        await store.updateSpaceChat(chatId, { title: newTitle });
+        // Store update triggers automatic UI refresh
       } catch (error) {
         console.error('Failed to rename chat:', error);
         Alert.alert('Error', 'Failed to rename chat');
       }
     },
-    [spaceChatRepo, reload],
+    [store],
   );
 
   // Phase 5: Removed handleRenameChatSubmit (used removed renameChatId state)
@@ -1683,21 +1661,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handleArchiveChat = useCallback(
     async (chatId: string) => {
       try {
-        // Archive is the safer default: soft-archive when supported
-        const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-        if (backend === 'supabase' && spaceChatRepo instanceof SupabaseSpaceChatRepo) {
-          await spaceChatRepo.archive(chatId);
-        } else {
-          // Memory repo uses delete() to mark archived
-          await spaceChatRepo.delete(chatId);
-        }
-        await reload();
+        await store.archiveSpaceChat(chatId);
+        // Store update triggers automatic UI refresh
       } catch (error) {
         console.error('Failed to archive chat:', error);
         Alert.alert('Error', 'Failed to archive chat');
       }
     },
-    [spaceChatRepo, reload],
+    [store],
   );
 
   // Hard delete handler
@@ -1710,14 +1681,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           style: 'destructive',
           onPress: async () => {
             try {
-              const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-              if (backend === 'supabase' && spaceChatRepo instanceof SupabaseSpaceChatRepo) {
-                await spaceChatRepo.delete(chatId);
-              } else {
-                // Memory repo: mimic hard delete by archiving (existing behavior)
-                await spaceChatRepo.delete(chatId);
-              }
-              await reload();
+              await store.deleteSpaceChat(chatId);
+              // Store update triggers automatic UI refresh
             } catch (error) {
               console.error('Failed to delete chat:', error);
               Alert.alert('Error', 'Failed to delete chat');
@@ -1726,7 +1691,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         },
       ]);
     },
-    [spaceChatRepo, reload],
+    [store],
   );
 
   // Compute preview data using selectors
@@ -1763,13 +1728,18 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   useEffect(() => {
     const run = async () => {
       try {
-        const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-        if (backend !== 'supabase' || !userId) return;
-        const msgRepo = new SupabaseSpaceChatMessageRepo(userId);
+        if (!userId) return;
         const subset = chats.slice(0, 3);
+
+        // Load messages for each chat if needed, then compute summaries
         const entries = await Promise.all(
           subset.map(async (c) => {
-            const msgs = await msgRepo.list(c.id);
+            // Load messages into store if not already there
+            await useGremlyStore.getState().loadChatMessages(c.id);
+            // Get messages from store state
+            const msgs = useGremlyStore
+              .getState()
+              .spaceChatMessages.filter((m: any) => m.chat_id === c.id);
             const summary = await summarizeChatForCard(c.id, msgs);
             return [c.id, summary] as const;
           }),
@@ -2698,16 +2668,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                         onMenu={() => {}}
                         onArchive={async () => {
                           try {
-                            const backend = process.env.EXPO_PUBLIC_REPO_BACKEND || 'memory';
-                            if (
-                              backend === 'supabase' &&
-                              spaceChatRepo instanceof SupabaseSpaceChatRepo
-                            ) {
-                              await spaceChatRepo.archive(c.id);
-                            } else {
-                              await spaceChatRepo.delete(c.id);
-                            }
-                            await reload();
+                            await store.archiveSpaceChat(c.id);
+                            // Store update triggers automatic UI refresh
                           } catch (e) {
                             console.warn('Archive chat failed', e);
                             Alert.alert('Error', 'Failed to archive chat');
@@ -2715,8 +2677,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                         }}
                         onDelete={async () => {
                           try {
-                            await spaceChatRepo.delete(c.id);
-                            await reload();
+                            await store.deleteSpaceChat(c.id);
+                            // Store update triggers automatic UI refresh
                           } catch (e) {
                             console.warn('Delete chat failed', e);
                             Alert.alert('Error', 'Failed to delete chat');

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { supabase } from '../supabase/client';
-import type { Todo, Habit, Note, Space, Tag } from '../types';
+import type { Todo, Habit, Note, Space, Tag, SpaceChat, SpaceChatMessage } from '../types';
+import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
@@ -35,6 +36,9 @@ interface GremlyState {
   spaces: Space[];
   tags: Tag[];
   habitProgress: HabitProgressRow[];
+  spaceChats: SpaceChat[];
+  spaceChatMessages: SpaceChatMessage[];
+  milestones: Milestone[];
 
   // Loading/sync state
   isLoading: boolean;
@@ -87,6 +91,28 @@ interface GremlyState {
   deleteSpace: (id: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // SPACE CHAT MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  createSpaceChat: (spaceId: string, title: string) => Promise<SpaceChat | null>;
+  updateSpaceChat: (chatId: string, patch: Partial<SpaceChat>) => Promise<void>;
+  archiveSpaceChat: (chatId: string) => Promise<void>;
+  deleteSpaceChat: (chatId: string) => Promise<void>;
+  addChatMessage: (
+    message: Omit<SpaceChatMessage, 'id' | 'created_at'>,
+  ) => Promise<SpaceChatMessage | null>;
+  loadChatMessages: (chatId: string) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MILESTONE MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  createMilestone: (
+    spaceId: string,
+    data: { name: string; date?: string | null },
+  ) => Promise<Milestone | null>;
+  updateMilestone: (milestoneId: string, patch: Partial<Milestone>) => Promise<void>;
+  deleteMilestone: (milestoneId: string) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
   // BULK/UTILITY
   // ═══════════════════════════════════════════════════════════════════
   refreshFromServer: () => Promise<void>;
@@ -108,6 +134,9 @@ const initialState = {
   spaces: [] as Space[],
   tags: [] as Tag[],
   habitProgress: [] as HabitProgressRow[],
+  spaceChats: [] as SpaceChat[],
+  spaceChatMessages: [] as SpaceChatMessage[],
+  milestones: [] as Milestone[],
   isLoading: false,
   isInitialized: false,
   lastSyncedAt: null as Date | null,
@@ -141,7 +170,16 @@ export const useGremlyStore = create<GremlyState>()(
         const sinceDate = sixtyDaysAgo.toISOString().split('T')[0];
 
         // Fetch ALL user data in parallel
-        const [todosRes, habitsRes, notesRes, spacesRes, tagsRes, progressRes] = await Promise.all([
+        const [
+          todosRes,
+          habitsRes,
+          notesRes,
+          spacesRes,
+          tagsRes,
+          progressRes,
+          chatsRes,
+          milestonesRes,
+        ] = await Promise.all([
           supabase.from('todos').select('*').eq('owner_id', userId),
           supabase.from('habits').select('*').eq('owner_id', userId),
           supabase.from('notes').select('*').eq('owner_id', userId),
@@ -152,15 +190,21 @@ export const useGremlyStore = create<GremlyState>()(
             .select('*')
             .eq('owner_id', userId)
             .gte('occurred_day', sinceDate),
+          supabase.from('space_chats').select('*').eq('user_id', userId),
+          supabase.from('milestones').select('*').eq('owner_id', userId),
         ]);
 
-        // Check for errors
+        // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
         if (todosRes.error) throw todosRes.error;
         if (habitsRes.error) throw habitsRes.error;
         if (notesRes.error) throw notesRes.error;
         if (spacesRes.error) throw spacesRes.error;
         if (tagsRes.error) throw tagsRes.error;
         if (progressRes.error) throw progressRes.error;
+        // Log but don't throw for chats/milestones
+        if (chatsRes.error) console.warn('[GremlyStore] space_chats fetch error:', chatsRes.error);
+        if (milestonesRes.error)
+          console.warn('[GremlyStore] milestones fetch error:', milestonesRes.error);
 
         set({
           todos: todosRes.data ?? [],
@@ -169,6 +213,9 @@ export const useGremlyStore = create<GremlyState>()(
           spaces: spacesRes.data ?? [],
           tags: tagsRes.data ?? [],
           habitProgress: progressRes.data ?? [],
+          spaceChats: chatsRes.data ?? [],
+          milestones: milestonesRes.data ?? [],
+          spaceChatMessages: [], // Messages are loaded on-demand per chat
           isLoading: false,
           isInitialized: true,
           lastSyncedAt: new Date(),
@@ -180,6 +227,8 @@ export const useGremlyStore = create<GremlyState>()(
           notes: notesRes.data?.length ?? 0,
           spaces: spacesRes.data?.length ?? 0,
           habitProgress: progressRes.data?.length ?? 0,
+          spaceChats: chatsRes.data?.length ?? 0,
+          milestones: milestonesRes.data?.length ?? 0,
         });
 
         // Subscribe to EventBus for bidirectional sync
@@ -210,6 +259,9 @@ export const useGremlyStore = create<GremlyState>()(
         spaces: [],
         tags: [],
         habitProgress: [],
+        spaceChats: [],
+        spaceChatMessages: [],
+        milestones: [],
         isLoading: false,
         isInitialized: false,
         lastSyncedAt: null,
@@ -991,6 +1043,298 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     // ═══════════════════════════════════════════════════════════════════
+    // SPACE CHAT MUTATIONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    createSpaceChat: async (spaceId: string, title: string) => {
+      const userId = get().userId;
+      if (!userId) return null;
+
+      const now = new Date().toISOString();
+      const newChat: Partial<SpaceChat> = {
+        space_id: spaceId,
+        user_id: userId,
+        title,
+        pinned: false,
+        created_at: now,
+        updated_at: now,
+      };
+
+      // Optimistic update with temp ID
+      const tempId = `temp-${Date.now()}`;
+      const optimisticChat = { ...newChat, id: tempId } as SpaceChat;
+      set((state) => ({ spaceChats: [optimisticChat, ...state.spaceChats] }));
+
+      try {
+        const { data, error } = await supabase
+          .from('space_chats')
+          .insert(newChat)
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Replace temp with real
+        set((state) => ({
+          spaceChats: state.spaceChats.map((c) => (c.id === tempId ? data : c)),
+        }));
+
+        eventBus.emit('entity:created', {
+          type: 'space_chat',
+          entityId: data.id,
+          source: STORE_EVENT_SOURCE,
+        });
+        return data;
+      } catch (error) {
+        // Rollback
+        set((state) => ({
+          spaceChats: state.spaceChats.filter((c) => c.id !== tempId),
+        }));
+        console.error('[GremlyStore] createSpaceChat failed:', error);
+        throw error;
+      }
+    },
+
+    updateSpaceChat: async (chatId: string, patch: Partial<SpaceChat>) => {
+      const prev = get().spaceChats.find((c) => c.id === chatId);
+      if (!prev) return;
+
+      const now = new Date().toISOString();
+
+      // Optimistic update
+      set((state) => ({
+        spaceChats: state.spaceChats.map((c) =>
+          c.id === chatId ? { ...c, ...patch, updated_at: now } : c,
+        ),
+      }));
+
+      try {
+        const { error } = await supabase
+          .from('space_chats')
+          .update({ ...patch, updated_at: now })
+          .eq('id', chatId);
+
+        if (error) throw error;
+        eventBus.emit('entity:updated', {
+          type: 'space_chat',
+          entityId: chatId,
+          patch,
+          source: STORE_EVENT_SOURCE,
+        });
+      } catch (error) {
+        // Rollback
+        set((state) => ({
+          spaceChats: state.spaceChats.map((c) => (c.id === chatId ? prev : c)),
+        }));
+        console.error('[GremlyStore] updateSpaceChat failed:', error);
+        throw error;
+      }
+    },
+
+    archiveSpaceChat: async (chatId: string) => {
+      await get().updateSpaceChat(chatId, { archived_at: new Date().toISOString() });
+    },
+
+    deleteSpaceChat: async (chatId: string) => {
+      const prev = get().spaceChats.find((c) => c.id === chatId);
+
+      // Optimistic update - remove chat and its messages
+      set((state) => ({
+        spaceChats: state.spaceChats.filter((c) => c.id !== chatId),
+        spaceChatMessages: state.spaceChatMessages.filter((m) => m.chat_id !== chatId),
+      }));
+
+      try {
+        const { error } = await supabase.from('space_chats').delete().eq('id', chatId);
+        if (error) throw error;
+        eventBus.emit('entity:deleted', {
+          type: 'space_chat',
+          entityId: chatId,
+          source: STORE_EVENT_SOURCE,
+        });
+      } catch (error) {
+        // Rollback
+        if (prev) {
+          set((state) => ({ spaceChats: [...state.spaceChats, prev] }));
+        }
+        console.error('[GremlyStore] deleteSpaceChat failed:', error);
+        throw error;
+      }
+    },
+
+    addChatMessage: async (message: Omit<SpaceChatMessage, 'id' | 'created_at'>) => {
+      const userId = get().userId;
+      if (!userId) return null;
+
+      const tempId = `temp-${Date.now()}`;
+      const now = new Date().toISOString();
+      const optimisticMessage = {
+        ...message,
+        id: tempId,
+        user_id: userId,
+        created_at: now,
+      } as SpaceChatMessage;
+
+      set((state) => ({
+        spaceChatMessages: [...state.spaceChatMessages, optimisticMessage],
+      }));
+
+      try {
+        const { data, error } = await supabase
+          .from('space_chat_messages')
+          .insert({ ...message, user_id: userId })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        set((state) => ({
+          spaceChatMessages: state.spaceChatMessages.map((m) => (m.id === tempId ? data : m)),
+        }));
+
+        // Update chat's last_message_snippet
+        const snippet = message.content.slice(0, 100);
+        await get().updateSpaceChat(message.chat_id, {
+          last_message_snippet: snippet,
+        });
+
+        return data;
+      } catch (error) {
+        set((state) => ({
+          spaceChatMessages: state.spaceChatMessages.filter((m) => m.id !== tempId),
+        }));
+        console.error('[GremlyStore] addChatMessage failed:', error);
+        throw error;
+      }
+    },
+
+    loadChatMessages: async (chatId: string) => {
+      try {
+        const { data, error } = await supabase
+          .from('space_chat_messages')
+          .select('*')
+          .eq('chat_id', chatId)
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        // Merge with existing messages (avoid duplicates)
+        set((state) => {
+          const existingIds = new Set(
+            state.spaceChatMessages.filter((m) => m.chat_id === chatId).map((m) => m.id),
+          );
+          const newMessages = (data ?? []).filter((m) => !existingIds.has(m.id));
+          return {
+            spaceChatMessages: [
+              ...state.spaceChatMessages.filter((m) => m.chat_id !== chatId),
+              ...(data ?? []),
+            ],
+          };
+        });
+      } catch (error) {
+        console.error('[GremlyStore] loadChatMessages failed:', error);
+        throw error;
+      }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MILESTONE MUTATIONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    createMilestone: async (spaceId: string, data: { name: string; date?: string | null }) => {
+      const userId = get().userId;
+      if (!userId) return null;
+
+      const now = new Date().toISOString();
+      const newMilestone = {
+        space_id: spaceId,
+        owner_id: userId,
+        name: data.name,
+        date: data.date ?? null,
+        completed: false,
+        completed_at: null,
+        is_active: true,
+        sort_order: 0,
+        created_at: now,
+        updated_at: now,
+      };
+
+      const tempId = `temp-${Date.now()}`;
+      set((state) => ({
+        milestones: [...state.milestones, { ...newMilestone, id: tempId } as Milestone],
+      }));
+
+      try {
+        const { data: result, error } = await supabase
+          .from('milestones')
+          .insert(newMilestone)
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        set((state) => ({
+          milestones: state.milestones.map((m) => (m.id === tempId ? result : m)),
+        }));
+
+        return result;
+      } catch (error) {
+        set((state) => ({
+          milestones: state.milestones.filter((m) => m.id !== tempId),
+        }));
+        console.error('[GremlyStore] createMilestone failed:', error);
+        throw error;
+      }
+    },
+
+    updateMilestone: async (milestoneId: string, patch: Partial<Milestone>) => {
+      const prev = get().milestones.find((m) => m.id === milestoneId);
+      if (!prev) return;
+
+      const now = new Date().toISOString();
+
+      set((state) => ({
+        milestones: state.milestones.map((m) =>
+          m.id === milestoneId ? { ...m, ...patch, updated_at: now } : m,
+        ),
+      }));
+
+      try {
+        const { error } = await supabase
+          .from('milestones')
+          .update({ ...patch, updated_at: now })
+          .eq('id', milestoneId);
+
+        if (error) throw error;
+      } catch (error) {
+        set((state) => ({
+          milestones: state.milestones.map((m) => (m.id === milestoneId ? prev : m)),
+        }));
+        console.error('[GremlyStore] updateMilestone failed:', error);
+        throw error;
+      }
+    },
+
+    deleteMilestone: async (milestoneId: string) => {
+      const prev = get().milestones.find((m) => m.id === milestoneId);
+
+      set((state) => ({
+        milestones: state.milestones.filter((m) => m.id !== milestoneId),
+      }));
+
+      try {
+        const { error } = await supabase.from('milestones').delete().eq('id', milestoneId);
+        if (error) throw error;
+      } catch (error) {
+        if (prev) {
+          set((state) => ({ milestones: [...state.milestones, prev] }));
+        }
+        console.error('[GremlyStore] deleteMilestone failed:', error);
+        throw error;
+      }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
     // BULK/UTILITY
     // ═══════════════════════════════════════════════════════════════════
 
@@ -1006,7 +1350,16 @@ export const useGremlyStore = create<GremlyState>()(
         sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
         const sinceDate = sixtyDaysAgo.toISOString().split('T')[0];
 
-        const [todosRes, habitsRes, notesRes, spacesRes, tagsRes, progressRes] = await Promise.all([
+        const [
+          todosRes,
+          habitsRes,
+          notesRes,
+          spacesRes,
+          tagsRes,
+          progressRes,
+          chatsRes,
+          milestonesRes,
+        ] = await Promise.all([
           supabase.from('todos').select('*').eq('owner_id', userId),
           supabase.from('habits').select('*').eq('owner_id', userId),
           supabase.from('notes').select('*').eq('owner_id', userId),
@@ -1017,6 +1370,8 @@ export const useGremlyStore = create<GremlyState>()(
             .select('*')
             .eq('owner_id', userId)
             .gte('occurred_day', sinceDate),
+          supabase.from('space_chats').select('*').eq('user_id', userId),
+          supabase.from('milestones').select('*').eq('owner_id', userId),
         ]);
 
         set({
@@ -1026,6 +1381,8 @@ export const useGremlyStore = create<GremlyState>()(
           spaces: spacesRes.data ?? [],
           tags: tagsRes.data ?? [],
           habitProgress: progressRes.data ?? [],
+          spaceChats: chatsRes.data ?? [],
+          milestones: milestonesRes.data ?? [],
           isLoading: false,
           lastSyncedAt: new Date(),
         });
