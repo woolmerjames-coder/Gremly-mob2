@@ -16,8 +16,9 @@ import {
   Square as CheckboxIcon,
   NotebookText as JournalIcon,
 } from 'lucide-react-native';
-import { useRepo } from '../../../../providers/RepoProvider';
-import type { AppRecord } from '../../../../lib/types';
+import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
+import { useSpaceNotesSelector } from '../../../../lib/store/selectors';
+import type { Note } from '../../../../lib/types';
 
 export type NotepadOverlayProps = {
   visible: boolean;
@@ -32,8 +33,17 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
   spaceId,
   initialDraft,
 }) => {
-  const repo = useRepo();
-  const [notes, setNotes] = React.useState<AppRecord[]>([]);
+  // Store-based data
+  const spaceNotes = useSpaceNotesSelector(spaceId);
+  const createNote = useGremlyStore((s) => s.createNote);
+  const updateNote = useGremlyStore((s) => s.updateNote);
+
+  // Filter to user-authored notes (exclude AI/catchall/space_chat artifacts)
+  const notes = React.useMemo(
+    () => spaceNotes.filter((n) => !n.ai_placed && n.origin !== 'space_chat'),
+    [spaceNotes],
+  );
+
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [text, setText] = React.useState('');
   const [fmt, setFmt] = React.useState<'bullets' | 'numbers' | 'checkboxes' | 'none'>('none');
@@ -44,55 +54,43 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
     [],
   );
 
-  const load = React.useCallback(async () => {
-    try {
-      const list = await repo.listByType('note', { spaceId });
-      // Only user-authored notes (exclude AI/catchall/space_chat artifacts)
-      const userNotes = list.filter((n: any) => !n.ai_placed && n.origin !== 'space_chat');
-      setNotes(userNotes);
-      if (userNotes.length > 0 && !selectedId) {
-        const first = userNotes[0] as any;
-        setSelectedId(first.id);
-        setText(first.body || '');
-        setFmt((first.fmt as any) || 'none');
-        setIsJournal(first.subtype === 'journal');
-      }
-    } catch {
-      setNotes([]);
+  // Initialize selected note when notes change
+  React.useEffect(() => {
+    if (visible && notes.length > 0 && !selectedId) {
+      const first = notes[0];
+      setSelectedId(first.id);
+      setText(first.body || '');
+      setFmt((first.fmt as any) || 'none');
+      setIsJournal(first.subtype === 'journal');
     }
-  }, [repo, spaceId, selectedId]);
+  }, [visible, notes, selectedId]);
 
   React.useEffect(() => {
-    if (visible) {
+    if (visible && initialDraft && !selectedId) {
+      // Create a new note with the initial draft
       (async () => {
-        await load();
-        // If an initialDraft is provided and nothing selected yet, create a new note and select it
-        if (initialDraft && !selectedId) {
-          try {
-            const created = (await repo.create({
-              type: 'note',
-              space_id: spaceId,
-              title: 'Intention for today',
-              body: initialDraft,
-              subtype: 'catchall',
-              origin: 'manual',
-              ai_placed: false,
-            } as any)) as any;
-            setSelectedId(created.id);
-            setText(initialDraft);
-            setFmt('none');
-            setIsJournal(false);
-            await load();
-          } catch {
-            // ignore create failure to avoid blocking overlay
-          }
+        try {
+          const created = await createNote({
+            space_id: spaceId,
+            title: 'Intention for today',
+            body: initialDraft,
+            subtype: 'catchall',
+            origin: 'manual',
+            ai_placed: false,
+          });
+          setSelectedId(created.id);
+          setText(initialDraft);
+          setFmt('none');
+          setIsJournal(false);
+        } catch {
+          // ignore create failure to avoid blocking overlay
         }
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, spaceId]);
+  }, [visible, spaceId, initialDraft]);
 
-  const selectNote = (note: any) => {
+  const selectNote = (note: Note) => {
     setSelectedId(note.id);
     setText(note.body || '');
     setFmt((note.fmt as any) || 'none');
@@ -107,8 +105,7 @@ export const NotepadOverlay: React.FC<NotepadOverlayProps> = ({
       // Journal toggle saves with journal subtype; otherwise keep as user-authored catchall
       patch.subtype = isJournal ? 'journal' : 'catchall';
       patch.origin = 'manual';
-      await repo.update({ id: selectedId, patch });
-      await load();
+      await updateNote(selectedId, patch);
     } catch {
       // no-op for now
     }

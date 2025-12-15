@@ -1217,3 +1217,21 @@ export const selectRecentHabits = createSelector(
 
 export const useRecentHabits = (limit: number = 50) =>
   useGremlyStore((state) => selectRecentHabits(state, limit));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPACE NOTES SELECTOR
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Notes for a specific space (non-archived, sorted by updated_at desc) */
+export const selectSpaceNotes = createSelector(
+  [selectNotes, (_state: GremlyState, spaceId: string | null | undefined) => spaceId],
+  (notes, spaceId): Note[] => {
+    if (!spaceId) return [];
+    return notes
+      .filter((n) => n.space_id === spaceId && !n.archived)
+      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+  },
+);
+
+export const useSpaceNotesSelector = (spaceId: string | null | undefined) =>
+  useGremlyStore((state) => selectSpaceNotes(state, spaceId));

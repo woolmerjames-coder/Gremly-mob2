@@ -24,7 +24,31 @@ import {
   CalendarClock,
   StickyNote,
 } from '../../../icons';
-import { useSpaceNotes, type Note } from '../../../../hooks/useSpaceNotes';
+import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
+import { useSpaceNotesSelector } from '../../../../lib/store/selectors';
+import type { Note as StoreNote } from '../../../../lib/types';
+
+// Local type for UI display (maps from store Note)
+type NoteDisplay = {
+  id: string;
+  title: string | null | undefined;
+  content: string;
+  type: 'note' | 'journal';
+  date: string | null | undefined;
+  created_at: string;
+  updated_at: string;
+};
+
+// Convert store Note to display Note
+const toNoteDisplay = (note: StoreNote): NoteDisplay => ({
+  id: note.id,
+  title: note.title,
+  content: note.body || '',
+  type: note.subtype === 'journal' ? 'journal' : 'note',
+  date: note.date,
+  created_at: note.created_at,
+  updated_at: note.updated_at,
+});
 
 type Tab = 'compose' | 'saved';
 type NoteType = 'note' | 'journal';
@@ -36,7 +60,16 @@ type Props = {
 };
 
 export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
-  const { notes, journals, create, update, remove, list } = useSpaceNotes(spaceId);
+  // Store-based data
+  const spaceNotes = useSpaceNotesSelector(spaceId);
+  const createNote = useGremlyStore((s) => s.createNote);
+  const updateNote = useGremlyStore((s) => s.updateNote);
+  const deleteNote = useGremlyStore((s) => s.deleteNote);
+
+  // Map store notes to display format
+  const notes = useMemo(() => spaceNotes.map(toNoteDisplay), [spaceNotes]);
+  const journals = useMemo(() => notes.filter((n) => n.type === 'journal'), [notes]);
+
   const [tab, setTab] = useState<Tab>('compose');
   const [noteType, setNoteType] = useState<NoteType>('note');
   const [content, setContent] = useState('');
@@ -111,16 +144,24 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
 
     try {
       if (currentNoteId) {
-        await update(currentNoteId, {
-          content,
+        // Update existing note
+        await updateNote(currentNoteId, {
+          body: content,
+          title: content.split('\n')[0]?.trim().slice(0, 60) || 'Untitled',
           date: noteType === 'journal' ? date : null,
-          type: noteType,
+          subtype: noteType === 'journal' ? 'journal' : 'catchall',
         });
       } else {
-        const newNote = await create({
-          content,
-          type: noteType,
+        // Create new note
+        const title = content.split('\n')[0]?.trim().slice(0, 60) || 'Untitled';
+        const newNote = await createNote({
+          space_id: spaceId,
+          title,
+          body: content,
+          subtype: noteType === 'journal' ? 'journal' : 'catchall',
           date: noteType === 'journal' ? date : null,
+          origin: 'manual',
+          ai_placed: false,
         });
         setCurrentNoteId(newNote.id);
       }
@@ -129,7 +170,7 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
     } catch (error) {
       console.error('[NotepadOverlay] save failed', error);
     }
-  }, [content, currentNoteId, create, update, noteType, date]);
+  }, [content, currentNoteId, createNote, updateNote, noteType, date, spaceId]);
 
   const handleContentChange = useCallback((text: string) => {
     setContent(text);
@@ -150,7 +191,7 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
     setTab('compose');
   }, []);
 
-  const handleLoadNote = useCallback((note: Note) => {
+  const handleLoadNote = useCallback((note: NoteDisplay) => {
     setCurrentNoteId(note.id);
     setContent(note.content);
     setNoteType(note.type);
@@ -168,7 +209,7 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await remove(id);
+              await deleteNote(id);
               if (currentNoteId === id) {
                 handleNewNote();
               }
@@ -179,7 +220,7 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
         },
       ]);
     },
-    [remove, currentNoteId, handleNewNote],
+    [deleteNote, currentNoteId, handleNewNote],
   );
 
   const handleClose = useCallback(() => {
@@ -460,7 +501,7 @@ function SavedNoteRow({
   onPress,
   onDelete,
 }: {
-  note: Note;
+  note: NoteDisplay;
   onPress: () => void;
   onDelete: () => void;
 }) {
