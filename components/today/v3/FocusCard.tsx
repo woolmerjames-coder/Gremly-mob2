@@ -5,7 +5,8 @@ import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { GRADIENTS } from '../../../design/gradients';
 import { useFocusCard } from '../../../lib/today/hooks/useFocusCard';
-import { useRepo } from '../../../providers/RepoProvider';
+import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { selectItemById } from '../../../lib/store/selectors';
 
 type Props = {
   onChange?: () => void;
@@ -15,43 +16,20 @@ type Props = {
 
 export default function FocusCard({ onChange, onClear, autoSuggestIfEmpty = true }: Props) {
   const { focus, autosuggest, clear, loading } = useFocusCard();
-  const repo = useRepo();
-  const [title, setTitle] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      if (!focus?.entry_id || !focus.entry_type) {
-        setTitle(null);
-        return;
-      }
-      try {
-        type RepoWithGetById = {
-          getById?: (id: string) => Promise<{
-            name?: string | null;
-            title?: string | null;
-          } | null>;
-        };
-        const repoWithGetById = repo as RepoWithGetById;
-        const rec = await repoWithGetById.getById?.(focus.entry_id);
-        if (!cancelled) {
-          const name =
-            typeof rec?.name === 'string'
-              ? rec.name
-              : typeof rec?.title === 'string'
-                ? rec.title
-                : null;
-          setTitle(name);
-        }
-      } catch {
-        if (!cancelled) setTitle(null);
-      }
-    }
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [focus?.entry_id, focus?.entry_type, repo]);
+  // Get focused item's title from Zustand store (sync lookup)
+  const title = useGremlyStore((s) => {
+    if (!focus?.entry_id || !focus.entry_type) return null;
+    const rec = selectItemById(s, focus.entry_id);
+    if (!rec) return null;
+    // Get name/title from the record - different types have different field names
+    const recAny = rec as unknown as Record<string, unknown>;
+    return typeof recAny.name === 'string'
+      ? recAny.name
+      : typeof recAny.title === 'string'
+        ? recAny.title
+        : null;
+  });
 
   useEffect(() => {
     if (autoSuggestIfEmpty && !loading && !focus) {
