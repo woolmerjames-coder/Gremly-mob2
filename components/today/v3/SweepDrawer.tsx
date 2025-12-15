@@ -1,11 +1,11 @@
-import React, { useMemo, useRef, useCallback } from 'react';
+import React, { useRef, useCallback } from 'react';
 import { Modal, View, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Card } from '../../../design-system/Card';
 import { Text, Box, Button } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useRepo } from '../../../providers/RepoProvider';
-import { useTodayEntries } from '../../../lib/today/hooks/useTodayEntries';
-import { selectSweepCandidates, type SweepCandidate } from '../../../lib/today/sweepSelectors';
+import { useSweepCandidatesUnified } from '../../../lib/store/selectors';
+import type { SweepCandidate } from '../../../lib/sweep/types';
 
 type Props = {
   visible: boolean;
@@ -15,8 +15,10 @@ type Props = {
 };
 
 export default function SweepDrawer({ visible, onClose, onSweepComplete }: Props) {
-  const repo = useRepo();
-  const { items, reload } = useTodayEntries();
+  const repo = useRepo(); // Kept for sweepApplyAction (not in store yet)
+
+  // Use store selector for sweep candidates
+  const sweepCandidates = useSweepCandidatesUnified();
 
   // Track actions taken during this sweep session
   const actionsRef = useRef<{ archived: number; total: number }>({ archived: 0, total: 0 });
@@ -28,42 +30,10 @@ export default function SweepDrawer({ visible, onClose, onSweepComplete }: Props
     }
   }, [visible]);
 
-  // Use shared sweep selector for consistency with pill count
-  const sweepCandidates = useMemo(() => {
-    const todayDay = new Date().toISOString().split('T')[0];
-
-    // Map items to the format expected by selectSweepCandidates
-    const todosForSweep = items
-      .filter((i) => i.type === 'todo')
-      .map((t) => ({
-        id: t.id,
-        name: t.name,
-        type: 'todo' as const,
-        due_day: t.due_day,
-        due_date: t.due_date,
-        status: t.status ?? 'active',
-        carry_forward: t.carry_forward,
-        completed_at: t.completed_at,
-        archived: false,
-      }));
-
-    const candidates = selectSweepCandidates(todosForSweep, todayDay);
-
-    // Log for debugging sweep mismatch
-    console.log('[SweepDrawer] Sweep candidates:', {
-      todayDay,
-      inputItemsCount: items.length,
-      todosCount: todosForSweep.length,
-      candidatesCount: candidates.length,
-      candidateIds: candidates.map((c) => c.id),
-    });
-
-    return candidates;
-  }, [items]);
-
   const handleAction = useCallback(
     async (id: string, action: 'archive' | 'carry_forward' | 'keep') => {
       try {
+        // sweepApplyAction still needs repo (not in store yet)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (repo as any).sweepApplyAction?.(id, 'todo', action, { archived_reason: 'swept' });
 
@@ -72,14 +42,13 @@ export default function SweepDrawer({ visible, onClose, onSweepComplete }: Props
         if (action === 'archive') {
           actionsRef.current.archived += 1;
         }
-
-        await reload();
+        // Store auto-updates, no reload needed
       } catch (e) {
         // Soft-fail; keep UI responsive
         console.warn('[Sweep] action failed:', e);
       }
     },
-    [repo, reload],
+    [repo],
   );
 
   // Handle Done button - close modal and notify parent with summary
@@ -133,8 +102,10 @@ export default function SweepDrawer({ visible, onClose, onSweepComplete }: Props
                             }}
                           >
                             <Box style={{ flex: 1 }}>
-                              <Text variant="body">{t.name}</Text>
-                              {t.carry_forward && (
+                              <Text variant="body">
+                                {t.kind === 'todo' ? t.raw.name : t.raw.title || 'Untitled'}
+                              </Text>
+                              {t.kind === 'todo' && t.raw.carry_forward && (
                                 <Text variant="subtle" style={{ fontSize: 12 }}>
                                   carry-forward
                                 </Text>
