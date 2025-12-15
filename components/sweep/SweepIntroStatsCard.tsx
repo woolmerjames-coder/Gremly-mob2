@@ -1,7 +1,7 @@
 /**
- * SweepIntroStatsCard - Hero number stats that expand to show item details
+ * SweepIntroStatsCard - Branded card showing activity since last sweep
  *
- * Shows big prominent numbers for completed and captured items,
+ * Shows completed and captured counts with a golden accent bar,
  * with tap-to-expand functionality to see individual item names.
  */
 
@@ -33,9 +33,9 @@ interface SweepIntroStatsCardProps {
 export function SweepIntroStatsCard({ stats, isLoading }: SweepIntroStatsCardProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Calculate totals
-  const totalCompleted = stats.completed.todos.length + stats.completed.habits.length;
-  const totalCaptured =
+  // Calculate counts
+  const completedCount = stats.completed.todos.length + stats.completed.habits.length;
+  const caughtCount =
     stats.dropped.todos.length + stats.dropped.habits.length + stats.dropped.notes.length;
   const allCompletedItems = [...stats.completed.todos, ...stats.completed.habits];
   const allCapturedItems = [
@@ -45,7 +45,7 @@ export function SweepIntroStatsCard({ stats, isLoading }: SweepIntroStatsCardPro
   ];
 
   // Return null if nothing to show
-  if (!isLoading && totalCompleted === 0 && totalCaptured === 0) {
+  if (!isLoading && completedCount === 0 && caughtCount === 0) {
     return null;
   }
 
@@ -56,73 +56,77 @@ export function SweepIntroStatsCard({ stats, isLoading }: SweepIntroStatsCardPro
 
   return (
     <Pressable style={styles.container} onPress={handleToggle}>
-      {/* Stats row */}
-      <View style={styles.statsRow}>
-        {totalCompleted > 0 && (
-          <View style={styles.statColumn}>
-            <Text style={styles.statNumber}>{totalCompleted}</Text>
-            <Text style={styles.statLabel}>checked off</Text>
+      {/* Golden accent bar on left */}
+      <View style={styles.accentBar} />
+
+      <View style={styles.content}>
+        {/* Completed row */}
+        {completedCount > 0 && (
+          <View style={styles.statRow}>
+            <Icon name="Check" size="xs" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+            <Text style={styles.statText}>
+              <Text style={styles.statNumber}>{completedCount}</Text>
+              <Text style={styles.statLabel}>
+                {' '}
+                {completedCount === 1 ? 'todo' : 'todos'} checked off
+              </Text>
+            </Text>
           </View>
         )}
 
-        {totalCompleted > 0 && totalCaptured > 0 && <View style={styles.verticalDivider} />}
+        {/* Caught row */}
+        {caughtCount > 0 && (
+          <View style={[styles.statRow, completedCount > 0 && styles.statRowSpaced]}>
+            <Icon name="Plus" size="xs" color="#E0C47A" strokeWidth={2.5} />
+            <Text style={styles.statText}>
+              <Text style={styles.statNumber}>{caughtCount}</Text>
+              <Text style={styles.statLabel}> {caughtCount === 1 ? 'item' : 'items'} caught</Text>
+            </Text>
+          </View>
+        )}
 
-        {totalCaptured > 0 && (
-          <View style={styles.statColumn}>
-            <Text style={styles.statNumber}>{totalCaptured}</Text>
-            <Text style={styles.statLabel}>caught</Text>
+        {/* Expanded lists */}
+        {expanded && (
+          <View style={styles.expandedContainer}>
+            {allCompletedItems.length > 0 && (
+              <View style={styles.itemSection}>
+                {allCompletedItems.slice(0, 8).map((item) => (
+                  <View key={item.id} style={styles.itemRow}>
+                    <View style={[styles.itemDot, styles.itemDotGreen]} />
+                    <Text style={styles.itemName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                  </View>
+                ))}
+                {allCompletedItems.length > 8 && (
+                  <Text style={styles.moreText}>+{allCompletedItems.length - 8} more</Text>
+                )}
+              </View>
+            )}
+
+            {allCapturedItems.length > 0 && (
+              <View
+                style={[
+                  styles.itemSection,
+                  allCompletedItems.length > 0 && styles.itemSectionSpaced,
+                ]}
+              >
+                {allCapturedItems.slice(0, 8).map((item) => (
+                  <View key={item.id} style={styles.itemRow}>
+                    <View style={[styles.itemDot, styles.itemDotGold]} />
+                    <Text style={styles.itemName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                  </View>
+                ))}
+                {allCapturedItems.length > 8 && (
+                  <Text style={styles.moreText}>+{allCapturedItems.length - 8} more</Text>
+                )}
+              </View>
+            )}
           </View>
         )}
       </View>
-
-      {/* Chevron indicator */}
-      <View style={styles.chevronRow}>
-        <Icon
-          name={expanded ? 'ChevronUp' : 'ChevronDown'}
-          size="sm"
-          color={BRAND.colors.inkSubtle}
-          strokeWidth={2}
-        />
-      </View>
-
-      {/* Expanded item lists */}
-      {expanded && (
-        <View style={styles.expandedContainer}>
-          {allCompletedItems.length > 0 && (
-            <View style={styles.itemSection}>
-              <Text style={styles.sectionLabel}>Checked off</Text>
-              {allCompletedItems.slice(0, 10).map((item) => (
-                <View key={item.id} style={styles.itemRow}>
-                  <View style={[styles.itemDot, styles.itemDotCompleted]} />
-                  <Text style={styles.itemName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                </View>
-              ))}
-              {allCompletedItems.length > 10 && (
-                <Text style={styles.moreText}>+{allCompletedItems.length - 10} more</Text>
-              )}
-            </View>
-          )}
-
-          {allCapturedItems.length > 0 && (
-            <View style={styles.itemSection}>
-              <Text style={styles.sectionLabel}>Caught</Text>
-              {allCapturedItems.slice(0, 10).map((item) => (
-                <View key={item.id} style={styles.itemRow}>
-                  <View style={[styles.itemDot, styles.itemDotCaptured]} />
-                  <Text style={styles.itemName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                </View>
-              ))}
-              {allCapturedItems.length > 10 && (
-                <Text style={styles.moreText}>+{allCapturedItems.length - 10} more</Text>
-              )}
-            </View>
-          )}
-        </View>
-      )}
     </Pressable>
   );
 }
@@ -134,83 +138,68 @@ export function SweepIntroStatsCard({ stats, isLoading }: SweepIntroStatsCardPro
 const styles = StyleSheet.create({
   container: {
     marginHorizontal: 24,
-    marginTop: 28,
-    backgroundColor: BRAND.colors.surface,
+    marginTop: 8,
+    marginBottom: 72,
+    backgroundColor: 'rgba(191, 216, 192, 0.35)', // Sage mist tint
     borderRadius: BRAND.radius.lg,
-    borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    // Subtle shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  statsRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 36,
+    overflow: 'hidden',
   },
-  statColumn: {
+  accentBar: {
+    width: 4,
+    backgroundColor: '#E0C47A', // Golden pear
+  },
+  content: {
+    flex: 1,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  statRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+  },
+  statRowSpaced: {
+    marginTop: 10,
+  },
+  statText: {
+    marginLeft: 10,
+    flexDirection: 'row',
   },
   statNumber: {
-    fontSize: 40,
+    fontSize: 16,
     fontWeight: '700',
-    color: BRAND.colors.mossGreen,
-    lineHeight: 48,
+    color: BRAND.colors.charcoalInk,
   },
   statLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: BRAND.colors.inkSubtle,
-    marginTop: 2,
-    letterSpacing: 0.2,
-  },
-  verticalDivider: {
-    width: 1,
-    height: 44,
-    backgroundColor: BRAND.colors.borderSubtle,
-  },
-  chevronRow: {
-    alignItems: 'center',
-    marginTop: 12,
+    fontSize: 16,
+    fontWeight: '400',
+    color: BRAND.colors.charcoalInk,
   },
   expandedContainer: {
-    marginTop: 20,
+    marginTop: 16,
+    paddingTop: 14,
     borderTopWidth: 1,
-    borderTopColor: BRAND.colors.borderSubtle,
-    paddingTop: 16,
+    borderTopColor: 'rgba(46, 85, 64, 0.15)',
   },
-  itemSection: {
-    marginBottom: 16,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: BRAND.colors.inkSubtle,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 10,
+  itemSection: {},
+  itemSectionSpaced: {
+    marginTop: 12,
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 5,
   },
   itemDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 12,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 10,
   },
-  itemDotCompleted: {
+  itemDotGreen: {
     backgroundColor: BRAND.colors.mossGreen,
   },
-  itemDotCaptured: {
+  itemDotGold: {
     backgroundColor: '#E0C47A',
   },
   itemName: {
@@ -221,8 +210,7 @@ const styles = StyleSheet.create({
   moreText: {
     fontSize: 13,
     color: BRAND.colors.inkSubtle,
-    fontStyle: 'italic',
-    marginTop: 4,
-    marginLeft: 20,
+    marginLeft: 16,
+    marginTop: 2,
   },
 });

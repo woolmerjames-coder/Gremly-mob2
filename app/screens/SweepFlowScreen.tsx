@@ -130,20 +130,20 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
 
   // Determine headline based on activity level
   let headline = 'Time to Sweep your day';
-  let subcopy = "Let's clear the mental clutter and set you up for tomorrow.";
+  let subcopy = 'Quick swipes to decide what stays and what goes.';
 
   if (stats?.isFirstSweep) {
     headline = 'Your first Sweep';
-    subcopy = "Let's see what you've captured and get it all sorted.";
+    subcopy = 'Quick swipes to clear the clutter. Left to archive, right to keep.';
   } else if (totalCompleted >= 5) {
     headline = 'Look at you go';
-    subcopy = "Solid progress today. Let's tidy up and close out strong.";
-  } else if (totalCompleted >= 2) {
+    subcopy = "You've been productive. Let's tidy up what's left.";
+  } else if (totalCompleted >= 1) {
     headline = "You've been busy";
-    subcopy = "Nice work today. Let's clear the rest and set up tomorrow.";
+    subcopy = 'Swipe left to clear, right to keep. Takes about a minute.';
   } else if (totalCaptured >= 5) {
     headline = 'Lots on your mind';
-    subcopy = "You caught a lot today. Let's sort through it together.";
+    subcopy = 'Quick swipes to decide what stays and what goes.';
   }
 
   return (
@@ -153,7 +153,7 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
         contentContainerStyle={styles.introScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Gremly mascot - friendly anchor at top */}
+        {/* 1. Mascot */}
         <View style={styles.introMascotContainer}>
           <Image
             source={GREMLY_MASCOT_CELEBRATE}
@@ -164,23 +164,31 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
           />
         </View>
 
-        {/* Title */}
-        <View style={styles.introHeaderSection}>
-          <Text variant="title" style={styles.moodStepTitle}>
-            {headline}
-          </Text>
-          <Text style={styles.moodStepSubcopy}>{subcopy}</Text>
-        </View>
-
-        {/* Activity Stats Card */}
-        {(isLoading || hasActivity) && stats && (
-          <View style={styles.introStatsContainer}>
-            <SweepIntroStatsCard stats={stats} isLoading={isLoading} />
-          </View>
+        {/* 2. Section label above card */}
+        {(isLoading || hasActivity) && (
+          <Text style={styles.achievementLabel}>Achieved since your last Sweep</Text>
         )}
+
+        {/* 3. Stats card */}
+        {(isLoading || hasActivity) && stats && (
+          <SweepIntroStatsCard stats={stats} isLoading={isLoading} />
+        )}
+
+        {/* 4. Title - centered */}
+        <Text variant="title" style={styles.introTitle}>
+          {headline}
+        </Text>
+
+        {/* 6. Underline divider */}
+        <View style={styles.introTitleUnderline} />
+
+        {/* 7. Subcopy - centered */}
+        <Text style={styles.introSubcopy}>
+          Your ritual to close those open tabs. Swipe left to archive, right to keep. Let's do it.
+        </Text>
       </ScrollView>
 
-      {/* Start Button */}
+      {/* 8. Button */}
       <View style={styles.moodButtonContainer}>
         <TouchableOpacity style={styles.moodContinueButton} onPress={onStart} activeOpacity={0.8}>
           <View style={styles.moodContinueButtonContent}>
@@ -1458,17 +1466,47 @@ const styles = StyleSheet.create({
   // ─────────────────────────────────────────────────────────────────────────
   introScrollContent: {
     flexGrow: 1,
-    paddingBottom: 24,
-    paddingHorizontal: 4,
+    paddingTop: 16,
   },
   introMascotContainer: {
     alignItems: 'center',
-    marginTop: 48,
-    marginBottom: 32,
+    marginBottom: 0,
   },
   introMascotImage: {
-    width: 120,
-    height: 120,
+    width: 140,
+    height: 140,
+  },
+  achievementLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.inkSubtle,
+    marginHorizontal: 24,
+    marginTop: 20,
+    marginBottom: 8,
+    textAlign: 'left',
+  },
+  introTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginHorizontal: 24,
+  },
+  introTitleUnderline: {
+    width: '40%',
+    height: 2,
+    backgroundColor: BRAND.colors.borderSubtle,
+    alignSelf: 'center',
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  introSubcopy: {
+    fontSize: 15,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    marginHorizontal: 32,
+    lineHeight: 22,
+    marginBottom: 24,
   },
   introHeaderSection: {
     alignItems: 'center',
