@@ -119,6 +119,8 @@ export interface SweepCardProps {
   feedbackMessage?: string;
   /** Which feedback type is active */
   feedbackType?: 'clear' | 'keep' | null;
+  /** Hide the bottom save/exit section (when parent handles it) */
+  hideBottomSaveExit?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -264,6 +266,7 @@ export function SweepCard({
   onClose,
   feedbackMessage: _feedbackMessage,
   feedbackType,
+  hideBottomSaveExit,
 }: SweepCardProps) {
   const repo = useRepo();
   const typeLabel = getTypeChipLabel(candidate);
@@ -714,20 +717,10 @@ export function SweepCard({
           <Animated.View
             style={[styles.swipeCardContainer, animatedCardContainerStyle, animatedCardStyle]}
           >
-            {/* Gradient Background - Subtle sage tint for card separation */}
-            <LinearGradient
-              colors={[
-                'rgba(191, 216, 192, 0.08)', // Top: Sage Mist @ 8% - slight tint
-                'rgba(191, 216, 192, 0.22)', // Bottom: Sage Mist @ 22% - deeper fill
-              ]}
-              locations={[0, 1]}
-              style={styles.cardGradient}
-            />
-
             {/* Inner Shadow - Top only, creates lifted sheet effect */}
             <LinearGradient
               colors={[
-                'rgba(34, 34, 34, 0.08)', // Charcoal Ink @ 8% at top
+                'rgba(34, 34, 34, 0.06)', // Charcoal Ink @ 6% at top
                 'rgba(34, 34, 34, 0)', // Fade to transparent
               ]}
               locations={[0, 1]}
@@ -868,20 +861,22 @@ export function SweepCard({
         </GestureDetector>
       </View>
 
-      {/* Save & Exit - Single centered text link at bottom */}
-      <View style={styles.saveExitContainer}>
-        {onClose && (
-          <TouchableOpacity
-            style={styles.saveExitButton}
-            onPress={onClose}
-            accessibilityLabel="Save and exit"
-            accessibilityRole="button"
-            activeOpacity={0.6}
-          >
-            <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      {/* Save & Exit - Single centered text link at bottom (hidden when parent handles it) */}
+      {!hideBottomSaveExit && (
+        <View style={styles.saveExitContainer}>
+          {onClose && (
+            <TouchableOpacity
+              style={styles.saveExitButton}
+              onPress={onClose}
+              accessibilityLabel="Save and exit"
+              accessibilityRole="button"
+              activeOpacity={0.6}
+            >
+              <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       {/* Hidden Test Buttons - Only rendered in test environment for accessibility testing */}
       {isTestEnv && (
@@ -1111,11 +1106,11 @@ export function SweepCard({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  // Card Wrapper - Full screen container with cream background
+  // Card Wrapper - Full screen container with white background
   cardWrapper: {
     flex: 1,
     position: 'relative',
-    backgroundColor: BRAND.colors.linenCream,
+    backgroundColor: '#FFFFFF',
   },
 
   // Card Centering Container - Centers the card horizontally, positioned toward top
@@ -1136,18 +1131,18 @@ const styles = StyleSheet.create({
     minHeight: 320,
     flex: 1,
     maxHeight: '95%',
-    backgroundColor: BRAND.colors.linenCream, // Base color for gradient fallback
+    backgroundColor: BRAND.colors.linenCream, // Linen cream card
     borderRadius: 16,
     overflow: 'hidden',
-    // Soft outer shadow - slightly stronger for tactile feel
+    // Strong shadow all around for physical card feel
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.14, // Increased from 0.08
-    shadowRadius: 16, // Slightly larger blur
-    elevation: 5,
-    // Subtle Moss Green outline for definition
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 20,
+    elevation: 12,
+    // Subtle border for extra definition
     borderWidth: 1,
-    borderColor: 'rgba(46, 85, 64, 0.12)', // Moss Green @ 12%
+    borderColor: 'rgba(0, 0, 0, 0.08)',
   },
 
   // Gradient Background - Fills card, behind content
@@ -1482,14 +1477,14 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.mossGreen, // Gremly brand green
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
+    zIndex: 1, // Behind card (cardCenteringContainer has zIndex: 2)
   },
   swipeScrimRight: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#E0C47A', // Golden Pear - Gremly brand warm color
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
+    zIndex: 1, // Behind card (cardCenteringContainer has zIndex: 2)
   },
   swipeScrimIcon: {
     width: 64,
@@ -1523,7 +1518,7 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     paddingTop: 16,
     alignItems: 'center',
-    backgroundColor: BRAND.colors.linenCream,
+    backgroundColor: '#FFFFFF',
   },
   saveExitButton: {
     paddingVertical: 8,

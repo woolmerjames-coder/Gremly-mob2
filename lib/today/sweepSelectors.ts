@@ -120,7 +120,14 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
     return dueDay <= todayDay;
   }
 
-  // No due date and not carry-forward - not sweep eligible
+  // No due date - include if created in last 3 days
+  if (todo.created_at) {
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    const createdDate = new Date(todo.created_at);
+    return createdDate >= threeDaysAgo;
+  }
+
   return false;
 }
 

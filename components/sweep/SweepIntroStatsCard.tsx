@@ -22,7 +22,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface SweepIntroStatsCardProps {
-  stats: SweepIntroStats;
+  stats: SweepIntroStats | null;
   isLoading?: boolean;
 }
 
@@ -32,6 +32,26 @@ interface SweepIntroStatsCardProps {
 
 export function SweepIntroStatsCard({ stats, isLoading }: SweepIntroStatsCardProps) {
   const [expanded, setExpanded] = useState(false);
+
+  // Show loading skeleton while fetching
+  if (isLoading || !stats) {
+    return (
+      <View style={styles.container}>
+        {/* Golden accent bar on left */}
+        <View style={styles.accentBar} />
+        <View style={styles.content}>
+          <View style={styles.statRow}>
+            <View style={styles.skeletonIcon} />
+            <View style={styles.skeletonText} />
+          </View>
+          <View style={[styles.statRow, styles.statRowSpaced]}>
+            <View style={styles.skeletonIcon} />
+            <View style={styles.skeletonText} />
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   // Calculate counts
   const completedCount = stats.completed.todos.length + stats.completed.habits.length;
@@ -44,8 +64,8 @@ export function SweepIntroStatsCard({ stats, isLoading }: SweepIntroStatsCardPro
     ...stats.dropped.notes,
   ];
 
-  // Return null if nothing to show
-  if (!isLoading && completedCount === 0 && caughtCount === 0) {
+  // Return null if nothing to show (after loading)
+  if (completedCount === 0 && caughtCount === 0) {
     return null;
   }
 
@@ -212,5 +232,19 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkSubtle,
     marginLeft: 16,
     marginTop: 2,
+  },
+  // Loading skeleton styles
+  skeletonIcon: {
+    width: 14,
+    height: 14,
+    borderRadius: 2,
+    backgroundColor: 'rgba(46, 85, 64, 0.15)',
+  },
+  skeletonText: {
+    marginLeft: 10,
+    width: 140,
+    height: 16,
+    borderRadius: 4,
+    backgroundColor: 'rgba(46, 85, 64, 0.12)',
   },
 });

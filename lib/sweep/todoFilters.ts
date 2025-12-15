@@ -224,12 +224,12 @@ export function buildSweepTodoOrClause(todayDay: string, cutoffTimestamp: string
   threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
   const threeDaysAgoIso = threeDaysAgo.toISOString();
 
-  // Note: Supabase doesn't support complex AND within OR easily,
-  // so we include unscheduled recent items via the created_at condition.
-  // Items with due_day=null AND created in last 3 days will be included
-  // via the created_at.gt condition if the cutoff is recent enough.
-  // For alignment, we use the minimum of cutoffTimestamp and threeDaysAgo.
-  const effectiveCutoff = cutoffTimestamp < threeDaysAgoIso ? cutoffTimestamp : threeDaysAgoIso;
-
-  return `due_day.lte.${todayDay},created_at.gt.${effectiveCutoff},skipped_in_sweep_at.not.is.null`;
+  // Supabase OR clause conditions:
+  // 1. due_day <= today (overdue or due today)
+  // 2. created_at > cutoff (new items since last sweep)
+  // 3. skipped_in_sweep_at IS NOT NULL (previously skipped)
+  // 4. due_day IS NULL AND created in last 3 days (unscheduled recent items)
+  //
+  // For condition 4, we use Supabase's nested and() syntax within the or() clause
+  return `due_day.lte.${todayDay},created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null,and(due_day.is.null,created_at.gt.${threeDaysAgoIso})`;
 }

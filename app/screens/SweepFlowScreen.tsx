@@ -169,10 +169,8 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
           <Text style={styles.achievementLabel}>Achieved since your last Sweep</Text>
         )}
 
-        {/* 3. Stats card */}
-        {(isLoading || hasActivity) && stats && (
-          <SweepIntroStatsCard stats={stats} isLoading={isLoading} />
-        )}
+        {/* 3. Stats card - shows loading skeleton then real data */}
+        {(isLoading || hasActivity) && <SweepIntroStatsCard stats={stats} isLoading={isLoading} />}
 
         {/* 4. Title - centered */}
         <Text variant="title" style={styles.introTitle}>
@@ -548,9 +546,6 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
 
-  // Animated progress bar width - use useMemo to avoid ref access during render
-  const progressWidth = useMemo(() => new Animated.Value(0), []);
-
   // Fetch candidates on mount
   useEffect(() => {
     let cancelled = false;
@@ -563,6 +558,19 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
       try {
         const items = await fetchSweepCandidatesForUser(userId, supabase);
+
+        console.log('[SweepFlow] Candidates received:', {
+          total: items?.length ?? 0,
+          todos: items?.filter((c) => c.kind === 'todo').length ?? 0,
+          notes: items?.filter((c) => c.kind === 'note').length ?? 0,
+          ids:
+            items?.map((c) => ({
+              id: c.id.slice(0, 8),
+              kind: c.kind,
+              title: (c.raw as any)?.name || (c.raw as any)?.title,
+            })) ?? [],
+        });
+
         if (!cancelled) {
           setCandidates(items ?? []);
           setIsLoading(false);
@@ -582,21 +590,6 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       cancelled = true;
     };
   }, [userId]);
-
-  // Animate progress bar when currentIndex or candidates.length changes
-  useEffect(() => {
-    if (candidates.length === 0) return;
-    // Progress: (currentIndex + 1) / total - shows completion of current item
-    const progress = (currentIndex + 1) / candidates.length;
-    const maxBarWidth = 52; // 52px max width
-    const targetWidth = progress * maxBarWidth;
-
-    Animated.timing(progressWidth, {
-      toValue: targetWidth,
-      duration: 300,
-      useNativeDriver: false, // width animation requires JS driver
-    }).start();
-  }, [currentIndex, candidates.length, progressWidth]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Unified Outcome Handler
@@ -981,45 +974,26 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const currentBgColor = swipeFeedback
     ? feedbackBgProgress.interpolate({
         inputRange: [0, 1],
-        outputRange: [BRAND.colors.linenCream, FEEDBACK_COLORS[swipeFeedback]],
+        outputRange: ['#FFFFFF', FEEDBACK_COLORS[swipeFeedback]],
       })
-    : BRAND.colors.linenCream;
+    : '#FFFFFF';
 
   return (
     <Animated.View style={[styles.decisionStepContainer, { backgroundColor: currentBgColor }]}>
-      {/* Decision Step Header - Counter left, pill + close right */}
+      {/* Decision Step Header - X close button at top right only */}
       <View style={styles.decisionHeader}>
-        {/* Left - Item counter with progress bar */}
-        <View style={styles.decisionHeaderLeft}>
-          <Text style={styles.decisionHeaderCounter}>
-            {currentIndex + 1} of {candidates.length} items
-          </Text>
-          {/* Progress underline - Golden Pear */}
-          <View style={styles.progressBarContainer}>
-            {/* Base rail - low opacity sage */}
-            <View style={styles.progressBarRail} />
-            {/* Animated fill - Golden Pear */}
-            <Animated.View style={[styles.progressBarFill, { width: progressWidth }]} />
-          </View>
-        </View>
-
-        {/* Right - Today's Sweep pill + X icon */}
-        <View style={styles.decisionHeaderRight}>
-          <View style={styles.decisionContextPill}>
-            <Text style={styles.decisionContextPillText}>Today's Sweep</Text>
-          </View>
-          {onClose && (
-            <TouchableOpacity
-              style={styles.decisionCloseButton}
-              onPress={onClose}
-              activeOpacity={0.7}
-              accessibilityLabel="Close Sweep"
-              accessibilityRole="button"
-            >
-              <Icon name="X" size="sm" color={BRAND.colors.mossGreen} />
-            </TouchableOpacity>
-          )}
-        </View>
+        <View style={styles.decisionHeaderSpacer} />
+        {onClose && (
+          <TouchableOpacity
+            style={styles.decisionCloseButton}
+            onPress={onClose}
+            activeOpacity={0.7}
+            accessibilityLabel="Close Sweep"
+            accessibilityRole="button"
+          >
+            <Icon name="X" size="sm" color={BRAND.colors.mossGreen} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Full-screen Card Area */}
@@ -1040,7 +1014,33 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           onClose={onClose}
           feedbackMessage={feedbackMessage}
           feedbackType={swipeFeedback}
+          hideBottomSaveExit={true}
         />
+      </View>
+
+      {/* Bottom section - Progress + Save and exit */}
+      <View style={styles.bottomSection}>
+        {/* Progress + counter */}
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${((currentIndex + 1) / candidates.length) * 100}%` },
+              ]}
+            />
+          </View>
+          <Text style={styles.counterText}>
+            {currentIndex + 1} of {candidates.length} items
+          </Text>
+        </View>
+
+        {/* Save and exit */}
+        {onClose && (
+          <TouchableOpacity onPress={onClose} style={styles.saveExitButton}>
+            <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Feedback Overlay - Floating text, no background */}
@@ -1393,7 +1393,7 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
   screenBackgroundDecision: {
-    backgroundColor: BRAND.colors.linenCream, // Cream background, card has sage
+    backgroundColor: '#FFFFFF', // White background for decision step
   },
   header: {
     flexDirection: 'row',
@@ -1874,7 +1874,7 @@ const styles = StyleSheet.create({
   // SweepDecisionStep styles - Linen Cream background with sage card
   decisionStepContainer: {
     flex: 1,
-    backgroundColor: BRAND.colors.linenCream, // Cream background
+    backgroundColor: '#FFFFFF', // White background for contrast
   },
   swipeFeedbackContainer: {
     position: 'absolute',
@@ -1911,65 +1911,53 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 28,
-    paddingBottom: 12,
-    backgroundColor: BRAND.colors.linenCream, // Match container
-    zIndex: 1, // Low zIndex so feedback overlay can appear on top
-  },
-  decisionHeaderLeft: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-  },
-  decisionHeaderCounter: {
-    fontSize: 13,
-    fontWeight: '400',
-    color: 'rgba(34, 34, 34, 0.70)', // Charcoal @ 70%
-    letterSpacing: 0.1,
-    marginBottom: 4,
-  },
-  progressBarContainer: {
-    width: 52,
-    height: 3,
-    position: 'relative',
-  },
-  progressBarRail: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 52,
-    height: 3,
-    backgroundColor: 'rgba(191, 216, 192, 0.4)', // Sage Mist @ 40%
-    borderRadius: 1.5,
-  },
-  progressBarFill: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    height: 3,
-    backgroundColor: '#E0C47A', // Golden Pear
-    borderRadius: 1.5,
-  },
-  decisionHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  decisionContextPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: BRAND.radius.pill,
-    borderWidth: 1,
-    borderColor: BRAND.colors.sageMist,
+    paddingTop: 16,
+    paddingBottom: 8,
     backgroundColor: 'transparent',
+    zIndex: 1,
   },
-  decisionContextPillText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(34, 34, 34, 0.70)', // Charcoal @ 70%
-    letterSpacing: 0.2,
+  decisionHeaderSpacer: {
+    flex: 1,
   },
   decisionCloseButton: {
-    padding: 4,
+    padding: 8,
+  },
+  // Bottom section styles
+  bottomSection: {
+    alignItems: 'center',
+    paddingBottom: 32,
+    paddingTop: 16,
+  },
+  progressContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  progressBar: {
+    width: 120,
+    height: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    borderRadius: 2,
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 2,
+  },
+  counterText: {
+    fontSize: 13,
+    color: BRAND.colors.inkSubtle,
+    fontWeight: '500',
+  },
+  saveExitButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  saveExitText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(34, 34, 34, 0.65)',
+    letterSpacing: 0.1,
   },
   decisionPlaceholder: {
     flex: 1,
