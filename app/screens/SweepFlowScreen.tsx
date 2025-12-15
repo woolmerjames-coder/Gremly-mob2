@@ -1010,9 +1010,21 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
         />
       </View>
 
-      {/* Feedback Overlay - Using Modal to guarantee it's on top */}
-      <Modal visible={!!swipeFeedback} transparent animationType="none">
-        <View style={styles.swipeFeedbackContainer}>
+      {/* Feedback Overlay - Using Modal with its own background to guarantee no clipping */}
+      <Modal
+        visible={!!swipeFeedback}
+        transparent={false}
+        animationType="fade"
+        statusBarTranslucent={true}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: swipeFeedback === 'clear' ? '#34D399' : '#FBBF24',
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
           <Animated.View style={{ opacity: feedbackOpacity, alignItems: 'center' }}>
             <Text style={styles.swipeFeedbackText}>{feedbackMessage}</Text>
             <Text style={styles.swipeFeedbackSubtext}>
@@ -1798,6 +1810,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 3,
     textTransform: 'uppercase',
+    lineHeight: 48, // 1.5x fontSize to ensure full character rendering
+    textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 3 },
     textShadowRadius: 8,
