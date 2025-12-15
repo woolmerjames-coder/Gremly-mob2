@@ -138,10 +138,9 @@ function TodayScreenV2() {
   const suggestionsEnabled = !isTestLight && env.feature.today.suggestions;
   const eveningTeaserEnabled = env.feature.today.eveningTeaser;
 
-  // Shared interactions hook
+  // Shared interactions hook - no onReload needed, store auto-updates
   const [celebrationVisible, setCelebrationVisible] = useState(false);
   const interactions = useTodayInteractions({
-    onReload: todayData.reload,
     celebrationEnabled,
     onCelebration: () => setCelebrationVisible(true),
     showCelebrationToast: false, // Disable toast on Today - use dot glow instead
