@@ -5,7 +5,8 @@ import { Button } from '../../../design-system/Button';
 import { Text, Box } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useRepo } from '../../../providers/RepoProvider';
-import { useTodayEntries } from '../../../lib/today/hooks/useTodayEntries';
+import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { useTodayTodos, useTodayHabits, selectItemById } from '../../../lib/store/selectors';
 import { useFocusCard, type FocusEntryType } from '../../../lib/today/hooks/useFocusCard';
 
 type Candidate = { id: string; type: FocusEntryType; title: string; priority: number };
@@ -16,20 +17,22 @@ type Props = {
 };
 
 export default function FocusPickerModal({ visible, onClose }: Props) {
-  const repo = useRepo();
-  const { items } = useTodayEntries();
+  const repo = useRepo(); // Kept for topFocusCandidates (not in store yet)
+  const todayTodos = useTodayTodos();
+  const todayHabits = useTodayHabits();
   const { choose } = useFocusCard();
 
+  // Build namesById from store data
   const namesById = useMemo(() => {
     const map = new Map<string, string>();
-    if (!Array.isArray(items)) {
-      return map;
-    }
-    items.forEach((item) => {
-      map.set(item.id, item.name);
+    todayTodos.forEach((todo) => {
+      map.set(todo.id, todo.name || todo.title || '');
+    });
+    todayHabits.forEach((habit) => {
+      map.set(habit.id, habit.name || '');
     });
     return map;
-  }, [items]);
+  }, [todayTodos, todayHabits]);
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,27 +40,30 @@ export default function FocusPickerModal({ visible, onClose }: Props) {
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      // topFocusCandidates still needs repo (specialized query)
       const tops =
         typeof (repo as any).topFocusCandidates === 'function'
           ? await (repo as any).topFocusCandidates(5)
           : [];
 
-      const resolved = await Promise.all(
-        (Array.isArray(tops) ? tops : []).map(
-          async (candidate: { id: string; type: FocusEntryType; priority?: number }) => {
-            let title = namesById.get(candidate.id);
-            if (!title && typeof (repo as any).getById === 'function') {
-              const record = await (repo as any).getById(candidate.id);
-              title = (record?.name as string) || (record?.title as string) || candidate.id;
-            }
-            return {
-              id: candidate.id,
-              type: candidate.type,
-              title: title || candidate.id,
-              priority: candidate.priority ?? 0,
-            };
-          },
-        ),
+      // Get store state for item lookup
+      const storeState = useGremlyStore.getState();
+
+      const resolved = (Array.isArray(tops) ? tops : []).map(
+        (candidate: { id: string; type: FocusEntryType; priority?: number }) => {
+          let title = namesById.get(candidate.id);
+          if (!title) {
+            // Use store selector instead of repo.getById
+            const record = selectItemById(storeState, candidate.id);
+            title = (record as any)?.name || (record as any)?.title || candidate.id;
+          }
+          return {
+            id: candidate.id,
+            type: candidate.type,
+            title: title || candidate.id,
+            priority: candidate.priority ?? 0,
+          };
+        },
       );
 
       setCandidates(resolved);
