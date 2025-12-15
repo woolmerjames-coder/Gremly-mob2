@@ -130,6 +130,9 @@ export const todoZ = baseRecordZ.extend({
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   notes: z.string().nullable().optional(), // Additional notes
   tags: tagsZ, // Searchable, AI-editable JSON array persisted in DB
+  // Completion fields
+  status: z.enum(['active', 'completed', 'archived']).nullable().optional(),
+  completed_at: z.string().nullable().optional(),
   // Commitment/Lock-In fields (Phase X)
   commitment: z.boolean().nullable().optional(),
   commitmentNote: z.string().nullable().optional(),

@@ -22,6 +22,7 @@ import {
   Animated,
   TouchableOpacity,
   Image,
+  Modal,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -52,11 +53,25 @@ import {
 import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
 import type { AppRecord } from '../../lib/types';
-import { useActionToast } from '../../src/hooks/useActionToast';
+import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
+import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
+
+// Swipe feedback constants
+const CLEAR_MESSAGES = ['BYE ✌️', 'SEE YA', 'GONE', 'CLEARED', 'SWEPT'];
+const KEEP_MESSAGES = ['KEEPING IT', 'STILL ON', 'NOTED', 'ON IT'];
+const getRandomClearMessage = () =>
+  CLEAR_MESSAGES[Math.floor(Math.random() * CLEAR_MESSAGES.length)];
+const getRandomKeepMessage = () => KEEP_MESSAGES[Math.floor(Math.random() * KEEP_MESSAGES.length)];
+const FEEDBACK_COLORS = {
+  clear: '#34D399', // Vibrant emerald green
+  keep: '#FBBF24', // Punchy amber/gold
+};
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/fistbumpgremly.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -95,6 +110,42 @@ const SWEEP_MOOD_OPTIONS: Array<{ value: MoodValue; label: string; icon: string 
  * Shows the Gremly mascot and explains what the user will do.
  */
 function SweepIntroStep({ onStart }: { onStart: () => void }) {
+  const { stats, isLoading } = useSweepIntroStats();
+
+  const hasActivity =
+    stats &&
+    (stats.completed.todos.length > 0 ||
+      stats.completed.habits.length > 0 ||
+      stats.dropped.todos.length > 0 ||
+      stats.dropped.habits.length > 0 ||
+      stats.dropped.notes.length > 0);
+
+  // Calculate total completed and captured
+  const totalCompleted =
+    (stats?.completed.todos.length ?? 0) + (stats?.completed.habits.length ?? 0);
+  const totalCaptured =
+    (stats?.dropped.todos.length ?? 0) +
+    (stats?.dropped.habits.length ?? 0) +
+    (stats?.dropped.notes.length ?? 0);
+
+  // Determine headline based on activity level
+  let headline = 'Time to Sweep your day';
+  let subcopy = 'Quick swipes to decide what stays and what goes.';
+
+  if (stats?.isFirstSweep) {
+    headline = 'Your first Sweep';
+    subcopy = 'Quick swipes to clear the clutter. Left to archive, right to keep.';
+  } else if (totalCompleted >= 5) {
+    headline = 'Look at you go';
+    subcopy = "You've been productive. Let's tidy up what's left.";
+  } else if (totalCompleted >= 1) {
+    headline = "You've been busy";
+    subcopy = 'Swipe left to clear, right to keep. Takes about a minute.';
+  } else if (totalCaptured >= 5) {
+    headline = 'Lots on your mind';
+    subcopy = 'Quick swipes to decide what stays and what goes.';
+  }
+
   return (
     <View style={styles.moodStepContainer}>
       <ScrollView
@@ -102,30 +153,40 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
         contentContainerStyle={styles.introScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Gremly mascot - friendly anchor at top */}
+        {/* 1. Mascot */}
         <View style={styles.introMascotContainer}>
           <Image
-            source={GREMLY_MASCOT}
+            source={GREMLY_MASCOT_CELEBRATE}
             style={styles.introMascotImage}
             resizeMode="contain"
             testID="sweep-intro-mascot"
-            accessibilityLabel="Gremly mascot"
+            accessibilityLabel="Gremly mascot celebrating"
           />
         </View>
 
-        {/* Title */}
-        <View style={styles.introHeaderSection}>
-          <Text variant="title" style={styles.moodStepTitle}>
-            Time to Sweep your day
-          </Text>
-          <Text style={styles.moodStepSubcopy}>
-            We'll review what came into your world today. Clear what's done. Keep what still
-            matters.
-          </Text>
-        </View>
+        {/* 2. Section label above card */}
+        {(isLoading || hasActivity) && (
+          <Text style={styles.achievementLabel}>Achieved since your last Sweep</Text>
+        )}
+
+        {/* 3. Stats card - shows loading skeleton then real data */}
+        {(isLoading || hasActivity) && <SweepIntroStatsCard stats={stats} isLoading={isLoading} />}
+
+        {/* 4. Title - centered */}
+        <Text variant="title" style={styles.introTitle}>
+          {headline}
+        </Text>
+
+        {/* 6. Underline divider */}
+        <View style={styles.introTitleUnderline} />
+
+        {/* 7. Subcopy - centered */}
+        <Text style={styles.introSubcopy}>
+          Your ritual to close those open tabs. Swipe left to archive, right to keep. Let's do it.
+        </Text>
       </ScrollView>
 
-      {/* Start Button */}
+      {/* 8. Button */}
       <View style={styles.moodButtonContainer}>
         <TouchableOpacity style={styles.moodContinueButton} onPress={onStart} activeOpacity={0.8}>
           <View style={styles.moodContinueButtonContent}>
@@ -466,21 +527,24 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const { userId } = useAuth();
   const repo = useRepo();
   const overlayController = useOverlayController();
-  const { showToast, Toast: ActionToast } = useActionToast({ bottomOffset: 100 });
 
   // State for candidates and navigation
   const [candidates, setCandidates] = useState<SweepCandidate[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Swipe feedback state
+  const [swipeFeedback, setSwipeFeedback] = useState<'clear' | 'keep' | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  // Use useMemo instead of useRef(...).current to avoid lint errors about refs during render
+  const feedbackOpacity = useMemo(() => new Animated.Value(0), []);
+  const feedbackBgProgress = useMemo(() => new Animated.Value(0), []);
+
   // Track summary stats for the sweep completion screen
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
 
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
-
-  // Animated progress bar width - use useMemo to avoid ref access during render
-  const progressWidth = useMemo(() => new Animated.Value(0), []);
 
   // Fetch candidates on mount
   useEffect(() => {
@@ -494,6 +558,19 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
       try {
         const items = await fetchSweepCandidatesForUser(userId, supabase);
+
+        console.log('[SweepFlow] Candidates received:', {
+          total: items?.length ?? 0,
+          todos: items?.filter((c) => c.kind === 'todo').length ?? 0,
+          notes: items?.filter((c) => c.kind === 'note').length ?? 0,
+          ids:
+            items?.map((c) => ({
+              id: c.id.slice(0, 8),
+              kind: c.kind,
+              title: (c.raw as any)?.name || (c.raw as any)?.title,
+            })) ?? [],
+        });
+
         if (!cancelled) {
           setCandidates(items ?? []);
           setIsLoading(false);
@@ -513,21 +590,6 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       cancelled = true;
     };
   }, [userId]);
-
-  // Animate progress bar when currentIndex or candidates.length changes
-  useEffect(() => {
-    if (candidates.length === 0) return;
-    // Progress: (currentIndex + 1) / total - shows completion of current item
-    const progress = (currentIndex + 1) / candidates.length;
-    const maxBarWidth = 52; // 52px max width
-    const targetWidth = progress * maxBarWidth;
-
-    Animated.timing(progressWidth, {
-      toValue: targetWidth,
-      duration: 300,
-      useNativeDriver: false, // width animation requires JS driver
-    }).start();
-  }, [currentIndex, candidates.length, progressWidth]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Unified Outcome Handler
@@ -576,32 +638,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
               { type: 'clear', id: candidate.id, kind: candidate.kind },
               supabase,
             );
-            setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
 
-            // Show undo toast after successful archive
-            const displayTitle = clearedCandidate.title
-              ? clearedCandidate.title.length > 30
-                ? clearedCandidate.title.slice(0, 30) + '…'
-                : clearedCandidate.title
-              : 'Item';
-            showToast({
-              type: 'success',
-              content: `🗃️ "${displayTitle}" archived`,
-              metadata: {
-                onUndo: async () => {
-                  try {
-                    await repo.restoreItem(
-                      clearedCandidate.id,
-                      clearedCandidate.kind as 'todo' | 'note',
-                    );
-                    setStats((prev) => ({ ...prev, cleared: Math.max(0, prev.cleared - 1) }));
-                    showToast({ type: 'success', content: '✅ Restored' });
-                  } catch (err) {
-                    console.error('[SweepDecisionStep] Undo restore failed:', err);
-                  }
-                },
-              },
-            });
+            // Notify other screens this item is archived/gone
+            if (candidate.kind === 'todo') {
+              eventBus.emit('entity:deleted', {
+                id: candidate.id,
+                type: 'todo',
+              });
+            }
+
+            setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
           } catch (error) {
             console.error('[SweepDecisionStep] handleOutcome clear error:', error);
           }
@@ -630,7 +676,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           return;
       }
     },
-    [candidates, currentIndex, repo, showToast, supabase],
+    [candidates, currentIndex, repo, supabase],
   );
 
   // Keep the ref updated with the latest handleOutcome
@@ -670,12 +716,46 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Card Action Handlers (wired to unified outcome handler)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
-    handleOutcome('skip');
-  }, [handleOutcome]);
+    setFeedbackMessage(getRandomKeepMessage());
+    setSwipeFeedback('keep');
+
+    Animated.parallel([
+      Animated.timing(feedbackOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+      Animated.timing(feedbackBgProgress, { toValue: 1, duration: 200, useNativeDriver: false }),
+    ]).start();
+
+    setTimeout(() => {
+      handleOutcome('skip');
+      Animated.parallel([
+        Animated.timing(feedbackOpacity, { toValue: 0, duration: 100, useNativeDriver: true }),
+        Animated.timing(feedbackBgProgress, { toValue: 0, duration: 150, useNativeDriver: false }),
+      ]).start(() => {
+        setSwipeFeedback(null);
+        setFeedbackMessage('');
+      });
+    }, 350);
+  }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
 
   const handleClear = useCallback(() => {
-    handleOutcome('clear');
-  }, [handleOutcome]);
+    setFeedbackMessage(getRandomClearMessage());
+    setSwipeFeedback('clear');
+
+    Animated.parallel([
+      Animated.timing(feedbackOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+      Animated.timing(feedbackBgProgress, { toValue: 1, duration: 200, useNativeDriver: false }),
+    ]).start();
+
+    setTimeout(() => {
+      handleOutcome('clear');
+      Animated.parallel([
+        Animated.timing(feedbackOpacity, { toValue: 0, duration: 100, useNativeDriver: true }),
+        Animated.timing(feedbackBgProgress, { toValue: 0, duration: 150, useNativeDriver: false }),
+      ]).start(() => {
+        setSwipeFeedback(null);
+        setFeedbackMessage('');
+      });
+    }, 450);
+  }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
 
   const handleOpenEdit = useCallback(async () => {
     const candidate = candidates[currentIndex];
@@ -891,41 +971,29 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Current candidate to display
   const currentCandidate = candidates[currentIndex];
 
-  return (
-    <View style={styles.decisionStepContainer}>
-      {/* Decision Step Header - Counter left, pill + close right */}
-      <View style={styles.decisionHeader}>
-        {/* Left - Item counter with progress bar */}
-        <View style={styles.decisionHeaderLeft}>
-          <Text style={styles.decisionHeaderCounter}>
-            {currentIndex + 1} of {candidates.length} items
-          </Text>
-          {/* Progress underline - Golden Pear */}
-          <View style={styles.progressBarContainer}>
-            {/* Base rail - low opacity sage */}
-            <View style={styles.progressBarRail} />
-            {/* Animated fill - Golden Pear */}
-            <Animated.View style={[styles.progressBarFill, { width: progressWidth }]} />
-          </View>
-        </View>
+  const currentBgColor = swipeFeedback
+    ? feedbackBgProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['#FFFFFF', FEEDBACK_COLORS[swipeFeedback]],
+      })
+    : '#FFFFFF';
 
-        {/* Right - Today's Sweep pill + X icon */}
-        <View style={styles.decisionHeaderRight}>
-          <View style={styles.decisionContextPill}>
-            <Text style={styles.decisionContextPillText}>Today's Sweep</Text>
-          </View>
-          {onClose && (
-            <TouchableOpacity
-              style={styles.decisionCloseButton}
-              onPress={onClose}
-              activeOpacity={0.7}
-              accessibilityLabel="Close Sweep"
-              accessibilityRole="button"
-            >
-              <Icon name="X" size="sm" color={BRAND.colors.mossGreen} />
-            </TouchableOpacity>
-          )}
-        </View>
+  return (
+    <Animated.View style={[styles.decisionStepContainer, { backgroundColor: currentBgColor }]}>
+      {/* Decision Step Header - X close button at top right only */}
+      <View style={styles.decisionHeader}>
+        <View style={styles.decisionHeaderSpacer} />
+        {onClose && (
+          <TouchableOpacity
+            style={styles.decisionCloseButton}
+            onPress={onClose}
+            activeOpacity={0.7}
+            accessibilityLabel="Close Sweep"
+            accessibilityRole="button"
+          >
+            <Icon name="X" size="sm" color={BRAND.colors.mossGreen} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Full-screen Card Area */}
@@ -944,12 +1012,81 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           }}
           onConvertToTodo={handleConvertToTodo}
           onClose={onClose}
+          feedbackMessage={feedbackMessage}
+          feedbackType={swipeFeedback}
+          hideBottomSaveExit={true}
         />
       </View>
 
-      {/* Undo Toast for archive actions */}
-      {ActionToast}
-    </View>
+      {/* Bottom section - Progress + Save and exit */}
+      <View style={styles.bottomSection}>
+        {/* Progress + counter */}
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${((currentIndex + 1) / candidates.length) * 100}%` },
+              ]}
+            />
+          </View>
+          <Text style={styles.counterText}>
+            {currentIndex + 1} of {candidates.length} items
+          </Text>
+        </View>
+
+        {/* Save and exit */}
+        {onClose && (
+          <TouchableOpacity onPress={onClose} style={styles.saveExitButton}>
+            <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Feedback Overlay - Floating text, no background */}
+      {swipeFeedback && (
+        <Modal visible={true} transparent={true} animationType="none" statusBarTranslucent={true}>
+          <View
+            style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+            pointerEvents="none"
+          >
+            <Animated.View
+              style={{
+                alignItems: 'center',
+                opacity: feedbackOpacity,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 28,
+                  fontWeight: '700',
+                  color: swipeFeedback === 'keep' ? '#4A3F2F' : '#FFFFFF',
+                  lineHeight: 40,
+                  letterSpacing: 2,
+                  textAlign: 'center',
+                  textShadowColor: 'rgba(0, 0, 0, 0.3)',
+                  textShadowOffset: { width: 0, height: 2 },
+                  textShadowRadius: 4,
+                }}
+              >
+                {feedbackMessage}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: '500',
+                  color:
+                    swipeFeedback === 'keep' ? 'rgba(74, 63, 47, 0.8)' : 'rgba(255,255,255,0.8)',
+                  marginTop: 8,
+                }}
+              >
+                {swipeFeedback === 'clear' ? '(archived)' : '(keeping)'}
+              </Text>
+            </Animated.View>
+          </View>
+        </Modal>
+      )}
+    </Animated.View>
   );
 }
 
@@ -1256,7 +1393,7 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
   screenBackgroundDecision: {
-    backgroundColor: BRAND.colors.linenCream, // Cream background, card has sage
+    backgroundColor: '#FFFFFF', // White background for decision step
   },
   header: {
     flexDirection: 'row',
@@ -1329,21 +1466,55 @@ const styles = StyleSheet.create({
   // ─────────────────────────────────────────────────────────────────────────
   introScrollContent: {
     flexGrow: 1,
-    paddingBottom: 24,
-    paddingHorizontal: 4,
+    paddingTop: 16,
   },
   introMascotContainer: {
     alignItems: 'center',
-    marginTop: 48,
-    marginBottom: 32,
+    marginBottom: 0,
   },
   introMascotImage: {
-    width: 120,
-    height: 120,
+    width: 140,
+    height: 140,
+  },
+  achievementLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.inkSubtle,
+    marginHorizontal: 24,
+    marginTop: 20,
+    marginBottom: 8,
+    textAlign: 'left',
+  },
+  introTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginHorizontal: 24,
+  },
+  introTitleUnderline: {
+    width: '40%',
+    height: 2,
+    backgroundColor: BRAND.colors.borderSubtle,
+    alignSelf: 'center',
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  introSubcopy: {
+    fontSize: 15,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    marginHorizontal: 32,
+    lineHeight: 22,
+    marginBottom: 24,
   },
   introHeaderSection: {
     alignItems: 'center',
     paddingHorizontal: 24,
+  },
+  introStatsContainer: {
+    marginTop: 24,
+    paddingHorizontal: 16,
   },
   // ─────────────────────────────────────────────────────────────────────────
   // SweepMoodStep styles - Gremly Brand Reskin
@@ -1703,71 +1874,90 @@ const styles = StyleSheet.create({
   // SweepDecisionStep styles - Linen Cream background with sage card
   decisionStepContainer: {
     flex: 1,
-    backgroundColor: BRAND.colors.linenCream, // Cream background
+    backgroundColor: '#FFFFFF', // White background for contrast
+  },
+  swipeFeedbackContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+    elevation: 9999,
+  },
+  swipeFeedbackText: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    lineHeight: 48, // 1.5x fontSize to ensure full character rendering
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 8,
+  },
+  swipeFeedbackSubtext: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 10,
+    letterSpacing: 1.5,
   },
   decisionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 28,
-    paddingBottom: 12,
-    backgroundColor: BRAND.colors.linenCream, // Match container
-  },
-  decisionHeaderLeft: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-  },
-  decisionHeaderCounter: {
-    fontSize: 13,
-    fontWeight: '400',
-    color: 'rgba(34, 34, 34, 0.70)', // Charcoal @ 70%
-    letterSpacing: 0.1,
-    marginBottom: 4,
-  },
-  progressBarContainer: {
-    width: 52,
-    height: 3,
-    position: 'relative',
-  },
-  progressBarRail: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 52,
-    height: 3,
-    backgroundColor: 'rgba(191, 216, 192, 0.4)', // Sage Mist @ 40%
-    borderRadius: 1.5,
-  },
-  progressBarFill: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    height: 3,
-    backgroundColor: '#E0C47A', // Golden Pear
-    borderRadius: 1.5,
-  },
-  decisionHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  decisionContextPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: BRAND.radius.pill,
-    borderWidth: 1,
-    borderColor: BRAND.colors.sageMist,
+    paddingTop: 16,
+    paddingBottom: 8,
     backgroundColor: 'transparent',
+    zIndex: 1,
   },
-  decisionContextPillText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(34, 34, 34, 0.70)', // Charcoal @ 70%
-    letterSpacing: 0.2,
+  decisionHeaderSpacer: {
+    flex: 1,
   },
   decisionCloseButton: {
-    padding: 4,
+    padding: 8,
+  },
+  // Bottom section styles
+  bottomSection: {
+    alignItems: 'center',
+    paddingBottom: 32,
+    paddingTop: 16,
+  },
+  progressContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  progressBar: {
+    width: 120,
+    height: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    borderRadius: 2,
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 2,
+  },
+  counterText: {
+    fontSize: 13,
+    color: BRAND.colors.inkSubtle,
+    fontWeight: '500',
+  },
+  saveExitButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  saveExitText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(34, 34, 34, 0.65)',
+    letterSpacing: 0.1,
   },
   decisionPlaceholder: {
     flex: 1,

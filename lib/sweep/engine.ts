@@ -161,6 +161,20 @@ export async function fetchSweepCandidatesForUser(
     if (todoError) {
       console.error('[Sweep] Failed to fetch todos:', todoError);
     } else if (todos) {
+      // Debug: check if any completed todos slipped through
+      const completedSlipped = todos.filter((t) => t.status === 'completed');
+      if (completedSlipped.length > 0) {
+        console.warn(
+          '[Sweep] BUG: Completed todos in candidates!',
+          completedSlipped.map((t) => ({
+            id: t.id.slice(0, 8),
+            name: t.name,
+            status: t.status,
+            completed_at: t.completed_at,
+          })),
+        );
+      }
+
       for (const row of todos) {
         // Compute isOverdue and isDueToday using shared helper
         const dueDay = getEffectiveDueDay(row);
@@ -434,15 +448,17 @@ export async function applySweepAction(
             console.error(`[Sweep] Failed to archive todo:`, error);
           }
         } else if (action.kind === 'note') {
-          // For notes (ideas, general logs): just clear the skip marker, don't archive
-          // This confirms the item was reviewed but keeps it in Your Notes
+          // Archive notes on clear - same behavior as todos
           const { error } = await client
             .from('notes')
-            .update({ skipped_in_sweep_at: null })
+            .update({
+              archived: true,
+              archived_at: now,
+            })
             .eq('id', action.id);
 
           if (error) {
-            console.error(`[Sweep] Failed to confirm note:`, error);
+            console.error(`[Sweep] Failed to archive note:`, error);
           }
         }
         break;

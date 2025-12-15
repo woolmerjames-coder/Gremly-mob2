@@ -115,6 +115,12 @@ export interface SweepCardProps {
   onConvertToTodo?: () => void;
   /** Called when user wants to save progress and exit early */
   onClose?: () => void;
+  /** Feedback message to show in scrim (e.g. "BYE ✌️", "KEEPING IT") */
+  feedbackMessage?: string;
+  /** Which feedback type is active */
+  feedbackType?: 'clear' | 'keep' | null;
+  /** Hide the bottom save/exit section (when parent handles it) */
+  hideBottomSaveExit?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -258,6 +264,9 @@ export function SweepCard({
   onPrimaryAction,
   onConvertToTodo,
   onClose,
+  feedbackMessage: _feedbackMessage,
+  feedbackType,
+  hideBottomSaveExit,
 }: SweepCardProps) {
   const repo = useRepo();
   const typeLabel = getTypeChipLabel(candidate);
@@ -505,15 +514,8 @@ export function SweepCard({
 
       if (swipedRight) {
         // Swiped right past threshold → Keep
-        // For undated todos, show date picker first
-        if (candidate.kind === 'todo' && !candidate.raw.due_day) {
-          // Spring back to center and show date picker
-          translateX.value = withSpring(0, { damping: 15, stiffness: 150 });
-          runOnJS(setKeepAfterDatePick)(true);
-          runOnJS(setShowDatePicker)(true);
-        } else {
-          animateOut('right', onSkip);
-        }
+        // Just proceed - don't block with date picker (user can add date via button if they want)
+        animateOut('right', onSkip);
       } else if (swipedLeft) {
         // Swiped left past threshold → Clear
         animateOut('left', onClear);
@@ -539,23 +541,23 @@ export function SweepCard({
     };
   });
 
-  // Animated style for left scrim (grey, archive action)
+  // Animated style for left scrim (mossGreen, archive action)
   const animatedLeftScrimStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
       translateX.value,
       [-SWIPE_THRESHOLD, -50, 0],
-      [0.15, 0.08, 0],
+      [0.95, 0.5, 0],
       Extrapolation.CLAMP,
     );
     return { opacity };
   });
 
-  // Animated style for right scrim (sage/moss, keep action)
+  // Animated style for right scrim (Golden Pear, keep action)
   const animatedRightScrimStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
       translateX.value,
       [0, 50, SWIPE_THRESHOLD],
-      [0, 0.08, 0.15],
+      [0, 0.5, 0.95],
       Extrapolation.CLAMP,
     );
     return { opacity };
@@ -643,13 +645,7 @@ export function SweepCard({
 
   // Button handlers with animation
   const handleKeepPress = useCallback(() => {
-    // For undated todos, show date picker first
-    const hasDueDay = candidate.kind === 'todo' && candidate.raw.due_day;
-    if (candidate.kind === 'todo' && !hasDueDay) {
-      setKeepAfterDatePick(true);
-      setShowDatePicker(true);
-      return;
-    }
+    // Just proceed - don't block with date picker (user can add date via button if they want)
     // In test mode, call directly without animation
     if (isTestEnv) {
       onSkip();
@@ -663,7 +659,7 @@ export function SweepCard({
       },
     );
     cardOpacity.value = withTiming(0, { duration: 200 });
-  }, [onSkip, translateX, cardOpacity, candidate.kind, candidate]);
+  }, [onSkip, translateX, cardOpacity]);
 
   const handleClearPress = useCallback(() => {
     // In test mode, call directly without animation
@@ -683,18 +679,22 @@ export function SweepCard({
 
   return (
     <View style={styles.cardWrapper}>
-      {/* Left Scrim - Grey (archive/clear action) */}
+      {/* Left Scrim - Moss Green (archive/clear action) */}
       <Animated.View style={[styles.swipeScrimLeft, animatedLeftScrimStyle]} pointerEvents="none">
-        <Animated.View style={[styles.swipeScrimIcon, animatedLeftIconStyle]}>
-          <Archive size={32} color="rgba(80, 80, 80, 0.7)" strokeWidth={1.5} />
-        </Animated.View>
+        {!feedbackType && (
+          <Animated.View style={[styles.swipeScrimIcon, animatedLeftIconStyle]}>
+            <Archive size={32} color="rgba(255, 255, 255, 0.9)" strokeWidth={1.5} />
+          </Animated.View>
+        )}
       </Animated.View>
 
-      {/* Right Scrim - Sage/Moss (keep action) */}
+      {/* Right Scrim - Golden Pear (keep action) */}
       <Animated.View style={[styles.swipeScrimRight, animatedRightScrimStyle]} pointerEvents="none">
-        <Animated.View style={[styles.swipeScrimIcon, animatedRightIconStyle]}>
-          <Check size={32} color={BRAND.colors.mossGreen} strokeWidth={2} />
-        </Animated.View>
+        {!feedbackType && (
+          <Animated.View style={[styles.swipeScrimIcon, animatedRightIconStyle]}>
+            <Check size={32} color="rgba(255, 255, 255, 0.9)" strokeWidth={2} />
+          </Animated.View>
+        )}
       </Animated.View>
 
       {/* Swipe Cue Labels - ABOVE the card (contextual based on item type) */}
@@ -717,20 +717,10 @@ export function SweepCard({
           <Animated.View
             style={[styles.swipeCardContainer, animatedCardContainerStyle, animatedCardStyle]}
           >
-            {/* Gradient Background - Subtle sage tint for card separation */}
-            <LinearGradient
-              colors={[
-                'rgba(191, 216, 192, 0.08)', // Top: Sage Mist @ 8% - slight tint
-                'rgba(191, 216, 192, 0.22)', // Bottom: Sage Mist @ 22% - deeper fill
-              ]}
-              locations={[0, 1]}
-              style={styles.cardGradient}
-            />
-
             {/* Inner Shadow - Top only, creates lifted sheet effect */}
             <LinearGradient
               colors={[
-                'rgba(34, 34, 34, 0.08)', // Charcoal Ink @ 8% at top
+                'rgba(34, 34, 34, 0.06)', // Charcoal Ink @ 6% at top
                 'rgba(34, 34, 34, 0)', // Fade to transparent
               ]}
               locations={[0, 1]}
@@ -871,20 +861,22 @@ export function SweepCard({
         </GestureDetector>
       </View>
 
-      {/* Save & Exit - Single centered text link at bottom */}
-      <View style={styles.saveExitContainer}>
-        {onClose && (
-          <TouchableOpacity
-            style={styles.saveExitButton}
-            onPress={onClose}
-            accessibilityLabel="Save and exit"
-            accessibilityRole="button"
-            activeOpacity={0.6}
-          >
-            <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      {/* Save & Exit - Single centered text link at bottom (hidden when parent handles it) */}
+      {!hideBottomSaveExit && (
+        <View style={styles.saveExitContainer}>
+          {onClose && (
+            <TouchableOpacity
+              style={styles.saveExitButton}
+              onPress={onClose}
+              accessibilityLabel="Save and exit"
+              accessibilityRole="button"
+              activeOpacity={0.6}
+            >
+              <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       {/* Hidden Test Buttons - Only rendered in test environment for accessibility testing */}
       {isTestEnv && (
@@ -1114,11 +1106,11 @@ export function SweepCard({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  // Card Wrapper - Full screen container with cream background
+  // Card Wrapper - Full screen container with white background
   cardWrapper: {
     flex: 1,
     position: 'relative',
-    backgroundColor: BRAND.colors.linenCream,
+    backgroundColor: '#FFFFFF',
   },
 
   // Card Centering Container - Centers the card horizontally, positioned toward top
@@ -1139,18 +1131,18 @@ const styles = StyleSheet.create({
     minHeight: 320,
     flex: 1,
     maxHeight: '95%',
-    backgroundColor: BRAND.colors.linenCream, // Base color for gradient fallback
+    backgroundColor: BRAND.colors.linenCream, // Linen cream card
     borderRadius: 16,
     overflow: 'hidden',
-    // Soft outer shadow - slightly stronger for tactile feel
+    // Strong shadow all around for physical card feel
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.14, // Increased from 0.08
-    shadowRadius: 16, // Slightly larger blur
-    elevation: 5,
-    // Subtle Moss Green outline for definition
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 20,
+    elevation: 12,
+    // Subtle border for extra definition
     borderWidth: 1,
-    borderColor: 'rgba(46, 85, 64, 0.12)', // Moss Green @ 12%
+    borderColor: 'rgba(0, 0, 0, 0.08)',
   },
 
   // Gradient Background - Fills card, behind content
@@ -1482,17 +1474,17 @@ const styles = StyleSheet.create({
   // Swipe Scrims - Behind the card, fade in during drag
   swipeScrimLeft: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(100, 100, 100, 1)', // Grey
+    backgroundColor: BRAND.colors.mossGreen, // Gremly brand green
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 0,
+    zIndex: 1, // Behind card (cardCenteringContainer has zIndex: 2)
   },
   swipeScrimRight: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(191, 216, 192, 1)', // Sage Mist
+    backgroundColor: '#E0C47A', // Golden Pear - Gremly brand warm color
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 0,
+    zIndex: 1, // Behind card (cardCenteringContainer has zIndex: 2)
   },
   swipeScrimIcon: {
     width: 64,
@@ -1526,7 +1518,7 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     paddingTop: 16,
     alignItems: 'center',
-    backgroundColor: BRAND.colors.linenCream,
+    backgroundColor: '#FFFFFF',
   },
   saveExitButton: {
     paddingVertical: 8,

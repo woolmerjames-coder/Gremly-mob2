@@ -203,16 +203,33 @@ export function needsSweepAttention(todo: FilterableTodo, todayDay: string): boo
  *
  * The OR clause includes:
  * 1. `due_day <= todayDay` (due today OR overdue)
- * 2. `created_at > cutoffTimestamp` (new items)
+ * 2. `created_at > cutoffTimestamp` (new items since last sweep)
  * 3. `skipped_in_sweep_at IS NOT NULL` (previously skipped)
+ * 4. `due_day IS NULL AND created_at >= threeDaysAgo` (unscheduled recent drops)
+ *
+ * Condition (4) aligns with useTodayStats.recentDrops which shows unscheduled
+ * todos from the last 3 days. This ensures the sweep pill count matches
+ * what's actually shown in the sweep flow.
  *
  * Note: carry_forward is implicitly handled by (1) since carry-forward items
  * should have a due_day set when they're carried forward.
  *
  * @param todayDay - Today's date as YYYY-MM-DD string
- * @param cutoffTimestamp - ISO timestamp for "new item" cutoff
+ * @param cutoffTimestamp - ISO timestamp for "new item" cutoff (from last sweep)
  * @returns Supabase OR clause string
  */
 export function buildSweepTodoOrClause(todayDay: string, cutoffTimestamp: string): string {
-  return `due_day.lte.${todayDay},created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null`;
+  // Calculate 3 days ago for unscheduled items (matching recentDrops logic)
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  const threeDaysAgoIso = threeDaysAgo.toISOString();
+
+  // Supabase OR clause conditions:
+  // 1. due_day <= today (overdue or due today)
+  // 2. created_at > cutoff (new items since last sweep)
+  // 3. skipped_in_sweep_at IS NOT NULL (previously skipped)
+  // 4. due_day IS NULL AND created in last 3 days (unscheduled recent items)
+  //
+  // For condition 4, we use Supabase's nested and() syntax within the or() clause
+  return `due_day.lte.${todayDay},created_at.gt.${cutoffTimestamp},skipped_in_sweep_at.not.is.null,and(due_day.is.null,created_at.gt.${threeDaysAgoIso})`;
 }

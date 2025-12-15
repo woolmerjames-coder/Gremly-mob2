@@ -488,9 +488,9 @@ describe('applySweepAction', () => {
       expect(updateCalls[0].id).toBe('todo-456');
     });
 
-    it('should clear skip marker for note (not archive)', async () => {
-      // Notes should stay in Your Notes when cleared during sweep
-      // Clearing just confirms the note was reviewed
+    it('should archive note when cleared (Bug #1 fix)', async () => {
+      // Notes should be archived when cleared during sweep
+      // This matches the behavior users expect - "Remove this" archives it
       const { client, updateCalls } = createMockSupabaseClient({});
       const action: SweepAction = { type: 'clear', id: 'note-456', kind: 'note' };
 
@@ -500,13 +500,10 @@ describe('applySweepAction', () => {
       // Assert
       expect(updateCalls).toHaveLength(1);
       expect(updateCalls[0].table).toBe('notes');
-      expect(updateCalls[0].payload).toMatchObject({
-        skipped_in_sweep_at: null,
-      });
-      // Should NOT have archived fields
-      const payload = updateCalls[0].payload as { archived?: boolean; archived_reason?: string };
-      expect(payload.archived).toBeUndefined();
-      expect(payload.archived_reason).toBeUndefined();
+      const payload = updateCalls[0].payload as { archived?: boolean; archived_at?: string };
+      expect(payload.archived).toBe(true);
+      expect(payload.archived_at).toBeDefined();
+      expect(new Date(payload.archived_at!).getTime()).toBeGreaterThan(0);
       expect(updateCalls[0].id).toBe('note-456');
     });
   });
