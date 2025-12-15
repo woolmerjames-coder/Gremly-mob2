@@ -96,6 +96,20 @@ export interface ListByTypeOptions {
   subtypes?: string[]; // filter when querying notes (e.g., ['idea','list'] or ['journal'])
   tagIds?: ID[]; // filter by tags (optional - for future filtering)
   tagNames?: string[]; // normalized names (#word, *tag, @person), AND semantics
+
+  // Time-range filtering (Phase Hub/Search)
+  createdAfter?: string; // ISO timestamp - filter created_at >= this
+  createdBefore?: string; // ISO timestamp - filter created_at < this
+
+  // Status filtering (Phase Hub/Search)
+  // - 'active': exclude archived/completed items (default behavior)
+  // - 'completed': only completed items (todos with completed_at, habits with completed_at)
+  // - 'all': include all items regardless of status
+  status?: 'active' | 'completed' | 'all';
+
+  // Archived-only filtering (Phase Hub/Search)
+  // When true, returns only archived items (for Archived view)
+  archivedOnly?: boolean;
 }
 
 /**

@@ -265,8 +265,8 @@ describe('TodaySuggestionCard', () => {
   });
 
   it('should render sparkle icon', () => {
-    const { getByText } = render(<TodaySuggestionCard {...defaultProps} />);
-    expect(getByText('✨')).toBeTruthy();
+    const { getByTestId } = render(<TodaySuggestionCard {...defaultProps} />);
+    expect(getByTestId('suggestion-sparkle-icon')).toBeTruthy();
   });
 
   it('should use default CTA "Try it" if not provided', () => {

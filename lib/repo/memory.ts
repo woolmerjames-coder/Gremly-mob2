@@ -374,6 +374,60 @@ export class MemoryRepo implements IRepo {
       });
     }
 
+    // =====================================================================
+    // Time-range filtering (Phase Hub/Search)
+    // =====================================================================
+    if (opts?.createdAfter) {
+      results = results.filter((r) => r.created_at >= opts.createdAfter!);
+    }
+    if (opts?.createdBefore) {
+      results = results.filter((r) => r.created_at < opts.createdBefore!);
+    }
+
+    // =====================================================================
+    // Status/Archive filtering (Phase Hub/Search)
+    // Default behavior (status undefined) = 'active' = exclude archived/completed
+    // This mirrors the ZOMBIE PREVENTION logic from supabase.ts
+    // =====================================================================
+    const statusFilter = opts?.status ?? 'active';
+    const archivedOnly = opts?.archivedOnly ?? false;
+
+    if (archivedOnly) {
+      // Archived-only mode: show only archived items (for Archived view)
+      results = results.filter((r) => this.isArchived(r));
+    } else if (statusFilter === 'active') {
+      // ZOMBIE PREVENTION: Exclude archived/completed entities
+      // This is the DEFAULT behavior when no status option is provided
+      results = results.filter((r) => {
+        // Exclude archived items
+        if (this.isArchived(r)) return false;
+
+        // For todos and habits, also exclude completed items
+        if (r.type === 'todo' || r.type === 'habit') {
+          if ((r as any).completed_at) return false;
+        }
+
+        return true;
+      });
+    } else if (statusFilter === 'completed') {
+      // Completed-only mode: show only completed items (exclude archived)
+      results = results.filter((r) => {
+        // Exclude archived items
+        if (this.isArchived(r)) return false;
+
+        // For todos and habits, include only completed items
+        if (r.type === 'todo' || r.type === 'habit') {
+          return !!(r as any).completed_at;
+        }
+
+        // Notes don't have completed_at, so exclude them in completed mode
+        return false;
+      });
+    } else if (statusFilter === 'all') {
+      // All mode: include both active and completed (exclude archived)
+      results = results.filter((r) => !this.isArchived(r));
+    }
+
     if (opts?.tagNames && opts.tagNames.length > 0) {
       const wanted = opts.tagNames;
       results = results.filter((r) =>

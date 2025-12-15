@@ -509,7 +509,7 @@ function TodayScreenV2() {
               <Box gap={3} testID="today-section-due-today">
                 {todoGroups.length === 0 && (
                   <Text variant="subtle" style={{ textAlign: 'center', padding: 16 }}>
-                    All clear for now ✨
+                    All clear for now
                   </Text>
                 )}
                 {todoGroups.map((group) => (
