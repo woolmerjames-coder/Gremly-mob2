@@ -1,0 +1,724 @@
+
+> gremly-mob2@1.0.0 test
+> jest --testPathIgnorePatterns=[] --bail=false
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+PASS __tests__/lib/minddrop/phase2.test.ts (9.094 s)
+PASS app/screens/__tests__/SweepFlowScreen.decision.test.tsx
+PASS __tests__/cortex.golden.test.ts
+PASS components/sweep/__tests__/SweepCard.test.tsx
+PASS __tests__/archived-items-screen.integration.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.mutex.duplication.test.tsx
+PASS app/screens/__tests__/SweepFlowScreen.mood.test.tsx
+PASS __tests__/cortex/rate-limit.test.ts
+PASS __tests__/celebration/controller.test.ts
+PASS app/screens/__tests__/SweepFlowScreen.summary.test.tsx
+PASS app/screens/__tests__/SweepFlowScreen.wrapup.test.tsx
+PASS __tests__/useTodayData.test.ts
+PASS __tests__/hub-screen.integration.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.recentDropsDueBadge.test.tsx
+PASS __tests__/overlay/aiTagOverride.minddrop.test.tsx
+PASS __tests__/validation-save-button.test.tsx
+PASS __tests__/minddrop.card.visual.states.test.tsx
+PASS app/screens/__tests__/SweepFlowScreen.wrapup.empty.test.tsx
+PASS __tests__/manualAddOverlay.ds.test.tsx
+PASS app/screens/__tests__/minddrop.recentdrops.schedule.test.tsx
+PASS __tests__/today.grouping.test.tsx
+PASS __tests__/unified-overlay-comprehensive.test.tsx
+PASS __tests__/createSpace.test.tsx
+PASS __tests__/overlay/unified-overlay.view-mode.test.tsx
+PASS __tests__/overlay/unified-overlay.initial-basetype.test.tsx
+PASS tests/overlay/UnifiedOverlayV2.photos.test.tsx
+PASS tests/now/now.screen.integration.test.tsx
+PASS tests/today.v4.commitments.ui.test.tsx
+PASS __tests__/recentdrops.deduplication.test.tsx
+PASS __tests__/overlay/unified-overlay.swipe-close.test.tsx
+PASS __tests__/overlay/UnifiedOverlayV2.view-mode-visual.test.tsx
+PASS __tests__/overlay.minThink.optimistic.test.tsx
+PASS __tests__/minddrop.recentdrops.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.narrative.test.tsx
+PASS __tests__/overlay.log-subtype.test.tsx
+PASS __tests__/spaces.ds.test.tsx
+PASS __tests__/overlay-core.test.tsx
+PASS __tests__/pinnedItems.test.tsx
+PASS app/features/mascot/__tests__/Mascot.test.tsx
+PASS __tests__/unified-overlay.test.tsx
+PASS tests/overlay/tags.ui.test.tsx
+PASS __tests__/today.ds.test.tsx
+PASS __tests__/overlay-forms-visible.test.tsx
+PASS __tests__/minddrop.p10.polish.test.tsx
+PASS tests/now/now.overlayv2.test.tsx
+PASS tests/today.v3.commitments.ui.test.tsx
+PASS __tests__/break-habit-fields.test.tsx
+PASS __tests__/habit-validation.test.tsx
+PASS tests/now/notes-overlay-filtering.test.tsx
+PASS __tests__/journal-fields.test.tsx
+PASS __tests__/TodayHooks.test.tsx
+PASS tests/today.v3.focus-title.test.tsx
+PASS __tests__/note-fields.test.tsx
+PASS __tests__/spaces-v2.integration.test.tsx
+PASS tests/now/now.empty.test.tsx
+PASS tests/minddrop.input.autogrow.test.tsx
+FAIL lib/sweep/__tests__/engine.db.test.ts
+  ● applySweepAction › clear action › should clear skip marker for note (not archive)
+
+    expect(received).toMatchObject(expected)
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "skipped_in_sweep_at": null,
+    +   "archived": true,
+    +   "archived_at": "2025-12-15T10:19:40.838Z",
+      }
+
+      501 |       expect(updateCalls).toHaveLength(1);
+      502 |       expect(updateCalls[0].table).toBe('notes');
+    > 503 |       expect(updateCalls[0].payload).toMatchObject({
+          |                                      ^
+      504 |         skipped_in_sweep_at: null,
+      505 |       });
+      506 |       // Should NOT have archived fields
+
+      at Object.toMatchObject (lib/sweep/__tests__/engine.db.test.ts:503:38)
+      at asyncGeneratorStep (node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+
+PASS tests/now/now.sweep.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.greeting.placeholder.test.tsx
+PASS tests/now/nowComponents.test.tsx
+PASS __tests__/today.v3.focus-clear.test.tsx
+PASS __tests__/spaces/SpaceHomeScreen.sections.test.tsx
+PASS __tests__/useTodayData.dueTime.test.ts
+PASS __tests__/overlay.roundtrip.sanity.test.tsx
+PASS tests/overlay/tags.integration.test.tsx
+PASS tests/today.now-v1-flag.test.tsx
+PASS __tests__/overlay.open.once.test.tsx
+PASS components/overlay/__tests__/UnifiedCreateOverlay.conversions.test.tsx
+PASS __tests__/TodayCards.test.tsx
+PASS tests/now/now.vault.test.tsx
+PASS tests/today.commitments.ui.test.tsx
+PASS __tests__/formatting-toggle.test.tsx
+PASS __tests__/today.v3.header-focus.test.tsx
+PASS __tests__/title.sync.test.tsx
+PASS components/overlay/__tests__/MakeActionableComponents.test.tsx
+PASS tests/now/now.render.test.tsx
+PASS app/screens/__tests__/minddrop.input.autogrow.test.tsx
+PASS __tests__/diagnostic/overlayRender.test.tsx
+  ● [36m<View>[39m
+      [36m<Modal>[39m
+        [36m<View>[39m
+          [36m<View[39m
+            [33maccessible[39m=[32m{true}[39m
+          [36m>[39m
+            [36m<View[39m
+              [33mtestID[39m=[32m"manual-overlay"[39m
+            [36m>[39m
+              [36m<View>[39m
+                [36m<View>[39m
+                  [36m<View />[39m
+                  [36m<Text>[39m
+                    [0mAdd Manually[0m
+                  [36m</Text>[39m
+                  [36m<View[39m
+                    [33maccessibilityLabel[39m=[32m"Close overlay"[39m
+                    [33maccessibilityRole[39m=[32m"button"[39m
+                    [33maccessible[39m=[32m{true}[39m
+                    [33mtestID[39m=[32m"exit-button"[39m
+                  [36m>[39m
+                    [36m<Text>[39m
+                      [0m×[0m
+                    [36m</Text>[39m
+                  [36m</View>[39m
+                [36m</View>[39m
+                [36m<View>[39m
+                  [36m<View[39m
+                    [33maccessibilityRole[39m=[32m"tab"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "selected": true,
+                      }
+                    }[39m
+                    [33maccessible[39m=[32m{true}[39m
+                    [33mtestID[39m=[32m"tab-habits"[39m
+                  [36m>[39m
+                    [36m<View>[39m
+                      [36m<Text>[39m
+                        [0mHabits[0m
+                      [36m</Text>[39m
+                    [36m</View>[39m
+                    [36m<View />[39m
+                  [36m</View>[39m
+                  [36m<View[39m
+                    [33maccessibilityRole[39m=[32m"tab"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "selected": false,
+                      }
+                    }[39m
+                    [33maccessible[39m=[32m{true}[39m
+                    [33mtestID[39m=[32m"tab-todos"[39m
+                  [36m>[39m
+                    [36m<View>[39m
+                      [36m<Text>[39m
+                        [0mTo-Dos[0m
+                      [36m</Text>[39m
+                    [36m</View>[39m
+                    [36m<View />[39m
+                  [36m</View>[39m
+                  [36m<View[39m
+                    [33maccessibilityRole[39m=[32m"tab"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "selected": false,
+                      }
+                    }[39m
+                    [33maccessible[39m=[32m{true}[39m
+                    [33mtestID[39m=[32m"tab-journal"[39m
+                  [36m>[39m
+                    [36m<View>[39m
+                      [36m<Text>[39m
+                        [0mJournal[0m
+                      [36m</Text>[39m
+                    [36m</View>[39m
+                    [36m<View />[39m
+                  [36m</View>[39m
+                  [36m<View[39m
+                    [33maccessibilityRole[39m=[32m"tab"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "selected": false,
+                      }
+                    }[39m
+                    [33maccessible[39m=[32m{true}[39m
+                    [33mtestID[39m=[32m"tab-catchall"[39m
+                  [36m>[39m
+                    [36m<View>[39m
+                      [36m<Text>[39m
+                        [0mCatch-All[0m
+                      [36m</Text>[39m
+                    [36m</View>[39m
+                    [36m<View />[39m
+                  [36m</View>[39m
+                [36m</View>[39m
+              [36m</View>[39m
+              [36m<RCTScrollView[39m
+                [33mtestID[39m=[32m"manual-body-scroll"[39m
+              [36m>[39m
+                [36m<View>[39m
+                  [36m<View[39m
+                    [33mtestID[39m=[32m"manual-body"[39m
+                  [36m>[39m
+                    [36m<View[39m
+                      [33mtestID[39m=[32m"habits-tab"[39m
+                    [36m>[39m
+                      [36m<View>[39m
+                        [36m<View[39m
+                          [33maccessible[39m=[32m{true}[39m
+                          [33mtestID[39m=[32m"habit-toggle-start"[39m
+                        [36m>[39m
+                          [36m<Text>[39m
+                            [0mStart a Habit[0m
+                          [36m</Text>[39m
+                        [36m</View>[39m
+                        [36m<View[39m
+                          [33maccessible[39m=[32m{true}[39m
+                          [33mtestID[39m=[32m"habit-toggle-break"[39m
+                        [36m>[39m
+                          [36m<Text>[39m
+                            [0mBreak a Habit[0m
+                          [36m</Text>[39m
+                        [36m</View>[39m
+                      [36m</View>[39m
+                      [36m<View[39m
+                        [33mtestID[39m=[32m"habit-start-form"[39m
+                      [36m>[39m
+                        [36m<View>[39m
+                          [36m<Text>[39m
+                            [0mHabit Name *[0m
+                          [36m</Text>[39m
+                          [36m<TextInput[39m
+                            [33mplaceholder[39m=[32m"e.g., Meditate every morning"[39m
+                            [33mtestID[39m=[32m"habit-start-name"[39m
+                            [33mvalue[39m=[32m""[39m
+                          [36m/>[39m
+                        [36m</View>[39m
+                        [36m<View>[39m
+                          [36m<Text>[39m
+                            [0mFrequency *[0m
+                          [36m</Text>[39m
+                          [36m<View>[39m
+                            [36m<View[39m
+                              [33maccessible[39m=[32m{true}[39m
+                              [33mtestID[39m=[32m"freq-daily"[39m
+                            [36m>[39m
+                              [36m<Text>[39m
+                                [0mdaily[0m
+                              [36m</Text>[39m
+                            [36m</View>[39m
+                            [36m<View[39m
+                              [33maccessible[39m=[32m{true}[39m
+                              [33mtestID[39m=[32m"freq-weekly"[39m
+                            [36m>[39m
+                              [36m<Text>[39m
+                                [0mweekly[0m
+                              [36m</Text>[39m
+                            [36m</View>[39m
+                            [36m<View[39m
+                              [33maccessible[39m=[32m{true}[39m
+                              [33mtestID[39m=[32m"freq-monthly"[39m
+                            [36m>[39m
+                              [36m<Text>[39m
+                                [0mmonthly[0m
+                              [36m</Text>[39m
+                            [36m</View>[39m
+                            [36m<View[39m
+                              [33maccessible[39m=[32m{true}[39m
+                              [33mtestID[39m=[32m"freq-custom"[39m
+                            [36m>[39m
+                              [36m<Text>[39m
+                                [0mcustom[0m
+                              [36m</Text>[39m
+                            [36m</View>[39m
+                          [36m</View>[39m
+                        [36m</View>[39m
+                        [36m<View[39m
+                          [33maccessible[39m=[32m{true}[39m
+                          [33mtestID[39m=[32m"show-optional"[39m
+                        [36m>[39m
+                          [36m<Text>[39m
+                            [0m▶ Show optional fields[0m
+                          [36m</Text>[39m
+                        [36m</View>[39m
+                        [36m<View>[39m
+                          [36m<View[39m
+                            [33maccessibilityState[39m=[32m{
+                              {
+                                "disabled": true,
+                              }
+                            }[39m
+                            [33maccessible[39m=[32m{true}[39m
+                            [33mtestID[39m=[32m"habit-start-submit"[39m
+                          [36m>[39m
+                            [36m<Text>[39m
+                              [0mAdd Habit[0m
+                            [36m</Text>[39m
+                          [36m</View>[39m
+                        [36m</View>[39m
+                      [36m</View>[39m
+                    [36m</View>[39m
+                  [36m</View>[39m
+                [36m</View>[39m
+              [36m</RCTScrollView>[39m
+              [36m<View[39m
+                [33mtestID[39m=[32m"reminders-pinned"[39m
+              [36m>[39m
+                [36m<View>[39m
+                  [36m<Text>[39m
+                    [0mReminders[0m
+                  [36m</Text>[39m
+                  [36m<RCTScrollView>[39m
+                    [36m<View>[39m
+                      [36m<View>[39m
+                        [36m<View[39m
+                          [33maccessible[39m=[32m{true}[39m
+                          [33mtestID[39m=[32m"reminder-add"[39m
+                        [36m>[39m
+                          [36m<RNSVGSvgView>[39m
+                            [36m<RNSVGGroup>[39m
+                              [36m<RNSVGCircle />[39m
+                              [36m<RNSVGPath />[39m
+                              [36m<RNSVGPath />[39m
+                            [36m</RNSVGGroup>[39m
+                          [36m</RNSVGSvgView>[39m
+                          [36m<Text>[39m
+                            [0mAdd Reminder[0m
+                          [36m</Text>[39m
+                        [36m</View>[39m
+                      [36m</View>[39m
+                    [36m</View>[39m
+                  [36m</RCTScrollView>[39m
+                [36m</View>[39m
+              [36m</View>[39m
+              [36m<View>[39m
+                [36m<View[39m
+                  [33maccessibilityLabel[39m=[32m"Exit"[39m
+                  [33maccessibilityRole[39m=[32m"button"[39m
+                  [33maccessible[39m=[32m{true}[39m
+                  [33mtestID[39m=[32m"footer-exit"[39m
+                [36m>[39m
+                  [36m<Text>[39m
+                    [0mExit[0m
+                  [36m</Text>[39m
+                [36m</View>[39m
+              [36m</View>[39m
+            [36m</View>[39m
+          [36m</View>[39m
+        [36m</View>[39m
+      [36m</Modal>[39m
+    [36m</View>[39m
+
+PASS tests/now/OverdueSection.test.tsx
+PASS __tests__/recentdrops.unified.rendering.test.tsx
+PASS __tests__/habit-frequency.test.tsx
+PASS __tests__/components/SaveButton.test.tsx
+PASS __tests__/minddrop.themerefactor.test.tsx
+PASS __tests__/recentdrops.component.test.tsx
+PASS __tests__/minddrop.trustbuilders.test.tsx
+PASS __tests__/today.v3.hero.test.tsx
+PASS __tests__/overlay.log-labels.legacy.test.tsx
+PASS __tests__/hooks/useMindDropSubmit.test.ts
+PASS tests/now/RecentDropsSection.test.tsx
+PASS __tests__/habit-fields-reminders.test.tsx
+PASS __tests__/today.v3.hotfixes.test.tsx
+PASS __tests__/overlay.open.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.header.test.tsx
+PASS __tests__/shared/EntityCard.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.timing.unit.test.ts
+PASS tests/now/overwhelmComponents.test.tsx
+PASS tests/today.v4.lanes-flag.test.tsx
+PASS tests/minddrop.keyboard.smoke.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.flag.disabled.test.tsx
+PASS __tests__/todo-fields.test.tsx
+PASS __tests__/minddrop.duplicate-create.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.flag.enabled.test.tsx
+PASS tests/today.v4.progress-strip.test.tsx
+PASS __tests__/commitment.roundtrip.test.tsx
+PASS tests/today.v4.lanes-ui.test.tsx
+PASS app/screens/__tests__/CatchAllNotepad.narrative.unit.test.ts
+PASS __tests__/minddrop.unsorted.aiPending.test.ts
+PASS tests/today.v4.motion.test.tsx
+PASS app/screens/__tests__/minddrop.why_string.test.tsx
+PASS __tests__/reminders-list.test.tsx
+PASS tests/space.searchTags.test.tsx
+PASS __tests__/lib/conversion.unsortedToHabit.test.ts
+PASS __tests__/spaces/v22.accessibility.test.tsx
+PASS __tests__/components/chat/ChatBubble.test.tsx
+PASS __tests__/overlay/buildDraftPayloadFromEntity.test.tsx
+PASS __tests__/overlay.tagPreservation.test.tsx
+PASS tests/overlay/inspectUnifiedOverlay.test.tsx
+PASS __tests__/icon.test.tsx
+PASS __tests__/lib/repo.filtering.test.ts
+PASS __tests__/repo/space-chats.test.ts
+PASS hooks/__tests__/useChatMessages.test.ts
+PASS __tests__/spaces/accessibility.test.tsx
+PASS __tests__/milestoneHeader.test.tsx
+PASS lib/markdown/__tests__/renderFormattedContent.test.tsx
+PASS __tests__/chat/saveableDetector.test.ts
+PASS tests/today/useTodayStats.test.ts
+PASS lib/repo/__tests__/restore-item.test.ts
+PASS __tests__/spaceSections.test.tsx
+PASS __tests__/spaces/collapsible-card.test.tsx
+PASS __tests__/entities/UnifiedEntityCard.test.tsx
+PASS app/features/mascot/__tests__/useMascot.test.tsx
+PASS __tests__/cortex.provider.resolve.test.tsx
+PASS lib/repo/__tests__/listByType-filtering.test.ts
+PASS tests/now/nowSelectors.test.ts
+PASS __tests__/repo/spaceChatMessageRepo.test.ts
+PASS __tests__/lib/repo.supabase.create.todo.test.ts
+PASS __tests__/chat/metaIntents.test.ts
+PASS __tests__/components/Mascot.test.tsx
+PASS tests/now/useOverwhelmFlow.test.ts
+PASS __tests__/minddrop-v3-e2e.test.ts
+PASS __tests__/lib/repo.supabase.duplicate.note.test.ts
+PASS __tests__/spaces.ui.test.tsx
+PASS tests/overlay/UnifiedOverlayV2.aiHooks.test.tsx
+PASS __tests__/lib/repo.supabase.test.ts
+PASS lib/cortex/__tests__/cortexDecide.list.autoCreate.test.ts
+PASS lib/repo/__tests__/archived-filtering.test.ts
+PASS __tests__/spaces/SpaceHomeScreen.view-toggle.test.tsx
+PASS tests/commitments.memory.test.ts
+PASS lib/minddrop/__tests__/deleteHelpers.test.ts
+PASS __tests__/minddrop-ui-rendering.test.tsx
+PASS tests/now/now.weeklySummary.test.tsx
+PASS __tests__/minddrop-pipeline.duplicates.test.ts
+PASS __tests__/hooks/useMascotController.test.ts
+PASS __tests__/repo.prefs.test.ts
+PASS tests/hooks/useSpaceSearch.test.ts
+PASS tests/now/useRemoveRowAnimation.test.tsx
+PASS lib/hub/__tests__/hubHelpers.test.ts
+PASS __tests__/lib/stores/mindDropStore.test.ts
+PASS __tests__/cortex.biasing.test.ts
+PASS tests/today.v4.dotline.test.tsx
+PASS __tests__/minddrop-views-state.integration.test.ts
+PASS __tests__/useSpaceAggregate.test.ts
+PASS lib/cortex/__tests__/cortexDecide.photoAttachment.test.ts
+PASS lib/minddrop/__tests__/archiveItemsByDropId.test.ts
+PASS __tests__/minddrop-v3-overlay.test.ts
+PASS __tests__/overlay/PresetTimePicker.test.tsx
+PASS __tests__/selectors/spaceSelectors.test.ts
+PASS __tests__/streaks/service.test.ts
+PASS lib/cortex/intents/__tests__/classifyIntentWithAI.test.ts
+PASS __tests__/spaces.repo.test.ts
+PASS app/screens/__tests__/CatchAllNotepad.formatDue.unit.test.ts
+PASS lib/cortex/classify/__tests__/classifyV2.test.ts
+PASS lib/cortex/__tests__/cortexDecide.highConfidenceTodo.test.ts
+PASS lib/sweep/__tests__/engine.test.ts
+PASS __tests__/overlay/DatePickerModal.test.tsx
+PASS __tests__/lib/stores/storeSync.test.ts
+PASS __tests__/lib/repo.dueToday.test.ts
+PASS __tests__/cortex.sdk.test.ts
+PASS __tests__/minddrop-fallback-retry.test.ts
+PASS __tests__/repo.lists.test.ts
+PASS lib/tags/__tests__/search.test.ts
+PASS lib/minddrop/__tests__/zombiePrevention.test.ts
+PASS lib/tags/__tests__/themes.test.ts
+PASS __tests__/chat/conversationMode.test.ts
+PASS tests/cortex/policy.chips.test.ts
+PASS lib/__tests__/schemaFields.test.ts
+PASS __tests__/repo/spaces-v2.test.ts
+PASS __tests__/overlay/logTagMerging.test.tsx
+PASS __tests__/emptyStates.test.tsx
+PASS tests/repo/tags.create-update.test.ts
+PASS hooks/__tests__/useUnifiedOverlayController.test.tsx
+PASS lib/repo/__tests__/supabase.makeActionable.test.ts
+PASS lib/tags/__tests__/quality.test.ts
+PASS __tests__/pending/App.native.test.tsx
+PASS __tests__/lib/minddrop/heuristicClassify.test.ts
+PASS __tests__/spaces/chat/prefillUtils.test.ts
+PASS __tests__/classifyLogSubtype.test.ts
+PASS __tests__/intent-classification.test.ts
+PASS __tests__/tag.phase1c.filtering.test.ts
+PASS __tests__/minddrop-classification-report.test.ts
+  ● Console
+
+    console.log
+      ┌─────────┬──────────────────────────────────────────────────────┬──────────────────┬──────────┬──────┬───────────┬───────┬───────┬────────────────┬─────────┐
+      │ (index) │ Text                                                 │ Rule             │ AI Cat   │ AI % │ Canonical │ Can % │ Auto? │ Actions        │ Chips?  │
+      ├─────────┼──────────────────────────────────────────────────────┼──────────────────┼──────────┼──────┼───────────┼───────┼───────┼────────────────┼─────────┤
+      │ 0       │ 'Buy milk tomorrow morning'                          │ 'habit_reminder' │ 'todo'   │ 92   │ 'todo'    │ 92    │ '✓'   │ 'create.todo'  │ '✓ NO'  │
+      │ 1       │ 'Email Sarah the proposal'                           │ 'todo'           │ 'todo'   │ 88   │ 'todo'    │ 88    │ '✓'   │ 'create.todo'  │ '✓ NO'  │
+      │ 2       │ 'Book dentist appointment next week'                 │ 'todo'           │ 'todo'   │ 90   │ 'todo'    │ 90    │ '✓'   │ 'create.todo'  │ '✓ NO'  │
+      │ 3       │ 'Pay electricity bill tonight'                       │ 'none'           │ 'todo'   │ 91   │ 'todo'    │ 91    │ '✓'   │ 'create.todo'  │ '✓ NO'  │
+      │ 4       │ 'Pick up my prescription at CVS'                     │ 'todo'           │ 'todo'   │ 89   │ 'todo'    │ 89    │ '✓'   │ 'create.todo'  │ '✓ NO'  │
+      │ 5       │ 'Run 3 times a week'                                 │ 'habit'          │ 'habit'  │ 95   │ 'habit'   │ 95    │ '✓'   │ 'create.habit' │ '✓ NO'  │
+      │ 6       │ 'Meditate daily at 7am'                              │ 'habit'          │ 'habit'  │ 93   │ 'habit'   │ 93    │ '✓'   │ 'create.habit' │ '✓ NO'  │
+      │ 7       │ 'Drink more water every day'                         │ 'habit'          │ 'habit'  │ 88   │ 'habit'   │ 90    │ '✓'   │ 'create.habit' │ '✓ NO'  │
+      │ 8       │ 'Stretch before bed each night'                      │ 'habit'          │ 'habit'  │ 90   │ 'habit'   │ 90    │ '✓'   │ 'create.habit' │ '✓ NO'  │
+      │ 9       │ 'Read 10 pages every morning'                        │ 'habit'          │ 'habit'  │ 92   │ 'habit'   │ 92    │ '✓'   │ 'create.habit' │ '✓ NO'  │
+      │ 10      │ 'Just thinking about maybe starting a side hustl...' │ 'note'           │ 'log'    │ 45   │ 'log'     │ 60    │ '✓'   │ 'create.note'  │ '✓ NO'  │
+      │ 11      │ 'Today was stressful but I handled it better tha...' │ 'none'           │ 'log'    │ 72   │ 'log'     │ 72    │ '✓'   │ 'create.note'  │ '✓ NO'  │
+      │ 12      │ 'I talked to Alex about our upcoming trip'           │ 'none'           │ 'log'    │ 68   │ 'log'     │ 68    │ '✗'   │ 'create.note'  │ '✓ NO'  │
+      │ 13      │ 'Brainstorming ideas for next year goals'            │ 'question'       │ 'log'    │ 55   │ 'log'     │ 70    │ '✗'   │ 'create.note'  │ '✓ NO'  │
+      │ 14      │ 'Reflected on my week and what worked well'          │ 'none'           │ 'log'    │ 70   │ 'log'     │ 70    │ '✓'   │ 'create.note'  │ '✓ NO'  │
+      │ 15      │ 'Meeting with John about launch'                     │ 'none'           │ 'log'    │ 62   │ 'log'     │ 62    │ '✗'   │ 'create.note'  │ '✓ NO'  │
+      │ 16      │ 'Dinner tonight with Jeff'                           │ 'none'           │ 'log'    │ 58   │ 'todo'    │ 60    │ '✗'   │ 'create.todo'  │ '⚠️ YES' │
+      │ 17      │ 'hmm not sure what I meant by that'                  │ 'ambiguous'      │ 'ignore' │ 40   │ 'log'     │ 70    │ '✗'   │ 'create.note'  │ '✓ NO'  │
+      │ 18      │ 'idk'                                                │ 'none'           │ 'ignore' │ 35   │ 'log'     │ 40    │ '✗'   │ 'create.note'  │ '✓ NO'  │
+      │ 19      │ 'just thinking out loud'                             │ 'none'           │ 'log'    │ 48   │ 'log'     │ 60    │ '✓'   │ 'create.note'  │ '✓ NO'  │
+      └─────────┴──────────────────────────────────────────────────────┴──────────────────┴──────────┴──────┴───────────┴───────┴───────┴────────────────┴─────────┘
+
+      at Object.table (__tests__/minddrop-classification-report.test.ts:203:13)
+
+PASS __tests__/repo.events.test.ts
+PASS tests/repo/tagFilter.memory.test.ts
+PASS lib/selectors/__tests__/hubSelectors.test.ts
+PASS lib/cortex/classify/__tests__/classifyWithFlag.test.ts
+PASS lib/minddrop/__tests__/buildCanonicalFromMindDrop.test.ts
+PASS __tests__/cortex/intent.command.test.ts
+PASS __tests__/minddrop.tag.quality.integration.test.ts
+PASS __tests__/habit-save-logic.test.tsx
+PASS components/overlay/__tests__/overlayMindDropEnhanced.test.tsx
+PASS components/overlay/__tests__/overlay.gateway.flag.test.tsx
+PASS lib/cortex/__tests__/thresholds.audit.test.ts
+PASS __tests__/cortex/pipelines.wiring.test.ts
+PASS __tests__/overlay/prefill.note.test.tsx
+PASS __tests__/lib/heuristicEngine.test.ts
+PASS __tests__/Button.skip.test.tsx
+PASS __tests__/getMindDropVisualState.test.ts
+PASS tests/cortex/__tests__/policy.chips.test.ts
+PASS lib/logs/__tests__/getEffectiveLogSubtype.test.ts
+FAIL lib/sweep/__tests__/todoFilters.test.ts
+  ● buildSweepTodoOrClause › should build correct OR clause format
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "due_day.lte.2025-12-05,created_at.gt.2025-12-04T18:00:00Z,skipped_in_sweep_at.not.is.null"
+    Received: "due_day.lte.2025-12-05,created_at.gt.2025-12-04T18:00:00Z,skipped_in_sweep_at.not.is.null,and(due_day.is.null,created_at.gt.2025-12-12T10:19:58.524Z)"
+
+      273 |     const result = buildSweepTodoOrClause(todayDay, cutoff);
+      274 |
+    > 275 |     expect(result).toBe(
+          |                    ^
+      276 |       'due_day.lte.2025-12-05,created_at.gt.2025-12-04T18:00:00Z,skipped_in_sweep_at.not.is.null',
+      277 |     );
+      278 |   });
+
+      at Object.toBe (lib/sweep/__tests__/todoFilters.test.ts:275:20)
+
+PASS lib/lists/__tests__/extractListItems.test.ts
+PASS __tests__/cortex/conversation.rules.test.ts
+PASS __tests__/countdown.test.ts
+PASS __tests__/minddrop.todo.titleBody.test.tsx
+PASS components/overlay/__tests__/overlayMindDropPrefillOwnership.test.tsx
+PASS lib/text/__tests__/generateTitle.test.ts
+PASS lib/cortex/__tests__/cortexDecide.listHeuristic.test.ts
+PASS lib/tags/__tests__/extractTagsV2.test.ts
+PASS __tests__/overlay/getMindDropRawText.test.ts
+PASS __tests__/lib/conversion.unsortedToTodo.test.ts
+PASS __tests__/chat/chat-conversion.overlay.test.tsx
+PASS __tests__/canonical-intent.test.ts
+PASS __tests__/tag.extraction.v3.test.ts
+PASS app/screens/__tests__/CatchAllNotepad.autoOverlay.test.tsx
+PASS lib/tags/__tests__/junkTagPrevention.test.ts
+PASS lib/tags/__tests__/peopleAndPlaceExtraction.test.ts
+PASS __tests__/overlay/FrequencyBuilder.test.ts
+PASS __tests__/chat/contextualSummary.test.ts
+PASS __tests__/chat/saveableCooldown.test.ts
+PASS __tests__/milestones.schema.test.ts
+PASS __tests__/minddrop.log.subtype.test.tsx
+PASS __tests__/minddrop.theme.tags.integration.test.ts
+PASS components/overlay/__tests__/overlayHabitTagReplacement.test.tsx
+PASS app/features/mascot/__tests__/mascotMachine.test.ts
+PASS lib/cortex/policy/__tests__/chips.conversions.test.ts
+PASS __tests__/cortex/intent-meta-comments.test.ts
+PASS __tests__/cortex/intent-detection.test.ts
+PASS __tests__/lib/date/computeDueDay.test.ts
+PASS __tests__/lib/minddrop/phase1.test.ts
+PASS __tests__/lib/repo.entityPeople.test.ts
+PASS __tests__/minddrop.autoOverlay.phase2d.test.tsx
+PASS __tests__/minddrop.tag.fallback.test.tsx
+PASS lib/repo/__tests__/mapNoteFromDb.test.ts
+PASS lib/cortex/policy/__tests__/listHeuristics.test.ts
+PASS lib/cortex/intents/__tests__/canonicalIntent.test.ts
+PASS __tests__/lib/repo.memory.test.ts
+PASS __tests__/reflective-thoughts.test.ts
+PASS __tests__/cortex.explain.tone.test.ts
+PASS components/overlay/__tests__/UnifiedOverlayV2.typeChange.test.tsx
+PASS components/overlay/__tests__/overlayMindDropAiFreeze.test.tsx
+PASS tests/overlay/UnifiedOverlayV2.makeActionable.test.tsx
+PASS lib/minddrop/__tests__/minddropShared.test.ts
+PASS lib/tags/__tests__/extractTagsAI.test.ts
+PASS lib/chat/__tests__/buildSpaceContext.test.ts
+PASS __tests__/conversation/policy.test.ts
+PASS __tests__/repo/viewsRoundTrip.test.ts
+PASS __tests__/cortex/conversation.intent.test.ts
+PASS __tests__/cortex/memory.context.test.ts
+PASS __tests__/overlay/overlayMindDropTodoPrefill.test.tsx
+PASS __tests__/lib/repo.supabase.update.todo.test.ts
+PASS tests/overlay/boxSmoke.test.tsx
+PASS tests/overlay/mapping.unit.test.ts
+PASS tests/overlay/overlayV2.reducer.test.ts
+PASS app/lib/chat/__tests__/events.test.ts
+PASS __tests__/cortex/intent-fixes.test.ts
+PASS __tests__/overlay/overlayMindDropUpdates.test.ts
+PASS __tests__/lib/repo.tags.test.ts
+PASS __tests__/catchall-filter.test.ts
+PASS components/overlay/__tests__/overlay.list.autoCreate.test.tsx
+PASS tests/cortex/__tests__/entities.datetime.test.ts
+PASS tests/env.flag.test.ts
+PASS lib/__tests__/conversion.test.ts
+PASS __tests__/cortex/openAiEngine.prompt-polish.test.ts
+PASS __tests__/overlay/habitTagFiltering.test.tsx
+PASS __tests__/spaces.schema.test.ts
+PASS __tests__/cortex.learn.test.ts
+PASS __tests__/chat.persistent-action-bar.test.tsx
+PASS __tests__/spaceMeta.schema.test.ts
+PASS tests/cortex/__tests__/textNormalization.test.ts
+PASS tests/tags.parseSearch.test.ts
+PASS lib/tests/canonical.test.ts
+PASS lib/cortex/classify/__tests__/detectHedging.test.ts
+PASS __tests__/cortex/conversation.defensive.test.ts
+PASS __tests__/cortex/intent.explicit-actions.test.ts
+PASS __tests__/cortex/router.test.ts
+PASS __tests__/cortex/context.build.test.ts
+PASS __tests__/lib/minddrop/photoDrop.test.ts
+PASS __tests__/minddrop-no-duplication.test.ts
+PASS __tests__/nowQuickAdd.logShape.test.ts
+PASS __tests__/tags.eval.baseline.test.ts
+PASS __tests__/minddrop.todo.aiTitle.acceptance.test.tsx
+PASS __tests__/cortex.queue.test.ts
+PASS lib/tags/__tests__/getEffectiveTags.test.ts
+PASS __tests__/conversation/context.test.ts
+PASS __tests__/cortex/conversation.smalltalk.test.ts
+PASS __tests__/overlay/mindDropDetection.test.ts
+PASS __tests__/lib/schemas.test.ts
+PASS __tests__/lib/supabase-mappers.test.ts
+PASS __tests__/spaces/SpaceHomeScreen.v22-gating.test.tsx
+PASS __tests__/tag.quality.test.ts
+PASS __tests__/minddrop.narrative.chips.test.tsx
+PASS __tests__/cortex.client.test.ts
+PASS __tests__/Tabs.skip.test.tsx
+PASS __tests__/backgroundPrefill-title.test.ts
+PASS tests/minddrop/minddrop.photos.pipeline.test.tsx
+PASS tests/spaces/__tests__/chat.duePrefill.test.ts
+PASS tests/cortex/__tests__/policy.signals.test.ts
+PASS tests/cortex/__tests__/openAiEngine.normalize.test.ts
+PASS tests/cortex/openAiEngine.tags.test.ts
+PASS app/spaces/chat/__tests__/openUnifiedFromChat.test.ts
+PASS __tests__/cortex/openAiEngine.safety-ideas.test.ts
+PASS __tests__/due.roundtrip.test.tsx
+PASS __tests__/views.extended.test.ts
+PASS tests/telemetry/__tests__/catchallLogger.test.ts
+PASS tests/spaces/chat/duePrefill.test.ts
+PASS tests/chat/__tests__/decideToastGating.test.ts
+PASS tests/cortex/__tests__/policy.gating.test.ts
+PASS tests/cortex/withHeuristicWhy.test.ts
+PASS tests/cortex/heuristicEngine.tags.test.ts
+PASS lib/tests/canonicalHelpers.test.ts
+PASS lib/cortex/policy/__tests__/ideaHeuristics.test.ts
+PASS __tests__/cortex/intent-ambiguous.test.ts
+PASS __tests__/views.roundtrip.test.ts
+PASS __tests__/tag.extraction.inline.test.ts
+PASS __tests__/catchall.cortex.integration.test.tsx
+PASS components/overlay/__tests__/phase1a.integration.test.ts
+PASS tests/selectors/today.selector.test.ts
+PASS tests/selectors/today.rolling.test.ts
+PASS tests/overlay/UnifiedOverlayV2.mapping.test.tsx
+PASS tests/overlay/linking.unit.test.ts
+PASS tests/cortex/openAiEngine.normalize.test.ts
+PASS __tests__/supabase/complete_item.rpc.test.ts
+PASS __tests__/sanity.test.ts
+
+Summary of all failing tests
+FAIL lib/sweep/__tests__/engine.db.test.ts
+  ● applySweepAction › clear action › should clear skip marker for note (not archive)
+
+    expect(received).toMatchObject(expected)
+
+    - Expected  - 1
+    + Received  + 2
+
+      Object {
+    -   "skipped_in_sweep_at": null,
+    +   "archived": true,
+    +   "archived_at": "2025-12-15T10:19:40.838Z",
+      }
+
+      501 |       expect(updateCalls).toHaveLength(1);
+      502 |       expect(updateCalls[0].table).toBe('notes');
+    > 503 |       expect(updateCalls[0].payload).toMatchObject({
+          |                                      ^
+      504 |         skipped_in_sweep_at: null,
+      505 |       });
+      506 |       // Should NOT have archived fields
+
+      at Object.toMatchObject (lib/sweep/__tests__/engine.db.test.ts:503:38)
+      at asyncGeneratorStep (node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+
+FAIL lib/sweep/__tests__/todoFilters.test.ts
+  ● buildSweepTodoOrClause › should build correct OR clause format
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "due_day.lte.2025-12-05,created_at.gt.2025-12-04T18:00:00Z,skipped_in_sweep_at.not.is.null"
+    Received: "due_day.lte.2025-12-05,created_at.gt.2025-12-04T18:00:00Z,skipped_in_sweep_at.not.is.null,and(due_day.is.null,created_at.gt.2025-12-12T10:19:58.524Z)"
+
+      273 |     const result = buildSweepTodoOrClause(todayDay, cutoff);
+      274 |
+    > 275 |     expect(result).toBe(
+          |                    ^
+      276 |       'due_day.lte.2025-12-05,created_at.gt.2025-12-04T18:00:00Z,skipped_in_sweep_at.not.is.null',
+      277 |     );
+      278 |   });
+
+      at Object.toBe (lib/sweep/__tests__/todoFilters.test.ts:275:20)
+
+
+Test Suites: 2 failed, 55 skipped, 340 passed, 342 of 397 total
+Tests:       2 failed, 341 skipped, 1 todo, 4311 passed, 4655 total
+Snapshots:   3 passed, 3 total
+Time:        79.92 s
+Ran all test suites.

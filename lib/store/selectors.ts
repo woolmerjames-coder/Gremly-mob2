@@ -634,6 +634,7 @@ export const useArchivedItems = () => useGremlyStore(selectAllArchivedItems);
 
 export const useOverdueTodos = () => useGremlyStore(selectOverdueTodos);
 export const useTodayLogsCount = () => useGremlyStore(selectTodayLogsCount);
+export const useHabitsCompletedToday = () => useGremlyStore(selectHabitsCompletedToday);
 
 // Parameterized hooks
 export const useSpaceTodos = (spaceId: string) =>

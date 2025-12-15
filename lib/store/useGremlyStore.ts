@@ -4,6 +4,12 @@ import { supabase } from '../supabase/client';
 import type { Todo, Habit, Note, Space, Tag } from '../types';
 import { eventBus } from '../events';
 
+// Source marker to identify events emitted by this store (to prevent self-handling)
+const STORE_EVENT_SOURCE = 'gremly-store';
+
+// Module-level unsubscribe function for cleanup
+let eventBusUnsubscribe: (() => void) | null = null;
+
 // Habit progress row from Supabase
 export interface HabitProgressRow {
   id: string;
@@ -84,6 +90,11 @@ interface GremlyState {
   // BULK/UTILITY
   // ═══════════════════════════════════════════════════════════════════
   refreshFromServer: () => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EVENT BUS SUBSCRIPTION
+  // ═══════════════════════════════════════════════════════════════════
+  subscribeToEvents: () => () => void; // Returns unsubscribe function
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -170,6 +181,13 @@ export const useGremlyStore = create<GremlyState>()(
           spaces: spacesRes.data?.length ?? 0,
           habitProgress: progressRes.data?.length ?? 0,
         });
+
+        // Subscribe to EventBus for bidirectional sync
+        if (eventBusUnsubscribe) {
+          eventBusUnsubscribe(); // Clean up any existing subscription
+        }
+        eventBusUnsubscribe = get().subscribeToEvents();
+        console.log('[GremlyStore] ✅ Subscribed to EventBus');
       } catch (error) {
         console.error('[GremlyStore] ❌ Failed to initialize:', error);
         set({ isLoading: false });
@@ -178,6 +196,13 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     reset: () => {
+      // Unsubscribe from EventBus
+      if (eventBusUnsubscribe) {
+        eventBusUnsubscribe();
+        eventBusUnsubscribe = null;
+        console.log('[GremlyStore] Unsubscribed from EventBus');
+      }
+
       set({
         todos: [],
         habits: [],
@@ -221,7 +246,12 @@ export const useGremlyStore = create<GremlyState>()(
         todos: [...state.todos, data],
       }));
 
-      eventBus.emit('entity:created', { entity: data, type: 'todo', spaceId: data.space_id });
+      eventBus.emit('entity:created', {
+        entity: data,
+        type: 'todo',
+        spaceId: data.space_id,
+        source: STORE_EVENT_SOURCE,
+      });
       return data;
     },
 
@@ -251,7 +281,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     deleteTodo: async (id: string) => {
@@ -276,7 +306,12 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('entity:deleted', { id, type: 'todo', spaceId: prevTodo?.space_id });
+      eventBus.emit('entity:deleted', {
+        id,
+        type: 'todo',
+        spaceId: prevTodo?.space_id,
+        source: STORE_EVENT_SOURCE,
+      });
     },
 
     completeTodo: async (id: string) => {
@@ -303,7 +338,7 @@ export const useGremlyStore = create<GremlyState>()(
       }
 
       // EMIT EVENT for backward compatibility
-      eventBus.emit('ItemCompleted', { id, type: 'todo' });
+      eventBus.emit('ItemCompleted', { id, type: 'todo', source: STORE_EVENT_SOURCE });
     },
 
     uncompleteTodo: async (id: string) => {
@@ -359,7 +394,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     restoreTodo: async (id: string) => {
@@ -389,7 +424,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     // ═══════════════════════════════════════════════════════════════════
@@ -421,7 +456,12 @@ export const useGremlyStore = create<GremlyState>()(
         habits: [...state.habits, data],
       }));
 
-      eventBus.emit('entity:created', { entity: data, type: 'habit', spaceId: data.space_id });
+      eventBus.emit('entity:created', {
+        entity: data,
+        type: 'habit',
+        spaceId: data.space_id,
+        source: STORE_EVENT_SOURCE,
+      });
       return data;
     },
 
@@ -451,7 +491,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     deleteHabit: async (id: string) => {
@@ -476,7 +516,12 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('entity:deleted', { id, type: 'habit', spaceId: prevHabit?.space_id });
+      eventBus.emit('entity:deleted', {
+        id,
+        type: 'habit',
+        spaceId: prevHabit?.space_id,
+        source: STORE_EVENT_SOURCE,
+      });
     },
 
     completeHabit: async (id: string) => {
@@ -547,7 +592,7 @@ export const useGremlyStore = create<GremlyState>()(
         }
 
         // 4. EMIT EVENT for backward compatibility (strangler fig pattern)
-        eventBus.emit('ItemCompleted', { id, type: 'habit' });
+        eventBus.emit('ItemCompleted', { id, type: 'habit', source: STORE_EVENT_SOURCE });
 
         console.log('[GremlyStore] ✅ Habit completed:', id);
       } catch (error) {
@@ -622,7 +667,7 @@ export const useGremlyStore = create<GremlyState>()(
         }));
 
         // 6. EMIT EVENT for backward compatibility
-        eventBus.emit('ItemUpdated', { id });
+        eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
 
         console.log('[GremlyStore] ✅ Habit uncompleted:', id);
       } catch (error) {
@@ -666,7 +711,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     restoreHabit: async (id: string) => {
@@ -696,7 +741,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     // ═══════════════════════════════════════════════════════════════════
@@ -728,7 +773,12 @@ export const useGremlyStore = create<GremlyState>()(
         notes: [...state.notes, data],
       }));
 
-      eventBus.emit('entity:created', { entity: data, type: 'note', spaceId: data.space_id });
+      eventBus.emit('entity:created', {
+        entity: data,
+        type: 'note',
+        spaceId: data.space_id,
+        source: STORE_EVENT_SOURCE,
+      });
       return data;
     },
 
@@ -758,7 +808,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     deleteNote: async (id: string) => {
@@ -783,7 +833,12 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('entity:deleted', { id, type: 'note', spaceId: prevNote?.space_id });
+      eventBus.emit('entity:deleted', {
+        id,
+        type: 'note',
+        spaceId: prevNote?.space_id,
+        source: STORE_EVENT_SOURCE,
+      });
     },
 
     archiveNote: async (id: string, reason?: string) => {
@@ -816,7 +871,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     restoreNote: async (id: string) => {
@@ -846,7 +901,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     // ═══════════════════════════════════════════════════════════════════
@@ -877,7 +932,7 @@ export const useGremlyStore = create<GremlyState>()(
         spaces: [...state.spaces, data],
       }));
 
-      eventBus.emit('entity:created', { entity: data, type: 'space' });
+      eventBus.emit('entity:created', { entity: data, type: 'space', source: STORE_EVENT_SOURCE });
       return data;
     },
 
@@ -907,7 +962,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('ItemUpdated', { id });
+      eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
     },
 
     deleteSpace: async (id: string) => {
@@ -932,7 +987,7 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      eventBus.emit('entity:deleted', { id, type: 'space' });
+      eventBus.emit('entity:deleted', { id, type: 'space', source: STORE_EVENT_SOURCE });
     },
 
     // ═══════════════════════════════════════════════════════════════════
@@ -980,6 +1035,210 @@ export const useGremlyStore = create<GremlyState>()(
         console.error('[GremlyStore] refreshFromServer failed:', error);
         set({ isLoading: false });
       }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // EVENT BUS SUBSCRIPTION
+    // Listens for entity events from other parts of the app (MindDrop, etc.)
+    // This enables bidirectional sync during the migration period
+    // ═══════════════════════════════════════════════════════════════════
+
+    subscribeToEvents: () => {
+      // Handler for entity:created events
+      const handleEntityCreated = (payload: {
+        entity: any;
+        type: string;
+        spaceId?: string | null;
+        source?: string;
+      }) => {
+        console.log('[GremlyStore] entity:created received', {
+          type: payload.type,
+          entityId: payload.entity?.id,
+          source: payload.source,
+          hasEntity: !!payload.entity,
+        });
+
+        // Skip events emitted by this store to prevent duplicate handling
+        if (payload.source === STORE_EVENT_SOURCE) {
+          console.log('[GremlyStore] Skipping self-emitted event');
+          return;
+        }
+
+        const state = get();
+        const entity = payload.entity;
+
+        if (!entity?.id) {
+          console.warn('[GremlyStore] entity:created received without valid entity');
+          return;
+        }
+
+        if (payload.type === 'todo') {
+          // Only add if not already in store
+          if (!state.todos.some((t) => t.id === entity.id)) {
+            set({ todos: [...state.todos, entity as Todo] });
+            console.log('[GremlyStore] ✅ Added todo from EventBus:', entity.id);
+          } else {
+            console.log('[GremlyStore] Todo already exists, skipping:', entity.id);
+          }
+        } else if (payload.type === 'habit') {
+          if (!state.habits.some((h) => h.id === entity.id)) {
+            set({ habits: [...state.habits, entity as Habit] });
+            console.log('[GremlyStore] ✅ Added habit from EventBus:', entity.id);
+          } else {
+            console.log('[GremlyStore] Habit already exists, skipping:', entity.id);
+          }
+        } else if (payload.type === 'note') {
+          if (!state.notes.some((n) => n.id === entity.id)) {
+            set({ notes: [...state.notes, entity as Note] });
+            console.log('[GremlyStore] ✅ Added note from EventBus:', entity.id);
+          } else {
+            console.log('[GremlyStore] Note already exists, skipping:', entity.id);
+          }
+        } else if (payload.type === 'space') {
+          if (!state.spaces.some((s) => s.id === entity.id)) {
+            set({ spaces: [...state.spaces, entity as Space] });
+            console.log('[GremlyStore] ✅ Added space from EventBus:', entity.id);
+          } else {
+            console.log('[GremlyStore] Space already exists, skipping:', entity.id);
+          }
+        } else {
+          console.log('[GremlyStore] Unknown entity type, ignoring:', payload.type);
+        }
+      };
+
+      // Handler for entity:updated events
+      const handleEntityUpdated = (payload: {
+        entity: any;
+        type: string;
+        spaceId?: string | null;
+        source?: string;
+      }) => {
+        // Skip events emitted by this store
+        if (payload.source === STORE_EVENT_SOURCE) return;
+
+        const state = get();
+        const entity = payload.entity;
+
+        if (!entity?.id) return;
+
+        if (payload.type === 'todo') {
+          set({
+            todos: state.todos.map((t) => (t.id === entity.id ? { ...t, ...entity } : t)),
+          });
+          console.log('[GremlyStore] Updated todo from EventBus:', entity.id);
+        } else if (payload.type === 'habit') {
+          set({
+            habits: state.habits.map((h) => (h.id === entity.id ? { ...h, ...entity } : h)),
+          });
+          console.log('[GremlyStore] Updated habit from EventBus:', entity.id);
+        } else if (payload.type === 'note') {
+          set({
+            notes: state.notes.map((n) => (n.id === entity.id ? { ...n, ...entity } : n)),
+          });
+          console.log('[GremlyStore] Updated note from EventBus:', entity.id);
+        } else if (payload.type === 'space') {
+          set({
+            spaces: state.spaces.map((s) => (s.id === entity.id ? { ...s, ...entity } : s)),
+          });
+          console.log('[GremlyStore] Updated space from EventBus:', entity.id);
+        }
+      };
+
+      // Handler for entity:deleted events
+      const handleEntityDeleted = (payload: {
+        id: string;
+        type?: string;
+        spaceId?: string | null;
+        source?: string;
+      }) => {
+        // Skip events emitted by this store
+        if (payload.source === STORE_EVENT_SOURCE) return;
+
+        const state = get();
+        const { id, type } = payload;
+
+        if (type === 'todo') {
+          set({ todos: state.todos.filter((t) => t.id !== id) });
+          console.log('[GremlyStore] Deleted todo from EventBus:', id);
+        } else if (type === 'habit') {
+          set({ habits: state.habits.filter((h) => h.id !== id) });
+          console.log('[GremlyStore] Deleted habit from EventBus:', id);
+        } else if (type === 'note') {
+          set({ notes: state.notes.filter((n) => n.id !== id) });
+          console.log('[GremlyStore] Deleted note from EventBus:', id);
+        } else if (type === 'space') {
+          set({ spaces: state.spaces.filter((s) => s.id !== id) });
+          console.log('[GremlyStore] Deleted space from EventBus:', id);
+        }
+      };
+
+      // Handler for legacy ItemUpdated events (from useTodayInteractions, etc.)
+      const handleItemUpdated = (payload: { id: string; type?: string; source?: string }) => {
+        if (payload.source === STORE_EVENT_SOURCE) return;
+
+        // For ItemUpdated, we need to fetch the latest from Supabase
+        // since the payload doesn't contain the full entity
+        const fetchAndUpdate = async () => {
+          const state = get();
+          const userId = state.userId;
+          if (!userId) return;
+
+          // Try to find which type this ID belongs to
+          const inTodos = state.todos.some((t) => t.id === payload.id);
+          const inHabits = state.habits.some((h) => h.id === payload.id);
+          const inNotes = state.notes.some((n) => n.id === payload.id);
+
+          if (inTodos || payload.type === 'todo') {
+            const { data } = await supabase.from('todos').select('*').eq('id', payload.id).single();
+            if (data) {
+              set({
+                todos: state.todos.map((t) => (t.id === payload.id ? data : t)),
+              });
+              console.log('[GremlyStore] Synced todo from ItemUpdated:', payload.id);
+            }
+          } else if (inHabits || payload.type === 'habit') {
+            const { data } = await supabase
+              .from('habits')
+              .select('*')
+              .eq('id', payload.id)
+              .single();
+            if (data) {
+              set({
+                habits: state.habits.map((h) => (h.id === payload.id ? data : h)),
+              });
+              console.log('[GremlyStore] Synced habit from ItemUpdated:', payload.id);
+            }
+          } else if (inNotes || payload.type === 'note') {
+            const { data } = await supabase.from('notes').select('*').eq('id', payload.id).single();
+            if (data) {
+              set({
+                notes: state.notes.map((n) => (n.id === payload.id ? data : n)),
+              });
+              console.log('[GremlyStore] Synced note from ItemUpdated:', payload.id);
+            }
+          }
+        };
+
+        void fetchAndUpdate();
+      };
+
+      // Subscribe to entity lifecycle events
+      const unsub1 = eventBus.on('entity:created', handleEntityCreated);
+      const unsub2 = eventBus.on('entity:updated', handleEntityUpdated);
+      const unsub3 = eventBus.on('entity:deleted', handleEntityDeleted);
+
+      // Subscribe to legacy events for backward compatibility
+      const unsub4 = eventBus.on('ItemUpdated', handleItemUpdated);
+      const unsub5 = eventBus.on('ItemCompleted', handleItemUpdated);
+
+      // Return combined unsubscribe function
+      return () => {
+        unsub1();
+        unsub2();
+        unsub3();
+        unsub4();
+        unsub5();
+      };
     },
   })),
 );

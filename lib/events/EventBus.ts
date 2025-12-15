@@ -7,11 +7,11 @@
 import type { ClassificationResult } from '../cortex/CortexClient';
 
 export type EventMap = {
-  ItemSaved: { id: string };
-  ItemCompleted: { id: string; type: 'habit' | 'todo' };
-  ItemUpdated: { id: string };
+  ItemSaved: { id: string; source?: string };
+  ItemCompleted: { id: string; type: 'habit' | 'todo'; source?: string };
+  ItemUpdated: { id: string; source?: string };
   /** @deprecated Use 'entity:deleted' instead */
-  ItemDeleted: { id: string; type: 'habit' | 'todo' | 'note' };
+  ItemDeleted: { id: string; type: 'habit' | 'todo' | 'note'; source?: string };
   FocusCardChanged: {
     entry_id: string | null;
     entry_type: 'todo' | 'habit' | 'note' | null;
@@ -41,10 +41,10 @@ export type EventMap = {
   // Cortex classification events (Phase 10)
   'cortex:classified': { itemId: string; classification: ClassificationResult };
   'cortex:failed': { itemId: string; error: string };
-  // Entity lifecycle events (Space Chat)
-  'entity:created': { entity: any; type: string; spaceId?: string | null };
-  'entity:updated': { entity: any; type: string; spaceId?: string | null };
-  'entity:deleted': { id: string; type?: string; spaceId?: string | null };
+  // Entity lifecycle events (Space Chat) - source identifies origin to prevent self-handling
+  'entity:created': { entity: any; type: string; spaceId?: string | null; source?: string };
+  'entity:updated': { entity: any; type: string; spaceId?: string | null; source?: string };
+  'entity:deleted': { id: string; type?: string; spaceId?: string | null; source?: string };
   // Phase 2 enrichment completion event
   'entity:enriched': {
     entityId: string;
