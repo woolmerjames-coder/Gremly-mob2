@@ -11,13 +11,20 @@ import {
 import { Text, Box, Button } from '../../../ui';
 import { useRepo } from '../../../providers/RepoProvider';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
-import { selectItemById } from '../../../lib/store/selectors';
+import {
+  selectItemById,
+  useTodayTodos,
+  useTodayHabits,
+  useCompletedToday,
+  useTodayProgress,
+  useOverdueTodos,
+} from '../../../lib/store/selectors';
 import { eventBus } from '../../../lib/events';
-import { useTodayEntries, type TodayMergedEntry } from '../../../lib/today/hooks/useTodayEntries';
 import { BRAND } from '../../../design/brand';
 import TodayRow from './TodayRow';
 import ConfettiBurst from './ConfettiBurst';
 import { useGlobalOverlay } from '../../../contexts/OverlayContext';
+import type { Todo, Habit } from '../../../lib/types';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -38,12 +45,32 @@ type HabitTickPayload = {
 };
 
 export default function TaskHabitStack() {
-  const repo = useRepo();
+  const repo = useRepo(); // Kept for logHabitProgress (not in store yet)
   const completeTodo = useGremlyStore((s) => s.completeTodo);
   const getItemById = useGremlyStore((s) => (id: string) => selectItemById(s, id));
+  const habitProgress = useGremlyStore((s) => s.habitProgress);
   const overlay = useGlobalOverlay();
   const { width } = useWindowDimensions();
-  const { items, doneItems, completed, remaining, loading, /* error */ reload } = useTodayEntries();
+
+  // Store selectors for today's items
+  const todayTodos = useTodayTodos();
+  const todayHabits = useTodayHabits();
+  const overdueTodos = useOverdueTodos();
+  const completedItems = useCompletedToday();
+  const progress = useTodayProgress();
+  const isLoading = useGremlyStore((s) => s.isLoading);
+
+  // Compute today's habit progress counts
+  const habitProgressToday = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const map = new Map<string, number>();
+    for (const row of habitProgress) {
+      if (row.occurred_day === today) {
+        map.set(row.habit_id, (map.get(row.habit_id) ?? 0) + row.count);
+      }
+    }
+    return map;
+  }, [habitProgress]);
 
   type HabitLoggerRepo = {
     logHabitProgress?: (id: string, occurredAtIso: string, count: number) => Promise<unknown>;
@@ -54,11 +81,73 @@ export default function TaskHabitStack() {
   const [doneOpen, setDoneOpen] = useState(true);
   const [confettiTick, setConfettiTick] = useState(0);
 
-  const total = completed + remaining;
+  const { completedCount: completed, totalEligible: total } = progress;
+  const remaining = total - completed;
   const narrow = width < 480;
 
+  // Build merged item list from store data
+  type MergedEntry = {
+    type: 'todo' | 'habit';
+    id: string;
+    name: string;
+    due_date?: string | null;
+    due_day?: string | null;
+    space_id?: string | null;
+    tags?: string[] | null;
+    status?: string;
+    carry_forward?: boolean;
+    overdue?: boolean;
+    nearDue?: boolean;
+    completed_at?: string | null;
+    commitment?: boolean;
+    progress_today?: number;
+    target_count?: number;
+  };
+
+  const items = useMemo((): MergedEntry[] => {
+    const overdueIds = new Set(overdueTodos.map((t) => t.id));
+
+    const todoEntries: MergedEntry[] = todayTodos.map((t) => ({
+      type: 'todo' as const,
+      id: t.id,
+      name: t.name,
+      due_date: t.due_date,
+      due_day: t.due_day,
+      space_id: t.space_id,
+      tags: t.tags,
+      carry_forward: (t as any).carry_forward,
+      overdue: overdueIds.has(t.id),
+      nearDue: false, // Simplified - could compute if needed
+      completed_at: t.completed_at,
+      commitment: t.commitment,
+    }));
+
+    const habitEntries: MergedEntry[] = todayHabits.map((h) => ({
+      type: 'habit' as const,
+      id: h.id,
+      name: h.name,
+      space_id: h.space_id,
+      tags: h.tags,
+      commitment: h.commitment,
+      progress_today: habitProgressToday.get(h.id) ?? 0,
+      target_count: h.target_per_day ?? 1,
+    }));
+
+    return [...todoEntries, ...habitEntries];
+  }, [todayTodos, todayHabits, overdueTodos, habitProgressToday]);
+
+  // Build done items list from completed items
+  const doneItems = useMemo((): MergedEntry[] => {
+    return completedItems.map((item) => ({
+      type: item.type as 'todo' | 'habit',
+      id: item.id,
+      name: item.type === 'todo' ? (item as Todo).name : (item as Habit).name,
+      completed_at: item.type === 'todo' ? (item as Todo).completed_at : undefined,
+    }));
+  }, [completedItems]);
+
   const orderedActive = useMemo(() => {
-    const score = (entry: TodayMergedEntry) => {
+    const score = (entry: MergedEntry) => {
       if (entry.type === 'todo') {
         return (
           (entry.overdue ? 300 : 0) +
@@ -99,7 +188,7 @@ export default function TaskHabitStack() {
     }
     await repoWithHabitLogging.logHabitProgress?.(id, new Date().toISOString(), 1);
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
-    void reload();
+    // Store auto-updates, no reload needed
   };
 
   const handleTodoComplete = async (id: string, title: string) => {
@@ -107,11 +196,11 @@ export default function TaskHabitStack() {
     recordCompletion(id, 'todo', title);
     await completeTodo(id);
     eventBus.emit('ItemCompleted', { id, type: 'todo' });
-    void reload();
+    // Store auto-updates, no reload needed
   };
 
   const handleEntryPress = useCallback(
-    (entry: TodayMergedEntry | SessionDone) => {
+    (entry: MergedEntry | SessionDone) => {
       try {
         const record = getItemById(entry.id);
         if (!record) {
@@ -161,8 +250,8 @@ export default function TaskHabitStack() {
       doneItems.map((entry) => ({
         id: entry.id,
         type: entry.type,
-        title: entry.name,
-        completedAt: 'completed_at' in entry ? (entry.completed_at ?? null) : null,
+        title: entry.name || 'Untitled',
+        completedAt: entry.completed_at ?? null,
       })),
     [doneItems],
   );
@@ -211,13 +300,13 @@ export default function TaskHabitStack() {
         ) : null}
       </Box>
 
-      {loading && (
+      {isLoading && (
         <Text variant="subtle" style={{ textAlign: 'center', padding: 12 }}>
           Loading…
         </Text>
       )}
 
-      {!loading && orderedActive.length === 0 && (
+      {!isLoading && orderedActive.length === 0 && (
         <Text variant="subtle" style={{ textAlign: 'center', padding: 16 }}>
           Nothing planned — add something when you’re ready.
         </Text>
