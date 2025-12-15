@@ -1347,3 +1347,26 @@ export const selectSpaceTimeline = createSelector(
 
 export const useSpaceTimelineFromStore = (spaceId: string | null | undefined) =>
   useGremlyStore((state) => selectSpaceTimeline(state, spaceId));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UNSORTED FOR REVIEW (for Hub filtering)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Filter items that need user review/confirmation.
+ * This is a pure utility function (not a Zustand selector) for filtering
+ * already-scoped items in Hub views.
+ *
+ * Includes:
+ * - Items with ai_placed = true (AI-placed items awaiting confirmation)
+ * - Items from catchall that haven't been properly classified/moved
+ */
+export function filterUnsortedForReview(items: (Todo | Habit | Note)[]): (Todo | Habit | Note)[] {
+  return items.filter((item) => {
+    // AI-placed items awaiting confirmation
+    if (item.ai_placed === true) return true;
+    // Items from catchall that haven't been moved (still in catch-all limbo)
+    if (item.origin === 'catchall' && item.ai_placed === false && !item.space_id) return true;
+    return false;
+  });
+}

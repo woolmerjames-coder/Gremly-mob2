@@ -47,7 +47,6 @@ import type { AppRecord, Space, Person, Tag } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
-import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
 import {
   selectNeedsAttentionItems,
   type NeedsAttentionItem,
@@ -76,6 +75,7 @@ import {
   useActiveSpaces,
   usePopularTags,
   useAllActiveItemsHub,
+  filterUnsortedForReview,
 } from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
@@ -500,7 +500,7 @@ export default function HubScreen() {
   // Use unified selector for unsorted items (banner + sheet)
   // For the in-page "Needs Sorting" section, we use the filtered view
   const unsortedForReview = useMemo(() => {
-    const result = selectUnsortedForReview(items);
+    const result = filterUnsortedForReview(items);
 
     if (__DEV__) {
       console.log('[HubUnsorted] In-page needs sorting calculation:', {
