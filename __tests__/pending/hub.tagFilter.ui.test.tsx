@@ -1,15 +1,15 @@
 import React from 'react';
-import { fireEvent, renderWithProviders, screen, waitFor } from './utils/renderWithProviders';
-import HubScreen from '../app/tabs/HubScreen';
+import { fireEvent, renderWithProviders, screen, waitFor } from '../utils/renderWithProviders';
+import HubScreen from '../../app/tabs/HubScreen';
 
-jest.mock('../providers/AuthProvider', () => ({
-  ...jest.requireActual('../providers/AuthProvider'),
-  useAuth: () => require('./utils/renderWithProviders').useAuth(),
+jest.mock('../../providers/AuthProvider', () => ({
+  ...jest.requireActual('../../providers/AuthProvider'),
+  useAuth: () => require('../utils/renderWithProviders').useAuth(),
 }));
 
-jest.mock('../providers/RepoProvider', () => ({
-  ...jest.requireActual('../providers/RepoProvider'),
-  useRepo: () => require('./utils/renderWithProviders').useRepo(),
+jest.mock('../../providers/RepoProvider', () => ({
+  ...jest.requireActual('../../providers/RepoProvider'),
+  useRepo: () => require('../utils/renderWithProviders').useRepo(),
 }));
 
 const mockTags = [

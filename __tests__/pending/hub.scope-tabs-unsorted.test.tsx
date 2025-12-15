@@ -9,11 +9,11 @@
  */
 
 import React from 'react';
-import { renderWithProviders, screen, waitFor, fireEvent } from './utils/renderWithProviders';
-import HubScreen from '../app/tabs/HubScreen';
+import { renderWithProviders, screen, waitFor, fireEvent } from '../utils/renderWithProviders';
+import HubScreen from '../../app/tabs/HubScreen';
 
 // Mock the auth provider
-jest.mock('../providers/AuthProvider', () => ({
+jest.mock('../../providers/AuthProvider', () => ({
   useAuth: () => ({
     user: { id: 'test-user-id', email: 'test@example.com' },
     userId: 'test-user-id',
@@ -152,7 +152,7 @@ const mockDataStore = {
 };
 
 // Mock RepoProvider
-jest.mock('../providers/RepoProvider', () => ({
+jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => ({
     listSpaces: jest.fn(async () => mockDataStore.spaces),
     listTags: jest.fn(async () => mockDataStore.tags),

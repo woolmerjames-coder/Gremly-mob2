@@ -449,22 +449,26 @@ describe('Mind Drop v3 - Idempotency & Duplicate Prevention', () => {
       });
 
       // Query all entities
-      const allNotes = await repo.listByType('note');
+      // Active notes (should be 0 since the note gets archived)
+      const activeNotes = await repo.listByType('note');
+      // Archived notes (should be 1 - the original catchall note)
+      const archivedNotes = await repo.listByType('note', { archivedOnly: true });
       const allHabits = await repo.listByType('habit');
 
-      // Should have exactly 1 note (archived) and 1 habit (canonical)
-      expect(allNotes.length).toBe(1);
+      // Should have 0 active notes (archived) and 1 habit (canonical)
+      expect(activeNotes.length).toBe(0);
+      expect(archivedNotes.length).toBe(1);
       expect(allHabits.length).toBe(1);
 
       // Note is archived
-      expect((allNotes[0] as any).archived).toBe(true);
+      expect((archivedNotes[0] as any).archived).toBe(true);
 
       // Habit has correct dropId
       expect((allHabits[0] as any).drop_id).toBe(dropId);
 
       // No duplicates in total item count
-      const totalItems = allNotes.filter((n) => !(n as any).archived).length + allHabits.length;
-      expect(totalItems).toBe(1); // Only habit is visible (note is archived)
+      const totalVisibleItems = activeNotes.length + allHabits.length;
+      expect(totalVisibleItems).toBe(1); // Only habit is visible (note is archived)
     });
   });
 
