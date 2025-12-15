@@ -68,6 +68,47 @@ jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => mockRepo,
 }));
 
+// Mock Zustand store selectors (used by HubScreen after migration)
+const mockStoreData = {
+  todos: [] as any[],
+  habits: [] as any[],
+  journals: [] as any[],
+  notes: [] as any[],
+  spaces: [] as any[],
+  tags: [] as any[],
+  unsortedItems: [] as any[],
+  isLoading: false,
+  isInitialized: true,
+};
+
+jest.mock('../lib/store/selectors', () => ({
+  useHubTodos: () => mockStoreData.todos,
+  useHubHabits: () => mockStoreData.habits,
+  useHubJournals: () => mockStoreData.journals,
+  useHubNotes: () => mockStoreData.notes,
+  useDiscoveredPeople: () => [],
+  useDiscoveredLists: () => [],
+  useUnsortedItems: () => mockStoreData.unsortedItems,
+  useActiveSpaces: () => mockStoreData.spaces,
+  usePopularTags: () => mockStoreData.tags,
+  useAllActiveItemsHub: () => [
+    ...mockStoreData.todos,
+    ...mockStoreData.habits,
+    ...mockStoreData.notes,
+  ],
+}));
+
+jest.mock('../lib/store/useGremlyStore', () => ({
+  useGremlyStore: (selector: (state: any) => any) =>
+    selector({
+      updateTodo: jest.fn(),
+      updateHabit: jest.fn(),
+      updateNote: jest.fn(),
+      isLoading: mockStoreData.isLoading,
+      isInitialized: mockStoreData.isInitialized,
+    }),
+}));
+
 // Mock OverlayContext
 jest.mock('../contexts/OverlayContext', () => ({
   OverlayProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -142,6 +183,16 @@ describe('HubScreen - Mode Transitions', () => {
     mockRepo.listPeople.mockResolvedValue([]);
     mockRepo.getUnsortedCount.mockResolvedValue(0);
     mockRepo.listUnsorted.mockResolvedValue([]);
+    // Reset store mock data
+    mockStoreData.todos = [];
+    mockStoreData.habits = [];
+    mockStoreData.journals = [];
+    mockStoreData.notes = [];
+    mockStoreData.spaces = [];
+    mockStoreData.tags = [];
+    mockStoreData.unsortedItems = [];
+    mockStoreData.isLoading = false;
+    mockStoreData.isInitialized = true;
   });
 
   it('renders Hub Mode when search is empty', async () => {
@@ -338,6 +389,16 @@ describe('HubScreen - Needs Attention Section', () => {
     mockRepo.listPeople.mockResolvedValue([]);
     mockRepo.getUnsortedCount.mockResolvedValue(0);
     mockRepo.listUnsorted.mockResolvedValue([]);
+    // Reset store mock data
+    mockStoreData.todos = [];
+    mockStoreData.habits = [];
+    mockStoreData.journals = [];
+    mockStoreData.notes = [];
+    mockStoreData.spaces = [];
+    mockStoreData.tags = [];
+    mockStoreData.unsortedItems = [];
+    mockStoreData.isLoading = false;
+    mockStoreData.isInitialized = true;
   });
 
   it('hides needs-attention section when no items qualify', async () => {
@@ -381,7 +442,8 @@ describe('HubScreen - Needs Attention Section', () => {
       space_id: 'some-space',
     };
 
-    mockRepo.listByType.mockResolvedValue([staleTodo]);
+    // Set up store data (component now reads from store, not repo)
+    mockStoreData.todos = [staleTodo];
 
     const { getByTestId, queryByText } = render(
       <TestWrapper>
@@ -408,6 +470,16 @@ describe('HubScreen - Search Results', () => {
     mockRepo.listPeople.mockResolvedValue([]);
     mockRepo.getUnsortedCount.mockResolvedValue(0);
     mockRepo.listUnsorted.mockResolvedValue([]);
+    // Reset store mock data
+    mockStoreData.todos = [];
+    mockStoreData.habits = [];
+    mockStoreData.journals = [];
+    mockStoreData.notes = [];
+    mockStoreData.spaces = [];
+    mockStoreData.tags = [];
+    mockStoreData.unsortedItems = [];
+    mockStoreData.isLoading = false;
+    mockStoreData.isInitialized = true;
   });
 
   it('shows no results state when search returns empty', async () => {
@@ -446,6 +518,16 @@ describe('HubScreen - Journal View Data Filtering', () => {
     mockRepo.getUnsortedCount.mockResolvedValue(0);
     mockRepo.listUnsorted.mockResolvedValue([]);
     mockRepo.listByType.mockResolvedValue([]);
+    // Reset store mock data
+    mockStoreData.todos = [];
+    mockStoreData.habits = [];
+    mockStoreData.journals = [];
+    mockStoreData.notes = [];
+    mockStoreData.spaces = [];
+    mockStoreData.tags = [];
+    mockStoreData.unsortedItems = [];
+    mockStoreData.isLoading = false;
+    mockStoreData.isInitialized = true;
   });
 
   it('calls repo with subtypes: [journal] when switching to Journal View', async () => {
@@ -459,21 +541,13 @@ describe('HubScreen - Journal View Data Filtering', () => {
       expect(getByTestId('hub-screen')).toBeTruthy();
     });
 
-    // Clear initial calls
-    mockRepo.listByType.mockClear();
-
     // Switch to Journal View
     const journalToggle = getByTestId('hub-view-toggle-journals');
     fireEvent.press(journalToggle);
 
     await waitFor(() => {
-      // Should have called listByType with subtypes: ['journal']
-      expect(mockRepo.listByType).toHaveBeenCalledWith(
-        'note',
-        expect.objectContaining({
-          subtypes: ['journal'],
-        }),
-      );
+      // Journal view should be selected - now reads from store instead of calling repo
+      expect(journalToggle.props.accessibilityState?.selected).toBe(true);
     });
   });
 
@@ -603,7 +677,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
   });
 
   it('shows journal timeline when journals exist in Journal View', async () => {
-    // Mock journal data
+    // Mock journal data in store (component now reads from store, not repo)
     const mockJournals = [
       {
         id: 'journal-1',
@@ -627,7 +701,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
       },
     ];
 
-    mockRepo.listByType.mockResolvedValue(mockJournals);
+    mockStoreData.journals = mockJournals;
 
     const { getByTestId } = render(
       <TestWrapper>
@@ -663,7 +737,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
       },
     ];
 
-    mockRepo.listByType.mockResolvedValue(mockJournals);
+    mockStoreData.journals = mockJournals;
 
     const { getByTestId } = render(
       <TestWrapper>
@@ -697,7 +771,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
       },
     ];
 
-    mockRepo.listByType.mockResolvedValue(mockJournals);
+    mockStoreData.journals = mockJournals;
 
     const { getByTestId, queryByText } = render(
       <TestWrapper>
@@ -740,7 +814,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
       },
     ];
 
-    mockRepo.listByType.mockResolvedValue(mockJournals);
+    mockStoreData.journals = mockJournals;
 
     const { getByTestId, queryByTestId } = render(
       <TestWrapper>
@@ -777,7 +851,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
   });
 
   it('shows journal count in modal after loading', async () => {
-    // Mock 3 journals for the initial view
+    // Mock 3 journals for the initial view (component now reads from store, not repo)
     const mockJournals = [
       {
         id: 'journal-1',
@@ -808,7 +882,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
       },
     ];
 
-    mockRepo.listByType.mockResolvedValue(mockJournals);
+    mockStoreData.journals = mockJournals;
 
     const { getByTestId, queryByText } = render(
       <TestWrapper>

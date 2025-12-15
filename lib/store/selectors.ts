@@ -379,14 +379,11 @@ export const selectSweepIdeas = createSelector([selectNotes], (notes): Note[] =>
   );
 });
 
-/** General logs for sweep (notes with subtype='general', created today) */
+/** General logs for sweep (notes with subtype='catchall', created today) */
 export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Note[] => {
   const today = getTodayDayString();
   return notes.filter(
-    (n) =>
-      (n.subtype === 'general' || n.subtype === 'catchall') &&
-      !n.archived &&
-      n.created_at?.startsWith(today),
+    (n) => n.subtype === 'catchall' && !n.archived && n.created_at?.startsWith(today),
   );
 });
 
@@ -678,7 +675,11 @@ export const createSearchSelector = (
 
       const results: (Todo | Habit | Note)[] = [];
 
-      const matchesQuery = (item: { name?: string; title?: string; body?: string }) => {
+      const matchesQuery = (item: {
+        name?: string | null;
+        title?: string | null;
+        body?: string | null;
+      }) => {
         if (!lowerQuery) return true;
         const name = (item.name ?? '').toLowerCase();
         const title = (item.title ?? '').toLowerCase();
@@ -725,6 +726,133 @@ export const selectAllArchivedItems = createSelector(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// HUB SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** All items combined (todos + habits + notes) for derived selectors */
+export const selectAllItems = createSelector(
+  [selectTodos, selectHabits, selectNotes],
+  (todos, habits, notes): (Todo | Habit | Note)[] => [...todos, ...habits, ...notes],
+);
+
+/** Discovered people from linked_people field on items */
+export interface DiscoveredPerson {
+  id: string;
+  name: string;
+  itemCount: number;
+}
+
+export const selectDiscoveredPeople = createSelector(
+  [selectAllItems],
+  (items): DiscoveredPerson[] => {
+    const peopleMap = new Map<string, DiscoveredPerson>();
+
+    for (const item of items) {
+      const linkedPeople = (item as { linked_people?: Array<{ id: string; name: string }> })
+        .linked_people;
+      if (!linkedPeople) continue;
+
+      for (const person of linkedPeople) {
+        if (!person?.id || !person?.name) continue;
+        const existing = peopleMap.get(person.id);
+        if (existing) {
+          existing.itemCount++;
+        } else {
+          peopleMap.set(person.id, { id: person.id, name: person.name, itemCount: 1 });
+        }
+      }
+    }
+
+    return [...peopleMap.values()].sort((a, b) => b.itemCount - a.itemCount);
+  },
+);
+
+/** Discovered lists from notes with has_list=true */
+export interface DiscoveredList {
+  id: string;
+  name: string;
+  type: 'shopping' | 'packing' | 'custom';
+  incompleteCount: number;
+  totalCount: number;
+}
+
+export const selectDiscoveredLists = createSelector([selectNotes], (notes): DiscoveredList[] => {
+  const lists: DiscoveredList[] = [];
+
+  for (const note of notes) {
+    if (note.archived) continue;
+    if (!note.has_list || !note.list_items) continue;
+
+    const items = Array.isArray(note.list_items) ? note.list_items : [];
+    const incompleteCount = items.filter(
+      (i: { checked?: boolean; completed_at?: string }) => !i.checked && !i.completed_at,
+    ).length;
+
+    // Determine list type from subtype or tags
+    let listType: 'shopping' | 'packing' | 'custom' = 'custom';
+    if (note.tags?.includes('shopping')) listType = 'shopping';
+    if (note.tags?.includes('packing')) listType = 'packing';
+
+    lists.push({
+      id: note.id,
+      name: note.title || 'Untitled List',
+      type: listType,
+      incompleteCount,
+      totalCount: items.length,
+    });
+  }
+
+  return lists;
+});
+
+/** Hub filtered todos - active, sorted by updated_at desc */
+export const selectHubTodos = createSelector([selectActiveTodos], (todos) =>
+  [...todos].sort(
+    (a, b) =>
+      new Date(b.updated_at || b.created_at).getTime() -
+      new Date(a.updated_at || a.created_at).getTime(),
+  ),
+);
+
+/** Hub filtered habits - active, sorted by updated_at desc */
+export const selectHubHabits = createSelector([selectHabits], (habits) =>
+  habits
+    .filter((h) => !h.archived)
+    .sort(
+      (a, b) =>
+        new Date(b.updated_at || b.created_at).getTime() -
+        new Date(a.updated_at || a.created_at).getTime(),
+    ),
+);
+
+/** Hub journals - notes with subtype='journal', sorted by created_at desc */
+export const selectHubJournals = createSelector([selectActiveNotes], (notes) =>
+  notes
+    .filter((n) => n.subtype === 'journal')
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')),
+);
+
+/** Hub notes - non-journal notes, sorted by updated_at desc */
+export const selectHubNotes = createSelector([selectActiveNotes], (notes) =>
+  notes
+    .filter((n) => n.subtype !== 'journal')
+    .sort((a, b) =>
+      (b.updated_at || b.created_at || '').localeCompare(a.updated_at || a.created_at || ''),
+    ),
+);
+
+/** Unsorted items - ai_placed = true, no space assigned */
+export const selectUnsortedItems = createSelector([selectAllItems], (items) =>
+  items.filter((item) => item.ai_placed === true && !item.space_id && !item.archived),
+);
+
+/** All active items combined (for Hub V1 overview) */
+export const selectAllActiveItems = createSelector(
+  [selectActiveTodos, selectHubHabits, selectActiveNotes],
+  (todos, habits, notes): (Todo | Habit | Note)[] => [...todos, ...habits, ...notes],
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // REACT HOOKS (convenience wrappers)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -768,3 +896,13 @@ export const useSpaceNotes = (spaceId: string) =>
 // Loading state
 export const useIsLoading = () => useGremlyStore(selectIsLoading);
 export const useIsInitialized = () => useGremlyStore(selectIsInitialized);
+
+// Hub hooks
+export const useHubTodos = () => useGremlyStore(selectHubTodos);
+export const useHubHabits = () => useGremlyStore(selectHubHabits);
+export const useHubJournals = () => useGremlyStore(selectHubJournals);
+export const useHubNotes = () => useGremlyStore(selectHubNotes);
+export const useDiscoveredPeople = () => useGremlyStore(selectDiscoveredPeople);
+export const useDiscoveredLists = () => useGremlyStore(selectDiscoveredLists);
+export const useUnsortedItems = () => useGremlyStore(selectUnsortedItems);
+export const useAllActiveItemsHub = () => useGremlyStore(selectAllActiveItems);
