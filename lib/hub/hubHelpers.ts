@@ -50,6 +50,33 @@ export function computeTimeRange(range: HubV1TimeRange, now: Date = new Date()):
 }
 
 // =============================================================================
+// Last 30 Days Range for Journal Analysis
+// =============================================================================
+
+export interface Last30DaysQueryOptions {
+  createdAfter: string;
+  createdBefore: string;
+  subtypes: ['journal'];
+}
+
+/**
+ * Compute query options for fetching journals from the last 30 days.
+ * Returns createdAfter (30 days ago) and createdBefore (now) with journal subtype.
+ *
+ * @param now - Optional date to use as "now" (for testing determinism)
+ */
+export function computeLast30DaysRange(now: Date = new Date()): Last30DaysQueryOptions {
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(now.getDate() - 30);
+
+  return {
+    createdAfter: thirtyDaysAgo.toISOString(),
+    createdBefore: now.toISOString(),
+    subtypes: ['journal'],
+  };
+}
+
+// =============================================================================
 // Top Tags Computation
 // =============================================================================
 
@@ -185,4 +212,96 @@ export function formatJournalDate(dateStr: string, now: Date = new Date()): stri
   if (diffDays === 1) return 'Yesterday';
   if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'short' });
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// =============================================================================
+// Journal Detection
+// =============================================================================
+
+/**
+ * Type-safe check if a record is a journal entry.
+ * Journals are Notes with subtype === 'journal'.
+ *
+ * @param record - Any AppRecord-like object
+ */
+export function isJournal(record: { type: string; subtype?: string | null }): boolean {
+  return record.type === 'note' && record.subtype === 'journal';
+}
+
+// =============================================================================
+// Journal Month Grouping
+// =============================================================================
+
+export interface JournalEntry {
+  id: string;
+  date: string; // ISO string or date field
+  created_at: string;
+  body?: string | null;
+  mood?: string | null;
+}
+
+export interface JournalMonthGroup {
+  /** Month key in format "YYYY-MM" for sorting */
+  monthKey: string;
+  /** Display label like "December 2025" */
+  label: string;
+  /** Journals in this month, sorted by date descending */
+  journals: JournalEntry[];
+}
+
+/**
+ * Group journals by month for timeline display.
+ * - Groups by year-month from the journal's date (or created_at fallback)
+ * - Returns groups sorted by month descending (most recent first)
+ * - Journals within each group sorted by date descending
+ *
+ * @param journals - Array of journal entries
+ * @param now - Optional reference date for determining month labels (for testing)
+ */
+export function groupJournalsByMonth(
+  journals: JournalEntry[],
+  _now: Date = new Date(),
+): JournalMonthGroup[] {
+  const groups = new Map<string, JournalEntry[]>();
+
+  for (const journal of journals) {
+    const dateStr = journal.date || journal.created_at;
+    const date = new Date(dateStr);
+    const year = date.getFullYear();
+    const month = date.getMonth(); // 0-indexed
+    const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+    if (!groups.has(monthKey)) {
+      groups.set(monthKey, []);
+    }
+    groups.get(monthKey)!.push(journal);
+  }
+
+  // Sort entries within each group by date descending
+  for (const entries of groups.values()) {
+    entries.sort((a, b) => {
+      const dateA = a.date || a.created_at;
+      const dateB = b.date || b.created_at;
+      return dateB.localeCompare(dateA);
+    });
+  }
+
+  // Convert to array and sort groups by monthKey descending
+  const result: JournalMonthGroup[] = [];
+  const sortedKeys = Array.from(groups.keys()).sort((a, b) => b.localeCompare(a));
+
+  for (const key of sortedKeys) {
+    const entries = groups.get(key)!;
+    const [yearStr, monthStr] = key.split('-');
+    const date = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 1);
+    const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    result.push({
+      monthKey: key,
+      label,
+      journals: entries,
+    });
+  }
+
+  return result;
 }

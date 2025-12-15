@@ -11,8 +11,12 @@ import {
   formatReasonLabel,
   suggestShortTitle,
   formatJournalDate,
+  isJournal,
+  groupJournalsByMonth,
+  computeLast30DaysRange,
   type HubV1TimeRange as _HubV1TimeRange,
   type TagCount as _TagCount,
+  type JournalEntry,
 } from '../hubHelpers';
 
 // =============================================================================
@@ -70,6 +74,63 @@ describe('computeTimeRange', () => {
     const now = new Date();
     const diffDays = Math.round((now.getTime() - createdAfter.getTime()) / (1000 * 60 * 60 * 24));
     expect(diffDays).toBe(7);
+  });
+});
+
+// =============================================================================
+// computeLast30DaysRange tests
+// =============================================================================
+
+describe('computeLast30DaysRange', () => {
+  // Fixed reference date: Dec 14, 2025 at noon UTC
+  const NOW = new Date('2025-12-14T12:00:00.000Z');
+
+  it('returns createdAfter 30 days before now', () => {
+    const result = computeLast30DaysRange(NOW);
+
+    expect(result.createdAfter).toBe('2025-11-14T12:00:00.000Z');
+  });
+
+  it('returns createdBefore as the reference date', () => {
+    const result = computeLast30DaysRange(NOW);
+
+    expect(result.createdBefore).toBe('2025-12-14T12:00:00.000Z');
+  });
+
+  it('always includes subtypes: [journal]', () => {
+    const result = computeLast30DaysRange(NOW);
+
+    expect(result.subtypes).toEqual(['journal']);
+  });
+
+  it('returns all required query options', () => {
+    const result = computeLast30DaysRange(NOW);
+
+    // Should have all three properties
+    expect(result).toHaveProperty('createdAfter');
+    expect(result).toHaveProperty('createdBefore');
+    expect(result).toHaveProperty('subtypes');
+  });
+
+  it('uses current date when no reference date provided', () => {
+    const result = computeLast30DaysRange();
+
+    // Should have both dates defined
+    expect(result.createdAfter).toBeDefined();
+    expect(result.createdBefore).toBeDefined();
+
+    // createdBefore should be close to now
+    const createdBefore = new Date(result.createdBefore);
+    const now = new Date();
+    const diffMs = Math.abs(now.getTime() - createdBefore.getTime());
+    expect(diffMs).toBeLessThan(1000); // Within 1 second
+
+    // createdAfter should be 30 days before createdBefore
+    const createdAfter = new Date(result.createdAfter);
+    const diffDays = Math.round(
+      (createdBefore.getTime() - createdAfter.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    expect(diffDays).toBe(30);
   });
 });
 
@@ -307,5 +368,154 @@ describe('formatJournalDate', () => {
     // Nov 1 (43 days ago)
     const resultOld = formatJournalDate('2025-11-01T12:00:00.000Z', NOW);
     expect(resultOld).toBe('Nov 1');
+  });
+});
+
+// =============================================================================
+// isJournal tests
+// =============================================================================
+
+describe('isJournal', () => {
+  it('returns true for a note with subtype journal', () => {
+    expect(isJournal({ type: 'note', subtype: 'journal' })).toBe(true);
+  });
+
+  it('returns false for a note with subtype idea', () => {
+    expect(isJournal({ type: 'note', subtype: 'idea' })).toBe(false);
+  });
+
+  it('returns false for a note with subtype list', () => {
+    expect(isJournal({ type: 'note', subtype: 'list' })).toBe(false);
+  });
+
+  it('returns false for a note with subtype reference', () => {
+    expect(isJournal({ type: 'note', subtype: 'reference' })).toBe(false);
+  });
+
+  it('returns false for a note with subtype catchall', () => {
+    expect(isJournal({ type: 'note', subtype: 'catchall' })).toBe(false);
+  });
+
+  it('returns false for a note with null subtype', () => {
+    expect(isJournal({ type: 'note', subtype: null })).toBe(false);
+  });
+
+  it('returns false for a note with undefined subtype', () => {
+    expect(isJournal({ type: 'note', subtype: undefined })).toBe(false);
+  });
+
+  it('returns false for a todo', () => {
+    expect(isJournal({ type: 'todo' })).toBe(false);
+  });
+
+  it('returns false for a habit', () => {
+    expect(isJournal({ type: 'habit' })).toBe(false);
+  });
+
+  it('returns false for a space', () => {
+    expect(isJournal({ type: 'space' })).toBe(false);
+  });
+});
+
+// =============================================================================
+// groupJournalsByMonth tests
+// =============================================================================
+
+describe('groupJournalsByMonth', () => {
+  it('returns empty array for empty input', () => {
+    const result = groupJournalsByMonth([]);
+    expect(result).toEqual([]);
+  });
+
+  it('groups journals by month correctly', () => {
+    const journals: JournalEntry[] = [
+      { id: '1', date: '2025-12-14T10:00:00.000Z', created_at: '2025-12-14T10:00:00.000Z' },
+      { id: '2', date: '2025-12-10T10:00:00.000Z', created_at: '2025-12-10T10:00:00.000Z' },
+      { id: '3', date: '2025-11-20T10:00:00.000Z', created_at: '2025-11-20T10:00:00.000Z' },
+    ];
+
+    const result = groupJournalsByMonth(journals);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].monthKey).toBe('2025-12');
+    expect(result[0].label).toBe('December 2025');
+    expect(result[0].journals).toHaveLength(2);
+    expect(result[1].monthKey).toBe('2025-11');
+    expect(result[1].label).toBe('November 2025');
+    expect(result[1].journals).toHaveLength(1);
+  });
+
+  it('sorts groups by month descending (most recent first)', () => {
+    const journals: JournalEntry[] = [
+      { id: '1', date: '2025-09-01T10:00:00.000Z', created_at: '2025-09-01T10:00:00.000Z' },
+      { id: '2', date: '2025-12-01T10:00:00.000Z', created_at: '2025-12-01T10:00:00.000Z' },
+      { id: '3', date: '2025-11-01T10:00:00.000Z', created_at: '2025-11-01T10:00:00.000Z' },
+    ];
+
+    const result = groupJournalsByMonth(journals);
+
+    expect(result[0].monthKey).toBe('2025-12');
+    expect(result[1].monthKey).toBe('2025-11');
+    expect(result[2].monthKey).toBe('2025-09');
+  });
+
+  it('sorts journals within each group by date descending', () => {
+    const journals: JournalEntry[] = [
+      { id: '1', date: '2025-12-05T10:00:00.000Z', created_at: '2025-12-05T10:00:00.000Z' },
+      { id: '2', date: '2025-12-20T10:00:00.000Z', created_at: '2025-12-20T10:00:00.000Z' },
+      { id: '3', date: '2025-12-10T10:00:00.000Z', created_at: '2025-12-10T10:00:00.000Z' },
+    ];
+
+    const result = groupJournalsByMonth(journals);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].journals[0].id).toBe('2'); // Dec 20
+    expect(result[0].journals[1].id).toBe('3'); // Dec 10
+    expect(result[0].journals[2].id).toBe('1'); // Dec 5
+  });
+
+  it('uses created_at as fallback when date is missing', () => {
+    const journals: JournalEntry[] = [
+      { id: '1', date: '', created_at: '2025-12-14T10:00:00.000Z' },
+      { id: '2', date: '', created_at: '2025-11-14T10:00:00.000Z' },
+    ];
+
+    const result = groupJournalsByMonth(journals);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].monthKey).toBe('2025-12');
+    expect(result[1].monthKey).toBe('2025-11');
+  });
+
+  it('handles journals spanning multiple years', () => {
+    const journals: JournalEntry[] = [
+      { id: '1', date: '2025-01-15T10:00:00.000Z', created_at: '2025-01-15T10:00:00.000Z' },
+      { id: '2', date: '2024-12-15T10:00:00.000Z', created_at: '2024-12-15T10:00:00.000Z' },
+    ];
+
+    const result = groupJournalsByMonth(journals);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].monthKey).toBe('2025-01');
+    expect(result[0].label).toBe('January 2025');
+    expect(result[1].monthKey).toBe('2024-12');
+    expect(result[1].label).toBe('December 2024');
+  });
+
+  it('preserves mood and body fields in grouped journals', () => {
+    const journals: JournalEntry[] = [
+      {
+        id: '1',
+        date: '2025-12-14T10:00:00.000Z',
+        created_at: '2025-12-14T10:00:00.000Z',
+        body: 'Great day today!',
+        mood: 'happy',
+      },
+    ];
+
+    const result = groupJournalsByMonth(journals);
+
+    expect(result[0].journals[0].body).toBe('Great day today!');
+    expect(result[0].journals[0].mood).toBe('happy');
   });
 });
