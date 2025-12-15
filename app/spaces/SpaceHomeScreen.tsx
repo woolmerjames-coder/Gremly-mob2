@@ -25,7 +25,6 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { useRepo } from '../../providers/RepoProvider';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import {
   useSpaceById,
@@ -33,18 +32,22 @@ import {
   useSpaceHabitsFromStore,
   useSpaceNotesFromStore,
   useSpaceItems,
+  useSpacePinnedItems,
+  useSpaceNotesCount,
+  useSpaceJournalCount,
 } from '../../lib/store/selectors';
 import { SupabaseSpaceChatRepo, SupabaseSpaceChatMessageRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
+import { startOfWeek, formatISO, addDays } from 'date-fns';
+// Space selectors for filtering combined items arrays
 import {
-  listHabitsForSpace,
   listTodosForSpace,
+  listHabitsForSpace,
   listNotesForSpace,
   countJournalForSpace,
 } from '../../lib/selectors/spaceSelectors';
-import { startOfWeek, formatISO, addDays } from 'date-fns';
 
 // Components
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
@@ -74,14 +77,13 @@ import {
 } from '../../components/icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useSpaceTimeline from '../../hooks/useSpaceTimeline';
-import { useSpaceNotes } from '../../hooks/useSpaceNotes';
 // v33 components (Space v3.3)
 import HeaderV33 from '../../components/spaces/v33/Header';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
 // Phase 12: MilestoneHeader and supporting hooks
 import { MilestoneHeader } from '../../components/spaces/MilestoneHeader';
 import { useSpaceMilestone } from '../../hooks/useSpaceMilestone';
-import { usePinnedCount } from '../../hooks/usePinnedCount';
+import { useRepo } from '../../providers/RepoProvider'; // Keep for milestone operations (hybrid)
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
 import { SpaceChatListModal } from '../../components/chat/SpaceChatListModal';
@@ -564,7 +566,7 @@ const NOTE_SAVE_LABELS = deriveDisplayLabels('note', 'reference', CANONICAL_TYPE
 
 export default function SpaceHomeScreen({ route, navigation }: Props) {
   const { spaceId } = route.params;
-  const repo = useRepo();
+  const repo = useRepo(); // Keep for milestone operations (hybrid)
   const { userId, user } = useAuth();
   const colorScheme = useColorScheme();
   const T = colorScheme === 'dark' ? darkTokens : lightTokens;
@@ -712,10 +714,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }
   }, [store, spaceChatRepo, spaceId]);
 
-  const { totalCount: notesCount } = useSpaceNotes(spaceId);
+  const notesCount = useSpaceNotesCount(spaceId);
   // Phase 12: Milestone and pinned hooks
   const { milestone, countdown, refetch: refetchMilestone } = useSpaceMilestone(spaceId);
-  const { count: pinnedCount, refetch: refetchPinned } = usePinnedCount(spaceId);
+  const { count: pinnedCount } = useSpacePinnedItems(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   // Phase 5: Removed searchVisible, searchQuery, searchActiveV33 state (search via filter bar now)
   const isFocused = useIsFocused();
@@ -1579,8 +1581,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         } else {
           await store.updateNote(item.id, { is_pinned: newPinned });
         }
-        // Refresh pinned count
-        refetchPinned();
+        // Store update triggers automatic UI refresh via subscription
         // Show feedback
         Alert.alert(
           newPinned ? 'Pinned!' : 'Unpinned',
@@ -1599,7 +1600,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         Alert.alert('Error', 'Failed to update pin status');
       }
     },
-    [store, refetchPinned],
+    [store],
   );
 
   const handleTodoLongPress = useCallback(
@@ -2046,7 +2047,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           spaceId={spaceId}
           onClose={handlePinnedModalClose}
           onItemPress={handlePinnedItemPress}
-          onUnpin={refetchPinned}
+          onUnpin={() => {}} // Store subscription handles reactive updates
         />
 
         {/* Milestone Entry Modal */}

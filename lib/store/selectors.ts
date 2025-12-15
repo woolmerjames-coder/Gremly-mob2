@@ -962,3 +962,48 @@ export const useSpaceLogs = (spaceId: string) =>
   useGremlyStore((state) => selectSpaceLogs(state, spaceId));
 export const useSpaceLists = (spaceId: string) =>
   useGremlyStore((state) => selectSpaceLists(state, spaceId));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADDITIONAL SPACE SELECTORS (for full SpaceHomeScreen migration)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Pinned items in a space */
+export const selectSpacePinnedItems = createSelector(
+  [selectTodos, selectHabits, selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
+  (todos, habits, notes, spaceId) => {
+    const pinnedTodos = todos.filter(
+      (t) => t.space_id === spaceId && t.is_pinned && !t.archived_at,
+    );
+    const pinnedHabits = habits.filter((h) => h.space_id === spaceId && h.is_pinned && !h.archived);
+    const pinnedNotes = notes.filter(
+      (n) => n.space_id === spaceId && n.is_pinned && !n.archived_at,
+    );
+    return {
+      todos: pinnedTodos,
+      habits: pinnedHabits,
+      notes: pinnedNotes,
+      count: pinnedTodos.length + pinnedHabits.length + pinnedNotes.length,
+    };
+  },
+);
+
+export const useSpacePinnedItems = (spaceId: string) =>
+  useGremlyStore((state) => selectSpacePinnedItems(state, spaceId));
+
+/** Space notes count (active, not archived) */
+export const selectSpaceNotesCount = createSelector(
+  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
+  (notes, spaceId) => notes.filter((n) => n.space_id === spaceId && !n.archived_at).length,
+);
+
+export const useSpaceNotesCount = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceNotesCount(state, spaceId));
+
+/** Journal count for a space */
+export const selectSpaceJournalCount = createSelector(
+  [selectNotesBySpace],
+  (notes): number => notes.filter((n) => n.subtype === 'journal').length,
+);
+
+export const useSpaceJournalCount = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceJournalCount(state, spaceId));
