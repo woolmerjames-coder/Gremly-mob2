@@ -29,6 +29,8 @@ import {
   Sparkles,
   Calendar,
   Lightbulb,
+  Archive,
+  Search,
 } from 'lucide-react-native';
 
 import { useRepo } from '../../providers/RepoProvider';
@@ -865,25 +867,151 @@ export default function HubScreen() {
   const hasResults = searchResults.length > 0;
 
   // =========================================================================
+  // Hub V1 Memoized Derived Data (avoid recomputing on every render)
+  // =========================================================================
+
+  // Memoize journal entries for Journal View
+  const journalEntries = useMemo(() => {
+    return hubV1Items
+      .filter(
+        (item) =>
+          item.type === 'note' && (item as import('../../lib/types').Note).subtype === 'journal',
+      )
+      .map((item) => {
+        const note = item as import('../../lib/types').Note;
+        return {
+          id: note.id,
+          date: note.date || '',
+          created_at: note.created_at || '',
+          body: note.body,
+          mood: note.mood,
+        };
+      });
+  }, [hubV1Items]);
+
+  // Memoize grouped journals for Journal View timeline
+  const groupedJournals = useMemo(() => {
+    return groupJournalsByMonth(journalEntries);
+  }, [journalEntries]);
+
+  // Memoize needs-attention items (max 2, only shown if qualifying items exist)
+  const needsAttentionItems = useMemo(() => {
+    const todos = hubV1Items.filter(
+      (item) => item.type === 'todo',
+    ) as import('../../lib/types').Todo[];
+    const notes = hubV1Items.filter(
+      (item) => item.type === 'note',
+    ) as import('../../lib/types').Note[];
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    return selectNeedsAttentionItems(todos, notes, {
+      nowIso: new Date().toISOString(),
+      todayDate: today,
+      todoStaleDays: 7,
+      ideaStaleDays: 14,
+      unorganizedStaleDays: 7,
+    }).slice(0, 2); // Max 2 items
+  }, [hubV1Items]);
+
+  // Memoize tag usage counts (for search suggestions)
+  const tagUsageData = useMemo(() => {
+    const tagUsageMap = new Map<string, number>();
+
+    for (const item of hubV1Items) {
+      const itemTagArray = (item as any).tags as string[] | null | undefined;
+      if (Array.isArray(itemTagArray)) {
+        for (const tagName of itemTagArray) {
+          const normalized = tagName.toLowerCase().trim();
+          if (normalized) {
+            tagUsageMap.set(normalized, (tagUsageMap.get(normalized) || 0) + 1);
+          }
+        }
+      }
+    }
+
+    // Sort by usage count descending, limit to 5
+    const sortedTags = Array.from(tagUsageMap.entries()).sort((a, b) => b[1] - a[1]);
+    const visibleTags = sortedTags.slice(0, 5);
+
+    return { visibleTags };
+  }, [hubV1Items]);
+
+  // =========================================================================
+  // Hub V1 Stable Callbacks
+  // =========================================================================
+
+  // Stable callback for toggling type filter
+  const toggleTypeFilter = useCallback((type: HubV1TypeFilter) => {
+    setHubV1Types((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        // Don't allow deselecting all types
+        if (next.size > 1) {
+          next.delete(type);
+        }
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  }, []);
+
+  // Stable callback for archived press
+  const handleArchivedPress = useCallback(() => {
+    navigation.navigate('ArchivedItems', undefined);
+  }, [navigation]);
+
+  // Stable callback for opening edit overlay
+  const handleOpenEdit = useCallback(
+    (record: AppRecord) => {
+      overlayController.openEdit({ record });
+    },
+    [overlayController],
+  );
+
+  // Mood color mapping (static, defined once)
+  const moodColors: Record<string, string> = useMemo(
+    () => ({
+      ecstatic: colors.success,
+      happy: colors.mint,
+      neutral: colors.gray400,
+      low: colors.periwinkle,
+      sad: colors.gray600,
+      tired: colors.gray400,
+    }),
+    [],
+  );
+
+  // Format reason label for attention items
+  const formatReasonLabel = useCallback((item: NeedsAttentionItem): string => {
+    if (item.reason === 'todo_missing_due_date_stale') {
+      return `No due date · ${item.ageInDays} days ago`;
+    }
+    if (item.reason === 'idea_stale') {
+      return `Idea · ${item.ageInDays} days ago`;
+    }
+    if (item.reason === 'unorganized_stale') {
+      return `Needs organizing · ${item.ageInDays} days ago`;
+    }
+    return `${item.ageInDays} days ago`;
+  }, []);
+
+  // Format journal date for display
+  const formatJournalDate = useCallback((dateStr: string): string => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'short' });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }, []);
+
+  // =========================================================================
   // Hub V1 Renderer (new design)
   // =========================================================================
   const renderHubV1 = () => {
-    // Toggle type filter
-    const toggleTypeFilter = (type: HubV1TypeFilter) => {
-      setHubV1Types((prev) => {
-        const next = new Set(prev);
-        if (next.has(type)) {
-          // Don't allow deselecting all types
-          if (next.size > 1) {
-            next.delete(type);
-          }
-        } else {
-          next.add(type);
-        }
-        return next;
-      });
-    };
-
     return (
       <SafeAreaView style={styles.safe} testID="hub-screen">
         <ScrollView
@@ -908,10 +1036,16 @@ export default function HubScreen() {
           </View>
 
           {/* View Toggle: All Items | Journal View */}
-          <View style={hubV1Styles.viewToggleContainer} testID="hub-view-toggle">
+          <View
+            style={[
+              hubV1Styles.viewToggleContainer,
+              isSearchMode && hubV1Styles.viewToggleContainerCompact,
+            ]}
+            testID="hub-view-toggle"
+          >
             {(['all', 'journals'] as const).map((mode) => {
               const isActive = hubView === mode;
-              const label = mode === 'all' ? 'All Items' : 'Journal View';
+              const label = mode === 'all' ? 'All Items' : 'Journals';
               const IconComponent = mode === 'all' ? LayoutGrid : BookOpen;
               return (
                 <Pressable
@@ -931,7 +1065,7 @@ export default function HubScreen() {
                     }
                     setHubView(mode);
                   }}
-                  style={hubV1Styles.viewToggleTab}
+                  style={[hubV1Styles.viewToggleTab, isActive && hubV1Styles.viewToggleTabActive]}
                   testID={`hub-view-toggle-${mode}`}
                   accessibilityRole="tab"
                   accessibilityLabel={label}
@@ -939,150 +1073,181 @@ export default function HubScreen() {
                 >
                   <IconComponent
                     size={16}
-                    color={isActive ? colors.deepTeal : colors.gray400}
+                    color={isActive ? colors.deepTeal : colors.gray600}
                     style={{ marginRight: spacing.xs }}
                   />
                   <Text
                     style={[
                       hubV1Styles.viewToggleTabText,
                       isActive
-                        ? hubV1Styles.viewToggleTabActive
-                        : hubV1Styles.viewToggleTabInactive,
+                        ? hubV1Styles.viewToggleTabTextActive
+                        : hubV1Styles.viewToggleTabTextInactive,
                     ]}
                   >
                     {label}
                   </Text>
-                  {isActive && <View style={hubV1Styles.viewToggleUnderline} />}
                 </Pressable>
               );
             })}
           </View>
 
-          {/* Filter Controls */}
-          <View style={hubV1Styles.filterContainer}>
-            {/* Type Chips (multi-select) */}
-            <View style={hubV1Styles.filterRow}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <TouchableOpacity
-                  style={[
-                    hubV1Styles.filterChip,
-                    hubV1Types.has('todo') && hubV1Styles.filterChipActive,
-                    hubView === 'journals' && hubV1Styles.filterChipDisabled,
-                  ]}
-                  onPress={() => toggleTypeFilter('todo')}
-                  disabled={hubView === 'journals'}
-                  testID="filter-type-todo"
-                >
-                  <Text
+          {/* Filter Controls - only shown in search mode for power users */}
+          {isSearchMode && (
+            <View style={hubV1Styles.filterContainer}>
+              {/* Type Chips (multi-select) */}
+              <View style={hubV1Styles.filterRow}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <TouchableOpacity
                     style={[
-                      hubV1Styles.filterChipText,
-                      hubV1Types.has('todo') && hubV1Styles.filterChipTextActive,
-                      hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                      hubV1Styles.filterChip,
+                      hubV1Types.has('todo') && hubV1Styles.filterChipActive,
+                      hubView === 'journals' && hubV1Styles.filterChipDisabled,
                     ]}
+                    onPress={() => toggleTypeFilter('todo')}
+                    disabled={hubView === 'journals'}
+                    testID="filter-type-todo"
+                    accessibilityRole="checkbox"
+                    accessibilityState={{
+                      checked: hubV1Types.has('todo'),
+                      disabled: hubView === 'journals',
+                    }}
+                    accessibilityLabel="Filter by To-Dos"
                   >
-                    To-Dos
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    hubV1Styles.filterChip,
-                    hubV1Types.has('habit') && hubV1Styles.filterChipActive,
-                    hubView === 'journals' && hubV1Styles.filterChipDisabled,
-                  ]}
-                  onPress={() => toggleTypeFilter('habit')}
-                  disabled={hubView === 'journals'}
-                  testID="filter-type-habit"
-                >
-                  <Text
+                    <Text
+                      style={[
+                        hubV1Styles.filterChipText,
+                        hubV1Types.has('todo') && hubV1Styles.filterChipTextActive,
+                        hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                      ]}
+                    >
+                      To-Dos
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[
-                      hubV1Styles.filterChipText,
-                      hubV1Types.has('habit') && hubV1Styles.filterChipTextActive,
-                      hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                      hubV1Styles.filterChip,
+                      hubV1Types.has('habit') && hubV1Styles.filterChipActive,
+                      hubView === 'journals' && hubV1Styles.filterChipDisabled,
                     ]}
+                    onPress={() => toggleTypeFilter('habit')}
+                    disabled={hubView === 'journals'}
+                    testID="filter-type-habit"
+                    accessibilityRole="checkbox"
+                    accessibilityState={{
+                      checked: hubV1Types.has('habit'),
+                      disabled: hubView === 'journals',
+                    }}
+                    accessibilityLabel="Filter by Habits"
                   >
-                    Habits
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    hubV1Styles.filterChip,
-                    hubView === 'journals'
-                      ? hubV1Styles.filterChipActive
-                      : hubV1Types.has('note') && hubV1Styles.filterChipActive,
-                  ]}
-                  onPress={() => toggleTypeFilter('note')}
-                  disabled={hubView === 'journals'}
-                  testID="filter-type-note"
-                >
-                  <Text
+                    <Text
+                      style={[
+                        hubV1Styles.filterChipText,
+                        hubV1Types.has('habit') && hubV1Styles.filterChipTextActive,
+                        hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                      ]}
+                    >
+                      Habits
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[
-                      hubV1Styles.filterChipText,
+                      hubV1Styles.filterChip,
                       hubView === 'journals'
-                        ? hubV1Styles.filterChipTextActive
-                        : hubV1Types.has('note') && hubV1Styles.filterChipTextActive,
+                        ? hubV1Styles.filterChipActive
+                        : hubV1Types.has('note') && hubV1Styles.filterChipActive,
                     ]}
+                    onPress={() => toggleTypeFilter('note')}
+                    disabled={hubView === 'journals'}
+                    testID="filter-type-note"
+                    accessibilityRole="checkbox"
+                    accessibilityState={{
+                      checked: hubView === 'journals' || hubV1Types.has('note'),
+                      disabled: hubView === 'journals',
+                    }}
+                    accessibilityLabel={
+                      hubView === 'journals' ? 'Filter by Journals' : 'Filter by Logs'
+                    }
                   >
-                    {hubView === 'journals' ? 'Journals' : 'Logs'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    hubV1Styles.filterChip,
-                    hubV1Types.has('space') && hubV1Styles.filterChipActive,
-                    hubView === 'journals' && hubV1Styles.filterChipDisabled,
-                  ]}
-                  onPress={() => toggleTypeFilter('space')}
-                  disabled={hubView === 'journals'}
-                  testID="filter-type-space"
-                >
-                  <Text
+                    <Text
+                      style={[
+                        hubV1Styles.filterChipText,
+                        hubView === 'journals'
+                          ? hubV1Styles.filterChipTextActive
+                          : hubV1Types.has('note') && hubV1Styles.filterChipTextActive,
+                      ]}
+                    >
+                      {hubView === 'journals' ? 'Journals' : 'Logs'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[
-                      hubV1Styles.filterChipText,
-                      hubV1Types.has('space') && hubV1Styles.filterChipTextActive,
-                      hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                      hubV1Styles.filterChip,
+                      hubV1Types.has('space') && hubV1Styles.filterChipActive,
+                      hubView === 'journals' && hubV1Styles.filterChipDisabled,
                     ]}
+                    onPress={() => toggleTypeFilter('space')}
+                    disabled={hubView === 'journals'}
+                    testID="filter-type-space"
+                    accessibilityRole="checkbox"
+                    accessibilityState={{
+                      checked: hubV1Types.has('space'),
+                      disabled: hubView === 'journals',
+                    }}
+                    accessibilityLabel="Filter by Spaces"
                   >
-                    Spaces
-                  </Text>
+                    <Text
+                      style={[
+                        hubV1Styles.filterChipText,
+                        hubV1Types.has('space') && hubV1Styles.filterChipTextActive,
+                        hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                      ]}
+                    >
+                      Spaces
+                    </Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </View>
+
+              {/* Time + Status Dropdowns Row */}
+              <View style={hubV1Styles.dropdownRow}>
+                {/* Time Range Dropdown */}
+                <TouchableOpacity
+                  style={hubV1Styles.dropdown}
+                  onPress={() => {
+                    // Cycle through time ranges for now (TODO: proper picker)
+                    const ranges: HubV1TimeRange[] = ['week', 'month', '3months', 'all'];
+                    const currentIdx = ranges.indexOf(hubV1TimeRange);
+                    const nextIdx = (currentIdx + 1) % ranges.length;
+                    setHubV1TimeRange(ranges[nextIdx]);
+                  }}
+                  testID="filter-time-dropdown"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Time filter: ${TIME_RANGE_LABELS[hubV1TimeRange]}. Tap to change.`}
+                >
+                  <Text style={hubV1Styles.dropdownText}>{TIME_RANGE_LABELS[hubV1TimeRange]}</Text>
+                  <Text style={hubV1Styles.dropdownArrow}>▾</Text>
                 </TouchableOpacity>
-              </ScrollView>
-            </View>
 
-            {/* Time + Status Dropdowns Row */}
-            <View style={hubV1Styles.dropdownRow}>
-              {/* Time Range Dropdown */}
-              <TouchableOpacity
-                style={hubV1Styles.dropdown}
-                onPress={() => {
-                  // Cycle through time ranges for now (TODO: proper picker)
-                  const ranges: HubV1TimeRange[] = ['week', 'month', '3months', 'all'];
-                  const currentIdx = ranges.indexOf(hubV1TimeRange);
-                  const nextIdx = (currentIdx + 1) % ranges.length;
-                  setHubV1TimeRange(ranges[nextIdx]);
-                }}
-                testID="filter-time-dropdown"
-              >
-                <Text style={hubV1Styles.dropdownText}>{TIME_RANGE_LABELS[hubV1TimeRange]}</Text>
-                <Text style={hubV1Styles.dropdownArrow}>▾</Text>
-              </TouchableOpacity>
-
-              {/* Status Dropdown */}
-              <TouchableOpacity
-                style={hubV1Styles.dropdown}
-                onPress={() => {
-                  // Cycle through statuses for now (TODO: proper picker)
-                  const statuses: HubV1StatusFilter[] = ['active', 'completed', 'all'];
-                  const currentIdx = statuses.indexOf(hubV1Status);
-                  const nextIdx = (currentIdx + 1) % statuses.length;
-                  setHubV1Status(statuses[nextIdx]);
-                }}
-                testID="filter-status-dropdown"
-              >
-                <Text style={hubV1Styles.dropdownText}>{STATUS_LABELS[hubV1Status]}</Text>
-                <Text style={hubV1Styles.dropdownArrow}>▾</Text>
-              </TouchableOpacity>
+                {/* Status Dropdown */}
+                <TouchableOpacity
+                  style={hubV1Styles.dropdown}
+                  onPress={() => {
+                    // Cycle through statuses for now (TODO: proper picker)
+                    const statuses: HubV1StatusFilter[] = ['active', 'completed', 'all'];
+                    const currentIdx = statuses.indexOf(hubV1Status);
+                    const nextIdx = (currentIdx + 1) % statuses.length;
+                    setHubV1Status(statuses[nextIdx]);
+                  }}
+                  testID="filter-status-dropdown"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Status filter: ${STATUS_LABELS[hubV1Status]}. Tap to change.`}
+                >
+                  <Text style={hubV1Styles.dropdownText}>{STATUS_LABELS[hubV1Status]}</Text>
+                  <Text style={hubV1Styles.dropdownArrow}>▾</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
 
           {/* Loading indicator */}
           {hubV1Loading && (
@@ -1125,24 +1290,43 @@ export default function HubScreen() {
                 </>
               ) : (
                 // No results empty state
-                <View style={hubV1Styles.noResultsContainer}>
-                  <Text style={hubV1Styles.noResultsTitle}>No results found</Text>
-                  <Text style={hubV1Styles.noResultsSubtitle}>Try one of these:</Text>
-                  <View style={hubV1Styles.suggestionsList}>
-                    <Text style={hubV1Styles.suggestionItem}>• Check your spelling</Text>
-                    <Text style={hubV1Styles.suggestionItem}>
-                      • Use fewer or different keywords
-                    </Text>
-                    <Text style={hubV1Styles.suggestionItem}>
-                      • Search with #tags for better results
-                    </Text>
+                <View style={hubV1Styles.noResultsContainer} testID="hub-no-results">
+                  <View style={hubV1Styles.noResultsHeader}>
+                    <Search size={18} color={colors.gray400} style={{ marginRight: spacing.xs }} />
+                    <Text style={hubV1Styles.noResultsTitle}>No matches</Text>
                   </View>
+                  <Text style={hubV1Styles.noResultsSubtitle}>
+                    Try different keywords or check archived items
+                  </Text>
+
+                  {/* Popular Tags suggestions */}
+                  {tagUsageData.visibleTags.length > 0 && (
+                    <View style={hubV1Styles.tagSuggestionsContainer}>
+                      <Text style={hubV1Styles.tagSuggestionsLabel}>Try a tag</Text>
+                      <View style={hubV1Styles.tagSuggestionsRow}>
+                        {tagUsageData.visibleTags.map(([tagName]) => (
+                          <TouchableOpacity
+                            key={tagName}
+                            style={hubV1Styles.tagSuggestionChip}
+                            onPress={() => setSearch(`#${tagName}`)}
+                            testID={`tag-suggestion-${tagName}`}
+                          >
+                            <Text style={hubV1Styles.tagSuggestionText}>#{tagName}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
                   <TouchableOpacity
                     style={hubV1Styles.archivedRow}
                     onPress={() => navigation.navigate('ArchivedItems', { searchQuery: search })}
                     testID="no-results-archived-link"
                   >
-                    <Text style={hubV1Styles.archivedRowText}>📦 Check archived items</Text>
+                    <View style={hubV1Styles.archivedRowContent}>
+                      <Archive size={16} color={colors.gray600} />
+                      <Text style={hubV1Styles.archivedRowText}>Check archived items</Text>
+                    </View>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1156,461 +1340,151 @@ export default function HubScreen() {
                 // ===============================================================
                 // JOURNAL VIEW: Timeline grouped by month
                 // ===============================================================
-                (() => {
-                  // Get journal entries from hubV1Items
-                  const journalEntries = hubV1Items
-                    .filter(
-                      (item) =>
-                        item.type === 'note' &&
-                        (item as import('../../lib/types').Note).subtype === 'journal',
-                    )
-                    .map((item) => {
-                      const note = item as import('../../lib/types').Note;
-                      return {
-                        id: note.id,
-                        date: note.date || '',
-                        created_at: note.created_at || '',
-                        body: note.body,
-                        mood: note.mood,
-                        _record: note, // Keep reference for opening overlay
-                      };
-                    });
-
-                  const monthGroups = groupJournalsByMonth(journalEntries);
-
-                  // Mood color mapping (subtle dots)
-                  const moodColors: Record<string, string> = {
-                    ecstatic: colors.success,
-                    happy: colors.mint,
-                    neutral: colors.gray400,
-                    low: colors.periwinkle,
-                    sad: colors.gray600,
-                    tired: colors.gray400,
-                  };
-
-                  if (journalEntries.length === 0) {
-                    return (
-                      <View style={hubV1Styles.journalViewEmpty} testID="journal-view-empty">
-                        <Text style={hubV1Styles.journalViewEmptyTitle}>No journals yet</Text>
-                        <Text style={hubV1Styles.journalViewEmptyHint}>
-                          Try dropping something like "Had a good day today."
-                        </Text>
-                      </View>
-                    );
-                  }
-
-                  return (
-                    <View style={hubV1Styles.journalViewContainer} testID="journal-view-timeline">
-                      {/* Analyze CTA Card */}
-                      <TouchableOpacity
-                        style={hubV1Styles.analyzeCta}
-                        onPress={async () => {
-                          setAnalyzeModalVisible(true);
-                          setAnalyzeLoading(true);
-                          setAnalyzeJournalCount(0);
-
-                          try {
-                            // Fetch journals from last 30 days
-                            const queryOpts = computeLast30DaysRange();
-                            const journals = await repo.listByType('note', queryOpts);
-                            // Sort oldest to newest for analysis
-                            journals.sort((a, b) => {
-                              const dateA = a.created_at || '';
-                              const dateB = b.created_at || '';
-                              return dateA.localeCompare(dateB);
-                            });
-                            setAnalyzeJournalCount(journals.length);
-                          } catch (err) {
-                            if (__DEV__) {
-                              console.error('[Hub] Failed to fetch journals for analysis:', err);
-                            }
-                          } finally {
-                            setAnalyzeLoading(false);
-                          }
-                        }}
-                        activeOpacity={0.8}
-                        testID="journal-analyze-cta"
-                      >
-                        <BarChart3
-                          size={20}
-                          color={colors.deepTeal}
-                          style={{ marginRight: spacing.sm }}
-                        />
-                        <Text style={hubV1Styles.analyzeCtaText}>Analyze last 30 days</Text>
-                      </TouchableOpacity>
-
-                      {monthGroups.map((group) => (
-                        <View key={group.monthKey} style={hubV1Styles.journalMonthGroup}>
-                          <Text style={hubV1Styles.journalMonthHeader}>{group.label}</Text>
-                          {group.journals.map((journal) => {
-                            const record = hubV1Items.find((i) => i.id === journal.id);
-                            return (
-                              <TouchableOpacity
-                                key={journal.id}
-                                style={hubV1Styles.journalTimelineRow}
-                                onPress={() => {
-                                  if (record) {
-                                    overlayController.openEdit({ record });
-                                  }
-                                }}
-                                testID={`journal-timeline-${journal.id}`}
-                              >
-                                <View style={hubV1Styles.journalTimelineDate}>
-                                  <Text style={hubV1Styles.journalTimelineDateText}>
-                                    {formatJournalDateHelper(journal.date || journal.created_at)}
-                                  </Text>
-                                </View>
-                                {journal.mood && (
-                                  <View
-                                    style={[
-                                      hubV1Styles.journalTimelineMood,
-                                      {
-                                        backgroundColor: moodColors[journal.mood] || colors.gray400,
-                                      },
-                                    ]}
-                                  />
-                                )}
-                                <Text style={hubV1Styles.journalTimelinePreview} numberOfLines={1}>
-                                  {getJournalPreview(journal.body, 60) || 'No content'}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
-                      ))}
+                journalEntries.length === 0 ? (
+                  <View style={hubV1Styles.journalViewEmpty} testID="journal-view-empty">
+                    <View style={hubV1Styles.journalViewEmptyHeader}>
+                      <BookOpen
+                        size={18}
+                        color={colors.gray400}
+                        style={{ marginRight: spacing.xs }}
+                      />
+                      <Text style={hubV1Styles.journalViewEmptyTitle}>No journals yet</Text>
                     </View>
-                  );
-                })()
+                    <Text style={hubV1Styles.journalViewEmptyHint}>
+                      Drop a thought to start journaling
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={hubV1Styles.journalViewContainer} testID="journal-view-timeline">
+                    {/* Analyze CTA Card */}
+                    <TouchableOpacity
+                      style={hubV1Styles.analyzeCta}
+                      onPress={async () => {
+                        setAnalyzeModalVisible(true);
+                        setAnalyzeLoading(true);
+                        setAnalyzeJournalCount(0);
+
+                        try {
+                          // Fetch journals from last 30 days
+                          const queryOpts = computeLast30DaysRange();
+                          const journals = await repo.listByType('note', queryOpts);
+                          // Sort oldest to newest for analysis
+                          journals.sort((a, b) => {
+                            const dateA = a.created_at || '';
+                            const dateB = b.created_at || '';
+                            return dateA.localeCompare(dateB);
+                          });
+                          setAnalyzeJournalCount(journals.length);
+                        } catch (err) {
+                          if (__DEV__) {
+                            console.error('[Hub] Failed to fetch journals for analysis:', err);
+                          }
+                        } finally {
+                          setAnalyzeLoading(false);
+                        }
+                      }}
+                      activeOpacity={0.8}
+                      testID="journal-analyze-cta"
+                    >
+                      <BarChart3
+                        size={20}
+                        color={colors.deepTeal}
+                        style={{ marginRight: spacing.sm }}
+                      />
+                      <Text style={hubV1Styles.analyzeCtaText}>Analyze last 30 days</Text>
+                    </TouchableOpacity>
+
+                    {groupedJournals.map((group) => (
+                      <View key={group.monthKey} style={hubV1Styles.journalMonthGroup}>
+                        <Text style={hubV1Styles.journalMonthHeader}>{group.label}</Text>
+                        {group.journals.map((journal) => {
+                          const record = hubV1Items.find((i) => i.id === journal.id);
+                          return (
+                            <TouchableOpacity
+                              key={journal.id}
+                              style={hubV1Styles.journalTimelineRow}
+                              onPress={() => {
+                                if (record) {
+                                  handleOpenEdit(record);
+                                }
+                              }}
+                              testID={`journal-timeline-${journal.id}`}
+                            >
+                              <View style={hubV1Styles.journalTimelineDate}>
+                                <Text style={hubV1Styles.journalTimelineDateText}>
+                                  {formatJournalDateHelper(journal.date || journal.created_at)}
+                                </Text>
+                              </View>
+                              {journal.mood && (
+                                <View
+                                  style={[
+                                    hubV1Styles.journalTimelineMood,
+                                    {
+                                      backgroundColor: moodColors[journal.mood] || colors.gray400,
+                                    },
+                                  ]}
+                                />
+                              )}
+                              <Text style={hubV1Styles.journalTimelinePreview} numberOfLines={1}>
+                                {getJournalPreview(journal.body, 60) || 'No content'}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </View>
+                )
               ) : (
                 // ===============================================================
                 // ALL ITEMS VIEW: Original Hub sections
                 // ===============================================================
                 <>
-                  {/* Section 1: So you don't forget... */}
-                  {(() => {
-                    // Compute needs-attention items
-                    const todos = hubV1Items.filter(
-                      (item) => item.type === 'todo',
-                    ) as import('../../lib/types').Todo[];
-                    const notes = hubV1Items.filter(
-                      (item) => item.type === 'note',
-                    ) as import('../../lib/types').Note[];
-                    const needsAttentionItems = selectNeedsAttentionItems(todos, notes, {
-                      nowIso: new Date().toISOString(),
-                      todoStaleDays: 5,
-                      ideaStaleDays: 7,
-                      includeNoSpace: false,
-                    }).slice(0, 3); // Max 3 items
-
-                    // Format reason text for display
-                    const formatReasonLabel = (item: NeedsAttentionItem): string => {
-                      if (item.reason === 'todo_missing_due_date_stale') {
-                        return `No due date · ${item.ageInDays} days ago`;
-                      }
-                      if (item.reason === 'idea_stale') {
-                        return `Idea · ${item.ageInDays} days ago`;
-                      }
-                      if (item.reason === 'no_space_assigned') {
-                        return `No space · ${item.ageInDays} days ago`;
-                      }
-                      return `${item.ageInDays} days ago`;
-                    };
-
-                    return (
-                      <View style={hubV1Styles.section}>
-                        <View style={hubV1Styles.sectionHeader}>
-                          <Text style={hubV1Styles.sectionTitle}>So you don't forget…</Text>
-                          {needsAttentionItems.length > 0 && (
-                            <View style={hubV1Styles.countBadge}>
-                              <Text style={hubV1Styles.countBadgeText}>
-                                {needsAttentionItems.length}
+                  {/* Section 1: So you don't forget... (only render if items exist) */}
+                  {needsAttentionItems.length > 0 && (
+                    <View style={hubV1Styles.section}>
+                      <View style={hubV1Styles.sectionHeader}>
+                        <Text style={hubV1Styles.sectionTitle}>So you don't forget…</Text>
+                        <View style={hubV1Styles.countBadge}>
+                          <Text style={hubV1Styles.countBadgeText}>
+                            {needsAttentionItems.length}
+                          </Text>
+                        </View>
+                      </View>
+                      {needsAttentionItems.map((attentionItem) => {
+                        const record = attentionItem.item;
+                        const hubItem = toHubItem(record);
+                        return (
+                          <TouchableOpacity
+                            key={record.id}
+                            style={hubV1Styles.attentionRow}
+                            onPress={() => handleOpenEdit(record)}
+                            testID={`attention-item-${record.id}`}
+                          >
+                            <View style={hubV1Styles.attentionContent}>
+                              <Text style={hubV1Styles.attentionTitle} numberOfLines={1}>
+                                {hubItem.title}
+                              </Text>
+                              <Text style={hubV1Styles.attentionReason}>
+                                {formatReasonLabel(attentionItem)}
                               </Text>
                             </View>
-                          )}
-                        </View>
-                        {needsAttentionItems.length > 0 ? (
-                          needsAttentionItems.map((attentionItem) => {
-                            const record = attentionItem.item;
-                            const hubItem = toHubItem(record);
-                            return (
-                              <TouchableOpacity
-                                key={record.id}
-                                style={hubV1Styles.attentionRow}
-                                onPress={() => {
-                                  overlayController.openEdit({ record });
-                                }}
-                                testID={`attention-item-${record.id}`}
-                              >
-                                <View style={hubV1Styles.attentionContent}>
-                                  <Text style={hubV1Styles.attentionTitle} numberOfLines={1}>
-                                    {hubItem.title}
-                                  </Text>
-                                  <Text style={hubV1Styles.attentionReason}>
-                                    {formatReasonLabel(attentionItem)}
-                                  </Text>
-                                </View>
-                              </TouchableOpacity>
-                            );
-                          })
-                        ) : (
-                          <View style={hubV1Styles.attentionEmptyState}>
-                            <Text style={hubV1Styles.attentionEmptyText}>
-                              Nothing floating around — you're on top of it ✨
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })()}
-
-                  {/* Section 2: Recent Journals */}
-                  {(() => {
-                    // Filter journal entries from hubV1Items
-                    const journalEntries = hubV1Items
-                      .filter(
-                        (item) =>
-                          item.type === 'note' &&
-                          (item as import('../../lib/types').Note).subtype === 'journal',
-                      )
-                      .slice(0, 7) as import('../../lib/types').Note[];
-
-                    // Mood color mapping (subtle dots)
-                    const moodColors: Record<string, string> = {
-                      ecstatic: colors.success,
-                      happy: colors.mint,
-                      neutral: colors.gray400,
-                      low: colors.periwinkle,
-                      sad: colors.gray600,
-                      tired: colors.gray400,
-                    };
-
-                    // Format date for display
-                    const formatJournalDate = (dateStr: string): string => {
-                      const date = new Date(dateStr);
-                      const now = new Date();
-                      const diffMs = now.getTime() - date.getTime();
-                      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-                      if (diffDays === 0) return 'Today';
-                      if (diffDays === 1) return 'Yesterday';
-                      if (diffDays < 7)
-                        return date.toLocaleDateString('en-US', { weekday: 'short' });
-                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                    };
-
-                    // Get first line preview
-                    const getPreview = (body: string | null | undefined): string => {
-                      if (!body) return '';
-                      const firstLine = body.split('\n')[0].trim();
-                      return firstLine.length > 50 ? firstLine.slice(0, 47) + '...' : firstLine;
-                    };
-
-                    return (
-                      <View style={hubV1Styles.section}>
-                        <Text style={hubV1Styles.sectionTitle}>Recent Journals</Text>
-                        {journalEntries.length > 0 ? (
-                          <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            style={hubV1Styles.journalRail}
-                            contentContainerStyle={hubV1Styles.journalRailContent}
-                          >
-                            {journalEntries.map((journal) => (
-                              <TouchableOpacity
-                                key={journal.id}
-                                style={hubV1Styles.journalCard}
-                                onPress={() => {
-                                  overlayController.openEdit({ record: journal });
-                                }}
-                                testID={`journal-card-${journal.id}`}
-                              >
-                                <View style={hubV1Styles.journalCardHeader}>
-                                  <Text style={hubV1Styles.journalCardDate}>
-                                    {formatJournalDate(journal.date || journal.created_at)}
-                                  </Text>
-                                  {journal.mood && (
-                                    <View
-                                      style={[
-                                        hubV1Styles.moodDot,
-                                        {
-                                          backgroundColor:
-                                            moodColors[journal.mood] || colors.gray400,
-                                        },
-                                      ]}
-                                    />
-                                  )}
-                                </View>
-                                <Text style={hubV1Styles.journalCardPreview} numberOfLines={2}>
-                                  {getPreview(journal.body) || 'No content'}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                        ) : (
-                          <View style={hubV1Styles.journalEmptyState}>
-                            <Text style={hubV1Styles.journalEmptyText}>
-                              No journals yet. Try dropping something like "Had a good day today."
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })()}
-
-                  {/* Section 3: Popular Tags */}
-                  {(() => {
-                    // Compute tag usage counts from hubV1Items
-                    const tagUsageMap = new Map<string, number>();
-
-                    for (const item of hubV1Items) {
-                      const itemTagArray = (item as any).tags as string[] | null | undefined;
-                      if (Array.isArray(itemTagArray)) {
-                        for (const tagName of itemTagArray) {
-                          const normalized = tagName.toLowerCase().trim();
-                          if (normalized) {
-                            tagUsageMap.set(normalized, (tagUsageMap.get(normalized) || 0) + 1);
-                          }
-                        }
-                      }
-                    }
-
-                    // Sort by usage count descending
-                    const sortedTags = Array.from(tagUsageMap.entries()).sort(
-                      (a, b) => b[1] - a[1],
-                    );
-
-                    const visibleTags = sortedTags.slice(0, 5);
-                    const remainingCount = Math.max(0, sortedTags.length - 5);
-
-                    // Check if a tag is currently selected
-                    const isTagSelected = (tagName: string): boolean => {
-                      return selectedTagFilters.some(
-                        (f) => f.toLowerCase() === tagName.toLowerCase(),
-                      );
-                    };
-
-                    // Toggle tag filter
-                    const handleTagPress = (tagName: string) => {
-                      const normalized = tagName.toLowerCase();
-                      if (isTagSelected(normalized)) {
-                        setSelectedTagFilters((prev) =>
-                          prev.filter((t) => t.toLowerCase() !== normalized),
+                          </TouchableOpacity>
                         );
-                      } else {
-                        setSelectedTagFilters((prev) => [...prev, normalized]);
-                      }
-                    };
+                      })}
+                    </View>
+                  )}
 
-                    return (
-                      <View style={hubV1Styles.section}>
-                        <Text style={hubV1Styles.sectionTitle}>Popular Tags</Text>
-                        {visibleTags.length > 0 ? (
-                          <View style={hubV1Styles.tagsContainer}>
-                            {visibleTags.map(([tagName, count]) => (
-                              <TouchableOpacity
-                                key={tagName}
-                                style={[
-                                  hubV1Styles.tagChip,
-                                  isTagSelected(tagName) && hubV1Styles.tagChipSelected,
-                                ]}
-                                onPress={() => handleTagPress(tagName)}
-                                testID={`popular-tag-${tagName}`}
-                              >
-                                <Text
-                                  style={[
-                                    hubV1Styles.tagChipText,
-                                    isTagSelected(tagName) && hubV1Styles.tagChipTextSelected,
-                                  ]}
-                                >
-                                  #{tagName}
-                                </Text>
-                                <Text
-                                  style={[
-                                    hubV1Styles.tagChipCount,
-                                    isTagSelected(tagName) && hubV1Styles.tagChipCountSelected,
-                                  ]}
-                                >
-                                  {count}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                            {remainingCount > 0 && (
-                              <TouchableOpacity
-                                style={hubV1Styles.tagChipMore}
-                                onPress={() => {
-                                  // TODO Phase 3: Open full tags modal
-                                  if (__DEV__) {
-                                    console.log('[Hub] TODO: Open full tags modal');
-                                  }
-                                }}
-                                testID="popular-tags-more"
-                              >
-                                <Text style={hubV1Styles.tagChipMoreText}>
-                                  +{remainingCount} more
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                        ) : (
-                          <View style={hubV1Styles.tagsEmptyState}>
-                            <Text style={hubV1Styles.tagsEmptyText}>
-                              No tags yet. Add #tags to your items to organize them.
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })()}
-
-                  {/* Section 4: Browse by Space (secondary styling) */}
-                  {(() => {
-                    // Compute item counts per space from hubV1Items
-                    const spaceCounts = new Map<string, number>();
-                    for (const item of hubV1Items) {
-                      if (item.space_id) {
-                        spaceCounts.set(item.space_id, (spaceCounts.get(item.space_id) || 0) + 1);
-                      }
-                    }
-
-                    return (
-                      <View style={hubV1Styles.section}>
-                        <Text style={hubV1Styles.sectionTitleSecondary}>Browse by Space</Text>
-                        {spaces.length > 0 ? (
-                          <View style={hubV1Styles.spacesGrid}>
-                            {spaces.map((space) => (
-                              <TouchableOpacity
-                                key={space.id}
-                                style={hubV1Styles.spaceCard}
-                                onPress={() =>
-                                  navigation.navigate('SpaceHome', { spaceId: space.id })
-                                }
-                                testID={`hub-space-card-${space.id}`}
-                              >
-                                <Text style={hubV1Styles.spaceCardName} numberOfLines={1}>
-                                  {space.name}
-                                </Text>
-                                <Text style={hubV1Styles.spaceCardCount}>
-                                  {spaceCounts.get(space.id) || 0} items
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        ) : (
-                          <View style={hubV1Styles.spacesEmptyState}>
-                            <Text style={hubV1Styles.spacesEmptyText}>No spaces yet</Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })()}
-
-                  {/* Section 5: Archived drawer */}
+                  {/* Archived drawer */}
                   <TouchableOpacity
                     style={hubV1Styles.archivedRow}
-                    onPress={() => navigation.navigate('ArchivedItems', undefined)}
+                    onPress={handleArchivedPress}
                     testID="hub-archived-btn"
                   >
-                    <Text style={hubV1Styles.archivedRowText}>📦 Check archived items</Text>
+                    <View style={hubV1Styles.archivedRowContent}>
+                      <Archive size={16} color={colors.gray600} />
+                      <Text style={hubV1Styles.archivedRowText}>Check archived items</Text>
+                    </View>
                   </TouchableOpacity>
                 </>
               )}
@@ -1634,6 +1508,9 @@ export default function HubScreen() {
                 onPress={() => setAnalyzeModalVisible(false)}
                 style={hubV1Styles.analyzeModalClose}
                 testID="journal-analyze-modal-close"
+                accessibilityLabel="Close journal insights"
+                accessibilityRole="button"
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
                 <X size={24} color={colors.ink} />
               </TouchableOpacity>
@@ -2194,7 +2071,13 @@ const hubV1Styles = StyleSheet.create({
   // View Toggle (All Items | Journal View)
   viewToggleContainer: {
     flexDirection: 'row',
-    marginTop: spacing.md,
+    marginTop: spacing['2xl'], // Increased spacing from search for Hub Mode
+    backgroundColor: colors.gray100,
+    borderRadius: radii.xl,
+    padding: spacing.xs,
+  },
+  viewToggleContainerCompact: {
+    marginTop: spacing.lg, // Tighter spacing when filters are shown (search mode)
   },
   viewToggleTab: {
     flex: 1,
@@ -2202,47 +2085,46 @@ const hubV1Styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.sm,
-  },
-  viewToggleTabText: {
-    fontSize: 15,
-    textAlign: 'center',
+    borderRadius: radii.lg,
   },
   viewToggleTabActive: {
+    backgroundColor: colors.white,
+  },
+  viewToggleTabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  viewToggleTabTextActive: {
     color: colors.deepTeal,
     fontWeight: '600',
   },
-  viewToggleTabInactive: {
-    color: colors.gray400,
-    fontWeight: '400',
-  },
-  viewToggleUnderline: {
-    position: 'absolute',
-    bottom: 0,
-    height: 2,
-    width: 60,
-    backgroundColor: colors.deepTeal,
-    borderRadius: 1,
+  viewToggleTabTextInactive: {
+    color: colors.gray600,
   },
   hubModeContainer: {
-    marginTop: spacing.lg,
+    marginTop: spacing['2xl'], // Increased breathing room in Hub Mode
   },
   searchModeContainer: {
     marginTop: spacing.md,
   },
   section: {
-    marginTop: spacing.xl,
+    marginTop: spacing['2xl'],
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '600',
-    color: colors.ink,
-    marginBottom: spacing.sm,
+    color: colors.gray600,
+    marginBottom: spacing.md,
+    letterSpacing: 0.2,
   },
   sectionTitleSecondary: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '500',
-    color: colors.gray600,
+    color: colors.gray400,
     marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   placeholderSection: {
     backgroundColor: colors.gray100,
@@ -2270,6 +2152,11 @@ const hubV1Styles = StyleSheet.create({
     borderRadius: radii.lg,
     alignItems: 'center',
   },
+  archivedRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   archivedRowText: {
     fontSize: 15,
     color: colors.gray600,
@@ -2290,62 +2177,60 @@ const hubV1Styles = StyleSheet.create({
   noResultsContainer: {
     marginTop: spacing.xl,
     alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  noResultsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
   },
   noResultsTitle: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '600',
-    color: colors.ink,
-    marginBottom: spacing.sm,
+    color: colors.gray600,
   },
   noResultsSubtitle: {
-    fontSize: 14,
-    color: colors.gray600,
-    marginBottom: spacing.md,
-  },
-  suggestionsList: {
-    alignSelf: 'stretch',
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.md,
-  },
-  suggestionItem: {
-    fontSize: 14,
-    color: colors.gray600,
-    marginBottom: spacing.xs,
+    fontSize: 13,
+    color: colors.gray400,
+    marginBottom: spacing.lg,
+    textAlign: 'center',
   },
   // Filter controls
   filterContainer: {
-    marginTop: spacing.md,
+    marginTop: spacing.lg,
   },
   filterRow: {
     flexDirection: 'row',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
   filterChip: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
     borderRadius: radii.xl,
-    backgroundColor: colors.gray100,
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.gray200,
-    marginRight: spacing.xs,
+    marginRight: spacing.sm,
   },
   filterChipActive: {
     backgroundColor: colors.deepTeal,
     borderColor: colors.deepTeal,
   },
   filterChipText: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     color: colors.gray600,
   },
   filterChipTextActive: {
     color: colors.white,
   },
   filterChipDisabled: {
-    opacity: 0.4,
+    backgroundColor: colors.gray100,
+    borderColor: colors.gray100,
   },
   filterChipTextDisabled: {
     color: colors.gray400,
+    fontStyle: 'italic',
   },
   dropdownRow: {
     flexDirection: 'row',
@@ -2359,10 +2244,10 @@ const hubV1Styles = StyleSheet.create({
     borderRadius: radii.lg,
     backgroundColor: colors.white,
     borderWidth: 1,
-    borderColor: colors.gray200,
+    borderColor: colors.gray100,
   },
   dropdownText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '500',
     color: colors.ink,
     marginRight: spacing.xs,
@@ -2378,192 +2263,63 @@ const hubV1Styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   countBadge: {
-    marginLeft: spacing.sm,
-    backgroundColor: colors.gray200,
-    paddingHorizontal: spacing.sm,
+    marginLeft: spacing.xs,
+    backgroundColor: colors.gray100,
+    paddingHorizontal: spacing.xs,
     paddingVertical: 2,
-    borderRadius: radii.lg,
+    borderRadius: radii.sm,
   },
   countBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.gray600,
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.gray400,
   },
   // Attention row (needs attention items)
   attentionRow: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.cream,
     borderRadius: radii.lg,
     padding: spacing.md,
     marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.gray100,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.gray200,
   },
   attentionContent: {
     flex: 1,
   },
   attentionTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '500',
     color: colors.ink,
     marginBottom: 2,
   },
   attentionReason: {
-    fontSize: 13,
-    color: colors.gray600,
-  },
-  attentionEmptyState: {
-    backgroundColor: colors.gray100,
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    alignItems: 'center',
-  },
-  attentionEmptyText: {
-    fontSize: 14,
-    color: colors.gray600,
-    textAlign: 'center',
-  },
-  // Journal rail
-  journalRail: {
-    marginHorizontal: -spacing.md, // Extend to edges
-  },
-  journalRailContent: {
-    paddingHorizontal: spacing.md,
-    gap: spacing.sm,
-  },
-  journalCard: {
-    width: 140,
-    backgroundColor: colors.white,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.gray100,
-  },
-  journalCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.xs,
-  },
-  journalCardDate: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.ink,
-  },
-  moodDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  journalCardPreview: {
-    fontSize: 13,
-    color: colors.gray600,
-    lineHeight: 18,
-  },
-  journalEmptyState: {
-    backgroundColor: colors.gray100,
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    alignItems: 'center',
-  },
-  journalEmptyText: {
-    fontSize: 14,
-    color: colors.gray600,
-    textAlign: 'center',
-  },
-  // Popular Tags section
-  tagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  tagChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: radii.xl,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.gray200,
-    gap: spacing.xs,
-  },
-  tagChipSelected: {
-    backgroundColor: colors.deepTeal,
-    borderColor: colors.deepTeal,
-  },
-  tagChipText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.ink,
-  },
-  tagChipTextSelected: {
-    color: colors.white,
-  },
-  tagChipCount: {
     fontSize: 12,
     color: colors.gray400,
   },
-  tagChipCountSelected: {
-    color: colors.white,
-    opacity: 0.8,
+  // Tag suggestions (search no-results state) - de-emphasized styling
+  tagSuggestionsContainer: {
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
   },
-  tagChipMore: {
-    backgroundColor: colors.gray100,
-    borderRadius: radii.xl,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.gray200,
+  tagSuggestionsLabel: {
+    fontSize: 12,
+    color: colors.gray400,
+    marginBottom: spacing.xs,
   },
-  tagChipMoreText: {
-    fontSize: 13,
-    color: colors.gray600,
-    fontWeight: '500',
-  },
-  tagsEmptyState: {
-    backgroundColor: colors.gray100,
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    alignItems: 'center',
-  },
-  tagsEmptyText: {
-    fontSize: 14,
-    color: colors.gray600,
-    textAlign: 'center',
-  },
-  // Browse by Space section (secondary/de-emphasized styling)
-  spacesGrid: {
+  tagSuggestionsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
-  spaceCard: {
+  tagSuggestionChip: {
     backgroundColor: colors.gray100,
     borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    minWidth: 100,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
   },
-  spaceCardName: {
-    fontSize: 13,
-    fontWeight: '500',
+  tagSuggestionText: {
+    fontSize: 12,
     color: colors.gray600,
-    marginBottom: 2,
-  },
-  spaceCardCount: {
-    fontSize: 11,
-    color: colors.gray400,
-  },
-  spacesEmptyState: {
-    backgroundColor: colors.gray100,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    alignItems: 'center',
-  },
-  spacesEmptyText: {
-    fontSize: 13,
-    color: colors.gray400,
-    textAlign: 'center',
   },
   // Journal View Timeline styles
   journalViewContainer: {
@@ -2571,18 +2327,22 @@ const hubV1Styles = StyleSheet.create({
   },
   journalViewEmpty: {
     marginTop: spacing.xl,
-    padding: spacing.xl,
+    paddingHorizontal: spacing.lg,
     alignItems: 'center',
   },
+  journalViewEmptyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
   journalViewEmptyTitle: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '600',
-    color: colors.ink,
-    marginBottom: spacing.sm,
+    color: colors.gray600,
   },
   journalViewEmptyHint: {
-    fontSize: 14,
-    color: colors.gray600,
+    fontSize: 13,
+    color: colors.gray400,
     textAlign: 'center',
   },
   journalMonthGroup: {

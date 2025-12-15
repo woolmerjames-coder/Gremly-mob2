@@ -341,7 +341,7 @@ describe('Today Screen - Grouping Features', () => {
 
       const { getByText } = renderWithProviders(<TodayScreen />);
 
-      expect(getByText('All clear for now ✨')).toBeTruthy();
+      expect(getByText('All clear for now')).toBeTruthy();
     });
 
     it('does not render group headers when no todos', () => {

@@ -358,12 +358,13 @@ export default function ArchivedItemsScreen() {
       // Nothing archived yet
       return (
         <View style={styles.emptyState} testID="archived-empty-state">
-          <Archive size={48} color={colors.gray400} />
-          <Text style={styles.emptyTitle}>Nothing archived yet</Text>
-          <Text style={styles.emptySubtitle}>
-            When you archive items from your Hub, they will appear here. You can restore them
-            anytime.
-          </Text>
+          <View style={styles.emptyHeader}>
+            <Archive size={20} color={colors.gray400} style={{ marginRight: spacing.sm }} />
+            <Text style={styles.emptyTitle} testID="archived-empty-title">
+              Nothing archived
+            </Text>
+          </View>
+          <Text style={styles.emptySubtitle}>Archived items will appear here</Text>
           <TouchableOpacity
             style={styles.backToHubRow}
             onPress={handleBackToHub}
@@ -379,11 +380,11 @@ export default function ArchivedItemsScreen() {
     // Search returned no results
     return (
       <View style={styles.emptyState} testID="archived-no-results">
-        <Search size={48} color={colors.gray400} />
-        <Text style={styles.emptyTitle}>No results found</Text>
-        <Text style={styles.emptySubtitle}>
-          Try adjusting your search or filters to find what you're looking for.
-        </Text>
+        <View style={styles.emptyHeader}>
+          <Search size={20} color={colors.gray400} style={{ marginRight: spacing.sm }} />
+          <Text style={styles.emptyTitle}>No matches</Text>
+        </View>
+        <Text style={styles.emptySubtitle}>Try different keywords or filters</Text>
         <TouchableOpacity
           style={styles.clearSearchButton}
           onPress={() => setSearch('')}
@@ -410,6 +411,9 @@ export default function ArchivedItemsScreen() {
           onPress={() => navigation.goBack()}
           style={styles.backButton}
           testID="archived-back-button"
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <ChevronLeft size={24} color={colors.deepTeal} />
         </TouchableOpacity>
@@ -442,6 +446,9 @@ export default function ArchivedItemsScreen() {
               style={[styles.filterChip, selectedTypes.has('todo') && styles.filterChipActive]}
               onPress={() => toggleTypeFilter('todo')}
               testID="archived-filter-type-todo"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: selectedTypes.has('todo') }}
+              accessibilityLabel="Filter by To-Dos"
             >
               <Text
                 style={[
@@ -456,6 +463,9 @@ export default function ArchivedItemsScreen() {
               style={[styles.filterChip, selectedTypes.has('habit') && styles.filterChipActive]}
               onPress={() => toggleTypeFilter('habit')}
               testID="archived-filter-type-habit"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: selectedTypes.has('habit') }}
+              accessibilityLabel="Filter by Habits"
             >
               <Text
                 style={[
@@ -470,6 +480,9 @@ export default function ArchivedItemsScreen() {
               style={[styles.filterChip, selectedTypes.has('note') && styles.filterChipActive]}
               onPress={() => toggleTypeFilter('note')}
               testID="archived-filter-type-note"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: selectedTypes.has('note') }}
+              accessibilityLabel="Filter by Logs"
             >
               <Text
                 style={[
@@ -484,6 +497,9 @@ export default function ArchivedItemsScreen() {
               style={[styles.filterChip, selectedTypes.has('space') && styles.filterChipActive]}
               onPress={() => toggleTypeFilter('space')}
               testID="archived-filter-type-space"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: selectedTypes.has('space') }}
+              accessibilityLabel="Filter by Spaces"
             >
               <Text
                 style={[
@@ -510,6 +526,8 @@ export default function ArchivedItemsScreen() {
               setTimeRange(ranges[nextIdx]);
             }}
             testID="archived-filter-time-dropdown"
+            accessibilityRole="button"
+            accessibilityLabel={`Time filter: ${TIME_RANGE_LABELS[timeRange]}. Tap to change.`}
           >
             <Text style={styles.dropdownText}>{TIME_RANGE_LABELS[timeRange]}</Text>
             <Text style={styles.dropdownArrow}>▾</Text>
@@ -526,6 +544,8 @@ export default function ArchivedItemsScreen() {
               setStatusFilter(statuses[nextIdx]);
             }}
             testID="archived-filter-status-dropdown"
+            accessibilityRole="button"
+            accessibilityLabel={`Status filter: ${STATUS_LABELS[statusFilter]}. Tap to change.`}
           >
             <Text style={styles.dropdownText}>{STATUS_LABELS[statusFilter]}</Text>
             <Text style={styles.dropdownArrow}>▾</Text>
@@ -566,6 +586,8 @@ export default function ArchivedItemsScreen() {
                     onPress={() => handleRestore(item)}
                     disabled={actionLoading}
                     testID={`archived-restore-${item.id}`}
+                    accessibilityLabel={`Restore ${getItemTitle(item)}`}
+                    accessibilityRole="button"
                   >
                     <RotateCcw size={16} color={colors.deepTeal} />
                     <Text style={styles.actionButtonText}>Restore</Text>
@@ -575,6 +597,8 @@ export default function ArchivedItemsScreen() {
                     onPress={() => handleDeletePress(item)}
                     disabled={actionLoading}
                     testID={`archived-delete-${item.id}`}
+                    accessibilityLabel={`Delete ${getItemTitle(item)} permanently`}
+                    accessibilityRole="button"
                   >
                     <Trash2 size={16} color={colors.warning} />
                     <Text style={[styles.actionButtonText, styles.deleteButtonText]}>Delete</Text>
@@ -591,7 +615,7 @@ export default function ArchivedItemsScreen() {
                 onPress={handleBackToHub}
                 testID="archived-list-back-to-hub"
               >
-                <ArrowLeft size={14} color={colors.gray500} />
+                <ArrowLeft size={14} color={colors.gray600} />
                 <Text style={styles.listFooterHintText}>Back to Hub</Text>
               </TouchableOpacity>
             }
@@ -623,6 +647,8 @@ export default function ArchivedItemsScreen() {
                 onPress={cancelDelete}
                 disabled={actionLoading}
                 testID="delete-modal-cancel"
+                accessibilityLabel="Cancel deletion"
+                accessibilityRole="button"
               >
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
@@ -631,6 +657,8 @@ export default function ArchivedItemsScreen() {
                 onPress={confirmDelete}
                 disabled={actionLoading}
                 testID="delete-modal-confirm"
+                accessibilityLabel="Confirm permanent deletion"
+                accessibilityRole="button"
               >
                 {actionLoading ? (
                   <ActivityIndicator size="small" color={colors.white} />
@@ -661,9 +689,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.gray200,
+    paddingVertical: spacing.md,
   },
   backButton: {
     padding: spacing.xs,
@@ -679,7 +705,7 @@ const styles = StyleSheet.create({
   // Search
   searchContainer: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     backgroundColor: colors.cream,
   },
   searchInputWrapper: {
@@ -703,19 +729,17 @@ const styles = StyleSheet.create({
   // Filter Controls
   filterContainer: {
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
     backgroundColor: colors.cream,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.gray200,
   },
   filterRow: {
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
   filterChip: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
     borderRadius: radii.xl,
-    backgroundColor: colors.gray100,
+    backgroundColor: colors.white,
     marginRight: spacing.sm,
     borderWidth: 1,
     borderColor: colors.gray200,
@@ -740,11 +764,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.lg,
     backgroundColor: colors.white,
     borderWidth: 1,
-    borderColor: colors.gray200,
+    borderColor: colors.gray100,
   },
   dropdownText: {
     fontSize: 14,
@@ -761,11 +785,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cream,
   },
   listContent: {
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.lg,
   },
   // Item Container with Action Row
   itemContainer: {
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
   actionRow: {
     flexDirection: 'row',
@@ -806,7 +831,7 @@ const styles = StyleSheet.create({
   },
   resultsCountText: {
     fontSize: 13,
-    color: colors.gray500,
+    color: colors.gray600,
     fontWeight: '500',
   },
   // Empty State
@@ -816,18 +841,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
   },
+  emptyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    color: colors.ink,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
+    color: colors.gray600,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: colors.gray600,
+    color: colors.gray400,
     textAlign: 'center',
-    lineHeight: 22,
   },
   backToHubRow: {
     flexDirection: 'row',
@@ -861,7 +888,7 @@ const styles = StyleSheet.create({
   },
   listFooterHintText: {
     fontSize: 13,
-    color: colors.gray500,
+    color: colors.gray600,
     marginLeft: spacing.xs,
   },
   // Delete Confirmation Modal

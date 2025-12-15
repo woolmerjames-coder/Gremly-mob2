@@ -151,7 +151,7 @@ describe('ArchivedItemsScreen', () => {
     it('shows empty state when no archived items exist', async () => {
       mockListByType.mockResolvedValue([]);
 
-      const { getByTestId, getByText } = render(
+      const { getByTestId } = render(
         <TestWrapper>
           <ArchivedItemsScreen />
         </TestWrapper>,
@@ -159,7 +159,7 @@ describe('ArchivedItemsScreen', () => {
 
       await waitFor(() => {
         expect(getByTestId('archived-empty-state')).toBeTruthy();
-        expect(getByText('Nothing archived yet')).toBeTruthy();
+        expect(getByTestId('archived-empty-title')).toBeTruthy();
       });
     });
 
