@@ -23,8 +23,8 @@ function formatReasonLabel(item: NeedsAttentionItem): string {
   if (item.reason === 'idea_stale') {
     return `Idea · ${item.ageInDays} days ago`;
   }
-  if (item.reason === 'no_space_assigned') {
-    return `No space · ${item.ageInDays} days ago`;
+  if (item.reason === 'unorganized_stale') {
+    return `Needs organizing · ${item.ageInDays} days ago`;
   }
   return `${item.ageInDays} days ago`;
 }

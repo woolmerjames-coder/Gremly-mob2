@@ -60,7 +60,7 @@ export default function TodaySuggestionCard({
           <View style={styles.content}>
             <View style={styles.titleRow}>
               <View testID="suggestion-sparkle-icon">
-                <Sparkles size={16} color={t.colors.accentPeri} style={styles.sparkle} />
+                <Sparkles size={16} color={t.colors.accentPeri} />
               </View>
               <Text variant="body" style={styles.title}>
                 {suggestion.title}
@@ -101,9 +101,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  sparkle: {
-    fontSize: 20,
-  },
+
   title: {
     flex: 1,
     fontWeight: '600',
