@@ -52,7 +52,7 @@ import {
   selectNeedsAttentionItems,
   type NeedsAttentionItem,
 } from '../../lib/selectors/hubSelectors';
-import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+// Store provides real-time updates - no manual reload listeners needed
 import { getNoteLabel } from '../../lib/canonicalTypes';
 import { normalizeSearchTagArray, normalizeSearchTagInput } from '../../lib/tags/search';
 import { parseSearchTokens } from '../../lib/tags/parseSearch';
@@ -195,15 +195,6 @@ export default function HubScreen() {
     'all',
   );
   const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([]);
-  const [itemTags, setItemTags] = useState<Map<string, Tag[]>>(new Map());
-  const hasFetchedTagsRef = useRef(false);
-  const [listsData, setListsData] = useState<{
-    shopping: { incomplete: number; total: number };
-    packing: { incomplete: number; total: number };
-  }>({
-    shopping: { incomplete: 0, total: 0 },
-    packing: { incomplete: 0, total: 0 },
-  });
 
   // Hub V1 filter state
   const [hubV1Types, setHubV1Types] = useState<Set<HubV1TypeFilter>>(
@@ -211,7 +202,6 @@ export default function HubScreen() {
   );
   const [hubV1TimeRange, setHubV1TimeRange] = useState<HubV1TimeRange>('month');
   const [hubV1Status, setHubV1Status] = useState<HubV1StatusFilter>('active');
-  const [hubV1Loading, setHubV1Loading] = useState(false);
   const [hubView, setHubView] = useState<HubV1View>('all');
   // Save previous type selections when switching to Journal View
   const savedTypesRef = useRef<Set<HubV1TypeFilter> | null>(null);
@@ -220,9 +210,43 @@ export default function HubScreen() {
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [analyzeJournalCount, setAnalyzeJournalCount] = useState(0);
 
-  // Legacy state (deprecated - will be removed after full migration)
-  const [people, setPeople] = useState<Person[]>([]);
-  const [peopleWithCounts, setPeopleWithCounts] = useState<PersonWithCounts[]>([]);
+  // ═══════════════════════════════════════════════════════════════════
+  // DERIVED DATA FROM STORE
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Lists data derived from discoveredLists
+  const listsData = useMemo(() => {
+    const shopping = discoveredLists.find((l) => l.type === 'shopping');
+    const packing = discoveredLists.find((l) => l.type === 'packing');
+
+    return {
+      shopping: shopping
+        ? { incomplete: shopping.incompleteCount, total: shopping.totalCount }
+        : { incomplete: 0, total: 0 },
+      packing: packing
+        ? { incomplete: packing.incompleteCount, total: packing.totalCount }
+        : { incomplete: 0, total: 0 },
+    };
+  }, [discoveredLists]);
+
+  // People with counts derived from discoveredPeople
+  const peopleWithCounts = useMemo((): PersonWithCounts[] => {
+    return discoveredPeople.map((person) => ({
+      // Required Person fields with defaults for discovered people
+      id: person.id,
+      owner_id: '', // Not available from discovered data
+      display_name: person.name,
+      name: person.name,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      linkedCounts: {
+        habits: 0,
+        todos: 0,
+        journal: 0,
+        notes: person.itemCount,
+      },
+    }));
+  }, [discoveredPeople]);
 
   // ═══════════════════════════════════════════════════════════════════
   // DERIVED DATA FROM STORE - filtered by current tab
@@ -372,8 +396,16 @@ export default function HubScreen() {
       const date = item.updated_at || item.created_at;
       const dateFormatted = date ? new Date(date).toLocaleDateString() : undefined;
 
-      // Get tags for this item (up to 2 for display)
-      const tags = itemTags.get(item.id) || [];
+      // Get tags for this item from the item's tags field (store data)
+      const itemTagsArray = (item as { tags?: string[] }).tags ?? [];
+      const tags = itemTagsArray.map((tagName) => ({
+        id: tagName,
+        name: tagName,
+        color: colors.deepTeal,
+        owner_id: '',
+        created_at: '',
+        updated_at: '',
+      })) as Tag[];
 
       // Get space name and determine if we should show space chip
       // Only show space chip when scope is "Everywhere" and item has a space
@@ -398,7 +430,7 @@ export default function HubScreen() {
         private: item.type === 'note' ? ((item as any).private ?? false) : undefined, // Phase L7: Private mode
       };
     },
-    [itemTags, scope.type, spaces],
+    [scope.type, spaces],
   );
 
   // Reset notes subfilter when switching away from Notes tab
@@ -417,8 +449,8 @@ export default function HubScreen() {
     if (phase8Enabled && mergedTagNames.length > 0) {
       const wanted = new Set(mergedTagNames);
       filtered = filtered.filter((item) => {
-        const itemTagsList = itemTags.get(item.id) || [];
-        return itemTagsList.some((tag) => wanted.has(normalizeSearchTagInput(tag.name)));
+        const itemTagsArray = (item as { tags?: string[] }).tags ?? [];
+        return itemTagsArray.some((tagName) => wanted.has(normalizeSearchTagInput(tagName)));
       });
     }
 
@@ -438,7 +470,7 @@ export default function HubScreen() {
         `${titleText ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
       return haystack.includes(needle);
     });
-  }, [scopedItems, parsedText, tab, mergedTagNames, itemTags, phase8Enabled]);
+  }, [scopedItems, parsedText, tab, mergedTagNames, phase8Enabled]);
 
   // Convert AppRecord to UnsortedItem (for review sheet)
   const toUnsortedItem = useCallback((item: AppRecord): UnsortedItem => {
@@ -1003,7 +1035,7 @@ export default function HubScreen() {
           )}
 
           {/* Loading indicator */}
-          {hubV1Loading && (
+          {storeIsLoading && (
             <View style={{ padding: spacing.md }}>
               <Text style={[typeStyles.body, { textAlign: 'center', color: colors.gray600 }]}>
                 Loading...
@@ -1533,7 +1565,7 @@ export default function HubScreen() {
                   subtitle="Create shopping and packing lists."
                 />
               )}
-            {tab === 'People' && people.length === 0 && !loading && !error && (
+            {tab === 'People' && discoveredPeople.length === 0 && !loading && !error && (
               <EmptyState
                 testID="empty-people"
                 title="No People yet"
