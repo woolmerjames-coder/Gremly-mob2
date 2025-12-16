@@ -1054,10 +1054,10 @@ export default function ChatThreadScreen({ route }: Props) {
               : undefined,
           });
         } else {
-          // note/log
+          // note/log - use original message content to preserve markdown formatting
           result = await createNote({
             ...basePayload,
-            body: prefill.content || message.content,
+            body: message.content, // Use original message, NOT prefill.content (which is flattened)
           });
         }
 
@@ -1398,7 +1398,7 @@ const styles = StyleSheet.create({
   },
   messagesContent: {
     padding: lightTokens.spacing[4],
-    paddingBottom: lightTokens.spacing[6],
+    paddingBottom: 140, // Account for input field + SaveButton + safe area
   },
   emptyListContent: {
     flexGrow: 1,

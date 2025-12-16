@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     alignSelf: 'flex-start',
     marginVertical: 8,
-    marginHorizontal: 16,
+    // Remove marginHorizontal - parent handles padding
     // Shadow - iOS
     ...Platform.select({
       ios: {

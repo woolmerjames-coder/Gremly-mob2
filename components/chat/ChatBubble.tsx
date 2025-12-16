@@ -143,13 +143,14 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2, // Thin accent bar
     borderLeftColor: 'rgba(212, 164, 74, 0.60)', // Golden Pear at 60% opacity - warm but calm
     borderRadius: 0,
-    maxWidth: '95%',
+    maxWidth: '100%', // Use full available width
     marginLeft: -4, // Shift accent line left, more margin from bullets
     marginTop: -6, // Integrated, not floating
   },
   saveableCardContainer: {
-    marginTop: 12,
-    alignItems: 'flex-start',
+    marginTop: 16, // More space between message and save card
+    marginLeft: 0, // Align with message content
+    width: '100%',
   },
   text: {
     fontSize: 15,
