@@ -471,14 +471,16 @@ export function NowFocusRow({
             {item.type === 'habit' && habitMetadata && MetadataIcon && (
               <View style={styles.habitMetadataContainer}>
                 <MetadataIcon
-                  size={12}
+                  size={habitMetadata.type === 'streak' ? 16 : 12}
                   color={
                     habitMetadata.icon === 'Flame' ? BRAND.colors.goldenPear : tokens.colors.subtle
                   }
                 />
                 <Text
                   style={[
-                    styles.habitMetadataText,
+                    habitMetadata.type === 'streak'
+                      ? styles.habitStreakText
+                      : styles.habitMetadataText,
                     {
                       color:
                         habitMetadata.icon === 'Flame'
@@ -634,6 +636,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 13,
     fontWeight: '500',
+  },
+  habitStreakText: {
+    fontSize: 14,
+    lineHeight: 16,
+    fontWeight: '700',
   },
   frequencyLabel: {
     fontSize: 11,
