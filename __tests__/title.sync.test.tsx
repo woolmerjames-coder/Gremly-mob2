@@ -29,9 +29,9 @@ jest.mock('@react-navigation/native', () => {
 
 // Mock Zustand store selectors (RecentDrops now uses these instead of repo)
 import * as selectors from '../lib/store/selectors';
-const mockSelectRecentNotes = selectors.selectRecentNotes as jest.Mock;
-const mockSelectRecentTodos = selectors.selectRecentTodos as jest.Mock;
-const mockSelectRecentHabits = selectors.selectRecentHabits as jest.Mock;
+const mockSelectRecentNotes = selectors.selectRecentNotes as unknown as jest.Mock;
+const mockSelectRecentTodos = selectors.selectRecentTodos as unknown as jest.Mock;
+const mockSelectRecentHabits = selectors.selectRecentHabits as unknown as jest.Mock;
 
 jest.mock('../lib/store/selectors', () => ({
   selectItemById: jest.fn(),

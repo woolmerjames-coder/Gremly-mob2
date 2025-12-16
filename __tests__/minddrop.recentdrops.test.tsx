@@ -89,11 +89,7 @@ jest.mock('../lib/store/useGremlyStore', () => {
 });
 
 // Mock selectors - import so we can change return values in tests
-import {
-  selectRecentNotes as mockSelectRecentNotes,
-  selectRecentTodos as mockSelectRecentTodos,
-  selectRecentHabits as mockSelectRecentHabits,
-} from '../lib/store/selectors';
+import * as selectors from '../lib/store/selectors';
 
 jest.mock('../lib/store/selectors', () => ({
   selectItemById: jest.fn(),
@@ -102,6 +98,11 @@ jest.mock('../lib/store/selectors', () => ({
   selectRecentTodos: jest.fn(() => []),
   selectRecentHabits: jest.fn(() => []),
 }));
+
+// Cast to jest.Mock for test manipulation
+const mockSelectRecentNotes = selectors.selectRecentNotes as unknown as jest.Mock;
+const mockSelectRecentTodos = selectors.selectRecentTodos as unknown as jest.Mock;
+const mockSelectRecentHabits = selectors.selectRecentHabits as unknown as jest.Mock;
 
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 

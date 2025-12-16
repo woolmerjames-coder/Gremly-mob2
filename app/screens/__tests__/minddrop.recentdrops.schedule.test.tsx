@@ -52,7 +52,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
 // Mock selectors
 import * as selectors from '../../../lib/store/selectors';
 
-const mockSelectRecentTodos = selectors.selectRecentTodos as jest.Mock;
+const mockSelectRecentTodos = selectors.selectRecentTodos as unknown as jest.Mock;
 
 jest.mock('../../../lib/store/selectors', () => ({
   selectItemById: jest.fn(),
