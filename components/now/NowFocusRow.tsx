@@ -129,20 +129,27 @@ export function NowFocusRow({
   const tokens = useTokens();
   const reducedMotion = useReducedMotion();
   const habitProgress = useGremlyStore((s) => s.habitProgress);
+  // Get the full habit from store to access frequency field
+  const habits = useGremlyStore((s) => s.habits);
 
   // Compute habit metadata for habits
   const habitMetadata = React.useMemo(() => {
     if (item.type !== 'habit') return null;
+
+    // Look up the full habit from the store to get the frequency field
+    const fullHabit = habits.find((h) => h.id === item.id);
+    const frequency = fullHabit?.frequency;
+
     // Create a minimal habit object for the metadata computation
     const habitForMetadata = {
       id: item.id,
       name: item.name,
       cadence: ('cadence' in item ? item.cadence : 'daily') as 'daily' | 'weekly' | 'monthly',
       target_per_period: 'target_per_period' in item ? (item.target_per_period as number) : 1,
-      frequency: 'frequency' in item ? (item.frequency as string) : undefined,
+      frequency: frequency,
     };
     return computeHabitMetadata(habitForMetadata, habitProgress);
-  }, [item, habitProgress]);
+  }, [item, habitProgress, habits]);
 
   const MetadataIcon = habitMetadata ? MetadataIconMap[habitMetadata.icon] : null;
 
