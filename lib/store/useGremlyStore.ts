@@ -31,6 +31,12 @@ function sanitizeForSupabase(
     delete sanitized.canonicalType;
   }
 
+  // RENAME dropId → drop_id (all entities - MindDrop linkage)
+  if ('dropId' in sanitized) {
+    sanitized.drop_id = sanitized.dropId;
+    delete sanitized.dropId;
+  }
+
   // RENAME details → body (for todos)
   if (entityType === 'todo' && 'details' in sanitized) {
     sanitized.body = sanitized.details;
