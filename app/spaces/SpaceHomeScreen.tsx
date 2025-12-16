@@ -598,31 +598,31 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const reactiveCompletedCount = useMemo(() => {
     // Log what's in the refs
     console.log(
-      '[SpaceHome] Computing reactiveCompletedCount, localCompletedIds:',
-      Array.from(localCompletedIdsRef.current),
+      '[SpaceHome] Computing reactiveCompletedCount, animatingTodoIds:',
+      Array.from(animatingTodoIdsRef.current),
     );
     console.log(
       '[SpaceHome] storeTodos ids:',
       storeTodos.map((t: any) => t.id),
     );
+    console.log(
+      '[SpaceHome] completedTodos ids:',
+      completedTodosForOverlay.map((t: any) => t.id),
+    );
 
-    // Count how many todos in storeTodos are optimistically completed (still pending store update)
-    const optimisticallyCompletedCount = storeTodos.filter((todo: any) =>
-      localCompletedIdsRef.current.has(todo.id),
+    // Optimistic completions: todos that are animating out (user just tapped complete)
+    // These are the source of truth for "pending" completions
+    const optimisticallyCompletedCount = Array.from(animatingTodoIdsRef.current).filter((id) =>
+      // Only count if the todo is still in storeTodos (not yet moved to completed)
+      storeTodos.some((t: any) => t.id === id),
     ).length;
 
-    // Count how many store-completed todos are optimistically unchecked
-    const optimisticallyUncheckedCount = completedTodosForOverlay.filter((todo: any) =>
-      localCompletedIdsRef.current.has(todo.id),
-    ).length;
-
-    // Final count = store count + pending completions - pending unchecks
-    const count = completedTodoCount + optimisticallyCompletedCount - optimisticallyUncheckedCount;
+    // Final count = store count + pending completions (no unchecking logic needed for now)
+    const count = completedTodoCount + optimisticallyCompletedCount;
 
     console.log('[SpaceHome] reactiveCompletedCount:', {
       storeCount: completedTodoCount,
       optimisticallyCompleted: optimisticallyCompletedCount,
-      optimisticallyUnchecked: optimisticallyUncheckedCount,
       final: count,
       optimisticVersion,
     });
@@ -709,44 +709,36 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     async (item: AppRecord) => {
       const todoId = item.id;
       console.log('[SpaceHome] Todo complete START:', todoId);
-      console.log(
-        '[SpaceHome] Before - localCompletedIds:',
-        Array.from(localCompletedIdsRef.current),
-      );
 
       // Haptic feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      // Step 1: Mark as optimistically completed (updates count pill immediately)
-      if (!localCompletedIdsRef.current.has(todoId)) {
-        localCompletedIdsRef.current.add(todoId);
-      }
-
-      // Step 2: Mark as animating (keeps row visible for animation)
+      // Mark as animating - this is the source of truth for optimistic completions
+      // The reactiveCompletedCount will add +1 for each animating todo still in storeTodos
       animatingTodoIdsRef.current.add(todoId);
 
       console.log(
-        '[SpaceHome] After adding - localCompletedIds:',
-        Array.from(localCompletedIdsRef.current),
+        '[SpaceHome] After adding to animatingTodoIds:',
+        Array.from(animatingTodoIdsRef.current),
       );
       console.log('[SpaceHome] Calling forceUpdate...');
 
-      // Force re-render to show the change immediately
+      // Force re-render to show the count change immediately
       forceUpdate();
 
-      // Step 3: After animation delay, persist to store and remove from animating
+      // After animation delay, persist to store
       setTimeout(async () => {
-        // Remove from animating set
-        animatingTodoIdsRef.current.delete(todoId);
-        forceUpdate();
-
         try {
           await store.completeTodo(todoId);
           setShowConfetti(true);
+
+          // Clean up animating ref after store confirms
+          animatingTodoIdsRef.current.delete(todoId);
+          forceUpdate();
         } catch (e) {
           console.warn('[SpaceHome] Failed to complete todo:', e);
-          // Revert optimistic update on error
-          localCompletedIdsRef.current.delete(todoId);
+          // On error, remove from animating to restore the row
+          animatingTodoIdsRef.current.delete(todoId);
           forceUpdate();
           Alert.alert('Error', 'Failed to complete todo');
         }
