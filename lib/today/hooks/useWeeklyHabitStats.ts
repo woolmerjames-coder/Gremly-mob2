@@ -316,8 +316,10 @@ function computeSpecificDaysStats(
 
 /**
  * Derive human-readable frequency label from habit data.
- * Uses cadence + target_per_period as primary source (most reliable).
- * Falls back to frequency field parsing, frequency_json, then formattedFrequency.
+ * Parses various formats:
+ * - cadence field: 'daily', 'weekly', 'monthly', 'day', 'week', 'month'
+ * - frequency string: "3 times a week", "5 times a week", "2 times a month", "daily"
+ * - frequency_json: { type: 'custom', count: 3, unit: 'week' }
  */
 function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
   // Debug: log habit data
@@ -327,47 +329,78 @@ function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
     target_per_period: habit.target_per_period,
     frequency: habit.frequency,
     frequency_value: habit.frequency_value,
+    frequency_json: habit.frequency_json,
   });
 
-  // Primary source: cadence + target_per_period (from habit record)
-  if (habit.cadence) {
-    const target = habit.target_per_period ?? 1;
-    switch (habit.cadence) {
-      case 'daily':
-        return 'Daily';
-      case 'weekly':
-        return `${target}x per week`;
-      case 'monthly':
-        return `${target}x per month`;
+  // Primary: parse the human-readable frequency string (most reliable based on logs)
+  // e.g., "3 times a week", "5 times a week", "2 times a month", "daily"
+  if (habit.frequency) {
+    const freq = habit.frequency.toLowerCase();
+
+    // Check for "X times a week" pattern
+    const weekMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?week/i);
+    if (weekMatch) {
+      const count = parseInt(weekMatch[1], 10);
+      return `${count}x per week`;
+    }
+
+    // Check for "X times a month" pattern
+    const monthMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?month/i);
+    if (monthMatch) {
+      const count = parseInt(monthMatch[1], 10);
+      return `${count}x per month`;
+    }
+
+    // Check for "daily" or "every day"
+    if (freq === 'daily' || freq.includes('every day')) {
+      return 'Daily';
     }
   }
 
-  // Secondary: parse from frequency field (e.g., "daily", "x_per_week", "weekly")
-  if (habit.frequency) {
-    const freq = habit.frequency.toLowerCase();
-    if (freq === 'daily') {
+  // Secondary: try cadence + target_per_period (handle both 'daily'/'day' formats)
+  if (habit.cadence) {
+    const cadence = habit.cadence.toLowerCase();
+    const target = habit.target_per_period ?? 1;
+
+    if (cadence === 'daily' || cadence === 'day') {
       return 'Daily';
     }
-    if (freq === 'weekly' || freq === 'x_per_week') {
-      const target = typeof habit.frequency_value === 'number' ? habit.frequency_value : 1;
+    if (cadence === 'weekly' || cadence === 'week') {
       return `${target}x per week`;
     }
-    if (freq === 'monthly') {
-      const target = typeof habit.frequency_value === 'number' ? habit.frequency_value : 1;
+    if (cadence === 'monthly' || cadence === 'month') {
       return `${target}x per month`;
     }
   }
 
-  // Fallback: try frequency_json
-  if (habit.frequency_json) {
+  // Tertiary: try frequency_json with the actual structure from overlay
+  // Structure: { type: 'custom', count: 3, unit: 'week' }
+  if (habit.frequency_json && typeof habit.frequency_json === 'object') {
+    const json = habit.frequency_json;
+    if (json.count && json.unit) {
+      const count = json.count;
+      const unit = json.unit.toLowerCase();
+      if (unit === 'week') {
+        return `${count}x per week`;
+      }
+      if (unit === 'month') {
+        return `${count}x per month`;
+      }
+      if (unit === 'day') {
+        return count === 1 ? 'Daily' : `${count}x per day`;
+      }
+    }
+    // Also try the jsonToFrequency helper as last resort
     try {
-      const config = jsonToFrequency(habit.frequency_json);
+      const config = jsonToFrequency(json);
       if (config) {
         const label = getFrequencyLabel(config);
-        return label;
+        if (label && label !== fallback) {
+          return label;
+        }
       }
     } catch {
-      // Fall through to fallback
+      // Fall through
     }
   }
 
