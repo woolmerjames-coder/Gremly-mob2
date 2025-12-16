@@ -17,6 +17,7 @@ export interface HabitMetadata {
 /** Minimal habit shape needed for metadata computation */
 export interface HabitForMetadata {
   id: string;
+  name?: string; // For debugging
   cadence?: 'daily' | 'weekly' | 'monthly' | string; // Also handles 'day', 'week', 'month'
   target_per_period?: number;
   frequency?: string; // Human-readable like "3 times a week"
@@ -30,6 +31,44 @@ export interface HabitProgressRow {
 }
 
 /**
+ * Infer cadence from frequency string when cadence field is not set.
+ * E.g., "5 times a week" → 'weekly', "2 times a month" → 'monthly'
+ */
+function inferCadenceFromFrequency(frequency?: string): 'daily' | 'weekly' | 'monthly' {
+  if (!frequency) return 'daily';
+  const freq = frequency.toLowerCase();
+
+  // Check for weekly patterns
+  if (freq.includes('week') || freq.match(/\d+x\/week/i)) {
+    return 'weekly';
+  }
+
+  // Check for monthly patterns
+  if (freq.includes('month') || freq.match(/\d+x\/month/i)) {
+    return 'monthly';
+  }
+
+  // Default to daily
+  return 'daily';
+}
+
+/**
+ * Extract target count from frequency string.
+ * E.g., "5 times a week" → 5, "2x/month" → 2
+ */
+function extractTargetFromFrequency(frequency?: string): number | null {
+  if (!frequency) return null;
+
+  // Match patterns like "5 times a week", "3x/week", "2 times per month"
+  const match = frequency.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?(?:week|month|x\/)/i);
+  if (match) {
+    return parseInt(match[1], 10);
+  }
+
+  return null;
+}
+
+/**
  * Pure function to compute habit metadata from habit and progress data.
  * Can be used outside of React hooks.
  */
@@ -37,8 +76,12 @@ export function computeHabitMetadata(
   habit: HabitForMetadata,
   habitProgress: HabitProgressRow[],
 ): HabitMetadata {
-  const cadence = habit.cadence ?? 'daily';
-  const targetPerPeriod = habit.target_per_period ?? 1;
+  // Infer cadence from frequency if not explicitly set
+  const rawCadence = habit.cadence ?? inferCadenceFromFrequency(habit.frequency);
+  const cadence = rawCadence;
+  // Infer target from frequency if not explicitly set
+  const targetPerPeriod =
+    habit.target_per_period ?? extractTargetFromFrequency(habit.frequency) ?? 1;
   const today = new Date();
 
   // Compute frequency label - parse from frequency string first, then cadence

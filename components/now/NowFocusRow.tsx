@@ -176,11 +176,17 @@ export function NowFocusRow({
 
     try {
       // Create a minimal habit object for the metadata computation
+      // Use fullHabit from Zustand for accurate cadence/target data
       const habitForMetadata = {
         id: item.id,
         name: item.name,
-        cadence: ('cadence' in item ? item.cadence : 'daily') as 'daily' | 'weekly' | 'monthly',
-        target_per_period: 'target_per_period' in item ? (item.target_per_period as number) : 1,
+        cadence: (fullHabit?.cadence ?? ('cadence' in item ? item.cadence : 'daily')) as
+          | 'daily'
+          | 'weekly'
+          | 'monthly',
+        target_per_period:
+          fullHabit?.target_per_period ??
+          ('target_per_period' in item ? (item.target_per_period as number) : 1),
         frequency: fullHabit?.frequency,
       };
       return computeHabitMetadata(habitForMetadata, habitProgress);
