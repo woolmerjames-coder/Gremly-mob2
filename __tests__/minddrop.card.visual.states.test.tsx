@@ -60,18 +60,37 @@ jest.mock('../providers/RepoProvider', () => ({
   }),
 }));
 
-// Mock useStoreAsRepo (CatchAllNotepad now uses store adapter instead of useRepo)
-jest.mock('../lib/store/useStoreAsRepo', () => ({
-  useStoreAsRepo: () => ({
-    notes: { list: mockNotesList },
-    todos: { list: mockTodosList },
-    habits: { list: mockHabitsList },
-    getById: mockGetById,
-    remove: mockRemove,
-    archiveItemsByDropId: mockArchiveItemsByDropId,
-    findTodoByDropId: jest.fn().mockResolvedValue(null),
-    findHabitByDropId: jest.fn().mockResolvedValue(null),
-  }),
+// Mock useGremlyStore (CatchAllNotepad now uses Zustand store directly)
+jest.mock('../lib/store/useGremlyStore', () => {
+  const getMockState = () => ({
+    notes: [],
+    todos: [],
+    habits: [],
+    deleteNote: jest.fn(),
+    deleteTodo: jest.fn(),
+    deleteHabit: jest.fn(),
+  });
+
+  const useGremlyStore = Object.assign(
+    jest.fn((selector: any) => {
+      if (typeof selector === 'function') {
+        return selector(getMockState());
+      }
+      return {};
+    }),
+    { getState: getMockState },
+  );
+
+  return { useGremlyStore };
+});
+
+// Mock selectors
+jest.mock('../lib/store/selectors', () => ({
+  selectItemById: jest.fn(),
+  selectNoteBySourceMessageId: jest.fn(),
+  selectRecentNotes: jest.fn(() => []),
+  selectRecentTodos: jest.fn(() => []),
+  selectRecentHabits: jest.fn(() => []),
 }));
 
 import { RecentDropsTestable as RecentDrops } from '../app/screens/CatchAllNotepad';

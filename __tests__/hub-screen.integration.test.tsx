@@ -96,6 +96,11 @@ jest.mock('../lib/store/selectors', () => ({
     ...mockStoreData.habits,
     ...mockStoreData.notes,
   ],
+  // Filter function for unsorted items
+  filterUnsortedForReview: (items: any[]) =>
+    items.filter(
+      (item) => item.ai_placed === true || (item.origin === 'catchall' && !item.space_id),
+    ),
 }));
 
 jest.mock('../lib/store/useGremlyStore', () => ({
