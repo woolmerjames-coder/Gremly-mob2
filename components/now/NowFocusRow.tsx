@@ -139,6 +139,7 @@ export function NowFocusRow({
       name: item.name,
       cadence: ('cadence' in item ? item.cadence : 'daily') as 'daily' | 'weekly' | 'monthly',
       target_per_period: 'target_per_period' in item ? (item.target_per_period as number) : 1,
+      frequency: 'frequency' in item ? (item.frequency as string) : undefined,
     };
     return computeHabitMetadata(habitForMetadata, habitProgress);
   }, [item, habitProgress]);

@@ -17,8 +17,9 @@ export interface HabitMetadata {
 /** Minimal habit shape needed for metadata computation */
 export interface HabitForMetadata {
   id: string;
-  cadence?: 'daily' | 'weekly' | 'monthly';
+  cadence?: 'daily' | 'weekly' | 'monthly' | string; // Also handles 'day', 'week', 'month'
   target_per_period?: number;
+  frequency?: string; // Human-readable like "3 times a week"
 }
 
 /** Habit progress row shape */
@@ -40,18 +41,45 @@ export function computeHabitMetadata(
   const targetPerPeriod = habit.target_per_period ?? 1;
   const today = new Date();
 
-  // Compute frequency label based on cadence
+  // Compute frequency label - parse from frequency string first, then cadence
   const getFrequencyLabel = (): string => {
-    switch (cadence) {
-      case 'daily':
+    // Primary: parse human-readable frequency string like "3 times a week"
+    if (habit.frequency) {
+      const freq = habit.frequency.toLowerCase();
+
+      // Check for "X times a week" pattern
+      const weekMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?week/i);
+      if (weekMatch) {
+        const count = parseInt(weekMatch[1], 10);
+        return `${count}x/week`;
+      }
+
+      // Check for "X times a month" pattern
+      const monthMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?month/i);
+      if (monthMatch) {
+        const count = parseInt(monthMatch[1], 10);
+        return `${count}x/month`;
+      }
+
+      // Check for "daily" or "every day"
+      if (freq === 'daily' || freq.includes('every day')) {
         return 'Daily';
-      case 'weekly':
-        return `${targetPerPeriod}x/week`;
-      case 'monthly':
-        return `${targetPerPeriod}x/month`;
-      default:
-        return 'Daily';
+      }
     }
+
+    // Secondary: use cadence field (handle 'day'/'daily', 'week'/'weekly', 'month'/'monthly')
+    const normalizedCadence = cadence.toLowerCase();
+    if (normalizedCadence === 'daily' || normalizedCadence === 'day') {
+      return 'Daily';
+    }
+    if (normalizedCadence === 'weekly' || normalizedCadence === 'week') {
+      return `${targetPerPeriod}x/week`;
+    }
+    if (normalizedCadence === 'monthly' || normalizedCadence === 'month') {
+      return `${targetPerPeriod}x/month`;
+    }
+
+    return 'Daily';
   };
 
   const frequencyLabel = getFrequencyLabel();
