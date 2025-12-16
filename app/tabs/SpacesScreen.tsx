@@ -70,16 +70,7 @@ import { Card } from '../../design-system/Card';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { setNewSpaceCallback } from '../../components/CreateSpaceModal';
 import { useReducedMotion } from '../../design/animations';
-
-// Helper to get space icon based on name
-const getSpaceIcon = (name: string) => {
-  if (/fit|gym|run|health|workout/i.test(name)) return '🏃';
-  if (/work|job|proj|career/i.test(name)) return '💼';
-  if (/travel|trip|vacation/i.test(name)) return '✈️';
-  if (/home|house|family/i.test(name)) return '🏠';
-  if (/learn|study|book|education/i.test(name)) return '📚';
-  return '📁';
-};
+import { getSpaceIcon } from '../../lib/utils/spaceIconMatcher';
 
 function GremlyHomeScreen() {
   const activeSpaces = useActiveSpaces();
@@ -309,7 +300,10 @@ function GremlyHomeScreen() {
                       testID={`space-item-${space.id}`}
                       style={styles.spaceRowContent}
                     >
-                      <Text style={styles.spaceEmoji}>{getSpaceIcon(space.name)}</Text>
+                      {(() => {
+                        const SpaceIcon = getSpaceIcon(space.name);
+                        return <SpaceIcon size={20} color="#6A6F76" />;
+                      })()}
                       <Text variant="body" style={styles.spaceName}>
                         {space.name}
                       </Text>
@@ -554,9 +548,6 @@ const styles = StyleSheet.create({
   spaceRowWithDivider: {
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
-  },
-  spaceEmoji: {
-    fontSize: 20,
   },
   spaceName: {
     fontSize: 16,
