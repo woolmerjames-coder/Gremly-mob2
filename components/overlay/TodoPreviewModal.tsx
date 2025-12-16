@@ -1,5 +1,14 @@
 import React, { useState } from 'react';
-import { Modal, View, Text, Pressable, ScrollView, StyleSheet, SafeAreaView } from 'react-native';
+import {
+  Modal,
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  SafeAreaView,
+  ActivityIndicator,
+} from 'react-native';
 import { Check, X } from 'lucide-react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { lightTokens } from '../../design/tokens';
@@ -12,6 +21,7 @@ interface TodoPreviewModalProps {
   spaceId: string;
   onConfirm: (selectedItems: ExtractedListItem[]) => void;
   onCancel: () => void;
+  isLoading?: boolean;
 }
 
 export function TodoPreviewModal({
@@ -21,6 +31,7 @@ export function TodoPreviewModal({
   spaceId: _spaceId,
   onConfirm,
   onCancel,
+  isLoading = false,
 }: TodoPreviewModalProps) {
   // Initialize selection with actionable items
   // Resets when items change (which happens when a different note is selected)
@@ -109,17 +120,29 @@ export function TodoPreviewModal({
           </Text>
 
           <View style={styles.buttonRow}>
-            <Pressable onPress={onCancel} style={styles.cancelButton}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+            <Pressable onPress={onCancel} style={styles.cancelButton} disabled={isLoading}>
+              <Text style={[styles.cancelButtonText, isLoading && styles.disabledText]}>
+                Cancel
+              </Text>
             </Pressable>
             <Pressable
               onPress={handleConfirm}
-              style={[styles.confirmButton, selectedCount === 0 && styles.confirmButtonDisabled]}
-              disabled={selectedCount === 0}
+              style={[
+                styles.confirmButton,
+                (selectedCount === 0 || isLoading) && styles.confirmButtonDisabled,
+              ]}
+              disabled={selectedCount === 0 || isLoading}
             >
-              <Text style={styles.confirmButtonText}>
-                Create {selectedCount > 0 ? `${selectedCount} ` : ''}Tasks
-              </Text>
+              {isLoading ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.confirmButtonText}>Creating...</Text>
+                </View>
+              ) : (
+                <Text style={styles.confirmButtonText}>
+                  Create {selectedCount > 0 ? `${selectedCount} ` : ''}Tasks
+                </Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -243,5 +266,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  disabledText: {
+    opacity: 0.5,
   },
 });

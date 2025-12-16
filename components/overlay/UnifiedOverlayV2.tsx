@@ -103,7 +103,7 @@ import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFro
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
 import { deleteEntityOrDrop } from '../../lib/minddrop/deleteHelpers';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
-import { smartTitle } from '../../app/spaces/chat/prefillUtils';
+import { enrichListItems } from '../../lib/ai/enrichListItem';
 import {
   type FrequencyConfig,
   type DayOfWeek,
@@ -1108,6 +1108,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [checklistItems, setChecklistItems] = useState<ListItem[] | null>(null);
   const [isFavorite, setIsFavorite] = useState(false);
   const [sourceNote, setSourceNote] = useState<{ id: string; title: string } | null>(null);
+  const [isCreatingTodos, setIsCreatingTodos] = useState(false);
 
   // View mode: store fetched entity for display
   const [viewModeEntity, setViewModeEntity] = useState<any>(null);
@@ -1665,7 +1666,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   /**
    * Create todos from selected items
-   * Uses smartTitle to generate concise action-oriented titles
+   * Uses AI enrichment to generate concise action-oriented titles
    * Stores original verbose text in body for context
    */
   const handleExplodeToTodos = useCallback(
@@ -1679,17 +1680,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const targetSpaceId = entity.space_id || initialSpaceId;
 
       try {
+        setIsCreatingTodos(true);
+
+        // Enrich all items in parallel using AI
+        const enrichedItems = await enrichListItems(selectedItems.map((item) => item.text));
+
         const createdTodos = [];
 
-        for (const item of selectedItems) {
-          // Use smartTitle to generate a concise, action-oriented title
-          const conciseTitle = smartTitle(item.text);
+        for (let i = 0; i < selectedItems.length; i++) {
+          const item = selectedItems[i];
+          const enriched = enrichedItems[i];
 
-          // Store original text in body if it differs (provides context)
-          const bodyText = conciseTitle !== item.text ? item.text : undefined;
+          // Build body: original text + AI notes if present
+          let bodyText: string | undefined;
+          if (enriched.title !== item.text) {
+            bodyText = item.text;
+            if (enriched.notes) {
+              bodyText += `\n\n${enriched.notes}`;
+            }
+          } else if (enriched.notes) {
+            bodyText = enriched.notes;
+          }
 
           const todo = await createTodo({
-            name: conciseTitle,
+            name: enriched.title,
             body: bodyText,
             space_id: targetSpaceId,
             source_note_id: entityId,
@@ -1723,6 +1737,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       } catch (error) {
         console.error('[MakeActionable] Failed to create todos:', error);
         Alert.alert('Error', 'Failed to create tasks. Please try again.');
+      } finally {
+        setIsCreatingTodos(false);
       }
     },
     [fullEntity, initialEntity, initialSpaceId, createTodo],
@@ -7417,6 +7433,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         spaceId={fullEntity?.space_id || initialSpaceId || ''}
         onConfirm={handleExplodeToTodos}
         onCancel={() => setShowTodoPreview(false)}
+        isLoading={isCreatingTodos}
       />
     </>
   );
