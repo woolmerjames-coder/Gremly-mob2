@@ -317,9 +317,18 @@ function computeSpecificDaysStats(
 /**
  * Derive human-readable frequency label from habit data.
  * Uses cadence + target_per_period as primary source (most reliable).
- * Falls back to frequency_json, then formattedFrequency.
+ * Falls back to frequency field parsing, frequency_json, then formattedFrequency.
  */
 function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
+  // Debug: log habit data
+  console.log('[deriveFrequencyLabel] input:', {
+    habitName: habit.name,
+    cadence: habit.cadence,
+    target_per_period: habit.target_per_period,
+    frequency: habit.frequency,
+    frequency_value: habit.frequency_value,
+  });
+
   // Primary source: cadence + target_per_period (from habit record)
   if (habit.cadence) {
     const target = habit.target_per_period ?? 1;
@@ -333,30 +342,36 @@ function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
     }
   }
 
+  // Secondary: parse from frequency field (e.g., "daily", "x_per_week", "weekly")
+  if (habit.frequency) {
+    const freq = habit.frequency.toLowerCase();
+    if (freq === 'daily') {
+      return 'Daily';
+    }
+    if (freq === 'weekly' || freq === 'x_per_week') {
+      const target = typeof habit.frequency_value === 'number' ? habit.frequency_value : 1;
+      return `${target}x per week`;
+    }
+    if (freq === 'monthly') {
+      const target = typeof habit.frequency_value === 'number' ? habit.frequency_value : 1;
+      return `${target}x per month`;
+    }
+  }
+
   // Fallback: try frequency_json
   if (habit.frequency_json) {
     try {
       const config = jsonToFrequency(habit.frequency_json);
       if (config) {
         const label = getFrequencyLabel(config);
-        console.log('[deriveFrequencyLabel]', {
-          habitName: habit.name,
-          frequency_json: habit.frequency_json,
-          config,
-          label,
-        });
         return label;
       }
     } catch {
       // Fall through to fallback
     }
   }
-  console.log('[deriveFrequencyLabel] fallback', {
-    habitName: habit.name,
-    cadence: habit.cadence,
-    target_per_period: habit.target_per_period,
-    fallback,
-  });
+
+  console.log('[deriveFrequencyLabel] using fallback:', fallback);
   return fallback;
 }
 

@@ -198,7 +198,12 @@ export function NowWeekPopup({
         console.log(
           '[NowWeekPopup] Enriched habits:',
           enriched.length,
-          enriched.map((h) => h.name),
+          enriched.map((h) => ({
+            name: h.name,
+            cadence: h.cadence,
+            target_per_period: h.target_per_period,
+            frequency: h.frequency,
+          })),
         );
         setEnrichedHabits(enriched);
       } catch (error) {
@@ -467,9 +472,11 @@ const styles = StyleSheet.create({
   },
   dayHeaderLabelToday: {
     fontFamily: 'Inter-Bold',
+    fontWeight: '700',
     color: MOSS_GREEN,
-    textDecorationLine: 'underline',
-    textDecorationColor: MOSS_GREEN,
+    borderBottomWidth: 2,
+    borderBottomColor: MOSS_GREEN,
+    paddingBottom: 2,
   },
   loadingContainer: {
     paddingVertical: 24,
