@@ -203,9 +203,6 @@ export function NowFocusRow({
   const isFlexible =
     item.type === 'habit' && 'weeklyStatus' in item && item.weeklyStatus === 'flexible';
 
-  // Debug: Log reducedMotion value
-  console.log('[NowFocusRow] reducedMotion:', reducedMotion);
-
   // Animation state
   const [animationPhase, setAnimationPhase] = useState<AnimationPhase>('idle');
   const [localChecked, setLocalChecked] = useState(false);

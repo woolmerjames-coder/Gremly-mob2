@@ -76,12 +76,15 @@ export function computeHabitMetadata(
   habit: HabitForMetadata,
   habitProgress: HabitProgressRow[],
 ): HabitMetadata {
-  // Infer cadence from frequency if not explicitly set
-  const rawCadence = habit.cadence ?? inferCadenceFromFrequency(habit.frequency);
-  const cadence = rawCadence;
-  // Infer target from frequency if not explicitly set
-  const targetPerPeriod =
-    habit.target_per_period ?? extractTargetFromFrequency(habit.frequency) ?? 1;
+  // ALWAYS infer cadence from frequency string first (most accurate source)
+  // Fall back to habit.cadence only if frequency doesn't indicate weekly/monthly
+  const inferredFromFreq = inferCadenceFromFrequency(habit.frequency);
+  const cadence = inferredFromFreq !== 'daily' ? inferredFromFreq : (habit.cadence ?? 'daily');
+
+  // ALWAYS infer target from frequency string first
+  // Fall back to habit.target_per_period only if frequency doesn't have a number
+  const inferredTarget = extractTargetFromFrequency(habit.frequency);
+  const targetPerPeriod = inferredTarget ?? habit.target_per_period ?? 1;
   const today = new Date();
 
   // Compute frequency label - parse from frequency string first, then cadence
