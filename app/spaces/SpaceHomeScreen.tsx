@@ -460,6 +460,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const localPinnedIdsRef = useRef<Set<string>>(new Set()); // Track locally toggled pinned state
   const localLoggedHabitIdsRef = useRef<Set<string>>(new Set()); // Track optimistically logged habits
   const localUncheckedHabitIdsRef = useRef<Set<string>>(new Set()); // Track habits user unchecked this session
+  const animatingTodoIdsRef = useRef<Set<string>>(new Set()); // Track todos currently animating out
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
@@ -552,13 +553,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       const locallyToggled = localCompletedIdsRef.current.has(todo.id);
       // XOR: if locally toggled, flip the DB state
       const isCompleted = locallyToggled ? !dbCompleted : dbCompleted;
+      // Keep animating todos visible (they handle their own fade out)
+      const isAnimating = animatingTodoIdsRef.current.has(todo.id);
       return {
         ...todo,
-        completed_at: isCompleted ? todo.completed_at || new Date().toISOString() : null,
+        completed_at:
+          isCompleted && !isAnimating ? todo.completed_at || new Date().toISOString() : null,
+        _isAnimatingOut: isAnimating && isCompleted, // Pass flag for styling
       };
     });
-    // Only return incomplete todos for the main section
-    return withOptimistic.filter((t: any) => !t.completed_at);
+    // Only return incomplete todos for the main section (plus animating ones)
+    return withOptimistic.filter((t: any) => !t.completed_at || t._isAnimatingOut);
   }, [storeTodos, optimisticVersion]); // optimisticVersion triggers recalc on forceUpdate
 
   // Completed todos for the CompletedInSpaceOverlay - using store selector
@@ -685,7 +690,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [overlay, spaceId],
   );
 
-  // Handler for todo completion with optimistic update using ref
+  // Handler for todo completion with animation support
+  // 1. Immediately update optimistic count (pill updates)
+  // 2. Mark as animating (row stays visible)
+  // 3. After animation, persist to store and remove from list
   const handleTodoComplete = useCallback(
     async (item: AppRecord) => {
       const todoId = item.id;
@@ -694,32 +702,34 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       // Haptic feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      // Toggle in our local ref (persists across re-renders)
-      if (localCompletedIdsRef.current.has(todoId)) {
-        localCompletedIdsRef.current.delete(todoId);
-      } else {
+      // Step 1: Mark as optimistically completed (updates count pill immediately)
+      if (!localCompletedIdsRef.current.has(todoId)) {
         localCompletedIdsRef.current.add(todoId);
       }
+
+      // Step 2: Mark as animating (keeps row visible for animation)
+      animatingTodoIdsRef.current.add(todoId);
 
       // Force re-render to show the change immediately
       forceUpdate();
 
-      try {
-        await store.completeTodo(todoId);
-        setShowConfetti(true);
-        // Don't clear local override - keep the optimistic state
-        // The local toggle will persist until user leaves the screen
-      } catch (e) {
-        console.warn('[SpaceHome] Failed to complete todo:', e);
-        // Revert optimistic update on error
-        if (localCompletedIdsRef.current.has(todoId)) {
-          localCompletedIdsRef.current.delete(todoId);
-        } else {
-          localCompletedIdsRef.current.add(todoId);
-        }
+      // Step 3: After animation delay, persist to store and remove from animating
+      setTimeout(async () => {
+        // Remove from animating set
+        animatingTodoIdsRef.current.delete(todoId);
         forceUpdate();
-        Alert.alert('Error', 'Failed to complete todo');
-      }
+
+        try {
+          await store.completeTodo(todoId);
+          setShowConfetti(true);
+        } catch (e) {
+          console.warn('[SpaceHome] Failed to complete todo:', e);
+          // Revert optimistic update on error
+          localCompletedIdsRef.current.delete(todoId);
+          forceUpdate();
+          Alert.alert('Error', 'Failed to complete todo');
+        }
+      }, 850); // Slightly after animation completes (800ms)
     },
     [store],
   );

@@ -9,7 +9,7 @@
  * - Satisfying completion animation
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Circle, CheckCircle2, ChevronDown, ChevronUp, Pin } from 'lucide-react-native';
 import Animated, {
@@ -85,6 +85,7 @@ export function TodoSection({
           <TodoRow
             key={todo.id}
             todo={todo}
+            isAnimatingOut={(todo as any)._isAnimatingOut}
             onPress={() => onTodoPress(todo)}
             onToggle={() => onTodoComplete(todo)}
             onLongPress={onTodoLongPress ? () => onTodoLongPress(todo) : undefined}
@@ -109,20 +110,42 @@ export function TodoSection({
 
 interface TodoRowProps {
   todo: Todo;
+  isAnimatingOut?: boolean;
   onPress: () => void;
   onToggle: () => void;
   onLongPress?: () => void;
 }
 
-function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
+function TodoRow({ todo, isAnimatingOut = false, onPress, onToggle, onLongPress }: TodoRowProps) {
   const isCompleted = !!todo.completed_at;
-  const [isCompleting, setIsCompleting] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(isAnimatingOut); // Start as completing if animating
 
   // Animation values
-  const rowOpacity = useSharedValue(1);
+  const rowOpacity = useSharedValue(isAnimatingOut ? 1 : 1);
   const translateY = useSharedValue(0);
-  const textOpacity = useSharedValue(1);
+  const textOpacity = useSharedValue(isAnimatingOut ? 0.5 : 1);
   const rowHeight = useSharedValue(38);
+
+  // If mounted with isAnimatingOut=true, start the exit animation
+  useEffect(() => {
+    if (isAnimatingOut) {
+      console.log('[TodoRow] Starting exit animation on mount for:', todo.id);
+      // Phase 2 (500-800ms): Fade out + slide up + collapse height
+      rowOpacity.value = withDelay(
+        500,
+        withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }),
+      );
+      translateY.value = withDelay(
+        500,
+        withTiming(-12, { duration: 300, easing: Easing.in(Easing.ease) }),
+      );
+      rowHeight.value = withDelay(
+        500,
+        withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only on mount
 
   // Debug: log completion state
   console.log(
@@ -133,6 +156,8 @@ function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
     isCompleted,
     'isCompleting:',
     isCompleting,
+    'isAnimatingOut:',
+    isAnimatingOut,
   );
 
   const handleComplete = () => {
