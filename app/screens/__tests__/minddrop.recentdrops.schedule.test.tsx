@@ -50,6 +50,10 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
 });
 
 // Mock selectors
+import * as selectors from '../../../lib/store/selectors';
+
+const mockSelectRecentTodos = selectors.selectRecentTodos as jest.Mock;
+
 jest.mock('../../../lib/store/selectors', () => ({
   selectItemById: jest.fn(),
   selectNoteBySourceMessageId: jest.fn(),
@@ -142,9 +146,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
     // @ts-expect-error override Date for deterministic formatting
     global.Date = MockDate;
 
-    mockRepo.notes.list.mockResolvedValue([]);
-    mockRepo.todos.list.mockResolvedValue([]);
-    mockRepo.habits.list.mockResolvedValue([]);
+    mockSelectRecentTodos.mockReturnValue([]);
   });
 
   afterEach(() => {
@@ -154,7 +156,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   it('displays "due Today" for todos due today at midnight', async () => {
     const today = new Date('2025-11-08T00:00:00');
 
-    mockRepo.todos.list.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-today',
         type: 'todo',
@@ -176,7 +178,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   it('displays "due Today @ 17:00" for todos due today with specific time', async () => {
     const todayAt5PM = new Date('2025-11-08T17:00:00');
 
-    mockRepo.todos.list.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-today-time',
         type: 'todo',
@@ -198,7 +200,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   it('displays "due Tomorrow" for todos due tomorrow', async () => {
     const tomorrow = new Date('2025-11-09T09:00:00');
 
-    mockRepo.todos.list.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-tomorrow',
         type: 'todo',
@@ -220,7 +222,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   it('displays weekday short name for todos due within 7 days', async () => {
     const wednesday = new Date('2025-11-12T14:30:00');
 
-    mockRepo.todos.list.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-wed',
         type: 'todo',
@@ -242,7 +244,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   it('displays "due Nov 20" for todos due beyond 7 days (same month)', async () => {
     const nov20 = new Date('2025-11-20T00:00:00');
 
-    mockRepo.todos.list.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-nov20',
         type: 'todo',
@@ -264,7 +266,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   it('displays "due Dec 5" for todos due in different month', async () => {
     const dec5 = new Date('2025-12-05T10:15:00');
 
-    mockRepo.todos.list.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-dec5',
         type: 'todo',
@@ -284,7 +286,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   });
 
   it('displays "no deadline yet" for todos without due date', async () => {
-    mockRepo.todos.list.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-someday',
         type: 'todo',
@@ -304,7 +306,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   });
 
   it('handles multiple todos with various due dates', async () => {
-    mockRepo.todos.list.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-1',
         type: 'todo',

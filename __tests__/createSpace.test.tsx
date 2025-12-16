@@ -2,15 +2,25 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { SheetManager } from 'react-native-actions-sheet';
 
-// Mock the RepoProvider module BEFORE importing the component
+// Mock the Zustand store and RepoProvider BEFORE importing the component
 const mockCreateSpace = jest.fn();
 const mockCreateMilestone = jest.fn();
 const mockUpsertSpaceMeta = jest.fn();
 
+// Mock useGremlyStore for createSpace and createMilestone (now uses Zustand)
+jest.mock('../lib/store/useGremlyStore', () => ({
+  useGremlyStore: (selector: any) => {
+    const state = {
+      createSpace: mockCreateSpace,
+      createMilestone: mockCreateMilestone,
+    };
+    return selector(state);
+  },
+}));
+
+// Keep RepoProvider mock for upsertSpaceMeta (still uses repo)
 jest.mock('../providers/RepoProvider', () => ({
   useRepo: () => ({
-    createSpace: mockCreateSpace,
-    createMilestone: mockCreateMilestone,
     upsertSpaceMeta: mockUpsertSpaceMeta,
   }),
 }));
