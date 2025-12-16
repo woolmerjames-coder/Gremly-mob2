@@ -2185,9 +2185,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           conversionMeta.initialFrequency,
           conversionMeta.initialFrequencyValue ?? 1,
         );
+        // Map incoming frequency to valid schedule values (daily | weekly | custom)
+        const freq = conversionMeta.initialFrequency.toLowerCase();
+        const schedule: 'daily' | 'weekly' | 'custom' =
+          freq === 'daily' ? 'daily' : freq === 'weekly' ? 'weekly' : 'custom';
         payload.habit = {
           ...(payload.habit || initialV2State.habit),
-          frequency_json: frequencyJson,
+          schedule, // Maps to DB 'frequency' column
+          frequency_json: frequencyJson, // Maps to DB 'frequency_json' column
         };
       }
 
@@ -7526,7 +7531,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       habit: {
         title: compactTitle,
         notes: habitLongText,
-        schedule: 'custom',
+        schedule:
+          dbFrequency === 'daily' ? 'daily' : dbFrequency === 'weekly' ? 'weekly' : 'custom',
         frequency_json: frequencyJson, // Built from frequency + frequency_value columns
         subtype: (entity as any)?.subtype ?? 'start_habit', // Habit mode
       },
@@ -7666,7 +7672,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     habit: {
       title: name || title || '',
       notes: rawDetails || '',
-      schedule: 'custom',
+      schedule:
+        entityFrequency === 'daily' ? 'daily' : entityFrequency === 'weekly' ? 'weekly' : 'custom',
       frequency_json: habitFrequencyJson, // Built from frequency + frequency_value columns
       subtype: (entity as any)?.subtype ?? 'start_habit',
     },

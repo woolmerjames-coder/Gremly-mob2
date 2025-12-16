@@ -94,7 +94,7 @@ RESPOND IN JSON:
     "title": "5-10 word summary",
     "content": "the relevant content to save",
     "tags": ["tag1", "tag2"],
-    "dueDate": "relative indicator like 'tomorrow', 'next_week', 'monday', '+3d', or null if no date mentioned (for todos only). Do NOT return an actual date - return the relative reference."
+    "dueDate": "For todos only. Use relative terms for simple cases: 'tomorrow', 'next_week', 'monday', '+3d'. For SPECIFIC month references like 'last week of January', 'end of February', 'mid-March', return the actual YYYY-MM-DD date (e.g., '2025-01-27' for last week of January). Return null if no date mentioned."
   },
   "reasoning": "brief explanation"
 }`;
@@ -165,6 +165,63 @@ export function resolveRelativeDate(indicator: string | undefined): string | und
       daysUntil += 7; // Next week if today or past
     }
     return formatDate(addDays(today, daysUntil));
+  }
+
+  // Month-based references: "end of january", "late january", "last week of january", etc.
+  const monthNames = [
+    'january',
+    'february',
+    'march',
+    'april',
+    'may',
+    'june',
+    'july',
+    'august',
+    'september',
+    'october',
+    'november',
+    'december',
+  ];
+
+  for (let i = 0; i < monthNames.length; i++) {
+    const month = monthNames[i];
+    if (normalized.includes(month)) {
+      // Determine year - if month is before current month, assume next year
+      const currentMonth = today.getMonth();
+      let targetYear = today.getFullYear();
+      if (i < currentMonth) {
+        targetYear += 1;
+      }
+
+      // Determine day within month based on qualifier
+      let targetDay: number;
+      if (
+        normalized.includes('last week') ||
+        normalized.includes('end of') ||
+        normalized.includes('late')
+      ) {
+        // Last week of month = around 25th-28th
+        targetDay = 27;
+      } else if (normalized.includes('mid') || normalized.includes('middle')) {
+        targetDay = 15;
+      } else if (
+        normalized.includes('early') ||
+        normalized.includes('beginning') ||
+        normalized.includes('first week')
+      ) {
+        targetDay = 7;
+      } else {
+        // Default to middle of month
+        targetDay = 15;
+      }
+
+      // Clamp day to valid range for the month
+      const lastDayOfMonth = new Date(targetYear, i + 1, 0).getDate();
+      targetDay = Math.min(targetDay, lastDayOfMonth);
+
+      const targetDate = new Date(targetYear, i, targetDay);
+      return formatDate(targetDate);
+    }
   }
 
   // Check if it's already a valid YYYY-MM-DD date (pass through)

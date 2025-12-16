@@ -77,6 +77,7 @@ import {
   useSpaceNotesFromStore,
   useSpaceMilestoneFromStore,
   useMilestoneCountdown,
+  useSpaceById,
   selectItemById,
 } from '../../lib/store/selectors';
 
@@ -95,7 +96,10 @@ export default function ChatThreadScreen({ route }: Props) {
   const { spaceId, chatId } = route.params;
   const auth = useAuth();
   const { userId } = auth;
-  const getItemById = useGremlyStore((s) => (id: string) => selectItemById(s, id));
+  const getItemById = useCallback(
+    (id: string) => selectItemById(useGremlyStore.getState(), id),
+    [],
+  );
 
   const [chat, setChat] = useState<SpaceChat | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,7 +114,7 @@ export default function ChatThreadScreen({ route }: Props) {
   }, []);
 
   // Fetch space data from Zustand store
-  const space = useGremlyStore((s) => s.spaces.find((sp) => sp.id === spaceId) ?? null);
+  const space = useSpaceById(spaceId);
   const todos = useSpaceTodosFromStore(spaceId);
   const habits = useSpaceHabitsFromStore(spaceId);
   const notes = useSpaceNotesFromStore(spaceId);

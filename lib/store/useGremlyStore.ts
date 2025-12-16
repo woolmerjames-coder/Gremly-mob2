@@ -11,6 +11,56 @@ const STORE_EVENT_SOURCE = 'gremly-store';
 // Module-level unsubscribe function for cleanup
 let eventBusUnsubscribe: (() => void) | null = null;
 
+/**
+ * Sanitize payload before sending to Supabase.
+ * - Strips app-only fields that don't exist in DB
+ * - Renames camelCase fields to snake_case DB columns
+ */
+function sanitizeForSupabase(
+  payload: Record<string, unknown>,
+  entityType: 'note' | 'todo' | 'habit',
+): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = { ...payload };
+
+  // Remove app-only fields (re-added on read)
+  delete sanitized.type;
+
+  // RENAME canonicalType → canonical_type (all entities)
+  if ('canonicalType' in sanitized) {
+    sanitized.canonical_type = sanitized.canonicalType;
+    delete sanitized.canonicalType;
+  }
+
+  // RENAME details → body (for todos)
+  if (entityType === 'todo' && 'details' in sanitized) {
+    sanitized.body = sanitized.details;
+    delete sanitized.details;
+  }
+
+  // RENAME content → body (for notes, if passed as content)
+  if (entityType === 'note' && 'content' in sanitized) {
+    sanitized.body = sanitized.content;
+    delete sanitized.content;
+  }
+
+  // RENAME frequency_value → frequency_json (for habits)
+  if (entityType === 'habit' && 'frequency_value' in sanitized) {
+    sanitized.frequency_json = sanitized.frequency_value;
+    delete sanitized.frequency_value;
+  }
+
+  // These don't exist in DB, safe to remove
+  delete sanitized.due_at;
+  delete sanitized.photo_uri;
+
+  // For todos and habits: ensure 'name' is set (required NOT NULL column)
+  if ((entityType === 'todo' || entityType === 'habit') && !sanitized.name && sanitized.title) {
+    sanitized.name = sanitized.title;
+  }
+
+  return sanitized;
+}
+
 // Habit progress row from Supabase
 export interface HabitProgressRow {
   id: string;
@@ -295,8 +345,9 @@ export const useGremlyStore = create<GremlyState>()(
       if (!userId) throw new Error('Not authenticated');
 
       const now = new Date().toISOString();
+      const sanitized = sanitizeForSupabase(todo as Record<string, unknown>, 'todo');
       const payload = {
-        ...todo,
+        ...sanitized,
         owner_id: userId,
         created_at: now,
         updated_at: now,
@@ -334,10 +385,10 @@ export const useGremlyStore = create<GremlyState>()(
       }));
 
       // 2. SYNC TO SUPABASE
-      const { error } = await supabase
-        .from('todos')
-        .update({ ...updates, updated_at: now })
-        .eq('id', id);
+      const sanitized = sanitizeForSupabase(updates as Record<string, unknown>, 'todo');
+      const supabaseUpdates = { ...sanitized, updated_at: now };
+
+      const { error } = await supabase.from('todos').update(supabaseUpdates).eq('id', id);
 
       // 3. ROLLBACK ON ERROR
       if (error) {
@@ -505,19 +556,13 @@ export const useGremlyStore = create<GremlyState>()(
       if (!userId) throw new Error('Not authenticated');
 
       const now = new Date().toISOString();
-
-      // Map camelCase to snake_case for DB columns, remove client-only fields
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { canonicalType, type, ...dbHabit } = habit as Record<string, unknown>;
-      const payload: Record<string, unknown> = {
-        ...dbHabit,
+      const sanitized = sanitizeForSupabase(habit as Record<string, unknown>, 'habit');
+      const payload = {
+        ...sanitized,
         owner_id: userId,
         created_at: now,
         updated_at: now,
       };
-      if (canonicalType !== undefined) {
-        payload.canonical_type = canonicalType;
-      }
 
       const { data, error } = await supabase.from('habits').insert(payload).select().single();
 
@@ -550,13 +595,9 @@ export const useGremlyStore = create<GremlyState>()(
         habits: state.habits.map((h) => (h.id === id ? { ...h, ...updates, updated_at: now } : h)),
       }));
 
-      // 2. SYNC TO SUPABASE - Map camelCase to snake_case for DB columns
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { canonicalType, type, ...dbUpdates } = updates as Record<string, unknown>;
-      const supabaseUpdates: Record<string, unknown> = { ...dbUpdates, updated_at: now };
-      if (canonicalType !== undefined) {
-        supabaseUpdates.canonical_type = canonicalType;
-      }
+      // 2. SYNC TO SUPABASE
+      const sanitized = sanitizeForSupabase(updates as Record<string, unknown>, 'habit');
+      const supabaseUpdates = { ...sanitized, updated_at: now };
 
       const { error } = await supabase.from('habits').update(supabaseUpdates).eq('id', id);
 
@@ -947,8 +988,9 @@ export const useGremlyStore = create<GremlyState>()(
       if (!userId) throw new Error('Not authenticated');
 
       const now = new Date().toISOString();
+      const sanitized = sanitizeForSupabase(note as Record<string, unknown>, 'note');
       const payload = {
-        ...note,
+        ...sanitized,
         owner_id: userId,
         created_at: now,
         updated_at: now,
@@ -986,12 +1028,12 @@ export const useGremlyStore = create<GremlyState>()(
       }));
 
       // 2. SYNC TO SUPABASE
-      const { error } = await supabase
-        .from('notes')
-        .update({ ...updates, updated_at: now })
-        .eq('id', id);
+      const sanitized = sanitizeForSupabase(updates as Record<string, unknown>, 'note');
+      const dbUpdates = { ...sanitized, updated_at: now };
 
-      // 3. ROLLBACK ON ERROR
+      const { error } = await supabase.from('notes').update(dbUpdates).eq('id', id);
+
+      // 4. ROLLBACK ON ERROR
       if (error) {
         console.error('[GremlyStore] updateNote failed:', error);
         if (prevNote) {
