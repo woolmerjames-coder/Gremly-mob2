@@ -19,6 +19,36 @@ jest.mock('../../../lib/supabase/client', () => ({
   },
 }));
 
+// Mock Zustand store - use inline state to avoid hoisting issues
+jest.mock('../../../lib/store/useGremlyStore', () => {
+  const mockState = {
+    todos: [],
+    habits: [],
+    notes: [],
+    spaces: [],
+    tags: [],
+    habitProgress: [],
+    createTodo: jest.fn(),
+    createHabit: jest.fn(),
+    createNote: jest.fn(),
+  };
+  const mockUseGremlyStore = (selector: any) => {
+    return selector(mockState);
+  };
+  mockUseGremlyStore.getState = () => mockState;
+  mockUseGremlyStore._mockState = mockState; // Expose for test access
+  return {
+    useGremlyStore: mockUseGremlyStore,
+  };
+});
+
+// Get mock functions after jest.mock hoisting
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { useGremlyStore: mockUseGremlyStore } = require('../../../lib/store/useGremlyStore');
+const mockCreateTodo = mockUseGremlyStore._mockState.createTodo;
+const mockCreateHabit = mockUseGremlyStore._mockState.createHabit;
+const mockCreateNote = mockUseGremlyStore._mockState.createNote;
+
 // Mock dependencies before imports
 const mockRepo = {
   create: jest.fn(),
@@ -92,8 +122,12 @@ jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
 import CatchAllNotepad from '../CatchAllNotepad';
 
 describe('CatchAllNotepad - Narrative Detection', () => {
+  let unsortedIdCounter = 0;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    unsortedIdCounter = 0;
+
     mockRepo.create.mockResolvedValue({
       id: 'test-note-id',
       type: 'note',
@@ -124,6 +158,33 @@ describe('CatchAllNotepad - Narrative Detection', () => {
         return { todo, updatedNote: { ...note, labels: ['archived'] } };
       },
     );
+
+    // Reset and implement Zustand store mocks
+    mockCreateTodo.mockReset();
+    mockCreateHabit.mockReset();
+    mockCreateNote.mockReset();
+
+    mockCreateTodo.mockImplementation(async (input) => ({
+      id: `todo-${++unsortedIdCounter}`,
+      type: 'todo',
+      ...input,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+    mockCreateHabit.mockImplementation(async (input) => ({
+      id: `habit-${++unsortedIdCounter}`,
+      type: 'habit',
+      ...input,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+    mockCreateNote.mockImplementation(async (input) => ({
+      id: `note-${++unsortedIdCounter}`,
+      type: 'note',
+      ...input,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
 
     // Reset and implement pipeline stage mocks
     mockRunMindDropStageAClassification.mockReset();
@@ -180,8 +241,8 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     await waitFor(
       () => {
         // Should NOT create a todo despite cortex saying so
-        const todoCalls = mockRepo.create.mock.calls.filter((call) => call[0]?.type === 'todo');
-        expect(todoCalls.length).toBe(0);
+        // v3 uses Zustand mockCreateTodo, not mockRepo.create
+        expect(mockCreateTodo).not.toHaveBeenCalled();
       },
       { timeout: 3000 },
     );
@@ -211,8 +272,8 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     fireEvent.changeText(input, 'Buy groceries tomorrow. Need milk and bread.');
     fireEvent.press(submitButton);
 
-    // v3: Creates unsorted note, Stage A runs in background
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 3000 });
+    // v3: Creates todo via Zustand store
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalled(), { timeout: 3000 });
   });
 
   it('should trigger todo for text with task keywords', async () => {
@@ -238,8 +299,8 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     fireEvent.changeText(input, 'This is urgent and needs to be done ASAP. Very important task.');
     fireEvent.press(submitButton);
 
-    // v3: Creates unsorted note, Stage A runs in background
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 3000 });
+    // v3: Creates todo via Zustand store
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalled(), { timeout: 3000 });
   });
 
   it.skip('should trigger todo for text with date/time patterns', async () => {
@@ -268,15 +329,8 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     );
     fireEvent.press(submitButton);
 
-    // Phase 4A: Should have created unsorted note + todo
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 3000 });
-    await waitFor(
-      () => {
-        const todoCalls = mockRepo.create.mock.calls.filter((call) => call[0]?.type === 'todo');
-        expect(todoCalls.length).toBeGreaterThan(0);
-      },
-      { timeout: 3000 },
-    );
+    // v3: Creates todo via Zustand store
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalled(), { timeout: 3000 });
   });
 
   it('should allow narrative text with long single sentence', async () => {
@@ -308,8 +362,8 @@ describe('CatchAllNotepad - Narrative Detection', () => {
 
     await waitFor(
       () => {
-        const todoCalls = mockRepo.create.mock.calls.filter((call) => call[0]?.type === 'todo');
-        expect(todoCalls.length).toBe(0);
+        // Should NOT create a todo - narrative text should create a note instead
+        expect(mockCreateTodo).not.toHaveBeenCalled();
       },
       { timeout: 3000 },
     );
@@ -339,7 +393,7 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     fireEvent.changeText(input, 'Fix the signup bug');
     fireEvent.press(submitButton);
 
-    // v3: Creates unsorted note, Stage A runs in background
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 3000 });
+    // v3: Creates todo via Zustand store
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalled(), { timeout: 3000 });
   });
 });
