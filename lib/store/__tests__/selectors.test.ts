@@ -536,3 +536,280 @@ describe('selectSweepCandidatesUnified', () => {
     expect(result.some((c) => c.id === 't1')).toBe(true);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// selectCompletionsInRolling7Days
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import {
+  selectCompletionsInRolling7Days,
+  selectCompletionsInRolling30Days,
+  selectWeeklyHabitSummaries,
+  selectCompletionsThisWeek,
+} from '../selectors';
+
+describe('selectCompletionsInRolling7Days', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns empty map when no progress', () => {
+    const state = makeState({ habitProgress: [] });
+
+    const result = selectCompletionsInRolling7Days(state as any);
+
+    expect(result.size).toBe(0);
+  });
+
+  it('counts unique days within 7-day window', () => {
+    const state = makeState({
+      habitProgress: [
+        makeHabitProgress('habit-1', '2025-12-15'), // Today
+        makeHabitProgress('habit-1', '2025-12-14'), // Yesterday
+        makeHabitProgress('habit-1', '2025-12-10'), // 5 days ago
+        makeHabitProgress('habit-1', '2025-12-08'), // 7 days ago (out of 7-day window)
+      ],
+    });
+
+    const result = selectCompletionsInRolling7Days(state as any);
+
+    expect(result.get('habit-1')).toBe(3); // Only 3 days in window
+  });
+
+  it('handles multiple habits', () => {
+    const state = makeState({
+      habitProgress: [
+        makeHabitProgress('habit-1', '2025-12-15'),
+        makeHabitProgress('habit-1', '2025-12-14'),
+        makeHabitProgress('habit-2', '2025-12-15'),
+      ],
+    });
+
+    const result = selectCompletionsInRolling7Days(state as any);
+
+    expect(result.get('habit-1')).toBe(2);
+    expect(result.get('habit-2')).toBe(1);
+  });
+
+  it('excludes progress older than 7 days', () => {
+    const state = makeState({
+      habitProgress: [
+        makeHabitProgress('habit-1', '2025-12-01'), // Way too old
+        makeHabitProgress('habit-1', '2025-12-08'), // 7 days ago (out of window)
+      ],
+    });
+
+    const result = selectCompletionsInRolling7Days(state as any);
+
+    expect(result.get('habit-1')).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// selectCompletionsInRolling30Days
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('selectCompletionsInRolling30Days', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('counts completions within 30-day window', () => {
+    const state = makeState({
+      habitProgress: [
+        makeHabitProgress('habit-1', '2025-12-15'), // Today
+        makeHabitProgress('habit-1', '2025-12-01'), // 14 days ago
+        makeHabitProgress('habit-1', '2025-11-20'), // 25 days ago
+        makeHabitProgress('habit-1', '2025-11-14'), // 31 days ago (out of window)
+      ],
+    });
+
+    const result = selectCompletionsInRolling30Days(state as any);
+
+    expect(result.get('habit-1')).toBe(3); // Only 3 days in window
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// selectWeeklyHabitSummaries
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('selectWeeklyHabitSummaries', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // Set to Wednesday (day 3 of week)
+    jest.setSystemTime(new Date('2025-12-17T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns empty array when no habits', () => {
+    const state = makeState({ habits: [], habitProgress: [] });
+
+    const result = selectWeeklyHabitSummaries(state as any);
+
+    expect(result).toHaveLength(0);
+  });
+
+  it('calculates targetPerWeek=7 for daily habits', () => {
+    const state = makeState({
+      habits: [makeHabit({ id: 'h1', cadence: 'daily' })],
+      habitProgress: [],
+    });
+
+    const result = selectWeeklyHabitSummaries(state as any);
+
+    expect(result[0].targetPerWeek).toBe(7);
+  });
+
+  it('calculates targetPerWeek from target_per_period for weekly habits', () => {
+    const state = makeState({
+      habits: [makeHabit({ id: 'h1', cadence: 'weekly', target_per_period: 3 })],
+      habitProgress: [],
+    });
+
+    const result = selectWeeklyHabitSummaries(state as any);
+
+    expect(result[0].targetPerWeek).toBe(3);
+  });
+
+  it('counts completions this calendar week', () => {
+    const state = makeState({
+      habits: [makeHabit({ id: 'h1', cadence: 'weekly', target_per_period: 3 })],
+      habitProgress: [
+        // Week starts on Sunday (Dec 14 is Sunday for 2025-12-17)
+        makeHabitProgress('h1', '2025-12-14'), // Sunday (week start)
+        makeHabitProgress('h1', '2025-12-15'), // Monday
+        makeHabitProgress('h1', '2025-12-10'), // Last week (should not count)
+      ],
+    });
+
+    const result = selectWeeklyHabitSummaries(state as any);
+
+    expect(result[0].completionsThisWeek).toBe(2);
+  });
+
+  it('excludes archived habits', () => {
+    const state = makeState({
+      habits: [makeHabit({ id: 'h1', archived: false }), makeHabit({ id: 'h2', archived: true })],
+      habitProgress: [],
+    });
+
+    const result = selectWeeklyHabitSummaries(state as any);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].habitId).toBe('h1');
+  });
+
+  it('returns week_complete status when target met', () => {
+    const state = makeState({
+      habits: [makeHabit({ id: 'h1', cadence: 'weekly', target_per_period: 2 })],
+      habitProgress: [makeHabitProgress('h1', '2025-12-14'), makeHabitProgress('h1', '2025-12-15')],
+    });
+
+    const result = selectWeeklyHabitSummaries(state as any);
+
+    expect(result[0].status).toBe('week_complete');
+  });
+
+  it('returns last_chance status when behind with limited days left', () => {
+    // Wednesday Dec 17: days remaining = 7 - 3 = 4 (Wed, Thu, Fri, Sat)
+    // For daily habit needing 7/week with 0 completions, remaining = 7 > 4 days remaining
+    const state = makeState({
+      habits: [makeHabit({ id: 'h1', cadence: 'daily' })],
+      habitProgress: [], // No completions yet this week
+    });
+
+    const result = selectWeeklyHabitSummaries(state as any);
+
+    expect(result[0].status).toBe('last_chance');
+  });
+
+  it('returns flexible status when well ahead of schedule', () => {
+    // Wednesday Dec 17: days remaining = 4
+    // Daily habit needs 7/week, with 5 completions, remaining = 2
+    // remaining (2) < daysRemaining - 1 (3) → flexible
+    const state = makeState({
+      habits: [makeHabit({ id: 'h1', cadence: 'daily' })],
+      habitProgress: [
+        makeHabitProgress('h1', '2025-12-14'), // Sun
+        makeHabitProgress('h1', '2025-12-15'), // Mon
+        makeHabitProgress('h1', '2025-12-16'), // Tue
+        makeHabitProgress('h1', '2025-12-17'), // Wed (today)
+        makeHabitProgress('h1', '2025-12-15'), // Extra Mon completion (duplicate day)
+      ],
+    });
+
+    const result = selectWeeklyHabitSummaries(state as any);
+
+    // 5 completions, need 7, remaining = 2, days left = 4
+    // 2 < 4 - 1 = 3, so flexible
+    expect(result[0].status).toBe('flexible');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// selectCompletionsThisWeek
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('selectCompletionsThisWeek', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // Wednesday Dec 17, 2025 - week starts Sunday Dec 14
+    jest.setSystemTime(new Date('2025-12-17T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns empty map when no progress', () => {
+    const state = makeState({ habitProgress: [] });
+
+    const result = selectCompletionsThisWeek(state as any);
+
+    expect(result.size).toBe(0);
+  });
+
+  it('counts completions from current calendar week only', () => {
+    const state = makeState({
+      habitProgress: [
+        makeHabitProgress('h1', '2025-12-14'), // Sunday (week start)
+        makeHabitProgress('h1', '2025-12-15'), // Monday
+        makeHabitProgress('h1', '2025-12-17'), // Wednesday (today)
+        makeHabitProgress('h1', '2025-12-13'), // Saturday (last week)
+        makeHabitProgress('h1', '2025-12-10'), // Last week
+      ],
+    });
+
+    const result = selectCompletionsThisWeek(state as any);
+
+    expect(result.get('h1')).toBe(3);
+  });
+
+  it('sums counts from multiple progress records on same day', () => {
+    const progress1 = makeHabitProgress('h1', '2025-12-15');
+    const progress2 = makeHabitProgress('h1', '2025-12-15');
+    progress2.count = 2; // Did it twice that day
+
+    const state = makeState({
+      habitProgress: [progress1, progress2],
+    });
+
+    const result = selectCompletionsThisWeek(state as any);
+
+    expect(result.get('h1')).toBe(3); // 1 + 2
+  });
+});
