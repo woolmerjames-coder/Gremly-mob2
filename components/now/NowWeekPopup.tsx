@@ -75,10 +75,14 @@ function getRolling7DayRange(today: Date): { startDate: Date; endDate: Date } {
 }
 
 /**
- * Format date to ISO date string (YYYY-MM-DD)
+ * Format date to local ISO date string (YYYY-MM-DD)
+ * Uses local timezone, not UTC, to match user's day boundaries
  */
 function toDateString(date: Date): string {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function NowWeekPopup({
