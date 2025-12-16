@@ -279,8 +279,10 @@ export function useMindDropSubmit(): {
           });
         } else if (entityType === 'habit') {
           // Use Zustand store method - single source of truth
+          // Note: DB requires both 'name' and 'title' columns
           entity = await createHabit({
             name: effectiveText,
+            title: effectiveText, // DB requires title column
             frequency: 'daily', // Default frequency for habits
             space_id: context.spaceId ?? null,
             drop_id: dropId,
@@ -290,7 +292,7 @@ export function useMindDropSubmit(): {
               minddrop_stage: 'classified',
               ai_pending: true,
             },
-          });
+          } as any); // Cast to any because Habit type doesn't include 'title' but DB requires it
         } else {
           // note (log) - Use Zustand store method - single source of truth
           entity = await createNote({
