@@ -145,6 +145,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     minHeight: 200,
     maxHeight: '70%',
+    flex: 0,
   },
   header: {
     flexDirection: 'row',
