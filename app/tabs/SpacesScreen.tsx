@@ -181,9 +181,9 @@ function GremlyHomeScreen() {
             {/* title image or text for Spaces */}
             <Image source={SPACES_TITLE} style={styles.sectionTitleSpaces} resizeMode="contain" />
             <View style={styles.sectionDividerSpaces} />
-            <Text style={styles.sectionSubtitle}>
-              Where your deeper thinking lives — projects, plans, habits, and research.
-            </Text>
+            <Text style={styles.sectionHeadline}>Where your deeper thinking lives</Text>
+            <Text style={styles.sectionList}>Projects · Plans · Habits · Research</Text>
+            <Text style={styles.sectionPromise}>Let's chat it out</Text>
             <View style={styles.ctaPillSpaces}>
               <Text style={styles.ctaPillTextSpaces}>Go deeper</Text>
               <Layers size={18} color="#2E5540" style={{ marginLeft: 8 }} />
@@ -212,10 +212,9 @@ function GremlyHomeScreen() {
               resizeMode="contain"
             />
             <View style={styles.sectionDividerMindDrop} />
-            <Text style={styles.sectionSubtitle}>
-              Drop anything on your mind — tasks, thoughts, ideas, reminders. I'll organize it for
-              you.
-            </Text>
+            <Text style={styles.sectionHeadline}>Drop anything on your mind</Text>
+            <Text style={styles.sectionList}>Tasks · Thoughts · Ideas · Reminders</Text>
+            <Text style={styles.sectionPromise}>I'll organize it for you</Text>
             <View style={styles.ctaPillMindDrop}>
               <Text style={styles.ctaPillTextMindDrop}>Drop something</Text>
               <ArrowDown size={18} color="#F9F6F1" style={{ marginLeft: 8 }} />
@@ -403,14 +402,33 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   // Shared section subtitle
-  sectionSubtitle: {
-    fontFamily: 'Inter',
-    fontSize: 18,
-    color: 'rgba(34, 34, 34, 0.78)', // Charcoal Ink at 78%
+  sectionHeadline: {
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#222222', // Primary text color
     marginTop: 12,
+    textAlign: 'center',
+    lineHeight: 26,
+  },
+  sectionList: {
+    fontFamily: 'Inter',
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#6A6F76', // Muted/secondary color
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  sectionPromise: {
+    fontFamily: 'Inter',
+    fontSize: 16,
+    fontWeight: '400',
+    color: '#8B7355', // Warm tone
+    marginTop: 6,
     marginBottom: 18,
     textAlign: 'center',
-    lineHeight: 25,
+    lineHeight: 22,
   },
   // Gradient bridge between Spaces and MindDrop zones
   gradientBridge: {
