@@ -421,6 +421,13 @@ function computeHabitStats(
   const weekStartStr = toDateString(weekDays[0]);
   const weekEndStr = toDateString(weekDays[6]);
 
+  // Debug: log habit_progress data received
+  console.log('[useWeeklyHabitStats] computeHabitStats for:', habit.name, {
+    habit_progress_count: habit.habit_progress?.length ?? 0,
+    habit_progress: habit.habit_progress?.map((p) => p.occurred_day),
+    weekRange: `${weekStartStr} to ${weekEndStr}`,
+  });
+
   if (habit.habit_progress) {
     for (const record of habit.habit_progress) {
       const dateStr = record.occurred_day;
@@ -430,6 +437,13 @@ function computeHabitStats(
       }
     }
   }
+
+  console.log(
+    '[useWeeklyHabitStats] progressDates for',
+    habit.name,
+    ':',
+    Array.from(progressDates),
+  );
 
   const frequencyType = parseFrequencyType(habit.frequency);
 
