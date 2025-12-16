@@ -105,9 +105,12 @@ function GremlyHomeScreen() {
 
   // Navigate to create (now opens modal instead of screen route)
   const onCreateSpace = useCallback(() => {
-    // Zustand store handles state updates automatically when space is created
+    // Set callback to navigate to the new space after creation
+    setNewSpaceCallback((space) => {
+      navigation.navigate('SpaceHome', { spaceId: space.id });
+    });
     SheetManager.show('new-space');
-  }, []);
+  }, [navigation]);
 
   // Handle space menu (three-dot menu)
   const handleSpaceMenu = useCallback(
