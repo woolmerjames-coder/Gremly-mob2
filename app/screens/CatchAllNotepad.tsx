@@ -780,6 +780,7 @@ type UnifiedDrop = {
   due_date?: string | null; // ISO timestamp for todos (fallback)
   due_day?: string | null; // YYYY-MM-DD format - canonical, timezone-safe
   due_time?: string | null; // HH:mm format for specific time
+  frequency?: string | null; // For habits: daily, weekly, monthly, custom
   tags?: string[];
   optimisticKind?: 'note' | 'todo' | 'habit';
   drop_id?: string | null; // For deduplication: prefer canonical items over unsorted notes
@@ -793,10 +794,11 @@ type UnifiedDrop = {
  * Visual state for Mind Drop items in Recent Drops list
  * - 'pending': AI enrichment in progress (views.ai_pending = true)
  * - 'enriching': Phase 2 enrichment in progress (entity exists, refining)
+ * - 'revealing': Typewriter reveal animation in progress
  * - 'failed': AI enrichment failed (views.ai_failed = true)
  * - 'complete': AI enrichment complete or not needed
  */
-type MindDropVisualState = 'pending' | 'enriching' | 'failed' | 'complete';
+type MindDropVisualState = 'pending' | 'enriching' | 'revealing' | 'failed' | 'complete';
 
 /**
  * Get visual state for a Mind Drop item based on views flags
@@ -847,8 +849,145 @@ function getMindDropVisualState(entity: {
  * Shows while AI enrichment is in progress
  */
 /**
- * Calm pending animation for MindDrop v3
- * Simple fade with animated dots - no scaling, no pulsing, no transforms
+ * ShimmerBar - Reusable shimmer loading bar
+ * Used across all skeleton states for consistent animation
+ */
+const ShimmerBar: React.FC<{
+  width: number | string;
+  height?: number;
+  style?: any;
+}> = ({ width, height = 14, style }) => {
+  const shimmerPosition = React.useMemo(() => new Animated.Value(0), []);
+
+  React.useEffect(() => {
+    const animation = Animated.loop(
+      Animated.timing(shimmerPosition, {
+        toValue: 1,
+        duration: 1200,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [shimmerPosition]);
+
+  const shimmerTranslate = shimmerPosition.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-100, 200],
+  });
+
+  return (
+    <View
+      style={[
+        {
+          width,
+          height,
+          borderRadius: height / 2,
+          backgroundColor: 'rgba(46, 85, 64, 0.08)',
+          overflow: 'hidden',
+        },
+        style,
+      ]}
+    >
+      <Animated.View
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          transform: [{ translateX: shimmerTranslate }],
+        }}
+      >
+        <View
+          style={{
+            width: 60,
+            height: '100%',
+            backgroundColor: 'rgba(255, 255, 255, 0.5)',
+          }}
+        />
+      </Animated.View>
+    </View>
+  );
+};
+
+/**
+ * TypewriterText - Character-by-character reveal animation
+ * Creates magical "AI is writing" effect
+ * Uses refs to prevent animation restart on parent re-renders
+ */
+const TypewriterText: React.FC<{
+  text: string;
+  style?: any;
+  duration?: number;
+  delay?: number;
+  onComplete?: () => void;
+}> = ({ text, style, duration = 350, delay = 0, onComplete }) => {
+  const [displayedText, setDisplayedText] = React.useState('');
+
+  // Use refs to avoid dependency issues and prevent re-triggering
+  const textRef = React.useRef(text);
+  const onCompleteRef = React.useRef(onComplete);
+  const hasStartedRef = React.useRef(false);
+
+  // Update refs when props change (but don't re-trigger animation)
+  React.useEffect(() => {
+    textRef.current = text;
+    onCompleteRef.current = onComplete;
+  }, [text, onComplete]);
+
+  // Run animation only once on mount
+  React.useEffect(() => {
+    if (hasStartedRef.current) return; // Already started, don't restart
+    hasStartedRef.current = true;
+
+    const targetText = textRef.current;
+    if (!targetText) {
+      setDisplayedText('');
+      return;
+    }
+
+    let isMounted = true;
+
+    const delayTimeout = setTimeout(() => {
+      const chars = targetText.split('');
+      const charDuration = Math.max(duration / chars.length, 12); // Min 12ms per char
+      let index = 0;
+
+      const interval = setInterval(() => {
+        if (!isMounted) return;
+
+        if (index < chars.length) {
+          index++;
+          setDisplayedText(targetText.substring(0, index));
+        } else {
+          clearInterval(interval);
+          onCompleteRef.current?.();
+        }
+      }, charDuration);
+
+      // Store interval for cleanup
+      return () => clearInterval(interval);
+    }, delay);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(delayTimeout);
+    };
+  }, [duration, delay]); // Only depend on timing values, not text/callback
+
+  return (
+    <Text style={style} numberOfLines={1}>
+      {displayedText}
+    </Text>
+  );
+};
+
+/**
+ * PendingSkeleton - Phase 1: Classifying
+ * Shows 3 shimmer bars matching final card layout + "Organizing..." indicator
+ * Height matches final card (88px) to prevent layout jump
  */
 const PendingSkeleton: React.FC<{
   styles: any;
@@ -856,36 +995,13 @@ const PendingSkeleton: React.FC<{
 }> = ({ styles, c }) => {
   const [dots, setDots] = React.useState('');
 
-  // Gentle fade opacity - 0.5 to 0.9, 3 seconds per cycle
-  const [fadeOpacity] = React.useState(() => new Animated.Value(0.5));
-
-  // Animated dots: add one every 500ms, reset after 3
+  // Animated dots: cycle through '', '.', '..', '...'
   React.useEffect(() => {
     const interval = setInterval(() => {
       setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
-    }, 500);
+    }, 400);
     return () => clearInterval(interval);
   }, []);
-
-  React.useEffect(() => {
-    // Gentle fade: opacity 0.5 -> 0.9 -> 0.5 over 3s (no pulsing, no scaling)
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(fadeOpacity, {
-          toValue: 0.9,
-          duration: 1500,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeOpacity, {
-          toValue: 0.5,
-          duration: 1500,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    ).start();
-  }, [fadeOpacity]);
 
   return (
     <View
@@ -893,32 +1009,51 @@ const PendingSkeleton: React.FC<{
       style={[
         styles.recentCard,
         {
-          height: 60, // Fixed height to prevent jumping
-          justifyContent: 'center',
-          alignItems: 'center',
-          backgroundColor: 'transparent', // No pulsing background
+          justifyContent: 'space-between',
         },
       ]}
     >
-      <Animated.Text
-        style={{
-          fontSize: 16, // Soft, not aggressive
-          fontWeight: '500',
-          textAlign: 'center',
-          color: '#6B7280', // Soft gray, not bold/colored
-          opacity: fadeOpacity,
-        }}
-      >
-        Organizing{dots}
-      </Animated.Text>
+      {/* Row 1: Title shimmer */}
+      <View style={styles.recentTopRow}>
+        <ShimmerBar width="65%" height={16} />
+      </View>
+
+      {/* Row 2: Confirmation shimmer */}
+      <View>
+        <ShimmerBar width="45%" height={14} />
+      </View>
+
+      {/* Row 3: Context shimmer + Organizing indicator */}
+      <View style={styles.recentMetaRow}>
+        <ShimmerBar width={70} height={12} />
+        <Text
+          style={[styles.recentMetaTime, { fontStyle: 'italic', color: '#6B7280', minWidth: 75 }]}
+        >
+          Organizing{dots}
+        </Text>
+      </View>
     </View>
   );
 };
 
+const relativeTime = (iso: string) => {
+  const d = new Date(iso);
+  const diff = Date.now() - d.getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hr${h > 1 ? 's' : ''} ago`;
+  const days = Math.floor(h / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString();
+};
+
 /**
- * Enriching state animation for Phase 2
- * Shows category + original title + breathing border + tag shimmer placeholders
- * Brand: "Calm forest intelligence" - organic, alive, magical
+ * EnrichingSkeleton - Phase 2: AI knows the type, refining details
+ * Shows 3 shimmer bars + category chip + timestamp on right
+ * Breathing border indicates active processing
  */
 const EnrichingSkeleton: React.FC<{
   item: UnifiedDrop;
@@ -928,151 +1063,336 @@ const EnrichingSkeleton: React.FC<{
   styles: any;
   c: any;
 }> = ({ item, effectiveKind, displayKind, badgeStyleKey, styles, c }) => {
-  // Breathing border animation - 1.2s in/out
-  // Using useMemo for Animated.Value to satisfy lint rules while maintaining stable refs
-  const borderOpacity = React.useMemo(() => new Animated.Value(0.1), []);
-  const borderWidth = React.useMemo(() => new Animated.Value(1), []);
-
-  // Tag shimmer animation
-  const shimmerPosition = React.useMemo(() => new Animated.Value(0), []);
+  // Breathing border animation
+  const borderOpacity = React.useMemo(() => new Animated.Value(0.15), []);
 
   React.useEffect(() => {
-    // Breathing border glow
-    const borderAnim = Animated.loop(
+    const animation = Animated.loop(
       Animated.sequence([
-        Animated.parallel([
-          Animated.timing(borderOpacity, {
-            toValue: 0.25,
-            duration: 1200,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: false,
-          }),
-          Animated.timing(borderWidth, {
-            toValue: 2,
-            duration: 1200,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: false,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(borderOpacity, {
-            toValue: 0.1,
-            duration: 1200,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: false,
-          }),
-          Animated.timing(borderWidth, {
-            toValue: 1,
-            duration: 1200,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: false,
-          }),
-        ]),
+        Animated.timing(borderOpacity, {
+          toValue: 0.35,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false,
+        }),
+        Animated.timing(borderOpacity, {
+          toValue: 0.15,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false,
+        }),
       ]),
     );
-    borderAnim.start();
+    animation.start();
+    return () => animation.stop();
+  }, [borderOpacity]);
 
-    // Tag shimmer - left to right sweep
-    const shimmerAnim = Animated.loop(
-      Animated.timing(shimmerPosition, {
-        toValue: 1,
-        duration: 1500,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    );
-    shimmerAnim.start();
-
-    return () => {
-      borderAnim.stop();
-      shimmerAnim.stop();
-    };
-  }, [borderOpacity, borderWidth, shimmerPosition]);
-
-  // Moss Green with animated opacity for border
   const animatedBorderColor = borderOpacity.interpolate({
-    inputRange: [0.1, 0.25],
-    outputRange: ['rgba(46, 85, 64, 0.1)', 'rgba(46, 85, 64, 0.25)'],
-  });
-
-  // Shimmer translate for tag placeholders
-  const shimmerTranslate = shimmerPosition.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-100, 200],
+    inputRange: [0.15, 0.35],
+    outputRange: ['rgba(46, 85, 64, 0.15)', 'rgba(46, 85, 64, 0.35)'],
   });
 
   return (
     <Animated.View
-      testID="minddrop-enriching-card"
+      testID="minddrop-enriching-skeleton"
       style={[
         styles.recentCard,
         {
-          borderWidth: borderWidth,
+          justifyContent: 'space-between',
+          borderWidth: 1.5,
           borderColor: animatedBorderColor,
-          shadowColor: '#2E5540',
-          shadowOpacity: 0.15,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 2 },
         },
       ]}
     >
-      {/* First row: Original title */}
+      {/* Row 1: Title shimmer + Category chip */}
       <View style={styles.recentTopRow}>
-        <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
-          {item.title || item.text || '—'}
-        </Text>
+        <ShimmerBar width="55%" height={16} />
+        <View style={styles.recentTopRight}>
+          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>{displayKind}</Text>
+        </View>
       </View>
 
-      {/* Second row: Category + shimmer tag placeholders + status */}
+      {/* Row 2: Confirmation shimmer */}
+      <View>
+        <ShimmerBar width="40%" height={14} />
+      </View>
+
+      {/* Row 3: Context shimmer + timestamp */}
       <View style={styles.recentMetaRow}>
-        <View style={styles.recentMetaLeft}>
-          {/* Category pill - we know this from Phase 1 */}
-          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>{displayKind}</Text>
-
-          {/* Tag shimmer placeholders */}
-          <View style={{ flexDirection: 'row', gap: 4, overflow: 'hidden' }}>
-            {[60, 45, 50].map((width, index) => (
-              <View
-                key={index}
-                style={{
-                  width,
-                  height: 16,
-                  borderRadius: 8,
-                  backgroundColor: c.sageTint,
-                  overflow: 'hidden',
-                }}
-              >
-                <Animated.View
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    transform: [{ translateX: shimmerTranslate }],
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 40,
-                      height: '100%',
-                      backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                    }}
-                  />
-                </Animated.View>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Subtle status indicator */}
-        <Text style={[styles.recentMetaTime, { fontStyle: 'italic', opacity: 0.7 }]}>
-          Refining…
-        </Text>
+        <ShimmerBar width={60} height={12} />
+        <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
     </Animated.View>
   );
 };
+
+/**
+ * RevealingCard - Phase 3: Typewriter reveal animation
+ * Crossfades from shimmer, then reveals each line with typewriter effect
+ * Ends with subtle pulse to indicate completion
+ */
+const RevealingCard: React.FC<{
+  item: UnifiedDrop;
+  effectiveKind: 'note' | 'todo' | 'habit';
+  displayKind: string;
+  badgeStyleKey: string;
+  styles: any;
+  c: any;
+  onRevealComplete: () => void;
+}> = ({ item, effectiveKind, displayKind, badgeStyleKey, styles, c, onRevealComplete }) => {
+  // Track completion of each line
+  const [line1Done, setLine1Done] = React.useState(false);
+  const [line2Done, setLine2Done] = React.useState(false);
+  const [line3Done, setLine3Done] = React.useState(false);
+
+  // Memoize the text values so they're stable during reveal
+  const titleText = React.useMemo(() => item.title || item.text || '—', [item.title, item.text]);
+  const confirmationText = React.useMemo(
+    () => getConfirmationMessage(effectiveKind, item),
+    [effectiveKind, item],
+  );
+  const contextMeta = React.useMemo(
+    () => getContextualMeta(effectiveKind, item),
+    [effectiveKind, item],
+  );
+
+  // Memoize callbacks to prevent re-renders
+  const handleLine1Done = React.useCallback(() => setLine1Done(true), []);
+  const handleLine2Done = React.useCallback(() => setLine2Done(true), []);
+  const handleLine3Done = React.useCallback(() => setLine3Done(true), []);
+
+  // Shimmer fade-out animation
+  const shimmerOpacity = React.useMemo(() => new Animated.Value(1), []);
+  const textOpacity = React.useMemo(() => new Animated.Value(0), []);
+
+  // Settle pulse animation
+  const settleScale = React.useMemo(() => new Animated.Value(1), []);
+  const settleShadow = React.useMemo(() => new Animated.Value(0), []);
+
+  // Start crossfade immediately
+  React.useEffect(() => {
+    Animated.parallel([
+      Animated.timing(shimmerOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(textOpacity, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [shimmerOpacity, textOpacity]);
+
+  // Trigger settle animation when all lines complete
+  React.useEffect(() => {
+    if (line1Done && line2Done && line3Done) {
+      // Subtle pulse: scale up slightly, glow, then settle
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(settleScale, {
+            toValue: 1.008,
+            duration: 150,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(settleShadow, {
+            toValue: 1,
+            duration: 150,
+            useNativeDriver: false,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(settleScale, {
+            toValue: 1,
+            duration: 200,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(settleShadow, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: false,
+          }),
+        ]),
+      ]).start(() => {
+        onRevealComplete();
+      });
+    }
+  }, [line1Done, line2Done, line3Done, settleScale, settleShadow, onRevealComplete]);
+
+  // Animated shadow for settle effect
+  const animatedShadowOpacity = settleShadow.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.12, 0.25],
+  });
+
+  return (
+    <Animated.View
+      testID="minddrop-revealing-card"
+      style={[
+        styles.recentCard,
+        {
+          justifyContent: 'space-between',
+          transform: [{ scale: settleScale }],
+        },
+      ]}
+    >
+      {/* Row 1: Title + Category chip */}
+      <View style={styles.recentTopRow}>
+        <View style={{ flex: 1, minHeight: 20 }}>
+          {/* Text layer with typewriter - no shimmer overlay for title */}
+          <Animated.View style={{ opacity: textOpacity }}>
+            <TypewriterText
+              text={titleText}
+              style={[styles.recentTitle, { flex: undefined }]}
+              duration={350}
+              delay={50}
+              onComplete={handleLine1Done}
+            />
+          </Animated.View>
+        </View>
+        <View style={styles.recentTopRight}>
+          {effectiveKind === 'note' && (item as any)?.private === true && (
+            <Lock size={12} color="#777" />
+          )}
+          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
+            {getDisplayKindForChip(effectiveKind, item)}
+          </Text>
+        </View>
+      </View>
+
+      {/* Row 2: Confirmation message */}
+      <View style={{ position: 'relative' }}>
+        {/* Shimmer layer (fades out) */}
+        <Animated.View style={{ opacity: shimmerOpacity, position: 'absolute', left: 0, right: 0 }}>
+          <ShimmerBar width="40%" height={14} />
+        </Animated.View>
+        {/* Text layer (fades in, typewriter) */}
+        <Animated.View style={{ opacity: textOpacity }}>
+          <TypewriterText
+            text={confirmationText}
+            style={styles.recentConfirmation}
+            duration={300}
+            delay={150}
+            onComplete={handleLine2Done}
+          />
+        </Animated.View>
+      </View>
+
+      {/* Row 3: Contextual info + timestamp */}
+      <View style={styles.recentMetaRow}>
+        <View style={{ position: 'relative', flex: 1 }}>
+          {/* Shimmer layer (fades out) */}
+          <Animated.View style={{ opacity: shimmerOpacity, position: 'absolute', left: 0 }}>
+            <ShimmerBar width={60} height={12} />
+          </Animated.View>
+          {/* Text layer (fades in, typewriter) */}
+          <Animated.View style={{ opacity: textOpacity }}>
+            {contextMeta ? (
+              <TypewriterText
+                text={contextMeta}
+                style={styles.recentContextPill}
+                duration={250}
+                delay={250}
+                onComplete={handleLine3Done}
+              />
+            ) : (
+              // No context meta - mark as done immediately after delay
+              <DelayedCallback delay={300} onComplete={handleLine3Done} />
+            )}
+          </Animated.View>
+        </View>
+        <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+      </View>
+    </Animated.View>
+  );
+};
+
+/**
+ * Helper component to trigger callback after delay
+ * Used when there's no context meta to reveal
+ */
+const DelayedCallback: React.FC<{
+  delay: number;
+  onComplete: () => void;
+}> = ({ delay, onComplete }) => {
+  React.useEffect(() => {
+    const timeout = setTimeout(onComplete, delay);
+    return () => clearTimeout(timeout);
+  }, [delay, onComplete]);
+  return null;
+};
+
+/**
+ * Get friendly confirmation message for Mind Drop card based on kind and item details
+ */
+function getConfirmationMessage(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string {
+  // Use AI-generated confirmation if available
+  if (item.views?.confirmation_message) {
+    return item.views.confirmation_message;
+  }
+
+  // Fall back to templates
+  if (kind === 'todo') {
+    if (item.due_date || item.due_day) {
+      return `Scheduled for ${formatDue({ dueDay: item.due_day, dueIso: item.due_date })}.`;
+    }
+    return 'Added to your list.';
+  }
+  if (kind === 'habit') {
+    return "Let's build this together.";
+  }
+  // Notes/Logs
+  const subtype = item.noteSubtype || item.canonical_type || 'log';
+  if (subtype === 'journal') return 'Thoughts captured.';
+  if (subtype === 'idea') return 'Interesting — saved for later.';
+  if (subtype === 'list') return 'List saved.';
+  return 'Noted.';
+}
+
+/**
+ * Get contextual metadata string for Mind Drop card meta row
+ */
+function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string | null {
+  if (kind === 'todo') {
+    if (item.due_date || item.due_day) {
+      return formatDue({ dueDay: item.due_day, dueIso: item.due_date });
+    }
+    return 'no deadline yet';
+  }
+  if (kind === 'habit') {
+    if (item.frequency && item.frequency !== 'custom') {
+      // Capitalize first letter: 'daily' → 'Daily'
+      return item.frequency.charAt(0).toUpperCase() + item.frequency.slice(1);
+    }
+    return 'Daily'; // Default for custom or missing
+  }
+  // Notes/Logs - show the subtype
+  const subtype = item.noteSubtype || item.canonical_type || 'log';
+  if (subtype === 'journal') return 'Journal';
+  if (subtype === 'idea') return 'Idea';
+  if (subtype === 'list') return 'List';
+  if (subtype === 'reference') return 'Reference';
+  return 'General';
+}
+
+/**
+ * Get display kind for category chip - shows subtype for notes
+ */
+function getDisplayKindForChip(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string {
+  if (kind === 'todo') return 'Todo';
+  if (kind === 'habit') return 'Habit';
+
+  // For notes, show the specific subtype with proper capitalization
+  const subtype = item.noteSubtype || item.canonical_type || 'log';
+  if (subtype === 'journal') return 'Journal';
+  if (subtype === 'idea') return 'Idea';
+  if (subtype === 'list') return 'List';
+  if (subtype === 'reference') return 'Reference';
+  return 'Log';
+}
 
 /**
  * Animated wrapper for Mind Drop card that smoothly transitions
@@ -1103,40 +1423,42 @@ const AnimatedMindDropCard: React.FC<{
   handleEdit,
   handleDelete,
 }) => {
-  // Get full visual state
-  const visualState = getMindDropVisualState(item);
+  // Get visual state from item
+  const itemVisualState = getMindDropVisualState(item);
 
-  // Track state transitions for crossfade effect - MUST be before any early returns
-  // Using useMemo for Animated.Value to satisfy lint rules
-  const fadeAnim = React.useMemo(() => new Animated.Value(1), []);
-  const prevStateRef = React.useRef<MindDropVisualState>(visualState);
+  // Local state to track revealing phase
+  const [isRevealing, setIsRevealing] = React.useState(false);
+  const [revealComplete, setRevealComplete] = React.useState(false);
+  const prevStateRef = React.useRef<MindDropVisualState>(itemVisualState);
 
-  // Crossfade when transitioning from enriching to complete
+  // Detect transition from enriching → complete to trigger reveal
   React.useEffect(() => {
-    if (prevStateRef.current === 'enriching' && visualState === 'complete') {
-      // Quick fade out/in for smooth transition
-      Animated.sequence([
-        Animated.timing(fadeAnim, {
-          toValue: 0.7,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
+    if (prevStateRef.current === 'enriching' && itemVisualState === 'complete') {
+      // Start revealing animation
+      setIsRevealing(true);
     }
-    prevStateRef.current = visualState;
-  }, [visualState, fadeAnim]);
+    prevStateRef.current = itemVisualState;
+  }, [itemVisualState]);
 
-  // Phase 1: Still creating entity - show basic skeleton
+  // Handle reveal completion
+  const handleRevealComplete = React.useCallback(() => {
+    setIsRevealing(false);
+    setRevealComplete(true);
+  }, []);
+
+  // Determine actual visual state
+  const visualState: MindDropVisualState = isRevealing
+    ? 'revealing'
+    : revealComplete || itemVisualState === 'complete'
+      ? 'complete'
+      : itemVisualState;
+
+  // Phase 1: Still creating entity - show skeleton with 3 shimmer bars
   if (visualState === 'pending') {
     return <PendingSkeleton styles={styles} c={c} />;
   }
 
-  // Phase 2: Entity exists, enriching in progress - show breathing card
+  // Phase 2: Entity exists, enriching in progress - show shimmers + chip/timestamp
   if (visualState === 'enriching') {
     return (
       <EnrichingSkeleton
@@ -1150,80 +1472,61 @@ const AnimatedMindDropCard: React.FC<{
     );
   }
 
-  // Complete or Failed: Show full content with crossfade animation
+  // Phase 3: Transitioning - crossfade shimmer to typewriter reveal
+  if (visualState === 'revealing') {
+    return (
+      <RevealingCard
+        item={item}
+        effectiveKind={effectiveKind}
+        displayKind={displayKind}
+        badgeStyleKey={badgeStyleKey}
+        styles={styles}
+        c={c}
+        onRevealComplete={handleRevealComplete}
+      />
+    );
+  }
+
+  // Complete or Failed: Show static content
   const isFailed = visualState === 'failed';
 
   return (
-    <Animated.View style={{ opacity: fadeAnim }}>
-      <Pressable
-        key={`${item.kind}:${item.id}`}
-        testID={`minddrop-recent-${item.kind}-${item.id}`}
-        style={styles.recentCard}
-        onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
-        accessibilityRole="button"
-        accessibilityLabel={`Edit ${item.title || item.text || 'item'}`}
-      >
-        {/* First row: Title only */}
-        <View style={styles.recentTopRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-            <Text numberOfLines={1} style={[styles.recentTitle, { flex: 1 }]}>
-              {item.title || item.text || '—'}
-            </Text>
-            {effectiveKind === 'note' && (item as any)?.private === true && (
-              <Lock size={12} color="#777" style={{ flexShrink: 0 }} />
-            )}
-          </View>
+    <Pressable
+      key={`${item.kind}:${item.id}`}
+      testID={`minddrop-recent-${item.kind}-${item.id}`}
+      style={styles.recentCard}
+      onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${item.title || item.text || 'item'}`}
+    >
+      {/* Row 1: Title (left) + Chip (right) */}
+      <View style={styles.recentTopRow}>
+        <Text numberOfLines={1} style={styles.recentTitle}>
+          {item.title || item.text || '—'}
+        </Text>
+        <View style={styles.recentTopRight}>
+          {effectiveKind === 'note' && (item as any)?.private === true && (
+            <Lock size={12} color="#777" />
+          )}
+          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
+            {getDisplayKindForChip(effectiveKind, item)}
+          </Text>
         </View>
+      </View>
 
-        {/* Second row: All metadata (type chip, tags, due/time) */}
-        <View style={styles.recentMetaRow}>
-          <View style={styles.recentMetaLeft}>
-            {/* Category pill */}
-            <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>{displayKind}</Text>
+      {/* Row 2: Confirmation message */}
+      <Text style={styles.recentConfirmation}>{getConfirmationMessage(effectiveKind, item)}</Text>
 
-            {showLegacyUnsortedBadge ? (
-              <Text style={[styles.recentCategoryPill, styles.badge_unsorted]}>Unsorted</Text>
-            ) : null}
-
-            {/* Tags or status hint */}
-            {Array.isArray(item.tags) && item.tags.length > 0 ? (
-              <Text numberOfLines={1} ellipsizeMode="tail" style={styles.recentTagsText}>
-                {getDisplayTagsForRecentDrop(item)
-                  .map((tag) => (tag.startsWith('@') ? tag : `#${tag}`))
-                  .join('  ')}
-              </Text>
-            ) : isFailed ? (
-              <Text testID="minddrop-failed-hint" style={styles.subtleHint}>
-                Saved as-is
-              </Text>
-            ) : null}
-
-            {/* Due date OR time ago - now in metadata row */}
-            {effectiveKind === 'todo' ? (
-              <Text testID={`minddrop-recent-todo-due-${item.id}`} style={styles.recentMetaDue}>
-                {formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time })}
-              </Text>
-            ) : (
-              <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
-            )}
-          </View>
-        </View>
-      </Pressable>
-    </Animated.View>
+      {/* Row 3: Contextual info (left) + timestamp (right) */}
+      <View style={styles.recentMetaRow}>
+        {(() => {
+          const contextMeta = getContextualMeta(effectiveKind, item);
+          return contextMeta ? <Text style={styles.recentContextPill}>{contextMeta}</Text> : null;
+        })()}
+        <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+      </View>
+    </Pressable>
   );
-};
-
-const relativeTime = (iso: string) => {
-  const d = new Date(iso);
-  const diff = Date.now() - d.getTime();
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m} min ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} hr${h > 1 ? 's' : ''} ago`;
-  const days = Math.floor(h / 24);
-  return `${days} day${days > 1 ? 's' : ''} ago`;
 };
 
 /**
@@ -1376,6 +1679,8 @@ const RecentDrops: React.FC<{
           due_date: record.due_date ?? null,
           due_day: record.due_day ?? null,
           due_time: record.due_time ?? null,
+          noteSubtype: kind === 'note' ? (record.subtype ?? 'catchall') : undefined,
+          canonical_type: record.canonical_type ?? null,
         };
         return [newItem, ...prev];
       }
@@ -1414,6 +1719,11 @@ const RecentDrops: React.FC<{
           labels: Array.isArray((record as any).labels)
             ? (record as any).labels
             : (item.labels ?? []),
+          noteSubtype:
+            kind === 'note'
+              ? ((record as any).subtype ?? item.noteSubtype ?? 'catchall')
+              : item.noteSubtype,
+          canonical_type: (record as any).canonical_type ?? item.canonical_type ?? null,
         };
       });
     },
@@ -1672,6 +1982,7 @@ const RecentDrops: React.FC<{
             title: derivedTitle || rawText || 'Untitled',
             text: rawText,
             created_at: h.created_at,
+            frequency: h.frequency ?? null,
             tags: toTagList((h as any)?.tags),
             drop_id: (h as any)?.drop_id ?? null,
             canonical_type: (h as any)?.canonical_type ?? null,
@@ -2042,6 +2353,7 @@ const RecentDrops: React.FC<{
             due_date: entity.due_date ?? entity.due_at ?? null,
             due_day: entity.due_day ?? null,
             due_time: entity.due_time ?? null,
+            noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
           };
 
           replacePendingWithReal(dropId, realItem);
@@ -2066,6 +2378,7 @@ const RecentDrops: React.FC<{
               ...item.views,
               minddrop_stage: 'enriched',
               ai_pending: false,
+              confirmation_message: payload.confirmationMessage ?? item.views?.confirmation_message,
             },
           };
         }),
@@ -6025,10 +6338,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       paddingBottom: space * 2,
     },
     recentCard: {
-      backgroundColor: c.linenCream,
-      borderRadius: 4,
-      height: 72,
-      paddingVertical: 12,
+      backgroundColor: '#FDFCFA',
+      borderRadius: 12,
+      height: 88,
+      paddingTop: 8,
+      paddingBottom: 8,
       paddingHorizontal: 16,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: 'rgba(46,85,64,0.15)',
@@ -6039,33 +6353,46 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       elevation: 2,
       justifyContent: 'space-between',
     },
-    // Top row: Title (left) + Due/Time (right)
+    // Top row: Title (left) + Chip (right)
     recentTopRow: {
       flexDirection: 'row',
+      alignItems: 'center',
       justifyContent: 'space-between',
+      gap: 8,
+    },
+    // Right side of top row (chip only)
+    recentTopRight: {
+      flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
+      flexShrink: 0,
     },
     // Title styling - single line, medium weight, truncated
     recentTitle: {
       color: c.charcoalInk,
       fontSize: 15,
-      lineHeight: 21,
+      lineHeight: 20,
       fontFamily: 'Inter-Medium',
       flex: 1,
     },
-    // Meta row contains category, tags, actions (second row)
+    // Confirmation message - Gremly's voice
+    recentConfirmation: {
+      fontSize: 13,
+      lineHeight: 16,
+      fontFamily: 'Inter-Italic',
+      color: c.mossGreen,
+    },
+    // Bottom row: Contextual info + timestamp
     recentMetaRow: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
-      gap: 8,
+      justifyContent: 'space-between',
     },
-    // Left side of meta row (category + tags) - single line, no wrap
+    // Left side of meta row (contextual meta + tags) - single line, no wrap
     recentMetaLeft: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 4,
+      gap: 8,
       flex: 1,
       overflow: 'hidden',
     },
@@ -6123,10 +6450,29 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       flexShrink: 0,
     },
+    // Contextual metadata (due date, frequency) after category chip
+    recentContextualMeta: {
+      fontSize: 12,
+      fontFamily: 'Inter-Regular',
+      color: c.mutedText,
+      marginLeft: 6,
+    },
+    // Contextual metadata pill (due date, frequency, subtype)
+    recentContextPill: {
+      backgroundColor: 'rgba(191, 216, 192, 0.3)',
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      borderRadius: 4,
+      fontSize: 10,
+      lineHeight: 14,
+      color: c.mutedText,
+      fontFamily: 'Inter-Medium',
+      overflow: 'hidden',
+    },
     // Time ago in metadata row - same as recentMetaDue for consistency
     recentMetaTime: {
       color: c.mutedText,
-      fontSize: 12,
+      fontSize: 10,
       fontFamily: 'Inter-Regular',
       flexShrink: 0,
     },
