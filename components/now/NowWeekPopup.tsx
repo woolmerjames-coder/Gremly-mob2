@@ -60,15 +60,18 @@ interface NowWeekPopupProps {
 }
 
 /**
- * Get the Monday of the current week
+ * Get rolling 7 days ending today (matches useWeeklyHabitStats)
+ * Returns: { startDate: Date, endDate: Date }
  */
-function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+function getRolling7DayRange(today: Date): { startDate: Date; endDate: Date } {
+  const endDate = new Date(today);
+  endDate.setHours(23, 59, 59, 999);
+
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - 6);
+  startDate.setHours(0, 0, 0, 0);
+
+  return { startDate, endDate };
 }
 
 /**
@@ -118,16 +121,14 @@ export function NowWeekPopup({
     [repo, overlayController, onClose],
   );
 
-  // Week date range
+  // Week date range - rolling 7 days ending today (matches useWeeklyHabitStats)
   const today = useMemo(() => new Date(), []);
-  const weekStart = useMemo(() => getWeekStart(today), [today]);
+  const { startDate: weekStart, endDate: weekEnd } = useMemo(
+    () => getRolling7DayRange(today),
+    [today],
+  );
   const weekStartIso = useMemo(() => toDateString(weekStart), [weekStart]);
-  const weekEndDate = useMemo(() => {
-    const end = new Date(weekStart);
-    end.setDate(weekStart.getDate() + 6);
-    return end;
-  }, [weekStart]);
-  const weekEndIso = useMemo(() => toDateString(weekEndDate), [weekEndDate]);
+  const weekEndIso = useMemo(() => toDateString(weekEnd), [weekEnd]);
 
   // Build enriched habits from Zustand habitProgress (single source of truth)
   const enrichedHabits = useMemo<RawHabit[]>(() => {
@@ -193,17 +194,21 @@ export function NowWeekPopup({
   useEffect(() => {
     if (visible && enrichedHabits.length > 0) {
       console.log(
-        '[NowWeekPopup] Enriched habits:',
-        enrichedHabits.length,
+        '[NowWeekPopup] habitProgress from Zustand:',
+        habitProgress.length,
+        'items in range:',
+        habitProgress.filter((p) => p.occurred_day >= weekStartIso && p.occurred_day <= weekEndIso)
+          .length,
+      );
+      console.log(
+        '[NowWeekPopup] Enriched habits with progress:',
         enrichedHabits.map((h) => ({
           name: h.name,
-          cadence: h.cadence,
-          target_per_period: h.target_per_period,
-          frequency: h.frequency,
+          progressDates: h.habit_progress?.map((p) => p.occurred_day) ?? [],
         })),
       );
     }
-  }, [visible, enrichedHabits]);
+  }, [visible, enrichedHabits, habitProgress, weekStartIso, weekEndIso]);
 
   // Compute weekly stats from enriched habits
   const rawWeeklyStats = useWeeklyHabitStats(enrichedHabits);
