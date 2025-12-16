@@ -115,6 +115,35 @@ interface NowFocusRowProps {
   onAnimationComplete?: () => void;
 }
 
+/**
+ * Parse frequency string from Zustand to display label.
+ * Handles: "3 times a week", "5 times a week", "2 times a month", "daily"
+ */
+function parseFrequencyLabel(frequency: string | undefined | null): string {
+  if (!frequency) return 'Daily';
+
+  const freq = frequency.toLowerCase();
+
+  // Match "X times a week" pattern
+  const weekMatch = freq.match(/(\d+)\s*times?\s*(?:a|per)?\s*week/i);
+  if (weekMatch) {
+    return `${weekMatch[1]}x/week`;
+  }
+
+  // Match "X times a month" pattern
+  const monthMatch = freq.match(/(\d+)\s*times?\s*(?:a|per)?\s*month/i);
+  if (monthMatch) {
+    return `${monthMatch[1]}x/month`;
+  }
+
+  // Check for daily
+  if (freq === 'daily' || freq.includes('every day')) {
+    return 'Daily';
+  }
+
+  return 'Daily';
+}
+
 export function NowFocusRow({
   item,
   isCompleted = false,
@@ -132,24 +161,35 @@ export function NowFocusRow({
   // Get the full habit from store to access frequency field
   const habits = useGremlyStore((s) => s.habits);
 
-  // Compute habit metadata for habits
+  // Look up the full habit from the store to get the frequency field
+  const fullHabit = item.type === 'habit' ? habits.find((h) => h.id === item.id) : null;
+
+  // Compute frequency label directly from Zustand habit data
+  const frequencyLabel = React.useMemo(() => {
+    if (item.type !== 'habit' || !fullHabit) return null;
+    return parseFrequencyLabel(fullHabit.frequency);
+  }, [item.type, fullHabit]);
+
+  // Compute habit metadata for habits (streak/progress icons)
   const habitMetadata = React.useMemo(() => {
     if (item.type !== 'habit') return null;
 
-    // Look up the full habit from the store to get the frequency field
-    const fullHabit = habits.find((h) => h.id === item.id);
-    const frequency = fullHabit?.frequency;
-
-    // Create a minimal habit object for the metadata computation
-    const habitForMetadata = {
-      id: item.id,
-      name: item.name,
-      cadence: ('cadence' in item ? item.cadence : 'daily') as 'daily' | 'weekly' | 'monthly',
-      target_per_period: 'target_per_period' in item ? (item.target_per_period as number) : 1,
-      frequency: frequency,
-    };
-    return computeHabitMetadata(habitForMetadata, habitProgress);
-  }, [item, habitProgress, habits]);
+    try {
+      // Create a minimal habit object for the metadata computation
+      const habitForMetadata = {
+        id: item.id,
+        name: item.name,
+        cadence: ('cadence' in item ? item.cadence : 'daily') as 'daily' | 'weekly' | 'monthly',
+        target_per_period: 'target_per_period' in item ? (item.target_per_period as number) : 1,
+        frequency: fullHabit?.frequency,
+      };
+      return computeHabitMetadata(habitForMetadata, habitProgress);
+    } catch (e) {
+      // If computeHabitMetadata fails (bundler issue), return null
+      console.warn('[NowFocusRow] computeHabitMetadata error:', e);
+      return null;
+    }
+  }, [item, habitProgress, fullHabit]);
 
   const MetadataIcon = habitMetadata ? MetadataIconMap[habitMetadata.icon] : null;
 
@@ -420,9 +460,9 @@ export function NowFocusRow({
                   </>
                 )}
                 <NowTypeChip type={item.type} />
-                {/* Frequency label after Habit chip */}
-                {item.type === 'habit' && habitMetadata?.frequencyLabel && (
-                  <Text style={styles.frequencyLabel}>· {habitMetadata.frequencyLabel}</Text>
+                {/* Frequency label after Habit chip - directly from Zustand */}
+                {item.type === 'habit' && frequencyLabel && (
+                  <Text style={styles.frequencyLabel}>· {frequencyLabel}</Text>
                 )}
               </Box>
             </Box>
