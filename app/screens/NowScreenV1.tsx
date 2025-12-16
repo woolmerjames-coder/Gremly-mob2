@@ -81,6 +81,7 @@ function toLockedItem(item: Todo | Habit): NowLockedItem {
     dueDay: isHabit ? null : ((item as Todo).due_day ?? null),
     cadence: isHabit ? (item as Habit).cadence : undefined,
     targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
+    frequency: isHabit ? (item as Habit).frequency : undefined,
   };
 }
 
@@ -96,6 +97,7 @@ function toActiveItem(item: Todo | Habit): NowActiveItem {
     dueTime: isHabit ? null : ((item as Todo).due_time ?? null),
     cadence: isHabit ? (item as Habit).cadence : undefined,
     targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
+    frequency: isHabit ? (item as Habit).frequency : undefined,
   };
 }
 
