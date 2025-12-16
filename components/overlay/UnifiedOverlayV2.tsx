@@ -64,7 +64,8 @@ import {
   spacing as tokenSpacing,
   borderRadius as tokenRadius,
 } from '../../design/tokens';
-import { useRepo } from '../../providers/RepoProvider';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { selectItemById, useActiveSpaces } from '../../lib/store/selectors';
 import { useAuth } from '../../providers/AuthProvider';
 import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
@@ -888,7 +889,98 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Extract full entity from props (passed by OverlayHost in edit mode)
   const fullEntity = (props as any).entity ?? null;
 
-  const repo = useRepo();
+  // Zustand store mutations (replaces useRepo)
+  const createTodo = useGremlyStore((s) => s.createTodo);
+  const createNote = useGremlyStore((s) => s.createNote);
+  const createHabit = useGremlyStore((s) => s.createHabit);
+  const updateTodo = useGremlyStore((s) => s.updateTodo);
+  const updateNote = useGremlyStore((s) => s.updateNote);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
+  const deleteTodo = useGremlyStore((s) => s.deleteTodo);
+  const deleteNote = useGremlyStore((s) => s.deleteNote);
+  const deleteHabit = useGremlyStore((s) => s.deleteHabit);
+  const insertLogPhoto = useGremlyStore((s) => s.insertLogPhoto);
+  const deleteLogPhoto = useGremlyStore((s) => s.deleteLogPhoto);
+  const updateLogPhotoPosition = useGremlyStore((s) => s.updateLogPhotoPosition);
+  const listLogPhotos = useGremlyStore((s) => s.listLogPhotos);
+
+  // Spaces from selector (replaces repo.listSpaces)
+  const storeSpaces = useActiveSpaces();
+
+  // Synchronous getItemById helper (replaces repo.getById)
+  const getItemById = useCallback(
+    (id: string) => selectItemById(useGremlyStore.getState(), id),
+    [],
+  );
+
+  // Repo adapter for legacy hooks (usePhase8LinksState, etc.)
+  // This allows incremental migration while maintaining backwards compatibility
+  const repo = useMemo(
+    () => ({
+      getById: async (id: string) => getItemById(id),
+      listSpaces: async () => storeSpaces,
+      update: async ({ id, patch }: { id: string; patch: any }) => {
+        const item = getItemById(id);
+        if (!item) return null;
+        if (item.type === 'todo') {
+          await updateTodo(id, patch);
+        } else if (item.type === 'habit') {
+          await updateHabit(id, patch);
+        } else {
+          await updateNote(id, patch);
+        }
+        return getItemById(id);
+      },
+      create: async (input: any) => {
+        if (input.type === 'todo') {
+          return createTodo(input);
+        } else if (input.type === 'habit') {
+          return createHabit(input);
+        } else {
+          return createNote(input);
+        }
+      },
+      remove: async (id: string) => {
+        const item = getItemById(id);
+        if (!item) return;
+        if (item.type === 'todo') {
+          await deleteTodo(id);
+        } else if (item.type === 'habit') {
+          await deleteHabit(id);
+        } else {
+          await deleteNote(id);
+        }
+      },
+      deleteLogPhoto,
+      insertLogPhoto: async (params: { note_id: string; url: string; position: number }) => {
+        return insertLogPhoto({
+          noteId: params.note_id,
+          url: params.url,
+          position: params.position,
+        });
+      },
+      updateLogPhotoPosition,
+      listLogPhotos,
+    }),
+    [
+      getItemById,
+      storeSpaces,
+      updateTodo,
+      updateHabit,
+      updateNote,
+      createTodo,
+      createHabit,
+      createNote,
+      deleteTodo,
+      deleteHabit,
+      deleteNote,
+      deleteLogPhoto,
+      insertLogPhoto,
+      updateLogPhotoPosition,
+      listLogPhotos,
+    ],
+  );
+
   const globalOverlay = useGlobalOverlay();
   // P0 fix: Use lazy initializer to derive baseType from initialEntity.type on first render
   // This prevents the brief flash of empty LOG form when editing todos/habits
@@ -1164,7 +1256,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }
 
   const phase8Links = usePhase8LinksState(
-    repo,
+    repo as any, // Cast to any for legacy hook compatibility
     userId ?? '',
     null,
     baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note',
@@ -1225,23 +1317,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return true;
   }
 
-  // load spaces when details panel expands so selector can show options
+  // Sync spaces from store when details panel expands (replaces repo.listSpaces)
   useEffect(() => {
-    let mounted = true;
     if (!state.expanded) return;
-    (async () => {
-      try {
-        const s = await repo.listSpaces();
-        if (mounted) setSpaces(s || []);
-      } catch (e) {
-        if (__DEV__) console.warn('[UnifiedOverlayV2] listSpaces failed', e);
-        if (mounted) setSpaces([]);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [repo, state.expanded]);
+    setSpaces(storeSpaces || []);
+  }, [storeSpaces, state.expanded]);
 
   // Hydrate reminders from existing reminderAt field when overlay opens
   useEffect(() => {
@@ -1343,72 +1423,54 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [fullEntity, initialEntity]);
 
-  // Fetch is_favorite fresh from DB in view mode (list doesn't pass it)
+  // Fetch is_favorite fresh from store in view mode (list doesn't pass it)
   useEffect(() => {
-    const fetchFavoriteStatus = async () => {
-      if (mode !== 'view' || baseType !== 'log') return;
+    if (mode !== 'view' || baseType !== 'log') return;
 
-      const entity = fullEntity || (initialEntity as any);
-      const entityId = entity?.id;
-      if (!entityId) return;
+    const entity = fullEntity || (initialEntity as any);
+    const entityId = entity?.id;
+    if (!entityId) return;
 
-      try {
-        const freshNote = await repo.getById(entityId);
-        if (freshNote) {
-          const favValue = (freshNote as any).is_favorite ?? false;
-          setIsFavorite(favValue);
-        }
-      } catch (error) {
-        // Silent fail - use default value
-      }
-    };
+    const freshNote = getItemById(entityId);
+    if (freshNote) {
+      const favValue = (freshNote as any).is_favorite ?? false;
+      setIsFavorite(favValue);
+    }
+  }, [mode, baseType, fullEntity, initialEntity, getItemById]);
 
-    fetchFavoriteStatus();
-  }, [mode, baseType, fullEntity, initialEntity, repo]);
-
-  // Fetch source note for todos created via "explode to todos"
+  // Get source note for todos created via "explode to todos" (from store)
   useEffect(() => {
     const entity = fullEntity || (initialEntity as any);
 
-    const fetchSourceNote = async () => {
-      if (baseType !== 'todo') {
-        setSourceNote(null);
-        return;
-      }
+    if (baseType !== 'todo') {
+      setSourceNote(null);
+      return;
+    }
 
-      let sourceNoteId = entity?.source_note_id;
+    let sourceNoteId = entity?.source_note_id;
 
-      // If source_note_id isn't in the passed entity, fetch fresh from DB
-      // This handles the case where the todo list didn't include this field
-      if (!sourceNoteId && entity?.id) {
-        try {
-          const freshTodo = await repo.getById(entity.id);
-          sourceNoteId = (freshTodo as any)?.source_note_id;
-        } catch (err) {
-          // Silent fail
-        }
-      }
+    // If source_note_id isn't in the passed entity, check fresh from store
+    // This handles the case where the todo list didn't include this field
+    if (!sourceNoteId && entity?.id) {
+      const freshTodo = getItemById(entity.id);
+      sourceNoteId = (freshTodo as any)?.source_note_id;
+    }
 
-      if (!sourceNoteId) {
-        setSourceNote(null);
-        return;
-      }
+    if (!sourceNoteId) {
+      setSourceNote(null);
+      return;
+    }
 
-      try {
-        const note = await repo.getById(sourceNoteId);
-        if (note) {
-          setSourceNote({
-            id: note.id,
-            title: (note as any).title || 'Untitled',
-          });
-        }
-      } catch (error) {
-        setSourceNote(null);
-      }
-    };
-
-    fetchSourceNote();
-  }, [baseType, fullEntity, initialEntity, repo]);
+    const note = getItemById(sourceNoteId);
+    if (note) {
+      setSourceNote({
+        id: note.id,
+        title: (note as any).title || 'Untitled',
+      });
+    } else {
+      setSourceNote(null);
+    }
+  }, [baseType, fullEntity, initialEntity, getItemById]);
 
   // safe area insets (guard when the test harness doesn't provide the hook)
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -1440,13 +1502,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const listItems = toListItems(items);
 
     try {
-      await repo.update({
-        id: entityId,
-        patch: {
-          list_items: listItems,
-          has_list: true,
-        } as any,
-      });
+      // Update via store mutation (notes have list_items)
+      await updateNote(entityId, {
+        list_items: listItems,
+        has_list: true,
+      } as any);
 
       // Update local state
       setChecklistItems(listItems);
@@ -1460,7 +1520,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       console.error('[MakeActionable] Failed to convert to checklist:', error);
       Alert.alert('Error', 'Failed to convert to checklist');
     }
-  }, [fullEntity, initialEntity, noteBody, repo]);
+  }, [fullEntity, initialEntity, noteBody, updateNote]);
 
   /**
    * Show todo preview modal
@@ -1521,12 +1581,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setChecklistItems(updatedItems);
 
       try {
-        await repo.update({
-          id: entityId,
-          patch: {
-            list_items: updatedItems,
-          } as any,
-        });
+        await updateNote(entityId, {
+          list_items: updatedItems,
+        } as any);
 
         // Emit update event
         eventBus.emit('ItemUpdated', { id: entityId });
@@ -1536,7 +1593,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         console.error('[Checklist] Failed to toggle item:', error);
       }
     },
-    [fullEntity, initialEntity, checklistItems, repo],
+    [fullEntity, initialEntity, checklistItems, updateNote],
   );
 
   /**
@@ -1558,13 +1615,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await repo.update({
-                id: entityId,
-                patch: {
-                  has_list: false,
-                  list_items: null,
-                } as any,
-              });
+              await updateNote(entityId, {
+                has_list: false,
+                list_items: null,
+              } as any);
 
               // Update local state
               setChecklistItems(null);
@@ -1582,7 +1636,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         },
       ],
     );
-  }, [fullEntity, initialEntity, repo]);
+  }, [fullEntity, initialEntity, updateNote]);
 
   /**
    * Create todos from selected items
@@ -1601,8 +1655,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         const createdTodos = [];
 
         for (const item of selectedItems) {
-          const todo = await repo.create({
-            type: 'todo',
+          const todo = await createTodo({
             name: item.text,
             space_id: targetSpaceId,
             source_note_id: entityId,
@@ -1638,7 +1691,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         Alert.alert('Error', 'Failed to create tasks. Please try again.');
       }
     },
-    [fullEntity, initialEntity, initialSpaceId, repo],
+    [fullEntity, initialEntity, initialSpaceId, createTodo],
   );
 
   /**
@@ -1647,6 +1700,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const handleToggleFavorite = useCallback(async () => {
     const entity = fullEntity || (initialEntity as any);
     const entityId = entity?.id;
+    const entityType = entity?.type;
 
     if (!entityId) return;
 
@@ -1657,52 +1711,51 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     try {
-      await repo.update({
-        id: entityId,
-        patch: {
-          is_favorite: newValue,
-        } as any,
-      });
+      // Use type-specific update mutation
+      const patch = { is_favorite: newValue } as any;
+      if (entityType === 'todo') {
+        await updateTodo(entityId, patch);
+      } else if (entityType === 'habit') {
+        await updateHabit(entityId, patch);
+      } else {
+        await updateNote(entityId, patch);
+      }
 
       eventBus.emit('ItemUpdated', { id: entityId });
     } catch (error) {
       // Revert on failure
       setIsFavorite(!newValue);
     }
-  }, [fullEntity, initialEntity, isFavorite, repo]);
+  }, [fullEntity, initialEntity, isFavorite, updateTodo, updateHabit, updateNote]);
 
   /**
    * Open source note (for todos created from notes)
    */
-  const handleOpenSourceNote = useCallback(async () => {
+  const handleOpenSourceNote = useCallback(() => {
     if (!sourceNote) return;
 
-    try {
-      // Fetch full note data before opening
-      const fullNote = await repo.getById(sourceNote.id);
+    // Get full note data from store before opening
+    const fullNote = getItemById(sourceNote.id);
 
-      if (!fullNote) return;
+    if (!fullNote) return;
 
-      const entity = fullEntity || (initialEntity as any);
-      const spaceId = (fullNote as any).space_id || entity?.space_id || initialSpaceId;
+    const entity = fullEntity || (initialEntity as any);
+    const spaceId = (fullNote as any).space_id || entity?.space_id || initialSpaceId;
 
-      // Close current overlay
-      onClose?.();
+    // Close current overlay
+    onClose?.();
 
-      // Small delay to let current overlay close
-      setTimeout(() => {
-        globalOverlay.openView({
-          record: {
-            ...fullNote,
-            type: 'note',
-          } as any,
-          spaceId: spaceId,
-        });
-      }, 300);
-    } catch (error) {
-      // Silent fail
-    }
-  }, [sourceNote, fullEntity, initialEntity, initialSpaceId, onClose, globalOverlay, repo]);
+    // Small delay to let current overlay close
+    setTimeout(() => {
+      globalOverlay.openView({
+        record: {
+          ...fullNote,
+          type: 'note',
+        } as any,
+        spaceId: spaceId,
+      });
+    }, 300);
+  }, [sourceNote, fullEntity, initialEntity, initialSpaceId, onClose, globalOverlay, getItemById]);
 
   const handleToggleDetails = useCallback(() => {
     if (!reduceMotion) {
@@ -2153,92 +2206,77 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [mode, initialEntity, initialText, defaultDueToday, conversionMeta, dispatch]);
 
   // Initial defaults (match brief: text-first; first line becomes title)
-  // CRITICAL: Always fetch full entity from Supabase to ensure commitment fields round-trip
+  // CRITICAL: Always get full entity from store to ensure commitment fields round-trip
   // Today/Now selectors may pass truncated entity shapes that lose commitment fields
   useEffect(() => {
-    const hydrateEditMode = async () => {
-      if (mode !== 'edit' || !initialEntity) return;
+    if (mode !== 'edit' || !initialEntity) return;
 
-      const entityId = (initialEntity as any)?.id;
-      let entityToUse = initialEntity;
+    const entityId = (initialEntity as any)?.id;
+    let entityToUse = initialEntity;
 
-      // Always fetch fresh entity from Supabase to get ALL fields including commitment
-      if (entityId) {
-        try {
-          console.log('[UnifiedOverlayV2] Fetching full entity from Supabase:', entityId);
-          const freshEntity = await repo.getById(entityId);
-          if (freshEntity) {
-            console.log('[UnifiedOverlayV2] Fresh entity fetched:', {
-              id: freshEntity.id,
-              type: freshEntity.type,
-              commitment: (freshEntity as any).commitment,
-              commitmentNote: (freshEntity as any).commitmentNote,
-            });
-            entityToUse = freshEntity;
-          } else {
-            console.warn('[UnifiedOverlayV2] Could not fetch entity, using initialEntity fallback');
-          }
-        } catch (err) {
-          console.error('[UnifiedOverlayV2] Error fetching full entity:', err);
-          // Fall back to initialEntity on error
-        }
+    // Get fresh entity from store to get ALL fields including commitment
+    if (entityId) {
+      console.log('[UnifiedOverlayV2] Getting full entity from store:', entityId);
+      const freshEntity = getItemById(entityId);
+      if (freshEntity) {
+        console.log('[UnifiedOverlayV2] Fresh entity from store:', {
+          id: freshEntity.id,
+          type: freshEntity.type,
+          commitment: (freshEntity as any).commitment,
+          commitmentNote: (freshEntity as any).commitmentNote,
+        });
+        entityToUse = freshEntity;
+      } else {
+        console.warn(
+          '[UnifiedOverlayV2] Could not find entity in store, using initialEntity fallback',
+        );
       }
+    }
 
-      const payload = buildDraftPayloadFromEntity(entityToUse);
-      console.log('[UnifiedOverlayV2] Hydrating with payload:', {
-        commitment: payload.commitment,
-        commitmentNote: payload.commitmentNote,
-      });
-      dispatch({ type: 'HYDRATE_EDIT', payload } as any);
+    const payload = buildDraftPayloadFromEntity(entityToUse);
+    console.log('[UnifiedOverlayV2] Hydrating with payload:', {
+      commitment: payload.commitment,
+      commitmentNote: payload.commitmentNote,
+    });
+    dispatch({ type: 'HYDRATE_EDIT', payload } as any);
 
-      // Hydrate mood for journal logs (Phase L4)
-      const entity = entityToUse as any;
-      if (
-        entity?.mood &&
-        (entity.mood === 'happy' || entity.mood === 'neutral' || entity.mood === 'sad')
-      ) {
-        setMood(entity.mood);
-      }
+    // Hydrate mood for journal logs (Phase L4)
+    const entity = entityToUse as any;
+    if (
+      entity?.mood &&
+      (entity.mood === 'happy' || entity.mood === 'neutral' || entity.mood === 'sad')
+    ) {
+      setMood(entity.mood);
+    }
 
-      // Hydrate photo for logs (Phase L3)
-      if (entity?.photo_uri) {
-        setPhotoUri(entity.photo_uri);
-      }
-    };
+    // Hydrate photo for logs (Phase L3)
+    if (entity?.photo_uri) {
+      setPhotoUri(entity.photo_uri);
+    }
+  }, [mode, initialEntity, getItemById]);
 
-    hydrateEditMode();
-  }, [mode, initialEntity, repo]);
-
-  // View mode: Fetch full entity from database for display
+  // View mode: Get full entity from store for display
   // initialEntity from chat only has {id, type, logSubtype} - we need the full entity with body/title
   useEffect(() => {
-    const fetchViewModeEntity = async () => {
-      if (mode !== 'view' || !initialEntity) return;
+    if (mode !== 'view' || !initialEntity) return;
 
-      const entityId = (initialEntity as any)?.id;
-      if (!entityId) return;
+    const entityId = (initialEntity as any)?.id;
+    if (!entityId) return;
 
-      try {
-        console.log('[UnifiedOverlayV2] View mode: Fetching full entity:', entityId);
-        const freshEntity = await repo.getById(entityId);
-        if (freshEntity) {
-          console.log('[UnifiedOverlayV2] View mode: Entity fetched:', {
-            id: freshEntity.id,
-            type: freshEntity.type,
-            title: (freshEntity as any).title || (freshEntity as any).name,
-            hasBody: !!(freshEntity as any).body,
-          });
-          setViewModeEntity(freshEntity);
-        } else {
-          console.warn('[UnifiedOverlayV2] View mode: Could not fetch entity');
-        }
-      } catch (err) {
-        console.error('[UnifiedOverlayV2] View mode: Error fetching entity:', err);
-      }
-    };
-
-    fetchViewModeEntity();
-  }, [mode, initialEntity, repo]);
+    console.log('[UnifiedOverlayV2] View mode: Getting full entity from store:', entityId);
+    const freshEntity = getItemById(entityId);
+    if (freshEntity) {
+      console.log('[UnifiedOverlayV2] View mode: Entity from store:', {
+        id: freshEntity.id,
+        type: freshEntity.type,
+        title: (freshEntity as any).title || (freshEntity as any).name,
+        hasBody: !!(freshEntity as any).body,
+      });
+      setViewModeEntity(freshEntity);
+    } else {
+      console.warn('[UnifiedOverlayV2] View mode: Could not find entity in store');
+    }
+  }, [mode, initialEntity, getItemById]);
 
   // Load existing log photos from database (Phase L5)
   useEffect(() => {
@@ -2264,9 +2302,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       try {
         console.log('[UnifiedOverlayV2] Loading photos for note:', noteId);
-        const data = await repo.listLogPhotos(noteId);
+        const data = await listLogPhotos(noteId);
 
-        console.log('[UnifiedOverlayV2] Loaded photos from DB:', data);
+        console.log('[UnifiedOverlayV2] Loaded photos from store:', data);
         if (data && data.length > 0) {
           const photos: LogPhoto[] = data.map((row) => ({
             id: row.id,
@@ -2284,7 +2322,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     };
 
     loadLogPhotos();
-  }, [mode, initialEntity, repo]);
+  }, [mode, initialEntity, listLogPhotos]);
 
   // Phase 6 Task 4: Fallback prefill retry on overlay open
   // When user manually opens overlay for a Mind Drop with ai_failed=true and minddrop_stage='classified',
@@ -2325,15 +2363,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         await backgroundPrefill(entity, rawText);
 
         // Mark retry as attempted (even if prefill fails again, don't retry infinitely)
-        await repo.update({
-          id: entity.id,
-          patch: {
-            views: {
-              ...views,
-              minddrop_retry_attempted: true,
-            },
+        // Use type-specific update mutation
+        const patch = {
+          views: {
+            ...views,
+            minddrop_retry_attempted: true,
           },
-        });
+        };
+        if (entity.type === 'todo') {
+          await updateTodo(entity.id, patch);
+        } else if (entity.type === 'habit') {
+          await updateHabit(entity.id, patch);
+        } else {
+          await updateNote(entity.id, patch);
+        }
 
         console.log('[MindDrop.FallbackRetry] Retry completed', { entityId: entity.id });
       } catch (err) {
@@ -2341,16 +2384,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
         // Still mark as attempted to prevent infinite retries
         try {
-          await repo.update({
-            id: entity.id,
-            patch: {
-              views: {
-                ...views,
-                minddrop_retry_attempted: true,
-                ai_failed: true, // Keep failure state
-              },
+          const failPatch = {
+            views: {
+              ...views,
+              minddrop_retry_attempted: true,
+              ai_failed: true, // Keep failure state
             },
-          });
+          };
+          if (entity.type === 'todo') {
+            await updateTodo(entity.id, failPatch);
+          } else if (entity.type === 'habit') {
+            await updateHabit(entity.id, failPatch);
+          } else {
+            await updateNote(entity.id, failPatch);
+          }
         } catch (updateErr) {
           console.error('[MindDrop.FallbackRetry] Failed to mark retry attempt', updateErr);
         }
@@ -2358,7 +2405,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     };
 
     attemptFallbackPrefill();
-  }, [mode, initialEntity, repo]);
+  }, [mode, initialEntity, updateNote, updateTodo, updateHabit]);
 
   // Clear photos when switching away from log type (Phase L5)
   useEffect(() => {
@@ -2400,48 +2447,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
 
     const entityId = (initialEntity as any)?.id;
-    const fetchableRepo = repo as any;
-    if (!entityId || typeof fetchableRepo?.getById !== 'function') {
+    if (!entityId) {
       hasLoadedEditTagsRef.current = true;
       return;
     }
 
-    let cancelled = false;
-    (async () => {
-      try {
-        const entity = await fetchableRepo.getById(entityId);
-        if (cancelled) return;
-        const fetched = extractTagKeysFromEntity(entity);
-        if (fetched.length > 0) {
-          const merged = mergeTagKeys(currentTagsRef.current, fetched);
-          if (merged.length !== currentTagsRef.current.length) {
-            dispatch({ type: 'SET_TAGS', tags: merged });
-          }
+    // Get entity from store (synchronous)
+    const entity = getItemById(entityId);
+    if (entity) {
+      const fetched = extractTagKeysFromEntity(entity);
+      if (fetched.length > 0) {
+        const merged = mergeTagKeys(currentTagsRef.current, fetched);
+        if (merged.length !== currentTagsRef.current.length) {
+          dispatch({ type: 'SET_TAGS', tags: merged });
         }
-        const metaPayload = buildDraftPayloadFromEntity(entity);
-        if (
-          Array.isArray((metaPayload as any).stickyTags) ||
-          Array.isArray((metaPayload as any).tagTombstones)
-        ) {
-          dispatch({
-            type: 'HYDRATE_EDIT',
-            payload: {
-              stickyTags: (metaPayload as any).stickyTags ?? [],
-              tagTombstones: (metaPayload as any).tagTombstones ?? [],
-            },
-          } as any);
-        }
-      } catch (err) {
-        if (__DEV__) console.warn('[UnifiedOverlayV2] failed to preload edit tags', err);
-      } finally {
-        if (!cancelled) hasLoadedEditTagsRef.current = true;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mode, initialEntity, repo]);
+      const metaPayload = buildDraftPayloadFromEntity(entity);
+      if (
+        Array.isArray((metaPayload as any).stickyTags) ||
+        Array.isArray((metaPayload as any).tagTombstones)
+      ) {
+        dispatch({
+          type: 'HYDRATE_EDIT',
+          payload: {
+            stickyTags: (metaPayload as any).stickyTags ?? [],
+            tagTombstones: (metaPayload as any).tagTombstones ?? [],
+          },
+        } as any);
+      }
+    }
+    hasLoadedEditTagsRef.current = true;
+  }, [mode, initialEntity, getItemById]);
 
   // Detect if item already has AI-generated content from Mind Drop
   const hasAiTags = useMemo(() => {
@@ -3495,7 +3531,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         originalFamily !== null &&
         originalFamily !== targetFamily;
 
-      let result;
+      let result: any;
 
       if (isTypeConversion) {
         // ─────────────────────────────────────────────────────────────────────
@@ -3521,8 +3557,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           dropId: dropId, // Preserve Mind Drop linkage
         };
 
-        // Step 1: Create new record in target table
-        result = await repo.create(createInput);
+        // Step 1: Create new record in target table (use type-specific mutation)
+        if (targetFamily === 'todo') {
+          result = await createTodo(createInput);
+        } else if (targetFamily === 'habit') {
+          result = await createHabit(createInput);
+        } else {
+          result = await createNote(createInput);
+        }
 
         if (__DEV__) {
           console.log('[OverlayTypeChange] New record created', {
@@ -3535,7 +3577,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // Step 2: Archive/delete old record from source table
         try {
           const entityType = originalEntityType as 'todo' | 'habit' | 'note';
-          await deleteEntityOrDrop(repo, oldId, entityType, dropId);
+          await deleteEntityOrDrop(repo as any, oldId, entityType, dropId);
 
           if (__DEV__) {
             console.log('[OverlayTypeChange] Old record archived/deleted', {
@@ -3567,10 +3609,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // ─────────────────────────────────────────────────────────────────────
         // STANDARD UPDATE/CREATE FLOW (same table or new entity)
         // ─────────────────────────────────────────────────────────────────────
-        result =
-          (mode === 'edit' || isViewMode) && (initialEntity as any)?.id
-            ? await repo.update({ id: (initialEntity as any).id, patch: input as any })
-            : await repo.create(input as any);
+        const isEdit = (mode === 'edit' || isViewMode) && (initialEntity as any)?.id;
+        const entityId = (initialEntity as any)?.id;
+
+        // Use type-specific store mutations
+        if (isEdit) {
+          // Update existing entity (mutations return void, so get from store after)
+          if (baseType === 'todo') {
+            await updateTodo(entityId, input as any);
+            result = getItemById(entityId);
+          } else if (baseType === 'habit') {
+            await updateHabit(entityId, input as any);
+            result = getItemById(entityId);
+          } else {
+            await updateNote(entityId, input as any);
+            result = getItemById(entityId);
+          }
+        } else {
+          // Create new entity
+          if (baseType === 'todo') {
+            result = await createTodo(input as any);
+          } else if (baseType === 'habit') {
+            result = await createHabit(input as any);
+          } else {
+            result = await createNote(input as any);
+          }
+        }
       }
 
       // Handle multi-photo uploads and deletions for logs (Phase L5)
@@ -3590,8 +3654,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           for (const photo of logPhotos) {
             if (photo.isDeleted && photo.id) {
               try {
-                // Delete from database
-                await repo.deleteLogPhoto(photo.id);
+                // Delete from store (store mutation)
+                await deleteLogPhoto(photo.id);
 
                 // Try to delete from storage (best effort)
                 if (photo.url && photo.url.includes('log-photos/')) {
@@ -3654,9 +3718,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 const publicUrl = urlData?.publicUrl || storagePath;
                 console.log('[UnifiedOverlayV2] Public URL:', publicUrl);
 
-                // Insert into database
-                console.log('[UnifiedOverlayV2] Inserting photo record into log_photos table...');
-                await repo.insertLogPhoto({
+                // Insert into store (store mutation)
+                console.log('[UnifiedOverlayV2] Inserting photo record via store mutation...');
+                await insertLogPhoto({
                   noteId,
                   url: publicUrl,
                   position: i,
@@ -3666,9 +3730,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 console.error('[UnifiedOverlayV2] Error uploading photo:', err);
               }
             } else if (!photo.isNew && photo.id) {
-              // Update position for existing photos
+              // Update position for existing photos (store mutation)
               try {
-                await repo.updateLogPhotoPosition(photo.id, i);
+                await updateLogPhotoPosition(photo.id, i);
               } catch (err) {
                 console.error('[UnifiedOverlayV2] Error updating photo position:', err);
               }
@@ -5274,11 +5338,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                   state.spaceId ??
                                                   initialSpaceId;
 
-                                                // 1. Delete from database FIRST
-                                                await repo.remove(itemId);
+                                                // 1. Delete from store FIRST (store mutation)
+                                                await deleteTodo(itemId);
                                                 if (__DEV__) {
                                                   console.log(
-                                                    '[UnifiedOverlayV2] Item deleted from DB:',
+                                                    '[UnifiedOverlayV2] Item deleted from store:',
                                                     itemId,
                                                   );
                                                 }
@@ -5414,11 +5478,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                   state.spaceId ??
                                                   initialSpaceId;
 
-                                                // 1. Delete from database FIRST
-                                                await repo.remove(itemId);
+                                                // 1. Delete from store FIRST (store mutation)
+                                                await deleteHabit(itemId);
                                                 if (__DEV__) {
                                                   console.log(
-                                                    '[UnifiedOverlayV2] Item deleted from DB:',
+                                                    '[UnifiedOverlayV2] Item deleted from store:',
                                                     itemId,
                                                   );
                                                 }
@@ -5608,10 +5672,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                                             // Archive the original idea
                                             if (ideaId) {
-                                              repo.update({
-                                                id: ideaId,
-                                                patch: { archived: true },
-                                              });
+                                              updateNote(ideaId, { archived: true });
                                               eventBus.emit('ItemUpdated', { id: ideaId });
                                             }
                                           }}
@@ -5668,10 +5729,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                                             // Archive the original idea
                                             if (ideaId) {
-                                              repo.update({
-                                                id: ideaId,
-                                                patch: { archived: true },
-                                              });
+                                              updateNote(ideaId, { archived: true });
                                               eventBus.emit('ItemUpdated', { id: ideaId });
                                             }
                                           }}
@@ -5723,11 +5781,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                   state.spaceId ??
                                                   initialSpaceId;
 
-                                                // 1. Delete from database FIRST
-                                                await repo.remove(itemId);
+                                                // 1. Delete from store FIRST (store mutation)
+                                                await deleteNote(itemId);
                                                 if (__DEV__) {
                                                   console.log(
-                                                    '[UnifiedOverlayV2] Item deleted from DB:',
+                                                    '[UnifiedOverlayV2] Item deleted from store:',
                                                     itemId,
                                                   );
                                                 }

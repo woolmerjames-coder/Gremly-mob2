@@ -7,7 +7,9 @@ import React from 'react';
 import { View } from 'react-native';
 import { Box, Text } from '../../ui';
 import { makeStyles } from '../../design/makeStyles';
-import type { WeekStatus } from '../../lib/now/useNowData';
+
+// Local type definition - decoupled from legacy hook
+export type WeekStatus = 'ahead' | 'on_track' | 'needs_attention';
 
 interface NowWeekIndicatorProps {
   status: WeekStatus;

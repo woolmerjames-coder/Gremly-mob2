@@ -426,33 +426,56 @@ export async function callClassify(opts: {
       return { ok: false, error: String(data.error || data.detail || 'proxy_error') };
     }
 
+    // Unwrap nested data structure if present
+    // Some response formats wrap the classification in { data: { ... }, status: 200 }
+    const responseData = data.data && typeof data.data === 'object' ? data.data : data;
+
     // Primary format: Cloudflare Worker response
     // { id: "cmpl-...", classification: { category, tags, spaceName, confidence, title } }
-    if (data.id && data.classification) {
-      const classification = data.classification;
+    // Also handles wrapped format: { data: { id, classification, aiTitle, aiTagsDebug }, status: 200 }
+    // Note: classification may have 'bucket' instead of 'category' - accept either
+    if (responseData.id && responseData.classification) {
+      const classification = responseData.classification;
 
-      // Validate classification structure
-      if (
-        typeof classification === 'object' &&
-        typeof classification.category === 'string' &&
-        Array.isArray(classification.tags) &&
-        (classification.spaceName === null || typeof classification.spaceName === 'string') &&
-        typeof classification.confidence === 'number'
-      ) {
-        // Parse title field: use if non-empty string, otherwise null
-        const title =
-          typeof classification.title === 'string' && classification.title.trim().length > 0
-            ? classification.title.trim()
+      // Extract category from either 'category' or 'bucket' field
+      const category =
+        typeof classification.category === 'string'
+          ? classification.category
+          : typeof classification.bucket === 'string'
+            ? classification.bucket
             : null;
 
-        log('OK', data.id);
+      // Validate classification structure (category can come from either field)
+      if (
+        typeof classification === 'object' &&
+        category !== null &&
+        Array.isArray(classification.tags) &&
+        (classification.spaceName === null ||
+          classification.spaceName === undefined ||
+          typeof classification.spaceName === 'string') &&
+        typeof classification.confidence === 'number'
+      ) {
+        // Parse title field: prefer aiTitle from response, fallback to classification.title
+        const title =
+          typeof responseData.aiTitle === 'string' && responseData.aiTitle.trim().length > 0
+            ? responseData.aiTitle.trim()
+            : typeof classification.title === 'string' && classification.title.trim().length > 0
+              ? classification.title.trim()
+              : null;
+
+        // Merge tags from aiTagsDebug if available
+        const tags = Array.isArray(responseData.aiTagsDebug)
+          ? responseData.aiTagsDebug
+          : classification.tags;
+
+        log('OK', responseData.id);
         return {
           ok: true,
-          id: String(data.id),
+          id: String(responseData.id),
           classification: {
-            category: classification.category,
-            tags: classification.tags,
-            spaceName: classification.spaceName,
+            category,
+            tags,
+            spaceName: classification.spaceName ?? null,
             confidence: classification.confidence,
             title,
           },
@@ -466,11 +489,22 @@ export async function callClassify(opts: {
     if (messageContent) {
       try {
         const parsed = JSON.parse(messageContent);
+
+        // Extract category from either 'category' or 'bucket' field
+        const category =
+          typeof parsed.category === 'string'
+            ? parsed.category
+            : typeof parsed.bucket === 'string'
+              ? parsed.bucket
+              : null;
+
         if (
           typeof parsed === 'object' &&
-          typeof parsed.category === 'string' &&
+          category !== null &&
           Array.isArray(parsed.tags) &&
-          (parsed.spaceName === null || typeof parsed.spaceName === 'string') &&
+          (parsed.spaceName === null ||
+            parsed.spaceName === undefined ||
+            typeof parsed.spaceName === 'string') &&
           typeof parsed.confidence === 'number'
         ) {
           // Parse title field: use if non-empty string, otherwise null
@@ -485,9 +519,9 @@ export async function callClassify(opts: {
             ok: true,
             id,
             classification: {
-              category: parsed.category,
+              category,
               tags: parsed.tags,
-              spaceName: parsed.spaceName,
+              spaceName: parsed.spaceName ?? null,
               confidence: parsed.confidence,
               title,
             },

@@ -24,17 +24,18 @@ jest.mock('../providers/AuthProvider', () => ({
   }),
 }));
 
-// Mock repo
-const mockNotesList = jest.fn();
-const mockTodosList = jest.fn();
-const mockHabitsList = jest.fn();
+// Mock Zustand store selectors (RecentDrops now uses these instead of repo)
+import * as selectors from '../lib/store/selectors';
+const mockSelectRecentNotes = selectors.selectRecentNotes as unknown as jest.Mock;
+const mockSelectRecentTodos = selectors.selectRecentTodos as unknown as jest.Mock;
+const mockSelectRecentHabits = selectors.selectRecentHabits as unknown as jest.Mock;
 
-jest.mock('../providers/RepoProvider', () => ({
-  useRepo: () => ({
-    notes: { list: mockNotesList },
-    todos: { list: mockTodosList },
-    habits: { list: mockHabitsList },
-  }),
+jest.mock('../lib/store/selectors', () => ({
+  selectItemById: jest.fn(),
+  selectNoteBySourceMessageId: jest.fn(),
+  selectRecentNotes: jest.fn(() => []),
+  selectRecentTodos: jest.fn(() => []),
+  selectRecentHabits: jest.fn(() => []),
 }));
 
 import { RecentDropsTestable as RecentDrops } from '../app/screens/CatchAllNotepad';
@@ -48,9 +49,9 @@ describe('RecentDrops - Deduplication by drop_id', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockNotesList.mockResolvedValue([]);
-    mockTodosList.mockResolvedValue([]);
-    mockHabitsList.mockResolvedValue([]);
+    mockSelectRecentNotes.mockReturnValue([]);
+    mockSelectRecentTodos.mockReturnValue([]);
+    mockSelectRecentHabits.mockReturnValue([]);
   });
 
   it('should show only habit when unsorted note is converted to habit (same drop_id)', async () => {
@@ -93,8 +94,8 @@ describe('RecentDrops - Deduplication by drop_id', () => {
     } as any;
 
     // Mock repo to return both items
-    mockNotesList.mockResolvedValue([archivedNote]);
-    mockHabitsList.mockResolvedValue([habit]);
+    mockSelectRecentNotes.mockReturnValue([archivedNote]);
+    mockSelectRecentHabits.mockReturnValue([habit]);
 
     const { queryByText, getByText } = render(
       <RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />,
@@ -146,8 +147,8 @@ describe('RecentDrops - Deduplication by drop_id', () => {
       tags_meta: { sticky: [], tombstones: [] },
     } as any;
 
-    mockNotesList.mockResolvedValue([archivedNote]);
-    mockTodosList.mockResolvedValue([todo]);
+    mockSelectRecentNotes.mockReturnValue([archivedNote]);
+    mockSelectRecentTodos.mockReturnValue([todo]);
 
     const { getByText } = render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -193,8 +194,8 @@ describe('RecentDrops - Deduplication by drop_id', () => {
       tags_meta: { sticky: [], tombstones: [] },
     } as any;
 
-    mockNotesList.mockResolvedValue([unsortedNote]);
-    mockHabitsList.mockResolvedValue([habit]);
+    mockSelectRecentNotes.mockReturnValue([unsortedNote]);
+    mockSelectRecentHabits.mockReturnValue([habit]);
 
     const { queryByText } = render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -235,7 +236,7 @@ describe('RecentDrops - Deduplication by drop_id', () => {
       tags_meta: { sticky: [], tombstones: [] },
     } as any;
 
-    mockHabitsList.mockResolvedValue([habit1, habit2]);
+    mockSelectRecentHabits.mockReturnValue([habit1, habit2]);
 
     const { getByText } = render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -261,7 +262,7 @@ describe('RecentDrops - Deduplication by drop_id', () => {
       tags_meta: { sticky: [], tombstones: [] },
     } as any;
 
-    mockHabitsList.mockResolvedValue([habitWithoutDropId]);
+    mockSelectRecentHabits.mockReturnValue([habitWithoutDropId]);
 
     const { getByText } = render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
@@ -324,9 +325,9 @@ describe('RecentDrops - Deduplication by drop_id', () => {
       tags_meta: { sticky: [], tombstones: [] },
     } as any;
 
-    mockNotesList.mockResolvedValue([archivedUnsorted]);
-    mockHabitsList.mockResolvedValue([habit]);
-    mockTodosList.mockResolvedValue([]);
+    mockSelectRecentNotes.mockReturnValue([archivedUnsorted]);
+    mockSelectRecentHabits.mockReturnValue([habit]);
+    mockSelectRecentTodos.mockReturnValue([]);
 
     const { getByText, queryByText, getAllByText } = render(
       <RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />,

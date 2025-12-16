@@ -2,8 +2,8 @@
  * useTodayStats Hook
  * Single source of truth for Today/Now page statistics
  *
- * This hook provides derived stats from the same filtered collections
- * that feed the Today cards (via useNowData), ensuring consistency
+ * MIGRATED TO ZUSTAND STORE - Uses store selectors instead of useNowData.
+ * This hook provides derived stats from the store, ensuring consistency
  * across all components that display Today statistics.
  *
  * Supports optimistic updates via optional completedTodoIds/completedHabitIds
@@ -11,16 +11,26 @@
  */
 
 import { useMemo, useEffect } from 'react';
-import { useNowData, type UseNowDataReturn } from '../../now/useNowData';
-import { selectSweepCandidates, type SweepCandidate } from '../sweepSelectors';
+import { useGremlyStore } from '../../store/useGremlyStore';
+import {
+  selectTodosDueToday,
+  selectHabitsDueToday,
+  selectTodosCompletedToday,
+  selectHabitsCompletedToday,
+  selectOverdueTodos,
+  selectLockedTodos,
+  selectTodayLockedItems,
+  selectTodayActiveItems,
+  selectTodayCompletedItems,
+  selectTodayProgress,
+  selectSweepCandidatesUnified,
+  selectRecentDrops,
+  selectUndatedTodos,
+} from '../../store/selectors';
+import type { SweepCandidate } from '../sweepSelectors';
 import { getTodayDayString, computeDueDay } from '../../date/computeDueDay';
 import { probeMembership } from '../../config/surfaceProbe';
-import type {
-  NowLockedItem,
-  NowActiveItem,
-  NowFutureItem,
-  NowCompletedItem,
-} from '../../now/nowTypes';
+import type { Todo, Habit } from '../../types';
 
 // ───────────────────────────────────────────────────────────────────────────────
 // TodayCompletionSummary - Drives progress bar + completion dots
@@ -38,6 +48,17 @@ export type TodayCompletionSummary = {
   completedCount: number;
   /** Total number of items (habits + todos, no logs) */
   totalCount: number;
+};
+
+// Types for store items (same shape as NowLockedItem/NowActiveItem/etc)
+export type NowLockedItem = (Todo | Habit) & { type: 'todo' | 'habit'; name: string };
+export type NowActiveItem = (Todo | Habit) & { type: 'todo' | 'habit'; name: string };
+export type NowFutureItem = (Todo | Habit) & { type: 'todo' | 'habit'; name: string };
+export type NowCompletedItem = {
+  id: string;
+  type: 'todo' | 'habit';
+  name: string;
+  completedAt: string;
 };
 
 /**
@@ -100,10 +121,10 @@ export interface TodayStats {
   todayDayString: string;
   /** Loading state */
   loading: boolean;
-  /** Reload the underlying data */
+  /** Reload the underlying data - No-op for store (auto-syncs) */
   reload: () => Promise<void>;
-  /** Raw nowData for components that need additional fields */
-  nowData: UseNowDataReturn;
+  /** Raw nowData for components that need additional fields - deprecated, use store directly */
+  nowData: null;
   /** Completion summary for progress header (items, completedCount, totalCount) */
   completionSummary: TodayCompletionSummary;
 }
@@ -111,9 +132,7 @@ export interface TodayStats {
 /**
  * Internal hook providing centralized statistics for Today/Now page
  *
- * Reuses the same filtered collections from useNowData to ensure
- * consistency across all Today-related UI components.
- *
+ * MIGRATED TO ZUSTAND - Uses store selectors instead of useNowData.
  * Supports optimistic updates: pass completedTodoIds/completedHabitIds
  * to adjust counts immediately before server sync.
  *
@@ -122,30 +141,43 @@ export interface TodayStats {
  */
 function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
   const {
-    today,
     completedTodoIds = new Set<string>(),
     completedHabitIds = new Set<string>(),
     deletedItemIds = new Set<string>(),
   } = options;
 
-  const nowData = useNowData(today);
+  // Get store state via selectors
+  const isLoading = useGremlyStore((s) => s.isLoading);
+  const notes = useGremlyStore((s) => s.notes);
+
+  // Use memoized selectors for derived data
+  const lockedItemsRaw = useGremlyStore(selectTodayLockedItems);
+  const activeItemsRaw = useGremlyStore(selectTodayActiveItems);
+  const completedItemsRaw = useGremlyStore(selectTodayCompletedItems);
+  const sweepCandidatesRaw = useGremlyStore(selectSweepCandidatesUnified);
+  const overdueTodosRaw = useGremlyStore(selectOverdueTodos);
+  const recentDropsRaw = useGremlyStore(selectRecentDrops);
+  const progressState = useGremlyStore(selectTodayProgress);
 
   return useMemo(() => {
-    const {
-      lockedItems: rawLockedItems,
-      activeItems: rawActiveItems,
-      futureItems: rawFutureItems,
-      completedToday: serverCompletedToday,
-      capturesCount,
-      progressState,
-      loading,
-      reload,
-    } = nowData;
+    const todayDayString = getTodayDayString();
 
     // Filter out deleted items for optimistic UI
-    const lockedItems = rawLockedItems.filter((item) => !deletedItemIds.has(item.id));
-    const activeItems = rawActiveItems.filter((item) => !deletedItemIds.has(item.id));
-    const futureItems = rawFutureItems.filter((item) => !deletedItemIds.has(item.id));
+    const lockedItems = lockedItemsRaw
+      .filter((item) => !deletedItemIds.has(item.id))
+      .map((item) => ({
+        ...item,
+        type: 'id' in item && 'target_count' in item ? ('habit' as const) : ('todo' as const),
+        name: (item as any).name || (item as any).title || '',
+      })) as NowLockedItem[];
+
+    const activeItems = activeItemsRaw
+      .filter((item) => !deletedItemIds.has(item.id))
+      .map((item) => ({
+        ...item,
+        type: 'id' in item && 'target_count' in item ? ('habit' as const) : ('todo' as const),
+        name: (item as any).name || (item as any).title || '',
+      })) as NowActiveItem[];
 
     // Combine locked + active for "today's focus" items
     const todayFocusItems = [...lockedItems, ...activeItems];
@@ -154,10 +186,14 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
     const todosToday = todayFocusItems.filter((item) => item.type === 'todo');
     const habitsToday = todayFocusItems.filter((item) => item.type === 'habit');
 
-    // Build optimistic completed list
-    const serverCompletedIds = new Set(serverCompletedToday.map((item) => item.id));
-    const allItems = [...lockedItems, ...activeItems, ...futureItems];
-    const completedToday: NowCompletedItem[] = [...serverCompletedToday];
+    // Build completed list from store
+    const serverCompletedIds = new Set(completedItemsRaw.map((item) => item.id));
+    const completedToday: NowCompletedItem[] = completedItemsRaw.map((item) => ({
+      id: item.id,
+      type: 'target_count' in item ? ('habit' as const) : ('todo' as const),
+      name: (item as any).name || (item as any).title || '',
+      completedAt: (item as any).completed_at || new Date().toISOString(),
+    }));
 
     // Count new optimistic completions (not yet persisted)
     let optimisticCount = 0;
@@ -165,7 +201,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
     // Add optimistically completed todos not yet on server
     for (const id of completedTodoIds) {
       if (!serverCompletedIds.has(id)) {
-        const item = allItems.find((i) => i.id === id && i.type === 'todo');
+        const item = [...lockedItems, ...activeItems].find((i) => i.id === id && i.type === 'todo');
         if (item) {
           completedToday.push({
             id: item.id,
@@ -181,7 +217,9 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
     // Add optimistically completed habits not yet on server
     for (const id of completedHabitIds) {
       if (!serverCompletedIds.has(id)) {
-        const item = allItems.find((i) => i.id === id && i.type === 'habit');
+        const item = [...lockedItems, ...activeItems].find(
+          (i) => i.id === id && i.type === 'habit',
+        );
         if (item) {
           completedToday.push({
             id: item.id,
@@ -198,8 +236,13 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
     const completedTodosToday = completedToday.filter((item) => item.type === 'todo');
     const completedHabitsToday = completedToday.filter((item) => item.type === 'habit');
 
+    // Count captures/logs for today
+    const capturesCount = notes.filter(
+      (n) => n.subtype === 'catchall' && n.created_at?.startsWith(todayDayString),
+    ).length;
+
     // Total counts (adjusted for optimistic completions)
-    const totalTasksToday = progressState.totalEligibleCount;
+    const totalTasksToday = progressState.totalEligible;
     const totalCompletedToday = progressState.completedCount + optimisticCount;
 
     // Progress fraction (0-1), safe from division by zero
@@ -213,108 +256,55 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
     const hasAnyTodayWork = todayFocusItems.length > 0 || completedToday.length > 0;
     const hasAnyLogsToday = capturesCount > 0;
 
-    // Compute sweep candidates using shared selector
-    // Only todos that are incomplete and due today/overdue/carry-forward
-    // Use local date (not UTC) to match user's mental model
-    const todayDayString = getTodayDayString();
-
-    // Get all todos from nowData for comprehensive sweep/recentDrops filtering
-    const { allTodos = [] } = nowData;
-
-    // Build the todos array for sweep selection from ALL todos (not just todosToday)
-    // This ensures we include overdue items and items without due dates
-    // Filter out optimistically completed items and archived/completed items
-    const incompleteTodos = allTodos
-      .filter((todo) => {
-        // Skip optimistically completed
-        if (completedTodoIds.has(todo.id)) return false;
-        // Skip completed or archived
-        const status = (todo as any).status;
-        if (status === 'completed' || status === 'archived') return false;
-        if (todo.archived === true) return false;
-        return true;
-      })
-      .map((todo) => ({
-        id: todo.id,
-        name: todo.name,
+    // Transform sweep candidates to legacy format (only todos)
+    const sweepCandidates: SweepCandidate[] = sweepCandidatesRaw
+      .filter((c) => c.kind === 'todo')
+      .map((c) => ({
+        id: c.id,
         type: 'todo' as const,
-        due_day: todo.due_day,
-        due_date: todo.due_date,
+        name: (c.raw as any)?.name || (c.raw as any)?.title || '',
+        due_day: (c.raw as any)?.due_day,
+        due_date: (c.raw as any)?.due_date,
         status: 'active' as const,
-        carry_forward: (todo as any).carry_forward ?? false,
+        carry_forward: (c.raw as any)?.carry_forward ?? false,
         completed_at: null,
         archived: false,
-        created_at: todo.created_at,
+        created_at: c.createdAt,
+        isOverdue: c.isOverdue,
       }));
-
-    const sweepCandidates = selectSweepCandidates(incompleteTodos, todayDayString);
     const sweepCandidateCount = sweepCandidates.length;
 
-    // Derive overdueTodos: todos from sweepCandidates where due_day < today
-    // Use computeDueDay to handle timezone-aware date extraction from due_date
-    const overdueTodos = sweepCandidates.filter((candidate) => {
-      const dueDay = candidate.due_day ?? computeDueDay(candidate.due_date);
-      return dueDay !== null && dueDay < todayDayString;
-    });
+    // Derive overdueTodos from store selector
+    const overdueTodos: SweepCandidate[] = overdueTodosRaw.map((todo) => ({
+      id: todo.id,
+      type: 'todo' as const,
+      name: todo.name || '',
+      due_day: todo.due_day,
+      due_date: todo.due_date,
+      status: 'active' as const,
+      carry_forward: (todo as any).carry_forward ?? false,
+      completed_at: null,
+      archived: false,
+      created_at: todo.created_at,
+      isOverdue: true,
+    }));
 
-    // Derive recentDrops: items captured in the last 3 days that need sorting
-    // These are items that:
-    // 1. Were created in the last 3 days (created_at converted to LOCAL date >= cutoffDayString)
-    // 2. Are NOT already in Today's Focus (locked or active items)
-    // 3. Are unscheduled (no due_day) - need triage
-    // 4. Are not completed/archived (already filtered in incompleteTodos)
-    //
-    // NOTE: We filter from incompleteTodos (not sweepCandidates) because
-    // sweepCandidates excludes items without due dates, but recentDrops
-    // specifically wants items WITHOUT due dates that need triage.
-    const todayFocusIds = new Set([
-      ...todosToday.map((t) => t.id),
-      ...habitsToday.map((h) => h.id),
-    ]);
-
-    // Calculate 3 days ago cutoff in local timezone
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-    const cutoffYear = threeDaysAgo.getFullYear();
-    const cutoffMonth = String(threeDaysAgo.getMonth() + 1).padStart(2, '0');
-    const cutoffDay = String(threeDaysAgo.getDate()).padStart(2, '0');
-    const cutoffDayString = `${cutoffYear}-${cutoffMonth}-${cutoffDay}`;
-
-    const recentDrops: SweepCandidate[] = incompleteTodos
-      .filter((todo) => {
-        // Exclude items already in Today's Focus
-        if (todayFocusIds.has(todo.id)) {
-          return false;
-        }
-
-        // Must be created in the last 3 days (convert UTC created_at to local date)
-        const createdLocalDay = computeDueDay(todo.created_at);
-        if (createdLocalDay === null || createdLocalDay < cutoffDayString) {
-          return false;
-        }
-
-        // Must be unscheduled (no due date) - these need sorting/triage
-        const dueDay = todo.due_day ?? computeDueDay(todo.due_date);
-        return dueDay === null;
-      })
-      .map((todo) => ({
-        id: todo.id,
-        type: 'todo' as const,
-        name: todo.name,
-        due_day: todo.due_day,
-        due_date: todo.due_date,
-        status: todo.status,
-        carry_forward: todo.carry_forward,
-        completed_at: todo.completed_at,
-        archived: todo.archived,
-        space_id: undefined, // Not available in incompleteTodos map
-        tags: undefined, // Not available in incompleteTodos map
-        created_at: todo.created_at,
-        isOverdue: false, // Items without due date are not overdue
-      }));
+    // Recent drops from store
+    const recentDrops: SweepCandidate[] = recentDropsRaw.map((todo) => ({
+      id: todo.id,
+      type: 'todo' as const,
+      name: todo.name || '',
+      due_day: todo.due_day,
+      due_date: todo.due_date,
+      status: 'active' as const,
+      carry_forward: (todo as any).carry_forward ?? false,
+      completed_at: null,
+      archived: false,
+      created_at: todo.created_at,
+      isOverdue: false,
+    }));
 
     // Build completion summary for progress header
-    // Includes all items in Today's Focus (locked + active), excluding logs
     const completionSummaryItems: { id: string; isDone: boolean; type: 'habit' | 'todo' }[] = [];
 
     // Add all todos with their completion status
@@ -330,8 +320,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
     }
 
     // Add server-completed items that aren't already in focus lists
-    // (items completed earlier today that are no longer "active")
-    for (const item of serverCompletedToday) {
+    for (const item of completedToday) {
       const alreadyIncluded = completionSummaryItems.some((i) => i.id === item.id);
       if (!alreadyIncluded && (item.type === 'todo' || item.type === 'habit')) {
         completionSummaryItems.push({ id: item.id, isDone: true, type: item.type });
@@ -342,6 +331,11 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       items: completionSummaryItems,
       completedCount: totalCompletedToday,
       totalCount: totalTasksToday,
+    };
+
+    // No-op reload - store auto-syncs via realtime
+    const reload = async () => {
+      // Store auto-updates, no manual reload needed
     };
 
     return {
@@ -359,18 +353,31 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       hasAnyLogsToday,
       lockedItems,
       activeItems,
-      futureItems,
+      futureItems: [], // Future items not currently tracked in store selectors
       sweepCandidates,
       sweepCandidateCount,
       overdueTodos,
       recentDrops,
       todayDayString,
-      loading,
+      loading: isLoading,
       reload,
-      nowData,
+      nowData: null, // Deprecated - use store directly
       completionSummary,
     };
-  }, [nowData, completedTodoIds, completedHabitIds, deletedItemIds]);
+  }, [
+    lockedItemsRaw,
+    activeItemsRaw,
+    completedItemsRaw,
+    sweepCandidatesRaw,
+    overdueTodosRaw,
+    recentDropsRaw,
+    progressState,
+    notes,
+    isLoading,
+    completedTodoIds,
+    completedHabitIds,
+    deletedItemIds,
+  ]);
 }
 
 /**

@@ -18,8 +18,40 @@ import {
   UIManager,
 } from 'react-native';
 
-import { useRecentLogs, type LogItem } from '../../lib/notes/useRecentLogs';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useRecentNotes } from '../../lib/store/selectors';
 import { YourNotesRow } from './YourNotesRow';
+import type { Note } from '../../lib/types';
+// Import LogItem type for compatibility with consumers
+import type { LogItem, LogSubtypeDisplay } from '../../lib/notes/useRecentLogs';
+
+/** Map Note to LogItem for display */
+function noteToLogItem(note: Note): LogItem {
+  const subtype = note.subtype;
+  let logSubtype: LogSubtypeDisplay = 'general';
+  if (subtype === 'journal') logSubtype = 'journal';
+  else if (subtype === 'idea') logSubtype = 'idea';
+
+  // Map list_items from Note format to LogItem format
+  const listItems = note.list_items?.map((item) => ({
+    id: item.id,
+    label: item.text,
+    checked: item.checked,
+  }));
+
+  return {
+    id: note.id,
+    title: note.title || '',
+    body: note.body || '',
+    logSubtype,
+    isList: note.has_list === true,
+    listItems,
+    createdAt: note.created_at || '',
+    updatedAt: note.updated_at || '',
+    tags: note.tags ?? undefined,
+    mood: note.mood ?? undefined,
+  };
+}
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -272,9 +304,39 @@ export function YourNotesPopup({
 }: YourNotesPopupProps) {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [isInputExpanded, setIsInputExpanded] = useState(false);
-  // Note: `lists` is available for future use (e.g., dedicated Lists tab)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { logs, journals, ideas, general, lists, loading, totalCount, reload } = useRecentLogs(7);
+
+  // Get recent notes from store (last 7 days worth)
+  const recentNotesRaw = useRecentNotes(200);
+  const isLoading = useGremlyStore((s) => s.isLoading);
+
+  // Filter to last 7 days and exclude catchall
+  const { logs, journals, ideas, general, lists, totalCount } = useMemo(() => {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const cutoff = sevenDaysAgo.toISOString();
+
+    const recentNotes = recentNotesRaw.filter(
+      (n) => (n.created_at || '') >= cutoff && n.subtype !== 'catchall',
+    );
+
+    const allLogs = recentNotes.map(noteToLogItem);
+    const journalLogs = allLogs.filter((l) => l.logSubtype === 'journal');
+    const ideaLogs = allLogs.filter((l) => l.logSubtype === 'idea');
+    const generalLogs = allLogs.filter((l) => l.logSubtype === 'general');
+    const listLogs = allLogs.filter((l) => l.isList);
+
+    return {
+      logs: allLogs,
+      journals: journalLogs,
+      ideas: ideaLogs,
+      general: generalLogs,
+      lists: listLogs,
+      totalCount: allLogs.length,
+    };
+  }, [recentNotesRaw]);
+
+  // Alias for loading state
+  const loading = isLoading;
 
   // Counts for each tab
   const counts = useMemo(
@@ -317,10 +379,9 @@ export function YourNotesPopup({
   const handleQuickCaptureSubmit = useCallback(
     (text: string, noteType: NoteType, isList: boolean) => {
       onCreateNew(text, noteType, isList);
-      // Reload logs to show new entry
-      reload();
+      // Store auto-updates, no reload needed
     },
-    [onCreateNew, reload],
+    [onCreateNew],
   );
 
   // Footer text

@@ -4,6 +4,7 @@ import { View, StyleSheet, Pressable, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Flag } from 'lucide-react-native';
 import { useRepo } from '../providers/RepoProvider';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { useTokens } from '../design/makeStyles';
 import { Input } from '../design-system/Input';
 import { Button } from '../design-system/Button';
@@ -48,7 +49,9 @@ const initialFormState: FormState = {
  */
 export default function CreateSpaceModal() {
   const insets = useSafeAreaInsets();
-  const repo = useRepo();
+  const repo = useRepo(); // Keep for upsertSpaceMeta until migrated
+  const storeCreateSpace = useGremlyStore((s) => s.createSpace);
+  const storeCreateMilestone = useGremlyStore((s) => s.createMilestone);
   const tokens = useTokens();
 
   const [step, setStep] = useState<Step>('name-milestone');
@@ -78,22 +81,20 @@ export default function CreateSpaceModal() {
       Keyboard.dismiss();
 
       try {
-        // 1. Create the Space
-        const space = await repo.createSpace({
+        // 1. Create the Space using Zustand store
+        const space = await storeCreateSpace({
           name: form.spaceName.trim(),
         });
 
-        // 2. Create milestone if provided
+        // 2. Create milestone if provided using Zustand store
         if (includeMilestone && form.milestoneName.trim()) {
-          await repo.createMilestone(space.id, {
+          await storeCreateMilestone(space.id, {
             name: form.milestoneName.trim(),
             date: form.milestoneDate || null,
-            is_active: true,
-            sort_order: 0,
           });
         }
 
-        // 3. Create space_meta if enrichment provided
+        // 3. Create space_meta if enrichment provided (still uses repo)
         if (includeEnrichment && (form.successCriteria.trim() || form.otherContext.trim())) {
           await repo.upsertSpaceMeta(space.id, {
             success_criteria: form.successCriteria.trim() || null,

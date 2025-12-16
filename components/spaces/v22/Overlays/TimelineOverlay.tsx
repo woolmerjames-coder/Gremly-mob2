@@ -11,11 +11,9 @@ import {
 import { BlurView } from 'expo-blur';
 import { COLORS, SPACE } from '../_tokens';
 import { X as CloseIcon } from 'lucide-react-native';
-import useSpaceTimeline from '../../../../hooks/useSpaceTimeline';
+import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
+import { useAllSpaceMilestones } from '../../../../lib/store/selectors';
 import { format } from 'date-fns';
-import { SupabaseSpaceMilestoneRepo } from '../../../../lib/repo/supabase';
-import { useAuth } from '../../../../providers/AuthProvider';
-import type { SpaceMilestone } from '../../../../lib/types';
 
 export type TimelineOverlayProps = {
   visible: boolean;
@@ -30,45 +28,23 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
   spaceId,
   onSelectDate,
 }) => {
-  const { days, reload } = useSpaceTimeline(spaceId);
-  const { userId } = useAuth();
-  const milestoneRepo = React.useMemo(
-    () => new SupabaseSpaceMilestoneRepo(userId || undefined),
-    [userId],
-  );
-  const [milestones, setMilestones] = React.useState<SpaceMilestone[]>([]);
+  // Store-based data
+  const milestones = useAllSpaceMilestones(spaceId);
+  const storeCreateMilestone = useGremlyStore((s) => s.createMilestone);
+  const storeDeleteMilestone = useGremlyStore((s) => s.deleteMilestone);
+
   const [adding, setAdding] = React.useState(false);
   const [title, setTitle] = React.useState('');
   const [date, setDate] = React.useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [note, setNote] = React.useState<string>('');
 
-  React.useEffect(() => {
-    const run = async () => {
-      if (!visible) return;
-      reload();
-      try {
-        const list = await milestoneRepo.list(spaceId);
-        setMilestones(list);
-      } catch (e) {
-        console.warn('[TimelineOverlay] list milestones failed', e);
-        setMilestones([]);
-      }
-    };
-    run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, spaceId]);
-
   const handleAdd = async () => {
     try {
       if (!title.trim()) return;
-      const created = await milestoneRepo.create({
-        space_id: spaceId,
+      await storeCreateMilestone(spaceId, {
         name: title.trim(),
         date,
       });
-      setMilestones((prev) =>
-        [...prev, created].sort((a, b) => (a.date || '').localeCompare(b.date || '')),
-      );
       setTitle('');
       setDate(format(new Date(), 'yyyy-MM-dd'));
       setNote('');
@@ -80,8 +56,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
 
   const handleDelete = async (id: string) => {
     try {
-      await milestoneRepo.delete(id);
-      setMilestones((prev) => prev.filter((m) => m.id !== id));
+      await storeDeleteMilestone(id);
     } catch (e) {
       console.warn('[TimelineOverlay] delete milestone failed', e);
     }

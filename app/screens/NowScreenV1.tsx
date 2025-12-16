@@ -19,7 +19,7 @@ import {
   ActivityIndicator,
   Pressable,
 } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui';
@@ -35,18 +35,102 @@ import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
-import { useRecentLogs, type LogItem } from '../../lib/notes/useRecentLogs';
-import { useTodayStats } from '../../lib/today/hooks';
+// Store and selectors
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import {
+  useLockedItems,
+  useActiveItems,
+  useTodayProgress,
+  useOverdueTodos,
+  useRecentDrops,
+  useSweepCount,
+  useCompletedToday,
+  useTodayHabits,
+  useYourNotes,
+  useTodayLogsCount,
+  useIsLoading,
+  useHabitsCompletedToday,
+} from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useActionToast } from '../../src/hooks/useActionToast';
-import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
+import type { LogItem } from '../../lib/notes/useRecentLogs';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { useRepo } from '../../providers/RepoProvider';
-import { useEntityMutations } from '../../hooks/useEntityMutations';
-import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
+import type {
+  NowLockedItem,
+  NowActiveItem,
+  NowFutureItem,
+  NowCompletedItem,
+} from '../../lib/now/nowTypes';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import type { Habit, Todo } from '../../lib/types';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TYPE TRANSFORMERS - Convert raw store types to Now screen types
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Transform raw Todo/Habit to NowLockedItem */
+function toLockedItem(item: Todo | Habit): NowLockedItem {
+  const isHabit = 'cadence' in item;
+  return {
+    id: item.id,
+    type: isHabit ? 'habit' : 'todo',
+    name: item.name,
+    locked: true as const,
+    dueDay: isHabit ? null : ((item as Todo).due_day ?? null),
+    cadence: isHabit ? (item as Habit).cadence : undefined,
+    targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
+  };
+}
+
+/** Transform raw Todo/Habit to NowActiveItem */
+function toActiveItem(item: Todo | Habit): NowActiveItem {
+  const isHabit = 'cadence' in item;
+  return {
+    id: item.id,
+    type: isHabit ? 'habit' : 'todo',
+    name: item.name,
+    locked: false as const,
+    dueDay: isHabit ? null : ((item as Todo).due_day ?? null),
+    dueTime: isHabit ? null : ((item as Todo).due_time ?? null),
+    cadence: isHabit ? (item as Habit).cadence : undefined,
+    targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
+  };
+}
+
+/** Transform raw Todo/Habit to NowCompletedItem */
+function toCompletedItem(item: Todo | Habit): NowCompletedItem {
+  const isHabit = 'cadence' in item;
+  return {
+    id: item.id,
+    type: isHabit ? 'habit' : 'todo',
+    name: item.name,
+    completedAt: isHabit
+      ? ((item as Habit).last_completed_at ?? new Date().toISOString())
+      : ((item as Todo).completed_at ?? new Date().toISOString()),
+  };
+}
+
+/** Transform raw Todo to SweepCandidate */
+function toSweepCandidate(todo: Todo, todayDayString: string): SweepCandidate {
+  const dueDay = todo.due_day ?? null;
+  const isOverdue = dueDay !== null && dueDay < todayDayString;
+  return {
+    id: todo.id,
+    name: todo.name,
+    type: 'todo',
+    due_day: dueDay,
+    due_date: todo.due_date ?? null,
+    status: 'active',
+    carry_forward: (todo as any).carry_forward ?? false,
+    completed_at: todo.completed_at ?? null,
+    archived: todo.archived ?? false,
+    created_at: todo.created_at ?? null,
+    isOverdue,
+    space_id: todo.space_id ?? null,
+  };
+}
 
 /**
  * Time window priority for sorting
@@ -140,75 +224,116 @@ export default function NowScreenV1() {
   // Safe area insets for proper bottom positioning
   const insets = useSafeAreaInsets();
 
-  // Shared interactions from Today screen
-  const interactions = useTodayInteractions({
-    celebrationEnabled: false, // Can enable later
-    showCelebrationToast: false, // Disable toast on NOW - use dot glow instead
-  });
+  // ═══════════════════════════════════════════════════════════════════
+  // STORE SELECTORS - Data from Zustand store
+  // ═══════════════════════════════════════════════════════════════════
 
-  // Single source of truth for all Today stats, with optimistic state
-  const stats = useTodayStats({
-    completedTodoIds: interactions.completedTodoIds,
-    completedHabitIds: interactions.completedHabitIds,
-    deletedItemIds: interactions.deletedItemIds,
-  });
+  // Loading state
+  const loading = useIsLoading();
+  const isInitialized = useGremlyStore((state) => state.isInitialized);
 
-  // Destructure for convenience
+  // Today's items - already filtered by selectors
+  const lockedItems = useLockedItems();
+  const activeItems = useActiveItems();
+  const completedToday = useCompletedToday();
+  const overdueTodos = useOverdueTodos();
+  const recentDrops = useRecentDrops();
+
+  // Habits
+  const habitsToday = useTodayHabits();
+  const completedHabitsToday = useHabitsCompletedToday();
+
+  // Progress stats
+  const progress = useTodayProgress();
   const {
-    lockedItems,
-    activeItems,
-    futureItems,
-    completedToday,
-    habitsToday,
-    completedHabitsToday,
-    totalTasksToday,
-    totalCompletedToday,
-    progressFraction,
-    progressPercent,
-    hasAnyTodayWork,
-    logsToday,
-    overdueTodos,
-    recentDrops,
-    sweepCandidateCount,
-    todayDayString,
-    loading,
-    reload,
-    nowData,
-  } = stats;
+    completedCount: totalCompletedToday,
+    totalEligible: totalTasksToday,
+    percent: progressPercent,
+  } = progress;
 
-  // Refresh data when screen gains focus (e.g. returning from Mind Drop)
-  // This ensures Recent Drops updates immediately after creating new items
-  useFocusEffect(
-    useCallback(() => {
-      void reload();
-    }, [reload]),
-  );
+  // Sweep count
+  const sweepCandidateCount = useSweepCount();
 
-  // Filter out completed items from the display lists
-  // Locked items are always shown first (highest priority)
+  // Logs count for header
+  const logsToday = useTodayLogsCount();
+
+  // Recent logs for Your Notes popup
+  const recentLogs = useYourNotes();
+  const recentLogsCount = recentLogs.length;
+
+  // Today date string (for addToToday)
+  const todayDayString = new Date().toISOString().split('T')[0];
+
+  // Derived: has any work today
+  const hasAnyTodayWork =
+    lockedItems.length > 0 || activeItems.length > 0 || completedToday.length > 0;
+
+  // NowData for header (computed locally)
+  const nowData = useMemo(() => {
+    const now = new Date();
+    const hours = now.getHours();
+    let greeting = 'Good morning';
+    if (hours >= 12 && hours < 17) greeting = 'Good afternoon';
+    else if (hours >= 17) greeting = 'Good evening';
+
+    const dateTimeLabel = `${greeting}, ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`;
+
+    return {
+      dateTimeLabel,
+      weeklySummaries: [], // TODO: Implement weekly summaries selector
+      allHabits: habitsToday, // For NowWeekPopup
+    };
+  }, [habitsToday]);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // STORE MUTATIONS - Direct store actions
+  // ═══════════════════════════════════════════════════════════════════
+
+  const completeTodo = useGremlyStore((state) => state.completeTodo);
+  const uncompleteTodo = useGremlyStore((state) => state.uncompleteTodo);
+  const completeHabit = useGremlyStore((state) => state.completeHabit);
+  const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
+  const updateTodo = useGremlyStore((state) => state.updateTodo);
+
+  // Locked items - transform to Now types and sort
   const displayLockedItems = useMemo(() => {
-    return lockedItems.filter((item) => {
-      if (item.type === 'todo') return !interactions.completedTodoIds.has(item.id);
-      if (item.type === 'habit') return !interactions.completedHabitIds.has(item.id);
-      return true;
-    });
-  }, [lockedItems, interactions.completedTodoIds, interactions.completedHabitIds]);
+    const transformed = lockedItems.map(toLockedItem);
+    return transformed;
+  }, [lockedItems]);
 
-  // Active items: filter completed, then sort by time window priority
+  // Active items - transform to Now types and apply time window sorting
   const displayActiveItems = useMemo(() => {
-    const filtered = activeItems.filter((item) => {
-      if (item.type === 'todo') return !interactions.completedTodoIds.has(item.id);
-      if (item.type === 'habit') return !interactions.completedHabitIds.has(item.id);
-      return true;
-    });
-    // Sort by time window: morning → any → afternoon/evening
-    return sortActiveItems(filtered);
-  }, [activeItems, interactions.completedTodoIds, interactions.completedHabitIds]);
+    const transformed = activeItems.map(toActiveItem);
+    return sortActiveItems(transformed);
+  }, [activeItems]);
+
+  // Completed items - transform to Now types
+  const displayCompletedToday = useMemo(() => {
+    return completedToday.map(toCompletedItem);
+  }, [completedToday]);
+
+  // Completed habits - transform to Now types
+  const displayCompletedHabitsToday = useMemo(() => {
+    return completedHabitsToday.map(toCompletedItem);
+  }, [completedHabitsToday]);
+
+  // Overdue todos - transform to SweepCandidate
+  const displayOverdueTodos = useMemo(() => {
+    return overdueTodos.map((t) => toSweepCandidate(t as Todo, todayDayString));
+  }, [overdueTodos, todayDayString]);
+
+  // Recent drops - transform to SweepCandidate
+  const displayRecentDrops = useMemo(() => {
+    return recentDrops.map((t) => toSweepCandidate(t as Todo, todayDayString));
+  }, [recentDrops, todayDayString]);
+
+  // Habits for week popup - transform to active items
+  const displayHabitsToday = useMemo(() => {
+    return habitsToday.map(toActiveItem);
+  }, [habitsToday]);
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
-  const repo = useRepo();
-  const entityMutations = useEntityMutations();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
@@ -226,24 +351,49 @@ export default function NowScreenV1() {
   // Toast for quick add feedback
   const { showToast, Toast: QuickAddToast } = useActionToast();
 
-  // Handle item press - open overlay
+  // Handle item press - open overlay (uses overlayController)
   const handlePressItem = useCallback(
     (item: NowLockedItem | NowActiveItem | NowFutureItem) => {
-      interactions.openEntityOverlay(item);
+      overlayController.openEdit({
+        record: { id: item.id, type: item.type } as any,
+      });
     },
-    [interactions],
+    [overlayController],
   );
 
-  // Handle toggle complete - type-narrow and delegate
+  // Handle toggle complete - use store mutations directly
   const handleToggleComplete = useCallback(
-    (item: NowLockedItem | NowActiveItem | NowFutureItem) => {
-      if (item.type === 'todo') {
-        void interactions.toggleTodoComplete(item);
-      } else if (item.type === 'habit') {
-        void interactions.toggleHabitComplete(item);
+    async (item: NowLockedItem | NowActiveItem | NowFutureItem) => {
+      try {
+        if (item.type === 'todo') {
+          // Check if already completed (for undo)
+          const isCompleted = completedToday.some((c) => c.id === item.id);
+          if (isCompleted) {
+            await uncompleteTodo(item.id);
+          } else {
+            await completeTodo(item.id);
+          }
+        } else if (item.type === 'habit') {
+          // Check if already completed today
+          const isCompleted = completedHabitsToday.some((h) => h.id === item.id);
+          if (isCompleted) {
+            await uncompleteHabit(item.id);
+          } else {
+            await completeHabit(item.id);
+          }
+        }
+      } catch (error) {
+        console.error('[NowScreenV1] Toggle complete failed:', error);
       }
     },
-    [interactions],
+    [
+      completeTodo,
+      uncompleteTodo,
+      completeHabit,
+      uncompleteHabit,
+      completedToday,
+      completedHabitsToday,
+    ],
   );
 
   // Handle overwhelm plan submission
@@ -261,32 +411,16 @@ export default function NowScreenV1() {
   }, []);
 
   // Add item to Today's Focus by setting due_day to today
-  // Uses todayDayString from useTodayStats to ensure consistency with Today/Sweep logic
   const handleAddToToday = useCallback(
     async (item: SweepCandidate) => {
       try {
-        // Capture before state for test logging
-        const beforeState = {
-          in_today: item.due_day === todayDayString,
-          space_id: item.space_id ?? null,
-          archived: false,
-          dueDay: item.due_day ?? null,
-        };
-
-        // Use entity mutations with test logging
-        const result = await entityMutations.addToToday(item.id, 'todo', beforeState);
-
-        if (result.success) {
-          // Refresh Today stats so the item moves from Recent Drops to Today's Focus
-          await reload();
-        } else {
-          console.warn('[NowScreenV1] Add to Today failed:', result.error);
-        }
+        await updateTodo(item.id, { due_day: todayDayString });
+        // No need to call reload() - store update triggers re-render automatically
       } catch (error) {
         console.warn('[NowScreenV1] Add to Today failed:', error);
       }
     },
-    [entityMutations, reload, todayDayString],
+    [updateTodo, todayDayString],
   );
 
   // Quick add hook - wires to MindDrop pipeline with Today scoping
@@ -302,18 +436,8 @@ export default function NowScreenV1() {
     },
     onComplete: (result) => {
       console.log('[NowScreenV1] Quick add complete:', result);
-      // Clear optimistic card
+      // Clear optimistic card - store auto-updates, no reload needed
       setOptimisticQuickAdd(null);
-
-      // Reload Today data - no toast needed, optimistic card + refresh is the feedback
-      if (result.kind === 'todo' || result.kind === 'habit') {
-        void reload();
-      } else if (result.kind === 'log' || result.kind === 'note') {
-        // Log/note doesn't appear on Today, no reload needed
-      } else {
-        // Unknown outcome - just reload
-        void reload();
-      }
     },
     onError: (error) => {
       console.error('[NowScreenV1] Quick add error:', error.message);
@@ -337,17 +461,22 @@ export default function NowScreenV1() {
 
   // Handle undo from progress popup
   const handleUndoCompletedItem = useCallback(
-    (item: { id: string; type: 'habit' | 'todo' }) => {
-      void interactions.undoCompletionById(item.id, item.type);
+    async (item: { id: string; type: 'habit' | 'todo' }) => {
+      try {
+        if (item.type === 'todo') {
+          await uncompleteTodo(item.id);
+        } else {
+          await uncompleteHabit(item.id);
+        }
+      } catch (error) {
+        console.error('[NowScreenV1] Undo failed:', error);
+      }
     },
-    [interactions],
+    [uncompleteTodo, uncompleteHabit],
   );
 
-  // Use today's logs count from useTodayStats
+  // Use today's logs count from store selectors
   const capturesCount = logsToday;
-
-  // Fetch recent logs for Your Notes card preview
-  const { logs: recentLogs, totalCount: recentLogsCount } = useRecentLogs(7);
 
   // Handle Your Notes card press
   const handleNotesPress = useCallback(() => {
@@ -390,7 +519,7 @@ export default function NowScreenV1() {
     [overlayController],
   );
 
-  if (loading) {
+  if (loading || !isInitialized) {
     return (
       <Screen style={styles.screen} edges={['top', 'bottom']} padded={false}>
         <View />
@@ -434,16 +563,14 @@ export default function NowScreenV1() {
         <TodayFocusList
           lockedItems={displayLockedItems}
           activeItems={displayActiveItems}
-          futureItems={futureItems}
+          futureItems={[]} // Future items selector not implemented yet
           progressPercent={progressPercent}
-          completedTodoIds={interactions.completedTodoIds}
-          completedHabitIds={interactions.completedHabitIds}
           hasAnyTodayWork={hasAnyTodayWork}
           onPressItem={handlePressItem}
           onToggleComplete={handleToggleComplete}
           optimisticQuickAdd={optimisticQuickAdd}
-          overdueTodos={overdueTodos}
-          recentDrops={recentDrops}
+          overdueTodos={displayOverdueTodos}
+          recentDrops={displayRecentDrops}
           onAddToToday={handleAddToToday}
           bottomInset={insets.bottom}
         />
@@ -455,7 +582,7 @@ export default function NowScreenV1() {
         pointerEvents="box-none"
       >
         <SweepPill
-          count={sweepCandidateCount + recentDrops.length}
+          count={sweepCandidateCount + displayRecentDrops.length}
           onPress={() => {
             navigation.navigate('Sweep');
           }}
@@ -467,7 +594,7 @@ export default function NowScreenV1() {
 
       <NowProgressPopup
         visible={isProgressVisible}
-        completed={completedToday}
+        completed={displayCompletedToday}
         totalTasksToday={totalTasksToday}
         totalCompletedToday={totalCompletedToday}
         onClose={() => setProgressVisible(false)}
@@ -476,16 +603,16 @@ export default function NowScreenV1() {
 
       <NowWeekPopup
         visible={isWeekVisible}
-        habitsToday={habitsToday}
-        completedHabitsToday={completedHabitsToday}
+        habitsToday={displayHabitsToday}
+        completedHabitsToday={displayCompletedHabitsToday}
         weeklySummaries={nowData.weeklySummaries}
-        allHabits={nowData.allHabits}
+        allHabits={habitsToday}
         onClose={() => setWeekVisible(false)}
       />
 
       <OverwhelmSelectSheet
         visible={overwhelm.step === 'select'}
-        items={[...lockedItems, ...activeItems]}
+        items={[...displayLockedItems, ...displayActiveItems]}
         selectedIds={overwhelm.selectedIds}
         onToggleSelect={overwhelm.toggleSelection}
         onSubmit={handleOverwhelmSubmit}
@@ -534,8 +661,7 @@ export default function NowScreenV1() {
         onSave={() => {
           setJournalVisible(false);
           setSelectedJournalId(null);
-          // Refresh recent logs to show updated journal
-          void reload();
+          // Store auto-updates, no reload needed
         }}
       />
     </Screen>
@@ -674,8 +800,6 @@ type TodayFocusListProps = {
   activeItems: NowActiveItem[];
   futureItems: NowFutureItem[];
   progressPercent: number;
-  completedTodoIds: Set<string>;
-  completedHabitIds: Set<string>;
   hasAnyTodayWork: boolean;
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
@@ -691,8 +815,6 @@ function TodayFocusList({
   activeItems,
   futureItems,
   progressPercent,
-  completedTodoIds,
-  completedHabitIds,
   hasAnyTodayWork,
   onPressItem,
   onToggleComplete,
@@ -728,16 +850,6 @@ function TodayFocusList({
   const isAllComplete =
     progressPercent === 100 && hasAnyTodayWork && !optimisticQuickAdd && !leavingCard;
 
-  // Helper to check if an item is completed
-  const isItemCompleted = (item: NowLockedItem | NowActiveItem | NowFutureItem): boolean => {
-    if (item.type === 'todo') {
-      return completedTodoIds.has(item.id);
-    } else if (item.type === 'habit') {
-      return completedHabitIds.has(item.id);
-    }
-    return false;
-  };
-
   return (
     <ScrollView
       style={styles.listContainer}
@@ -761,7 +873,7 @@ function TodayFocusList({
         <NowFocusRow
           key={item.id}
           item={item}
-          isCompleted={isItemCompleted(item)}
+          isCompleted={false} // Selectors filter out completed items
           isLocked
           isFirst={index === 0}
           isLast={index === lockedItems.length - 1 && activeItems.length === 0}
@@ -774,7 +886,7 @@ function TodayFocusList({
         <NowFocusRow
           key={item.id}
           item={item}
-          isCompleted={isItemCompleted(item)}
+          isCompleted={false} // Selectors filter out completed items
           isFirst={lockedItems.length === 0 && index === 0}
           isLast={index === activeItems.length - 1}
           onPress={() => onPressItem?.(item)}
@@ -828,7 +940,7 @@ function TodayFocusList({
           key={item.id}
           item={item}
           isFuture
-          isCompleted={isItemCompleted(item)}
+          isCompleted={false} // Selectors filter out completed items
           isFirst={index === 0}
           isLast={index === futureItems.length - 1}
           onPress={() => onPressItem?.(item)}

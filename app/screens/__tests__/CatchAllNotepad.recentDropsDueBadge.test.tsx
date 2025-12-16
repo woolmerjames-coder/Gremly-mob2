@@ -20,23 +20,50 @@ const overlayStub = {
   close: jest.fn(),
 };
 
-// Mock dependencies
-const mockRepo = {
-  notes: {
-    list: jest.fn(),
-  },
-  todos: {
-    list: jest.fn(),
-  },
-  habits: {
-    list: jest.fn(),
-  },
-  remove: jest.fn(),
-};
+// Mock data arrays - populated in tests
+let mockNotes: any[] = [];
+let mockTodos: any[] = [];
+let mockHabits: any[] = [];
 
-jest.mock('../../../providers/RepoProvider', () => ({
-  useRepo: () => mockRepo,
+// Mock the store - must be inside jest.mock for hoisting
+jest.mock('../../../lib/store/useGremlyStore', () => {
+  const getMockState = () => ({
+    notes: [],
+    todos: [],
+    habits: [],
+    deleteNote: jest.fn(),
+    deleteTodo: jest.fn(),
+    deleteHabit: jest.fn(),
+  });
+
+  const useGremlyStore = Object.assign(
+    jest.fn((selector: any) => {
+      if (typeof selector === 'function') {
+        return selector(getMockState());
+      }
+      return {};
+    }),
+    { getState: getMockState },
+  );
+
+  return { useGremlyStore };
+});
+
+// Mock selectors - these use the module-level arrays
+jest.mock('../../../lib/store/selectors', () => ({
+  selectItemById: jest.fn(),
+  selectNoteBySourceMessageId: jest.fn(),
+  selectRecentNotes: jest.fn(),
+  selectRecentTodos: jest.fn(),
+  selectRecentHabits: jest.fn(),
 }));
+
+// Import selectors after mock so we can override implementations
+import {
+  selectRecentNotes,
+  selectRecentTodos,
+  selectRecentHabits,
+} from '../../../lib/store/selectors';
 
 jest.mock('../../../providers/AuthProvider', () => ({
   __esModule: true,
@@ -106,9 +133,15 @@ describe('RecentDrops - Todo Due Date Badges', () => {
     // @ts-expect-error override Date for deterministic formatting
     global.Date = MockDate;
 
-    mockRepo.notes.list.mockResolvedValue([]);
-    mockRepo.habits.list.mockResolvedValue([]);
-    mockRepo.todos.list.mockResolvedValue([]);
+    // Clear mock data
+    mockNotes = [];
+    mockTodos = [];
+    mockHabits = [];
+
+    // Configure selector mocks to return the test data
+    (selectRecentNotes as unknown as jest.Mock).mockImplementation(() => mockNotes);
+    (selectRecentTodos as unknown as jest.Mock).mockImplementation(() => mockTodos);
+    (selectRecentHabits as unknown as jest.Mock).mockImplementation(() => mockHabits);
   });
 
   afterEach(() => {
@@ -116,15 +149,13 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('shows "no deadline yet" for todo without due date', async () => {
-    mockRepo.todos.list.mockResolvedValue([
-      {
-        id: 'todo-1',
-        name: 'Buy groceries',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: null,
-      },
-    ]);
+    mockTodos.push({
+      id: 'todo-1',
+      name: 'Buy groceries',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_date: null,
+    });
 
     const { getByTestId } = renderRecentDrops();
 
@@ -135,15 +166,13 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('shows "due Today" for todo due today without time', async () => {
-    mockRepo.todos.list.mockResolvedValue([
-      {
-        id: 'todo-2',
-        name: 'Finish report',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: new Date('2025-11-08T00:00:00').toISOString(),
-      },
-    ]);
+    mockTodos.push({
+      id: 'todo-2',
+      name: 'Finish report',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_date: new Date('2025-11-08T00:00:00').toISOString(),
+    });
 
     const { getByTestId } = renderRecentDrops();
 
@@ -154,15 +183,13 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('shows "due Today @ 17:00" for urgent todo', async () => {
-    mockRepo.todos.list.mockResolvedValue([
-      {
-        id: 'todo-3',
-        name: 'Fix urgent bug asap',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: new Date('2025-11-08T17:00:00').toISOString(),
-      },
-    ]);
+    mockTodos.push({
+      id: 'todo-3',
+      name: 'Fix urgent bug asap',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_date: new Date('2025-11-08T17:00:00').toISOString(),
+    });
 
     const { getByTestId } = renderRecentDrops();
 
@@ -173,15 +200,13 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('shows "due Tomorrow @ 09:00" for todo due tomorrow with time', async () => {
-    mockRepo.todos.list.mockResolvedValue([
-      {
-        id: 'todo-4',
-        name: 'Call dentist',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: new Date('2025-11-09T09:00:00').toISOString(),
-      },
-    ]);
+    mockTodos.push({
+      id: 'todo-4',
+      name: 'Call dentist',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_date: new Date('2025-11-09T09:00:00').toISOString(),
+    });
 
     const { getByTestId } = renderRecentDrops();
 
@@ -192,15 +217,13 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('shows "due Mon" for todo due on Monday (2 days away)', async () => {
-    mockRepo.todos.list.mockResolvedValue([
-      {
-        id: 'todo-5',
-        name: 'Team meeting',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: new Date('2025-11-10T00:00:00').toISOString(), // Monday
-      },
-    ]);
+    mockTodos.push({
+      id: 'todo-5',
+      name: 'Team meeting',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_date: new Date('2025-11-10T00:00:00').toISOString(), // Monday
+    });
 
     const { getByTestId } = renderRecentDrops();
 
@@ -211,15 +234,13 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('shows "due Fri @ 15:30" for todo due Friday with time', async () => {
-    mockRepo.todos.list.mockResolvedValue([
-      {
-        id: 'todo-6',
-        name: 'Submit proposal',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: new Date('2025-11-14T15:30:00').toISOString(), // Friday
-      },
-    ]);
+    mockTodos.push({
+      id: 'todo-6',
+      name: 'Submit proposal',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_date: new Date('2025-11-14T15:30:00').toISOString(), // Friday
+    });
 
     const { getByTestId } = renderRecentDrops();
 
@@ -230,15 +251,13 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('shows "due Nov 20" for todo beyond 7 days', async () => {
-    mockRepo.todos.list.mockResolvedValue([
-      {
-        id: 'todo-7',
-        name: 'Plan event',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: new Date('2025-11-20T00:00:00').toISOString(),
-      },
-    ]);
+    mockTodos.push({
+      id: 'todo-7',
+      name: 'Plan event',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_date: new Date('2025-11-20T00:00:00').toISOString(),
+    });
 
     const { getByTestId } = renderRecentDrops();
 
@@ -249,15 +268,13 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('shows "due Dec 5" for todo in next month', async () => {
-    mockRepo.todos.list.mockResolvedValue([
-      {
-        id: 'todo-8',
-        name: 'Holiday shopping',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: new Date('2025-12-05T00:00:00').toISOString(),
-      },
-    ]);
+    mockTodos.push({
+      id: 'todo-8',
+      name: 'Holiday shopping',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_date: new Date('2025-12-05T00:00:00').toISOString(),
+    });
 
     const { getByTestId } = renderRecentDrops();
 
@@ -268,29 +285,27 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('shows due date badge for multiple todos with different due dates', async () => {
-    mockRepo.todos.list.mockResolvedValue([
-      {
-        id: 'todo-9',
-        name: 'Todo 1',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-        due_date: null,
-      },
-      {
-        id: 'todo-10',
-        name: 'Todo 2',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T08:00:00').toISOString(),
-        due_date: new Date('2025-11-08T17:00:00').toISOString(),
-      },
-      {
-        id: 'todo-11',
-        name: 'Todo 3',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T07:00:00').toISOString(),
-        due_date: new Date('2025-11-12T10:00:00').toISOString(),
-      },
-    ]);
+    mockTodos.push({
+      id: 'todo-9',
+      name: 'Todo 1',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_date: null,
+    });
+    mockTodos.push({
+      id: 'todo-10',
+      name: 'Todo 2',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T08:00:00').toISOString(),
+      due_date: new Date('2025-11-08T17:00:00').toISOString(),
+    });
+    mockTodos.push({
+      id: 'todo-11',
+      name: 'Todo 3',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T07:00:00').toISOString(),
+      due_date: new Date('2025-11-12T10:00:00').toISOString(),
+    });
 
     const { getByTestId } = renderRecentDrops();
 
@@ -306,15 +321,12 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('does not show due date badge for notes', async () => {
-    mockRepo.notes.list.mockResolvedValue([
-      {
-        id: 'note-1',
-        body: 'Some note',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-      },
-    ]);
-    mockRepo.todos.list.mockResolvedValue([]);
+    mockNotes.push({
+      id: 'note-1',
+      body: 'Some note',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+    });
 
     const { queryByTestId } = renderRecentDrops();
 
@@ -324,15 +336,12 @@ describe('RecentDrops - Todo Due Date Badges', () => {
   });
 
   it('does not show due date badge for habits', async () => {
-    mockRepo.habits.list.mockResolvedValue([
-      {
-        id: 'habit-1',
-        name: 'Exercise',
-        origin: 'catchall',
-        created_at: new Date('2025-11-08T09:00:00').toISOString(),
-      },
-    ]);
-    mockRepo.todos.list.mockResolvedValue([]);
+    mockHabits.push({
+      id: 'habit-1',
+      name: 'Exercise',
+      origin: 'catchall',
+      created_at: new Date('2025-11-08T09:00:00').toISOString(),
+    });
 
     const { queryByTestId } = renderRecentDrops();
 

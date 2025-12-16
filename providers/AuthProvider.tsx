@@ -6,6 +6,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase/client';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { FLAGS } from '../config/flags';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -31,6 +32,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Zustand store state
+  const initialize = useGremlyStore((state) => state.initialize);
+  const reset = useGremlyStore((state) => state.reset);
+  const isStoreInitialized = useGremlyStore((state) => state.isInitialized);
+
+  // Initialize store when user changes
+  useEffect(() => {
+    const initializeStore = async () => {
+      console.log('[AuthProvider] initializeStore called, user.id:', user?.id);
+      if (user?.id) {
+        try {
+          await initialize(user.id);
+        } catch (error) {
+          console.error('[AuthProvider] Failed to initialize store:', error);
+        }
+      } else {
+        // No user - reset the store
+        reset();
+      }
+    };
+
+    initializeStore();
+  }, [user?.id, initialize, reset]);
 
   // Initialize auth state
   useEffect(() => {
@@ -289,6 +314,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
 
+    // Reset store first
+    reset();
+
     try {
       if (FLAGS.REPO_BACKEND === 'memory') {
         setUser(null);
@@ -341,13 +369,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // Show loading until BOTH auth AND store are ready
+  const isFullyLoaded = !loading && (!user || isStoreInitialized);
+
   return (
     <AuthContext.Provider
       value={{
         user,
         userId: user?.id ?? null,
         session,
-        loading,
+        loading: !isFullyLoaded,
         error,
         signInWithEmail,
         devSignIn,

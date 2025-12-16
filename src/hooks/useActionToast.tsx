@@ -40,7 +40,7 @@ type ActionToastMetadata = {
   noteBody?: string;
   frequencyValue?: any;
   spaceId?: string | null;
-  autoOrigin?: 'catchall' | 'space_chat' | 'manual';
+  autoOrigin?: 'catchall' | 'space_chat' | 'manual' | 'overlay';
   aiPlaced?: boolean;
   reminders?: any[];
   onConfirm?: () => Promise<void>;

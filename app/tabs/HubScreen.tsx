@@ -33,7 +33,6 @@ import {
   Search,
 } from 'lucide-react-native';
 
-import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import SegmentedTabs from '../../components/SegmentedTabs';
 import ScopeSelector, { type ScopeOption } from '../../components/ScopeSelector';
@@ -48,12 +47,11 @@ import type { AppRecord, Space, Person, Tag } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
-import { selectUnsortedForReview } from '../../lib/selectors/spaceSelectors';
 import {
   selectNeedsAttentionItems,
   type NeedsAttentionItem,
 } from '../../lib/selectors/hubSelectors';
-import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
+// Store provides real-time updates - no manual reload listeners needed
 import { getNoteLabel } from '../../lib/canonicalTypes';
 import { normalizeSearchTagArray, normalizeSearchTagInput } from '../../lib/tags/search';
 import { parseSearchTokens } from '../../lib/tags/parseSearch';
@@ -65,6 +63,21 @@ import {
   getJournalPreview,
   computeLast30DaysRange,
 } from '../../lib/hub/hubHelpers';
+// Store selectors and hooks
+import {
+  useHubTodos,
+  useHubHabits,
+  useHubJournals,
+  useHubNotes,
+  useDiscoveredPeople,
+  useDiscoveredLists,
+  useUnsortedItems,
+  useActiveSpaces,
+  usePopularTags,
+  useAllActiveItemsHub,
+  filterUnsortedForReview,
+} from '../../lib/store/selectors';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
@@ -143,40 +156,45 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
 
 export default function HubScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const repo = useRepo();
   const { user } = useAuth();
 
   // Unified overlay controller
   const overlayController = useUnifiedOverlayController();
 
-  // State
-  const [items, setItems] = useState<AppRecord[]>([]);
-  const [people, setPeople] = useState<Person[]>([]);
-  const [peopleWithCounts, setPeopleWithCounts] = useState<PersonWithCounts[]>([]);
-  const [spaces, setSpaces] = useState<Space[]>([]);
-  const [loading, setLoading] = useState(false);
+  // ═══════════════════════════════════════════════════════════════════
+  // ZUSTAND STORE DATA - single source of truth
+  // ═══════════════════════════════════════════════════════════════════
+  const storeTodos = useHubTodos();
+  const storeHabits = useHubHabits();
+  const storeJournals = useHubJournals();
+  const storeNotes = useHubNotes();
+  const storeSpaces = useActiveSpaces();
+  const storeTags = usePopularTags();
+  const storeUnsortedItems = useUnsortedItems();
+  const discoveredPeople = useDiscoveredPeople();
+  const discoveredLists = useDiscoveredLists();
+  const storeAllActiveItems = useAllActiveItemsHub();
+
+  // Store mutations
+  const updateTodo = useGremlyStore((s) => s.updateTodo);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
+  const updateNote = useGremlyStore((s) => s.updateNote);
+  const storeIsLoading = useGremlyStore((s) => s.isLoading);
+  const storeIsInitialized = useGremlyStore((s) => s.isInitialized);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // UI STATE (local to this screen)
+  // ═══════════════════════════════════════════════════════════════════
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('Habits');
   const [scope, setScope] = useState<ScopeOption>({ type: 'everywhere', label: 'Everywhere' });
   const [search, setSearch] = useState('');
-  const [unsortedCount, setUnsortedCount] = useState(0);
-  const [globalUnsortedItems, setGlobalUnsortedItems] = useState<AppRecord[]>([]); // Store global unsorted for sheet
   const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [notesSubfilter, setNotesSubfilter] = useState<'all' | 'idea' | 'list' | 'reference'>(
     'all',
   );
-  const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([]);
-  const [itemTags, setItemTags] = useState<Map<string, Tag[]>>(new Map());
-  const hasFetchedTagsRef = useRef(false);
-  const [listsData, setListsData] = useState<{
-    shopping: { incomplete: number; total: number };
-    packing: { incomplete: number; total: number };
-  }>({
-    shopping: { incomplete: 0, total: 0 },
-    packing: { incomplete: 0, total: 0 },
-  });
 
   // Hub V1 filter state
   const [hubV1Types, setHubV1Types] = useState<Set<HubV1TypeFilter>>(
@@ -184,8 +202,6 @@ export default function HubScreen() {
   );
   const [hubV1TimeRange, setHubV1TimeRange] = useState<HubV1TimeRange>('month');
   const [hubV1Status, setHubV1Status] = useState<HubV1StatusFilter>('active');
-  const [hubV1Items, setHubV1Items] = useState<AppRecord[]>([]);
-  const [hubV1Loading, setHubV1Loading] = useState(false);
   const [hubView, setHubView] = useState<HubV1View>('all');
   // Save previous type selections when switching to Journal View
   const savedTypesRef = useRef<Set<HubV1TypeFilter> | null>(null);
@@ -194,58 +210,128 @@ export default function HubScreen() {
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [analyzeJournalCount, setAnalyzeJournalCount] = useState(0);
 
-  const phase8Enabled = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
+  // ═══════════════════════════════════════════════════════════════════
+  // DERIVED DATA FROM STORE
+  // ═══════════════════════════════════════════════════════════════════
 
-  useEffect(() => {
-    setTags([]);
-    hasFetchedTagsRef.current = false;
-  }, [phase8Enabled]);
+  // Lists data derived from discoveredLists
+  const listsData = useMemo(() => {
+    const shopping = discoveredLists.find((l) => l.type === 'shopping');
+    const packing = discoveredLists.find((l) => l.type === 'packing');
 
-  useEffect(() => {
-    let cancelled = false;
+    return {
+      shopping: shopping
+        ? { incomplete: shopping.incompleteCount, total: shopping.totalCount }
+        : { incomplete: 0, total: 0 },
+      packing: packing
+        ? { incomplete: packing.incompleteCount, total: packing.totalCount }
+        : { incomplete: 0, total: 0 },
+    };
+  }, [discoveredLists]);
 
-    if (tags.length === 0) {
-      hasFetchedTagsRef.current = false;
+  // People with counts derived from discoveredPeople
+  const peopleWithCounts = useMemo((): PersonWithCounts[] => {
+    return discoveredPeople.map((person) => ({
+      // Required Person fields with defaults for discovered people
+      id: person.id,
+      owner_id: '', // Not available from discovered data
+      display_name: person.name,
+      name: person.name,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      linkedCounts: {
+        habits: 0,
+        todos: 0,
+        journal: 0,
+        notes: person.itemCount,
+      },
+    }));
+  }, [discoveredPeople]);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DERIVED DATA FROM STORE - filtered by current tab
+  // ═══════════════════════════════════════════════════════════════════
+  const items = useMemo((): AppRecord[] => {
+    if (tab === 'Habits') return storeHabits;
+    if (tab === 'To-Dos') return storeTodos;
+    if (tab === 'Journal') return storeJournals;
+    if (tab === 'Notes') {
+      if (notesSubfilter === 'all') return storeNotes;
+      return storeNotes.filter((n) => n.subtype === notesSubfilter);
+    }
+    return [];
+  }, [tab, storeHabits, storeTodos, storeJournals, storeNotes, notesSubfilter]);
+
+  // Apply scope filtering
+  const scopedItems = useMemo((): AppRecord[] => {
+    if (scope.type === 'everywhere') return items;
+    if (scope.type === 'unassigned') return items.filter((item) => !item.space_id);
+    if (scope.type === 'space' && scope.spaceId) {
+      return items.filter((item) => item.space_id === scope.spaceId);
+    }
+    return items;
+  }, [items, scope]);
+
+  // Hub V1 items - derived from store with filters
+  const hubV1Items = useMemo((): AppRecord[] => {
+    const timeRange = computeTimeRange(hubV1TimeRange);
+    let results: AppRecord[] = [];
+
+    if (hubView === 'journals') {
+      results = [...storeJournals];
+    } else {
+      if (hubV1Types.has('todo')) results.push(...storeTodos);
+      if (hubV1Types.has('habit')) results.push(...storeHabits);
+      if (hubV1Types.has('note')) results.push(...storeNotes);
     }
 
-    const loadTags = async () => {
-      if (!repo || tags.length > 0 || hasFetchedTagsRef.current) {
-        return;
-      }
+    // Apply time range filter
+    if (timeRange.createdAfter) {
+      results = results.filter((item) => (item.created_at ?? '') >= timeRange.createdAfter!);
+    }
 
-      try {
-        hasFetchedTagsRef.current = true;
-        if (phase8Enabled) {
-          const phase8Tags = await (repo as any).listTags();
-          if (!cancelled) {
-            setTags(
-              phase8Tags.map((t: any) => ({
-                id: t.id,
-                name: t.name,
-                color: colors.deepTeal,
-              })),
-            );
-          }
-        } else {
-          const allTags = await repo.listTags();
-          if (!cancelled) {
-            setTags(allTags);
-          }
-        }
-      } catch (error) {
-        console.error('[Hub] Failed to load tags:', error);
-        if (!cancelled) {
-          setTags([]);
-        }
-      }
-    };
+    // Apply status filter
+    if (hubV1Status === 'active') {
+      results = results.filter((item) => !item.archived);
+    } else if (hubV1Status === 'completed') {
+      results = results.filter((item) => item.archived);
+    }
 
-    void loadTags();
+    // Sort by created_at DESC
+    results.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
-    return () => {
-      cancelled = true;
-    };
-  }, [repo, tags.length, phase8Enabled]);
+    return results;
+  }, [
+    storeJournals,
+    storeTodos,
+    storeHabits,
+    storeNotes,
+    hubView,
+    hubV1Types,
+    hubV1TimeRange,
+    hubV1Status,
+  ]);
+
+  // Use store spaces
+  const spaces = storeSpaces;
+
+  // Use store tags (convert PopularTag[] to Tag[] for compatibility)
+  const tags = useMemo(() => {
+    return storeTags.map((pt) => ({ id: pt.name, name: pt.name, color: colors.deepTeal }) as Tag);
+  }, [storeTags]);
+
+  // Unsorted count from store
+  const unsortedCount = storeUnsortedItems.length;
+
+  // Global unsorted items for sheet
+  const globalUnsortedItems = storeUnsortedItems;
+
+  // Loading state
+  const loading = storeIsLoading;
+
+  const phase8Enabled = process.env.EXPO_PUBLIC_FEATURE_BUDDY === 'true';
+
+  // Tags are now derived from store - no need to load separately
 
   const noteLabelPlural = getNoteLabel({ plural: true });
 
@@ -310,8 +396,16 @@ export default function HubScreen() {
       const date = item.updated_at || item.created_at;
       const dateFormatted = date ? new Date(date).toLocaleDateString() : undefined;
 
-      // Get tags for this item (up to 2 for display)
-      const tags = itemTags.get(item.id) || [];
+      // Get tags for this item from the item's tags field (store data)
+      const itemTagsArray = (item as { tags?: string[] }).tags ?? [];
+      const tags = itemTagsArray.map((tagName) => ({
+        id: tagName,
+        name: tagName,
+        color: colors.deepTeal,
+        owner_id: '',
+        created_at: '',
+        updated_at: '',
+      })) as Tag[];
 
       // Get space name and determine if we should show space chip
       // Only show space chip when scope is "Everywhere" and item has a space
@@ -336,324 +430,8 @@ export default function HubScreen() {
         private: item.type === 'note' ? ((item as any).private ?? false) : undefined, // Phase L7: Private mode
       };
     },
-    [itemTags, scope.type, spaces],
+    [scope.type, spaces],
   );
-
-  // Load data
-  const load = useCallback(async () => {
-    if (!user) {
-      setError('Please sign in to view your items');
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    const tagCount = mergedTagNames.length;
-    let loadSucceeded = false;
-
-    try {
-      // Load spaces, tags, and unsorted count
-      const allSpaces = await repo.listSpaces();
-      setSpaces(allSpaces);
-
-      // Load ALL items (all types, all scopes) for unsorted count calculation
-      // This ensures the unsorted banner shows the global count across all tabs
-      const [allHabits, allTodos, allNotes] = await Promise.all([
-        repo.listByType('habit', {}),
-        repo.listByType('todo', {}),
-        repo.listByType('note', {}),
-      ]);
-      const allItemsForUnsorted = [...allHabits, ...allTodos, ...allNotes] as AppRecord[];
-      const globalUnsorted = selectUnsortedForReview(allItemsForUnsorted);
-
-      if (__DEV__) {
-        console.log('[HubUnsorted] Global count calculation:', {
-          totalItems: allItemsForUnsorted.length,
-          unsortedCount: globalUnsorted.length,
-          byType: {
-            habits: allHabits.length,
-            todos: allTodos.length,
-            notes: allNotes.length,
-          },
-          scope: 'all',
-          filters: 'none (global count)',
-        });
-      }
-
-      setUnsortedCount(globalUnsorted.length);
-      setGlobalUnsortedItems(globalUnsorted); // Store for sheet      // Build scope options for listByType
-      const scopeOpts =
-        scope.type === 'unassigned'
-          ? { unassignedOnly: true }
-          : scope.type === 'space'
-            ? { spaceId: scope.spaceId }
-            : {}; // everywhere
-
-      // Add tag filtering if tags are selected or parsed from search
-      const filterOpts =
-        mergedTagNames.length > 0 ? { ...scopeOpts, tagNames: mergedTagNames } : scopeOpts;
-
-      // Load data based on current tab
-      let data: AppRecord[] | Person[] = [];
-
-      if (tab === 'Habits') {
-        data = await repo.listByType('habit', filterOpts);
-      } else if (tab === 'To-Dos') {
-        data = await repo.listByType('todo', filterOpts);
-      } else if (tab === 'Journal') {
-        data = await repo.listByType('note', { ...filterOpts, subtypes: ['journal'] });
-      } else if (tab === 'Notes') {
-        const subtypes =
-          notesSubfilter === 'all' ? ['idea', 'list', 'reference'] : [notesSubfilter];
-        data = await repo.listByType('note', {
-          ...filterOpts,
-          subtypes,
-        });
-      } else if (tab === 'People') {
-        const allPeople = await repo.listPeople();
-        setPeople(allPeople);
-
-        // Compute linked counts client-side (Phase 7: no entity_people table yet)
-        // Fetch all items to count links (reserved for Phase 8 implementation)
-        void (await repo.listByType('habit', scopeOpts));
-        void (await repo.listByType('todo', scopeOpts));
-        void (await repo.listByType('note', { ...scopeOpts, subtypes: ['journal'] }));
-        void (await repo.listByType('note', {
-          ...scopeOpts,
-          subtypes: ['idea', 'list', 'reference'],
-        }));
-
-        // For Phase 7, since listLinkedPeople is a stub, we'll use placeholder counts
-        // In a real implementation, we'd query entity_people table or use listLinkedPeople
-        const peopleWithCountsData: PersonWithCounts[] = await Promise.all(
-          allPeople.map(async (person) => {
-            // Stub: listLinkedPeople returns empty array for now
-            // Future: when entity_people table exists, this will return actual links
-            const linkedHabits = await repo.listLinkedPeople({ type: 'habit', id: person.id });
-            const linkedTodos = await repo.listLinkedPeople({ type: 'todo', id: person.id });
-            const linkedJournal = await repo.listLinkedPeople({ type: 'note', id: person.id });
-            const linkedNotes = await repo.listLinkedPeople({ type: 'note', id: person.id });
-
-            // Since stub returns empty, counts will be 0 for Phase 7
-            // This structure is ready for when entity_people linking is implemented
-            return {
-              ...person,
-              linkedCounts: {
-                habits: linkedHabits.length,
-                todos: linkedTodos.length,
-                journal: linkedJournal.length,
-                notes: linkedNotes.length,
-              },
-            };
-          }),
-        );
-
-        setPeopleWithCounts(peopleWithCountsData);
-        setItems([]);
-        setLoading(false);
-        loadSucceeded = true;
-        return;
-      } else if (tab === 'Lists') {
-        // Load lists data for shopping and packing
-        try {
-          const [shoppingList, packingList] = await Promise.all([
-            repo.getOrCreateList('shopping', { userId: undefined, spaceId: null }),
-            repo.getOrCreateList('packing', { userId: undefined, spaceId: null }),
-          ]);
-
-          const [shoppingItems, packingItems] = await Promise.all([
-            repo.listItems(shoppingList.id),
-            repo.listItems(packingList.id),
-          ]);
-
-          setListsData({
-            shopping: {
-              incomplete: shoppingItems.filter((item) => !item.completed_at).length,
-              total: shoppingItems.length,
-            },
-            packing: {
-              incomplete: packingItems.filter((item) => !item.completed_at).length,
-              total: packingItems.length,
-            },
-          });
-        } catch (error) {
-          console.error('[Hub] Failed to load lists data:', error);
-          setListsData({
-            shopping: { incomplete: 0, total: 0 },
-            packing: { incomplete: 0, total: 0 },
-          });
-        }
-
-        setItems([]);
-        setLoading(false);
-        loadSucceeded = true;
-        return;
-      }
-
-      // Sort by updated_at (most recent first)
-      const records = data as AppRecord[];
-      records.sort((a, b) => {
-        const dateA = new Date(a.updated_at || a.created_at).getTime();
-        const dateB = new Date(b.updated_at || b.created_at).getTime();
-        return dateB - dateA;
-      });
-
-      setItems(records);
-
-      // Phase 8: Fetch linked tags using new method if feature enabled
-      const tagsMap = new Map<string, Tag[]>();
-
-      if (phase8Enabled) {
-        // Use Phase 8 listItemTags method
-        await Promise.all(
-          records.map(async (record) => {
-            try {
-              const linkedTags = await (repo as any).listItemTags(record.id);
-              if (linkedTags.length > 0) {
-                // Convert Phase 8 tags to old Tag format
-                tagsMap.set(
-                  record.id,
-                  linkedTags.map((t: any) => ({
-                    id: t.id,
-                    name: t.name,
-                    color: colors.deepTeal,
-                  })),
-                );
-              }
-            } catch (err) {
-              console.error(`[Hub] Failed to load Phase 8 tags for ${record.id}:`, err);
-            }
-          }),
-        );
-      } else {
-        // Use old listLinkedTags method
-        await Promise.all(
-          records.map(async (record) => {
-            try {
-              const linkedTags = await repo.listLinkedTags({
-                type: record.type,
-                id: record.id,
-              });
-              if (linkedTags.length > 0) {
-                tagsMap.set(record.id, linkedTags);
-              }
-            } catch (err) {
-              console.error(`[Hub] Failed to load tags for ${record.id}:`, err);
-            }
-          }),
-        );
-      }
-
-      setItemTags(tagsMap);
-      loadSucceeded = true;
-    } catch (err) {
-      // Check if it's a ZodError for better dev experience
-      const isZodError = err instanceof z.ZodError;
-      const message = isZodError
-        ? '[Hub] Schema mismatch: see console for details'
-        : err instanceof Error
-          ? err.message
-          : 'Failed to load hub data';
-
-      if (__DEV__) {
-        console.error('Failed to load hub data:', err);
-        if (isZodError) {
-          console.error('[Hub] ZodError details:', err.errors);
-        }
-      }
-
-      setError(message);
-    } finally {
-      setLoading(false);
-      if (loadSucceeded && tagCount > 0) {
-        eventBus.emit('TagFilterApplied', { tagCount });
-      }
-    }
-  }, [repo, user, tab, scope, notesSubfilter, mergedTagNames, phase8Enabled]);
-
-  // Hub V1 data loading with filters
-  const loadHubV1Data = useCallback(async () => {
-    if (!user || !HUB_V1) return;
-
-    setHubV1Loading(true);
-
-    try {
-      const timeRange = computeTimeRange(hubV1TimeRange);
-      const statusOpt = hubV1Status;
-
-      const results: AppRecord[] = [];
-
-      // When in Journal View, only load journals (notes with subtype 'journal')
-      if (hubView === 'journals') {
-        const journals = await repo.listByType('note', {
-          ...timeRange,
-          status: statusOpt,
-          subtypes: ['journal'],
-        });
-        results.push(...journals);
-      } else {
-        // All Items view: Load each selected type with filters
-        if (hubV1Types.has('todo')) {
-          const todos = await repo.listByType('todo', {
-            ...timeRange,
-            status: statusOpt,
-          });
-          results.push(...todos);
-        }
-
-        if (hubV1Types.has('habit')) {
-          const habits = await repo.listByType('habit', {
-            ...timeRange,
-            status: statusOpt,
-          });
-          results.push(...habits);
-        }
-
-        if (hubV1Types.has('note')) {
-          const notes = await repo.listByType('note', {
-            ...timeRange,
-            status: statusOpt,
-          });
-          results.push(...notes);
-        }
-      }
-
-      // Sort by created_at DESC (most recent first)
-      results.sort((a, b) => {
-        const dateA = a.created_at || '';
-        const dateB = b.created_at || '';
-        return dateB.localeCompare(dateA);
-      });
-
-      setHubV1Items(results);
-    } catch (err) {
-      if (__DEV__) {
-        console.error('[HubV1] Failed to load data:', err);
-      }
-    } finally {
-      setHubV1Loading(false);
-    }
-  }, [repo, user, hubV1Types, hubV1TimeRange, hubV1Status, hubView]);
-
-  // Load Hub V1 data when filters change
-  useEffect(() => {
-    if (HUB_V1) {
-      void loadHubV1Data();
-    }
-  }, [loadHubV1Data]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    const off = addOverlaySavedListener(() => {
-      void load();
-    });
-    return off;
-  }, [load]);
 
   // Reset notes subfilter when switching away from Notes tab
   useEffect(() => {
@@ -662,17 +440,17 @@ export default function HubScreen() {
     }
   }, [tab]);
 
-  // Filter by search (items are already filtered by tab via load())
+  // Filter by search (items are already filtered by tab via derived state)
   const filteredAll = useMemo(() => {
     if (tab === 'People') return [];
 
-    let filtered = items;
+    let filtered = scopedItems;
 
     if (phase8Enabled && mergedTagNames.length > 0) {
       const wanted = new Set(mergedTagNames);
       filtered = filtered.filter((item) => {
-        const itemTagsList = itemTags.get(item.id) || [];
-        return itemTagsList.some((tag) => wanted.has(normalizeSearchTagInput(tag.name)));
+        const itemTagsArray = (item as { tags?: string[] }).tags ?? [];
+        return itemTagsArray.some((tagName) => wanted.has(normalizeSearchTagInput(tagName)));
       });
     }
 
@@ -692,7 +470,7 @@ export default function HubScreen() {
         `${titleText ?? ''} ${'body' in item ? (item.body ?? '') : ''}`.toLowerCase();
       return haystack.includes(needle);
     });
-  }, [items, parsedText, tab, mergedTagNames, itemTags, phase8Enabled]);
+  }, [scopedItems, parsedText, tab, mergedTagNames, phase8Enabled]);
 
   // Convert AppRecord to UnsortedItem (for review sheet)
   const toUnsortedItem = useCallback((item: AppRecord): UnsortedItem => {
@@ -722,7 +500,7 @@ export default function HubScreen() {
   // Use unified selector for unsorted items (banner + sheet)
   // For the in-page "Needs Sorting" section, we use the filtered view
   const unsortedForReview = useMemo(() => {
-    const result = selectUnsortedForReview(items);
+    const result = filterUnsortedForReview(items);
 
     if (__DEV__) {
       console.log('[HubUnsorted] In-page needs sorting calculation:', {
@@ -749,7 +527,7 @@ export default function HubScreen() {
     }
 
     return items;
-  }, [globalUnsortedItems, toUnsortedItem]); // Note: unsortedCount is now set globally in load() function
+  }, [globalUnsortedItems, toUnsortedItem]); // Note: unsortedCount now comes from store selector
   // This ensures the banner shows the total across all tabs, not just the current tab
 
   // Split into needs sorting and everything else
@@ -768,19 +546,19 @@ export default function HubScreen() {
   // Handlers
   const handleItemPress = useCallback(
     (item: HubItem) => {
-      const record = items.find((r) => r.id === item.id);
+      const record = scopedItems.find((r) => r.id === item.id);
       if (record) {
         // Get current spaceId from scope
         const spaceId = scope.type === 'space' ? scope.spaceId : undefined;
         overlayController.openEdit({ record, spaceId });
       }
     },
-    [items, scope, overlayController],
+    [scopedItems, scope, overlayController],
   );
 
   const handleMovePress = useCallback(
     async (item: HubItem) => {
-      const record = items.find((r) => r.id === item.id);
+      const record = scopedItems.find((r) => r.id === item.id);
       if (!record) return;
 
       try {
@@ -793,27 +571,35 @@ export default function HubScreen() {
             origin: record.origin ?? null,
           },
         } as never);
-        await load();
+        // Store auto-updates via EventBus - no manual reload needed
       } catch (err) {
         console.error('[HubScreen] Move sheet error', err);
       }
     },
-    [items, load],
+    [scopedItems],
   );
 
   const handleConfirmUnsorted = useCallback(
     async (id: string) => {
       try {
-        // Flip ai_placed to false to confirm the item
-        await repo.update({
-          id,
-          patch: { ai_placed: false },
-        });
-        // Reload to refresh the count and lists
-        await load();
+        // Find the item to determine its type
+        const item = storeUnsortedItems.find((i) => i.id === id);
+        if (!item) {
+          console.error('[HubScreen] Item not found for confirmation:', id);
+          return;
+        }
+
+        // Flip ai_placed to false to confirm the item using appropriate store mutation
+        if (item.type === 'todo') {
+          await updateTodo(id, { ai_placed: false });
+        } else if (item.type === 'habit') {
+          await updateHabit(id, { ai_placed: false });
+        } else if (item.type === 'note') {
+          await updateNote(id, { ai_placed: false });
+        }
 
         // Close sheet if no more items to review
-        if (unsortedForReview.length <= 1) {
+        if (storeUnsortedItems.length <= 1) {
           setReviewSheetVisible(false);
           setBannerDismissed(false); // Ensure banner shows again if new items appear
         }
@@ -821,15 +607,14 @@ export default function HubScreen() {
         console.error('[HubScreen] Failed to confirm unsorted item:', err);
       }
     },
-    [repo, load, unsortedForReview],
+    [storeUnsortedItems, updateTodo, updateHabit, updateNote],
   );
 
-  const handleOverlaySaved = useCallback(async () => {
-    // Reload data after overlay save
-    await load();
-  }, [load]);
+  const handleOverlaySaved = useCallback(() => {
+    // Store auto-updates via EventBus - no manual reload needed
+  }, []);
 
-  const isEmpty = items.length === 0;
+  const isEmpty = scopedItems.length === 0;
 
   // =========================================================================
   // Hub V1 Search Computation (moved outside renderHubV1 for hook rules)
@@ -1250,7 +1035,7 @@ export default function HubScreen() {
           )}
 
           {/* Loading indicator */}
-          {hubV1Loading && (
+          {storeIsLoading && (
             <View style={{ padding: spacing.md }}>
               <Text style={[typeStyles.body, { textAlign: 'center', color: colors.gray600 }]}>
                 Loading...
@@ -1365,16 +1150,19 @@ export default function HubScreen() {
                         setAnalyzeJournalCount(0);
 
                         try {
-                          // Fetch journals from last 30 days
+                          // Filter journals from last 30 days from store
                           const queryOpts = computeLast30DaysRange();
-                          const journals = await repo.listByType('note', queryOpts);
+                          const journals = storeJournals.filter((j) => {
+                            if (!queryOpts.createdAfter) return true;
+                            return (j.created_at ?? '') >= queryOpts.createdAfter;
+                          });
                           // Sort oldest to newest for analysis
-                          journals.sort((a, b) => {
+                          const sortedJournals = [...journals].sort((a, b) => {
                             const dateA = a.created_at || '';
                             const dateB = b.created_at || '';
                             return dateA.localeCompare(dateB);
                           });
-                          setAnalyzeJournalCount(journals.length);
+                          setAnalyzeJournalCount(sortedJournals.length);
                         } catch (err) {
                           if (__DEV__) {
                             console.error('[Hub] Failed to fetch journals for analysis:', err);
@@ -1690,8 +1478,7 @@ export default function HubScreen() {
                       currentScope: scope.type,
                     });
                   }
-                  // Refetch to ensure we have the latest unsorted items
-                  load();
+                  // Store is always up-to-date, no reload needed
                   setReviewSheetVisible(true);
                 }}
                 testID="unsorted-banner"
@@ -1778,7 +1565,7 @@ export default function HubScreen() {
                   subtitle="Create shopping and packing lists."
                 />
               )}
-            {tab === 'People' && people.length === 0 && !loading && !error && (
+            {tab === 'People' && discoveredPeople.length === 0 && !loading && !error && (
               <EmptyState
                 testID="empty-people"
                 title="No People yet"

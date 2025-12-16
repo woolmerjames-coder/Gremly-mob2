@@ -84,8 +84,14 @@ const deriveNoteBody = (todo: Todo, items: ChecklistItem[], preserveState: boole
 
 const resolveOrigin = (
   origin: Note['origin'] | Todo['origin'],
-): 'catchall' | 'space_chat' | 'manual' | undefined => {
-  if (origin === 'catchall' || origin === 'space_chat' || origin === 'manual') return origin;
+): 'catchall' | 'space_chat' | 'manual' | 'overlay' | undefined => {
+  if (
+    origin === 'catchall' ||
+    origin === 'space_chat' ||
+    origin === 'manual' ||
+    origin === 'overlay'
+  )
+    return origin;
   return undefined;
 };
 

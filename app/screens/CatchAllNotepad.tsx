@@ -53,7 +53,14 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Text } from '../../ui/Text';
 import { Icon } from '../../design-system/Icon';
-import { useRepo } from '../../providers/RepoProvider';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import {
+  selectItemById,
+  selectNoteBySourceMessageId,
+  selectRecentNotes,
+  selectRecentTodos,
+  selectRecentHabits,
+} from '../../lib/store/selectors';
 import { useCortex } from '../../providers/CortexProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -489,10 +496,9 @@ const COPY = {
 
 // Thin local fallback writer for unsorted mind drops
 // Writes a single note with labels [catchall, needs_review] and a pending flag when supported
-// Adapted to our repo layer shape (uses addUnsorted if available, else create)
+// Accepts createNote function from store for direct Zustand integration
 export async function saveToUnsortedTray(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  repo: any,
+  createNote: (input: any) => Promise<any>,
   text: string,
   options: {
     sourceMessageId?: string;
@@ -543,31 +549,9 @@ export async function saveToUnsortedTray(
     tagMetaPresent: false,
   });
 
-  // If notes.create exists (future), prefer it; otherwise use addUnsorted/create
+  // Create note directly via store
   try {
-    if (repo?.notes?.create) {
-      const note = await repo.notes.create({
-        text: clampedText,
-        labels: [CATCHALL_LABEL, UNSORTED_LABEL],
-        // pending_sync is optional; if unsupported downstream, it will be ignored
-        pending_sync: true,
-        sourceMessageId: validSourceMessageId ?? undefined,
-        dropId: dropId ?? undefined,
-        tags,
-      });
-      return note?.id;
-    }
-
-    if (typeof repo?.addUnsorted === 'function') {
-      const created = await repo.addUnsorted(null, baseInput);
-      return created?.id;
-    }
-
-    // Fallback to generic create
-    const inputAny: any = { ...baseInput };
-    // Hint for future reconciliation; safe to include if ignored by repo
-    inputAny.pending_sync = true;
-    const created = await repo.create(inputAny);
+    const created = await createNote(baseInput);
     return created?.id;
   } catch (err) {
     // Swallow transient network errors; the caller may retry separately
@@ -590,8 +574,7 @@ export async function saveToUnsortedTray(
  * Called after a note is created via Mind Drop pipeline when photos are attached.
  */
 export async function uploadPhotosToNote(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  repo: any,
+  insertLogPhoto: (params: { noteId: string; url: string; position: number }) => Promise<any>,
   noteId: string,
   userId: string,
   photoUris: string[],
@@ -640,7 +623,7 @@ export async function uploadPhotosToNote(
       const publicUrl = urlData?.publicUrl || storagePath;
 
       // Insert into log_photos table
-      await repo.insertLogPhoto({
+      await insertLogPhoto({
         noteId,
         url: publicUrl,
         position: i,
@@ -655,8 +638,8 @@ export async function uploadPhotosToNote(
 }
 
 type UpdateFromChipParams = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  repo: any;
+  findNoteBySourceMessageId: (sourceMessageId: string) => any;
+  updateNote: (id: string, patch: any) => Promise<any>;
   sourceMessageId: string;
   chosenSubtype: 'journal' | 'idea' | 'list';
   title?: string | null;
@@ -668,7 +651,8 @@ type UpdateFromChipParams = {
 };
 
 export async function updateCatchallToChosenSubtype({
-  repo,
+  findNoteBySourceMessageId,
+  updateNote,
   sourceMessageId,
   chosenSubtype,
   title,
@@ -682,11 +666,8 @@ export async function updateCatchallToChosenSubtype({
     throw new Error('sourceMessageId is required to update a catchall note');
   }
 
-  if (typeof repo?.findNoteBySourceMessageId !== 'function') {
-    throw new Error('Repository does not support findNoteBySourceMessageId');
-  }
-
-  const existingNote = await repo.findNoteBySourceMessageId(sourceMessageId);
+  // Synchronous lookup from store
+  const existingNote = findNoteBySourceMessageId(sourceMessageId);
   if (!existingNote) {
     throw new Error('No pre-saved note found for this submission');
   }
@@ -719,12 +700,10 @@ export async function updateCatchallToChosenSubtype({
     patch.body = body;
   }
 
-  const updated = await repo.update({
-    id: existingNote.id,
-    patch: patch as any,
-  });
+  await updateNote(existingNote.id, patch);
 
-  return updated;
+  // Return the updated note by re-fetching from store
+  return findNoteBySourceMessageId(sourceMessageId) ?? { ...existingNote, ...patch };
 }
 
 type Mode = 'free' | 'guided';
@@ -1341,7 +1320,17 @@ const RecentDrops: React.FC<{
   initiallyOpen = true,
   eagerLoad = false,
 }) => {
-  const repo = useRepo() as any;
+  // Direct store access - no adapter
+  const deleteNote = useGremlyStore((s) => s.deleteNote);
+  const deleteTodo = useGremlyStore((s) => s.deleteTodo);
+  const deleteHabit = useGremlyStore((s) => s.deleteHabit);
+
+  // Synchronous lookups from store
+  const getItemById = React.useCallback(
+    (id: string) => selectItemById(useGremlyStore.getState(), id),
+    [],
+  );
+
   const { c, mode: themeMode } = useTheme();
   const { userId } = useAuth();
   const styles = React.useMemo(() => makeStyles(c, themeMode), [c, themeMode]);
@@ -1561,37 +1550,11 @@ const RecentDrops: React.FC<{
     const isTest = process.env.JEST_WORKAROUND === '1';
     if (!isTest) setLoading(true);
     try {
-      const fetchNotes = async () => {
-        if (!repo?.notes?.list) return [];
-        try {
-          const result = await repo.notes.list({ limit: 50, order: 'desc' });
-          return Array.isArray(result) ? result : [];
-        } catch {
-          return [];
-        }
-      };
-
-      const fetchTodos = async () => {
-        if (!repo?.todos?.list) return [];
-        try {
-          const result = await repo.todos.list({ limit: 50, order: 'desc' });
-          return Array.isArray(result) ? result : [];
-        } catch {
-          return [];
-        }
-      };
-
-      const fetchHabits = async () => {
-        if (!repo?.habits?.list) return [];
-        try {
-          const result = await repo.habits.list({ limit: 50, order: 'desc' });
-          return Array.isArray(result) ? result : [];
-        } catch {
-          return [];
-        }
-      };
-
-      const [notes, todos, habits] = await Promise.all([fetchNotes(), fetchTodos(), fetchHabits()]);
+      // Synchronous access from store - no async needed
+      const state = useGremlyStore.getState();
+      const notes = selectRecentNotes(state, 50);
+      const todos = selectRecentTodos(state, 50);
+      const habits = selectRecentHabits(state, 50);
 
       // Time boundaries for filtering
       const start = startOfTodayLocal();
@@ -1630,9 +1593,10 @@ const RecentDrops: React.FC<{
           const rawSubtype = typeof n?.subtype === 'string' ? n.subtype : null;
           // Default to 'catchall' for all Mind Drop notes - ensures they display as "log" not "unsorted"
           const noteSubtype = rawSubtype ?? 'catchall';
-          const rawText = n.body || n.title || n.text || n.content || '';
+          const noteAny = n as any;
+          const rawText = n.body || n.title || noteAny.text || noteAny.content || '';
           const { compact: derivedTitle } = deriveCompactTitle(
-            [n.title, n.body, n.text, n.content, rawText],
+            [n.title, n.body, noteAny.text, noteAny.content, rawText],
             { fallback: rawText },
           );
 
@@ -1640,16 +1604,16 @@ const RecentDrops: React.FC<{
             id: n.id,
             kind: 'note' as const,
             title: derivedTitle || rawText || 'Untitled note',
-            text: n.body || n.title || n.text || n.content || '',
+            text: n.body || n.title || noteAny.text || noteAny.content || '',
             created_at: n.created_at,
             unsorted,
             noteSubtype,
-            tags: toTagList((n as any)?.tags),
-            drop_id: (n as any)?.drop_id ?? null,
+            tags: toTagList(noteAny?.tags),
+            drop_id: noteAny?.drop_id ?? null,
             archived: n?.archived === true,
-            canonical_type: (n as any)?.canonical_type ?? null,
-            labels: Array.isArray((n as any)?.labels) ? (n as any).labels : [],
-            views: (n as any)?.views ?? {},
+            canonical_type: noteAny?.canonical_type ?? null,
+            labels: Array.isArray(noteAny?.labels) ? noteAny.labels : [],
+            views: noteAny?.views ?? {},
           };
         });
 
@@ -1849,7 +1813,7 @@ const RecentDrops: React.FC<{
     } finally {
       if (!isTest) setLoading(false);
     }
-  }, [repo, showOlder, onTodayCountChange]);
+  }, [showOlder, onTodayCountChange]);
 
   useEffect(() => {
     void load();
@@ -2130,8 +2094,8 @@ const RecentDrops: React.FC<{
 
   const handleEdit = async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
     try {
-      // Fetch the full record so overlay can pre-fill all fields
-      const record = await repo.getById(id);
+      // Synchronous lookup from store
+      const record = getItemById(id);
 
       if (record && record.type === kind) {
         overlay.openEdit({
@@ -2166,14 +2130,31 @@ const RecentDrops: React.FC<{
       const dropId = itemToDelete?.drop_id;
 
       if (dropId) {
-        // Archive all items (todos, habits, notes) with this drop_id
-        await repo?.archiveItemsByDropId?.(dropId, 'user_deleted_drop');
+        // Archive all items with this drop_id
+        // Get items from store with same drop_id
+        const state = useGremlyStore.getState();
+        const todosToDelete = state.todos.filter((t) => t.drop_id === dropId);
+        const habitsToDelete = state.habits.filter((h) => h.drop_id === dropId);
+        const notesToDelete = state.notes.filter((n) => n.drop_id === dropId);
+
+        // Delete each item by type
+        await Promise.all([
+          ...todosToDelete.map((t) => deleteTodo(t.id)),
+          ...habitsToDelete.map((h) => deleteHabit(h.id)),
+          ...notesToDelete.map((n) => deleteNote(n.id)),
+        ]);
 
         // Remove all items with this drop_id from local state
         setItems((prev) => prev.filter((item) => item.drop_id !== dropId));
       } else {
         // No drop_id: fallback to single-item delete
-        await (repo?.remove?.(id) ?? repo?.[`${kind}s`]?.delete?.(id));
+        if (kind === 'todo') {
+          await deleteTodo(id);
+        } else if (kind === 'habit') {
+          await deleteHabit(id);
+        } else {
+          await deleteNote(id);
+        }
 
         // Remove only this item from local state
         setItems((prev) => prev.filter((item) => item.id !== id));
@@ -2555,7 +2536,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     overlayController,
   } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const repo = useRepo();
+
+  // Direct store access - no adapter
+  const createTodo = useGremlyStore((s) => s.createTodo);
+  const createNote = useGremlyStore((s) => s.createNote);
+  const createHabit = useGremlyStore((s) => s.createHabit);
+  const updateTodo = useGremlyStore((s) => s.updateTodo);
+  const updateNote = useGremlyStore((s) => s.updateNote);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
+  const deleteTodo = useGremlyStore((s) => s.deleteTodo);
+  const deleteNote = useGremlyStore((s) => s.deleteNote);
+  const deleteHabit = useGremlyStore((s) => s.deleteHabit);
+  const insertLogPhoto = useGremlyStore((s) => s.insertLogPhoto);
+
+  // Synchronous lookups from store
+  const getItemById = useCallback(
+    (id: string) => selectItemById(useGremlyStore.getState(), id),
+    [],
+  );
+  const findNoteBySourceMessageId = useCallback(
+    (sourceMessageId: string) =>
+      selectNoteBySourceMessageId(useGremlyStore.getState(), sourceMessageId),
+    [],
+  );
+
   const { decideWithContext } = useCortex();
   const { user, userId } = useAuth();
   const { submit: mindDropSubmit, isSubmitting: isMindDropSubmitting } = useMindDropSubmit();
@@ -3086,9 +3090,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     try {
       // Delete items; if relationships exist, adjust order accordingly
       await Promise.all([
-        ...snapshot.todos.map((id) => repo.remove(id)),
-        ...snapshot.habits.map((id) => repo.remove(id)),
-        ...snapshot.notes.map((id) => repo.remove(id)),
+        ...snapshot.todos.map((id) => deleteTodo(id)),
+        ...snapshot.habits.map((id) => deleteHabit(id)),
+        ...snapshot.notes.map((id) => deleteNote(id)),
       ]);
 
       // Clear snapshot to avoid repeat undo
@@ -3100,7 +3104,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } catch (e) {
       Alert.alert('Undo failed', 'Could not revert items. You can edit from Recent.');
     }
-  }, [repo, showActionToast, TOASTS_ON]);
+  }, [deleteTodo, deleteHabit, deleteNote, showActionToast, TOASTS_ON]);
 
   // Navigate to Search → Recent (fallback toast if route missing)
   const handleViewDetails = useCallback(() => {
@@ -3394,7 +3398,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const qualityFiltered = applyTagQualityFilter(narrativeTags);
               const tagsForCreate = qualityFiltered.length > 0 ? qualityFiltered : null;
               // Use trimmed (original text) to preserve full body including date references
-              const id = await saveToUnsortedTray(repo as any, trimmed, {
+              const id = await saveToUnsortedTray(createNote, trimmed, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Narrative text - awaiting category selection',
                 tags: tagsForCreate ?? undefined,
@@ -3540,7 +3544,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               const qualityFiltered = applyTagQualityFilter(tagsForUnsorted);
 
               // Use trimmed (original text) to preserve full body including date references
-              const createdId = await saveToUnsortedTray(repo, trimmed, {
+              const createdId = await saveToUnsortedTray(createNote, trimmed, {
                 sourceMessageId: validSourceMessageId ?? undefined,
                 whyString: 'Auto-organizing via Mind Drop',
                 tags: qualityFiltered,
@@ -3576,11 +3580,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               let firstTodoId: string | null = null;
               const firstAction = actions[0];
 
+              // Create adapter for pipeline stages
+              const pipelineStageAdapter = {
+                getById: getItemById,
+                createTodo,
+                createHabit,
+                createNote,
+                updateTodo,
+                updateHabit,
+                updateNote,
+              };
+
               //Step 2A: Classification stage - create entities based on decision
               if (firstAction.type === 'create.todo') {
                 // Use Stage A for todos
                 const stageAResult = await runMindDropStageAClassification({
-                  repo,
+                  repo: pipelineStageAdapter as any,
                   text: trimmed,
                   cleanedText,
                   decision,
@@ -3596,7 +3611,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               } else if (firstAction.type === 'create.habit') {
                 // Use Stage A for habits
                 const stageAResult = await runMindDropStageAClassification({
-                  repo,
+                  repo: pipelineStageAdapter as any,
                   text: trimmed,
                   cleanedText,
                   decision,
@@ -3634,7 +3649,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   source: 'auto_classification',
                 });
 
-                const existingNote = await repo.getById(unsortedNoteId);
+                // Synchronous lookup from store
+                const existingNote = getItemById(unsortedNoteId);
                 const existingLabels = (existingNote as any)?.labels || [];
 
                 const updatedLabels = existingLabels.filter(
@@ -3668,12 +3684,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   }
                 }
 
-                const updatedNote = await repo.update({
-                  id: unsortedNoteId,
-                  patch: updatePatch,
-                });
+                await updateNote(unsortedNoteId, updatePatch);
 
-                createdIds.notes.push(updatedNote.id);
+                createdIds.notes.push(unsortedNoteId);
                 createdDetails.push({ kind: 'note', noteSubtype: subtype });
               }
 
@@ -3684,8 +3697,23 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               };
 
               // Step 2B: Prefill stage - run AI enhancement for all created entities
+              // Create minimal adapter for pipeline compatibility
+              const pipelineAdapter = {
+                getById: getItemById,
+                update: async (params: { id: string; patch: any }) => {
+                  const item = getItemById(params.id);
+                  if (!item) return null;
+                  const itemType =
+                    (item as any).type ??
+                    ('due_date' in item ? 'todo' : 'frequency' in item ? 'habit' : 'note');
+                  if (itemType === 'todo') await updateTodo(params.id, params.patch);
+                  else if (itemType === 'habit') await updateHabit(params.id, params.patch);
+                  else await updateNote(params.id, params.patch);
+                  return getItemById(params.id);
+                },
+              };
               runMindDropStageBPrefill({
-                repo,
+                repo: pipelineAdapter as any,
                 entityIds: createdIds,
                 rawText: cleanedText,
               })
@@ -3839,7 +3867,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
                 // Mode='ask' means user needs to pick category, so use 'Awaiting chip selection'
                 // Use trimmed (original text) to preserve full body including date references
-                const id = await saveToUnsortedTray(repo as any, trimmed, {
+                const id = await saveToUnsortedTray(createNote, trimmed, {
                   sourceMessageId: validSourceMessageId ?? undefined,
                   whyString: 'Awaiting chip selection',
                   tags: tagsForCreate ?? undefined,
@@ -3873,7 +3901,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                   '[MindDrop][Ask] unsortedIdRef was null despite duplicate text, creating anyway',
                 );
                 // Use trimmed (original text) to preserve full body including date references
-                const id = await saveToUnsortedTray(repo as any, trimmed, {
+                const id = await saveToUnsortedTray(createNote, trimmed, {
                   sourceMessageId: validSourceMessageId ?? undefined,
                   whyString: 'Awaiting chip selection',
                   dropId,
@@ -3974,7 +4002,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             const whyString =
               decision?.mode === 'ask' ? 'Awaiting chip selection' : 'Captured via Mind Drop';
 
-            const id = await saveToUnsortedTray(repo as any, trimmed, {
+            const id = await saveToUnsortedTray(createNote, trimmed, {
               sourceMessageId: validSourceMessageId ?? undefined,
               whyString,
               tags: tagsForCreate ?? undefined,
@@ -4062,7 +4090,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
   }, [
     note,
-    repo,
+    createNote,
+    createTodo,
+    createHabit,
+    updateNote,
+    updateTodo,
+    updateHabit,
+    getItemById,
     user,
     userId,
     decideWithContext,
@@ -4166,7 +4200,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             });
           } else {
             // Offline-ish path — save locally and reassure
-            offlineRetryId = await saveToUnsortedTray(repo, trimmed, {
+            offlineRetryId = await saveToUnsortedTray(createNote, trimmed, {
               sourceMessageId: validSourceMessageId ?? undefined,
               dropId,
             });
@@ -4218,7 +4252,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             );
           } else {
             // Non-network error: save to Unsorted Tray for manual follow-up
-            unsortedFallbackId = await saveToUnsortedTray(repo, trimmed, {
+            unsortedFallbackId = await saveToUnsortedTray(createNote, trimmed, {
               sourceMessageId: validSourceMessageId ?? undefined,
               dropId,
             });
@@ -4274,18 +4308,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         await Promise.allSettled(
           allCreatedIds.map(async (entityId) => {
             try {
-              const entity = await repo.getById(entityId);
+              // Synchronous lookup from store
+              const entity = getItemById(entityId);
               if (!entity) return;
 
-              await repo.update({
-                id: entityId,
-                patch: {
-                  views: {
-                    ...(entity.views ?? {}),
-                    ai_pending: false,
-                  },
+              // Determine type and update accordingly
+              const itemType =
+                (entity as any).type ??
+                ('due_date' in entity ? 'todo' : 'frequency' in entity ? 'habit' : 'note');
+              const patch = {
+                views: {
+                  ...((entity as any).views ?? {}),
+                  ai_pending: false,
                 },
-              });
+              };
+
+              if (itemType === 'todo') {
+                await updateTodo(entityId, patch);
+              } else if (itemType === 'habit') {
+                await updateHabit(entityId, patch);
+              } else {
+                await updateNote(entityId, patch);
+              }
             } catch (err) {
               console.warn('[MindDrop][Pipeline] Failed to clear ai_pending flag:', entityId, err);
             }
@@ -4306,7 +4350,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           const currentUserId = user?.id ?? userId;
           if (noteId && currentUserId) {
             try {
-              await uploadPhotosToNote(repo, noteId, currentUserId, photoUris);
+              await uploadPhotosToNote(insertLogPhoto, noteId, currentUserId, photoUris);
               console.log('[MindDrop][Pipeline] Photos uploaded successfully for note:', noteId);
             } catch (err) {
               // Non-critical: note is created, photos just failed to upload
@@ -4393,7 +4437,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         if (kind === 'todo') {
           // Convert unsorted → todo using conversion helper
           try {
-            const original = await repo.getById(unsortedId);
+            // Synchronous lookup from store
+            const original = getItemById(unsortedId);
             if (!original) {
               throw new Error('Original note not found');
             }
@@ -4412,10 +4457,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               parsedDue && parsedDue.confidence >= DUE_CONFIDENCE_FLOOR ? parsedDue : null;
             const dueDate = confidentDue?.date ?? null;
 
+            // Create adapter for conversion helper
+            const conversionAdapter = {
+              getById: getItemById,
+              createTodo,
+              updateNote,
+              deleteNote,
+            };
             // Use conversion helper to create first-class todo
-            const { todo: createdTodo } = await convertUnsortedToTodo(repo, unsortedId, {
-              due: dueDate,
-            });
+            const { todo: createdTodo } = await convertUnsortedToTodo(
+              conversionAdapter as any,
+              unsortedId,
+              {
+                due: dueDate,
+              },
+            );
 
             setOrganizedToday((prev) => prev + 1);
             triggerRecentRefresh();
@@ -4468,7 +4524,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         } else if (kind === 'habit') {
           // Convert unsorted → habit using conversion helper
           try {
-            const original = await repo.getById(unsortedId);
+            // Synchronous lookup from store
+            const original = getItemById(unsortedId);
             if (!original) {
               throw new Error('Original note not found');
             }
@@ -4483,11 +4540,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             const rawText = (original as any)?.body ?? (original as any)?.title ?? '';
             const habitFields = buildHabitFields(rawText);
 
+            // Create adapter for conversion helper
+            const conversionAdapter = {
+              getById: getItemById,
+              createHabit,
+              updateNote,
+              deleteNote,
+            };
             // Use the conversion helper to create a first-class habit with parsed frequency
-            const { habit: createdHabit } = await convertUnsortedToHabit(repo, unsortedId, {
-              frequency: habitFields.freq,
-              frequencyValue: habitFields.frequencyValue ?? null,
-            });
+            const { habit: createdHabit } = await convertUnsortedToHabit(
+              conversionAdapter as any,
+              unsortedId,
+              {
+                frequency: habitFields.freq,
+                frequencyValue: habitFields.frequencyValue ?? null,
+              },
+            );
 
             setOrganizedToday((prev) => prev + 1);
             triggerRecentRefresh();
@@ -4534,14 +4602,23 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         } else {
           // Log: Convert unsorted note to canonical log using AI subtype classification
           try {
-            const originalNote = await repo.getById(unsortedId);
+            // Synchronous lookup from store
+            const originalNote = getItemById(unsortedId);
             if (!originalNote) {
               throw new Error('Original note not found');
             }
 
+            // Create adapter for conversion helper
+            const conversionAdapter = {
+              getById: getItemById,
+              updateNote,
+            };
             // Do NOT pass subtype - let convertUnsortedToLog use AI classification
             // This ensures AI determines the best subtype (journal/list/reference/idea/plain)
-            const { note: convertedLog } = await convertUnsortedToLog(repo, unsortedId);
+            const { note: convertedLog } = await convertUnsortedToLog(
+              conversionAdapter as any,
+              unsortedId,
+            );
 
             setOrganizedToday((prev) => prev + 1);
             triggerRecentRefresh();
@@ -4589,7 +4666,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     },
     [
       lowConfidenceUnsortedId,
-      repo,
+      getItemById,
+      createTodo,
+      createHabit,
+      updateNote,
+      deleteNote,
       setOrganizedToday,
       triggerRecentRefresh,
       TOASTS_ON,
@@ -4617,12 +4698,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Do NOT include title, name, tags, or other fields here — those remain controlled by:
         // 1. Initial Mind Drop create (auto-actions path with AI tags)
         // 2. Overlay edits via UnifiedOverlayV2 (user-initiated changes)
-        await repo.update({
-          id: todoId,
-          patch: {
-            due_date: dueDate,
-            undefined_due: !dueDate,
-          } as any, // Todo-specific fields
+        await updateTodo(todoId, {
+          due_date: dueDate,
+          undefined_due: !dueDate,
         });
 
         triggerRecentRefresh();
@@ -4646,7 +4724,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     },
     [
       pendingTodoId,
-      repo,
+      updateTodo,
       triggerRecentRefresh,
       TOASTS_ON,
       showActionToast,
@@ -4868,7 +4946,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           });
         } else {
           // Create new unsorted note
-          offlineId = await saveToUnsortedTray(repo, effectiveText, {
+          offlineId = await saveToUnsortedTray(createNote, effectiveText, {
             sourceMessageId: validSourceMessageId,
             dropId,
           });
@@ -5039,7 +5117,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     pendingPhotoUris,
     performSave,
     handleMindDropSubmit,
-    repo,
+    createNote,
     showActionToast,
     networkIsOnline,
     resetState,

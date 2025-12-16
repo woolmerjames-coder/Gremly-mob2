@@ -38,7 +38,7 @@ export interface Habit {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
@@ -114,7 +114,7 @@ export interface Todo {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
@@ -144,6 +144,9 @@ export interface Todo {
 
   // Completion tracking (soft delete)
   completed_at?: string | null;
+
+  // Sweep tracking
+  skipped_in_sweep_at?: string | null;
 }
 
 /**
@@ -163,7 +166,7 @@ export interface Note {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
@@ -197,6 +200,9 @@ export interface Note {
 
   // Phase 12: Pinned items feature
   is_pinned?: boolean;
+
+  // Sweep tracking
+  skipped_in_sweep_at?: string | null;
 }
 
 /**

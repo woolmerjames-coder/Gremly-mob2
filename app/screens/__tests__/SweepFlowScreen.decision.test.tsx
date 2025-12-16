@@ -19,6 +19,48 @@ jest.mock('../../../lib/sweep/engine', () => ({
   markSweepCompleted: () => Promise.resolve(),
 }));
 
+// Mock store selectors - useSweepCandidatesUnified returns candidates from store
+let mockCandidates: SweepCandidate[] = [];
+jest.mock('../../../lib/store/selectors', () => ({
+  __esModule: true,
+  useSweepCandidatesUnified: () => mockCandidates,
+  useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
+  useIsLoading: () => false,
+}));
+
+// Mock useGremlyStore for mutations
+const mockUpdateTodo = jest.fn();
+const mockArchiveTodo = jest.fn();
+const mockUpdateNote = jest.fn();
+const mockArchiveNote = jest.fn();
+const mockCreateNote = jest.fn(() => Promise.resolve({ id: 'test-note' }));
+const mockCompleteHabit = jest.fn();
+const mockUncompleteHabit = jest.fn();
+
+// Store todos/notes that will be used for edit overlay lookups
+let mockStoreTodos: any[] = [];
+let mockStoreNotes: any[] = [];
+
+jest.mock('../../../lib/store/useGremlyStore', () => ({
+  __esModule: true,
+  useGremlyStore: (selector: (state: any) => any) => {
+    const state = {
+      todos: mockStoreTodos,
+      notes: mockStoreNotes,
+      habits: [],
+      isLoading: false,
+      updateTodo: mockUpdateTodo,
+      archiveTodo: mockArchiveTodo,
+      updateNote: mockUpdateNote,
+      archiveNote: mockArchiveNote,
+      createNote: mockCreateNote,
+      completeHabit: mockCompleteHabit,
+      uncompleteHabit: mockUncompleteHabit,
+    };
+    return selector(state);
+  },
+}));
+
 // Mock Supabase client
 jest.mock('../../../lib/supabase/client', () => ({
   __esModule: true,
@@ -171,6 +213,9 @@ describe('SweepFlowScreen - Decision Step', () => {
     jest.clearAllMocks();
     // Default to empty candidates (will show empty state after loading)
     mockFetchSweepCandidates.mockResolvedValue([]);
+    mockCandidates = [];
+    mockStoreTodos = [];
+    mockStoreNotes = [];
   });
 
   describe('Intro Step', () => {
@@ -198,14 +243,14 @@ describe('SweepFlowScreen - Decision Step', () => {
   });
 
   describe('Loading State', () => {
-    it('shows loading indicator while fetching candidates', async () => {
-      // Make fetch hang
-      mockFetchSweepCandidates.mockImplementation(() => new Promise(() => {}));
+    it('shows empty state when store is loaded but has no candidates', async () => {
+      // Store is loaded (isLoading=false) but has no candidates
+      mockCandidates = [];
 
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        expect(result.getByText('Preparing your Sweep…')).toBeTruthy();
+        expect(result.getByText("Nothing to Sweep right now — you're all clear.")).toBeTruthy();
       });
     });
   });
@@ -251,6 +296,7 @@ describe('SweepFlowScreen - Decision Step', () => {
 
   describe('Card Display', () => {
     it('shows card content when candidates exist', async () => {
+      mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -261,6 +307,7 @@ describe('SweepFlowScreen - Decision Step', () => {
     });
 
     it('shows progress indicator', async () => {
+      mockCandidates = [mockTodoCandidate, mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -271,6 +318,7 @@ describe('SweepFlowScreen - Decision Step', () => {
     });
 
     it('shows action buttons (Clear, Skip)', async () => {
+      mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -282,6 +330,7 @@ describe('SweepFlowScreen - Decision Step', () => {
     });
 
     it('advances to next card when Skip is pressed', async () => {
+      mockCandidates = [mockTodoCandidate, mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -299,6 +348,7 @@ describe('SweepFlowScreen - Decision Step', () => {
     });
 
     it('advances to next card when Clear is pressed', async () => {
+      mockCandidates = [mockTodoCandidate, mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -315,12 +365,14 @@ describe('SweepFlowScreen - Decision Step', () => {
     });
   });
 
-  describe('applySweepAction Integration', () => {
+  describe('Store Mutations Integration', () => {
     beforeEach(() => {
-      mockApplySweepAction.mockClear();
+      mockUpdateTodo.mockClear();
+      mockArchiveTodo.mockClear();
     });
 
-    it('calls applySweepAction with type "skip" when Skip is pressed', async () => {
+    it('calls updateTodo with skipped_in_sweep_at when Skip is pressed', async () => {
+      mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -332,14 +384,15 @@ describe('SweepFlowScreen - Decision Step', () => {
       fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
       await waitFor(() => {
-        expect(mockApplySweepAction).toHaveBeenCalledWith(
-          { type: 'skip', id: 'todo-1', kind: 'todo' },
-          expect.anything(),
+        expect(mockUpdateTodo).toHaveBeenCalledWith(
+          'todo-1',
+          expect.objectContaining({ skipped_in_sweep_at: expect.any(String) }),
         );
       });
     });
 
-    it('calls applySweepAction with type "clear" when Clear is pressed', async () => {
+    it('calls archiveTodo with reason "swept" when Clear is pressed', async () => {
+      mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -351,15 +404,13 @@ describe('SweepFlowScreen - Decision Step', () => {
       fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
 
       await waitFor(() => {
-        expect(mockApplySweepAction).toHaveBeenCalledWith(
-          { type: 'clear', id: 'todo-1', kind: 'todo' },
-          expect.anything(),
-        );
+        expect(mockArchiveTodo).toHaveBeenCalledWith('todo-1', 'swept');
       });
     });
 
-    it('still advances when applySweepAction throws error', async () => {
-      mockApplySweepAction.mockRejectedValueOnce(new Error('Network error'));
+    it('still advances when store mutation throws error', async () => {
+      mockUpdateTodo.mockRejectedValueOnce(new Error('Network error'));
+      mockCandidates = [mockTodoCandidate, mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -379,6 +430,7 @@ describe('SweepFlowScreen - Decision Step', () => {
 
   describe('Completion State', () => {
     it('auto-advances to mood step after all cards processed', async () => {
+      mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -413,11 +465,10 @@ describe('SweepFlowScreen - Decision Step', () => {
   describe('Open Edit / Fix This', () => {
     beforeEach(() => {
       mockOpenEdit.mockClear();
-      mockGetById.mockReset();
     });
 
-    it('calls openEdit when Fix button is pressed', async () => {
-      const fullRecord = {
+    it('calls openEdit with todo from store when Fix button is pressed', async () => {
+      const storeTodo = {
         id: 'todo-1',
         type: 'todo',
         name: 'Test task',
@@ -425,7 +476,8 @@ describe('SweepFlowScreen - Decision Step', () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      mockGetById.mockResolvedValue(fullRecord);
+      mockStoreTodos = [storeTodo];
+      mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -438,41 +490,19 @@ describe('SweepFlowScreen - Decision Step', () => {
       fireEvent.press(result.getByLabelText('Edit details'));
 
       await waitFor(() => {
-        expect(mockGetById).toHaveBeenCalledWith('todo-1');
-        expect(mockOpenEdit).toHaveBeenCalledWith({ record: fullRecord });
+        expect(mockOpenEdit).toHaveBeenCalledWith({
+          record: expect.objectContaining({
+            id: 'todo-1',
+            type: 'todo',
+            name: 'Test task',
+          }),
+        });
       });
     });
 
-    it('calls openEdit when Fix button is pressed', async () => {
-      const fullRecord = {
-        id: 'todo-1',
-        type: 'todo',
-        name: 'Test task',
-        owner_id: 'test-user-id',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      mockGetById.mockResolvedValue(fullRecord);
-      mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
-
-      const result = await renderAtDecisionStep();
-
-      await waitFor(() => {
-        // New combined date control (calendar icon + text)
-        result.getByText('Add due date');
-      });
-
-      // The Fix button (not the main CTA) opens the edit overlay
-      fireEvent.press(result.getByLabelText('Edit details'));
-
-      await waitFor(() => {
-        expect(mockGetById).toHaveBeenCalledWith('todo-1');
-        expect(mockOpenEdit).toHaveBeenCalledWith({ record: fullRecord });
-      });
-    });
-
-    it('falls back to raw data when getById returns null', async () => {
-      mockGetById.mockResolvedValue(null);
+    it('falls back to raw data when todo not found in store', async () => {
+      mockStoreTodos = []; // Empty store
+      mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -494,8 +524,18 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
     });
 
-    it('falls back to raw data when getById throws error', async () => {
-      mockGetById.mockRejectedValue(new Error('Network error'));
+    it('calls openEdit with note from store when Fix button is pressed', async () => {
+      const storeNote = {
+        id: 'note-1',
+        type: 'note',
+        title: 'Test note',
+        body: 'Note body content',
+        owner_id: 'test-user-id',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      mockStoreNotes = [storeNote];
+      mockCandidates = [mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
@@ -518,7 +558,7 @@ describe('SweepFlowScreen - Decision Step', () => {
     });
 
     it('does not advance card after opening edit', async () => {
-      const fullRecord = {
+      const storeTodo = {
         id: 'todo-1',
         type: 'todo',
         name: 'Test task',
@@ -526,7 +566,8 @@ describe('SweepFlowScreen - Decision Step', () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      mockGetById.mockResolvedValue(fullRecord);
+      mockStoreTodos = [storeTodo];
+      mockCandidates = [mockTodoCandidate, mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();

@@ -41,17 +41,18 @@ jest.mock('../providers/AuthProvider', () => ({
   }),
 }));
 
-// Repo mocks
-const mockNotesList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async () => []);
-const mockTodosList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async () => []);
-const mockHabitsList: jest.Mock<Promise<any[]>, [any?]> = jest.fn(async () => []);
+// Mock Zustand store selectors (RecentDrops now uses these instead of repo)
+import * as selectors from '../lib/store/selectors';
+const mockSelectRecentNotes = selectors.selectRecentNotes as unknown as jest.Mock;
+const mockSelectRecentTodos = selectors.selectRecentTodos as unknown as jest.Mock;
+const mockSelectRecentHabits = selectors.selectRecentHabits as unknown as jest.Mock;
 
-jest.mock('../providers/RepoProvider', () => ({
-  useRepo: () => ({
-    notes: { list: mockNotesList, delete: jest.fn() },
-    todos: { list: mockTodosList, delete: jest.fn() },
-    habits: { list: mockHabitsList, delete: jest.fn() },
-  }),
+jest.mock('../lib/store/selectors', () => ({
+  selectItemById: jest.fn(),
+  selectNoteBySourceMessageId: jest.fn(),
+  selectRecentNotes: jest.fn(() => []),
+  selectRecentTodos: jest.fn(() => []),
+  selectRecentHabits: jest.fn(() => []),
 }));
 
 import { RecentDropsTestable as RecentDrops } from '../app/screens/CatchAllNotepad';
@@ -73,14 +74,14 @@ const overlayStub = {
 describe('RecentDrops: Unified type + tag rendering', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockNotesList.mockResolvedValue([]);
-    mockTodosList.mockResolvedValue([]);
-    mockHabitsList.mockResolvedValue([]);
+    mockSelectRecentNotes.mockReturnValue([]);
+    mockSelectRecentTodos.mockReturnValue([]);
+    mockSelectRecentHabits.mockReturnValue([]);
   });
 
   test.skip('Log shows "log" pill and emotion tags (not "unsorted")', async () => {
     const now = new Date();
-    mockNotesList.mockResolvedValue([
+    mockSelectRecentNotes.mockReturnValue([
       {
         id: 'log1',
         type: 'note',
@@ -96,8 +97,6 @@ describe('RecentDrops: Unified type + tag rendering', () => {
     ]);
 
     render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
-
-    await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
 
     // Verify log pill (not "unsorted")
     const logCard = await screen.findByTestId('minddrop-recent-note-log1');
@@ -115,7 +114,7 @@ describe('RecentDrops: Unified type + tag rendering', () => {
 
   test.skip('Todo shows "todo" pill with tags (#haircut, #appointment)', async () => {
     const now = new Date();
-    mockTodosList.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo1',
         type: 'todo',
@@ -131,8 +130,6 @@ describe('RecentDrops: Unified type + tag rendering', () => {
 
     render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
-    await waitFor(() => expect(mockTodosList).toHaveBeenCalled());
-
     // Verify todo pill
     const todoCard = await screen.findByTestId('minddrop-recent-todo-todo1');
     expect(within(todoCard).getByText('todo')).toBeTruthy();
@@ -145,7 +142,7 @@ describe('RecentDrops: Unified type + tag rendering', () => {
 
   test.skip('Habit shows "habit" pill with tags (#running, #morning)', async () => {
     const now = new Date();
-    mockHabitsList.mockResolvedValue([
+    mockSelectRecentHabits.mockReturnValue([
       {
         id: 'habit1',
         type: 'habit',
@@ -159,7 +156,7 @@ describe('RecentDrops: Unified type + tag rendering', () => {
 
     render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
-    await waitFor(() => expect(mockHabitsList).toHaveBeenCalled());
+    await waitFor(() => true);
 
     // Verify habit pill
     const habitCard = await screen.findByTestId('minddrop-recent-habit-habit1');
@@ -174,7 +171,7 @@ describe('RecentDrops: Unified type + tag rendering', () => {
   test('All three types render tags when present', async () => {
     const now = new Date();
 
-    mockNotesList.mockResolvedValue([
+    mockSelectRecentNotes.mockReturnValue([
       {
         id: 'log1',
         type: 'note',
@@ -189,7 +186,7 @@ describe('RecentDrops: Unified type + tag rendering', () => {
       },
     ]);
 
-    mockTodosList.mockResolvedValue([
+    mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo1',
         type: 'todo',
@@ -201,7 +198,7 @@ describe('RecentDrops: Unified type + tag rendering', () => {
       },
     ]);
 
-    mockHabitsList.mockResolvedValue([
+    mockSelectRecentHabits.mockReturnValue([
       {
         id: 'habit1',
         type: 'habit',
@@ -215,9 +212,9 @@ describe('RecentDrops: Unified type + tag rendering', () => {
 
     render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
-    await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
-    await waitFor(() => expect(mockTodosList).toHaveBeenCalled());
-    await waitFor(() => expect(mockHabitsList).toHaveBeenCalled());
+    await waitFor(() => true);
+    await waitFor(() => true);
+    await waitFor(() => true);
 
     // All three should have tag sections
     const logCard = await screen.findByTestId('minddrop-recent-note-log1');
@@ -234,7 +231,7 @@ describe('RecentDrops: Unified type + tag rendering', () => {
 
     // A note with subtype 'catchall' but canonical_type 'log'
     // Should show "log" pill, not "unsorted"
-    mockNotesList.mockResolvedValue([
+    mockSelectRecentNotes.mockReturnValue([
       {
         id: 'note1',
         type: 'note',
@@ -250,7 +247,7 @@ describe('RecentDrops: Unified type + tag rendering', () => {
 
     render(<RecentDrops overlay={overlayStub} initiallyOpen eagerLoad />);
 
-    await waitFor(() => expect(mockNotesList).toHaveBeenCalled());
+    await waitFor(() => true);
 
     const card = await screen.findByTestId('minddrop-recent-note-note1');
 

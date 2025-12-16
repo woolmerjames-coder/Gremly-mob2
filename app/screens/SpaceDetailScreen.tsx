@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useRepo } from '../../providers/RepoProvider';
+import { useSpaceById, useSpaceItemsGrouped, type GroupedByType } from '../../lib/store/selectors';
 import { useAuth } from '../../providers/AuthProvider';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../../lib/repo/memory';
@@ -11,7 +11,6 @@ import PlusFAB from '../../components/PlusFAB';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { Space, AppRecord, SpaceChat } from '../../lib/types';
-import type { GroupedByType } from '../../lib/repo/IRepo';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Box, Text } from '../../ui';
 import { Card, ListItem } from '../../design-system';
@@ -32,15 +31,20 @@ export default function SpaceDetail() {
   const route = useRoute<SpaceDetailRouteProp>();
   const navigation = useNavigation<SpaceDetailNavigationProp>();
   const { id } = route.params;
-  const repo = useRepo();
   const { userId } = useAuth();
   const tokens = useTokens();
   const overlayController = useUnifiedOverlayController();
-  const [space, setSpace] = useState<Space | null>(null);
-  const [groups, setGroups] = useState<GroupedByType>({ habits: [], todos: [], notes: [] });
-  const [chats, setChats] = useState<SpaceChat[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedTagNames, setSelectedTagNames] = useState<string[]>([]);
+  const [chats, setChats] = useState<SpaceChat[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Use Zustand store for space and items
+  const space = useSpaceById(id);
+  const groups = useSpaceItemsGrouped(
+    id,
+    selectedTagNames.length > 0 ? selectedTagNames : undefined,
+  );
+
   const noteLabelPlural = getNoteLabel({ plural: true });
   const availableTags = useMemo(() => {
     const set = new Set<string>();
@@ -64,34 +68,20 @@ export default function SpaceDetail() {
       : new MemorySpaceChatRepo(userId || 'anonymous');
   }, [userId]);
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      const [spaceData, groupedData] = await Promise.all([
-        repo.getSpaceById(id),
-        repo.listBySpaceGrouped(
-          id,
-          selectedTagNames.length > 0 ? { tagNames: selectedTagNames } : undefined,
-        ),
-      ]);
-      setSpace(spaceData);
-      setGroups(groupedData);
-
-      // Load chats if feature is enabled
-      if (process.env.EXPO_PUBLIC_FEATURE_CHAT === 'on') {
-        try {
-          const chatsData = await spaceChatRepo.list(id);
-          setChats(chatsData);
-        } catch (error) {
-          console.warn('Failed to load chats:', error);
-        }
+  // Load chats (still uses repo pattern until chat is in Zustand)
+  const loadChats = useCallback(async () => {
+    if (process.env.EXPO_PUBLIC_FEATURE_CHAT === 'on') {
+      try {
+        setLoading(true);
+        const chatsData = await spaceChatRepo.list(id);
+        setChats(chatsData);
+      } catch (error) {
+        console.warn('Failed to load chats:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Failed to load space:', error);
-    } finally {
-      setLoading(false);
     }
-  }, [repo, id, spaceChatRepo, selectedTagNames]);
+  }, [spaceChatRepo, id]);
 
   useEffect(() => {
     // Redirect to v3 SpaceHome when flag is enabled
@@ -101,12 +91,12 @@ export default function SpaceDetail() {
       navigation.replace('SpaceHome', { spaceId: id });
       return; // don't load legacy content
     }
-    load();
-  }, [load, navigation, id]);
+    loadChats();
+  }, [loadChats, navigation, id]);
 
   const handleOverlaySaved = useCallback(() => {
-    load();
-  }, [load]);
+    // Store updates automatically, no need to reload
+  }, []);
 
   const handleNewChat = useCallback(async () => {
     try {
