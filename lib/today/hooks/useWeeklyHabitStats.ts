@@ -465,6 +465,8 @@ function computeHabitStats(
   // Derive frequencyLabel from frequency_json (source of truth)
   const frequencyLabel = deriveFrequencyLabel(habit, baseStats.formattedFrequency);
 
+  console.log('[useWeeklyHabitStats] Final dayDots for', habit.name, ':', baseStats.dayDots);
+
   return {
     ...baseStats,
     frequencyLabel,
