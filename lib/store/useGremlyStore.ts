@@ -219,9 +219,10 @@ export const useGremlyStore = create<GremlyState>()(
           console.warn('[GremlyStore] milestones fetch error:', milestonesRes.error);
 
         set({
-          todos: todosRes.data ?? [],
-          habits: habitsRes.data ?? [],
-          notes: notesRes.data ?? [],
+          // Add type field since DB doesn't store it
+          todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
+          habits: (habitsRes.data ?? []).map((h) => ({ ...h, type: 'habit' as const })),
+          notes: (notesRes.data ?? []).map((n) => ({ ...n, type: 'note' as const })),
           spaces: spacesRes.data ?? [],
           tags: tagsRes.data ?? [],
           habitProgress: progressRes.data ?? [],
@@ -293,7 +294,6 @@ export const useGremlyStore = create<GremlyState>()(
       const payload = {
         ...todo,
         owner_id: userId,
-        type: 'todo' as const,
         created_at: now,
         updated_at: now,
       };
@@ -305,18 +305,19 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      // Add to store
+      // Add to store with type field (DB doesn't store it)
+      const todoWithType = { ...data, type: 'todo' as const };
       set((state) => ({
-        todos: [...state.todos, data],
+        todos: [...state.todos, todoWithType],
       }));
 
       eventBus.emit('entity:created', {
-        entity: data,
+        entity: todoWithType,
         type: 'todo',
         spaceId: data.space_id,
         source: STORE_EVENT_SOURCE,
       });
-      return data;
+      return todoWithType;
     },
 
     updateTodo: async (id: string, updates: Partial<Todo>) => {
@@ -521,18 +522,19 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      // Add to store
+      // Add to store with type field (DB doesn't store it)
+      const habitWithType = { ...data, type: 'habit' as const };
       set((state) => ({
-        habits: [...state.habits, data],
+        habits: [...state.habits, habitWithType],
       }));
 
       eventBus.emit('entity:created', {
-        entity: data,
+        entity: habitWithType,
         type: 'habit',
         spaceId: data.space_id,
         source: STORE_EVENT_SOURCE,
       });
-      return data;
+      return habitWithType;
     },
 
     updateHabit: async (id: string, updates: Partial<Habit>) => {
@@ -830,7 +832,6 @@ export const useGremlyStore = create<GremlyState>()(
       const payload = {
         ...note,
         owner_id: userId,
-        type: 'note' as const,
         created_at: now,
         updated_at: now,
       };
@@ -842,18 +843,19 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      // Add to store
+      // Add to store with type field (DB doesn't store it)
+      const noteWithType = { ...data, type: 'note' as const };
       set((state) => ({
-        notes: [...state.notes, data],
+        notes: [...state.notes, noteWithType],
       }));
 
       eventBus.emit('entity:created', {
-        entity: data,
+        entity: noteWithType,
         type: 'note',
         spaceId: data.space_id,
         source: STORE_EVENT_SOURCE,
       });
-      return data;
+      return noteWithType;
     },
 
     updateNote: async (id: string, updates: Partial<Note>) => {
@@ -1459,9 +1461,10 @@ export const useGremlyStore = create<GremlyState>()(
         ]);
 
         set({
-          todos: todosRes.data ?? [],
-          habits: habitsRes.data ?? [],
-          notes: notesRes.data ?? [],
+          // Add type field since DB doesn't store it
+          todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
+          habits: (habitsRes.data ?? []).map((h) => ({ ...h, type: 'habit' as const })),
+          notes: (notesRes.data ?? []).map((n) => ({ ...n, type: 'note' as const })),
           spaces: spacesRes.data ?? [],
           tags: tagsRes.data ?? [],
           habitProgress: progressRes.data ?? [],

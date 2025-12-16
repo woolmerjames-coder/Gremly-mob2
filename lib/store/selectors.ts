@@ -1302,16 +1302,22 @@ export const useAllSpaceMilestones = (spaceId: string) =>
 // ITEM LOOKUP SELECTORS (for Mind Drop / CatchAllNotepad)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Select any item by ID - searches todos, habits, notes */
+/** Select any item by ID - searches todos, habits, notes
+ * IMPORTANT: Adds the `type` field since the database doesn't store it
+ */
 export const selectItemById = createSelector(
   [selectTodos, selectHabits, selectNotes, (_state: GremlyState, id: string) => id],
   (todos, habits, notes, id): (Todo | Habit | Note) | null => {
-    return (
-      todos.find((t) => t.id === id) ??
-      habits.find((h) => h.id === id) ??
-      notes.find((n) => n.id === id) ??
-      null
-    );
+    const todo = todos.find((t) => t.id === id);
+    if (todo) return { ...todo, type: 'todo' as const };
+
+    const habit = habits.find((h) => h.id === id);
+    if (habit) return { ...habit, type: 'habit' as const };
+
+    const note = notes.find((n) => n.id === id);
+    if (note) return { ...note, type: 'note' as const };
+
+    return null;
   },
 );
 
