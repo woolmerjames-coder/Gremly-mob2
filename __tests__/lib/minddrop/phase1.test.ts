@@ -55,8 +55,8 @@ describe('runPhase1', () => {
       // Start the phase1 call
       const resultPromise = runPhase1('buy milk', {});
 
-      // Advance timers past the 2 second timeout
-      jest.advanceTimersByTime(2500);
+      // Advance timers past the 4 second timeout (PHASE1_TIMEOUT_MS = 4000)
+      jest.advanceTimersByTime(4500);
 
       const result = await resultPromise;
 
@@ -64,7 +64,7 @@ describe('runPhase1', () => {
       expect(result.source).toBe('heuristic-fallback');
       expect(result.bucket).toBe('todo'); // 'buy milk' should be classified as todo by heuristic
       expect(result.confidence).toBeGreaterThan(0);
-    });
+    }, 15000); // Increase test timeout to allow for timer advancement
   });
 
   describe('API confirmation', () => {

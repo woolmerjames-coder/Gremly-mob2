@@ -26,14 +26,18 @@ describe('heuristicClassify', () => {
   });
 
   describe('habit detection', () => {
-    it.each([['exercise daily'], ['read every morning'], ['meditate 3x a week'], ['quit smoking']])(
-      'should classify "%s" as habit',
-      (text) => {
-        const result = heuristicClassify(text);
-        expect(result.bucket).toBe('habit');
-        expect(result.subtypeHint).toBeNull();
-      },
-    );
+    it.each([
+      ['exercise daily'],
+      ['read every morning'],
+      ['meditate 3x a week'],
+      ['run 3 times a week'],
+      ['workout 5 times per week'],
+      ['quit smoking'],
+    ])('should classify "%s" as habit', (text) => {
+      const result = heuristicClassify(text);
+      expect(result.bucket).toBe('habit');
+      expect(result.subtypeHint).toBeNull();
+    });
 
     it('should have reasonable confidence for habits', () => {
       const result = heuristicClassify('exercise daily');

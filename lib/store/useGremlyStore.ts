@@ -500,13 +500,19 @@ export const useGremlyStore = create<GremlyState>()(
       if (!userId) throw new Error('Not authenticated');
 
       const now = new Date().toISOString();
-      const payload = {
-        ...habit,
+
+      // Map camelCase to snake_case for DB columns, remove client-only fields
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { canonicalType, type, ...dbHabit } = habit as Record<string, unknown>;
+      const payload: Record<string, unknown> = {
+        ...dbHabit,
         owner_id: userId,
-        type: 'habit' as const,
         created_at: now,
         updated_at: now,
       };
+      if (canonicalType !== undefined) {
+        payload.canonical_type = canonicalType;
+      }
 
       const { data, error } = await supabase.from('habits').insert(payload).select().single();
 
@@ -538,11 +544,15 @@ export const useGremlyStore = create<GremlyState>()(
         habits: state.habits.map((h) => (h.id === id ? { ...h, ...updates, updated_at: now } : h)),
       }));
 
-      // 2. SYNC TO SUPABASE
-      const { error } = await supabase
-        .from('habits')
-        .update({ ...updates, updated_at: now })
-        .eq('id', id);
+      // 2. SYNC TO SUPABASE - Map camelCase to snake_case for DB columns
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { canonicalType, type, ...dbUpdates } = updates as Record<string, unknown>;
+      const supabaseUpdates: Record<string, unknown> = { ...dbUpdates, updated_at: now };
+      if (canonicalType !== undefined) {
+        supabaseUpdates.canonical_type = canonicalType;
+      }
+
+      const { error } = await supabase.from('habits').update(supabaseUpdates).eq('id', id);
 
       // 3. ROLLBACK ON ERROR
       if (error) {
@@ -1653,10 +1663,60 @@ export const useGremlyStore = create<GremlyState>()(
         void fetchAndUpdate();
       };
 
+      // Handler for entity:enriched events (Phase 2 enrichment updates)
+      // This refetches the entity from DB since enrichment updates name, title, frequency, tags, etc.
+      const handleEntityEnriched = (payload: { entityId: string; smartTitle?: string }) => {
+        const fetchAndUpdate = async () => {
+          const state = get();
+          const userId = state.userId;
+          if (!userId) return;
+
+          const entityId = payload.entityId;
+
+          // Check which store array contains this entity
+          const inTodos = state.todos.some((t) => t.id === entityId);
+          const inHabits = state.habits.some((h) => h.id === entityId);
+          const inNotes = state.notes.some((n) => n.id === entityId);
+
+          if (inTodos) {
+            const { data } = await supabase.from('todos').select('*').eq('id', entityId).single();
+            if (data) {
+              set({
+                todos: state.todos.map((t) => (t.id === entityId ? { ...t, ...data } : t)),
+              });
+              console.log('[GremlyStore] ✅ Synced todo from entity:enriched:', entityId);
+            }
+          } else if (inHabits) {
+            const { data } = await supabase.from('habits').select('*').eq('id', entityId).single();
+            if (data) {
+              set({
+                habits: state.habits.map((h) => (h.id === entityId ? { ...h, ...data } : h)),
+              });
+              console.log('[GremlyStore] ✅ Synced habit from entity:enriched:', entityId);
+            }
+          } else if (inNotes) {
+            const { data } = await supabase.from('notes').select('*').eq('id', entityId).single();
+            if (data) {
+              set({
+                notes: state.notes.map((n) => (n.id === entityId ? { ...n, ...data } : n)),
+              });
+              console.log('[GremlyStore] ✅ Synced note from entity:enriched:', entityId);
+            }
+          } else {
+            console.log('[GremlyStore] entity:enriched for unknown entity:', entityId);
+          }
+        };
+
+        void fetchAndUpdate();
+      };
+
       // Subscribe to entity lifecycle events
       const unsub1 = eventBus.on('entity:created', handleEntityCreated);
       const unsub2 = eventBus.on('entity:updated', handleEntityUpdated);
       const unsub3 = eventBus.on('entity:deleted', handleEntityDeleted);
+
+      // Subscribe to enrichment events (Phase 2 updates)
+      const unsub6 = eventBus.on('entity:enriched', handleEntityEnriched);
 
       // Subscribe to legacy events for backward compatibility
       const unsub4 = eventBus.on('ItemUpdated', handleItemUpdated);
@@ -1669,6 +1729,7 @@ export const useGremlyStore = create<GremlyState>()(
         unsub3();
         unsub4();
         unsub5();
+        unsub6();
       };
     },
   })),
