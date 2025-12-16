@@ -3891,24 +3891,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       try {
         const savedType = (result as any)?.type ?? baseType;
         eventBus.emit('OverlaySaved', { id: result?.id, type: savedType });
-        // After successful save, emit event for immediate UI update
-        // Use result.space_id (from saved entity), fallback to state.spaceId, then initialSpaceId
-        const emitSpaceId = (result as any)?.space_id ?? state.spaceId ?? initialSpaceId ?? null;
-        if (__DEV__) {
-          console.log('[UnifiedOverlayV2] Emitting entity:created', {
-            type: savedType,
-            emitSpaceId,
-            resultSpaceId: (result as any)?.space_id,
-            stateSpaceId: state.spaceId,
-            initialSpaceId,
-            resultId: result?.id,
-          });
-        }
-        eventBus.emit('entity:created', {
-          entity: result,
-          type: savedType,
-          spaceId: emitSpaceId,
-        });
+        // NOTE: entity:created is already emitted by store mutations (createTodo, createHabit, createNote)
+        // Removed duplicate emission here to prevent double processing
       } catch (e) {
         // ignore
       }

@@ -22,7 +22,7 @@ interface ChatBubbleProps {
   onDismissSaveable?: (messageId: string) => void;
 }
 
-export function ChatBubble({ message, testID, onSavePress, onDismissSaveable }: ChatBubbleProps) {
+function ChatBubbleInner({ message, testID, onSavePress, onDismissSaveable }: ChatBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
 
@@ -163,3 +163,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
 });
+
+// Memoized export to prevent unnecessary re-renders in FlatList
+export const ChatBubble = React.memo(ChatBubbleInner);

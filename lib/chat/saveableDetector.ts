@@ -79,6 +79,18 @@ NOT SAVEABLE (no Save button):
 - Incomplete thoughts awaiting response
 - Casual back-and-forth
 
+TITLE RULES:
+- Titles must be COMPLETE phrases, never cut off mid-sentence
+- 3-7 words maximum
+- Action-focused: Start with verb or noun describing the task/content
+- Never end with 'and', 'for', 'to', 'the', or other connectors
+- Match the content type: todos = action phrase, habits = behavior phrase, logs = topic phrase
+
+CONTENT RULES:
+- For todos/habits: Extract the SPECIFIC action or behavior, not the full paragraph
+- Title and content should describe the SAME thing
+- If multiple items mentioned, focus on the PRIMARY one
+
 DETERMINE TYPE:
 - "log-general": DEFAULT. Information, recommendations, notes. Use when unsure.
 - "log-list": Content that is clearly a list (steps, items, schedule)
@@ -91,7 +103,7 @@ RESPOND IN JSON:
   "confidence": number (0-1),
   "suggestedType": "log-general" | "log-list" | "todo" | "habit",
   "prefill": {
-    "title": "5-10 word summary",
+    "title": "SHORT action-focused title (3-7 words max). Must be a COMPLETE phrase, never truncated. Examples: 'Weekly alcohol check-in', 'January fitness plan', 'Call dentist tomorrow'. Do NOT include connecting words at the end like 'and', 'for', 'to'.",
     "content": "the relevant content to save",
     "tags": ["tag1", "tag2"],
     "dueDate": "For todos only. Use relative terms for simple cases: 'tomorrow', 'next_week', 'monday', '+3d'. For SPECIFIC month references like 'last week of January', 'end of February', 'mid-March', return the actual YYYY-MM-DD date (e.g., '2025-01-27' for last week of January). Return null if no date mentioned."
