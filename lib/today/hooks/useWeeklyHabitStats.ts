@@ -20,6 +20,8 @@ export interface RawHabit {
   frequency: string; // "daily", "x_per_week", "specific_days"
   frequency_value: number | number[]; // number for daily/x_per_week, array for specific_days
   frequency_json?: any; // The structured JSON from overlay: { type: 'simple', value: 'daily' } etc.
+  cadence?: 'daily' | 'weekly' | 'monthly'; // From habit.cadence
+  target_per_period?: number; // From habit.target_per_period
   labels?: string[];
   type?: string;
   habit_progress?: HabitProgressRecord[];
@@ -313,10 +315,25 @@ function computeSpecificDaysStats(
 }
 
 /**
- * Derive human-readable frequency label from frequency_json.
- * Falls back to formattedFrequency if no structured JSON.
+ * Derive human-readable frequency label from habit data.
+ * Uses cadence + target_per_period as primary source (most reliable).
+ * Falls back to frequency_json, then formattedFrequency.
  */
 function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
+  // Primary source: cadence + target_per_period (from habit record)
+  if (habit.cadence) {
+    const target = habit.target_per_period ?? 1;
+    switch (habit.cadence) {
+      case 'daily':
+        return 'Daily';
+      case 'weekly':
+        return `${target}x per week`;
+      case 'monthly':
+        return `${target}x per month`;
+    }
+  }
+
+  // Fallback: try frequency_json
   if (habit.frequency_json) {
     try {
       const config = jsonToFrequency(habit.frequency_json);
@@ -336,7 +353,8 @@ function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
   }
   console.log('[deriveFrequencyLabel] fallback', {
     habitName: habit.name,
-    frequency_json: habit.frequency_json,
+    cadence: habit.cadence,
+    target_per_period: habit.target_per_period,
     fallback,
   });
   return fallback;

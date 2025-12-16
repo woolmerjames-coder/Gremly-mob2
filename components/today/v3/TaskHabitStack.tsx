@@ -74,6 +74,7 @@ function HabitTodayRow({
         icon: metadata.icon,
         label: metadata.label,
         periodLabel: metadata.periodLabel,
+        frequencyLabel: metadata.frequencyLabel,
       }}
       onComplete={() =>
         onComplete({

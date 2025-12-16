@@ -3,7 +3,7 @@ import { StyleSheet, View, Pressable } from 'react-native';
 import { Text, Box } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import CircleCheckButton from './CircleCheckButton';
-import { Flame, Clock, RefreshCw, Calendar } from 'lucide-react-native';
+import { Flame, RotateCcw, RefreshCw, Calendar } from 'lucide-react-native';
 
 type Lane = 'habit' | 'todo';
 
@@ -15,9 +15,10 @@ type Props = {
   habitProgress?: { done: number; target: number } | null;
   // Habit metadata for inline display
   habitMetadata?: {
-    icon: 'Flame' | 'Clock' | 'RefreshCw' | 'Calendar';
+    icon: 'Flame' | 'RotateCcw' | 'RefreshCw' | 'Calendar';
     label: string;
     periodLabel?: string;
+    frequencyLabel?: string;
   } | null;
   onComplete: (id: string) => Promise<void> | void;
   testID?: string;
@@ -26,7 +27,7 @@ type Props = {
 
 const IconMap = {
   Flame,
-  Clock,
+  RotateCcw,
   RefreshCw,
   Calendar,
 } as const;
@@ -65,6 +66,19 @@ export default function TodayRow({
             {title}
           </Text>
 
+          {/* Chip row: Habit tag + frequency */}
+          {isHabit && (
+            <View style={styles.chipRow}>
+              <View style={styles.habitChipContainer}>
+                <Text style={styles.habitChipText}>Habit</Text>
+              </View>
+              {habitMetadata?.frequencyLabel && (
+                <Text style={styles.frequencyLabel}>· {habitMetadata.frequencyLabel}</Text>
+              )}
+            </View>
+          )}
+
+          {/* Metadata row: icon + label (no frequency, no dot) */}
           {isHabit && habitMetadata && MetadataIcon && (
             <View style={styles.metadataRow}>
               <MetadataIcon
@@ -113,6 +127,28 @@ const styles = StyleSheet.create({
   },
   title: { fontWeight: '600', color: BRAND.colors.charcoalInk, fontSize: 14 },
   subtle: { color: BRAND.colors.inkMuted, fontSize: 12 },
+  chipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  habitChipContainer: {
+    backgroundColor: 'rgba(46,85,64,0.08)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  habitChipText: {
+    fontSize: 11,
+    color: BRAND.colors.inkMuted,
+    fontFamily: 'Inter-Regular',
+  },
+  frequencyLabel: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+    fontFamily: 'Inter-Medium',
+  },
   metadataRow: {
     flexDirection: 'row',
     alignItems: 'center',

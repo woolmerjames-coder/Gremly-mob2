@@ -7,7 +7,7 @@
  * Each day dot is tappable to toggle completion for past/current days.
  */
 
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import {
   Modal,
   StyleSheet,
@@ -91,6 +91,8 @@ export function NowWeekPopup({
   const overlayController = useUnifiedOverlayController();
   const [enrichedHabits, setEnrichedHabits] = useState<RawHabit[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  // Store the initial sort order to prevent rows from jumping when toggled
+  const sortOrderRef = useRef<string[] | null>(null);
 
   // Open habit in unified overlay (same save path as Today/NOW)
   const openHabitDetail = useCallback(
@@ -127,6 +129,7 @@ export function NowWeekPopup({
   useEffect(() => {
     if (!visible) {
       // Reset state when popup closes
+      sortOrderRef.current = null; // Clear sort order so it re-sorts on next open
       return;
     }
 
@@ -171,6 +174,9 @@ export function NowWeekPopup({
               frequency_value: numericTarget,
               // Pass through full frequency_value JSON for label derivation
               frequency_json: freqVal,
+              // Pass through cadence and target_per_period for frequency label
+              cadence: (habit as any).cadence as 'daily' | 'weekly' | 'monthly' | undefined,
+              target_per_period: (habit as any).target_per_period as number | undefined,
               labels: habit.labels,
               type: habit.type,
               habit_progress: progressDates.map((d: string) => ({ occurred_day: d })),
@@ -206,7 +212,27 @@ export function NowWeekPopup({
   }, [visible, allHabits, repo, weekStartIso, weekEndIso]);
 
   // Compute weekly stats from enriched habits
-  const weeklyStats = useWeeklyHabitStats(enrichedHabits);
+  const rawWeeklyStats = useWeeklyHabitStats(enrichedHabits);
+
+  // Apply stable sort order to prevent row jumping on toggle
+  const weeklyStats = useMemo(() => {
+    if (rawWeeklyStats.length === 0) return rawWeeklyStats;
+
+    // If no stored sort order, capture the initial sort order
+    if (!sortOrderRef.current) {
+      sortOrderRef.current = rawWeeklyStats.map((s) => s.id);
+      return rawWeeklyStats;
+    }
+
+    // Re-order based on stored sort order
+    const orderMap = new Map(sortOrderRef.current.map((id, idx) => [id, idx]));
+    return [...rawWeeklyStats].sort((a, b) => {
+      const aIdx = orderMap.get(a.id) ?? 999;
+      const bIdx = orderMap.get(b.id) ?? 999;
+      return aIdx - bIdx;
+    });
+  }, [rawWeeklyStats]);
+
   console.log(
     '[NowWeekPopup] enrichedHabits:',
     enrichedHabits.length,
@@ -442,6 +468,8 @@ const styles = StyleSheet.create({
   dayHeaderLabelToday: {
     fontFamily: 'Inter-Bold',
     color: MOSS_GREEN,
+    textDecorationLine: 'underline',
+    textDecorationColor: MOSS_GREEN,
   },
   loadingContainer: {
     paddingVertical: 24,

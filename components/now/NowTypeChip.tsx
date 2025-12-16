@@ -34,7 +34,6 @@ const useStyles = makeStyles((t) => ({
     borderRadius: t.radius[1],
     paddingHorizontal: 5,
     paddingVertical: 1,
-    alignSelf: 'flex-start',
   },
   label: {
     fontSize: 11,
