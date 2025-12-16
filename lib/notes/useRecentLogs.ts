@@ -39,6 +39,7 @@ export interface LogItem {
   title: string;
   body: string;
   logSubtype: LogSubtypeDisplay;
+  spaceId?: string;
   isList: boolean;
   listItems?: LogListItem[];
   createdAt: string;

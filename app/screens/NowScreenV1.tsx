@@ -51,6 +51,7 @@ import {
   useIsLoading,
   useHabitsCompletedToday,
   useHubHabits,
+  useWeeklyHabitSummaries,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
@@ -246,6 +247,7 @@ export default function NowScreenV1() {
   const habitsToday = useTodayHabits();
   const completedHabitsToday = useHabitsCompletedToday();
   const allActiveHabits = useHubHabits(); // All non-archived habits for NowWeekPopup
+  const weeklySummaries = useWeeklyHabitSummaries(); // Weekly habit summaries for header
 
   // Progress stats
   const progress = useTodayProgress();
@@ -285,10 +287,10 @@ export default function NowScreenV1() {
 
     return {
       dateTimeLabel,
-      weeklySummaries: [], // TODO: Implement weekly summaries selector
+      weeklySummaries, // Weekly habit summaries for header
       allHabits: allActiveHabits, // All non-archived habits for NowWeekPopup
     };
-  }, [allActiveHabits]);
+  }, [allActiveHabits, weeklySummaries]);
 
   // ═══════════════════════════════════════════════════════════════════
   // STORE MUTATIONS - Direct store actions
@@ -507,23 +509,6 @@ export default function NowScreenV1() {
     setJournalVisible(true);
   }, []);
 
-  // Handle creating new note from YourNotesPopup quick capture
-  const handleNotesCreateNew = useCallback(
-    (text: string, noteType: 'journal' | 'idea' | 'general', _isList: boolean) => {
-      setNotesVisible(false);
-      // Map UI note type to LogSubtype
-      const logSubtype = noteType === 'general' ? 'general' : noteType;
-      // Open overlay with prefilled text and type
-      overlayController.openCreate({
-        type: 'log',
-        logSubtype,
-        initialText: text,
-        // TODO: Handle _isList flag when list creation is supported
-      });
-    },
-    [overlayController],
-  );
-
   if (loading || !isInitialized) {
     return (
       <Screen style={styles.screen} edges={['top', 'bottom']} padded={false}>
@@ -653,7 +638,6 @@ export default function NowScreenV1() {
         onClose={() => setNotesVisible(false)}
         onSelectLog={handleSelectLog}
         onSelectJournal={handleSelectJournal}
-        onCreateNew={handleNotesCreateNew}
       />
 
       <JournalFullScreen

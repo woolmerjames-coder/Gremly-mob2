@@ -2,6 +2,7 @@ import { createSelector } from 'reselect';
 import { useGremlyStore, type HabitProgressRow } from './useGremlyStore';
 import type { Todo, Habit, Note, Space } from '../types';
 import type { SweepCandidate, SweepCandidateTodo, SweepCandidateNote } from '../sweep/types';
+import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -985,6 +986,62 @@ export const selectHubHabits = createSelector([selectHabits], (habits) =>
     ),
 );
 
+/**
+ * Compute habit weekly status for NowWeeklyHabitSummary
+ * Logic from nowSelectors.ts getHabitWeeklyStatus
+ */
+function computeHabitWeeklyStatus(habit: Habit, completionsThisWeek: number): HabitWeeklyStatus {
+  const cadence = habit.cadence ?? 'daily';
+  const target = habit.target_per_period ?? (cadence === 'daily' ? 7 : 1);
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0 = Sunday
+  const daysRemaining = 7 - dayOfWeek; // days left including today
+
+  // Weekly target for status calculation
+  const weeklyTarget = cadence === 'daily' ? 7 : cadence === 'weekly' ? target : 0;
+
+  // Already hit weekly target
+  if (completionsThisWeek >= weeklyTarget) {
+    return 'week_complete';
+  }
+
+  // How many more needed this week
+  const remaining = weeklyTarget - completionsThisWeek;
+
+  // Last chance: need to complete every remaining day
+  if (remaining >= daysRemaining) {
+    return 'last_chance';
+  }
+
+  // Flexible: have extra days to complete
+  if (remaining < daysRemaining - 1) {
+    return 'flexible';
+  }
+
+  return 'on_track_today';
+}
+
+/** Weekly habit summaries for NowHeader Habits card */
+export const selectWeeklyHabitSummaries = createSelector(
+  [selectHubHabits, selectCompletionsThisWeek],
+  (habits, completionsMap): NowWeeklyHabitSummary[] => {
+    return habits.map((habit) => {
+      const completionsThisWeek = completionsMap.get(habit.id) ?? 0;
+      const cadence = habit.cadence ?? 'daily';
+      const targetPerWeek =
+        cadence === 'daily' ? 7 : cadence === 'weekly' ? (habit.target_per_period ?? 1) : 0;
+
+      return {
+        habitId: habit.id,
+        name: habit.name || 'Untitled Habit',
+        targetPerWeek,
+        completionsThisWeek,
+        status: computeHabitWeeklyStatus(habit, completionsThisWeek),
+      };
+    });
+  },
+);
+
 /** Hub journals - notes with subtype='journal', sorted by created_at desc */
 export const selectHubJournals = createSelector([selectActiveNotes], (notes) =>
   notes
@@ -1044,6 +1101,7 @@ export const useArchivedItems = () => useGremlyStore(selectAllArchivedItems);
 export const useOverdueTodos = () => useGremlyStore(selectOverdueTodos);
 export const useTodayLogsCount = () => useGremlyStore(selectTodayLogsCount);
 export const useHabitsCompletedToday = () => useGremlyStore(selectHabitsCompletedToday);
+export const useWeeklyHabitSummaries = () => useGremlyStore(selectWeeklyHabitSummaries);
 
 // Parameterized hooks (renamed to avoid conflict with legacy hooks)
 export const useSpaceTodosFromStore = (spaceId: string) =>
