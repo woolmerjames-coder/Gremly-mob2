@@ -275,12 +275,13 @@ export default function NowScreenV1() {
   // NowData for header (computed locally)
   const nowData = useMemo(() => {
     const now = new Date();
-    const hours = now.getHours();
-    let greeting = 'Good morning';
-    if (hours >= 12 && hours < 17) greeting = 'Good afternoon';
-    else if (hours >= 17) greeting = 'Good evening';
 
-    const dateTimeLabel = `${greeting}, ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`;
+    // Just the date, no greeting (NowHeader adds its own greeting)
+    const dateTimeLabel = now.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
 
     return {
       dateTimeLabel,
