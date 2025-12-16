@@ -326,16 +326,6 @@ function computeSpecificDaysStats(
  * - frequency_json: { type: 'custom', count: 3, unit: 'week' }
  */
 function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
-  // Debug: log habit data
-  console.log('[deriveFrequencyLabel] input:', {
-    habitName: habit.name,
-    cadence: habit.cadence,
-    target_per_period: habit.target_per_period,
-    frequency: habit.frequency,
-    frequency_value: habit.frequency_value,
-    frequency_json: habit.frequency_json,
-  });
-
   // Primary: parse the human-readable frequency string (most reliable based on logs)
   // e.g., "3 times a week", "5 times a week", "2 times a month", "daily"
   if (habit.frequency) {
@@ -408,7 +398,6 @@ function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
     }
   }
 
-  console.log('[deriveFrequencyLabel] using fallback:', fallback);
   return fallback;
 }
 
@@ -425,13 +414,6 @@ function computeHabitStats(
   const weekStartStr = toDateString(weekDays[0]);
   const weekEndStr = toDateString(weekDays[6]);
 
-  // Debug: log habit_progress data received
-  console.log('[useWeeklyHabitStats] computeHabitStats for:', habit.name, {
-    habit_progress_count: habit.habit_progress?.length ?? 0,
-    habit_progress: habit.habit_progress?.map((p) => p.occurred_day),
-    weekRange: `${weekStartStr} to ${weekEndStr}`,
-  });
-
   if (habit.habit_progress) {
     for (const record of habit.habit_progress) {
       const dateStr = record.occurred_day;
@@ -441,13 +423,6 @@ function computeHabitStats(
       }
     }
   }
-
-  console.log(
-    '[useWeeklyHabitStats] progressDates for',
-    habit.name,
-    ':',
-    Array.from(progressDates),
-  );
 
   const frequencyType = parseFrequencyType(habit.frequency);
 
@@ -468,8 +443,6 @@ function computeHabitStats(
 
   // Derive frequencyLabel from frequency_json (source of truth)
   const frequencyLabel = deriveFrequencyLabel(habit, baseStats.formattedFrequency);
-
-  console.log('[useWeeklyHabitStats] Final dayDots for', habit.name, ':', baseStats.dayDots);
 
   return {
     ...baseStats,

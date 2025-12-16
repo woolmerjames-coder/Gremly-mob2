@@ -608,14 +608,16 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const now = new Date().toISOString();
-      const todayDate = now.split('T')[0]; // YYYY-MM-DD for occurred_day
+      const now = new Date();
+      const nowIso = now.toISOString();
+      // Use LOCAL date for occurred_day to match filtering logic
+      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const prevHabit = get().habits.find((h) => h.id === id);
 
       // 1. OPTIMISTIC UPDATE - update habit's last_completed_at
       set((state) => ({
         habits: state.habits.map((h) =>
-          h.id === id ? { ...h, last_completed_at: now, updated_at: now } : h,
+          h.id === id ? { ...h, last_completed_at: nowIso, updated_at: nowIso } : h,
         ),
       }));
 
@@ -625,7 +627,7 @@ export const useGremlyStore = create<GremlyState>()(
           habit_id: id,
           owner_id: userId,
           occurred_day: todayDate,
-          occurred_at: now,
+          occurred_at: nowIso,
           count: 1,
         });
 
@@ -645,7 +647,7 @@ export const useGremlyStore = create<GremlyState>()(
           id: `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           habit_id: id,
           owner_id: userId,
-          occurred_at: now,
+          occurred_at: nowIso,
           occurred_day: todayDate,
           count: 1,
           occurrence_index: null,
@@ -657,7 +659,7 @@ export const useGremlyStore = create<GremlyState>()(
         // 3. UPDATE habit's last_completed_at (denormalized field for fast reads)
         const { error: habitError } = await supabase
           .from('habits')
-          .update({ last_completed_at: now, updated_at: now })
+          .update({ last_completed_at: nowIso, updated_at: nowIso })
           .eq('id', id);
 
         if (habitError) {
@@ -691,7 +693,9 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      // Use LOCAL date for occurred_day to match filtering logic
+      const now = new Date();
+      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const prevHabit = get().habits.find((h) => h.id === id);
 
       // 1. OPTIMISTIC UPDATE
