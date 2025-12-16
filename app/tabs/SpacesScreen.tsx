@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: '#8B7355', // Warm tone
     marginTop: 6,
-    marginBottom: 18,
+    marginBottom: 8,
     textAlign: 'center',
     lineHeight: 22,
   },
@@ -469,7 +469,7 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
     paddingHorizontal: 26,
     alignSelf: 'center',
-    marginTop: 18,
+    marginTop: 8,
   },
   ctaPillTextSpaces: {
     fontFamily: 'Inter',
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
     paddingHorizontal: 26,
     alignSelf: 'center',
-    marginTop: 18,
+    marginTop: 8,
   },
   ctaPillTextMindDrop: {
     fontFamily: 'Inter',
