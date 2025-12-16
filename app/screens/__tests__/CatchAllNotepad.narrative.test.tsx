@@ -164,21 +164,21 @@ describe('CatchAllNotepad - Narrative Detection', () => {
     mockCreateHabit.mockReset();
     mockCreateNote.mockReset();
 
-    mockCreateTodo.mockImplementation(async (input) => ({
+    mockCreateTodo.mockImplementation(async (input: Record<string, unknown>) => ({
       id: `todo-${++unsortedIdCounter}`,
       type: 'todo',
       ...input,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }));
-    mockCreateHabit.mockImplementation(async (input) => ({
+    mockCreateHabit.mockImplementation(async (input: Record<string, unknown>) => ({
       id: `habit-${++unsortedIdCounter}`,
       type: 'habit',
       ...input,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }));
-    mockCreateNote.mockImplementation(async (input) => ({
+    mockCreateNote.mockImplementation(async (input: Record<string, unknown>) => ({
       id: `note-${++unsortedIdCounter}`,
       type: 'note',
       ...input,
