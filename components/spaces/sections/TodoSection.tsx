@@ -141,6 +141,10 @@ function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
     console.log('[TodoRow] Starting completion animation for:', todo.id);
     setIsCompleting(true);
 
+    // Call onToggle IMMEDIATELY for optimistic count update
+    // The animation plays out locally while the store updates
+    onToggle();
+
     // Phase 1 (0-200ms): Text dims with strikethrough
     textOpacity.value = withTiming(0.5, { duration: 200, easing: Easing.out(Easing.ease) });
 
@@ -157,12 +161,6 @@ function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
       500,
       withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }),
     );
-
-    // Phase 3 (800ms): Actually toggle in store
-    setTimeout(() => {
-      console.log('[TodoRow] Animation complete, calling onToggle for:', todo.id);
-      onToggle();
-    }, 800);
   };
 
   // Animated styles
