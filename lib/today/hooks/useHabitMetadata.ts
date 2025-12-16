@@ -84,12 +84,20 @@ export function computeHabitMetadata(
 
   const frequencyLabel = getFrequencyLabel();
 
+  // Helper to format date as local YYYY-MM-DD
+  const toLocalDateString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Get completions in rolling window
   const getCompletionsInWindow = (days: number): string[] => {
     const windowStart = new Date(today);
     windowStart.setDate(today.getDate() - days + 1);
-    const windowStartStr = windowStart.toISOString().split('T')[0];
-    const todayStr = today.toISOString().split('T')[0];
+    const windowStartStr = toLocalDateString(windowStart);
+    const todayStr = toLocalDateString(today);
 
     return habitProgress
       .filter(
@@ -101,7 +109,7 @@ export function computeHabitMetadata(
 
   // Calculate streak (consecutive days ending today or yesterday)
   const calculateStreak = (): number => {
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = toLocalDateString(today);
     const completionDays = new Set(
       habitProgress.filter((p) => p.habit_id === habit.id).map((p) => p.occurred_day),
     );
@@ -112,7 +120,7 @@ export function computeHabitMetadata(
     // Start from today, go backwards
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const checkStr = checkDate.toISOString().split('T')[0];
+      const checkStr = toLocalDateString(checkDate);
       if (completionDays.has(checkStr)) {
         streak++;
         checkDate.setDate(checkDate.getDate() - 1);
@@ -137,8 +145,19 @@ export function computeHabitMetadata(
 
     if (completions.length === 0) return -1; // Never completed
 
-    const lastCompletion = new Date(completions[0]);
-    const diffTime = today.getTime() - lastCompletion.getTime();
+    // Parse the date as local date (YYYY-MM-DD)
+    const lastCompletionStr = completions[0];
+    const todayStr = toLocalDateString(today);
+
+    // If completed today, return 0
+    if (lastCompletionStr === todayStr) return 0;
+
+    // Calculate day difference by parsing as local dates
+    const [y1, m1, d1] = lastCompletionStr.split('-').map(Number);
+    const lastDate = new Date(y1, m1 - 1, d1); // month is 0-indexed
+    const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    const diffTime = todayDate.getTime() - lastDate.getTime();
     return Math.floor(diffTime / (1000 * 60 * 60 * 24));
   };
 
