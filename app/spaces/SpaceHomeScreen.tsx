@@ -1646,8 +1646,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                   {habitsForSpace.length > 0 && (
                     <HabitsSectionV2
                       habits={habitsForSpace}
-                      progressMap={habitProgressMap}
-                      streakMap={streakMap}
                       onHabitPress={(habit) => handleItemPress(habit)}
                       onHabitLog={(habit) => handleHabitLogProgress(habit)}
                       onHabitLongPress={(habit) => handleHabitLongPress(habit)}

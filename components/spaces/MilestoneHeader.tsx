@@ -160,7 +160,7 @@ export function MilestoneHeader({
                 accessibilityLabel={`${pinnedCount} pinned items`}
                 testID="header-pinned-button"
               >
-                <Pin size={14} color={BRAND.colors.mossGreen} />
+                <Pin size={14} color="#5B68A8" />
                 <Text style={styles.pinnedButtonText}>{pinnedCount} pinned</Text>
               </Pressable>
             )}
@@ -303,12 +303,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 16,
-    backgroundColor: 'rgba(191, 216, 192, 0.25)',
+    backgroundColor: 'rgba(100, 115, 180, 0.2)', // darker periwinkle at 20%
   },
   pinnedButtonText: {
     fontSize: 14,
     fontWeight: '500',
-    color: BRAND.colors.mossGreen,
+    color: '#5B68A8', // darker periwinkle for readability
   },
   completedButton: {
     flexDirection: 'row',

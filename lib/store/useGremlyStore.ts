@@ -257,7 +257,7 @@ export const useGremlyStore = create<GremlyState>()(
             .eq('owner_id', userId)
             .gte('occurred_day', sinceDate),
           supabase.from('space_chats').select('*').eq('user_id', userId),
-          supabase.from('milestones').select('*').eq('owner_id', userId),
+          supabase.from('space_milestones').select('*').eq('owner_id', userId),
         ]);
 
         // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
@@ -1452,7 +1452,7 @@ export const useGremlyStore = create<GremlyState>()(
 
       try {
         const { data: result, error } = await supabase
-          .from('milestones')
+          .from('space_milestones')
           .insert(newMilestone)
           .select()
           .single();
@@ -1487,7 +1487,7 @@ export const useGremlyStore = create<GremlyState>()(
 
       try {
         const { error } = await supabase
-          .from('milestones')
+          .from('space_milestones')
           .update({ ...patch, updated_at: now })
           .eq('id', milestoneId);
 
@@ -1509,7 +1509,7 @@ export const useGremlyStore = create<GremlyState>()(
       }));
 
       try {
-        const { error } = await supabase.from('milestones').delete().eq('id', milestoneId);
+        const { error } = await supabase.from('space_milestones').delete().eq('id', milestoneId);
         if (error) throw error;
       } catch (error) {
         if (prev) {
@@ -1617,7 +1617,7 @@ export const useGremlyStore = create<GremlyState>()(
             .eq('owner_id', userId)
             .gte('occurred_day', sinceDate),
           supabase.from('space_chats').select('*').eq('user_id', userId),
-          supabase.from('milestones').select('*').eq('owner_id', userId),
+          supabase.from('space_milestones').select('*').eq('owner_id', userId),
         ]);
 
         set({
