@@ -35,7 +35,7 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
           "borderRadius": 0,
           "marginLeft": -4,
           "marginTop": -6,
-          "maxWidth": "95%",
+          "maxWidth": "100%",
           "paddingLeft": 14,
         },
       ]

@@ -38,6 +38,12 @@ jest.mock('react-native-actions-sheet', () => ({
 // Mock lucide icons
 jest.mock('lucide-react-native', () => ({
   Flag: () => null,
+  Folder: () => null,
+}));
+
+// Mock spaceIconMatcher - returns a mock component
+jest.mock('../lib/utils/spaceIconMatcher', () => ({
+  getSpaceIcon: () => () => null,
 }));
 
 // Import component AFTER mocks are set up

@@ -12,6 +12,22 @@ jest.mock('lucide-react-native', () => ({
   ChevronUp: () => null,
   Flame: () => null,
   FileText: () => null,
+  Pin: () => null,
+  RotateCcw: () => null,
+  RefreshCw: () => null,
+  Calendar: () => null,
+}));
+
+// Mock useHabitMetadata hook
+jest.mock('../lib/today/hooks/useHabitMetadata', () => ({
+  useHabitMetadata: jest.fn().mockReturnValue({
+    type: 'streak',
+    icon: 'Flame',
+    label: '0',
+    value: 0,
+    target: 1,
+    frequencyLabel: 'Daily',
+  }),
 }));
 
 const mockTodo = (id: string, name: string, completed = false) => ({
@@ -123,13 +139,24 @@ describe('TodoSection', () => {
 describe('HabitsSection', () => {
   const defaultProps = {
     habits: [],
-    progressMap: new Map(),
-    streakMap: new Map(),
     onHabitPress: jest.fn(),
     onHabitLog: jest.fn(),
   };
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Reset useHabitMetadata mock to default value
+    const useHabitMetadataMock = require('../lib/today/hooks/useHabitMetadata')
+      .useHabitMetadata as jest.Mock;
+    useHabitMetadataMock.mockReturnValue({
+      type: 'streak',
+      icon: 'Flame',
+      label: '0',
+      value: 0,
+      target: 1,
+      frequencyLabel: 'Daily',
+    });
+  });
 
   it('hides when no habits', () => {
     const { queryByTestId } = render(<HabitsSection {...defaultProps} />);
@@ -145,11 +172,20 @@ describe('HabitsSection', () => {
   });
 
   it('shows streak indicator when streak > 0', () => {
+    // Mock useHabitMetadata to return a streak
+    const useHabitMetadataMock = require('../lib/today/hooks/useHabitMetadata')
+      .useHabitMetadata as jest.Mock;
+    useHabitMetadataMock.mockReturnValue({
+      type: 'streak',
+      icon: 'Flame',
+      label: '5',
+      value: 5,
+      target: 1,
+      frequencyLabel: 'Daily',
+    });
+
     const habits = [mockHabit('1', 'Habit 1')];
-    const streakMap = new Map([['1', 5]]);
-    const { getByText } = render(
-      <HabitsSection {...defaultProps} habits={habits} streakMap={streakMap} />,
-    );
+    const { getByText } = render(<HabitsSection {...defaultProps} habits={habits} />);
     expect(getByText('5')).toBeTruthy();
   });
 
