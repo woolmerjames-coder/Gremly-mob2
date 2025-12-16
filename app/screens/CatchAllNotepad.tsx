@@ -2618,19 +2618,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Focused input mode: fade recent drops when keyboard is active
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [recentDropsOpacity] = useState(() => new Animated.Value(1));
-  const handleInputFocusChange = useCallback(
-    (focused: boolean) => {
-      inputFocusRef.current = focused;
-      setIsInputFocused(focused);
-      // Animate recent drops opacity
-      Animated.timing(recentDropsOpacity, {
-        toValue: focused ? 0.3 : 1,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    },
-    [recentDropsOpacity],
-  );
+  const handleInputFocusChange = useCallback((focused: boolean) => {
+    inputFocusRef.current = focused;
+    setIsInputFocused(focused);
+    // Keep recent drops visible so users can watch cards update in real-time
+  }, []);
 
   // PanResponder for swipe-down-to-dismiss-keyboard gesture
   const panResponder = React.useRef(
@@ -5305,7 +5297,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               inputStyle={styles.input}
               focusedInputStyle={styles.inputFocused}
               onFocusChange={handleInputFocusChange}
-              autoFocus
               onContentSizeChange={handleInputContentSizeChange}
               scrollEnabled
               showHud={false}
@@ -5601,6 +5592,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     // Scrollable section for Recent Drops in the middle
     scrollableSection: {
       flex: 1, // Takes remaining space, enables scrolling
+      overflow: 'hidden', // Clip content so cards don't extend behind fixed input
     },
     // Fixed section at bottom containing input, chips, button (non-scrolling)
     fixedTopSection: {
@@ -5677,7 +5669,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       paddingHorizontal: INPUT_PADDING_LEFT,
       paddingTop: 14,
       paddingBottom: 12,
-      backgroundColor: c.linenCream ?? '#F9F6F1',
+      backgroundColor: '#FFFFFF',
       borderWidth: 1,
       borderColor: '#E0E0E0',
       minHeight: START_HEIGHT,
@@ -6039,10 +6031,10 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       paddingVertical: 12,
       paddingHorizontal: 16,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.sageMist,
-      shadowColor: 'rgba(46,85,64,0.08)',
+      borderColor: 'rgba(46,85,64,0.15)',
+      shadowColor: 'rgba(46,85,64,0.12)',
       shadowOpacity: 1,
-      shadowRadius: 6,
+      shadowRadius: 10,
       shadowOffset: { width: 0, height: 3 },
       elevation: 2,
       justifyContent: 'space-between',
