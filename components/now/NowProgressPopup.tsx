@@ -78,7 +78,12 @@ export function NowProgressPopup({
           </View>
 
           {/* List */}
-          <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+          <ScrollView
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={true}
+            bounces={true}
+          >
             {completed.length === 0 ? (
               <Text style={styles.emptyText}>No items completed yet today</Text>
             ) : (
@@ -143,9 +148,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    minHeight: 200,
     maxHeight: '70%',
-    flex: 0,
+    // Use flexShrink to allow sheet to shrink if content is small
+    // but grow up to maxHeight if content is large
   },
   header: {
     flexDirection: 'row',
