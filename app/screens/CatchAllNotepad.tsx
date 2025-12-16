@@ -5581,20 +5581,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         {/* Scrollable Recent Drops in the middle - fades when input is focused */}
         <Animated.View
           style={[styles.scrollableSection, { opacity: recentDropsOpacity }]}
-          pointerEvents={isInputFocused ? 'none' : 'auto'}
+          pointerEvents="auto"
         >
-          <Pressable onPress={Keyboard.dismiss} accessible={false} style={{ flex: 1 }}>
-            <RecentDropsMemo
-              overlay={overlay}
-              refreshSignal={recentRefresh}
-              onEdited={noopCallback}
-              onDeleted={noopCallback}
-              onTodayCountChange={handleTodayCountChange}
-              onAddPendingItem={handleReceiveAddPendingItem}
-              onRemovePendingItem={handleReceiveRemovePendingItem}
-              initiallyOpen={true}
-            />
-          </Pressable>
+          <RecentDropsMemo
+            overlay={overlay}
+            refreshSignal={recentRefresh}
+            onEdited={noopCallback}
+            onDeleted={noopCallback}
+            onTodayCountChange={handleTodayCountChange}
+            onAddPendingItem={handleReceiveAddPendingItem}
+            onRemovePendingItem={handleReceiveRemovePendingItem}
+            initiallyOpen={true}
+          />
         </Animated.View>
 
         {/* Fixed bottom section: input + chips + button + stats */}
