@@ -71,6 +71,10 @@ interface GremlyState {
   deleteHabit: (id: string) => Promise<void>;
   completeHabit: (id: string) => Promise<void>;
   uncompleteHabit: (id: string) => Promise<void>;
+  /** Log habit completion for a specific date (for Habits This Week) */
+  logHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
+  /** Remove habit completion for a specific date (for Habits This Week) */
+  removeHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
   archiveHabit: (id: string, reason?: string) => Promise<void>;
   restoreHabit: (id: string) => Promise<void>;
 
@@ -755,6 +759,116 @@ export const useGremlyStore = create<GremlyState>()(
         }
         throw error;
       }
+    },
+
+    /**
+     * Log habit completion for a specific date (used by Habits This Week sheet).
+     * Updates habitProgress immediately so both Today's Focus and Habits sheet stay in sync.
+     */
+    logHabitCompletionForDate: async (habitId: string, dateIso: string) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const occurredDay = dateIso.split('T')[0]; // Ensure YYYY-MM-DD format
+      const now = new Date().toISOString();
+
+      // Check if already completed for this date
+      const existing = get().habitProgress.find(
+        (p) => p.habit_id === habitId && p.occurred_day === occurredDay,
+      );
+      if (existing) {
+        console.log('[GremlyStore] Habit already completed for date:', { habitId, occurredDay });
+        return;
+      }
+
+      // 1. OPTIMISTIC UPDATE - add to habitProgress immediately
+      const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const newProgressRow: HabitProgressRow = {
+        id: tempId,
+        habit_id: habitId,
+        owner_id: userId,
+        occurred_at: now,
+        occurred_day: occurredDay,
+        count: 1,
+        occurrence_index: null,
+      };
+      set((state) => ({
+        habitProgress: [...state.habitProgress, newProgressRow],
+      }));
+
+      // 2. PERSIST TO SUPABASE (don't await, fire-and-forget with error handling)
+      supabase
+        .from('habit_progress')
+        .insert({
+          habit_id: habitId,
+          owner_id: userId,
+          occurred_day: occurredDay,
+          occurred_at: now,
+          count: 1,
+        })
+        .then(({ error }) => {
+          if (error) {
+            // Rollback on error
+            if (error.code !== '23505') {
+              // Ignore duplicate errors
+              console.error('[GremlyStore] logHabitCompletionForDate failed:', error);
+              set((state) => ({
+                habitProgress: state.habitProgress.filter((p) => p.id !== tempId),
+              }));
+            }
+          } else {
+            console.log('[GremlyStore] ✅ Habit completion logged:', { habitId, occurredDay });
+          }
+        });
+    },
+
+    /**
+     * Remove habit completion for a specific date (used by Habits This Week sheet).
+     * Updates habitProgress immediately so both Today's Focus and Habits sheet stay in sync.
+     */
+    removeHabitCompletionForDate: async (habitId: string, dateIso: string) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const occurredDay = dateIso.split('T')[0]; // Ensure YYYY-MM-DD format
+
+      // Find the record to remove
+      const toRemove = get().habitProgress.find(
+        (p) => p.habit_id === habitId && p.occurred_day === occurredDay,
+      );
+
+      if (!toRemove) {
+        console.log('[GremlyStore] No completion found to remove:', { habitId, occurredDay });
+        return;
+      }
+
+      // 1. OPTIMISTIC UPDATE - remove from habitProgress immediately
+      set((state) => ({
+        habitProgress: state.habitProgress.filter(
+          (p) => !(p.habit_id === habitId && p.occurred_day === occurredDay),
+        ),
+      }));
+
+      // 2. PERSIST TO SUPABASE (don't await, fire-and-forget with error handling)
+      supabase
+        .from('habit_progress')
+        .delete()
+        .eq('habit_id', habitId)
+        .eq('owner_id', userId)
+        .eq('occurred_day', occurredDay)
+        .then(({ error }) => {
+          if (error) {
+            // Rollback on error
+            console.error('[GremlyStore] removeHabitCompletionForDate failed:', error);
+            if (toRemove) {
+              set((state) => ({
+                habitProgress: [...state.habitProgress, toRemove],
+              }));
+            }
+          } else {
+            console.log('[GremlyStore] ✅ Habit completion removed:', { habitId, occurredDay });
+          }
+        });
     },
 
     archiveHabit: async (id: string, reason?: string) => {

@@ -7,7 +7,7 @@
  * Each day dot is tappable to toggle completion for past/current days.
  */
 
-import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Modal,
   StyleSheet,
@@ -21,6 +21,7 @@ import { HabitWeeklyRow } from '../today/HabitWeeklyRow';
 import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useWeeklyHabitStats, type RawHabit } from '../../lib/today/hooks/useWeeklyHabitStats';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type {
   NowWeeklyHabitSummary,
   NowLockedItem,
@@ -89,10 +90,13 @@ export function NowWeekPopup({
 }: NowWeekPopupProps) {
   const repo = useRepo();
   const overlayController = useUnifiedOverlayController();
-  const [enrichedHabits, setEnrichedHabits] = useState<RawHabit[]>([]);
+  // Use Zustand as single source of truth for habit progress
+  const habitProgress = useGremlyStore((s) => s.habitProgress);
+  const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
+  const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
   const [isLoading, setIsLoading] = useState(false);
   // Store the initial sort order to prevent rows from jumping when toggled
-  const sortOrderRef = useRef<string[] | null>(null);
+  const [sortOrder, setSortOrder] = useState<string[] | null>(null);
 
   // Open habit in unified overlay (same save path as Today/NOW)
   const openHabitDetail = useCallback(
@@ -125,118 +129,110 @@ export function NowWeekPopup({
   }, [weekStart]);
   const weekEndIso = useMemo(() => toDateString(weekEndDate), [weekEndDate]);
 
-  // Fetch habit progress dates when popup opens
+  // Build enriched habits from Zustand habitProgress (single source of truth)
+  const enrichedHabits = useMemo<RawHabit[]>(() => {
+    if (!allHabits || allHabits.length === 0) return [];
+
+    return allHabits.map((habit) => {
+      // Filter habitProgress for this habit within the week range
+      const progressDates = habitProgress
+        .filter(
+          (p) =>
+            p.habit_id === habit.id &&
+            p.occurred_day >= weekStartIso &&
+            p.occurred_day <= weekEndIso,
+        )
+        .map((p) => p.occurred_day);
+
+      // Parse frequency_value as numeric target for x_per_week computation
+      const freqVal = (habit as any).frequency_value;
+      const numericTarget =
+        typeof freqVal === 'number' ? freqVal : ((habit as any).target_per_period ?? 1);
+
+      return {
+        id: habit.id,
+        name: habit.name,
+        frequency: habit.frequency || 'daily',
+        frequency_value: numericTarget,
+        // Pass through full frequency_value JSON for label derivation
+        frequency_json: freqVal,
+        // Pass through cadence and target_per_period for frequency label
+        cadence: (habit as any).cadence as 'daily' | 'weekly' | 'monthly' | undefined,
+        target_per_period: (habit as any).target_per_period as number | undefined,
+        labels: habit.labels,
+        type: habit.type,
+        habit_progress: progressDates.map((d: string) => ({ occurred_day: d })),
+        schedule_days: (habit as any).days_active?.map((d: string) => {
+          const dayMap: Record<string, number> = {
+            sun: 0,
+            mon: 1,
+            tue: 2,
+            wed: 3,
+            thu: 4,
+            fri: 5,
+            sat: 6,
+          };
+          return dayMap[d.toLowerCase()] ?? parseInt(d, 10);
+        }),
+      };
+    });
+  }, [allHabits, habitProgress, weekStartIso, weekEndIso]);
+
+  // Reset sort order when popup opens
   useEffect(() => {
     if (!visible) {
-      // Reset state when popup closes
-      sortOrderRef.current = null; // Clear sort order so it re-sorts on next open
-      return;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSortOrder(null); // Clear sort order so it re-sorts on next open
+    } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsLoading(false); // No async loading needed - data comes from Zustand
     }
+  }, [visible]);
 
-    async function loadHabitProgress() {
-      console.log('[NowWeekPopup] Starting load, visible:', visible);
-      setIsLoading(true);
-      try {
-        // Get all habits from repo if not provided
-        let habitsToProcess: Habit[];
-        if (allHabits && allHabits.length > 0) {
-          habitsToProcess = allHabits;
-          console.log('[NowWeekPopup] Using provided allHabits:', habitsToProcess.length);
-        } else {
-          habitsToProcess = (await repo.listByType('habit')) as Habit[];
-          console.log('[NowWeekPopup] Fetched from repo:', habitsToProcess.length);
-        }
-
-        if (habitsToProcess.length === 0) {
-          console.log('[NowWeekPopup] No habits found!');
-          setEnrichedHabits([]);
-          setIsLoading(false);
-          return;
-        }
-
-        // Fetch progress dates for each habit
-        const enriched: RawHabit[] = await Promise.all(
-          habitsToProcess.map(async (habit) => {
-            const progressDates = await repo.getHabitProgressDates(
-              habit.id,
-              weekStartIso,
-              weekEndIso,
-            );
-            // Parse frequency_value as numeric target for x_per_week computation
-            const freqVal = (habit as any).frequency_value;
-            const numericTarget =
-              typeof freqVal === 'number' ? freqVal : ((habit as any).target_per_period ?? 1);
-
-            return {
-              id: habit.id,
-              name: habit.name,
-              frequency: habit.frequency || 'daily',
-              frequency_value: numericTarget,
-              // Pass through full frequency_value JSON for label derivation
-              frequency_json: freqVal,
-              // Pass through cadence and target_per_period for frequency label
-              cadence: (habit as any).cadence as 'daily' | 'weekly' | 'monthly' | undefined,
-              target_per_period: (habit as any).target_per_period as number | undefined,
-              labels: habit.labels,
-              type: habit.type,
-              habit_progress: progressDates.map((d: string) => ({ occurred_day: d })),
-              schedule_days: (habit as any).days_active?.map((d: string) => {
-                const dayMap: Record<string, number> = {
-                  sun: 0,
-                  mon: 1,
-                  tue: 2,
-                  wed: 3,
-                  thu: 4,
-                  fri: 5,
-                  sat: 6,
-                };
-                return dayMap[d.toLowerCase()] ?? parseInt(d, 10);
-              }),
-            };
-          }),
-        );
-        console.log(
-          '[NowWeekPopup] Enriched habits:',
-          enriched.length,
-          enriched.map((h) => ({
-            name: h.name,
-            cadence: h.cadence,
-            target_per_period: h.target_per_period,
-            frequency: h.frequency,
-          })),
-        );
-        setEnrichedHabits(enriched);
-      } catch (error) {
-        console.error('[NowWeekPopup] Failed to load habit progress:', error);
-      } finally {
-        setIsLoading(false);
-      }
+  // Log enriched habits for debugging
+  useEffect(() => {
+    if (visible && enrichedHabits.length > 0) {
+      console.log(
+        '[NowWeekPopup] Enriched habits:',
+        enrichedHabits.length,
+        enrichedHabits.map((h) => ({
+          name: h.name,
+          cadence: h.cadence,
+          target_per_period: h.target_per_period,
+          frequency: h.frequency,
+        })),
+      );
     }
-
-    loadHabitProgress();
-  }, [visible, allHabits, repo, weekStartIso, weekEndIso]);
+  }, [visible, enrichedHabits]);
 
   // Compute weekly stats from enriched habits
   const rawWeeklyStats = useWeeklyHabitStats(enrichedHabits);
+
+  // Capture sort order on first render (via effect, not during render)
+  useEffect(() => {
+    if (rawWeeklyStats.length > 0 && sortOrder == null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSortOrder(rawWeeklyStats.map((s) => s.id));
+    }
+  }, [rawWeeklyStats, sortOrder]);
 
   // Apply stable sort order to prevent row jumping on toggle
   const weeklyStats = useMemo(() => {
     if (rawWeeklyStats.length === 0) return rawWeeklyStats;
 
-    // If no stored sort order, capture the initial sort order
-    if (!sortOrderRef.current) {
-      sortOrderRef.current = rawWeeklyStats.map((s) => s.id);
+    // If no stored sort order yet, return unsorted
+    if (sortOrder == null) {
       return rawWeeklyStats;
     }
 
     // Re-order based on stored sort order
-    const orderMap = new Map(sortOrderRef.current.map((id, idx) => [id, idx]));
+    const orderMap = new Map(sortOrder.map((id, idx) => [id, idx]));
     return [...rawWeeklyStats].sort((a, b) => {
       const aIdx = orderMap.get(a.id) ?? 999;
       const bIdx = orderMap.get(b.id) ?? 999;
       return aIdx - bIdx;
     });
-  }, [rawWeeklyStats]);
+  }, [rawWeeklyStats, sortOrder]);
 
   console.log(
     '[NowWeekPopup] enrichedHabits:',
@@ -271,58 +267,33 @@ export function NowWeekPopup({
       ? weeklyStats[0].todayIndex
       : 6;
 
-  // Handle day toggle - optimistic update only, no immediate refresh
+  // Handle day toggle - use Zustand actions for single source of truth
   const handleToggleDay = useCallback(
     async (habitId: string, dateISO: string, newState: boolean) => {
-      console.log('[HabitsSheet] local toggle only, no global reload', {
+      console.log('[HabitsSheet] toggling via Zustand', {
         habitId,
         dateISO,
         newState,
       });
 
-      // Optimistically update local state immediately
-      setEnrichedHabits((prev) =>
-        prev.map((habit) => {
-          if (habit.id !== habitId) return habit;
-          const progress = habit.habit_progress || [];
-          if (newState) {
-            // Add date if not present
-            if (!progress.some((p) => p.occurred_day === dateISO)) {
-              return {
-                ...habit,
-                habit_progress: [...progress, { occurred_day: dateISO }],
-              };
-            }
-          } else {
-            // Remove date
-            return {
-              ...habit,
-              habit_progress: progress.filter((p) => p.occurred_day !== dateISO),
-            };
-          }
-          return habit;
-        }),
-      );
-
-      // Call parent handler if provided
+      // Call parent handler if provided (for backwards compat)
       if (onToggleDay) {
         onToggleDay(habitId, dateISO, newState);
-      } else {
-        // Use silent repo methods - they don't emit events, avoiding global reload
-        try {
-          if (newState) {
-            await repo.completeHabitForDateSilent(habitId, dateISO);
-          } else {
-            await repo.removeHabitCompletionSilent(habitId, dateISO);
-          }
-          // No refresh needed - local state is already updated
-        } catch (error) {
-          console.error('[NowWeekPopup] Failed to toggle day:', error);
-          // TODO: Could roll back local state here on failure
+      }
+
+      // Use Zustand actions - updates habitProgress immediately,
+      // which will update both Today's Focus and Habits This Week
+      try {
+        if (newState) {
+          await logHabitCompletionForDate(habitId, dateISO);
+        } else {
+          await removeHabitCompletionForDate(habitId, dateISO);
         }
+      } catch (error) {
+        console.error('[NowWeekPopup] Failed to toggle day:', error);
       }
     },
-    [repo, onToggleDay],
+    [onToggleDay, logHabitCompletionForDate, removeHabitCompletionForDate],
   );
 
   return (
