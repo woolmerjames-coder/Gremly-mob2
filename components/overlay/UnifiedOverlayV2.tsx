@@ -141,13 +141,37 @@ function buildFrequencyJsonFromDb(
     return frequencyValue;
   }
 
-  const freq = frequency || 'daily';
+  const freq = (frequency || 'daily').toLowerCase();
 
   // If there's a numeric frequency_value, it means "N times per <freq>"
   if (typeof frequencyValue === 'number' && frequencyValue > 0) {
     // Map frequency to custom unit
     const unit = freq === 'weekly' ? 'week' : freq === 'monthly' ? 'month' : 'day';
     return { type: 'custom', count: frequencyValue, unit };
+  }
+
+  // Parse "N times a week/day/month" format from AI enrichment
+  const timesMatch = freq.match(/(\d+)\s*(?:times?\s+(?:a|per)\s*)(day|week|month)/i);
+  if (timesMatch) {
+    const count = parseInt(timesMatch[1], 10);
+    const unit = timesMatch[2].toLowerCase();
+    return { type: 'custom', count, unit };
+  }
+
+  // Parse "twice a week/day/month"
+  const twiceMatch = freq.match(/twice\s+(?:a|per)\s*(day|week|month)/i);
+  if (twiceMatch) {
+    const unit = twiceMatch[1].toLowerCase();
+    return { type: 'custom', count: 2, unit };
+  }
+
+  // Parse "once a week/day/month"
+  const onceMatch = freq.match(/once\s+(?:a|per)\s*(day|week|month)/i);
+  if (onceMatch) {
+    const unit = onceMatch[1].toLowerCase();
+    if (unit === 'day') return { type: 'simple', value: 'daily' };
+    if (unit === 'week') return { type: 'simple', value: 'weekly' };
+    if (unit === 'month') return { type: 'simple', value: 'monthly' };
   }
 
   // Simple frequency (daily, weekly, monthly)

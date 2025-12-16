@@ -26,7 +26,7 @@ export interface ClassifyContext {
 
 // --- Helpers ---
 
-const PHASE1_TIMEOUT_MS = 2000;
+const PHASE1_TIMEOUT_MS = 4000;
 
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
 

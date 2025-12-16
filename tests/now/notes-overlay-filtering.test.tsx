@@ -230,7 +230,6 @@ describe.skip('YourNotesPopup component', () => {
   const mockOnClose = jest.fn();
   const mockOnSelectLog = jest.fn();
   const mockOnSelectJournal = jest.fn();
-  const mockOnCreateNew = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -251,7 +250,6 @@ describe.skip('YourNotesPopup component', () => {
         onClose={mockOnClose}
         onSelectLog={mockOnSelectLog}
         onSelectJournal={mockOnSelectJournal}
-        onCreateNew={mockOnCreateNew}
       />,
     );
 

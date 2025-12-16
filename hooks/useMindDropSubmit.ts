@@ -11,6 +11,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useMindDropStore } from '../lib/stores/mindDropStore';
 import { useRepo } from '../providers/RepoProvider';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { heuristicClassify } from '../lib/minddrop/heuristicClassify';
 import {
   preparePhotoDropText,
@@ -106,6 +107,11 @@ export function useMindDropSubmit(): {
   const repo = useRepo();
   const addPendingItem = useMindDropStore((state) => state.addPendingItem);
   const removePendingItem = useMindDropStore((state) => state.removePendingItem);
+
+  // Zustand store methods - single source of truth for entity creation
+  const createTodo = useGremlyStore((s) => s.createTodo);
+  const createHabit = useGremlyStore((s) => s.createHabit);
+  const createNote = useGremlyStore((s) => s.createNote);
 
   const submitLockRef = useRef(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -256,12 +262,12 @@ export function useMindDropSubmit(): {
             initialDueDate = today;
           }
 
-          entity = await repo.create({
-            type: 'todo',
+          // Use Zustand store method - single source of truth
+          entity = await createTodo({
             name: parsedFields.title || effectiveText, // Use cleaned title (without "tomorrow")
             body: effectiveText, // Preserve original text
             space_id: context.spaceId ?? null,
-            dropId,
+            drop_id: dropId,
             origin: context.source === 'space' ? 'space_chat' : 'catchall',
             due_day: initialDueDay,
             due_date: initialDueDate,
@@ -272,29 +278,29 @@ export function useMindDropSubmit(): {
             },
           });
         } else if (entityType === 'habit') {
-          entity = await repo.create({
-            type: 'habit',
+          // Use Zustand store method - single source of truth
+          // Note: DB requires both 'name' and 'title' columns
+          entity = await createHabit({
             name: effectiveText,
-            title: effectiveText,
+            title: effectiveText, // DB requires title column
             frequency: 'daily', // Default frequency for habits
             space_id: context.spaceId ?? null,
-            dropId,
+            drop_id: dropId,
             origin: context.source === 'space' ? 'space_chat' : 'catchall',
             start_date: context.source === 'today' ? today : null,
             views: {
               minddrop_stage: 'classified',
               ai_pending: true,
             },
-          });
+          } as any); // Cast to any because Habit type doesn't include 'title' but DB requires it
         } else {
-          // note (log)
-          entity = await repo.create({
-            type: 'note',
+          // note (log) - Use Zustand store method - single source of truth
+          entity = await createNote({
             title: effectiveText,
             body: effectiveText,
             subtype: logSubtypeToNoteSubtype(subtypeHint),
             space_id: context.spaceId ?? null,
-            dropId,
+            drop_id: dropId,
             origin: context.source === 'space' ? 'space_chat' : 'catchall',
             views: {
               minddrop_stage: 'classified',
@@ -303,7 +309,8 @@ export function useMindDropSubmit(): {
           });
         }
 
-        // Emit event to sync store (storeSync will handle confirmation)
+        // Emit event for other listeners (CatchAllNotepad, etc.) to update their local state
+        // Note: Zustand store is already updated by the create methods above
         console.log('[MindDrop:Submit] Emitting entity:created event');
         eventBus.emit('entity:created', {
           entity: { ...entity, drop_id: dropId },
@@ -436,7 +443,7 @@ export function useMindDropSubmit(): {
         };
       }
     },
-    [repo, addPendingItem, removePendingItem],
+    [repo, addPendingItem, removePendingItem, createTodo, createHabit, createNote],
   );
 
   return { submit, isSubmitting };

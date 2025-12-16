@@ -2,6 +2,7 @@ import { createSelector } from 'reselect';
 import { useGremlyStore, type HabitProgressRow } from './useGremlyStore';
 import type { Todo, Habit, Note, Space } from '../types';
 import type { SweepCandidate, SweepCandidateTodo, SweepCandidateNote } from '../sweep/types';
+import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -128,6 +129,163 @@ export const selectHabitCompletedToday = createSelector(
       }
     }
     return set;
+  },
+);
+
+/**
+ * Rolling 7-day completion counts (not calendar week)
+ * Counts unique days with completions per habit in the last 7 days including today
+ */
+export const selectCompletionsInRolling7Days = createSelector(
+  [selectHabitProgress],
+  (progress): Map<string, number> => {
+    const windowStartStr = getDaysAgoDayString(6); // 7 days including today
+    const seenDays = new Map<string, Set<string>>(); // Track unique days per habit
+
+    for (const row of progress) {
+      if (row.occurred_day >= windowStartStr) {
+        const key = row.habit_id;
+        if (!seenDays.has(key)) seenDays.set(key, new Set());
+        seenDays.get(key)!.add(row.occurred_day);
+      }
+    }
+
+    // Convert to count map
+    const map = new Map<string, number>();
+    for (const [habitId, days] of seenDays) {
+      map.set(habitId, days.size);
+    }
+
+    return map;
+  },
+);
+
+/**
+ * Rolling 30-day completion counts
+ * Counts unique days with completions per habit in the last 30 days including today
+ */
+export const selectCompletionsInRolling30Days = createSelector(
+  [selectHabitProgress],
+  (progress): Map<string, number> => {
+    const windowStartStr = getDaysAgoDayString(29); // 30 days including today
+    const seenDays = new Map<string, Set<string>>();
+
+    for (const row of progress) {
+      if (row.occurred_day >= windowStartStr) {
+        const key = row.habit_id;
+        if (!seenDays.has(key)) seenDays.set(key, new Set());
+        seenDays.get(key)!.add(row.occurred_day);
+      }
+    }
+
+    const map = new Map<string, number>();
+    for (const [habitId, days] of seenDays) {
+      map.set(habitId, days.size);
+    }
+
+    return map;
+  },
+);
+
+/**
+ * Frequency habits available to add to Today
+ * These are weekly/monthly habits that aren't already shown in due-today
+ * Includes habits both at-goal and below-goal (user might want to get ahead)
+ */
+export const selectAvailableFrequencyHabits = createSelector(
+  [
+    selectHabits,
+    selectCompletionsInRolling7Days,
+    selectCompletionsInRolling30Days,
+    selectHabitCompletedToday,
+  ],
+  (
+    habits,
+    rolling7,
+    rolling30,
+    completedTodaySet,
+  ): Array<{
+    habit: Habit;
+    completions: number;
+    target: number;
+    periodLabel: string;
+    isAtGoal: boolean;
+  }> => {
+    return habits
+      .filter((h) => {
+        if (h.archived) return false;
+        // Already completed today - don't show in available section
+        if (completedTodaySet.has(h.id)) return false;
+        const cadence = h.cadence ?? 'daily';
+        // Only frequency habits (not daily)
+        return cadence === 'weekly' || cadence === 'monthly';
+      })
+      .map((h) => {
+        const cadence = h.cadence ?? 'weekly';
+        const target = h.target_per_period ?? 1;
+        const completions =
+          cadence === 'weekly' ? (rolling7.get(h.id) ?? 0) : (rolling30.get(h.id) ?? 0);
+        const periodLabel = cadence === 'weekly' ? 'past 7d' : 'past 30d';
+
+        return {
+          habit: h,
+          completions,
+          target,
+          periodLabel,
+          isAtGoal: completions >= target,
+        };
+      });
+  },
+);
+
+/**
+ * Frequency habits that need urgent attention
+ * Criteria: completions < target AND oldest completion rolls off tomorrow
+ * These should auto-promote to Today's Focus
+ */
+export const selectUrgentFrequencyHabits = createSelector(
+  [selectHabits, selectHabitProgress],
+  (habits, progress): Habit[] => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    return habits.filter((h) => {
+      if (h.archived) return false;
+      const cadence = h.cadence ?? 'daily';
+      if (cadence === 'daily') return false; // Daily habits handled separately
+
+      const target = h.target_per_period ?? 1;
+      const windowDays = cadence === 'weekly' ? 7 : 30;
+
+      // Get completions in current window
+      const windowStart = new Date(today);
+      windowStart.setDate(today.getDate() - windowDays + 1);
+      const windowStartStr = windowStart.toISOString().split('T')[0];
+
+      const completions = progress.filter(
+        (p) =>
+          p.habit_id === h.id && p.occurred_day >= windowStartStr && p.occurred_day <= todayStr,
+      );
+
+      const uniqueDays = new Set(completions.map((c) => c.occurred_day)).size;
+
+      // Not behind? Not urgent.
+      if (uniqueDays >= target) return false;
+
+      // Check if oldest completion rolls off tomorrow
+      const sortedDays = [...new Set(completions.map((c) => c.occurred_day))].sort();
+      if (sortedDays.length === 0) return true; // No completions and behind = urgent
+
+      const oldestCompletion = sortedDays[0];
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+      const tomorrowWindowStart = new Date(tomorrow);
+      tomorrowWindowStart.setDate(tomorrow.getDate() - windowDays + 1);
+      const tomorrowWindowStartStr = tomorrowWindowStart.toISOString().split('T')[0];
+
+      // If oldest completion would be outside tomorrow's window, it's urgent
+      return oldestCompletion < tomorrowWindowStartStr;
+    });
   },
 );
 
@@ -828,6 +986,62 @@ export const selectHubHabits = createSelector([selectHabits], (habits) =>
     ),
 );
 
+/**
+ * Compute habit weekly status for NowWeeklyHabitSummary
+ * Logic from nowSelectors.ts getHabitWeeklyStatus
+ */
+function computeHabitWeeklyStatus(habit: Habit, completionsThisWeek: number): HabitWeeklyStatus {
+  const cadence = habit.cadence ?? 'daily';
+  const target = habit.target_per_period ?? (cadence === 'daily' ? 7 : 1);
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0 = Sunday
+  const daysRemaining = 7 - dayOfWeek; // days left including today
+
+  // Weekly target for status calculation
+  const weeklyTarget = cadence === 'daily' ? 7 : cadence === 'weekly' ? target : 0;
+
+  // Already hit weekly target
+  if (completionsThisWeek >= weeklyTarget) {
+    return 'week_complete';
+  }
+
+  // How many more needed this week
+  const remaining = weeklyTarget - completionsThisWeek;
+
+  // Last chance: need to complete every remaining day
+  if (remaining >= daysRemaining) {
+    return 'last_chance';
+  }
+
+  // Flexible: have extra days to complete
+  if (remaining < daysRemaining - 1) {
+    return 'flexible';
+  }
+
+  return 'on_track_today';
+}
+
+/** Weekly habit summaries for NowHeader Habits card */
+export const selectWeeklyHabitSummaries = createSelector(
+  [selectHubHabits, selectCompletionsThisWeek],
+  (habits, completionsMap): NowWeeklyHabitSummary[] => {
+    return habits.map((habit) => {
+      const completionsThisWeek = completionsMap.get(habit.id) ?? 0;
+      const cadence = habit.cadence ?? 'daily';
+      const targetPerWeek =
+        cadence === 'daily' ? 7 : cadence === 'weekly' ? (habit.target_per_period ?? 1) : 0;
+
+      return {
+        habitId: habit.id,
+        name: habit.name || 'Untitled Habit',
+        targetPerWeek,
+        completionsThisWeek,
+        status: computeHabitWeeklyStatus(habit, completionsThisWeek),
+      };
+    });
+  },
+);
+
 /** Hub journals - notes with subtype='journal', sorted by created_at desc */
 export const selectHubJournals = createSelector([selectActiveNotes], (notes) =>
   notes
@@ -887,6 +1101,7 @@ export const useArchivedItems = () => useGremlyStore(selectAllArchivedItems);
 export const useOverdueTodos = () => useGremlyStore(selectOverdueTodos);
 export const useTodayLogsCount = () => useGremlyStore(selectTodayLogsCount);
 export const useHabitsCompletedToday = () => useGremlyStore(selectHabitsCompletedToday);
+export const useWeeklyHabitSummaries = () => useGremlyStore(selectWeeklyHabitSummaries);
 
 // Parameterized hooks (renamed to avoid conflict with legacy hooks)
 export const useSpaceTodosFromStore = (spaceId: string) =>
@@ -1145,16 +1360,22 @@ export const useAllSpaceMilestones = (spaceId: string) =>
 // ITEM LOOKUP SELECTORS (for Mind Drop / CatchAllNotepad)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Select any item by ID - searches todos, habits, notes */
+/** Select any item by ID - searches todos, habits, notes
+ * IMPORTANT: Adds the `type` field since the database doesn't store it
+ */
 export const selectItemById = createSelector(
   [selectTodos, selectHabits, selectNotes, (_state: GremlyState, id: string) => id],
   (todos, habits, notes, id): (Todo | Habit | Note) | null => {
-    return (
-      todos.find((t) => t.id === id) ??
-      habits.find((h) => h.id === id) ??
-      notes.find((n) => n.id === id) ??
-      null
-    );
+    const todo = todos.find((t) => t.id === id);
+    if (todo) return { ...todo, type: 'todo' as const };
+
+    const habit = habits.find((h) => h.id === id);
+    if (habit) return { ...habit, type: 'habit' as const };
+
+    const note = notes.find((n) => n.id === id);
+    if (note) return { ...note, type: 'note' as const };
+
+    return null;
   },
 );
 

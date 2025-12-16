@@ -1,17 +1,18 @@
 /**
- * HabitWeeklyRow - A compact row displaying a habit with weekly progress dots
+ * HabitWeeklyRow - A compact row displaying a habit with weekly progress using GremlyDot faces
  *
  * LAYOUT (day labels in shared header in NowWeekPopup):
  * - Left: accent bar (color reflects status) + habit name
- * - Middle: 7 dots for the week
+ * - Middle: 7 GremlyDot faces for the week (green=done, grey=incomplete)
  * - Right: frequency text + status label stacked
  *
- * Each day dot is tappable for past/current days (not future).
+ * Each GremlyDot is tappable for past/current days (not future).
  */
 
-import React, { useCallback, useState, memo } from 'react';
+import React, { useCallback, useState } from 'react';
 import { StyleSheet, Pressable, View } from 'react-native';
-import { Box, Text } from '../../ui';
+import { Text } from '../../ui';
+import { GremlyDot } from '../ui/GremlyDot';
 import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitStats';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,18 +21,14 @@ import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitSt
 
 const MOSS_GREEN = '#2E5540';
 const GOLDEN_PEAR = '#E0C47A';
-const SAGE_MIST = '#DCDCD6';
 const CHARCOAL_INK = '#222222';
 const INK_SUBTLE = 'rgba(34, 34, 34, 0.55)';
 const BORDER_SUBTLE = 'rgba(0, 0, 0, 0.08)';
-// Neutral grey for hollow "missed" dots - matches unselected UI elements
-const NEUTRAL_GREY = 'rgba(34, 34, 34, 0.25)';
 
 // ─── DOT SIZING ───
-// Reduced from 20px to 14px for lighter visual weight
-// Must match NowWeekPopup shared header spacing
-const DOT_SIZE = 14;
-const DOT_SPACING = 12;
+// GremlyDot size 28 with gap 8 per spec
+const DOT_SIZE = 28;
+const DOT_SPACING = 8;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -44,7 +41,9 @@ export interface HabitWeeklyRowProps {
   weeklyTarget: number;
   status: HabitStatus;
   dayDots: DayDot[];
-  dayDates: string[]; // ISO dates for Monday → Sunday
+  dayDates: string[]; // ISO dates for rolling 7 days (today is last)
+  /** Index of today in the rolling window (always 6) */
+  todayIndex?: number;
   /** Frequency string like "Daily", "3× per week", "Mon · Wed · Fri" */
   frequencyLabel?: string;
   onToggleDay: (habitId: string, dateISO: string, newState: boolean) => void;
@@ -87,68 +86,18 @@ function getStatusLabel(status: HabitStatus): { text: string; color: string } {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DayDotButton Component
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface DayDotButtonProps {
-  state: DayDot;
-  dateISO: string;
-  onPress: (dateISO: string, newState: boolean) => void;
-  /** Optimistic state override for immediate feedback */
-  optimisticState?: DayDot;
-}
-
-const DayDotButton = React.memo(function DayDotButton({
-  state,
-  dateISO,
-  onPress,
-  optimisticState,
-}: DayDotButtonProps) {
-  const displayState = optimisticState ?? state;
-  // 'future' is disabled, but 'pending' (x_per_week past days) is tappable
-  const isFuture = displayState === 'future';
-  const isDone = displayState === 'done';
-  // ─── MISSED = HOLLOW DOT ───
-  // Past days not completed render as neutral hollow grey circle (not red)
-  const isMissed = displayState === 'missed';
-
-  const handlePress = useCallback(() => {
-    console.log('[HabitsSheet] dot tapped', { dateISO, isFuture, isDone, willBe: !isDone });
-    if (isFuture) return;
-    onPress(dateISO, !isDone);
-  }, [isFuture, isDone, dateISO, onPress]);
-
-  return (
-    <Pressable
-      onPress={handlePress}
-      disabled={isFuture}
-      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
-      style={({ pressed }) => [
-        styles.dot,
-        // ─── DOT STYLING BY STATE ───
-        // Done: filled green | Missed: hollow grey | Future/Pending: filled light grey
-        isDone && styles.dotDone,
-        isMissed && styles.dotMissed,
-        !isDone && !isMissed && styles.dotDefault,
-        isFuture && styles.dotFuture,
-        pressed && !isFuture && styles.dotPressed,
-      ]}
-    />
-  );
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // HabitWeeklyRow Component
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
   habitId,
   name,
-  weeklyCompleted,
+  weeklyCompleted: _weeklyCompleted,
   weeklyTarget,
   status,
   dayDots,
   dayDates,
+  todayIndex = 6,
   frequencyLabel,
   onToggleDay,
   onPressHeader,
@@ -216,15 +165,25 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
         {/* ─── DOTS ROW ONLY ─── */}
         {/* Day labels removed - now in shared header in NowWeekPopup */}
         <View style={styles.dotsRow}>
-          {dayDots.map((dotState, index) => (
-            <DayDotButton
-              key={dayDates[index]}
-              state={dotState}
-              dateISO={dayDates[index]}
-              onPress={handleDotPress}
-              optimisticState={optimisticDots[dayDates[index]]}
-            />
-          ))}
+          {dayDots.map((dotState, index) => {
+            const dateISO = dayDates[index];
+            const optimistic = optimisticDots[dateISO];
+            const effectiveState = optimistic ?? dotState;
+            const isCompleted = effectiveState === 'done';
+            const isToday = index === todayIndex;
+            const isFuture = dotState === 'future';
+
+            return (
+              <GremlyDot
+                key={dateISO}
+                isCompleted={isCompleted}
+                isToday={isToday}
+                isFuture={isFuture}
+                onPress={() => handleDotPress(dateISO, !isCompleted)}
+                size={DOT_SIZE}
+              />
+            );
+          })}
         </View>
       </View>
 
@@ -240,11 +199,12 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
 
 const styles = StyleSheet.create({
   // ─── OUTER ROW ───
-  // Compact vertical padding, maintains ~44-48px touch target height
+  // 76px minHeight with vertical padding to fit GremlyDot faces
   row: {
     flexDirection: 'row',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingRight: 4,
+    minHeight: 76,
   },
   // Left accent bar - color set dynamically based on status
   accentBar: {
@@ -291,40 +251,12 @@ const styles = StyleSheet.create({
     marginTop: 1, // Tiny gap between frequency and status
   },
   // ─── DOTS ROW ───
-  // Aligns with shared header labels in NowWeekPopup
+  // GremlyDot faces aligned with shared header labels in NowWeekPopup
   dotsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-start',
     gap: DOT_SPACING,
-    marginTop: 6, // Small gap between name and dots
-  },
-  // Base dot style - size only, colors set by state-specific styles
-  dot: {
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
-  },
-  // ─── DOT STATE STYLES ───
-  // Done: filled green
-  dotDone: {
-    backgroundColor: MOSS_GREEN,
-  },
-  // Missed: hollow grey circle (neutral, not harsh red)
-  dotMissed: {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: NEUTRAL_GREY,
-  },
-  // Default (future/pending): filled light grey
-  dotDefault: {
-    backgroundColor: SAGE_MIST,
-  },
-  dotFuture: {
-    opacity: 0.4,
-  },
-  dotPressed: {
-    transform: [{ scale: 0.85 }],
-    opacity: 0.8,
+    marginTop: 8, // Gap between name and GremlyDot row
   },
   // Bottom divider between rows
   divider: {

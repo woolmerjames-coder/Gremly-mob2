@@ -2,45 +2,59 @@
  * YourNotesRow - Row component for displaying individual logs in the Your Notes hub
  *
  * Layout:
- * ┌─────────────────────────────────────────┐
- * │ 📓  Sunday reflection             today │
- * │     Journal                             │
- * └─────────────────────────────────────────┘
+ * ┌─────────────────────────────────────────────────────────────────┐
+ * │ [icon]  Sunday reflection                                today │
+ * │         Journal  · Work                                        │
+ * └─────────────────────────────────────────────────────────────────┘
+ *
+ * Changes from v1:
+ * - Replaced emoji icons with Lucide icons
+ * - Added Space chip to show which Space a note belongs to
  */
 
 import React from 'react';
 import { TouchableOpacity, View, StyleSheet } from 'react-native';
-import { format, isToday, isYesterday, parseISO, differenceInDays, startOfWeek } from 'date-fns';
+import { format, isToday, isYesterday, parseISO, differenceInDays } from 'date-fns';
+import { BookOpen, Lightbulb, FileText } from 'lucide-react-native';
 import { Box, Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import type { LogItem } from '../../lib/notes/useRecentLogs';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Design Tokens
+// ─────────────────────────────────────────────────────────────────────────────
+const MOSS_GREEN = '#2E5540';
+
 // Icon colors by subtype
 const ICON_COLORS = {
-  journal: '#2E5540', // Brand moss green
-  idea: '#D4A017', // Amber/yellow
-  general: '#888888', // Grey
-} as const;
-
-// Emojis by subtype
-const SUBTYPE_ICONS = {
-  journal: '📓',
-  idea: '💡',
-  general: '📝',
+  journal: MOSS_GREEN,
+  idea: '#D4A017', // Amber/gold
+  general: '#777777', // Subtle grey
 } as const;
 
 // Divider color
 const DIVIDER_COLOR = '#E8E6E1';
 
-// Row height
-const ROW_HEIGHT = 64;
+// Space chip colors
+const SPACE_CHIP_BG = 'rgba(46, 85, 64, 0.08)';
+const SPACE_CHIP_TEXT = MOSS_GREEN;
 
+// Row height
+const ROW_HEIGHT = 68;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 interface YourNotesRowProps {
   log: LogItem;
   onPress: (log: LogItem) => void;
+  spaceName?: string;
   isFirst?: boolean;
-  isLast?: boolean;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper Functions
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Format timestamp for display
@@ -104,12 +118,29 @@ function buildSubtitle(log: LogItem): string {
   }
 }
 
-export function YourNotesRow({ log, onPress, isFirst = false, isLast = false }: YourNotesRowProps) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
+export function YourNotesRow({ log, onPress, spaceName, isFirst = false }: YourNotesRowProps) {
   const tokens = useTokens();
 
-  const icon = SUBTYPE_ICONS[log.logSubtype];
+  const iconColor = ICON_COLORS[log.logSubtype] || ICON_COLORS.general;
   const timestamp = formatTimestamp(log.createdAt);
   const subtitle = buildSubtitle(log);
+
+  // Render icon based on subtype
+  const renderIcon = () => {
+    const iconProps = { size: 20, color: iconColor, strokeWidth: 1.75 };
+    switch (log.logSubtype) {
+      case 'journal':
+        return <BookOpen {...iconProps} />;
+      case 'idea':
+        return <Lightbulb {...iconProps} />;
+      case 'general':
+      default:
+        return <FileText {...iconProps} />;
+    }
+  };
 
   return (
     <View style={styles.rowWrapper}>
@@ -122,9 +153,7 @@ export function YourNotesRow({ log, onPress, isFirst = false, isLast = false }: 
         activeOpacity={0.7}
       >
         {/* Icon */}
-        <View style={styles.iconContainer}>
-          <Text style={styles.icon}>{icon}</Text>
-        </View>
+        <View style={styles.iconContainer}>{renderIcon()}</View>
 
         {/* Content area */}
         <Box style={styles.content}>
@@ -140,7 +169,7 @@ export function YourNotesRow({ log, onPress, isFirst = false, isLast = false }: 
                 },
               ]}
             >
-              {log.title}
+              {log.title || 'Untitled'}
             </Text>
             {timestamp && (
               <Text
@@ -157,25 +186,41 @@ export function YourNotesRow({ log, onPress, isFirst = false, isLast = false }: 
             )}
           </Box>
 
-          {/* Subtitle row */}
-          <Text
-            numberOfLines={1}
-            style={[
-              styles.subtitle,
-              {
-                color: tokens.colors.subtle,
-                fontFamily: tokens.typography.fontFamily.regular,
-              },
-            ]}
-          >
-            {subtitle}
-          </Text>
+          {/* Subtitle row with optional Space chip */}
+          <View style={styles.subtitleRow}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.subtitle,
+                {
+                  color: tokens.colors.subtle,
+                  fontFamily: tokens.typography.fontFamily.regular,
+                },
+              ]}
+            >
+              {subtitle}
+            </Text>
+
+            {spaceName && (
+              <>
+                <Text style={styles.subtitleDot}>·</Text>
+                <View style={styles.spaceChip}>
+                  <Text style={styles.spaceChipText} numberOfLines={1}>
+                    {spaceName}
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
         </Box>
       </TouchableOpacity>
     </View>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Styles
+// ─────────────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   rowWrapper: {
     backgroundColor: '#FDF8F3', // Match warm Gremly background
@@ -199,9 +244,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
-  icon: {
-    fontSize: 20,
-  },
   content: {
     flex: 1,
     justifyContent: 'center',
@@ -221,10 +263,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
+  subtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+  },
   subtitle: {
     fontSize: 12,
     lineHeight: 16,
-    marginTop: 2,
+  },
+  subtitleDot: {
+    fontSize: 12,
+    color: '#999999',
+    marginHorizontal: 6,
+  },
+  spaceChip: {
+    backgroundColor: SPACE_CHIP_BG,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    maxWidth: 120,
+  },
+  spaceChipText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: SPACE_CHIP_TEXT,
   },
 });
 

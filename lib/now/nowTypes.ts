@@ -28,6 +28,8 @@ export interface NowLockedItem {
   targetPerPeriod?: number;
   progressToday?: number;
   completedAt?: string | null;
+  /** Human-readable frequency like "3 times a week" */
+  frequency?: string;
 }
 
 /**
@@ -50,6 +52,8 @@ export interface NowActiveItem {
   progressToday?: number;
   weeklyStatus?: HabitWeeklyStatus;
   timeWindow?: 'morning' | 'midday' | 'evening' | 'any';
+  /** Human-readable frequency like "3 times a week" */
+  frequency?: string;
 }
 
 /**

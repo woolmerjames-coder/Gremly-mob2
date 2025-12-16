@@ -71,6 +71,10 @@ interface GremlyState {
   deleteHabit: (id: string) => Promise<void>;
   completeHabit: (id: string) => Promise<void>;
   uncompleteHabit: (id: string) => Promise<void>;
+  /** Log habit completion for a specific date (for Habits This Week) */
+  logHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
+  /** Remove habit completion for a specific date (for Habits This Week) */
+  removeHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
   archiveHabit: (id: string, reason?: string) => Promise<void>;
   restoreHabit: (id: string) => Promise<void>;
 
@@ -219,9 +223,10 @@ export const useGremlyStore = create<GremlyState>()(
           console.warn('[GremlyStore] milestones fetch error:', milestonesRes.error);
 
         set({
-          todos: todosRes.data ?? [],
-          habits: habitsRes.data ?? [],
-          notes: notesRes.data ?? [],
+          // Add type field since DB doesn't store it
+          todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
+          habits: (habitsRes.data ?? []).map((h) => ({ ...h, type: 'habit' as const })),
+          notes: (notesRes.data ?? []).map((n) => ({ ...n, type: 'note' as const })),
           spaces: spacesRes.data ?? [],
           tags: tagsRes.data ?? [],
           habitProgress: progressRes.data ?? [],
@@ -293,7 +298,6 @@ export const useGremlyStore = create<GremlyState>()(
       const payload = {
         ...todo,
         owner_id: userId,
-        type: 'todo' as const,
         created_at: now,
         updated_at: now,
       };
@@ -305,18 +309,19 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      // Add to store
+      // Add to store with type field (DB doesn't store it)
+      const todoWithType = { ...data, type: 'todo' as const };
       set((state) => ({
-        todos: [...state.todos, data],
+        todos: [...state.todos, todoWithType],
       }));
 
       eventBus.emit('entity:created', {
-        entity: data,
+        entity: todoWithType,
         type: 'todo',
         spaceId: data.space_id,
         source: STORE_EVENT_SOURCE,
       });
-      return data;
+      return todoWithType;
     },
 
     updateTodo: async (id: string, updates: Partial<Todo>) => {
@@ -500,13 +505,19 @@ export const useGremlyStore = create<GremlyState>()(
       if (!userId) throw new Error('Not authenticated');
 
       const now = new Date().toISOString();
-      const payload = {
-        ...habit,
+
+      // Map camelCase to snake_case for DB columns, remove client-only fields
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { canonicalType, type, ...dbHabit } = habit as Record<string, unknown>;
+      const payload: Record<string, unknown> = {
+        ...dbHabit,
         owner_id: userId,
-        type: 'habit' as const,
         created_at: now,
         updated_at: now,
       };
+      if (canonicalType !== undefined) {
+        payload.canonical_type = canonicalType;
+      }
 
       const { data, error } = await supabase.from('habits').insert(payload).select().single();
 
@@ -515,18 +526,19 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      // Add to store
+      // Add to store with type field (DB doesn't store it)
+      const habitWithType = { ...data, type: 'habit' as const };
       set((state) => ({
-        habits: [...state.habits, data],
+        habits: [...state.habits, habitWithType],
       }));
 
       eventBus.emit('entity:created', {
-        entity: data,
+        entity: habitWithType,
         type: 'habit',
         spaceId: data.space_id,
         source: STORE_EVENT_SOURCE,
       });
-      return data;
+      return habitWithType;
     },
 
     updateHabit: async (id: string, updates: Partial<Habit>) => {
@@ -538,11 +550,15 @@ export const useGremlyStore = create<GremlyState>()(
         habits: state.habits.map((h) => (h.id === id ? { ...h, ...updates, updated_at: now } : h)),
       }));
 
-      // 2. SYNC TO SUPABASE
-      const { error } = await supabase
-        .from('habits')
-        .update({ ...updates, updated_at: now })
-        .eq('id', id);
+      // 2. SYNC TO SUPABASE - Map camelCase to snake_case for DB columns
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { canonicalType, type, ...dbUpdates } = updates as Record<string, unknown>;
+      const supabaseUpdates: Record<string, unknown> = { ...dbUpdates, updated_at: now };
+      if (canonicalType !== undefined) {
+        supabaseUpdates.canonical_type = canonicalType;
+      }
+
+      const { error } = await supabase.from('habits').update(supabaseUpdates).eq('id', id);
 
       // 3. ROLLBACK ON ERROR
       if (error) {
@@ -592,14 +608,16 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const now = new Date().toISOString();
-      const todayDate = now.split('T')[0]; // YYYY-MM-DD for occurred_day
+      const now = new Date();
+      const nowIso = now.toISOString();
+      // Use LOCAL date for occurred_day to match filtering logic
+      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const prevHabit = get().habits.find((h) => h.id === id);
 
       // 1. OPTIMISTIC UPDATE - update habit's last_completed_at
       set((state) => ({
         habits: state.habits.map((h) =>
-          h.id === id ? { ...h, last_completed_at: now, updated_at: now } : h,
+          h.id === id ? { ...h, last_completed_at: nowIso, updated_at: nowIso } : h,
         ),
       }));
 
@@ -609,7 +627,7 @@ export const useGremlyStore = create<GremlyState>()(
           habit_id: id,
           owner_id: userId,
           occurred_day: todayDate,
-          occurred_at: now,
+          occurred_at: nowIso,
           count: 1,
         });
 
@@ -629,7 +647,7 @@ export const useGremlyStore = create<GremlyState>()(
           id: `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           habit_id: id,
           owner_id: userId,
-          occurred_at: now,
+          occurred_at: nowIso,
           occurred_day: todayDate,
           count: 1,
           occurrence_index: null,
@@ -641,7 +659,7 @@ export const useGremlyStore = create<GremlyState>()(
         // 3. UPDATE habit's last_completed_at (denormalized field for fast reads)
         const { error: habitError } = await supabase
           .from('habits')
-          .update({ last_completed_at: now, updated_at: now })
+          .update({ last_completed_at: nowIso, updated_at: nowIso })
           .eq('id', id);
 
         if (habitError) {
@@ -675,7 +693,9 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      // Use LOCAL date for occurred_day to match filtering logic
+      const now = new Date();
+      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const prevHabit = get().habits.find((h) => h.id === id);
 
       // 1. OPTIMISTIC UPDATE
@@ -743,6 +763,116 @@ export const useGremlyStore = create<GremlyState>()(
         }
         throw error;
       }
+    },
+
+    /**
+     * Log habit completion for a specific date (used by Habits This Week sheet).
+     * Updates habitProgress immediately so both Today's Focus and Habits sheet stay in sync.
+     */
+    logHabitCompletionForDate: async (habitId: string, dateIso: string) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const occurredDay = dateIso.split('T')[0]; // Ensure YYYY-MM-DD format
+      const now = new Date().toISOString();
+
+      // Check if already completed for this date
+      const existing = get().habitProgress.find(
+        (p) => p.habit_id === habitId && p.occurred_day === occurredDay,
+      );
+      if (existing) {
+        console.log('[GremlyStore] Habit already completed for date:', { habitId, occurredDay });
+        return;
+      }
+
+      // 1. OPTIMISTIC UPDATE - add to habitProgress immediately
+      const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const newProgressRow: HabitProgressRow = {
+        id: tempId,
+        habit_id: habitId,
+        owner_id: userId,
+        occurred_at: now,
+        occurred_day: occurredDay,
+        count: 1,
+        occurrence_index: null,
+      };
+      set((state) => ({
+        habitProgress: [...state.habitProgress, newProgressRow],
+      }));
+
+      // 2. PERSIST TO SUPABASE (don't await, fire-and-forget with error handling)
+      supabase
+        .from('habit_progress')
+        .insert({
+          habit_id: habitId,
+          owner_id: userId,
+          occurred_day: occurredDay,
+          occurred_at: now,
+          count: 1,
+        })
+        .then(({ error }) => {
+          if (error) {
+            // Rollback on error
+            if (error.code !== '23505') {
+              // Ignore duplicate errors
+              console.error('[GremlyStore] logHabitCompletionForDate failed:', error);
+              set((state) => ({
+                habitProgress: state.habitProgress.filter((p) => p.id !== tempId),
+              }));
+            }
+          } else {
+            console.log('[GremlyStore] ✅ Habit completion logged:', { habitId, occurredDay });
+          }
+        });
+    },
+
+    /**
+     * Remove habit completion for a specific date (used by Habits This Week sheet).
+     * Updates habitProgress immediately so both Today's Focus and Habits sheet stay in sync.
+     */
+    removeHabitCompletionForDate: async (habitId: string, dateIso: string) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const occurredDay = dateIso.split('T')[0]; // Ensure YYYY-MM-DD format
+
+      // Find the record to remove
+      const toRemove = get().habitProgress.find(
+        (p) => p.habit_id === habitId && p.occurred_day === occurredDay,
+      );
+
+      if (!toRemove) {
+        console.log('[GremlyStore] No completion found to remove:', { habitId, occurredDay });
+        return;
+      }
+
+      // 1. OPTIMISTIC UPDATE - remove from habitProgress immediately
+      set((state) => ({
+        habitProgress: state.habitProgress.filter(
+          (p) => !(p.habit_id === habitId && p.occurred_day === occurredDay),
+        ),
+      }));
+
+      // 2. PERSIST TO SUPABASE (don't await, fire-and-forget with error handling)
+      supabase
+        .from('habit_progress')
+        .delete()
+        .eq('habit_id', habitId)
+        .eq('owner_id', userId)
+        .eq('occurred_day', occurredDay)
+        .then(({ error }) => {
+          if (error) {
+            // Rollback on error
+            console.error('[GremlyStore] removeHabitCompletionForDate failed:', error);
+            if (toRemove) {
+              set((state) => ({
+                habitProgress: [...state.habitProgress, toRemove],
+              }));
+            }
+          } else {
+            console.log('[GremlyStore] ✅ Habit completion removed:', { habitId, occurredDay });
+          }
+        });
     },
 
     archiveHabit: async (id: string, reason?: string) => {
@@ -820,7 +950,6 @@ export const useGremlyStore = create<GremlyState>()(
       const payload = {
         ...note,
         owner_id: userId,
-        type: 'note' as const,
         created_at: now,
         updated_at: now,
       };
@@ -832,18 +961,19 @@ export const useGremlyStore = create<GremlyState>()(
         throw error;
       }
 
-      // Add to store
+      // Add to store with type field (DB doesn't store it)
+      const noteWithType = { ...data, type: 'note' as const };
       set((state) => ({
-        notes: [...state.notes, data],
+        notes: [...state.notes, noteWithType],
       }));
 
       eventBus.emit('entity:created', {
-        entity: data,
+        entity: noteWithType,
         type: 'note',
         spaceId: data.space_id,
         source: STORE_EVENT_SOURCE,
       });
-      return data;
+      return noteWithType;
     },
 
     updateNote: async (id: string, updates: Partial<Note>) => {
@@ -1449,9 +1579,10 @@ export const useGremlyStore = create<GremlyState>()(
         ]);
 
         set({
-          todos: todosRes.data ?? [],
-          habits: habitsRes.data ?? [],
-          notes: notesRes.data ?? [],
+          // Add type field since DB doesn't store it
+          todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
+          habits: (habitsRes.data ?? []).map((h) => ({ ...h, type: 'habit' as const })),
+          notes: (notesRes.data ?? []).map((n) => ({ ...n, type: 'note' as const })),
           spaces: spacesRes.data ?? [],
           tags: tagsRes.data ?? [],
           habitProgress: progressRes.data ?? [],
@@ -1653,10 +1784,60 @@ export const useGremlyStore = create<GremlyState>()(
         void fetchAndUpdate();
       };
 
+      // Handler for entity:enriched events (Phase 2 enrichment updates)
+      // This refetches the entity from DB since enrichment updates name, title, frequency, tags, etc.
+      const handleEntityEnriched = (payload: { entityId: string; smartTitle?: string }) => {
+        const fetchAndUpdate = async () => {
+          const state = get();
+          const userId = state.userId;
+          if (!userId) return;
+
+          const entityId = payload.entityId;
+
+          // Check which store array contains this entity
+          const inTodos = state.todos.some((t) => t.id === entityId);
+          const inHabits = state.habits.some((h) => h.id === entityId);
+          const inNotes = state.notes.some((n) => n.id === entityId);
+
+          if (inTodos) {
+            const { data } = await supabase.from('todos').select('*').eq('id', entityId).single();
+            if (data) {
+              set({
+                todos: state.todos.map((t) => (t.id === entityId ? { ...t, ...data } : t)),
+              });
+              console.log('[GremlyStore] ✅ Synced todo from entity:enriched:', entityId);
+            }
+          } else if (inHabits) {
+            const { data } = await supabase.from('habits').select('*').eq('id', entityId).single();
+            if (data) {
+              set({
+                habits: state.habits.map((h) => (h.id === entityId ? { ...h, ...data } : h)),
+              });
+              console.log('[GremlyStore] ✅ Synced habit from entity:enriched:', entityId);
+            }
+          } else if (inNotes) {
+            const { data } = await supabase.from('notes').select('*').eq('id', entityId).single();
+            if (data) {
+              set({
+                notes: state.notes.map((n) => (n.id === entityId ? { ...n, ...data } : n)),
+              });
+              console.log('[GremlyStore] ✅ Synced note from entity:enriched:', entityId);
+            }
+          } else {
+            console.log('[GremlyStore] entity:enriched for unknown entity:', entityId);
+          }
+        };
+
+        void fetchAndUpdate();
+      };
+
       // Subscribe to entity lifecycle events
       const unsub1 = eventBus.on('entity:created', handleEntityCreated);
       const unsub2 = eventBus.on('entity:updated', handleEntityUpdated);
       const unsub3 = eventBus.on('entity:deleted', handleEntityDeleted);
+
+      // Subscribe to enrichment events (Phase 2 updates)
+      const unsub6 = eventBus.on('entity:enriched', handleEntityEnriched);
 
       // Subscribe to legacy events for backward compatibility
       const unsub4 = eventBus.on('ItemUpdated', handleItemUpdated);
@@ -1669,6 +1850,7 @@ export const useGremlyStore = create<GremlyState>()(
         unsub3();
         unsub4();
         unsub5();
+        unsub6();
       };
     },
   })),

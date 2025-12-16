@@ -1,30 +1,37 @@
 /**
  * useMindDropSubmit.test.ts
  *
- * Tests for the Mind Drop submission hook (BRIDGE version)
+ * Tests for the Mind Drop submission hook (uses Zustand store methods)
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react-native';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useMindDropStore } from '../../lib/stores/mindDropStore';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { eventBus } from '../../lib/events/EventBus';
 
-// Mock useRepo
-const mockTodosCreate = jest.fn();
-const mockHabitsCreate = jest.fn();
-const mockNotesCreate = jest.fn();
+// Mock Zustand store methods
+const mockCreateTodo = jest.fn();
+const mockCreateHabit = jest.fn();
+const mockCreateNote = jest.fn();
 
+jest.mock('../../lib/store/useGremlyStore', () => ({
+  useGremlyStore: (selector: any) => {
+    const mockStore = {
+      createTodo: mockCreateTodo,
+      createHabit: mockCreateHabit,
+      createNote: mockCreateNote,
+    };
+    return selector(mockStore);
+  },
+}));
+
+// Mock useRepo (still needed for Phase 2)
 jest.mock('../../providers/RepoProvider', () => ({
   useRepo: () => ({
-    create: jest.fn((input: any) => {
-      if (input.type === 'todo') {
-        return mockTodosCreate(input);
-      } else if (input.type === 'habit') {
-        return mockHabitsCreate(input);
-      } else if (input.type === 'note') {
-        return mockNotesCreate(input);
-      }
-    }),
+    create: jest.fn(),
+    update: jest.fn(),
+    getById: jest.fn(),
   }),
 }));
 
@@ -42,10 +49,10 @@ describe('useMindDropSubmit', () => {
     useMindDropStore.getState().clearAll();
     jest.clearAllMocks();
 
-    // Default mock implementations
-    mockTodosCreate.mockResolvedValue({ id: 'mock-todo-id' });
-    mockHabitsCreate.mockResolvedValue({ id: 'mock-habit-id' });
-    mockNotesCreate.mockResolvedValue({ id: 'mock-note-id' });
+    // Default mock implementations - return full entity objects
+    mockCreateTodo.mockResolvedValue({ id: 'mock-todo-id', type: 'todo', name: 'test' });
+    mockCreateHabit.mockResolvedValue({ id: 'mock-habit-id', type: 'habit', name: 'test' });
+    mockCreateNote.mockResolvedValue({ id: 'mock-note-id', type: 'note', title: 'test' });
   });
 
   test('adds pending item immediately on submit', async () => {
@@ -83,10 +90,9 @@ describe('useMindDropSubmit', () => {
       });
     });
 
-    expect(mockTodosCreate).toHaveBeenCalledTimes(1);
-    expect(mockTodosCreate).toHaveBeenCalledWith(
+    expect(mockCreateTodo).toHaveBeenCalledTimes(1);
+    expect(mockCreateTodo).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'todo',
         name: 'buy milk',
       }),
     );
@@ -104,10 +110,9 @@ describe('useMindDropSubmit', () => {
       });
     });
 
-    expect(mockHabitsCreate).toHaveBeenCalledTimes(1);
-    expect(mockHabitsCreate).toHaveBeenCalledWith(
+    expect(mockCreateHabit).toHaveBeenCalledTimes(1);
+    expect(mockCreateHabit).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'habit',
         name: 'exercise daily',
       }),
     );
@@ -125,10 +130,9 @@ describe('useMindDropSubmit', () => {
       });
     });
 
-    expect(mockNotesCreate).toHaveBeenCalledTimes(1);
-    expect(mockNotesCreate).toHaveBeenCalledWith(
+    expect(mockCreateNote).toHaveBeenCalledTimes(1);
+    expect(mockCreateNote).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'note',
         title: 'interesting thought',
       }),
     );
@@ -140,8 +144,9 @@ describe('useMindDropSubmit', () => {
     const { result } = renderHook(() => useMindDropSubmit());
 
     // Make the first call take time
-    mockTodosCreate.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({ id: 'mock-id' }), 100)),
+    mockCreateTodo.mockImplementation(
+      () =>
+        new Promise((resolve) => setTimeout(() => resolve({ id: 'mock-id', type: 'todo' }), 100)),
     );
 
     let firstPromise: Promise<any>;
@@ -160,7 +165,7 @@ describe('useMindDropSubmit', () => {
     expect(secondResult.error?.message).toBe('Submission already in progress');
 
     // Only one create call should have been made
-    expect(mockTodosCreate).toHaveBeenCalledTimes(1);
+    expect(mockCreateTodo).toHaveBeenCalledTimes(1);
   });
 
   test('emits entity:created event', async () => {
@@ -193,17 +198,17 @@ describe('useMindDropSubmit', () => {
     expect(submitResult.error).toBeDefined();
     expect(submitResult.error.message).toBe('Cannot submit empty drop');
 
-    // No repo calls should have been made
-    expect(mockTodosCreate).not.toHaveBeenCalled();
-    expect(mockHabitsCreate).not.toHaveBeenCalled();
-    expect(mockNotesCreate).not.toHaveBeenCalled();
+    // No store calls should have been made
+    expect(mockCreateTodo).not.toHaveBeenCalled();
+    expect(mockCreateHabit).not.toHaveBeenCalled();
+    expect(mockCreateNote).not.toHaveBeenCalled();
   });
 
   test('removes pending item on error', async () => {
     const { result } = renderHook(() => useMindDropSubmit());
 
-    // Make todos.create throw an error
-    mockTodosCreate.mockRejectedValue(new Error('Database error'));
+    // Make createTodo throw an error
+    mockCreateTodo.mockRejectedValue(new Error('Database error'));
 
     let submitResult: any;
     await act(async () => {

@@ -31,6 +31,33 @@ const mockSupabaseRpc = supabase.rpc as jest.Mock;
 
 let unsortedIdCounter = 0;
 
+// Mock Zustand store methods (used by useMindDropSubmit)
+const mockCreateTodo = jest.fn();
+const mockCreateHabit = jest.fn();
+const mockCreateNote = jest.fn();
+
+// Mock store state for getState() calls
+const mockStoreState = {
+  todos: [],
+  habits: [],
+  notes: [],
+  spaces: [],
+  tags: [],
+  habitProgress: [],
+  createTodo: mockCreateTodo,
+  createHabit: mockCreateHabit,
+  createNote: mockCreateNote,
+};
+
+const mockUseGremlyStore = (selector: any) => {
+  return selector(mockStoreState);
+};
+mockUseGremlyStore.getState = () => mockStoreState;
+
+jest.mock('../../../lib/store/useGremlyStore', () => ({
+  useGremlyStore: mockUseGremlyStore,
+}));
+
 const mockRepo = {
   getById: jest.fn(),
   update: jest.fn(),
@@ -152,6 +179,34 @@ const resetRepoMocks = () => {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }));
+
+  // Reset Zustand store mocks
+  mockCreateTodo.mockReset();
+  mockCreateHabit.mockReset();
+  mockCreateNote.mockReset();
+
+  // Default implementations for Zustand mocks - return full entity objects
+  mockCreateTodo.mockImplementation(async (input) => ({
+    id: `todo-${++unsortedIdCounter}`,
+    type: 'todo',
+    ...input,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }));
+  mockCreateHabit.mockImplementation(async (input) => ({
+    id: `habit-${++unsortedIdCounter}`,
+    type: 'habit',
+    ...input,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }));
+  mockCreateNote.mockImplementation(async (input) => ({
+    id: `note-${++unsortedIdCounter}`,
+    type: 'note',
+    ...input,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }));
 };
 
 const resetOtherMocks = () => {
@@ -195,12 +250,12 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     fireEvent.press(submitButton);
     fireEvent.press(submitButton);
 
-    // Wait for async operations
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 4000 });
+    // Wait for async operations - now uses Zustand mockCreateTodo
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalled(), { timeout: 4000 });
 
     // Should only create ONE entity, not two
-    expect(mockRepo.create).toHaveBeenCalledTimes(1);
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('buy groceries');
+    expect(mockCreateTodo).toHaveBeenCalledTimes(1);
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[0][0])).toBe('buy groceries');
   });
 
   it('blocks triple-tap submission of identical text', async () => {
@@ -216,11 +271,11 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     fireEvent.press(submitButton);
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalled(), { timeout: 4000 });
 
     // Should only create ONE entity
-    expect(mockRepo.create).toHaveBeenCalledTimes(1);
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('call dentist');
+    expect(mockCreateTodo).toHaveBeenCalledTimes(1);
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[0][0])).toBe('call dentist');
   });
 
   it('allows submission of different text immediately', async () => {
@@ -233,17 +288,17 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     fireEvent.changeText(input, 'buy milk');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalledTimes(1), { timeout: 4000 });
 
     // Change text and submit again
     fireEvent.changeText(input, 'call mom');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalledTimes(2), { timeout: 4000 });
 
     // Verify both were created
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('buy milk');
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[1][0])).toBe('call mom');
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[0][0])).toBe('buy milk');
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[1][0])).toBe('call mom');
   });
 
   it('treats text with different whitespace as identical (trimming)', async () => {
@@ -252,20 +307,20 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     const input = getByTestId('minddrop-input');
     const submitButton = getByTestId('minddrop-submit-button');
 
-    // First submission with leading/trailing spaces
-    fireEvent.changeText(input, '  exercise daily  ');
+    // First submission with leading/trailing spaces - use clear todo text
+    fireEvent.changeText(input, '  buy groceries  ');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalledTimes(1), { timeout: 4000 });
 
     // Second submission without spaces (same trimmed text)
-    fireEvent.changeText(input, 'exercise daily');
+    fireEvent.changeText(input, 'buy groceries');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalledTimes(1), { timeout: 4000 });
 
     // Should only create ONE entity (mutex blocked second submission)
-    expect(mockRepo.create).toHaveBeenCalledTimes(1);
+    expect(mockCreateTodo).toHaveBeenCalledTimes(1);
   });
 
   it('mutex integrates with existing duplicate prevention', async () => {
@@ -276,14 +331,14 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     const input = getByTestId('minddrop-input');
     const submitButton = getByTestId('minddrop-submit-button');
 
-    // First submission
-    fireEvent.changeText(input, 'integrated test');
+    // First submission - use clear todo text
+    fireEvent.changeText(input, 'call the doctor');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalledTimes(1), { timeout: 4000 });
 
     // Immediate second attempt (within 2s) - blocked by both mutex AND time-based check
-    fireEvent.changeText(input, 'integrated test');
+    fireEvent.changeText(input, 'call the doctor');
     fireEvent.press(submitButton);
 
     await act(async () => {
@@ -291,14 +346,14 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     });
 
     // Should still be 1 (blocked)
-    expect(mockRepo.create).toHaveBeenCalledTimes(1);
+    expect(mockCreateTodo).toHaveBeenCalledTimes(1);
 
     // Different text should work immediately (only hash-based mutex applies)
-    fireEvent.changeText(input, 'different text');
+    fireEvent.changeText(input, 'send email to boss');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 4000 });
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[1][0])).toBe('different text');
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[1][0])).toBe('send email to boss');
   });
 
   it('handles network jitter scenario (3 rapid identical submits)', async () => {
@@ -320,11 +375,11 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     });
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalled(), { timeout: 4000 });
 
     // Should only create ONE entity despite 3 taps
-    expect(mockRepo.create).toHaveBeenCalledTimes(1);
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('fix bug in app');
+    expect(mockCreateTodo).toHaveBeenCalledTimes(1);
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[0][0])).toBe('fix bug in app');
   });
 
   it('successfully blocks duplicate rapid submissions', async () => {
@@ -334,18 +389,19 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     const input = getByTestId('minddrop-input');
     const submitButton = getByTestId('minddrop-submit-button');
 
-    fireEvent.changeText(input, 'test blocking');
+    // Use clear todo text with imperative verb
+    fireEvent.changeText(input, 'schedule meeting');
 
     // Rapid triple-tap to simulate network jitter or accidental multiple taps
     fireEvent.press(submitButton);
     fireEvent.press(submitButton);
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalled(), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalled(), { timeout: 4000 });
 
     // Critical assertion: Only ONE entity created despite 3 rapid taps
-    expect(mockRepo.create).toHaveBeenCalledTimes(1);
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('test blocking');
+    expect(mockCreateTodo).toHaveBeenCalledTimes(1);
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[0][0])).toBe('schedule meeting');
   });
 
   it('independent mutex per unique text hash', async () => {
@@ -354,24 +410,24 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     const input = getByTestId('minddrop-input');
     const submitButton = getByTestId('minddrop-submit-button');
 
-    // Submit first text twice (second should be blocked)
-    fireEvent.changeText(input, 'task A');
+    // Submit first text twice (second should be blocked) - use clear todo text
+    fireEvent.changeText(input, 'buy task A items');
     fireEvent.press(submitButton);
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalledTimes(1), { timeout: 4000 });
 
-    // Submit different text twice (second should be blocked)
-    fireEvent.changeText(input, 'task B');
+    // Submit different text twice (second should be blocked) - use clear todo text
+    fireEvent.changeText(input, 'call task B contact');
     fireEvent.press(submitButton);
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalledTimes(2), { timeout: 4000 });
 
     // Verify both unique texts were created exactly once
-    expect(mockRepo.create).toHaveBeenCalledTimes(2);
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('task A');
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[1][0])).toBe('task B');
+    expect(mockCreateTodo).toHaveBeenCalledTimes(2);
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[0][0])).toBe('buy task A items');
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[1][0])).toBe('call task B contact');
   });
 
   it('mutex survives empty text submission attempts', async () => {
@@ -389,13 +445,13 @@ describe('Phase 1B: Mind Drop Submission Mutex', () => {
     });
 
     // Should not create anything
-    expect(mockRepo.create).not.toHaveBeenCalled();
+    expect(mockCreateTodo).not.toHaveBeenCalled();
 
-    // Submit real text
-    fireEvent.changeText(input, 'real task');
+    // Submit real text - use clear todo text
+    fireEvent.changeText(input, 'buy real items');
     fireEvent.press(submitButton);
 
-    await waitFor(() => expect(mockRepo.create).toHaveBeenCalledTimes(1), { timeout: 4000 });
-    expect(getTextFromCreateCall(mockRepo.create.mock.calls[0][0])).toBe('real task');
+    await waitFor(() => expect(mockCreateTodo).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    expect(getTextFromCreateCall(mockCreateTodo.mock.calls[0][0])).toBe('buy real items');
   });
 });

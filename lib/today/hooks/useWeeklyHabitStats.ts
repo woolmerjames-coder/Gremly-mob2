@@ -20,6 +20,8 @@ export interface RawHabit {
   frequency: string; // "daily", "x_per_week", "specific_days"
   frequency_value: number | number[]; // number for daily/x_per_week, array for specific_days
   frequency_json?: any; // The structured JSON from overlay: { type: 'simple', value: 'daily' } etc.
+  cadence?: 'daily' | 'weekly' | 'monthly'; // From habit.cadence
+  target_per_period?: number; // From habit.target_per_period
   labels?: string[];
   type?: string;
   habit_progress?: HabitProgressRecord[];
@@ -34,10 +36,15 @@ export interface WeeklyHabitStats {
   weeklyCompleted: number;
   status: HabitStatus;
   dayDots: DayDot[];
-  dayDates: string[]; // ISO dates for Monday → Sunday
+  dayDates: string[]; // ISO dates for rolling 7 days (today is last)
   formattedFrequency: string;
   frequencyLabel: string; // Human-readable label from frequency_json
+  dayLabels: string[]; // Day labels for rolling 7 days (e.g., ['T', 'F', 'S', 'S', 'M', 'T', 'W'])
+  todayIndex: number; // Index of today in the rolling window (always 6)
 }
+
+/** Base stats without rolling window fields (used internally by compute functions) */
+type BaseHabitStats = Omit<WeeklyHabitStats, 'dayLabels' | 'todayIndex'>;
 
 export interface WeeklySummary {
   onTrackCount: number;
@@ -49,36 +56,34 @@ export interface WeeklySummary {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Get the Monday of the current week (start of week)
+ * Get rolling 7 days ending today (today is the last element)
+ * Returns: { days: Date[], labels: string[], todayIndex: number }
  */
-function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  // Adjust so Monday = 0
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-/**
- * Get all 7 days of the current week (Mon-Sun)
- */
-function getWeekDays(weekStart: Date): Date[] {
+function getRolling7Days(today: Date): { days: Date[]; labels: string[]; todayIndex: number } {
   const days: Date[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
+  const labels: string[] = [];
+  const dayLetters = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; // Sun=0, Mon=1, etc.
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    d.setHours(0, 0, 0, 0);
     days.push(d);
+    labels.push(dayLetters[d.getDay()]);
   }
-  return days;
+
+  return { days, labels, todayIndex: 6 }; // Today is always index 6
 }
 
 /**
- * Format date to ISO date string (YYYY-MM-DD)
+ * Format date to local ISO date string (YYYY-MM-DD)
+ * Uses local timezone, not UTC, to match user's day boundaries
  */
 function toDateString(date: Date): string {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -152,7 +157,7 @@ function computeDailyStats(
   weekDays: Date[],
   today: Date,
   progressDates: Set<string>,
-): WeeklyHabitStats {
+): BaseHabitStats {
   const weeklyTarget = 7;
   let weeklyCompleted = 0;
   let missedCount = 0;
@@ -204,7 +209,7 @@ function computeXPerWeekStats(
   today: Date,
   weekStart: Date,
   progressDates: Set<string>,
-): WeeklyHabitStats {
+): BaseHabitStats {
   const weeklyTarget = typeof habit.frequency_value === 'number' ? habit.frequency_value : 1;
   let weeklyCompleted = 0;
   const dayDots: DayDot[] = [];
@@ -260,7 +265,7 @@ function computeSpecificDaysStats(
   weekDays: Date[],
   today: Date,
   progressDates: Set<string>,
-): WeeklyHabitStats {
+): BaseHabitStats {
   const scheduledDays = getScheduledDays(habit);
   const scheduledDaysSet = new Set(scheduledDays);
   const weeklyTarget = scheduledDays.length;
@@ -314,32 +319,85 @@ function computeSpecificDaysStats(
 }
 
 /**
- * Derive human-readable frequency label from frequency_json.
- * Falls back to formattedFrequency if no structured JSON.
+ * Derive human-readable frequency label from habit data.
+ * Parses various formats:
+ * - cadence field: 'daily', 'weekly', 'monthly', 'day', 'week', 'month'
+ * - frequency string: "3 times a week", "5 times a week", "2 times a month", "daily"
+ * - frequency_json: { type: 'custom', count: 3, unit: 'week' }
  */
 function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
-  if (habit.frequency_json) {
-    try {
-      const config = jsonToFrequency(habit.frequency_json);
-      if (config) {
-        const label = getFrequencyLabel(config);
-        console.log('[deriveFrequencyLabel]', {
-          habitName: habit.name,
-          frequency_json: habit.frequency_json,
-          config,
-          label,
-        });
-        return label;
-      }
-    } catch {
-      // Fall through to fallback
+  // Primary: parse the human-readable frequency string (most reliable based on logs)
+  // e.g., "3 times a week", "5 times a week", "2 times a month", "daily"
+  if (habit.frequency) {
+    const freq = habit.frequency.toLowerCase();
+
+    // Check for "X times a week" pattern
+    const weekMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?week/i);
+    if (weekMatch) {
+      const count = parseInt(weekMatch[1], 10);
+      return `${count}x per week`;
+    }
+
+    // Check for "X times a month" pattern
+    const monthMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?month/i);
+    if (monthMatch) {
+      const count = parseInt(monthMatch[1], 10);
+      return `${count}x per month`;
+    }
+
+    // Check for "daily" or "every day"
+    if (freq === 'daily' || freq.includes('every day')) {
+      return 'Daily';
     }
   }
-  console.log('[deriveFrequencyLabel] fallback', {
-    habitName: habit.name,
-    frequency_json: habit.frequency_json,
-    fallback,
-  });
+
+  // Secondary: try cadence + target_per_period (handle both 'daily'/'day' formats)
+  if (habit.cadence) {
+    const cadence = habit.cadence.toLowerCase();
+    const target = habit.target_per_period ?? 1;
+
+    if (cadence === 'daily' || cadence === 'day') {
+      return 'Daily';
+    }
+    if (cadence === 'weekly' || cadence === 'week') {
+      return `${target}x per week`;
+    }
+    if (cadence === 'monthly' || cadence === 'month') {
+      return `${target}x per month`;
+    }
+  }
+
+  // Tertiary: try frequency_json with the actual structure from overlay
+  // Structure: { type: 'custom', count: 3, unit: 'week' }
+  if (habit.frequency_json && typeof habit.frequency_json === 'object') {
+    const json = habit.frequency_json;
+    if (json.count && json.unit) {
+      const count = json.count;
+      const unit = json.unit.toLowerCase();
+      if (unit === 'week') {
+        return `${count}x per week`;
+      }
+      if (unit === 'month') {
+        return `${count}x per month`;
+      }
+      if (unit === 'day') {
+        return count === 1 ? 'Daily' : `${count}x per day`;
+      }
+    }
+    // Also try the jsonToFrequency helper as last resort
+    try {
+      const config = jsonToFrequency(json);
+      if (config) {
+        const label = getFrequencyLabel(config);
+        if (label && label !== fallback) {
+          return label;
+        }
+      }
+    } catch {
+      // Fall through
+    }
+  }
+
   return fallback;
 }
 
@@ -348,10 +406,12 @@ function computeHabitStats(
   weekDays: Date[],
   today: Date,
   weekStart: Date,
+  dayLabels: string[],
+  todayIndex: number,
 ): WeeklyHabitStats {
   // Build set of progress dates for this week
   const progressDates = new Set<string>();
-  const weekStartStr = toDateString(weekStart);
+  const weekStartStr = toDateString(weekDays[0]);
   const weekEndStr = toDateString(weekDays[6]);
 
   if (habit.habit_progress) {
@@ -366,7 +426,7 @@ function computeHabitStats(
 
   const frequencyType = parseFrequencyType(habit.frequency);
 
-  let baseStats: WeeklyHabitStats;
+  let baseStats: BaseHabitStats;
   switch (frequencyType) {
     case 'daily':
       baseStats = computeDailyStats(habit, weekDays, today, progressDates);
@@ -387,6 +447,8 @@ function computeHabitStats(
   return {
     ...baseStats,
     frequencyLabel,
+    dayLabels,
+    todayIndex,
   };
 }
 
@@ -396,15 +458,29 @@ function computeHabitStats(
 
 /**
  * React hook that computes weekly statistics for an array of habits
+ * Uses rolling 7-day window ending today, sorted by status (needs_attention first)
  */
 export function useWeeklyHabitStats(habits: RawHabit[]): WeeklyHabitStats[] {
   return useMemo(() => {
     const today = new Date();
     today.setHours(23, 59, 59, 999); // End of today for comparison
-    const weekStart = getWeekStart(today);
-    const weekDays = getWeekDays(weekStart);
 
-    return habits.map((habit) => computeHabitStats(habit, weekDays, today, weekStart));
+    // Use rolling 7 days instead of calendar week
+    const { days: weekDays, labels: dayLabels, todayIndex } = getRolling7Days(today);
+    const weekStart = weekDays[0]; // First day of rolling window
+
+    const stats = habits.map((habit) =>
+      computeHabitStats(habit, weekDays, today, weekStart, dayLabels, todayIndex),
+    );
+
+    // Sort by status: needs_attention first, then on_track, then done_for_week
+    const statusOrder: Record<HabitStatus, number> = {
+      needs_attention: 0,
+      on_track: 1,
+      done_for_week: 2,
+    };
+
+    return stats.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
   }, [habits]);
 }
 
@@ -424,12 +500,16 @@ export function getWeeklySummary(stats: WeeklyHabitStats[]): WeeklySummary {
 
 /**
  * Pure function version (no React hook) for use outside components
+ * Uses rolling 7-day window ending today
  */
 export function computeWeeklyHabitStats(habits: RawHabit[]): WeeklyHabitStats[] {
   const today = new Date();
   today.setHours(23, 59, 59, 999);
-  const weekStart = getWeekStart(today);
-  const weekDays = getWeekDays(weekStart);
 
-  return habits.map((habit) => computeHabitStats(habit, weekDays, today, weekStart));
+  const { days: weekDays, labels: dayLabels, todayIndex } = getRolling7Days(today);
+  const weekStart = weekDays[0];
+
+  return habits.map((habit) =>
+    computeHabitStats(habit, weekDays, today, weekStart, dayLabels, todayIndex),
+  );
 }

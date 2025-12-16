@@ -26,6 +26,18 @@ import { useReducedMotion } from '../../design/animations';
 import { triggerMedium } from '../../lib/haptics';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
 import { NowTypeChip } from './NowTypeChip';
+import { Flame, RotateCcw, RefreshCw, Calendar } from 'lucide-react-native';
+import { computeHabitMetadata } from '../../lib/today/hooks/useHabitMetadata';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { BRAND } from '../../design/brand';
+
+// Icon map for habit metadata
+const MetadataIconMap = {
+  Flame,
+  RotateCcw,
+  RefreshCw,
+  Calendar,
+} as const;
 
 // Lock-in diamond icon
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -103,6 +115,35 @@ interface NowFocusRowProps {
   onAnimationComplete?: () => void;
 }
 
+/**
+ * Parse frequency string from Zustand to display label.
+ * Handles: "3 times a week", "5 times a week", "2 times a month", "daily"
+ */
+function parseFrequencyLabel(frequency: string | undefined | null): string {
+  if (!frequency) return 'Daily';
+
+  const freq = frequency.toLowerCase();
+
+  // Match "X times a week" pattern
+  const weekMatch = freq.match(/(\d+)\s*times?\s*(?:a|per)?\s*week/i);
+  if (weekMatch) {
+    return `${weekMatch[1]}x/week`;
+  }
+
+  // Match "X times a month" pattern
+  const monthMatch = freq.match(/(\d+)\s*times?\s*(?:a|per)?\s*month/i);
+  if (monthMatch) {
+    return `${monthMatch[1]}x/month`;
+  }
+
+  // Check for daily
+  if (freq === 'daily' || freq.includes('every day')) {
+    return 'Daily';
+  }
+
+  return 'Daily';
+}
+
 export function NowFocusRow({
   item,
   isCompleted = false,
@@ -116,13 +157,51 @@ export function NowFocusRow({
 }: NowFocusRowProps) {
   const tokens = useTokens();
   const reducedMotion = useReducedMotion();
+  const habitProgress = useGremlyStore((s) => s.habitProgress);
+  // Get the full habit from store to access frequency field
+  const habits = useGremlyStore((s) => s.habits);
+
+  // Look up the full habit from the store to get the frequency field
+  const fullHabit = item.type === 'habit' ? habits.find((h) => h.id === item.id) : null;
+
+  // Compute frequency label directly from Zustand habit data
+  const frequencyLabel = React.useMemo(() => {
+    if (item.type !== 'habit' || !fullHabit) return null;
+    return parseFrequencyLabel(fullHabit.frequency);
+  }, [item.type, fullHabit]);
+
+  // Compute habit metadata for habits (streak/progress icons)
+  const habitMetadata = React.useMemo(() => {
+    if (item.type !== 'habit') return null;
+
+    try {
+      // Create a minimal habit object for the metadata computation
+      // Use fullHabit from Zustand for accurate cadence/target data
+      const habitForMetadata = {
+        id: item.id,
+        name: item.name,
+        cadence: (fullHabit?.cadence ?? ('cadence' in item ? item.cadence : 'daily')) as
+          | 'daily'
+          | 'weekly'
+          | 'monthly',
+        target_per_period:
+          fullHabit?.target_per_period ??
+          ('target_per_period' in item ? (item.target_per_period as number) : 1),
+        frequency: fullHabit?.frequency,
+      };
+      return computeHabitMetadata(habitForMetadata, habitProgress);
+    } catch (e) {
+      // If computeHabitMetadata fails (bundler issue), return null
+      console.warn('[NowFocusRow] computeHabitMetadata error:', e);
+      return null;
+    }
+  }, [item, habitProgress, fullHabit]);
+
+  const MetadataIcon = habitMetadata ? MetadataIconMap[habitMetadata.icon] : null;
 
   // Check if this is a flexible weekly habit (should be dimmed)
   const isFlexible =
     item.type === 'habit' && 'weeklyStatus' in item && item.weeklyStatus === 'flexible';
-
-  // Debug: Log reducedMotion value
-  console.log('[NowFocusRow] reducedMotion:', reducedMotion);
 
   // Animation state
   const [animationPhase, setAnimationPhase] = useState<AnimationPhase>('idle');
@@ -355,7 +434,7 @@ export function NowFocusRow({
 
           {/* Content area */}
           <Box style={styles.content}>
-            {/* Text block - dimmed for flexible weekly habits and future items */}
+            {/* Left section: Title + Tag */}
             <Box style={[styles.textContainer, (isFuture || isFlexible) && styles.dimmedText]}>
               {/* Title row - full width for task name */}
               <Text
@@ -384,22 +463,41 @@ export function NowFocusRow({
                   </>
                 )}
                 <NowTypeChip type={item.type} />
-                {item.type === 'habit' && 'cadenceLabel' in item && item.cadenceLabel ? (
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.cadenceLabel,
-                      {
-                        color: tokens.colors.subtle,
-                        fontFamily: tokens.typography.fontFamily.regular,
-                      },
-                    ]}
-                  >
-                    {item.cadenceLabel}
-                  </Text>
-                ) : null}
+                {/* Frequency label after Habit chip - directly from Zustand */}
+                {item.type === 'habit' && frequencyLabel && (
+                  <Text style={styles.frequencyLabel}>· {frequencyLabel}</Text>
+                )}
               </Box>
             </Box>
+
+            {/* Middle section: Habit metadata (between title and checkbox) */}
+            {item.type === 'habit' && habitMetadata && MetadataIcon && (
+              <View style={styles.habitMetadataContainer}>
+                <MetadataIcon
+                  size={habitMetadata.type === 'streak' ? 16 : 12}
+                  color={
+                    habitMetadata.icon === 'Flame' ? BRAND.colors.goldenPear : tokens.colors.subtle
+                  }
+                />
+                <Text
+                  style={[
+                    habitMetadata.type === 'streak'
+                      ? styles.habitStreakText
+                      : styles.habitMetadataText,
+                    {
+                      color:
+                        habitMetadata.icon === 'Flame'
+                          ? BRAND.colors.goldenPear
+                          : tokens.colors.subtle,
+                    },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {habitMetadata.label}
+                  {habitMetadata.periodLabel ? ` ${habitMetadata.periodLabel}` : ''}
+                </Text>
+              </View>
+            )}
 
             {/* Checkbox */}
             <TouchableOpacity
@@ -505,6 +603,7 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'nowrap',
     marginTop: 5, // Slightly more space between title and subtitle
   },
   // Locked-in indicator in subtitle
@@ -528,6 +627,30 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontSize: 11,
     lineHeight: 13,
+  },
+  habitMetadataContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 'auto',
+    marginRight: 8,
+    gap: 4,
+  },
+  habitMetadataText: {
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '500',
+  },
+  habitStreakText: {
+    fontSize: 14,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  frequencyLabel: {
+    fontSize: 11,
+    lineHeight: 13,
+    marginLeft: 4,
+    color: '#666',
+    fontFamily: 'Inter-Medium',
   },
   checkboxContainer: {
     marginLeft: 8,

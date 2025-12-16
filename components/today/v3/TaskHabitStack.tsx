@@ -24,6 +24,7 @@ import { BRAND } from '../../../design/brand';
 import TodayRow from './TodayRow';
 import ConfettiBurst from './ConfettiBurst';
 import { useGlobalOverlay } from '../../../contexts/OverlayContext';
+import { useHabitMetadata } from '../../../lib/today/hooks/useHabitMetadata';
 import type { Todo, Habit } from '../../../lib/types';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -43,6 +44,51 @@ type HabitTickPayload = {
   done: number;
   target: number;
 };
+
+/**
+ * Wrapper component for habit rows that uses the useHabitMetadata hook.
+ * This is needed because hooks cannot be called inside loops.
+ */
+function HabitTodayRow({
+  habit,
+  progressToday,
+  targetCount,
+  onComplete,
+  onPress,
+}: {
+  habit: Habit;
+  progressToday: number;
+  targetCount: number;
+  onComplete: (payload: HabitTickPayload) => Promise<void> | void;
+  onPress: () => void;
+}) {
+  const metadata = useHabitMetadata(habit);
+
+  return (
+    <TodayRow
+      id={habit.id}
+      lane="habit"
+      title={habit.name}
+      habitProgress={{ done: progressToday, target: targetCount }}
+      habitMetadata={{
+        icon: metadata.icon,
+        label: metadata.label,
+        periodLabel: metadata.periodLabel,
+        frequencyLabel: metadata.frequencyLabel,
+      }}
+      onComplete={() =>
+        onComplete({
+          id: habit.id,
+          title: habit.name,
+          done: progressToday,
+          target: targetCount,
+        })
+      }
+      onPress={onPress}
+      testID={`row-habit-${habit.id}`}
+    />
+  );
+}
 
 export default function TaskHabitStack() {
   const repo = useRepo(); // Kept for logHabitProgress (not in store yet)
@@ -240,6 +286,15 @@ export default function TaskHabitStack() {
     [visibleActive],
   );
 
+  // Map of habit IDs to Habit objects for HabitTodayRow
+  const habitsById = useMemo(() => {
+    const map = new Map<string, Habit>();
+    for (const h of todayHabits) {
+      map.set(h.id, h);
+    }
+    return map;
+  }, [todayHabits]);
+
   const todoEntries = useMemo(
     () => visibleActive.filter((entry) => entry.type === 'todo'),
     [visibleActive],
@@ -322,20 +377,18 @@ export default function TaskHabitStack() {
               </Text>
             ) : (
               habitEntries.map((entry) => {
+                const habit = habitsById.get(entry.id);
+                if (!habit) return null;
                 const done = entry.progress_today ?? 0;
                 const target = Math.max(1, entry.target_count ?? 1);
                 return (
-                  <TodayRow
+                  <HabitTodayRow
                     key={`habit-${entry.id}`}
-                    id={entry.id}
-                    lane="habit"
-                    title={entry.name}
-                    habitProgress={{ done, target }}
-                    onComplete={(rowId) =>
-                      handleHabitComplete({ id: rowId, title: entry.name, done, target })
-                    }
+                    habit={habit}
+                    progressToday={done}
+                    targetCount={target}
+                    onComplete={handleHabitComplete}
                     onPress={() => void handleEntryPress(entry)}
-                    testID={`row-habit-${entry.id}`}
                   />
                 );
               })

@@ -50,6 +50,8 @@ import {
   useTodayLogsCount,
   useIsLoading,
   useHabitsCompletedToday,
+  useHubHabits,
+  useWeeklyHabitSummaries,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
@@ -81,6 +83,7 @@ function toLockedItem(item: Todo | Habit): NowLockedItem {
     dueDay: isHabit ? null : ((item as Todo).due_day ?? null),
     cadence: isHabit ? (item as Habit).cadence : undefined,
     targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
+    frequency: isHabit ? (item as Habit).frequency : undefined,
   };
 }
 
@@ -96,6 +99,7 @@ function toActiveItem(item: Todo | Habit): NowActiveItem {
     dueTime: isHabit ? null : ((item as Todo).due_time ?? null),
     cadence: isHabit ? (item as Habit).cadence : undefined,
     targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
+    frequency: isHabit ? (item as Habit).frequency : undefined,
   };
 }
 
@@ -242,6 +246,8 @@ export default function NowScreenV1() {
   // Habits
   const habitsToday = useTodayHabits();
   const completedHabitsToday = useHabitsCompletedToday();
+  const allActiveHabits = useHubHabits(); // All non-archived habits for NowWeekPopup
+  const weeklySummaries = useWeeklyHabitSummaries(); // Weekly habit summaries for header
 
   // Progress stats
   const progress = useTodayProgress();
@@ -271,19 +277,20 @@ export default function NowScreenV1() {
   // NowData for header (computed locally)
   const nowData = useMemo(() => {
     const now = new Date();
-    const hours = now.getHours();
-    let greeting = 'Good morning';
-    if (hours >= 12 && hours < 17) greeting = 'Good afternoon';
-    else if (hours >= 17) greeting = 'Good evening';
 
-    const dateTimeLabel = `${greeting}, ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`;
+    // Just the date, no greeting (NowHeader adds its own greeting)
+    const dateTimeLabel = now.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
 
     return {
       dateTimeLabel,
-      weeklySummaries: [], // TODO: Implement weekly summaries selector
-      allHabits: habitsToday, // For NowWeekPopup
+      weeklySummaries, // Weekly habit summaries for header
+      allHabits: allActiveHabits, // All non-archived habits for NowWeekPopup
     };
-  }, [habitsToday]);
+  }, [allActiveHabits, weeklySummaries]);
 
   // ═══════════════════════════════════════════════════════════════════
   // STORE MUTATIONS - Direct store actions
@@ -502,23 +509,6 @@ export default function NowScreenV1() {
     setJournalVisible(true);
   }, []);
 
-  // Handle creating new note from YourNotesPopup quick capture
-  const handleNotesCreateNew = useCallback(
-    (text: string, noteType: 'journal' | 'idea' | 'general', _isList: boolean) => {
-      setNotesVisible(false);
-      // Map UI note type to LogSubtype
-      const logSubtype = noteType === 'general' ? 'general' : noteType;
-      // Open overlay with prefilled text and type
-      overlayController.openCreate({
-        type: 'log',
-        logSubtype,
-        initialText: text,
-        // TODO: Handle _isList flag when list creation is supported
-      });
-    },
-    [overlayController],
-  );
-
   if (loading || !isInitialized) {
     return (
       <Screen style={styles.screen} edges={['top', 'bottom']} padded={false}>
@@ -606,7 +596,7 @@ export default function NowScreenV1() {
         habitsToday={displayHabitsToday}
         completedHabitsToday={displayCompletedHabitsToday}
         weeklySummaries={nowData.weeklySummaries}
-        allHabits={habitsToday}
+        allHabits={allActiveHabits}
         onClose={() => setWeekVisible(false)}
       />
 
@@ -648,7 +638,6 @@ export default function NowScreenV1() {
         onClose={() => setNotesVisible(false)}
         onSelectLog={handleSelectLog}
         onSelectJournal={handleSelectJournal}
-        onCreateNew={handleNotesCreateNew}
       />
 
       <JournalFullScreen

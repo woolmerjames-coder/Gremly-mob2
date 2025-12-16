@@ -41,7 +41,7 @@ const imperativeStart =
 const habitFrequency =
   /\b(every|daily|weekly|monthly|each|routine|habit|practice|quit|stop|start doing|keep doing)\b/;
 const habitPatterns =
-  /\b(\d+x\s*(a|per)\s*(day|week|month)|every\s+(morning|evening|night|day|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
+  /\b(\d+\s*(x|times)\s*(a|per)\s*(day|week|month)|every\s+(morning|evening|night|day|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
 const journalPhrases =
   /\b(i feel|i think|i wonder|i realized|i noticed|i'm grateful|grateful for|thankful)\b/i;
 const ideaPhrases = /\b(idea:|what if|maybe we|could we|how about|imagine if)\b/i;
