@@ -10,6 +10,7 @@
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import {
   Circle,
   CheckCircle2,
@@ -95,16 +96,21 @@ function HabitRow({ habit, onPress, onLog, onLongPress }: HabitRowProps) {
     (metadata.type === 'days_since' && metadata.value === 0) ||
     (metadata.type === 'rolling_progress' && metadata.value > 0);
 
-  // Debug: log what HabitRow is rendering
-  console.log(
-    '[HabitRow]',
-    habit.id,
-    habit.name,
-    'metadata:',
+  // Debug: log what HabitRow is rendering (compare with NowFocusRow)
+  const habitProgressFromStore = useGremlyStore.getState().habitProgress[habit.id];
+  console.log('[HabitRow] SpaceHome metadata:', {
+    habitId: habit.id,
+    habitName: habit.name,
     metadata,
-    'isDoneToday:',
     isDoneToday,
-  );
+    habitProgress: habitProgressFromStore,
+    habitRaw: {
+      current_streak: habit.current_streak,
+      logs_this_period: habit.logs_this_period,
+      target_per_period: habit.target_per_period,
+      frequency: habit.frequency,
+    },
+  });
 
   return (
     <View style={styles.row}>
@@ -199,8 +205,10 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
   },
   rowTextCompleted: {
-    textDecorationLine: 'line-through',
-    color: BRAND.colors.inkMuted,
+    // No strikethrough on SpaceHome - it's a dashboard, not a check-off screen
+    // The green checkmark icon shows "done today" status
+    // Metadata (streak, rolling progress) tells the health story
+    color: BRAND.colors.charcoalInk, // Keep normal color, no opacity reduction
   },
   metadataContainer: {
     flexDirection: 'row',
