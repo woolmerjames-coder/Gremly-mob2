@@ -16,13 +16,21 @@ import type { SaveableType } from '../../lib/chat/saveableTypes';
 interface ChatBubbleProps {
   message: SpaceChatMessage;
   testID?: string;
-  /** Called when user taps save on the saveable card */
+  /** Called when user taps save on the saveable card (instant save) */
   onSavePress?: (saveable: NonNullable<SpaceChatMessage['saveable']>) => void;
+  /** Called when user taps edit on the saveable card (opens overlay) */
+  onEditPress?: (saveable: NonNullable<SpaceChatMessage['saveable']>) => void;
   /** Called when user dismisses the saveable card */
   onDismissSaveable?: (messageId: string) => void;
 }
 
-function ChatBubbleInner({ message, testID, onSavePress, onDismissSaveable }: ChatBubbleProps) {
+function ChatBubbleInner({
+  message,
+  testID,
+  onSavePress,
+  onEditPress,
+  onDismissSaveable,
+}: ChatBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
 
@@ -81,6 +89,7 @@ function ChatBubbleInner({ message, testID, onSavePress, onDismissSaveable }: Ch
           <SaveButton
             suggestedType={getSaveableType(message.saveable.type)}
             onSave={() => onSavePress?.(message.saveable!)}
+            onEdit={() => onEditPress?.(message.saveable!)}
             onDismiss={() => onDismissSaveable?.(message.id)}
             visible={true}
             disabled={false}

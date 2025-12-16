@@ -40,6 +40,8 @@ import {
   useSpaceMilestoneFromStore,
   useMilestoneCountdown,
   useSpaceTimelineFromStore,
+  selectCompletedTodosCountBySpace,
+  useSpaceCompletedTodos,
 } from '../../lib/store/selectors';
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
@@ -314,6 +316,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const storeHabits = useSpaceHabitsFromStore(spaceId);
   const storeNotes = useSpaceNotesFromStore(spaceId);
 
+  // Completed todos count and list from store (storeTodos only has incomplete todos)
+  const completedTodoCount = useGremlyStore(
+    useCallback((state) => selectCompletedTodosCountBySpace(state, spaceId), [spaceId]),
+  );
+  const completedTodosForOverlay = useSpaceCompletedTodos(spaceId);
+
   // Timeline from store - needed for weekly habit progress computation
   const timelineDays = useSpaceTimelineFromStore(spaceId);
 
@@ -550,21 +558,33 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return withOptimistic.filter((t: any) => !t.completed_at);
   }, [storeTodos, optimisticVersion]); // optimisticVersion triggers recalc on forceUpdate
 
-  // Completed todos for the CompletedInSpaceOverlay
+  // Completed todos for the CompletedInSpaceOverlay - using store selector
+  // (storeTodos only contains incomplete todos, so we use the dedicated hook)
+  // Apply optimistic completion state for immediate UI feedback
   const completedTodosForSpace = useMemo(() => {
-    // Apply optimistic completion state
-    const withOptimistic = storeTodos.map((todo: any) => {
-      const dbCompleted = !!todo.completed_at || todo.status === 'completed';
-      const locallyToggled = localCompletedIdsRef.current.has(todo.id);
-      const isCompleted = locallyToggled ? !dbCompleted : dbCompleted;
-      return {
+    // Start with completed todos from store
+    const completedFromStore = completedTodosForOverlay;
+
+    // Check if any todos were optimistically completed (toggled from incomplete)
+    // These would be in storeTodos but marked as locally completed
+    const optimisticallyCompleted = storeTodos
+      .filter((todo: any) => localCompletedIdsRef.current.has(todo.id))
+      .map((todo: any) => ({
         ...todo,
-        completed_at: isCompleted ? todo.completed_at || new Date().toISOString() : null,
-      };
-    });
-    // Only return completed todos
-    return withOptimistic.filter((t: any) => !!t.completed_at);
-  }, [storeTodos, optimisticVersion]);
+        completed_at: new Date().toISOString(),
+      }));
+
+    // Check if any completed todos were optimistically uncompleted
+    const uncheckedIds = new Set(
+      completedFromStore
+        .filter((todo: any) => localCompletedIdsRef.current.has(todo.id))
+        .map((todo: any) => todo.id),
+    );
+
+    // Combine: store completed (minus unchecked) + optimistically completed
+    const fromStore = completedFromStore.filter((t: any) => !uncheckedIds.has(t.id));
+    return [...fromStore, ...optimisticallyCompleted];
+  }, [completedTodosForOverlay, storeTodos, optimisticVersion]);
 
   const habitsForSpace = useMemo(() => {
     return storeHabits;

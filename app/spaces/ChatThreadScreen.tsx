@@ -142,6 +142,11 @@ export default function ChatThreadScreen({ route }: Props) {
     [],
   );
 
+  // Store functions for instant save
+  const createTodo = useGremlyStore((s) => s.createTodo);
+  const createHabit = useGremlyStore((s) => s.createHabit);
+  const createNote = useGremlyStore((s) => s.createNote);
+
   const [chat, setChat] = useState<SpaceChat | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -960,26 +965,27 @@ export default function ChatThreadScreen({ route }: Props) {
     [spaceChatEnhanced, updateMessage],
   );
 
-  // Handle save from ChatBubble's embedded save button
-  // Moved outside renderItem to prevent re-creation on each render
-  const handleBubbleSave = useCallback(
+  // Handle edit from ChatBubble's embedded edit button (opens overlay)
+  const handleBubbleEdit = useCallback(
     (message: SpaceChatMessage) => {
       const saveable = message.saveable;
       if (!saveable) return;
 
       if (__DEV__) {
-        console.log('[Chat] Save pressed for saveable:', { messageId: message.id, saveable });
+        console.log('[Chat] Edit pressed for saveable:', { messageId: message.id, saveable });
       }
+
       // Track which message is being saved - set BOTH state and ref
-      // Ref survives closure staleness in onSaved callback
       setActiveMessageWithSaveable(message.id);
       activeMessageWithSaveableRef.current = message.id;
       spaceChatEnhanced.startSaving();
+
       // Map saveable type to overlay kind
       const kind = saveable.type === 'todo' ? 'todo' : saveable.type === 'habit' ? 'habit' : 'note';
       const prefill = saveable.prefillData || {};
       // Notes/Logs: full assistant response; Todos/Habits: AI-summarized content
       const note = kind === 'note' ? message.content : prefill.content || '';
+
       openUnifiedFromChat(
         kind,
         {
@@ -998,10 +1004,107 @@ export default function ChatThreadScreen({ route }: Props) {
         },
         overlayController,
       );
+
       spaceChatEnhanced.finishSaving();
       spaceChatEnhanced.markSaveTapped();
     },
     [spaceChatEnhanced, spaceId, overlayController],
+  );
+
+  // Handle instant save from ChatBubble's embedded save button (no overlay)
+  const handleBubbleSave = useCallback(
+    async (message: SpaceChatMessage) => {
+      const saveable = message.saveable;
+      if (!saveable) return;
+
+      if (__DEV__) {
+        console.log('[Chat] Instant save pressed:', {
+          messageId: message.id,
+          type: saveable.type,
+          title: saveable.title,
+        });
+      }
+
+      const prefill = saveable.prefillData || {};
+
+      try {
+        let result: { id: string } | null = null;
+        const basePayload = {
+          title: saveable.title || '',
+          space_id: spaceId || null,
+          origin: 'space_chat' as const,
+          tags: prefill.tags || [],
+        };
+
+        if (saveable.type === 'todo') {
+          result = await createTodo({
+            ...basePayload,
+            name: saveable.title || '',
+            body: prefill.content || '',
+            due_day: prefill.dueDate || null,
+          });
+        } else if (saveable.type === 'habit') {
+          result = await createHabit({
+            ...basePayload,
+            name: saveable.title || '',
+            notes: prefill.content || '',
+            frequency: prefill.frequency || 'daily',
+            frequency_value: prefill.frequencyValue
+              ? { type: 'simple', value: prefill.frequency || 'daily' }
+              : undefined,
+          });
+        } else {
+          // note/log
+          result = await createNote({
+            ...basePayload,
+            body: prefill.content || message.content,
+          });
+        }
+
+        if (result?.id) {
+          console.log('[Chat] Instant save successful:', result.id);
+
+          // Add locked card to chat
+          const itemType =
+            saveable.type === 'todo' ? 'todo' : saveable.type === 'habit' ? 'habit' : 'note';
+          await appendAssistantMessage('', {
+            type: `${itemType}-locked`,
+            itemType,
+            [`${itemType}Id`]: result.id,
+            [`${itemType}Name`]: saveable.title,
+            ...(itemType === 'habit' && { frequency: prefill.frequency || 'daily' }),
+            ...(itemType === 'todo' && { dueDate: prefill.dueDate }),
+            ...(itemType === 'note' && { noteContent: saveable.title }),
+            locked: true,
+          });
+
+          // Dismiss the save button
+          handleDismissSaveable(message.id);
+
+          // Add follow-up message
+          const followUp =
+            itemType === 'habit'
+              ? `Great! Your ${saveable.title} habit is set.`
+              : itemType === 'todo'
+                ? `Task added to your list.`
+                : `Got it! Note saved.`;
+          await appendAssistantMessage(followUp);
+        }
+      } catch (error) {
+        console.error('[Chat] Instant save failed:', error);
+        // Fallback to edit mode if instant save fails
+        handleBubbleEdit(message);
+      }
+    },
+    [
+      spaceId,
+      createTodo,
+      createHabit,
+      createNote,
+      appendAssistantMessage,
+      handleDismissSaveable,
+      handleBubbleEdit,
+    ],
   );
 
   // Memoized keyExtractor for FlatList performance
@@ -1103,12 +1206,13 @@ export default function ChatThreadScreen({ route }: Props) {
             message={message}
             testID={`chat-bubble-${message.id}`}
             onSavePress={() => handleBubbleSave(message)}
+            onEditPress={() => handleBubbleEdit(message)}
             onDismissSaveable={handleDismissSaveable}
           />
         </View>
       );
     },
-    [spaceId, overlayController, handleBubbleSave, handleDismissSaveable],
+    [spaceId, overlayController, handleBubbleSave, handleBubbleEdit, handleDismissSaveable],
   );
 
   // Environment gate - wrap entire chat UI
