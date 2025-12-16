@@ -103,6 +103,7 @@ import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFro
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
 import { deleteEntityOrDrop } from '../../lib/minddrop/deleteHelpers';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
+import { smartTitle } from '../../app/spaces/chat/prefillUtils';
 import {
   type FrequencyConfig,
   type DayOfWeek,
@@ -1664,6 +1665,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   /**
    * Create todos from selected items
+   * Uses smartTitle to generate concise action-oriented titles
+   * Stores original verbose text in body for context
    */
   const handleExplodeToTodos = useCallback(
     async (selectedItems: ExtractedListItem[]) => {
@@ -1679,8 +1682,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         const createdTodos = [];
 
         for (const item of selectedItems) {
+          // Use smartTitle to generate a concise, action-oriented title
+          const conciseTitle = smartTitle(item.text);
+
+          // Store original text in body if it differs (provides context)
+          const bodyText = conciseTitle !== item.text ? item.text : undefined;
+
           const todo = await createTodo({
-            name: item.text,
+            name: conciseTitle,
+            body: bodyText,
             space_id: targetSpaceId,
             source_note_id: entityId,
             due_day: null,
