@@ -886,6 +886,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Phase 5: Removed v22 cascade animation values (oWeek, oDay, oSummary, oInsights, oCTA, oThreads, yWeek, etc.)
   // Focus card snooze state
   const [focusDismissed, setFocusDismissed] = useState<boolean>(false);
+  // Track scroll position for fixed header shadow
+  const [isScrolled, setIsScrolled] = useState(false);
   // Feature flag: Space v22 header (strict equality as requested)
   const isSpaceV22 = process.env.EXPO_PUBLIC_SPACE_V22 === 'on';
 
@@ -1535,13 +1537,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return (
       <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>
         <Animated.View style={{ flex: 1, opacity: oV33, transform: [{ translateY: yV33 }] }}>
-          <ScrollView
-            ref={scrollRef}
-            style={styles.scroll}
-            contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-          >
-            {/* Phase 12: MilestoneHeader replaces HeaderV33 */}
+          {/* Fixed header - always visible while scrolling */}
+          <View style={[styles.fixedHeader, isScrolled && styles.fixedHeaderShadow]}>
             <MilestoneHeader
               spaceName={space?.name ?? 'Space'}
               milestone={milestone}
@@ -1556,9 +1553,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onSettingsPress={handleSettingsPress}
               onBackPress={() => navigation.goBack()}
             />
+          </View>
 
-            {/* Phase 12: Actions/Chats toggle removed - content sections below */}
-
+          {/* Scrollable content */}
+          <ScrollView
+            ref={scrollRef}
+            style={styles.scroll}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+            onScroll={(e) => {
+              const scrollY = e.nativeEvent.contentOffset.y;
+              setIsScrolled(scrollY > 10);
+            }}
+            scrollEventThrottle={16}
+          >
             {/* Optimistic quick add card */}
             {optimisticQuickAdd && (
               <View
@@ -2632,6 +2640,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
+  },
+  fixedHeader: {
+    backgroundColor: BRAND.colors.linenCream,
+    zIndex: 1,
+  },
+  fixedHeaderShadow: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
   },
   scroll: {
     flex: 1,
