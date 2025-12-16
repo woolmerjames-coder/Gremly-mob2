@@ -322,6 +322,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   );
   const completedTodosForOverlay = useSpaceCompletedTodos(spaceId);
 
+  // Debug: log when completed count changes from store
+  console.log('[SpaceHome] completedTodoCount from store:', completedTodoCount);
+
   // Timeline from store - needed for weekly habit progress computation
   const timelineDays = useSpaceTimelineFromStore(spaceId);
 
@@ -585,6 +588,31 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     const fromStore = completedFromStore.filter((t: any) => !uncheckedIds.has(t.id));
     return [...fromStore, ...optimisticallyCompleted];
   }, [completedTodosForOverlay, storeTodos, optimisticVersion]);
+
+  // Computed completed count: reactive to store + optimistic state for immediate pill updates
+  const reactiveCompletedCount = useMemo(() => {
+    // Count how many todos in storeTodos are optimistically completed (still pending store update)
+    const optimisticallyCompletedCount = storeTodos.filter((todo: any) =>
+      localCompletedIdsRef.current.has(todo.id),
+    ).length;
+
+    // Count how many store-completed todos are optimistically unchecked
+    const optimisticallyUncheckedCount = completedTodosForOverlay.filter((todo: any) =>
+      localCompletedIdsRef.current.has(todo.id),
+    ).length;
+
+    // Final count = store count + pending completions - pending unchecks
+    const count = completedTodoCount + optimisticallyCompletedCount - optimisticallyUncheckedCount;
+
+    console.log('[SpaceHome] reactiveCompletedCount:', {
+      storeCount: completedTodoCount,
+      optimisticallyCompleted: optimisticallyCompletedCount,
+      optimisticallyUnchecked: optimisticallyUncheckedCount,
+      final: count,
+    });
+
+    return count;
+  }, [completedTodoCount, storeTodos, completedTodosForOverlay, optimisticVersion]);
 
   const habitsForSpace = useMemo(() => {
     return storeHabits;
@@ -1544,7 +1572,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               milestone={milestone}
               countdown={countdown}
               pinnedCount={pinnedCount}
-              completedCount={completedTodosForSpace.length}
+              completedCount={reactiveCompletedCount}
               onGremlyPress={handleGremlyPress}
               onPinnedPress={handlePinnedPress}
               onCompletedPress={() => setShowCompletedOverlay(true)}
