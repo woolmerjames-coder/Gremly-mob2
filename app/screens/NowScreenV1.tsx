@@ -50,6 +50,7 @@ import {
   useTodayLogsCount,
   useIsLoading,
   useHabitsCompletedToday,
+  useHubHabits,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
@@ -244,6 +245,7 @@ export default function NowScreenV1() {
   // Habits
   const habitsToday = useTodayHabits();
   const completedHabitsToday = useHabitsCompletedToday();
+  const allActiveHabits = useHubHabits(); // All non-archived habits for NowWeekPopup
 
   // Progress stats
   const progress = useTodayProgress();
@@ -283,9 +285,9 @@ export default function NowScreenV1() {
     return {
       dateTimeLabel,
       weeklySummaries: [], // TODO: Implement weekly summaries selector
-      allHabits: habitsToday, // For NowWeekPopup
+      allHabits: allActiveHabits, // All non-archived habits for NowWeekPopup
     };
-  }, [habitsToday]);
+  }, [allActiveHabits]);
 
   // ═══════════════════════════════════════════════════════════════════
   // STORE MUTATIONS - Direct store actions
