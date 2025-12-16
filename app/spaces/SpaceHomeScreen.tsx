@@ -596,6 +596,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Computed completed count: reactive to store + optimistic state for immediate pill updates
   const reactiveCompletedCount = useMemo(() => {
+    // Log what's in the refs
+    console.log(
+      '[SpaceHome] Computing reactiveCompletedCount, localCompletedIds:',
+      Array.from(localCompletedIdsRef.current),
+    );
+    console.log(
+      '[SpaceHome] storeTodos ids:',
+      storeTodos.map((t: any) => t.id),
+    );
+
     // Count how many todos in storeTodos are optimistically completed (still pending store update)
     const optimisticallyCompletedCount = storeTodos.filter((todo: any) =>
       localCompletedIdsRef.current.has(todo.id),
@@ -614,6 +624,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       optimisticallyCompleted: optimisticallyCompletedCount,
       optimisticallyUnchecked: optimisticallyUncheckedCount,
       final: count,
+      optimisticVersion,
     });
 
     return count;
@@ -697,7 +708,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handleTodoComplete = useCallback(
     async (item: AppRecord) => {
       const todoId = item.id;
-      console.log('[SpaceHome] Todo complete:', todoId);
+      console.log('[SpaceHome] Todo complete START:', todoId);
+      console.log(
+        '[SpaceHome] Before - localCompletedIds:',
+        Array.from(localCompletedIdsRef.current),
+      );
 
       // Haptic feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -709,6 +724,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
       // Step 2: Mark as animating (keeps row visible for animation)
       animatingTodoIdsRef.current.add(todoId);
+
+      console.log(
+        '[SpaceHome] After adding - localCompletedIds:',
+        Array.from(localCompletedIdsRef.current),
+      );
+      console.log('[SpaceHome] Calling forceUpdate...');
 
       // Force re-render to show the change immediately
       forceUpdate();
