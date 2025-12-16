@@ -355,7 +355,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9F6F1', // Linen Cream for Spaces
     paddingHorizontal: 24,
-    paddingTop: 56, // increased for content to sit lower
+    paddingTop: 32,
     paddingBottom: 32,
     alignItems: 'center',
     alignSelf: 'stretch',
@@ -365,8 +365,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#D6E4D3', // slightly richer, warmer than #DCE8D8
     paddingHorizontal: 24,
-    paddingTop: 80, // increased for content to sit lower
-    paddingBottom: 48,
+    paddingTop: 64,
+    paddingBottom: 24,
     alignItems: 'center',
     alignSelf: 'stretch',
   },
