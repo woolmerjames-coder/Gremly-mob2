@@ -142,7 +142,16 @@ export function computeHabitMetadata(
     return Math.floor(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  switch (cadence) {
+  // Normalize cadence to handle both 'day'/'daily', 'week'/'weekly', 'month'/'monthly'
+  const normalizedCadence = (() => {
+    const c = cadence.toLowerCase();
+    if (c === 'day' || c === 'daily') return 'daily';
+    if (c === 'week' || c === 'weekly') return 'weekly';
+    if (c === 'month' || c === 'monthly') return 'monthly';
+    return 'daily'; // Default to daily for unknown cadence
+  })();
+
+  switch (normalizedCadence) {
     case 'daily': {
       const streak = calculateStreak();
       if (streak >= 2) {
