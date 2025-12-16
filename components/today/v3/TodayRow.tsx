@@ -3,6 +3,7 @@ import { StyleSheet, View, Pressable } from 'react-native';
 import { Text, Box } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import CircleCheckButton from './CircleCheckButton';
+import { Flame, Clock, RefreshCw, Calendar } from 'lucide-react-native';
 
 type Lane = 'habit' | 'todo';
 
@@ -12,10 +13,23 @@ type Props = {
   title: string;
   dueTime?: string | null;
   habitProgress?: { done: number; target: number } | null;
+  // Habit metadata for inline display
+  habitMetadata?: {
+    icon: 'Flame' | 'Clock' | 'RefreshCw' | 'Calendar';
+    label: string;
+    periodLabel?: string;
+  } | null;
   onComplete: (id: string) => Promise<void> | void;
   testID?: string;
   onPress?: (id: string) => void;
 };
+
+const IconMap = {
+  Flame,
+  Clock,
+  RefreshCw,
+  Calendar,
+} as const;
 
 export default function TodayRow({
   id,
@@ -23,6 +37,7 @@ export default function TodayRow({
   title,
   dueTime,
   habitProgress,
+  habitMetadata,
   onComplete,
   testID,
   onPress,
@@ -30,6 +45,8 @@ export default function TodayRow({
   const isHabit = lane === 'habit';
   const bg = isHabit ? BRAND.colors.sageMist : BRAND.colors.linenCream;
   const border = isHabit ? 'transparent' : 'rgba(46,85,64,0.2)';
+
+  const MetadataIcon = habitMetadata ? IconMap[habitMetadata.icon] : null;
 
   return (
     <Pressable
@@ -48,7 +65,22 @@ export default function TodayRow({
             {title}
           </Text>
 
-          {isHabit && habitProgress ? (
+          {isHabit && habitMetadata && MetadataIcon && (
+            <View style={styles.metadataRow}>
+              <MetadataIcon
+                size={12}
+                color={
+                  habitMetadata.icon === 'Flame' ? BRAND.colors.goldenPear : BRAND.colors.inkMuted
+                }
+              />
+              <Text style={styles.metadataText}>
+                {habitMetadata.label}
+                {habitMetadata.periodLabel && ` ${habitMetadata.periodLabel}`}
+              </Text>
+            </View>
+          )}
+
+          {isHabit && habitProgress && !habitMetadata ? (
             <Text variant="subtle" style={styles.subtle} numberOfLines={1}>
               Today: {Math.min(habitProgress.done, habitProgress.target)} /{' '}
               {Math.max(1, habitProgress.target)}
@@ -81,4 +113,15 @@ const styles = StyleSheet.create({
   },
   title: { fontWeight: '600', color: BRAND.colors.charcoalInk, fontSize: 14 },
   subtle: { color: BRAND.colors.inkMuted, fontSize: 12 },
+  metadataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  metadataText: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+    fontFamily: 'Inter-Regular',
+  },
 });
