@@ -1707,6 +1707,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             body: bodyText,
             space_id: targetSpaceId,
             source_note_id: entityId,
+            tags: entity.tags || [],
             due_day: null,
             due_time: null,
             ai_placed: false,
