@@ -1,16 +1,15 @@
 /**
  * GremlyDot - Reusable Gremly face button for habit completion states
  *
- * Uses tintColor to show green (completed) or grey (incomplete) states
+ * Shows the buttonforHP.png image - full color when completed, greyed out when not
  */
 
 import React from 'react';
-import { TouchableOpacity, Image, View, StyleSheet, ImageSourcePropType } from 'react-native';
-import { BRAND } from '../../design/brand';
+import { TouchableOpacity, Image, StyleSheet, ImageSourcePropType } from 'react-native';
 
-// Use the mascot image and tint it
+// Use the buttonforHP image for the habit dots
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_IMAGE: ImageSourcePropType = require('../../assets/mascot/gremly-mascot.png');
+const GREMLY_BUTTON_IMAGE: ImageSourcePropType = require('../../assets/buttonforHP.png');
 
 interface GremlyDotProps {
   isCompleted: boolean;
@@ -29,9 +28,6 @@ export function GremlyDot({
   disabled,
   size = 28,
 }: GremlyDotProps) {
-  // Green tint for completed, grey for incomplete
-  const tintColor = isCompleted ? BRAND.colors.mossGreen : '#9CA3AF';
-
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -42,13 +38,10 @@ export function GremlyDot({
       accessibilityLabel={isToday ? 'Today' : undefined}
     >
       <Image
-        source={GREMLY_IMAGE}
-        style={[{ width: size, height: size, tintColor }]}
+        source={GREMLY_BUTTON_IMAGE}
+        style={[styles.image, { width: size, height: size }, !isCompleted && styles.notCompleted]}
         resizeMode="contain"
       />
-      {isToday && !isCompleted && (
-        <View style={[styles.todayRing, { borderColor: BRAND.colors.mossGreen }]} />
-      )}
     </TouchableOpacity>
   );
 }
@@ -58,14 +51,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  future: {
-    opacity: 0.4,
+  image: {
+    // No tint by default - shows full color Gremly
   },
-  todayRing: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-    borderRadius: 999,
-    borderWidth: 2,
+  future: {
+    opacity: 0.3,
+  },
+  notCompleted: {
+    // Grey out incomplete habits
+    opacity: 0.4,
   },
 });

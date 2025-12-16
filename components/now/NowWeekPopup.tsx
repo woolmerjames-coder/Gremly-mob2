@@ -14,7 +14,6 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  Pressable,
   View,
 } from 'react-native';
 import { Box, Text } from '../../ui';
@@ -34,17 +33,13 @@ import type { Habit } from '../../lib/types';
 // Design Tokens (Harmonic Cortex)
 // ─────────────────────────────────────────────────────────────────────────────
 const MOSS_GREEN = '#2E5540';
-const GOLDEN_PEAR = '#E0C47A';
-const SOFT_RED = '#C97A7A';
-const SAGE_MIST = '#DCDCD6';
 const CHARCOAL_INK = '#222222';
 const INK_SUBTLE = 'rgba(34, 34, 34, 0.55)';
 const BORDER_SUBTLE = 'rgba(0, 0, 0, 0.08)';
 
-// Shared day header constants - must match HabitWeeklyRow dot sizing
-const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-const DOT_SIZE = 14; // Reduced from 20 for lighter visual
-const DOT_SPACING = 12; // Spacing between dots
+// Shared day header constants - must match HabitWeeklyRow GremlyDot sizing
+const DOT_SIZE = 28; // Match GremlyDot size
+const DOT_SPACING = 8; // Match HabitWeeklyRow gap
 
 interface NowWeekPopupProps {
   visible: boolean;
@@ -84,13 +79,13 @@ function toDateString(date: Date): string {
 
 export function NowWeekPopup({
   visible,
-  habitsToday,
-  completedHabitsToday,
-  weeklySummaries,
+  habitsToday: _habitsToday,
+  completedHabitsToday: _completedHabitsToday,
+  weeklySummaries: _weeklySummaries,
   allHabits,
   onClose,
   onToggleDay,
-  onRefresh,
+  onRefresh: _onRefresh,
 }: NowWeekPopupProps) {
   const repo = useRepo();
   const overlayController = useUnifiedOverlayController();
@@ -220,6 +215,31 @@ export function NowWeekPopup({
   );
   console.log('[HabitsSheet] layout tightened');
 
+  // Compute summary stats: habits on track vs total
+  const summaryStats = useMemo(() => {
+    const total = weeklyStats.length;
+    const onTrack = weeklyStats.filter(
+      (s) => s.status === 'on_track' || s.status === 'done_for_week',
+    ).length;
+    return { onTrack, total };
+  }, [weeklyStats]);
+
+  // Get dynamic day labels from first habit's stats (rolling 7 days)
+  // dayLabels is an array of short day names like ['Th', 'Fr', 'Sa', 'Su', 'Mo', 'Tu', 'We']
+  const dayLabels = useMemo(() => {
+    if (weeklyStats.length > 0 && weeklyStats[0].dayLabels) {
+      return weeklyStats[0].dayLabels;
+    }
+    // Fallback to static Mon-Sun
+    return ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  }, [weeklyStats]);
+
+  // Today is always the last day (index 6) in rolling 7-day view
+  const todayIndex =
+    weeklyStats.length > 0 && weeklyStats[0].todayIndex !== undefined
+      ? weeklyStats[0].todayIndex
+      : 6;
+
   // Handle day toggle - optimistic update only, no immediate refresh
   const handleToggleDay = useCallback(
     async (habitId: string, dateISO: string, newState: boolean) => {
@@ -284,7 +304,15 @@ export function NowWeekPopup({
         >
           {/* Header */}
           <Box style={styles.header}>
-            <Text style={styles.title}>Habits this week</Text>
+            <View>
+              <Text style={styles.title}>Habits this week</Text>
+              {/* Summary line: "{onTrack}/{total} on track" */}
+              {weeklyStats.length > 0 && (
+                <Text style={styles.summaryText}>
+                  {summaryStats.onTrack}/{summaryStats.total} on track
+                </Text>
+              )}
+            </View>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeText}>Close</Text>
             </TouchableOpacity>
@@ -292,11 +320,17 @@ export function NowWeekPopup({
 
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
             {/* ─── SHARED DAY HEADER ROW ─── */}
-            {/* Renders M T W T F S S once, above all habit rows */}
+            {/* Dynamic day labels from rolling 7-day view, today highlighted in green */}
             {!isLoading && weeklyStats.length > 0 && (
               <View style={styles.dayHeaderRow}>
-                {DAY_LABELS.map((label, index) => (
-                  <Text key={`header-${index}`} style={styles.dayHeaderLabel}>
+                {dayLabels.map((label, index) => (
+                  <Text
+                    key={`header-${index}`}
+                    style={[
+                      styles.dayHeaderLabel,
+                      index === todayIndex && styles.dayHeaderLabelToday,
+                    ]}
+                  >
                     {label}
                   </Text>
                 ))}
@@ -320,6 +354,7 @@ export function NowWeekPopup({
                     status={stat.status}
                     dayDots={stat.dayDots}
                     dayDates={stat.dayDates}
+                    todayIndex={todayIndex}
                     frequencyLabel={stat.frequencyLabel}
                     onToggleDay={handleToggleDay}
                     onPressHeader={() => openHabitDetail(stat.id, stat.name)}
@@ -367,6 +402,12 @@ const styles = StyleSheet.create({
     fontFamily: 'PlusJakartaSans-Bold',
     color: CHARCOAL_INK,
   },
+  summaryText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: MOSS_GREEN,
+    marginTop: 2,
+  },
   closeButton: {
     padding: 8,
   },
@@ -392,11 +433,15 @@ const styles = StyleSheet.create({
     gap: DOT_SPACING, // Must match dot spacing exactly
   },
   dayHeaderLabel: {
-    width: DOT_SIZE, // Same width as dots for column alignment
+    width: DOT_SIZE, // Same width as GremlyDots for column alignment
     fontSize: 11,
     fontFamily: 'Inter-Medium',
     color: INK_SUBTLE,
     textAlign: 'center',
+  },
+  dayHeaderLabelToday: {
+    fontFamily: 'Inter-Bold',
+    color: MOSS_GREEN,
   },
   loadingContainer: {
     paddingVertical: 24,

@@ -34,10 +34,15 @@ export interface WeeklyHabitStats {
   weeklyCompleted: number;
   status: HabitStatus;
   dayDots: DayDot[];
-  dayDates: string[]; // ISO dates for Monday → Sunday
+  dayDates: string[]; // ISO dates for rolling 7 days (today is last)
   formattedFrequency: string;
   frequencyLabel: string; // Human-readable label from frequency_json
+  dayLabels: string[]; // Day labels for rolling 7 days (e.g., ['T', 'F', 'S', 'S', 'M', 'T', 'W'])
+  todayIndex: number; // Index of today in the rolling window (always 6)
 }
+
+/** Base stats without rolling window fields (used internally by compute functions) */
+type BaseHabitStats = Omit<WeeklyHabitStats, 'dayLabels' | 'todayIndex'>;
 
 export interface WeeklySummary {
   onTrackCount: number;
@@ -49,29 +54,23 @@ export interface WeeklySummary {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Get the Monday of the current week (start of week)
+ * Get rolling 7 days ending today (today is the last element)
+ * Returns: { days: Date[], labels: string[], todayIndex: number }
  */
-function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  // Adjust so Monday = 0
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-/**
- * Get all 7 days of the current week (Mon-Sun)
- */
-function getWeekDays(weekStart: Date): Date[] {
+function getRolling7Days(today: Date): { days: Date[]; labels: string[]; todayIndex: number } {
   const days: Date[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
+  const labels: string[] = [];
+  const dayLetters = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; // Sun=0, Mon=1, etc.
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    d.setHours(0, 0, 0, 0);
     days.push(d);
+    labels.push(dayLetters[d.getDay()]);
   }
-  return days;
+
+  return { days, labels, todayIndex: 6 }; // Today is always index 6
 }
 
 /**
@@ -152,7 +151,7 @@ function computeDailyStats(
   weekDays: Date[],
   today: Date,
   progressDates: Set<string>,
-): WeeklyHabitStats {
+): BaseHabitStats {
   const weeklyTarget = 7;
   let weeklyCompleted = 0;
   let missedCount = 0;
@@ -204,7 +203,7 @@ function computeXPerWeekStats(
   today: Date,
   weekStart: Date,
   progressDates: Set<string>,
-): WeeklyHabitStats {
+): BaseHabitStats {
   const weeklyTarget = typeof habit.frequency_value === 'number' ? habit.frequency_value : 1;
   let weeklyCompleted = 0;
   const dayDots: DayDot[] = [];
@@ -260,7 +259,7 @@ function computeSpecificDaysStats(
   weekDays: Date[],
   today: Date,
   progressDates: Set<string>,
-): WeeklyHabitStats {
+): BaseHabitStats {
   const scheduledDays = getScheduledDays(habit);
   const scheduledDaysSet = new Set(scheduledDays);
   const weeklyTarget = scheduledDays.length;
@@ -348,10 +347,12 @@ function computeHabitStats(
   weekDays: Date[],
   today: Date,
   weekStart: Date,
+  dayLabels: string[],
+  todayIndex: number,
 ): WeeklyHabitStats {
   // Build set of progress dates for this week
   const progressDates = new Set<string>();
-  const weekStartStr = toDateString(weekStart);
+  const weekStartStr = toDateString(weekDays[0]);
   const weekEndStr = toDateString(weekDays[6]);
 
   if (habit.habit_progress) {
@@ -366,7 +367,7 @@ function computeHabitStats(
 
   const frequencyType = parseFrequencyType(habit.frequency);
 
-  let baseStats: WeeklyHabitStats;
+  let baseStats: BaseHabitStats;
   switch (frequencyType) {
     case 'daily':
       baseStats = computeDailyStats(habit, weekDays, today, progressDates);
@@ -387,6 +388,8 @@ function computeHabitStats(
   return {
     ...baseStats,
     frequencyLabel,
+    dayLabels,
+    todayIndex,
   };
 }
 
@@ -396,15 +399,29 @@ function computeHabitStats(
 
 /**
  * React hook that computes weekly statistics for an array of habits
+ * Uses rolling 7-day window ending today, sorted by status (needs_attention first)
  */
 export function useWeeklyHabitStats(habits: RawHabit[]): WeeklyHabitStats[] {
   return useMemo(() => {
     const today = new Date();
     today.setHours(23, 59, 59, 999); // End of today for comparison
-    const weekStart = getWeekStart(today);
-    const weekDays = getWeekDays(weekStart);
 
-    return habits.map((habit) => computeHabitStats(habit, weekDays, today, weekStart));
+    // Use rolling 7 days instead of calendar week
+    const { days: weekDays, labels: dayLabels, todayIndex } = getRolling7Days(today);
+    const weekStart = weekDays[0]; // First day of rolling window
+
+    const stats = habits.map((habit) =>
+      computeHabitStats(habit, weekDays, today, weekStart, dayLabels, todayIndex),
+    );
+
+    // Sort by status: needs_attention first, then on_track, then done_for_week
+    const statusOrder: Record<HabitStatus, number> = {
+      needs_attention: 0,
+      on_track: 1,
+      done_for_week: 2,
+    };
+
+    return stats.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
   }, [habits]);
 }
 
@@ -424,12 +441,16 @@ export function getWeeklySummary(stats: WeeklyHabitStats[]): WeeklySummary {
 
 /**
  * Pure function version (no React hook) for use outside components
+ * Uses rolling 7-day window ending today
  */
 export function computeWeeklyHabitStats(habits: RawHabit[]): WeeklyHabitStats[] {
   const today = new Date();
   today.setHours(23, 59, 59, 999);
-  const weekStart = getWeekStart(today);
-  const weekDays = getWeekDays(weekStart);
 
-  return habits.map((habit) => computeHabitStats(habit, weekDays, today, weekStart));
+  const { days: weekDays, labels: dayLabels, todayIndex } = getRolling7Days(today);
+  const weekStart = weekDays[0];
+
+  return habits.map((habit) =>
+    computeHabitStats(habit, weekDays, today, weekStart, dayLabels, todayIndex),
+  );
 }
