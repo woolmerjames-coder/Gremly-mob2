@@ -53,7 +53,7 @@ import { SheetManager } from 'react-native-actions-sheet';
 import { StyleSheet, View, Image, Pressable, Alert, Modal, ScrollView } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Plus, X, ChevronRight, Layers, ArrowDown } from 'lucide-react-native';
+import { Plus, X, ChevronRight, Layers, ArrowDown, LogOut } from 'lucide-react-native';
 
 // Images for Mind Drop hero and Spaces section
 import BUTTON_HP from '../../assets/buttonforHP.png';
@@ -75,7 +75,7 @@ import { getSpaceIcon } from '../../lib/utils/spaceIconMatcher';
 function GremlyHomeScreen() {
   const activeSpaces = useActiveSpaces();
   const deleteSpace = useGremlyStore((s) => s.deleteSpace);
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { theme } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const isReducedMotion = useReducedMotion();
@@ -129,6 +129,24 @@ function GremlyHomeScreen() {
     [deleteSpace],
   );
 
+  // Handle sign out
+  const handleSignOut = useCallback(() => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await signOut();
+          } catch (err) {
+            console.error('[SpacesScreen] Sign out failed:', err);
+          }
+        },
+      },
+    ]);
+  }, [signOut]);
+
   // Use all spaces directly (search removed for simplified tile UI)
 
   return (
@@ -142,6 +160,14 @@ function GremlyHomeScreen() {
         {/* Top Navigation Bar */}
         <View style={styles.topNavBar}>
           <Image source={GREMLY_WORDMARK} style={styles.topNavWordmark} resizeMode="contain" />
+          <Pressable
+            onPress={handleSignOut}
+            style={styles.signOutButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityLabel="Sign out"
+          >
+            <LogOut size={20} color="#6A6F76" />
+          </Pressable>
         </View>
         <View style={styles.topNavDivider} />
 
@@ -330,9 +356,15 @@ const styles = StyleSheet.create({
   topNavBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: '#F9F6F1', // Linen Cream
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  signOutButton: {
+    padding: 8,
+    borderRadius: 8,
   },
   topNavWordmark: {
     height: 28,
