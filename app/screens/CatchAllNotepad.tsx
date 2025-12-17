@@ -1521,7 +1521,14 @@ const AnimatedMindDropCard: React.FC<{
       <View style={styles.recentMetaRow}>
         {(() => {
           const contextMeta = getContextualMeta(effectiveKind, item);
-          return contextMeta ? <Text style={styles.recentContextPill}>{contextMeta}</Text> : null;
+          // Add testID for todos to support due date badge tests
+          const contextTestId =
+            effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
+          return contextMeta ? (
+            <Text testID={contextTestId} style={styles.recentContextPill}>
+              {contextMeta}
+            </Text>
+          ) : null;
         })()}
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
