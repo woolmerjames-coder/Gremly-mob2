@@ -97,7 +97,9 @@ function HabitRow({ habit, onPress, onLog, onLongPress }: HabitRowProps) {
     (metadata.type === 'rolling_progress' && metadata.value > 0);
 
   // Debug: log what HabitRow is rendering (compare with NowFocusRow)
-  const habitProgressFromStore = useGremlyStore.getState().habitProgress[habit.id];
+  const habitProgressFromStore = useGremlyStore
+    .getState()
+    .habitProgress.filter((p) => p.habit_id === habit.id);
   console.log('[HabitRow] SpaceHome metadata:', {
     habitId: habit.id,
     habitName: habit.name,
@@ -105,8 +107,6 @@ function HabitRow({ habit, onPress, onLog, onLongPress }: HabitRowProps) {
     isDoneToday,
     habitProgress: habitProgressFromStore,
     habitRaw: {
-      current_streak: habit.current_streak,
-      logs_this_period: habit.logs_this_period,
       target_per_period: habit.target_per_period,
       frequency: habit.frequency,
     },

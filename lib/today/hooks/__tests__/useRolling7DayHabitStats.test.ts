@@ -22,8 +22,12 @@ const getDaysAgo = (n: number) => {
 // Create mock habit
 const createHabit = (overrides: Partial<Habit> = {}): Habit => ({
   id: 'habit-1',
-  user_id: 'user-1',
+  type: 'habit',
+  owner_id: 'user-1',
   name: 'Test Habit',
+  frequency: 'daily',
+  subtype: 'start_habit',
+  ai_placed: false,
   cadence: 'daily',
   target_per_period: 1,
   created_at: new Date().toISOString(),
@@ -36,11 +40,11 @@ const createHabit = (overrides: Partial<Habit> = {}): Habit => ({
 const createProgress = (habitId: string, date: Date): HabitProgressRow => ({
   id: `prog-${Date.now()}-${Math.random()}`,
   habit_id: habitId,
-  user_id: 'user-1',
+  owner_id: 'user-1',
   occurred_day: formatDate(date),
-  note: null,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
+  occurred_at: date.toISOString(),
+  count: 1,
+  occurrence_index: null,
 });
 
 describe('useRolling7DayHabitStats', () => {

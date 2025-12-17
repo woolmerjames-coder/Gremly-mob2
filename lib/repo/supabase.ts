@@ -1717,7 +1717,7 @@ export class SupabaseRepo implements IRepo {
 
     if (notesError) throw new Error(`Failed to search notes: ${notesError.message}`);
     if (notes) {
-      results.push(...notes.map((n) => noteZ.parse({ ...n, type: 'note' })));
+      results.push(...notes.map((n) => noteZ.parse(mapNoteFromDb(n)) as Note));
     }
 
     return results;

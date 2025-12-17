@@ -12,7 +12,7 @@
  * 5. Future overlay opens skip AI (frozen)
  */
 
-import { callEnrichPhase2 } from '../cortex/CortexClient';
+import { callEnrichPhase2, callClassify } from '../cortex/CortexClient';
 import { supabase } from '../supabase/client';
 import { mergeLogSubtypeTag } from './logSubtypeTags';
 import { filterAndNormalizeTags } from '../tags/normalize';
