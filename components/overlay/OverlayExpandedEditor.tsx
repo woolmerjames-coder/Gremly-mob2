@@ -1,10 +1,14 @@
 import React from 'react';
-import { View, TextInput, Pressable, StyleSheet, useColorScheme } from 'react-native';
+import { View, TextInput, Pressable, StyleSheet, useColorScheme, Dimensions } from 'react-native';
 import { ChevronDown, CheckSquare } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import type { BaseType } from './overlayV2.state';
 import { ChecklistInput } from './ChecklistInput';
+
+// Max height for text area: 40% of screen height
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const TEXT_AREA_MAX_HEIGHT = Math.round(SCREEN_HEIGHT * 0.4);
 
 export type OverlayExpandedEditorProps = {
   baseType: BaseType; // 'log' | 'todo' | 'habit'
@@ -172,36 +176,39 @@ export function OverlayExpandedEditor({
       </View>
 
       {/* Main editor area - checklist or plain text */}
-      {isChecklistMode ? (
-        <ChecklistInput text={text} onChangeText={onChangeText} colorMode={colorMode} expanded />
-      ) : (
-        <TextInput
-          value={text}
-          onChangeText={onChangeText}
-          placeholder="Add notes..."
-          placeholderTextColor={tokens.colors.subtle}
-          multiline
-          scrollEnabled
-          textAlignVertical="top"
-          autoFocus
-          style={[
-            styles.textArea,
-            {
-              color: tokens.colors.text,
-              backgroundColor: isDark ? darkTokens.colors.deep : '#FAFAFA',
-              borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-            },
-          ]}
-          accessibilityLabel="Expanded content input"
-        />
-      )}
+      {/* Container with maxHeight to prevent overflow */}
+      <View style={styles.textAreaContainer}>
+        {isChecklistMode ? (
+          <ChecklistInput text={text} onChangeText={onChangeText} colorMode={colorMode} expanded />
+        ) : (
+          <TextInput
+            value={text}
+            onChangeText={onChangeText}
+            placeholder="Add notes..."
+            placeholderTextColor={tokens.colors.subtle}
+            multiline
+            scrollEnabled
+            textAlignVertical="top"
+            autoFocus
+            style={[
+              styles.textArea,
+              {
+                color: tokens.colors.text,
+                backgroundColor: isDark ? darkTokens.colors.deep : '#FAFAFA',
+                borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
+              },
+            ]}
+            accessibilityLabel="Expanded content input"
+          />
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    // Don't use flex: 1 - let content determine size within parent constraints
   },
   headerRow: {
     flexDirection: 'row',
@@ -261,9 +268,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Container to constrain text area height
+  textAreaContainer: {
+    maxHeight: TEXT_AREA_MAX_HEIGHT,
+    minHeight: 150,
+  },
   textArea: {
     flex: 1,
-    minHeight: 300,
+    minHeight: 150,
+    maxHeight: TEXT_AREA_MAX_HEIGHT,
     fontSize: 16,
     lineHeight: 24,
     paddingVertical: 14,

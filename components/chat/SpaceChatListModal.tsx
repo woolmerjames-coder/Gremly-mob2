@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback } from 'react';
 import {
   Modal,
   View,
@@ -10,8 +10,8 @@ import {
   Alert,
 } from 'react-native';
 import { MessageSquare, Plus, X, MoreVertical } from '../icons';
-import { useAuth } from '../../providers/AuthProvider';
-import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useSpaceChats } from '../../lib/store/selectors';
 import { SpaceChat } from '../../lib/types';
 import { getRelativeTime } from '../../lib/utils/getRelativeTime';
 
@@ -32,87 +32,75 @@ export function SpaceChatListModal({
   onSelectChat,
   onNewChat,
 }: SpaceChatListModalProps) {
-  const { user } = useAuth();
-  const [chats, setChats] = useState<SpaceChat[]>([]);
-  const [loading, setLoading] = useState(true);
+  const chats = useSpaceChats(spaceId);
+  const isLoading = useGremlyStore((s) => s.isLoading);
+  const deleteSpaceChat = useGremlyStore((s) => s.deleteSpaceChat);
 
-  useEffect(() => {
-    if (visible && spaceId && user?.id) {
-      loadChats();
-    }
-  }, [visible, spaceId, user?.id]);
+  const handleSelectChat = useCallback(
+    (chatId: string) => {
+      onClose();
+      onSelectChat(chatId);
+    },
+    [onClose, onSelectChat],
+  );
 
-  const loadChats = async () => {
-    setLoading(true);
-    try {
-      const repo = new SupabaseSpaceChatRepo(user!.id);
-      const fetchedChats = await repo.listBySpace(spaceId);
-      setChats(fetchedChats);
-    } catch (err) {
-      console.error('[SpaceChatListModal] Failed to load chats:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSelectChat = (chatId: string) => {
-    onClose();
-    onSelectChat(chatId);
-  };
-
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     onClose();
     onNewChat();
-  };
+  }, [onClose, onNewChat]);
 
-  const handleDeleteChat = (chatId: string, chatTitle: string | null) => {
-    Alert.alert('Delete Chat', `Are you sure you want to delete "${chatTitle || 'this chat'}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            const repo = new SupabaseSpaceChatRepo(user!.id);
-            await repo.delete(chatId);
-            setChats((prev) => prev.filter((c) => c.id !== chatId));
-          } catch (err) {
-            console.error('[SpaceChatListModal] Failed to delete chat:', err);
-            Alert.alert('Error', 'Failed to delete chat');
-          }
+  const handleDeleteChat = useCallback(
+    (chatId: string, chatTitle: string | null) => {
+      Alert.alert('Delete Chat', `Are you sure you want to delete "${chatTitle || 'this chat'}"?`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteSpaceChat(chatId);
+            } catch (err) {
+              console.error('[SpaceChatListModal] Failed to delete chat:', err);
+              Alert.alert('Error', 'Failed to delete chat');
+            }
+          },
         },
-      },
-    ]);
-  };
+      ]);
+    },
+    [deleteSpaceChat],
+  );
 
-  const renderChatItem = ({ item }: { item: SpaceChat }) => (
-    <TouchableOpacity
-      style={styles.chatItem}
-      onPress={() => handleSelectChat(item.id)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.chatIcon}>
-        <MessageSquare size={20} color="#5C6B5A" />
-      </View>
-      <View style={styles.chatContent}>
-        <Text style={styles.chatTitle} numberOfLines={1}>
-          {item.title || 'Untitled Chat'}
-        </Text>
-        {item.last_message_snippet && (
-          <Text style={styles.chatSnippet} numberOfLines={1}>
-            {item.last_message_snippet}
-          </Text>
-        )}
-      </View>
-      <Text style={styles.chatDate}>{getRelativeTime(item.updated_at)}</Text>
+  const renderChatItem = useCallback(
+    ({ item }: { item: SpaceChat }) => (
       <TouchableOpacity
-        style={styles.menuButton}
-        onPress={() => handleDeleteChat(item.id, item.title)}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={styles.chatItem}
+        onPress={() => handleSelectChat(item.id)}
+        activeOpacity={0.7}
       >
-        <MoreVertical size={18} color="#999" />
+        <View style={styles.chatIcon}>
+          <MessageSquare size={20} color="#5C6B5A" />
+        </View>
+        <View style={styles.chatContent}>
+          <Text style={styles.chatTitle} numberOfLines={1}>
+            {item.title || 'Untitled Chat'}
+          </Text>
+          {item.last_message_snippet && (
+            <Text style={styles.chatSnippet} numberOfLines={1}>
+              {item.last_message_snippet}
+            </Text>
+          )}
+        </View>
+        <Text style={styles.chatDate}>{getRelativeTime(item.updated_at)}</Text>
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => handleDeleteChat(item.id, item.title)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <MoreVertical size={18} color="#999" />
+        </TouchableOpacity>
       </TouchableOpacity>
-    </TouchableOpacity>
+    ),
+    [handleSelectChat, handleDeleteChat],
   );
 
   return (
@@ -138,7 +126,7 @@ export function SpaceChatListModal({
         </TouchableOpacity>
 
         {/* Chat List */}
-        {loading ? (
+        {isLoading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="small" color="#5C6B5A" />
           </View>

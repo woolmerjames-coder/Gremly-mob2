@@ -10,19 +10,31 @@
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Circle, CheckCircle2, Flame, Pin } from 'lucide-react-native';
+import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import {
+  Circle,
+  CheckCircle2,
+  Flame,
+  Pin,
+  RotateCcw,
+  RefreshCw,
+  Calendar,
+} from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import type { Habit } from '../../../lib/types';
+import { useHabitMetadata, HabitMetadata } from '../../../lib/today/hooks/useHabitMetadata';
 
-interface HabitProgress {
-  done: number;
-  target: number;
-}
+// Icon map for metadata display - matches NowFocusRow
+const MetadataIconMap = {
+  Flame,
+  RotateCcw,
+  RefreshCw,
+  Calendar,
+} as const;
 
 interface HabitsSectionProps {
   habits: Habit[];
-  progressMap: Map<string, HabitProgress>;
-  streakMap: Map<string, number>;
+  // REMOVED: progressMap and streakMap - now computed per-habit via useHabitMetadata hook
   onHabitPress: (habit: Habit) => void;
   onHabitLog: (habit: Habit) => void;
   onHabitLongPress?: (habit: Habit) => void;
@@ -30,8 +42,6 @@ interface HabitsSectionProps {
 
 export function HabitsSection({
   habits,
-  progressMap,
-  streakMap,
   onHabitPress,
   onHabitLog,
   onHabitLongPress,
@@ -54,21 +64,15 @@ export function HabitsSection({
 
       {/* Habit Rows */}
       <View style={styles.list}>
-        {habits.map((habit) => {
-          const progress = progressMap.get(habit.id);
-          const streak = streakMap.get(habit.id) ?? 0;
-          return (
-            <HabitRow
-              key={habit.id}
-              habit={habit}
-              progress={progress}
-              streak={streak}
-              onPress={() => onHabitPress(habit)}
-              onLog={() => onHabitLog(habit)}
-              onLongPress={onHabitLongPress ? () => onHabitLongPress(habit) : undefined}
-            />
-          );
-        })}
+        {habits.map((habit) => (
+          <HabitRow
+            key={habit.id}
+            habit={habit}
+            onPress={() => onHabitPress(habit)}
+            onLog={() => onHabitLog(habit)}
+            onLongPress={onHabitLongPress ? () => onHabitLongPress(habit) : undefined}
+          />
+        ))}
       </View>
     </View>
   );
@@ -76,27 +80,37 @@ export function HabitsSection({
 
 interface HabitRowProps {
   habit: Habit;
-  progress?: HabitProgress;
-  streak: number;
   onPress: () => void;
   onLog: () => void;
   onLongPress?: () => void;
 }
 
-function HabitRow({ habit, progress, streak, onPress, onLog, onLongPress }: HabitRowProps) {
-  // Show checkmark if any progress logged today (done > 0), not just when target met
-  const isDoneToday = progress ? progress.done > 0 : false;
+function HabitRow({ habit, onPress, onLog, onLongPress }: HabitRowProps) {
+  // Use the SAME hook as NowFocusRow for consistency
+  const metadata = useHabitMetadata(habit);
+  const MetadataIcon = MetadataIconMap[metadata.icon];
 
-  // Debug: log what HabitRow is rendering
-  console.log(
-    '[HabitRow]',
-    habit.id,
-    habit.name,
-    'progress:',
-    progress,
-    'isDoneToday:',
+  // Done today = streak type with value > 0, OR days_since with value === 0, OR rolling_progress with value > 0
+  const isDoneToday =
+    (metadata.type === 'streak' && metadata.value > 0) ||
+    (metadata.type === 'days_since' && metadata.value === 0) ||
+    (metadata.type === 'rolling_progress' && metadata.value > 0);
+
+  // Debug: log what HabitRow is rendering (compare with NowFocusRow)
+  const habitProgressFromStore = useGremlyStore
+    .getState()
+    .habitProgress.filter((p) => p.habit_id === habit.id);
+  console.log('[HabitRow] SpaceHome metadata:', {
+    habitId: habit.id,
+    habitName: habit.name,
+    metadata,
     isDoneToday,
-  );
+    habitProgress: habitProgressFromStore,
+    habitRaw: {
+      target_per_period: habit.target_per_period,
+      frequency: habit.frequency,
+    },
+  });
 
   return (
     <View style={styles.row}>
@@ -138,13 +152,17 @@ function HabitRow({ habit, progress, streak, onPress, onLog, onLongPress }: Habi
         )}
       </Pressable>
 
-      {/* Right: Streak indicator */}
-      {streak > 0 && (
-        <View style={styles.streakContainer}>
-          <Flame size={16} color="#E07C3E" />
-          <Text style={styles.streakText}>{streak}</Text>
-        </View>
-      )}
+      {/* Right: Metadata (streak/progress) - matches NowFocusRow exactly */}
+      <View style={styles.metadataContainer}>
+        <MetadataIcon
+          size={metadata.type === 'streak' ? 16 : 14}
+          color={metadata.icon === 'Flame' ? '#E07C3E' : BRAND.colors.inkMuted}
+        />
+        <Text style={[styles.metadataText, metadata.icon === 'Flame' && styles.streakText]}>
+          {metadata.label}
+          {metadata.periodLabel ? ` ${metadata.periodLabel}` : ''}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -187,14 +205,21 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
   },
   rowTextCompleted: {
-    textDecorationLine: 'line-through',
-    color: BRAND.colors.inkMuted,
+    // No strikethrough on SpaceHome - it's a dashboard, not a check-off screen
+    // The green checkmark icon shows "done today" status
+    // Metadata (streak, rolling progress) tells the health story
+    color: BRAND.colors.charcoalInk, // Keep normal color, no opacity reduction
   },
-  streakContainer: {
+  metadataContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingLeft: 8,
+  },
+  metadataText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
   },
   streakText: {
     fontSize: 14,

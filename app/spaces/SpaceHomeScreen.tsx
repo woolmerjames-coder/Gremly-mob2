@@ -40,6 +40,8 @@ import {
   useSpaceMilestoneFromStore,
   useMilestoneCountdown,
   useSpaceTimelineFromStore,
+  selectCompletedTodosCountBySpace,
+  useSpaceCompletedTodos,
 } from '../../lib/store/selectors';
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
@@ -314,6 +316,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const storeHabits = useSpaceHabitsFromStore(spaceId);
   const storeNotes = useSpaceNotesFromStore(spaceId);
 
+  // Completed todos count and list from store (storeTodos only has incomplete todos)
+  const completedTodoCount = useGremlyStore(
+    useCallback((state) => selectCompletedTodosCountBySpace(state, spaceId), [spaceId]),
+  );
+  const completedTodosForOverlay = useSpaceCompletedTodos(spaceId);
+
+  // Debug: log when completed count changes from store
+  console.log('[SpaceHome] completedTodoCount from store:', completedTodoCount);
+
   // Timeline from store - needed for weekly habit progress computation
   const timelineDays = useSpaceTimelineFromStore(spaceId);
 
@@ -449,6 +460,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const localPinnedIdsRef = useRef<Set<string>>(new Set()); // Track locally toggled pinned state
   const localLoggedHabitIdsRef = useRef<Set<string>>(new Set()); // Track optimistically logged habits
   const localUncheckedHabitIdsRef = useRef<Set<string>>(new Set()); // Track habits user unchecked this session
+  const animatingTodoIdsRef = useRef<Set<string>>(new Set()); // Track todos currently animating out
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
@@ -541,30 +553,82 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       const locallyToggled = localCompletedIdsRef.current.has(todo.id);
       // XOR: if locally toggled, flip the DB state
       const isCompleted = locallyToggled ? !dbCompleted : dbCompleted;
+      // Keep animating todos visible (they handle their own fade out)
+      const isAnimating = animatingTodoIdsRef.current.has(todo.id);
       return {
         ...todo,
-        completed_at: isCompleted ? todo.completed_at || new Date().toISOString() : null,
+        completed_at:
+          isCompleted && !isAnimating ? todo.completed_at || new Date().toISOString() : null,
+        _isAnimatingOut: isAnimating && isCompleted, // Pass flag for styling
       };
     });
-    // Only return incomplete todos for the main section
-    return withOptimistic.filter((t: any) => !t.completed_at);
+    // Only return incomplete todos for the main section (plus animating ones)
+    return withOptimistic.filter((t: any) => !t.completed_at || t._isAnimatingOut);
   }, [storeTodos, optimisticVersion]); // optimisticVersion triggers recalc on forceUpdate
 
-  // Completed todos for the CompletedInSpaceOverlay
+  // Completed todos for the CompletedInSpaceOverlay - using store selector
+  // (storeTodos only contains incomplete todos, so we use the dedicated hook)
+  // Apply optimistic completion state for immediate UI feedback
   const completedTodosForSpace = useMemo(() => {
-    // Apply optimistic completion state
-    const withOptimistic = storeTodos.map((todo: any) => {
-      const dbCompleted = !!todo.completed_at || todo.status === 'completed';
-      const locallyToggled = localCompletedIdsRef.current.has(todo.id);
-      const isCompleted = locallyToggled ? !dbCompleted : dbCompleted;
-      return {
+    // Start with completed todos from store
+    const completedFromStore = completedTodosForOverlay;
+
+    // Check if any todos were optimistically completed (toggled from incomplete)
+    // These would be in storeTodos but marked as locally completed
+    const optimisticallyCompleted = storeTodos
+      .filter((todo: any) => localCompletedIdsRef.current.has(todo.id))
+      .map((todo: any) => ({
         ...todo,
-        completed_at: isCompleted ? todo.completed_at || new Date().toISOString() : null,
-      };
+        completed_at: new Date().toISOString(),
+      }));
+
+    // Check if any completed todos were optimistically uncompleted
+    const uncheckedIds = new Set(
+      completedFromStore
+        .filter((todo: any) => localCompletedIdsRef.current.has(todo.id))
+        .map((todo: any) => todo.id),
+    );
+
+    // Combine: store completed (minus unchecked) + optimistically completed
+    const fromStore = completedFromStore.filter((t: any) => !uncheckedIds.has(t.id));
+    return [...fromStore, ...optimisticallyCompleted];
+  }, [completedTodosForOverlay, storeTodos, optimisticVersion]);
+
+  // Computed completed count: reactive to store + optimistic state for immediate pill updates
+  const reactiveCompletedCount = useMemo(() => {
+    // Log what's in the refs
+    console.log(
+      '[SpaceHome] Computing reactiveCompletedCount, animatingTodoIds:',
+      Array.from(animatingTodoIdsRef.current),
+    );
+    console.log(
+      '[SpaceHome] storeTodos ids:',
+      storeTodos.map((t: any) => t.id),
+    );
+    console.log(
+      '[SpaceHome] completedTodos ids:',
+      completedTodosForOverlay.map((t: any) => t.id),
+    );
+
+    // Optimistic completions: todos that are animating out (user just tapped complete)
+    // These are the source of truth for "pending" completions
+    const optimisticallyCompletedCount = Array.from(animatingTodoIdsRef.current).filter((id) =>
+      // Only count if the todo is still in storeTodos (not yet moved to completed)
+      storeTodos.some((t: any) => t.id === id),
+    ).length;
+
+    // Final count = store count + pending completions (no unchecking logic needed for now)
+    const count = completedTodoCount + optimisticallyCompletedCount;
+
+    console.log('[SpaceHome] reactiveCompletedCount:', {
+      storeCount: completedTodoCount,
+      optimisticallyCompleted: optimisticallyCompletedCount,
+      final: count,
+      optimisticVersion,
     });
-    // Only return completed todos
-    return withOptimistic.filter((t: any) => !!t.completed_at);
-  }, [storeTodos, optimisticVersion]);
+
+    return count;
+  }, [completedTodoCount, storeTodos, completedTodosForOverlay, optimisticVersion]);
 
   const habitsForSpace = useMemo(() => {
     return storeHabits;
@@ -637,41 +701,48 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [overlay, spaceId],
   );
 
-  // Handler for todo completion with optimistic update using ref
+  // Handler for todo completion with animation support
+  // 1. Immediately update optimistic count (pill updates)
+  // 2. Mark as animating (row stays visible)
+  // 3. After animation, persist to store and remove from list
   const handleTodoComplete = useCallback(
     async (item: AppRecord) => {
       const todoId = item.id;
-      console.log('[SpaceHome] Todo complete:', todoId);
+      console.log('[SpaceHome] Todo complete START:', todoId);
 
       // Haptic feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      // Toggle in our local ref (persists across re-renders)
-      if (localCompletedIdsRef.current.has(todoId)) {
-        localCompletedIdsRef.current.delete(todoId);
-      } else {
-        localCompletedIdsRef.current.add(todoId);
-      }
+      // Mark as animating - this is the source of truth for optimistic completions
+      // The reactiveCompletedCount will add +1 for each animating todo still in storeTodos
+      animatingTodoIdsRef.current.add(todoId);
 
-      // Force re-render to show the change immediately
+      console.log(
+        '[SpaceHome] After adding to animatingTodoIds:',
+        Array.from(animatingTodoIdsRef.current),
+      );
+      console.log('[SpaceHome] Calling forceUpdate...');
+
+      // Force re-render to show the count change immediately
       forceUpdate();
 
-      try {
-        await store.completeTodo(todoId);
-        setShowConfetti(true);
-        // Don't clear local override - keep the optimistic state
-        // The local toggle will persist until user leaves the screen
-      } catch (e) {
-        console.warn('[SpaceHome] Failed to complete todo:', e);
-        // Revert optimistic update on error
-        if (localCompletedIdsRef.current.has(todoId)) {
-          localCompletedIdsRef.current.delete(todoId);
-        } else {
-          localCompletedIdsRef.current.add(todoId);
+      // After animation delay, persist to store
+      setTimeout(async () => {
+        try {
+          await store.completeTodo(todoId);
+          setShowConfetti(true);
+
+          // Clean up animating ref after store confirms
+          animatingTodoIdsRef.current.delete(todoId);
+          forceUpdate();
+        } catch (e) {
+          console.warn('[SpaceHome] Failed to complete todo:', e);
+          // On error, remove from animating to restore the row
+          animatingTodoIdsRef.current.delete(todoId);
+          forceUpdate();
+          Alert.alert('Error', 'Failed to complete todo');
         }
-        forceUpdate();
-        Alert.alert('Error', 'Failed to complete todo');
-      }
+      }, 850); // Slightly after animation completes (800ms)
     },
     [store],
   );
@@ -866,6 +937,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Phase 5: Removed v22 cascade animation values (oWeek, oDay, oSummary, oInsights, oCTA, oThreads, yWeek, etc.)
   // Focus card snooze state
   const [focusDismissed, setFocusDismissed] = useState<boolean>(false);
+  // Track scroll position for fixed header shadow
+  const [isScrolled, setIsScrolled] = useState(false);
   // Feature flag: Space v22 header (strict equality as requested)
   const isSpaceV22 = process.env.EXPO_PUBLIC_SPACE_V22 === 'on';
 
@@ -1515,19 +1588,14 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return (
       <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>
         <Animated.View style={{ flex: 1, opacity: oV33, transform: [{ translateY: yV33 }] }}>
-          <ScrollView
-            ref={scrollRef}
-            style={styles.scroll}
-            contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-          >
-            {/* Phase 12: MilestoneHeader replaces HeaderV33 */}
+          {/* Fixed header - always visible while scrolling */}
+          <View style={[styles.fixedHeader, isScrolled && styles.fixedHeaderShadow]}>
             <MilestoneHeader
               spaceName={space?.name ?? 'Space'}
               milestone={milestone}
               countdown={countdown}
               pinnedCount={pinnedCount}
-              completedCount={completedTodosForSpace.length}
+              completedCount={reactiveCompletedCount}
               onGremlyPress={handleGremlyPress}
               onPinnedPress={handlePinnedPress}
               onCompletedPress={() => setShowCompletedOverlay(true)}
@@ -1536,9 +1604,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onSettingsPress={handleSettingsPress}
               onBackPress={() => navigation.goBack()}
             />
+          </View>
 
-            {/* Phase 12: Actions/Chats toggle removed - content sections below */}
-
+          {/* Scrollable content */}
+          <ScrollView
+            ref={scrollRef}
+            style={styles.scroll}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+            onScroll={(e) => {
+              const scrollY = e.nativeEvent.contentOffset.y;
+              setIsScrolled(scrollY > 10);
+            }}
+            scrollEventThrottle={16}
+          >
             {/* Optimistic quick add card */}
             {optimisticQuickAdd && (
               <View
@@ -1626,8 +1705,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                   {habitsForSpace.length > 0 && (
                     <HabitsSectionV2
                       habits={habitsForSpace}
-                      progressMap={habitProgressMap}
-                      streakMap={streakMap}
                       onHabitPress={(habit) => handleItemPress(habit)}
                       onHabitLog={(habit) => handleHabitLogProgress(habit)}
                       onHabitLongPress={(habit) => handleHabitLongPress(habit)}
@@ -2614,6 +2691,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
+  },
+  fixedHeader: {
+    backgroundColor: BRAND.colors.linenCream,
+    zIndex: 1,
+  },
+  fixedHeaderShadow: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
   },
   scroll: {
     flex: 1,

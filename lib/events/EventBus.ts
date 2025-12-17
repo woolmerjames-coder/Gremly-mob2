@@ -52,6 +52,7 @@ export type EventMap = {
     tags: string[];
     timeEstimate?: number | null;
     dueDate?: string | null;
+    confirmationMessage?: string | null;
   };
 };
 

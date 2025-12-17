@@ -77,10 +77,52 @@ import {
   useSpaceNotesFromStore,
   useSpaceMilestoneFromStore,
   useMilestoneCountdown,
+  useSpaceById,
   selectItemById,
 } from '../../lib/store/selectors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
+
+// Pure helper functions moved outside component - no need to recreate on every render
+const getLockedTitle = (metadata: any): string => {
+  const itemType = metadata.itemType;
+  switch (itemType) {
+    case 'habit':
+      return `Habit locked in for ${metadata.frequency}`;
+    case 'todo':
+      return `Task added${metadata.dueDate ? ` for ${metadata.dueDate}` : ''}`;
+    case 'note':
+      return 'Note captured';
+    case 'person':
+      return `${metadata.personName} added to connections`;
+    default:
+      return 'Item created';
+  }
+};
+
+const getLockedSubtext = (metadata: any): string => {
+  const itemType = metadata.itemType;
+  if (itemType === 'note' && metadata.noteContent) {
+    return metadata.noteContent.substring(0, 50);
+  }
+  return 'Click this entry or find it in the Space to edit';
+};
+
+const getItemId = (metadata: any): string | undefined => {
+  const itemType = metadata.itemType;
+  switch (itemType) {
+    case 'habit':
+      return metadata.habitId;
+    case 'todo':
+      return metadata.todoId;
+    case 'note':
+      return metadata.noteId;
+    case 'person':
+      return metadata.personId;
+    default:
+      return undefined;
+  }
+};
 
 export default function ChatThreadScreen({ route }: Props) {
   // Navigation
@@ -95,7 +137,15 @@ export default function ChatThreadScreen({ route }: Props) {
   const { spaceId, chatId } = route.params;
   const auth = useAuth();
   const { userId } = auth;
-  const getItemById = useGremlyStore((s) => (id: string) => selectItemById(s, id));
+  const getItemById = useCallback(
+    (id: string) => selectItemById(useGremlyStore.getState(), id),
+    [],
+  );
+
+  // Store functions for instant save
+  const createTodo = useGremlyStore((s) => s.createTodo);
+  const createHabit = useGremlyStore((s) => s.createHabit);
+  const createNote = useGremlyStore((s) => s.createNote);
 
   const [chat, setChat] = useState<SpaceChat | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,7 +160,7 @@ export default function ChatThreadScreen({ route }: Props) {
   }, []);
 
   // Fetch space data from Zustand store
-  const space = useGremlyStore((s) => s.spaces.find((sp) => sp.id === spaceId) ?? null);
+  const space = useSpaceById(spaceId);
   const todos = useSpaceTodosFromStore(spaceId);
   const habits = useSpaceHabitsFromStore(spaceId);
   const notes = useSpaceNotesFromStore(spaceId);
@@ -665,76 +715,73 @@ export default function ChatThreadScreen({ route }: Props) {
           const assistantText = response.explanation?.trim() || response.replyText?.trim() || '';
 
           if (assistantText) {
-            // Run saveable detection BEFORE adding message (single state update)
-            let saveableData: {
-              type: 'todo' | 'habit' | 'note';
-              title: string;
-              content?: string;
-              prefillData?: any;
-            } | null = null;
-
-            let detectionResult: any = null;
-
-            try {
-              console.log('[ChatThread] Running saveable detection BEFORE append', {
-                assistantText: assistantText.slice(0, 50),
-              });
-
-              // Run detection without messageId (we don't have it yet)
-              detectionResult = await spaceChatEnhanced.runSaveableDetection(
-                assistantText,
-                trimmedText,
-                'pending', // Temporary ID, will be updated
-              );
-
-              // Log detection result
-              if (__DEV__) {
-                console.log('[Chat] Saveable detection result:', {
-                  detected: detectionResult?.isSaveable ?? false,
-                  type: detectionResult?.suggestedType,
-                  title: detectionResult?.prefill?.title,
-                });
-              }
-
-              if (detectionResult?.isSaveable && detectionResult.suggestedType) {
-                // Map SaveableType to simpler type for message storage
-                const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
-                  todo: 'todo',
-                  habit: 'habit',
-                  'log-general': 'note',
-                  'log-list': 'note',
-                  'log-idea': 'note',
-                };
-                saveableData = {
-                  type: typeMap[detectionResult.suggestedType] || 'note',
-                  title: detectionResult.prefill?.title || '',
-                  content: detectionResult.prefill?.content,
-                  prefillData: detectionResult.prefill,
-                };
-              }
-            } catch (err) {
-              console.error('[ChatThread] Saveable detection failed:', err);
-            }
-
-            // Add message with saveable data attached (single state update)
+            // NON-BLOCKING FLOW: Show message immediately, detect saveable in background
+            // 1. Append message to chat IMMEDIATELY (no saveable yet)
             const appendedMessage = await appendAssistantMessage(
               assistantText,
               undefined,
               undefined,
-              saveableData,
+              null, // No saveable data initially
             );
 
             // Log AI message addition
             if (__DEV__) {
-              console.log('[Chat] Adding AI message with saveable:', {
-                messageId: appendedMessage?.id,
-                hasSaveable: !!saveableData,
-                saveableType: saveableData?.type,
-              });
+              console.log(
+                '[Chat] Adding AI message immediately (saveable detection in background)',
+                {
+                  messageId: appendedMessage?.id,
+                },
+              );
             }
 
-            // NOTE: showSaveButton call removed - saveable data is now embedded
-            // in the message itself via message.saveable property
+            // 2. Run saveable detection in background, update message when done
+            if (appendedMessage?.id) {
+              spaceChatEnhanced
+                .runSaveableDetection(assistantText, trimmedText, appendedMessage.id)
+                .then((detectionResult) => {
+                  if (__DEV__) {
+                    console.log('[Chat] Saveable detection complete (background):', {
+                      messageId: appendedMessage.id,
+                      detected: detectionResult?.isSaveable ?? false,
+                      type: detectionResult?.suggestedType,
+                      title: detectionResult?.prefill?.title,
+                    });
+                  }
+
+                  // 3. If saveable detected, update the existing message with saveable data
+                  if (detectionResult?.isSaveable && detectionResult.suggestedType) {
+                    const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
+                      todo: 'todo',
+                      habit: 'habit',
+                      'log-general': 'note',
+                      'log-list': 'note',
+                      'log-idea': 'note',
+                    };
+                    const saveableData = {
+                      type: typeMap[detectionResult.suggestedType] || 'note',
+                      title: detectionResult.prefill?.title || '',
+                      content: detectionResult.prefill?.content,
+                      prefillData: detectionResult.prefill,
+                    };
+
+                    // Update message with saveable data (triggers re-render with save button)
+                    updateMessage(appendedMessage.id, {
+                      saveable: saveableData,
+                      saveableDismissed: false,
+                    });
+
+                    if (__DEV__) {
+                      console.log('[Chat] Message updated with saveable:', {
+                        messageId: appendedMessage.id,
+                        saveableType: saveableData.type,
+                      });
+                    }
+                  }
+                })
+                .catch((err) => {
+                  console.error('[ChatThread] Background saveable detection failed:', err);
+                });
+            }
 
             // Phase 10.8: Maybe refresh Space Insight summary (background, fire-and-forget)
             if (getEnv('EXPO_PUBLIC_SPACE_SUMMARY_BG') === 'on' && spaceId) {
@@ -918,26 +965,27 @@ export default function ChatThreadScreen({ route }: Props) {
     [spaceChatEnhanced, updateMessage],
   );
 
-  // Handle save from ChatBubble's embedded save button
-  // Moved outside renderItem to prevent re-creation on each render
-  const handleBubbleSave = useCallback(
+  // Handle edit from ChatBubble's embedded edit button (opens overlay)
+  const handleBubbleEdit = useCallback(
     (message: SpaceChatMessage) => {
       const saveable = message.saveable;
       if (!saveable) return;
 
       if (__DEV__) {
-        console.log('[Chat] Save pressed for saveable:', { messageId: message.id, saveable });
+        console.log('[Chat] Edit pressed for saveable:', { messageId: message.id, saveable });
       }
+
       // Track which message is being saved - set BOTH state and ref
-      // Ref survives closure staleness in onSaved callback
       setActiveMessageWithSaveable(message.id);
       activeMessageWithSaveableRef.current = message.id;
       spaceChatEnhanced.startSaving();
+
       // Map saveable type to overlay kind
       const kind = saveable.type === 'todo' ? 'todo' : saveable.type === 'habit' ? 'habit' : 'note';
       const prefill = saveable.prefillData || {};
       // Notes/Logs: full assistant response; Todos/Habits: AI-summarized content
       const note = kind === 'note' ? message.content : prefill.content || '';
+
       openUnifiedFromChat(
         kind,
         {
@@ -956,10 +1004,215 @@ export default function ChatThreadScreen({ route }: Props) {
         },
         overlayController,
       );
+
       spaceChatEnhanced.finishSaving();
       spaceChatEnhanced.markSaveTapped();
     },
     [spaceChatEnhanced, spaceId, overlayController],
+  );
+
+  // Handle instant save from ChatBubble's embedded save button (no overlay)
+  const handleBubbleSave = useCallback(
+    async (message: SpaceChatMessage) => {
+      const saveable = message.saveable;
+      if (!saveable) return;
+
+      if (__DEV__) {
+        console.log('[Chat] Instant save pressed:', {
+          messageId: message.id,
+          type: saveable.type,
+          title: saveable.title,
+        });
+      }
+
+      const prefill = saveable.prefillData || {};
+
+      try {
+        let result: { id: string } | null = null;
+        const basePayload = {
+          title: saveable.title || '',
+          space_id: spaceId || null,
+          origin: 'space_chat' as const,
+          tags: prefill.tags || [],
+        };
+
+        if (saveable.type === 'todo') {
+          result = await createTodo({
+            ...basePayload,
+            name: saveable.title || '',
+            body: prefill.content || '',
+            due_day: prefill.dueDate || null,
+          });
+        } else if (saveable.type === 'habit') {
+          result = await createHabit({
+            ...basePayload,
+            name: saveable.title || '',
+            notes: prefill.content || '',
+            frequency: prefill.frequency || 'daily',
+            frequency_value: prefill.frequencyValue
+              ? { type: 'simple', value: prefill.frequency || 'daily' }
+              : undefined,
+          });
+        } else {
+          // note/log - use original message content to preserve markdown formatting
+          result = await createNote({
+            ...basePayload,
+            body: message.content, // Use original message, NOT prefill.content (which is flattened)
+          });
+        }
+
+        if (result?.id) {
+          console.log('[Chat] Instant save successful:', result.id);
+
+          // Add locked card to chat
+          const itemType =
+            saveable.type === 'todo' ? 'todo' : saveable.type === 'habit' ? 'habit' : 'note';
+          await appendAssistantMessage('', {
+            type: `${itemType}-locked`,
+            itemType,
+            [`${itemType}Id`]: result.id,
+            [`${itemType}Name`]: saveable.title,
+            ...(itemType === 'habit' && { frequency: prefill.frequency || 'daily' }),
+            ...(itemType === 'todo' && { dueDate: prefill.dueDate }),
+            ...(itemType === 'note' && { noteContent: saveable.title }),
+            locked: true,
+          });
+
+          // Dismiss the save button
+          handleDismissSaveable(message.id);
+
+          // Add follow-up message
+          const followUp =
+            itemType === 'habit'
+              ? `Great! Your ${saveable.title} habit is set.`
+              : itemType === 'todo'
+                ? `Task added to your list.`
+                : `Got it! Note saved.`;
+          await appendAssistantMessage(followUp);
+        }
+      } catch (error) {
+        console.error('[Chat] Instant save failed:', error);
+        // Fallback to edit mode if instant save fails
+        handleBubbleEdit(message);
+      }
+    },
+    [
+      spaceId,
+      createTodo,
+      createHabit,
+      createNote,
+      appendAssistantMessage,
+      handleDismissSaveable,
+      handleBubbleEdit,
+    ],
+  );
+
+  // Memoized keyExtractor for FlatList performance
+  const keyExtractor = useCallback(
+    (item: SpaceChatMessage, index: number) => item.id || `msg-${index}`,
+    [],
+  );
+
+  // Memoized renderItem callback for FlatList performance
+  const renderMessage = useCallback(
+    ({ item: message }: { item: SpaceChatMessage }) => {
+      // Unified renderer for all locked confirmation types
+      if (
+        message.role === 'assistant' &&
+        (message.metadata_json as any)?.type?.includes('-locked')
+      ) {
+        const metadata = message.metadata_json || {};
+        const rawItemType = metadata.itemType as 'habit' | 'todo' | 'note' | 'person';
+        // Filter to supported types for SavedItemCard
+        const itemType: 'habit' | 'todo' | 'note' =
+          rawItemType === 'person' ? 'note' : rawItemType || 'note';
+        const itemId = getItemId(metadata);
+        const title = getLockedTitle(metadata);
+        const subtext = getLockedSubtext(metadata);
+
+        return (
+          <SavedItemCard
+            itemType={itemType}
+            title={title}
+            subtitle={subtext}
+            onPress={() => {
+              if (itemId && itemType) {
+                console.log(`[Locked${itemType}] Tapped, itemId:`, itemId);
+                // Notes open in view mode, todos/habits open in edit mode
+                if (itemType === 'note') {
+                  overlayController.openView({
+                    record: { id: itemId, type: itemType } as any,
+                    spaceId: spaceId ?? undefined,
+                  });
+                } else {
+                  // todo or habit
+                  overlayController.openEdit({
+                    record: { id: itemId, type: itemType } as any,
+                    spaceId: spaceId ?? undefined,
+                  });
+                }
+              }
+            }}
+          />
+        );
+      }
+
+      // Phase 11.6: Render entry card
+      // Check for system role with type 'entry-card' in metadata
+      if (message.role === 'system' && message.metadata_json?.type === 'entry-card') {
+        const metadata = message.metadata_json || {};
+        const entry = metadata.entry;
+        const entryType = metadata.entryType;
+
+        if (entry && entryType) {
+          // Add type property to entry object
+          const typedEntry = { ...entry, type: entryType };
+
+          return (
+            <EntryCard
+              entry={typedEntry}
+              onPress={(entry) => {
+                // Notes open in view mode, todos/habits open in edit mode
+                if (entryType === 'note' || entryType === 'log') {
+                  overlayController.openView({
+                    record: entry as any,
+                    spaceId: spaceId ?? undefined,
+                  });
+                } else {
+                  // todo or habit
+                  overlayController.openEdit({
+                    record: entry as any,
+                    spaceId: spaceId ?? undefined,
+                  });
+                }
+              }}
+              testID={`entry-card-${message.id}`}
+            />
+          );
+        }
+      }
+
+      // Phase 11.3/11.5: Skip action confirmations - they're rendered outside FlatList
+      // CRITICAL FIX: Check for system role with type 'action-confirmation' in metadata
+      if (message.role === 'system' && message.metadata_json?.type === 'action-confirmation') {
+        // Don't render inside FlatList - will be rendered as overlay below
+        return null;
+      }
+
+      // Render message bubble with inline saveable card support
+      return (
+        <View style={styles.messageContainer}>
+          <ChatBubble
+            message={message}
+            testID={`chat-bubble-${message.id}`}
+            onSavePress={() => handleBubbleSave(message)}
+            onEditPress={() => handleBubbleEdit(message)}
+            onDismissSaveable={handleDismissSaveable}
+          />
+        </View>
+      );
+    },
+    [spaceId, overlayController, handleBubbleSave, handleBubbleEdit, handleDismissSaveable],
   );
 
   // Environment gate - wrap entire chat UI
@@ -1024,7 +1277,8 @@ export default function ChatThreadScreen({ route }: Props) {
           <FlatList
             ref={flatListRef}
             data={messages}
-            keyExtractor={(item, index) => item.id || `msg-${index}`}
+            keyExtractor={keyExtractor}
+            renderItem={renderMessage}
             style={styles.messages}
             contentContainerStyle={[
               styles.messagesContent,
@@ -1068,159 +1322,6 @@ export default function ChatThreadScreen({ route }: Props) {
                 </View>
               ) : null
             }
-            renderItem={({ item: message }) => {
-              // Helper function to get title for each locked type
-              const getLockedTitle = (metadata: any): string => {
-                const itemType = metadata.itemType;
-                switch (itemType) {
-                  case 'habit':
-                    return `Habit locked in for ${metadata.frequency}`;
-                  case 'todo':
-                    return `Task added${metadata.dueDate ? ` for ${metadata.dueDate}` : ''}`;
-                  case 'note':
-                    return 'Note captured';
-                  case 'person':
-                    return `${metadata.personName} added to connections`;
-                  default:
-                    return 'Item created';
-                }
-              };
-
-              // Helper function to get subtext for each locked type
-              const getLockedSubtext = (metadata: any): string => {
-                const itemType = metadata.itemType;
-                if (itemType === 'note' && metadata.noteContent) {
-                  return metadata.noteContent.substring(0, 50);
-                }
-                return 'Click this entry or find it in the Space to edit';
-              };
-
-              // Helper function to get item ID based on type
-              const getItemId = (metadata: any): string | undefined => {
-                const itemType = metadata.itemType;
-                switch (itemType) {
-                  case 'habit':
-                    return metadata.habitId;
-                  case 'todo':
-                    return metadata.todoId;
-                  case 'note':
-                    return metadata.noteId;
-                  case 'person':
-                    return metadata.personId;
-                  default:
-                    return undefined;
-                }
-              };
-
-              // Unified renderer for all locked confirmation types
-              if (
-                message.role === 'assistant' &&
-                (message.metadata_json as any)?.type?.includes('-locked')
-              ) {
-                const metadata = message.metadata_json || {};
-                const rawItemType = metadata.itemType as 'habit' | 'todo' | 'note' | 'person';
-                // Filter to supported types for SavedItemCard
-                const itemType: 'habit' | 'todo' | 'note' =
-                  rawItemType === 'person' ? 'note' : rawItemType || 'note';
-                const itemId = getItemId(metadata);
-                const title = getLockedTitle(metadata);
-                const subtext = getLockedSubtext(metadata);
-
-                return (
-                  <SavedItemCard
-                    itemType={itemType}
-                    title={title}
-                    subtitle={subtext}
-                    onPress={() => {
-                      if (itemId && itemType) {
-                        console.log(`[Locked${itemType}] Tapped, itemId:`, itemId);
-                        // Notes open in view mode, todos/habits open in edit mode
-                        if (itemType === 'note') {
-                          overlayController.openView({
-                            record: { id: itemId, type: itemType } as any,
-                            spaceId: spaceId ?? undefined,
-                          });
-                        } else {
-                          // todo or habit
-                          overlayController.openEdit({
-                            record: { id: itemId, type: itemType } as any,
-                            spaceId: spaceId ?? undefined,
-                          });
-                        }
-                      }
-                    }}
-                  />
-                );
-              }
-
-              // Phase 11.6: Render entry card
-              // Check for system role with type 'entry-card' in metadata
-              if (message.role === 'system' && message.metadata_json?.type === 'entry-card') {
-                const metadata = message.metadata_json || {};
-                const entry = metadata.entry;
-                const entryType = metadata.entryType;
-
-                if (entry && entryType) {
-                  // Add type property to entry object
-                  const typedEntry = { ...entry, type: entryType };
-
-                  return (
-                    <EntryCard
-                      entry={typedEntry}
-                      onPress={(entry) => {
-                        // Notes open in view mode, todos/habits open in edit mode
-                        if (entryType === 'note' || entryType === 'log') {
-                          overlayController.openView({
-                            record: entry as any,
-                            spaceId: spaceId ?? undefined,
-                          });
-                        } else {
-                          // todo or habit
-                          overlayController.openEdit({
-                            record: entry as any,
-                            spaceId: spaceId ?? undefined,
-                          });
-                        }
-                      }}
-                      testID={`entry-card-${message.id}`}
-                    />
-                  );
-                }
-              }
-
-              // NOTE: SavedItemCard rendering removed - now rendered inline in ChatBubble
-              // via message.saveable property
-
-              // Phase 11.3/11.5: Skip action confirmations - they're rendered outside FlatList
-              // CRITICAL FIX: Check for system role with type 'action-confirmation' in metadata
-              if (
-                message.role === 'system' &&
-                message.metadata_json?.type === 'action-confirmation'
-              ) {
-                // Don't render inside FlatList - will be rendered as overlay below
-                return null;
-              }
-
-              // NOTE: buttonState variables removed - saveable card now uses message.saveable
-              // NOTE: handleBubbleSave moved to useCallback above renderItem to prevent re-creation
-
-              // Render message bubble with inline saveable card support
-              const messageBubble = (
-                <View style={styles.messageContainer}>
-                  <ChatBubble
-                    message={message}
-                    testID={`chat-bubble-${message.id}`}
-                    onSavePress={() => handleBubbleSave(message)}
-                    onDismissSaveable={handleDismissSaveable}
-                  />
-                </View>
-              );
-
-              // NOTE: MessageWithSave wrapper removed - saveable card is now rendered
-              // inline within ChatBubble via message.saveable property
-
-              return messageBubble;
-            }}
           />
 
           {/* Persistent Action Bar removed */}
@@ -1297,7 +1398,7 @@ const styles = StyleSheet.create({
   },
   messagesContent: {
     padding: lightTokens.spacing[4],
-    paddingBottom: lightTokens.spacing[6],
+    paddingBottom: 140, // Account for input field + SaveButton + safe area
   },
   emptyListContent: {
     flexGrow: 1,

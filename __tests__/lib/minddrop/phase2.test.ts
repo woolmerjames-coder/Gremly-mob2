@@ -102,6 +102,7 @@ describe('runPhase2', () => {
             extracted_date: '2025-12-11',
             extracted_frequency: null,
             people: [],
+            confirmation_message: 'Added to your shopping list.',
             latency_ms: 500,
           }),
       });
@@ -119,6 +120,40 @@ describe('runPhase2', () => {
       expect(result?.tags).toEqual(['shopping', 'groceries']);
       expect(result?.timeEstimateMinutes).toBe(15);
       expect(result?.extractedDate).toBe('2025-12-11');
+      expect(result?.confirmationMessage).toBe('Added to your shopping list.');
+    });
+
+    test('returns null confirmationMessage when not provided by API', async () => {
+      const mockRepo = createMockRepo({
+        id: 'entity-123',
+        views: { minddrop_stage: 'classified' },
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            smart_title: 'Buy milk from store',
+            tags: ['shopping'],
+            time_estimate_minutes: 15,
+            extracted_date: null,
+            extracted_frequency: null,
+            people: [],
+            // No confirmation_message field
+          }),
+      });
+
+      const result = await runPhase2(
+        'entity-123',
+        'buy milk from the store',
+        'todo',
+        null,
+        mockRepo,
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.confirmationMessage).toBeNull();
     });
 
     test('updates entity with enrichment data', async () => {
@@ -138,12 +173,13 @@ describe('runPhase2', () => {
             extracted_date: null,
             extracted_frequency: null,
             people: [],
+            confirmation_message: 'Got it, ready when you are.',
           }),
       });
 
       await runPhase2('entity-123', 'buy milk from the store', 'todo', null, mockRepo);
 
-      // Should update entity with enrichment
+      // Should update entity with enrichment including confirmation_message
       expect(mockRepo.update).toHaveBeenCalledWith({
         id: 'entity-123',
         patch: expect.objectContaining({
@@ -152,6 +188,7 @@ describe('runPhase2', () => {
           views: expect.objectContaining({
             minddrop_stage: 'enriched',
             ai_pending: false,
+            confirmation_message: 'Got it, ready when you are.',
           }),
         }),
       });

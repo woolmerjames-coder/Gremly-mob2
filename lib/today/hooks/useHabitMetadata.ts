@@ -284,7 +284,7 @@ export function computeHabitMetadata(
  * Uses rolling windows (never calendar-bound).
  */
 export function useHabitMetadata(habit: Habit): HabitMetadata {
-  const habitProgress = useGremlyStore((s) => s.habitProgress);
+  const habitProgress = useGremlyStore((s) => s.habitProgress) ?? [];
 
   return useMemo(() => {
     return computeHabitMetadata(habit, habitProgress);

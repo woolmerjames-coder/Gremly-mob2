@@ -12,7 +12,7 @@
  * 5. Future overlay opens skip AI (frozen)
  */
 
-import { callClassify } from '../cortex/CortexClient';
+import { callEnrichPhase2, callClassify } from '../cortex/CortexClient';
 import { supabase } from '../supabase/client';
 import { mergeLogSubtypeTag } from './logSubtypeTags';
 import { filterAndNormalizeTags } from '../tags/normalize';
@@ -123,8 +123,13 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
     let isNetworkError = false;
 
     try {
-      cortexResult = await callClassify({
+      // Determine bucket from entity type
+      const bucket = entity.type === 'todo' ? 'todo' : entity.type === 'habit' ? 'habit' : 'log';
+
+      cortexResult = await callEnrichPhase2({
         text: rawSentence,
+        bucket,
+        subtype: (entity as any).subtype || null,
       });
     } catch (error) {
       // Check if this is a network error or timeout
@@ -176,14 +181,15 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
       return;
     }
 
-    const { classification } = cortexResult;
-    const aiTitle = classification?.title || null;
-    const aiTags = Array.isArray(classification?.tags) ? classification.tags.filter(Boolean) : [];
+    const aiTitle = cortexResult.smart_title || null;
+    const aiTags = Array.isArray(cortexResult.tags) ? cortexResult.tags.filter(Boolean) : [];
+    const confirmationMessage = cortexResult.confirmation_message || null;
 
     console.log('[BackgroundPrefill] Cortex result', {
       entityId: entity.id,
       aiTitle,
       aiTags,
+      confirmationMessage,
       elapsed: Date.now() - startTime,
     });
 
@@ -197,6 +203,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
       ai_tags_frozen: true,
       ai_pending: false, // AI processing complete
       ai_failed: false, // Success - clear any previous failure state
+      confirmation_message: confirmationMessage, // AI-generated Gremly voice
     };
 
     // Step 3: Update entity in Supabase based on type

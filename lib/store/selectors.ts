@@ -765,6 +765,28 @@ export const selectCompletedTodosCountBySpace = createSelector(
   (todos, spaceId): number => todos.filter((t) => t.space_id === spaceId && t.completed_at).length,
 );
 
+/** Get COMPLETED todos for a specific space (for CompletedInSpaceOverlay) */
+export const selectSpaceCompletedTodos = createSelector(
+  [selectTodos, (_state: GremlyState, spaceId: string) => spaceId],
+  (todos, spaceId): Todo[] =>
+    todos
+      .filter((t) => t.space_id === spaceId && t.completed_at && !t.archived)
+      .sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')),
+);
+
+/** Get INCOMPLETE todos for a specific space */
+export const selectSpaceIncompleteTodos = createSelector(
+  [selectTodos, (_state: GremlyState, spaceId: string) => spaceId],
+  (todos, spaceId): Todo[] =>
+    todos.filter((t) => t.space_id === spaceId && !t.completed_at && !t.archived),
+);
+
+/** Get ALL todos for a specific space (both complete and incomplete) */
+export const selectAllTodosForSpace = createSelector(
+  [selectTodos, (_state: GremlyState, spaceId: string) => spaceId],
+  (todos, spaceId): Todo[] => todos.filter((t) => t.space_id === spaceId && !t.archived),
+);
+
 /** Spaces with item counts */
 export const selectSpacesWithCounts = createSelector(
   [selectActiveSpaces, selectTodos, selectHabits, selectNotes],
@@ -1110,6 +1132,16 @@ export const useSpaceHabitsFromStore = (spaceId: string) =>
   useGremlyStore((state) => selectHabitsBySpace(state, spaceId));
 export const useSpaceNotesFromStore = (spaceId: string) =>
   useGremlyStore((state) => selectNotesBySpace(state, spaceId));
+
+// Space todos hooks (completed, incomplete, all)
+export const useSpaceCompletedTodos = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceCompletedTodos(state, spaceId));
+
+export const useSpaceIncompleteTodos = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceIncompleteTodos(state, spaceId));
+
+export const useAllTodosForSpace = (spaceId: string) =>
+  useGremlyStore((state) => selectAllTodosForSpace(state, spaceId));
 
 /** Grouped items by type for Space detail view */
 export interface GroupedByType {

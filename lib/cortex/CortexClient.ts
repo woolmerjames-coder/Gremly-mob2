@@ -550,4 +550,97 @@ export async function callClassify(opts: {
   }
 }
 
-export const CortexClient = { callChat, callComplete, callClassify, callSpaceChat };
+/**
+ * Call the Cortex proxy for Phase 2 enrichment (smart titles, confirmation messages, etc.)
+ * This runs AFTER entity creation to generate AI-enhanced metadata.
+ *
+ * @param params - Enrichment parameters
+ * @returns Enrichment result with smart_title, confirmation_message, tags, etc.
+ */
+export async function callEnrichPhase2(params: {
+  text: string;
+  bucket: 'todo' | 'habit' | 'log';
+  subtype?: string | null;
+  recentTitles?: string[];
+}): Promise<{
+  ok: boolean;
+  error?: string;
+  smart_title?: string;
+  confirmation_message?: string;
+  tags?: string[];
+  time_estimate_minutes?: number | null;
+  extracted_date?: string | null;
+  extracted_frequency?: string | null;
+  people?: string[];
+}> {
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  }
+
+  if (isAiDisabled()) {
+    return { ok: false, error: '[cortex] disabled via EXPO_PUBLIC_DISABLE_AI' };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  try {
+    log('POST', baseUrl, { type: 'enrich-phase2', bucket: params.bucket });
+
+    const response = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'enrich-phase2',
+        text: params.text,
+        bucket: params.bucket,
+        subtype: params.subtype || null,
+        recentTitles: params.recentTitles || [],
+        currentDate: new Date().toISOString().split('T')[0],
+      }),
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      log('ERROR', data.error);
+      return { ok: false, error: data.error };
+    }
+
+    log('OK', 'enrich-phase2', {
+      hasSmartTitle: !!data.smart_title,
+      hasConfirmation: !!data.confirmation_message,
+      tagsCount: data.tags?.length || 0,
+    });
+
+    return {
+      ok: true,
+      smart_title: data.smart_title,
+      confirmation_message: data.confirmation_message,
+      tags: data.tags,
+      time_estimate_minutes: data.time_estimate_minutes,
+      extracted_date: data.extracted_date,
+      extracted_frequency: data.extracted_frequency,
+      people: data.people,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    log('EXCEPTION', message);
+    return { ok: false, error: message };
+  }
+}
+
+export const CortexClient = {
+  callChat,
+  callComplete,
+  callClassify,
+  callSpaceChat,
+  callEnrichPhase2,
+};

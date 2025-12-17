@@ -16,13 +16,21 @@ import type { SaveableType } from '../../lib/chat/saveableTypes';
 interface ChatBubbleProps {
   message: SpaceChatMessage;
   testID?: string;
-  /** Called when user taps save on the saveable card */
+  /** Called when user taps save on the saveable card (instant save) */
   onSavePress?: (saveable: NonNullable<SpaceChatMessage['saveable']>) => void;
+  /** Called when user taps edit on the saveable card (opens overlay) */
+  onEditPress?: (saveable: NonNullable<SpaceChatMessage['saveable']>) => void;
   /** Called when user dismisses the saveable card */
   onDismissSaveable?: (messageId: string) => void;
 }
 
-export function ChatBubble({ message, testID, onSavePress, onDismissSaveable }: ChatBubbleProps) {
+function ChatBubbleInner({
+  message,
+  testID,
+  onSavePress,
+  onEditPress,
+  onDismissSaveable,
+}: ChatBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
 
@@ -81,6 +89,7 @@ export function ChatBubble({ message, testID, onSavePress, onDismissSaveable }: 
           <SaveButton
             suggestedType={getSaveableType(message.saveable.type)}
             onSave={() => onSavePress?.(message.saveable!)}
+            onEdit={() => onEditPress?.(message.saveable!)}
             onDismiss={() => onDismissSaveable?.(message.id)}
             visible={true}
             disabled={false}
@@ -134,13 +143,14 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2, // Thin accent bar
     borderLeftColor: 'rgba(212, 164, 74, 0.60)', // Golden Pear at 60% opacity - warm but calm
     borderRadius: 0,
-    maxWidth: '95%',
+    maxWidth: '100%', // Use full available width
     marginLeft: -4, // Shift accent line left, more margin from bullets
     marginTop: -6, // Integrated, not floating
   },
   saveableCardContainer: {
-    marginTop: 12,
-    alignItems: 'flex-start',
+    marginTop: 16, // More space between message and save card
+    marginLeft: 0, // Align with message content
+    width: '100%',
   },
   text: {
     fontSize: 15,
@@ -163,3 +173,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
 });
+
+// Memoized export to prevent unnecessary re-renders in FlatList
+export const ChatBubble = React.memo(ChatBubbleInner);

@@ -65,10 +65,18 @@ const baseRecordZ = z.object({
   origin: z.enum(['catchall', 'space_chat', 'manual', 'overlay']).optional().nullable(),
   canonicalType: z.enum(['habit', 'todo', 'log', 'unsorted', 'note', 'journal']).optional(),
   labels: z.array(z.string()).optional(),
+  // Views is a flexible JSONB bag for UI/AI metadata - passthrough to allow any fields
   views: z
     .object({
       alsoShowIn: z.array(z.string()).optional(),
+      // MindDrop Phase 2 enrichment fields
+      ai_pending: z.boolean().optional(),
+      ai_failed: z.boolean().optional(),
+      minddrop_stage: z.string().optional(),
+      minddrop_prefilled_v1: z.boolean().optional(),
+      confirmation_message: z.string().optional(),
     })
+    .passthrough() // Allow any additional fields not explicitly defined
     .optional(),
   source_message_id: z.string().optional().nullable(),
   drop_id: z.string().uuid().nullable().optional(),

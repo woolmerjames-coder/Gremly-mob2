@@ -20,6 +20,7 @@ export interface Phase2Result {
   extractedDate: string | null;
   extractedFrequency: string | null;
   people: string[];
+  confirmationMessage: string | null;
 }
 
 // --- Constants ---
@@ -126,6 +127,7 @@ async function callEnrichAPI(
       extractedDate: json.extracted_date ?? null,
       extractedFrequency: json.extracted_frequency ?? null,
       people: Array.isArray(json.people) ? json.people : [],
+      confirmationMessage: json.confirmation_message ?? null,
     };
   } catch (err) {
     clearTimeout(timeout);
@@ -268,6 +270,7 @@ export async function runPhase2(
           ...entity.views,
           minddrop_stage: 'enriched',
           ai_pending: false,
+          confirmation_message: result.confirmationMessage, // AI-generated Gremly voice
         },
         tags: allTags.length > 0 ? allTags : undefined,
       };
@@ -327,6 +330,7 @@ export async function runPhase2(
         tags: result.tags,
         timeEstimate: result.timeEstimateMinutes,
         dueDate: result.extractedDate,
+        confirmationMessage: result.confirmationMessage,
       });
 
       return result;

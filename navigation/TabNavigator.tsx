@@ -15,7 +15,7 @@ import GREMLY_BUTTON from '../assets/buttonforHP.png';
 export type TabParamList = {
   Today: undefined;
   Gremly: undefined;
-  Search: undefined;
+  Hub: undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -107,7 +107,7 @@ export default function TabNavigator() {
         }}
       />
       <Tab.Screen
-        name="Search"
+        name="Hub"
         component={HubScreen}
         options={{
           tabBarIcon: ({ focused }) => <TabIcon source={SEARCH_ICON} focused={focused} size={26} />,

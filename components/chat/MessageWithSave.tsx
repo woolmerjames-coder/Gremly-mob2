@@ -73,6 +73,7 @@ export default function MessageWithSave({
           <SaveButton
             suggestedType={saveableResult.suggestedType}
             onSave={() => onSave(saveableResult)}
+            onEdit={() => {}}
             onDismiss={onDismiss}
             visible={showSaveButton}
             disabled={isSaving}

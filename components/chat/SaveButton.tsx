@@ -28,8 +28,10 @@ import type { SaveableType } from '../../lib/chat/saveableTypes';
 export interface SaveButtonProps {
   /** What type of entity will be saved */
   suggestedType: SaveableType;
-  /** Called when user taps Save */
+  /** Called when user taps Save (instant save) */
   onSave: () => void;
+  /** Called when user taps Edit (opens overlay) */
+  onEdit: () => void;
   /** Called when user dismisses (X button or swipe) */
   onDismiss: () => void;
   /** Whether button is visible */
@@ -62,6 +64,7 @@ const TYPE_DISPLAY: Record<SaveableType, TypeDisplay> = {
 export default function SaveButton({
   suggestedType,
   onSave,
+  onEdit,
   onDismiss,
   visible,
   disabled = false,
@@ -89,45 +92,67 @@ export default function SaveButton({
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]} accessibilityRole="none">
-      {/* Type Icon & Label */}
-      <View style={styles.labelContainer}>
+      {/* Row 1: Type Icon & Label */}
+      <View style={styles.labelRow}>
         <View style={styles.icon}>
           <IconComponent size={18} color="#2E5540" />
         </View>
         <Text style={styles.labelText}>{display.label}</Text>
       </View>
 
-      {/* Save Button */}
-      <Pressable
-        style={({ pressed }) => [
-          styles.saveButton,
-          pressed && styles.saveButtonPressed,
-          disabled && styles.saveButtonDisabled,
-        ]}
-        onPress={() => {
-          console.log('[SaveButton] Save button pressed!');
-          onSave();
-        }}
-        disabled={disabled}
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabelText}
-        accessibilityHint="Saves this content to your Gremly collection"
-        accessibilityState={{ disabled }}
-      >
-        <Text style={[styles.saveButtonText, disabled && styles.saveButtonTextDisabled]}>Save</Text>
-      </Pressable>
+      {/* Row 2: Buttons */}
+      <View style={styles.buttonRow}>
+        {/* Edit Button (secondary) */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.editButton,
+            pressed && styles.editButtonPressed,
+            disabled && styles.editButtonDisabled,
+          ]}
+          onPress={() => {
+            console.log('[SaveButton] Edit button pressed!');
+            onEdit();
+          }}
+          disabled={disabled}
+          accessibilityRole="button"
+          accessibilityLabel="Edit before saving"
+        >
+          <Text style={[styles.editButtonText, disabled && styles.editButtonTextDisabled]}>
+            Edit
+          </Text>
+        </Pressable>
 
-      {/* Dismiss Button */}
-      <Pressable
-        style={({ pressed }) => [styles.dismissButton, pressed && styles.dismissButtonPressed]}
-        onPress={onDismiss}
-        disabled={disabled}
-        accessibilityRole="button"
-        accessibilityLabel="Dismiss save suggestion"
-        accessibilityHint="Hides this save suggestion"
-      >
-        <Text style={styles.dismissText}>✕</Text>
-      </Pressable>
+        {/* Save Button (primary) */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.saveButton,
+            pressed && styles.saveButtonPressed,
+            disabled && styles.saveButtonDisabled,
+          ]}
+          onPress={() => {
+            console.log('[SaveButton] Save button pressed!');
+            onSave();
+          }}
+          disabled={disabled}
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabelText}
+        >
+          <Text style={[styles.saveButtonText, disabled && styles.saveButtonTextDisabled]}>
+            Save
+          </Text>
+        </Pressable>
+
+        {/* Dismiss Button */}
+        <Pressable
+          style={({ pressed }) => [styles.dismissButton, pressed && styles.dismissButtonPressed]}
+          onPress={onDismiss}
+          disabled={disabled}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss save suggestion"
+        >
+          <Text style={styles.dismissText}>✕</Text>
+        </Pressable>
+      </View>
     </Animated.View>
   );
 }
@@ -138,15 +163,13 @@ export default function SaveButton({
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
     padding: 12,
     borderRadius: 12,
     backgroundColor: '#FFFEF5', // Warm cream
     maxWidth: 320,
     alignSelf: 'flex-start',
     marginVertical: 8,
-    marginHorizontal: 16,
+    // Remove marginHorizontal - parent handles padding
     // Shadow - iOS
     ...Platform.select({
       ios: {
@@ -160,10 +183,15 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  labelContainer: {
+  labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    marginBottom: 10,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   icon: {
     marginRight: 8,
@@ -173,12 +201,34 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: '500',
   },
+  editButton: {
+    backgroundColor: 'transparent',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#8BA888',
+    marginRight: 8,
+  },
+  editButtonPressed: {
+    backgroundColor: 'rgba(139, 168, 136, 0.1)',
+  },
+  editButtonDisabled: {
+    borderColor: '#C4C4C4',
+  },
+  editButtonText: {
+    color: '#8BA888',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  editButtonTextDisabled: {
+    color: '#C4C4C4',
+  },
   saveButton: {
     backgroundColor: '#8BA888', // Sage green
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
-    marginLeft: 12,
   },
   saveButtonPressed: {
     backgroundColor: '#7A9777', // Darker sage on press
@@ -195,8 +245,8 @@ const styles = StyleSheet.create({
     color: '#F0F0F0',
   },
   dismissButton: {
-    width: 24,
-    height: 24,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,

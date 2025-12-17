@@ -6,11 +6,19 @@
  * - Max 4 visible items
  * - "+X more" expansion
  * - Section hides when empty
+ * - Satisfying completion animation
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Circle, CheckCircle2, ChevronDown, ChevronUp, Pin } from 'lucide-react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import { BRAND } from '../../../design/brand';
 import type { Todo } from '../../../lib/types';
 
@@ -77,6 +85,7 @@ export function TodoSection({
           <TodoRow
             key={todo.id}
             todo={todo}
+            isAnimatingOut={(todo as any)._isAnimatingOut}
             onPress={() => onTodoPress(todo)}
             onToggle={() => onTodoComplete(todo)}
             onLongPress={onTodoLongPress ? () => onTodoLongPress(todo) : undefined}
@@ -101,13 +110,42 @@ export function TodoSection({
 
 interface TodoRowProps {
   todo: Todo;
+  isAnimatingOut?: boolean;
   onPress: () => void;
   onToggle: () => void;
   onLongPress?: () => void;
 }
 
-function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
+function TodoRow({ todo, isAnimatingOut = false, onPress, onToggle, onLongPress }: TodoRowProps) {
   const isCompleted = !!todo.completed_at;
+  const [isCompleting, setIsCompleting] = useState(isAnimatingOut); // Start as completing if animating
+
+  // Animation values
+  const rowOpacity = useSharedValue(isAnimatingOut ? 1 : 1);
+  const translateY = useSharedValue(0);
+  const textOpacity = useSharedValue(isAnimatingOut ? 0.5 : 1);
+  const rowHeight = useSharedValue(38);
+
+  // If mounted with isAnimatingOut=true, start the exit animation
+  useEffect(() => {
+    if (isAnimatingOut) {
+      console.log('[TodoRow] Starting exit animation on mount for:', todo.id);
+      // Phase 2 (500-800ms): Fade out + slide up + collapse height
+      rowOpacity.value = withDelay(
+        500,
+        withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }),
+      );
+      translateY.value = withDelay(
+        500,
+        withTiming(-12, { duration: 300, easing: Easing.in(Easing.ease) }),
+      );
+      rowHeight.value = withDelay(
+        500,
+        withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only on mount
 
   // Debug: log completion state
   console.log(
@@ -116,25 +154,70 @@ function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
     todo.title,
     'completed:',
     isCompleted,
-    'completed_at:',
-    todo.completed_at,
+    'isCompleting:',
+    isCompleting,
+    'isAnimatingOut:',
+    isAnimatingOut,
   );
 
+  const handleComplete = () => {
+    if (isCompleting) return; // Prevent double-tap
+
+    console.log('[TodoRow] Starting completion animation for:', todo.id);
+    setIsCompleting(true);
+
+    // Call onToggle IMMEDIATELY for optimistic count update
+    // The animation plays out locally while the store updates
+    onToggle();
+
+    // Phase 1 (0-200ms): Text dims with strikethrough
+    textOpacity.value = withTiming(0.5, { duration: 200, easing: Easing.out(Easing.ease) });
+
+    // Phase 2 (500-800ms): Fade out + slide up + collapse height
+    rowOpacity.value = withDelay(
+      500,
+      withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }),
+    );
+    translateY.value = withDelay(
+      500,
+      withTiming(-12, { duration: 300, easing: Easing.in(Easing.ease) }),
+    );
+    rowHeight.value = withDelay(
+      500,
+      withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }),
+    );
+  };
+
+  // Animated styles
+  const animatedRowStyle = useAnimatedStyle(() => ({
+    opacity: rowOpacity.value,
+    transform: [{ translateY: translateY.value }],
+    height: rowHeight.value,
+    overflow: 'hidden' as const,
+  }));
+
+  const animatedTextStyle = useAnimatedStyle(() => ({
+    opacity: textOpacity.value,
+  }));
+
+  // Show as checked if completing or already completed
+  const showChecked = isCompleting || isCompleted;
+
   return (
-    <View style={styles.row}>
+    <Animated.View style={[styles.row, animatedRowStyle]}>
       <Pressable
         onPress={() => {
           console.log('[TodoSection] Checkbox pressed for:', todo.id, todo.title || todo.name);
-          onToggle();
+          handleComplete();
         }}
         hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
         style={styles.checkbox}
         accessibilityRole="checkbox"
-        accessibilityState={{ checked: isCompleted }}
-        accessibilityLabel={`Mark ${todo.title || todo.name} as ${isCompleted ? 'incomplete' : 'complete'}`}
+        accessibilityState={{ checked: showChecked }}
+        accessibilityLabel={`Mark ${todo.title || todo.name} as ${showChecked ? 'incomplete' : 'complete'}`}
         testID={`todo-checkbox-${todo.id}`}
       >
-        {isCompleted ? (
+        {showChecked ? (
           <CheckCircle2 size={22} color={BRAND.colors.mossGreen} />
         ) : (
           <Circle size={22} color={BRAND.colors.inkMuted} />
@@ -150,13 +233,16 @@ function TodoRow({ todo, onPress, onToggle, onLongPress }: TodoRowProps) {
         testID={`todo-row-${todo.id}`}
       >
         <View style={styles.rowTextContainer}>
-          <Text style={[styles.rowText, isCompleted && styles.rowTextCompleted]} numberOfLines={1}>
+          <Animated.Text
+            style={[styles.rowText, showChecked && styles.rowTextCompleting, animatedTextStyle]}
+            numberOfLines={1}
+          >
             {todo.title || todo.name}
-          </Text>
+          </Animated.Text>
           {todo.is_pinned && <Pin size={14} color={BRAND.colors.inkMuted} style={styles.pinIcon} />}
         </View>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -204,6 +290,10 @@ const styles = StyleSheet.create({
   },
   pinIcon: {
     marginLeft: 6,
+  },
+  rowTextCompleting: {
+    textDecorationLine: 'line-through',
+    color: BRAND.colors.inkMuted,
   },
   rowTextCompleted: {
     textDecorationLine: 'line-through',

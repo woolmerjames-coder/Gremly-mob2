@@ -15,6 +15,7 @@ describe('SaveButton', () => {
   const defaultProps = {
     suggestedType: 'log-general' as const,
     onSave: jest.fn(),
+    onEdit: jest.fn(),
     onDismiss: jest.fn(),
     visible: true,
   };

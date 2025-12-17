@@ -1,7 +1,11 @@
 import React, { useMemo, useCallback } from 'react';
-import { View, Pressable, TextInput, StyleSheet } from 'react-native';
+import { View, Pressable, TextInput, StyleSheet, ScrollView, Dimensions } from 'react-native';
 import { Text } from '../../ui';
 import { lightTokens, darkTokens, borderRadius as tokenRadius } from '../../design/tokens';
+
+// Max height for expanded checklist: 40% of screen height (matches OverlayExpandedEditor)
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const CHECKLIST_MAX_HEIGHT = Math.round(SCREEN_HEIGHT * 0.4);
 
 /**
  * ChecklistInput - Interactive checkbox list for list-type logs
@@ -186,76 +190,84 @@ export function ChecklistInput({
           backgroundColor: isDark ? darkTokens.colors.deep : '#FAFAFA',
           borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
           paddingRight: hasCamera ? 56 : 16,
-          minHeight: expanded ? 300 : 120,
-          flex: expanded ? 1 : undefined,
+          minHeight: expanded ? 150 : 120,
+          // Use maxHeight when expanded to prevent overflow, remove unbounded flex
+          maxHeight: expanded ? CHECKLIST_MAX_HEIGHT : undefined,
         },
       ]}
       onTouchStart={() => onFocus?.()}
       onTouchEnd={() => onBlur?.()}
     >
-      {items.map((item, index) => {
-        const isLast = index === items.length - 1;
+      <ScrollView
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+        keyboardShouldPersistTaps="handled"
+      >
+        {items.map((item, index) => {
+          const isLast = index === items.length - 1;
 
-        return (
-          <View key={item.id} style={styles.itemRow}>
-            {/* Checkbox - only this is pressable */}
-            <Pressable
-              onPress={() => handleToggle(item.id)}
-              style={({ pressed }) => [styles.checkboxPressable, { opacity: pressed ? 0.7 : 1 }]}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: item.checked }}
-              accessibilityLabel={`Toggle ${item.text}`}
-            >
-              <View
+          return (
+            <View key={item.id} style={styles.itemRow}>
+              {/* Checkbox - only this is pressable */}
+              <Pressable
+                onPress={() => handleToggle(item.id)}
+                style={({ pressed }) => [styles.checkboxPressable, { opacity: pressed ? 0.7 : 1 }]}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: item.checked }}
+                accessibilityLabel={`Toggle ${item.text}`}
+              >
+                <View
+                  style={[
+                    styles.checkbox,
+                    {
+                      borderColor: item.checked
+                        ? '#7C9885'
+                        : isDark
+                          ? 'rgba(255,255,255,0.3)'
+                          : '#CCCCCC',
+                      backgroundColor: item.checked ? '#7C9885' : 'transparent',
+                    },
+                  ]}
+                >
+                  {item.checked && <Text style={styles.checkmark}>✓</Text>}
+                </View>
+              </Pressable>
+
+              {/* Editable item text */}
+              <TextInput
                 style={[
-                  styles.checkbox,
+                  styles.itemTextInput,
                   {
-                    borderColor: item.checked
-                      ? '#7C9885'
+                    color: item.checked
+                      ? isDark
+                        ? 'rgba(255,255,255,0.5)'
+                        : '#999999'
                       : isDark
-                        ? 'rgba(255,255,255,0.3)'
-                        : '#CCCCCC',
-                    backgroundColor: item.checked ? '#7C9885' : 'transparent',
+                        ? darkTokens.colors.text
+                        : lightTokens.colors.text,
+                    textDecorationLine: item.checked ? 'line-through' : 'none',
                   },
                 ]}
-              >
-                {item.checked && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-            </Pressable>
-
-            {/* Editable item text */}
-            <TextInput
-              style={[
-                styles.itemTextInput,
-                {
-                  color: item.checked
-                    ? isDark
-                      ? 'rgba(255,255,255,0.5)'
-                      : '#999999'
-                    : isDark
-                      ? darkTokens.colors.text
-                      : lightTokens.colors.text,
-                  textDecorationLine: item.checked ? 'line-through' : 'none',
-                },
-              ]}
-              value={item.text}
-              onChangeText={(newText) => handleEditItemText(item.id, newText)}
-              placeholder={isLast ? 'Add item...' : ''}
-              placeholderTextColor={isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'}
-              multiline={false}
-              blurOnSubmit={false}
-              returnKeyType="next"
-              onSubmitEditing={() => {
-                if (isLast) {
-                  handleAddNewItem();
-                }
-              }}
-              accessibilityLabel={`Edit item ${item.text}`}
-            />
-          </View>
-        );
-      })}
+                value={item.text}
+                onChangeText={(newText) => handleEditItemText(item.id, newText)}
+                placeholder={isLast ? 'Add item...' : ''}
+                placeholderTextColor={isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'}
+                multiline={false}
+                blurOnSubmit={false}
+                returnKeyType="next"
+                onSubmitEditing={() => {
+                  if (isLast) {
+                    handleAddNewItem();
+                  }
+                }}
+                accessibilityLabel={`Edit item ${item.text}`}
+              />
+            </View>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }

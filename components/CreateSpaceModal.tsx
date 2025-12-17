@@ -10,6 +10,7 @@ import { Input } from '../design-system/Input';
 import { Button } from '../design-system/Button';
 import { Text } from '../ui/Text';
 import { Box } from '../ui/Box';
+import { getSpaceIcon } from '../lib/utils/spaceIconMatcher';
 import type { Space, SpaceMilestone, SpaceMeta } from '../lib/types';
 
 // Module-scope callback for navigation after creation
@@ -206,14 +207,35 @@ export default function CreateSpaceModal() {
 
       {/* Space Name - Required */}
       <View style={styles.section}>
-        <Input
-          testID="space-name-input"
-          label="What do you want to call this Space?"
-          placeholder="e.g., Honeymoon, Fitness, Side Project"
-          value={form.spaceName}
-          onChangeText={(text) => updateField('spaceName', text)}
-          autoFocus
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          {/* Dynamic icon preview */}
+          <View
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              backgroundColor: '#F3F4F6',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginTop: 24,
+            }}
+          >
+            {(() => {
+              const SpaceIcon = getSpaceIcon(form.spaceName);
+              return <SpaceIcon size={24} color={tokens.colors.text} />;
+            })()}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Input
+              testID="space-name-input"
+              label="What do you want to call this Space?"
+              placeholder="e.g., Honeymoon, Fitness, Side Project"
+              value={form.spaceName}
+              onChangeText={(text) => updateField('spaceName', text)}
+              autoFocus
+            />
+          </View>
+        </View>
       </View>
 
       {/* Milestone - Optional */}
