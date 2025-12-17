@@ -76,7 +76,7 @@ export default function LoginScreen() {
             ) : (
               <>
                 <Image
-                  source={require('../../assets/images/google-icon.png')}
+                  source={require('../../assets/images/google-icon2.png')}
                   style={styles.googleIcon}
                 />
                 <Text style={styles.googleButtonText}>Continue with Google</Text>
