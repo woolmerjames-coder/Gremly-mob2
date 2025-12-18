@@ -16,7 +16,7 @@ import {
   selectTodosDueToday,
   selectHabitsDueToday,
   selectTodayCompletedItems,
-  selectSweepCandidatesUnified,
+  selectSweepCandidatesUnifiedRaw,
 } from '../selectors';
 import type { Todo, Habit, Note, Space } from '../../types';
 import type { Milestone } from '../../schemas';
@@ -497,10 +497,10 @@ describe('selectTodayCompletedItems', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// selectSweepCandidatesUnified
+// selectSweepCandidatesUnifiedRaw
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('selectSweepCandidatesUnified', () => {
+describe('selectSweepCandidatesUnifiedRaw', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2025-12-15T12:00:00Z'));
@@ -518,7 +518,7 @@ describe('selectSweepCandidatesUnified', () => {
       ],
     });
 
-    const result = selectSweepCandidatesUnified(state as any);
+    const result = selectSweepCandidatesUnifiedRaw(state as any);
 
     const todoIds = result.filter((c) => c.kind === 'todo').map((c) => c.id);
     expect(todoIds).toContain('t1');
@@ -531,7 +531,7 @@ describe('selectSweepCandidatesUnified', () => {
       todos: [makeTodo({ id: 't1', created_at: oldDate, due_date: null, due_day: null })],
     });
 
-    const result = selectSweepCandidatesUnified(state as any);
+    const result = selectSweepCandidatesUnifiedRaw(state as any);
 
     expect(result.some((c) => c.id === 't1')).toBe(true);
   });

@@ -23,7 +23,7 @@ import {
   selectTodayActiveItems,
   selectTodayCompletedItems,
   selectTodayProgress,
-  selectSweepCandidatesUnified,
+  selectSweepCandidatesUnifiedRaw,
   selectRecentDrops,
   selectUndatedTodos,
 } from '../../store/selectors';
@@ -154,7 +154,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
   const lockedItemsRaw = useGremlyStore(selectTodayLockedItems);
   const activeItemsRaw = useGremlyStore(selectTodayActiveItems);
   const completedItemsRaw = useGremlyStore(selectTodayCompletedItems);
-  const sweepCandidatesRaw = useGremlyStore(selectSweepCandidatesUnified);
+  const sweepCandidatesRaw = useGremlyStore(selectSweepCandidatesUnifiedRaw);
   const overdueTodosRaw = useGremlyStore(selectOverdueTodos);
   const recentDropsRaw = useGremlyStore(selectRecentDrops);
   const progressState = useGremlyStore(selectTodayProgress);

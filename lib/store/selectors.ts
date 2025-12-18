@@ -1,7 +1,13 @@
 import { createSelector } from 'reselect';
 import { useGremlyStore, type HabitProgressRow } from './useGremlyStore';
 import type { Todo, Habit, Note, Space } from '../types';
-import type { SweepCandidate, SweepCandidateTodo, SweepCandidateNote } from '../sweep/types';
+import type {
+  SweepCandidate,
+  SweepCandidateTodo,
+  SweepCandidateNote,
+  SweepCardMeta,
+} from '../sweep/types';
+import { computeSweepCardMeta } from '../sweep/computeSweepCardMeta';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -549,36 +555,24 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
 });
 
 /**
- * Full SweepCandidate selector - transforms store todos + notes into SweepCandidate[]
+ * Unified sweep candidates with pre-computed display metadata.
+ * Includes todos (overdue, due today, undated) and notes (ideas, general).
  *
- * This selector replicates the filtering logic from fetchSweepCandidatesForUser
- * to enable Sweep to read from the Zustand store (single source of truth).
- *
- * Filtering rules:
- *
- * TODOS included if:
- * - Not archived
- * - Not completed
- * - Either: overdue, due today, OR undated (needs triage)
- * - Has skipped_in_sweep_at set (deferred from previous sweep)
- *
- * NOTES included if:
- * - Not archived
- * - subtype = 'idea' AND created within last 7 days
- * - OR subtype = 'general'/'catchall'/'list'/'reference' AND created today
- * - OR has skipped_in_sweep_at set (deferred from previous sweep)
- * - Exclude journals (subtype = 'journal')
+ * Sort order:
+ * 1. Locked-in items first (commitment = true)
+ * 2. Overdue todos
+ * 3. Due today todos
+ * 4. Everything else by createdAt ascending
  */
 export const selectSweepCandidatesUnified = createSelector(
-  [selectTodos, selectNotes],
-  (todos, notes): SweepCandidate[] => {
+  [selectTodos, selectNotes, selectSpaces],
+  (todos, notes, spaces): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
     const today = getTodayDayString();
     const sevenDaysAgo = getDaysAgoDayString(7);
-    const result: SweepCandidate[] = [];
+    const candidates: SweepCandidate[] = [];
 
     // Process todos
     for (const todo of todos) {
-      // Skip archived or completed
       if (todo.archived || todo.completed_at) continue;
 
       const dueDay = todo.due_day;
@@ -588,9 +582,8 @@ export const selectSweepCandidatesUnified = createSelector(
       const isCreatedToday = todo.created_at?.startsWith(today) ?? false;
       const wasSkipped = !!todo.skipped_in_sweep_at;
 
-      // Include if: overdue, due today, undated, OR previously skipped
       if (isOverdue || isDueToday || isUndated || wasSkipped) {
-        result.push({
+        candidates.push({
           id: todo.id,
           kind: 'todo',
           createdAt: todo.created_at,
@@ -599,65 +592,75 @@ export const selectSweepCandidatesUnified = createSelector(
           isOverdue,
           isDueToday,
           isCreatedToday,
-          raw: todo as any, // Cast to SweepTodoRow - store Todo matches DB row
+          raw: todo as any,
         } satisfies SweepCandidateTodo);
       }
     }
 
     // Process notes
     for (const note of notes) {
-      // Skip archived
       if (note.archived) continue;
-
-      // Skip journals - they don't appear in sweep
       if (note.subtype === 'journal') continue;
 
       const createdDay = note.created_at?.split('T')[0];
       const isCreatedToday = createdDay === today;
       const wasSkipped = !!note.skipped_in_sweep_at;
 
-      // Ideas: include if created within last 7 days OR skipped
       const isIdea = note.subtype === 'idea';
       const isRecentIdea = isIdea && createdDay && createdDay >= sevenDaysAgo;
 
-      // General/catchall/list/reference: include if created today OR skipped
-      // Note: 'general' is a LogSubtype but not NoteSubtype - in practice DB may have
-      // 'general' entries but TypeScript types them as 'catchall'
       const isOtherSubtype =
         note.subtype === 'catchall' || note.subtype === 'list' || note.subtype === 'reference';
       const isTodayOther = isOtherSubtype && isCreatedToday;
 
-      // Include if matches time criteria OR was skipped
       if (isRecentIdea || isTodayOther || wasSkipped) {
-        result.push({
+        candidates.push({
           id: note.id,
           kind: 'note',
           createdAt: note.created_at,
           dropId: note.drop_id ?? null,
           skippedInSweepAt: note.skipped_in_sweep_at ?? null,
-          isOverdue: false, // Notes don't have due dates
+          isOverdue: false,
           isDueToday: false,
           isCreatedToday,
-          raw: note as any, // Cast to SweepNoteRow
-          attachments: [], // Attachments loaded separately if needed
+          raw: note as any,
+          attachments: [],
         } satisfies SweepCandidateNote);
       }
     }
 
-    // Sort: overdue first, then due today, then notes, then by created_at desc
-    result.sort((a, b) => {
-      // Overdue todos first
-      if (a.isOverdue && !b.isOverdue) return -1;
-      if (!a.isOverdue && b.isOverdue) return 1;
-      // Due today second
-      if (a.isDueToday && !b.isDueToday) return -1;
-      if (!a.isDueToday && b.isDueToday) return 1;
-      // Then by created_at ascending (oldest first for sweep review)
-      return (a.createdAt ?? '').localeCompare(b.createdAt ?? '');
+    // Compute meta for each candidate
+    const withMeta = candidates.map((candidate) => ({
+      candidate,
+      meta: computeSweepCardMeta(candidate, spaces),
+    }));
+
+    // Sort: locked-in first, then overdue, then due today, then by createdAt
+    withMeta.sort((a, b) => {
+      // Locked-in items surface first
+      if (a.meta.isLockedIn && !b.meta.isLockedIn) return -1;
+      if (!a.meta.isLockedIn && b.meta.isLockedIn) return 1;
+
+      // Then overdue
+      if (a.candidate.isOverdue && !b.candidate.isOverdue) return -1;
+      if (!a.candidate.isOverdue && b.candidate.isOverdue) return 1;
+
+      // Then due today
+      if (a.candidate.isDueToday && !b.candidate.isDueToday) return -1;
+      if (!a.candidate.isDueToday && b.candidate.isDueToday) return 1;
+
+      // Then by createdAt ascending (oldest first)
+      return (a.candidate.createdAt ?? '').localeCompare(b.candidate.createdAt ?? '');
     });
 
-    return result;
+    return withMeta;
   },
+);
+
+/** Extract just the SweepCandidate array (backward-compatible) */
+export const selectSweepCandidatesUnifiedRaw = createSelector(
+  [selectSweepCandidatesUnified],
+  (withMeta): SweepCandidate[] => withMeta.map((item) => item.candidate),
 );
 
 /** Count of unified sweep candidates */
@@ -1106,7 +1109,8 @@ export const useTodayProgress = () => useGremlyStore(selectTodayProgress);
 
 export const useSweepCandidates = () => useGremlyStore(selectSweepCandidates);
 export const useSweepCount = () => useGremlyStore(selectSweepCandidateCount);
-export const useSweepCandidatesUnified = () => useGremlyStore(selectSweepCandidatesUnified);
+export const useSweepCandidatesUnified = () => useGremlyStore(selectSweepCandidatesUnifiedRaw);
+export const useSweepCandidatesWithMeta = () => useGremlyStore(selectSweepCandidatesUnified);
 export const useSweepCountUnified = () => useGremlyStore(selectSweepCandidateCountUnified);
 
 export const useRecentDrops = () => useGremlyStore(selectRecentDrops);
