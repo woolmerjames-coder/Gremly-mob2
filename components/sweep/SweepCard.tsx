@@ -46,7 +46,6 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   Pencil,
   Archive,
-  Check,
   Calendar,
   ArrowRightCircle,
   CheckSquare,
@@ -55,6 +54,7 @@ import {
   Plus,
 } from 'lucide-react-native';
 import { format, addDays, setHours, setMinutes } from 'date-fns';
+import * as Haptics from 'expo-haptics';
 import { Text, Button, Box } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { toDayString, parseDayString } from '../../lib/date/computeDueDay';
@@ -89,6 +89,10 @@ const SWIPE_OUT_DISTANCE = SCREEN_WIDTH; // Animate card off to the side
 const VELOCITY_THRESHOLD = 400; // Velocity that can trigger swipe even if threshold not met
 const CARD_WIDTH = SCREEN_WIDTH * 0.84; // 84% of screen width - leaves room for edge labels
 
+// Behind-card confirmation messages (revealed as card moves)
+const CLEAR_MESSAGES = ['DONE', 'CLEARED', 'GONE', 'ARCHIVED'];
+const KEEP_MESSAGES = ['SAVED', 'KEEPING IT', 'ON IT', 'NOTED'];
+
 // Check if we're in test environment
 const isTestEnv =
   typeof globalThis !== 'undefined' &&
@@ -122,10 +126,6 @@ export interface SweepCardProps {
   onAddToSpace?: () => void;
   /** Called when user wants to save progress and exit early */
   onClose?: () => void;
-  /** Feedback message to show in scrim (e.g. "BYE ✌️", "KEEPING IT") */
-  feedbackMessage?: string;
-  /** Which feedback type is active */
-  feedbackType?: 'clear' | 'keep' | null;
   /** Hide the bottom save/exit section (when parent handles it) */
   hideBottomSaveExit?: boolean;
 }
@@ -210,8 +210,6 @@ export function SweepCard({
   onConfirmQuickDate,
   onAddToSpace,
   onClose,
-  feedbackMessage: _feedbackMessage,
-  feedbackType,
   hideBottomSaveExit,
 }: SweepCardProps) {
   const repo = useRepo();
@@ -228,6 +226,16 @@ export function SweepCard({
   // ─────────────────────────────────────────────────────────────────────────
   const [isPhotoPreviewOpen, setIsPhotoPreviewOpen] = useState(false);
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Behind-Card Confirmation Messages (randomized per card)
+  // ─────────────────────────────────────────────────────────────────────────
+  const [clearMessage] = useState(
+    () => CLEAR_MESSAGES[Math.floor(Math.random() * CLEAR_MESSAGES.length)],
+  );
+  const [keepMessage] = useState(
+    () => KEEP_MESSAGES[Math.floor(Math.random() * KEEP_MESSAGES.length)],
+  );
 
   // ─────────────────────────────────────────────────────────────────────────
   // Inline Date Picker State
@@ -473,6 +481,18 @@ export function SweepCard({
   // Track if card is being dragged for border effect
   const isDragging = useSharedValue(false);
   const borderOpacity = useSharedValue(0); // For smooth border fade
+  const hasTriggeredHaptic = useSharedValue(false); // Track haptic at threshold
+
+  // Haptic feedback helper
+  const triggerHaptic = useCallback((type: 'light' | 'medium' | 'success') => {
+    if (type === 'success') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } else if (type === 'medium') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } else {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, []);
 
   // Handle swipe right completion - called from worklet via runOnJS
   const handleSwipeRight = useCallback(() => {
@@ -510,6 +530,16 @@ export function SweepCard({
     })
     .onUpdate((event) => {
       translateX.value = event.translationX;
+
+      // Trigger haptic at 80% threshold (once)
+      const progress = Math.abs(event.translationX) / SWIPE_THRESHOLD;
+      if (progress >= 0.8 && !hasTriggeredHaptic.value) {
+        hasTriggeredHaptic.value = true;
+        runOnJS(triggerHaptic)('medium');
+      } else if (progress < 0.5) {
+        // Reset when user pulls back past halfway
+        hasTriggeredHaptic.value = false;
+      }
     })
     .onEnd((event) => {
       isDragging.value = false;
@@ -524,6 +554,8 @@ export function SweepCard({
         translationX < -SWIPE_THRESHOLD || (translationX < -50 && velocityX < -VELOCITY_THRESHOLD);
 
       if (swipedRight) {
+        // Success haptic on commit
+        runOnJS(triggerHaptic)('success');
         // Swiped right past threshold → animate out and call JS handler
         translateX.value = withSpring(
           SWIPE_OUT_DISTANCE,
@@ -536,6 +568,8 @@ export function SweepCard({
         );
         cardOpacity.value = withTiming(0, { duration: 200 });
       } else if (swipedLeft) {
+        // Success haptic on commit
+        runOnJS(triggerHaptic)('success');
         // Swiped left past threshold → animate out and call JS handler
         translateX.value = withSpring(
           -SWIPE_OUT_DISTANCE,
@@ -557,6 +591,7 @@ export function SweepCard({
     })
     .onFinalize(() => {
       isDragging.value = false;
+      hasTriggeredHaptic.value = false;
       // Ensure border fades out on any gesture end
       borderOpacity.value = withTiming(0, { duration: 200 });
     });
@@ -567,28 +602,6 @@ export function SweepCard({
       borderColor: BRAND.colors.mossGreen,
       borderWidth: interpolate(borderOpacity.value, [0, 1], [0, 1], Extrapolation.CLAMP),
     };
-  });
-
-  // Animated style for left scrim (mossGreen, archive action)
-  const animatedLeftScrimStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [-SWIPE_THRESHOLD, -50, 0],
-      [0.95, 0.5, 0],
-      Extrapolation.CLAMP,
-    );
-    return { opacity };
-  });
-
-  // Animated style for right scrim (Golden Pear, keep action)
-  const animatedRightScrimStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [0, 50, SWIPE_THRESHOLD],
-      [0, 0.5, 0.95],
-      Extrapolation.CLAMP,
-    );
-    return { opacity };
   });
 
   // Animated style for left edge label ("← Clear")
@@ -613,75 +626,7 @@ export function SweepCard({
     return { opacity };
   });
 
-  // Animated style for left icon (checkmark)
-  const animatedLeftIconStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [-SWIPE_THRESHOLD, -60, 0],
-      [1, 0.7, 0],
-      Extrapolation.CLAMP,
-    );
-    const scale = interpolate(
-      translateX.value,
-      [-SWIPE_THRESHOLD * 1.2, -SWIPE_THRESHOLD, -60, 0],
-      [1.15, 1.0, 0.6, 0.3],
-      Extrapolation.CLAMP,
-    );
-    return { opacity, transform: [{ scale }] };
-  });
-
-  // Animated style for right icon (checkmark)
-  const animatedRightIconStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [0, 60, SWIPE_THRESHOLD],
-      [0, 0.7, 1],
-      Extrapolation.CLAMP,
-    );
-    const scale = interpolate(
-      translateX.value,
-      [0, 60, SWIPE_THRESHOLD, SWIPE_THRESHOLD * 1.2],
-      [0.3, 0.6, 1.0, 1.15],
-      Extrapolation.CLAMP,
-    );
-    return { opacity, transform: [{ scale }] };
-  });
-
-  // Animated style for left text (fades in after icon)
-  const animatedLeftTextStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [-SWIPE_THRESHOLD * 1.2, -SWIPE_THRESHOLD * 0.8, -50],
-      [1, 0.8, 0],
-      Extrapolation.CLAMP,
-    );
-    const translateY = interpolate(
-      translateX.value,
-      [-SWIPE_THRESHOLD, -80, 0],
-      [0, 10, 20],
-      Extrapolation.CLAMP,
-    );
-    return { opacity, transform: [{ translateY }] };
-  });
-
-  // Animated style for right text (fades in after icon)
-  const animatedRightTextStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [50, SWIPE_THRESHOLD * 0.8, SWIPE_THRESHOLD * 1.2],
-      [0, 0.8, 1],
-      Extrapolation.CLAMP,
-    );
-    const translateY = interpolate(
-      translateX.value,
-      [0, 80, SWIPE_THRESHOLD],
-      [20, 10, 0],
-      Extrapolation.CLAMP,
-    );
-    return { opacity, transform: [{ translateY }] };
-  });
-
-  // Animated style for the card
+  // Animated style for the card - includes color transformation
   const animatedCardStyle = useAnimatedStyle(() => {
     // Slight tilt during swipe (3 degrees at threshold)
     const rotate = interpolate(
@@ -699,9 +644,65 @@ export function SweepCard({
       Extrapolation.CLAMP,
     );
 
+    // Background color morphs based on direction (Option B - Brand aligned)
+    // Left (clear): stays neutral/slightly cool - letting go, not celebratory
+    // Right (keep): warms toward goldenPear - positive action
+    const backgroundColor = interpolateColor(
+      translateX.value,
+      [-SWIPE_THRESHOLD, 0, SWIPE_THRESHOLD],
+      [
+        '#F3F1EC', // Slightly cooler/muted cream (left - neutral letting go)
+        '#F9F6F1', // linenCream (center - brand background)
+        '#FAF6EB', // Warm cream tinted toward goldenPear (right - keeping is good)
+      ],
+    );
+
     return {
       transform: [{ translateX: translateX.value }, { rotate: `${rotate}deg` }, { scale }],
       opacity: cardOpacity.value,
+      backgroundColor,
+    };
+  });
+
+  // Animated style for behind-card confirmation text (LEFT - shown when swiping left)
+  const animatedBehindLeftTextStyle = useAnimatedStyle(() => {
+    // Only show when swiping left (negative translateX)
+    const opacity = interpolate(
+      translateX.value,
+      [-SWIPE_THRESHOLD, -40, 0],
+      [1, 0.5, 0],
+      Extrapolation.CLAMP,
+    );
+    const scale = interpolate(
+      translateX.value,
+      [-SWIPE_THRESHOLD, 0],
+      [1, 0.9],
+      Extrapolation.CLAMP,
+    );
+    return {
+      opacity,
+      transform: [{ scale }],
+    };
+  });
+
+  // Animated style for behind-card confirmation text (RIGHT - shown when swiping right)
+  const animatedBehindRightTextStyle = useAnimatedStyle(() => {
+    // Only show when swiping right (positive translateX)
+    const opacity = interpolate(
+      translateX.value,
+      [0, 40, SWIPE_THRESHOLD],
+      [0, 0.5, 1],
+      Extrapolation.CLAMP,
+    );
+    const scale = interpolate(
+      translateX.value,
+      [0, SWIPE_THRESHOLD],
+      [0.9, 1],
+      Extrapolation.CLAMP,
+    );
+    return {
+      opacity,
+      transform: [{ scale }],
     };
   });
 
@@ -741,34 +742,6 @@ export function SweepCard({
 
   return (
     <View style={styles.cardWrapper}>
-      {/* Left Scrim - Soft Rose (archive/clear action) */}
-      <Animated.View style={[styles.swipeScrimLeft, animatedLeftScrimStyle]} pointerEvents="none">
-        {!feedbackType && (
-          <View style={styles.swipeScrimContent}>
-            <Animated.View style={[styles.swipeScrimIconLarge, animatedLeftIconStyle]}>
-              <Check size={48} color="#FFFFFF" strokeWidth={3} />
-            </Animated.View>
-            <Animated.Text style={[styles.swipeScrimText, animatedLeftTextStyle]}>
-              Done!
-            </Animated.Text>
-          </View>
-        )}
-      </Animated.View>
-
-      {/* Right Scrim - Fresh Sage (keep action) */}
-      <Animated.View style={[styles.swipeScrimRight, animatedRightScrimStyle]} pointerEvents="none">
-        {!feedbackType && (
-          <View style={styles.swipeScrimContent}>
-            <Animated.View style={[styles.swipeScrimIconLarge, animatedRightIconStyle]}>
-              <Check size={48} color="#FFFFFF" strokeWidth={3} />
-            </Animated.View>
-            <Animated.Text style={[styles.swipeScrimText, animatedRightTextStyle]}>
-              Saved!
-            </Animated.Text>
-          </View>
-        )}
-      </Animated.View>
-
       {/* Swipe Cue Labels - ABOVE the card (contextual based on item type) */}
       <View style={styles.swipeCueRow} pointerEvents="none">
         <Animated.View style={animatedLeftLabelStyle}>
@@ -793,6 +766,18 @@ export function SweepCard({
 
       {/* Centered Card Container - Swipeable */}
       <View style={styles.cardCenteringContainer}>
+        {/* Behind-Card Confirmation Text - Centered, shows based on swipe direction */}
+        <View style={styles.behindCardTextContainer} pointerEvents="none">
+          {/* Left message (shown when swiping left) */}
+          <Animated.View style={[styles.behindCardTextWrapper, animatedBehindLeftTextStyle]}>
+            <Text style={styles.behindCardText}>{clearMessage}</Text>
+          </Animated.View>
+          {/* Right message (shown when swiping right) */}
+          <Animated.View style={[styles.behindCardTextWrapper, animatedBehindRightTextStyle]}>
+            <Text style={styles.behindCardText}>{keepMessage}</Text>
+          </Animated.View>
+        </View>
+
         <GestureDetector gesture={panGesture}>
           <Animated.View
             style={[
@@ -958,11 +943,7 @@ export function SweepCard({
                       >
                         <ArrowRightCircle
                           size={16}
-                          color={
-                            selectedQuickAction === 'tomorrow'
-                              ? BRAND.colors.linenCream
-                              : BRAND.colors.mossGreen
-                          }
+                          color={BRAND.colors.mossGreen}
                           strokeWidth={2}
                         />
                         <Text
@@ -988,11 +969,7 @@ export function SweepCard({
                       >
                         <ArrowRightCircle
                           size={16}
-                          color={
-                            selectedQuickAction === '2days'
-                              ? BRAND.colors.linenCream
-                              : BRAND.colors.mossGreen
-                          }
+                          color={BRAND.colors.mossGreen}
                           strokeWidth={2}
                         />
                         <Text
@@ -1016,15 +993,7 @@ export function SweepCard({
                         accessibilityLabel="Set due next week"
                         activeOpacity={0.7}
                       >
-                        <Calendar
-                          size={16}
-                          color={
-                            selectedQuickAction === 'nextweek'
-                              ? BRAND.colors.linenCream
-                              : BRAND.colors.mossGreen
-                          }
-                          strokeWidth={2}
-                        />
+                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                         <Text
                           style={[
                             styles.gridButtonLabel,
@@ -1046,15 +1015,7 @@ export function SweepCard({
                         accessibilityLabel="Pick a date"
                         activeOpacity={0.7}
                       >
-                        <Calendar
-                          size={16}
-                          color={
-                            selectedQuickAction === 'pickdate'
-                              ? BRAND.colors.linenCream
-                              : BRAND.colors.mossGreen
-                          }
-                          strokeWidth={2}
-                        />
+                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                         <Text
                           style={[
                             styles.gridButtonLabel,
@@ -1093,7 +1054,7 @@ export function SweepCard({
                         accessibilityLabel="Save for next sweep"
                         activeOpacity={0.7}
                       >
-                        <RotateCcw size={16} color={BRAND.colors.linenCream} strokeWidth={2} />
+                        <RotateCcw size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
                         <Text style={[styles.gridButtonLabel, styles.gridButtonLabelPrimary]}>
                           Next Sweep
                         </Text>
@@ -1413,7 +1374,7 @@ const styles = StyleSheet.create({
     minHeight: 320,
     flex: 1,
     maxHeight: '98%',
-    backgroundColor: BRAND.colors.linenCream, // Linen cream card
+    // backgroundColor controlled by animatedCardStyle for swipe color transformation
     borderRadius: 16,
     overflow: 'hidden',
     // Subtle shadow for depth
@@ -1681,15 +1642,15 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 10,
     paddingHorizontal: 4,
     borderRadius: 12,
     backgroundColor: 'rgba(46, 85, 64, 0.1)',
-    gap: 6,
+    gap: 4,
     minWidth: 70,
   },
   gridButtonPrimary: {
-    backgroundColor: BRAND.colors.mossGreen,
+    backgroundColor: BRAND.colors.sageMist,
   },
   gridButtonSecondary: {
     backgroundColor: 'rgba(46, 85, 64, 0.1)',
@@ -1707,7 +1668,7 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
   gridButtonLabelPrimary: {
-    color: BRAND.colors.linenCream,
+    color: BRAND.colors.mossGreen,
   },
 
   // Confirmation hint - appears after quick action selection
@@ -1731,41 +1692,6 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 
-  // Swipe Scrims - Behind the card, fade in during drag
-  swipeScrimLeft: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#E5C1C5', // Soft rose - closure feeling
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1, // Behind card (cardCenteringContainer has zIndex: 2)
-  },
-  swipeScrimRight: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#B8D4BE', // Fresh sage - preservation feeling
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1, // Behind card (cardCenteringContainer has zIndex: 2)
-  },
-  swipeScrimContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  swipeScrimIconLarge: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  swipeScrimText: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-
   // Swipe Cue Row - Above the card, aligned with card edges
   swipeCueRow: {
     position: 'absolute',
@@ -1781,6 +1707,25 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: 'rgba(34, 34, 34, 0.70)', // Charcoal Ink @ 70%
     letterSpacing: 0.2,
+  },
+
+  // Behind-card confirmation text - centered behind the card
+  behindCardTextContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0, // Behind the card
+  },
+  behindCardTextWrapper: {
+    position: 'absolute',
+  },
+  behindCardText: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: BRAND.colors.mossGreen,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    opacity: 0.5,
   },
 
   // Save & Exit Container - Single centered text link

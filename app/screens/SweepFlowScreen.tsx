@@ -65,22 +65,13 @@ import {
 } from '../../lib/sweep/habitHelpers';
 import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
 
-// Swipe feedback constants
-const CLEAR_MESSAGES = ['BYE ✌️', 'SEE YA', 'GONE', 'CLEARED', 'SWEPT'];
-const KEEP_MESSAGES = ['KEEPING IT', 'STILL ON', 'NOTED', 'ON IT'];
-const getRandomClearMessage = () =>
-  CLEAR_MESSAGES[Math.floor(Math.random() * CLEAR_MESSAGES.length)];
-const getRandomKeepMessage = () => KEEP_MESSAGES[Math.floor(Math.random() * KEEP_MESSAGES.length)];
-const FEEDBACK_COLORS = {
-  clear: '#34D399', // Vibrant emerald green
-  keep: '#FBBF24', // Punchy amber/gold
-};
-
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/fistbumpgremly.png');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_JOURNAL = require('../../assets/mascot/JournalGremly.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -98,7 +89,54 @@ interface StepProps {
 // Mood value type - aligned with existing journal log moods
 type MoodValue = 'happy' | 'neutral' | 'sad' | 'ecstatic' | 'low' | 'tired';
 
-// Mood options for Sweep check-in (brand-style chips with icons)
+// Extended mood tag type for multi-select (includes new moods not in DB enum)
+type MoodTag =
+  | 'great'
+  | 'good'
+  | 'okay'
+  | 'low'
+  | 'tired'
+  | 'anxious'
+  | 'grateful'
+  | 'scattered'
+  | 'hopeful'
+  | 'rough';
+
+// Mood chip options for Sweep check-in (multi-select)
+const SWEEP_MOOD_CHIPS: Array<{ value: MoodTag; label: string }> = [
+  { value: 'great', label: 'Great' },
+  { value: 'good', label: 'Good' },
+  { value: 'okay', label: 'Okay' },
+  { value: 'low', label: 'Low' },
+  { value: 'tired', label: 'Tired' },
+  { value: 'anxious', label: 'Anxious' },
+  { value: 'grateful', label: 'Grateful' },
+  { value: 'scattered', label: 'Scattered' },
+  { value: 'hopeful', label: 'Hopeful' },
+  { value: 'rough', label: 'Rough' },
+];
+
+// Map mood tags to DB enum values (for backwards compat)
+const MOOD_TAG_TO_DB: Partial<Record<MoodTag, MoodValue>> = {
+  great: 'ecstatic',
+  good: 'happy',
+  okay: 'neutral',
+  low: 'low',
+  tired: 'tired',
+  rough: 'sad',
+};
+
+// Journal prompts for inspiration
+const JOURNAL_PROMPTS = [
+  'What are you grateful for today?',
+  'What would have made today better?',
+  'What small moment brought you joy?',
+  'How is your energy right now?',
+  "What's weighing on your mind?",
+  'What are you looking forward to tomorrow?',
+];
+
+// Legacy mood options (kept for reference)
 const SWEEP_MOOD_OPTIONS: Array<{ value: MoodValue; label: string; icon: string }> = [
   { value: 'ecstatic', label: 'Great', icon: 'Sun' },
   { value: 'happy', label: 'Good', icon: 'CheckCircle2' },
@@ -196,10 +234,10 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
       </ScrollView>
 
       {/* 8. Button */}
-      <View style={styles.moodButtonContainer}>
-        <TouchableOpacity style={styles.moodContinueButton} onPress={onStart} activeOpacity={0.8}>
-          <View style={styles.moodContinueButtonContent}>
-            <Text style={styles.moodContinueButtonText}>Start Sweeping</Text>
+      <View style={styles.moodFooter}>
+        <TouchableOpacity style={styles.continueButton} onPress={onStart} activeOpacity={0.8}>
+          <View style={styles.continueButtonContent}>
+            <Text style={styles.continueButtonText}>Start Sweeping</Text>
             <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
           </View>
         </TouchableOpacity>
@@ -228,53 +266,159 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
  * MIGRATED: Now uses Zustand store's createNote instead of useRepo
  */
 function SweepMoodStep({ onContinue }: StepProps) {
-  // Use store's createNote mutation
+  // Store mutations and data
   const createNote = useGremlyStore((state) => state.createNote);
-  const [selectedMood, setSelectedMood] = useState<MoodValue | null>(null);
+  const notes = useGremlyStore((state) => state.notes);
+  const overlay = useGlobalOverlay();
+
+  // Get recent entries since last sweep
+  const { stats, isLoading: statsLoading } = useSweepIntroStats();
+
+  // State
+  const [selectedMoods, setSelectedMoods] = useState<Set<MoodTag>>(new Set());
   const [journalText, setJournalText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isEntriesExpanded, setIsEntriesExpanded] = useState(false);
+  const [activePrompt, setActivePrompt] = useState<string | null>(null);
+  const [promptIndex, setPromptIndex] = useState(0);
 
+  // Animation for chevron rotation
+  const chevronRotation = useRef(new Animated.Value(0)).current;
+
+  // Compute recent entries (journals created since last sweep, excluding sweep reflections)
+  const recentEntries = useMemo(() => {
+    if (!stats?.cutoffTimestamp) return [];
+    const cutoff = stats.cutoffTimestamp;
+    return notes
+      .filter((n) => {
+        // Must not be archived and have a created_at after cutoff
+        if (n.archived || !n.created_at || n.created_at <= cutoff) return false;
+        // Only show journal entries (not log-idea, log-general, etc.)
+        if (n.subtype !== 'journal') return false;
+        // Exclude previous sweep reflection notes
+        if (n.views?.sweep_reflection) return false;
+        return true;
+      })
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+      .slice(0, 5); // Limit to 5 entries
+  }, [notes, stats?.cutoffTimestamp]);
+
+  const hasRecentEntries = recentEntries.length > 0;
+
+  // Toggle mood selection (multi-select)
+  const toggleMood = useCallback((mood: MoodTag) => {
+    setSelectedMoods((prev) => {
+      const next = new Set(prev);
+      if (next.has(mood)) {
+        next.delete(mood);
+      } else {
+        next.add(mood);
+      }
+      return next;
+    });
+  }, []);
+
+  // Toggle entries expansion
+  const toggleEntriesExpanded = useCallback(() => {
+    const toValue = isEntriesExpanded ? 0 : 1;
+    Animated.timing(chevronRotation, {
+      toValue,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    setIsEntriesExpanded(!isEntriesExpanded);
+  }, [isEntriesExpanded, chevronRotation]);
+
+  // Cycle through prompts
+  const handlePromptPress = useCallback(() => {
+    if (activePrompt) {
+      // Go to next prompt
+      const nextIndex = (promptIndex + 1) % JOURNAL_PROMPTS.length;
+      setPromptIndex(nextIndex);
+      setActivePrompt(JOURNAL_PROMPTS[nextIndex]);
+    } else {
+      // Show first prompt
+      setActivePrompt(JOURNAL_PROMPTS[0]);
+      setPromptIndex(0);
+    }
+  }, [activePrompt, promptIndex]);
+
+  // Format relative time
+  const formatRelativeTime = useCallback((isoDate: string): string => {
+    const date = new Date(isoDate);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffHours < 1) return 'Just now';
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'Yesterday';
+    return `${diffDays}d ago`;
+  }, []);
+
+  // Open entry in overlay view mode
+  const handleOpenEntry = useCallback(
+    (entry: (typeof notes)[0]) => {
+      overlay.openView({ record: entry as any, spaceId: null });
+    },
+    [overlay],
+  );
+
+  // Save and continue
   const handleContinue = useCallback(async () => {
     // If nothing to save, just continue
-    if (!selectedMood && !journalText.trim()) {
+    if (selectedMoods.size === 0 && !journalText.trim()) {
       onContinue();
       return;
     }
 
     setIsSaving(true);
     try {
-      // Create a journal note for the sweep reflection using store mutation
+      // Map first selected mood to DB enum for backwards compat
+      const moodArray = Array.from(selectedMoods);
+      const primaryMood = moodArray[0] ? MOOD_TAG_TO_DB[moodArray[0]] : undefined;
+
+      // Create a journal note for the sweep reflection
       await createNote({
         subtype: 'journal',
-        title: journalText.trim() || `Evening reflection`,
+        title: journalText.trim() || 'Evening reflection',
         body: journalText.trim() || undefined,
-        mood: selectedMood ?? undefined,
-        origin: 'manual', // Using 'manual' since 'sweep' isn't in the union yet
+        mood: primaryMood,
+        origin: 'manual',
         canonicalType: 'log',
         journal_subtype: 'reflection',
         tags: ['reflection', 'sweep'],
         views: {
-          sweep_origin: true, // Mark as created from Sweep flow
+          sweep_origin: true,
           sweep_reflection: true,
           sweep_date: new Date().toISOString().split('T')[0],
+          sweep_moods: moodArray, // Store all selected moods
         },
       });
-
-      // TODO: Add error handling / retry UI if save fails
     } catch (error) {
-      // Fail silent for now - don't block the sweep flow
-      // TODO: Consider showing a subtle error indicator
       console.warn('[SweepMoodStep] Failed to save reflection:', error);
     } finally {
       setIsSaving(false);
       onContinue();
     }
-  }, [createNote, selectedMood, journalText, onContinue]);
+  }, [createNote, selectedMoods, journalText, onContinue]);
 
   const handleSkip = useCallback(() => {
-    // Skip without saving anything
     onContinue();
   }, [onContinue]);
+
+  // Chevron rotation interpolation
+  const chevronRotateStyle = {
+    transform: [
+      {
+        rotate: chevronRotation.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['0deg', '180deg'],
+        }),
+      },
+    ],
+  };
 
   return (
     <KeyboardAvoidingView
@@ -288,80 +432,145 @@ function SweepMoodStep({ onContinue }: StepProps) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Section */}
-        <View style={styles.moodHeaderSection}>
-          <Text variant="title" style={styles.moodStepTitle}>
-            How did today feel?
-          </Text>
-          <Text style={styles.moodStepSubcopy}>
-            A quick check-in helps Gremly match your plan to your mood.
-          </Text>
+        {/* Header Section with Mascot */}
+        <View style={styles.moodHeaderRow}>
+          <View style={styles.moodHeaderText}>
+            <Text variant="title" style={styles.moodStepTitle}>
+              How was your day?
+            </Text>
+            <Text style={styles.moodStepSubcopy}>
+              Everything here is optional,{'\n'}just a moment to pause.
+            </Text>
+          </View>
+          <Image
+            source={GREMLY_JOURNAL}
+            style={styles.moodMascotImage}
+            resizeMode="contain"
+            accessibilityLabel="Gremly journal mascot"
+          />
         </View>
 
-        {/* Mood Selector - Centered 2x3 Grid */}
-        <View style={styles.moodGridContainer}>
-          <View style={styles.moodGrid}>
-            {SWEEP_MOOD_OPTIONS.map((option) => {
-              const isSelected = selectedMood === option.value;
+        {/* Recent Entries Section (Collapsible) */}
+        {hasRecentEntries && (
+          <View style={styles.recentEntriesSection}>
+            <Pressable
+              style={styles.recentEntriesHeader}
+              onPress={toggleEntriesExpanded}
+              accessibilityRole="button"
+              accessibilityLabel={`${recentEntries.length} thoughts saved since last sweep. Tap to ${isEntriesExpanded ? 'collapse' : 'expand'}`}
+            >
+              <View style={styles.recentEntriesHeaderLeft}>
+                <Icon name="Check" size="xs" color={BRAND.colors.mossGreen} strokeWidth={2} />
+                <Text style={styles.recentEntriesHeaderText}>
+                  {recentEntries.length} thought{recentEntries.length !== 1 ? 's' : ''} saved
+                </Text>
+              </View>
+              <Animated.View style={chevronRotateStyle}>
+                <Icon name="ChevronDown" size="xs" color={BRAND.colors.inkMuted} strokeWidth={2} />
+              </Animated.View>
+            </Pressable>
+
+            {isEntriesExpanded && (
+              <View style={styles.recentEntriesList}>
+                {recentEntries.map((entry) => (
+                  <Pressable
+                    key={entry.id}
+                    style={({ pressed }) => [
+                      styles.recentEntryCard,
+                      pressed && styles.recentEntryCardPressed,
+                    ]}
+                    onPress={() => handleOpenEntry(entry)}
+                  >
+                    <Text style={styles.recentEntryTime}>
+                      {formatRelativeTime(entry.created_at)}
+                    </Text>
+                    <Text style={styles.recentEntryPreview} numberOfLines={1}>
+                      {entry.title || entry.body || 'Untitled'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Journal Input Section */}
+        <View style={styles.journalSection}>
+          {/* Prompt line (optional) */}
+          {activePrompt && (
+            <View style={styles.promptLine}>
+              <Icon name="Lightbulb" size="xs" color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+              <Text style={styles.promptText}>{activePrompt}</Text>
+            </View>
+          )}
+
+          {/* Journal TextInput with prompt button */}
+          <View style={styles.journalInputWrapper}>
+            <TextInput
+              style={styles.journalInput}
+              placeholder="Today felt like..."
+              placeholderTextColor={BRAND.colors.inkMuted}
+              multiline
+              value={journalText}
+              onChangeText={setJournalText}
+              textAlignVertical="top"
+            />
+            <Pressable
+              style={({ pressed }) => [styles.promptButton, pressed && styles.promptButtonPressed]}
+              onPress={handlePromptPress}
+            >
+              <Icon name="Lightbulb" size="xs" color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+              <Text style={styles.promptButtonLabel}>{activePrompt ? 'next' : 'prompt'}</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Mood Chips Section (Multi-select) */}
+        <View style={styles.moodChipsSection}>
+          <Text style={styles.moodChipsLabel}>Tag a mood</Text>
+          <View style={styles.moodChipsGrid}>
+            {SWEEP_MOOD_CHIPS.map((chip) => {
+              const isSelected = selectedMoods.has(chip.value);
               return (
                 <Pressable
-                  key={option.value}
+                  key={chip.value}
                   style={({ pressed }) => [
-                    styles.moodButton,
-                    isSelected && styles.moodButtonSelected,
-                    pressed && styles.moodButtonPressed,
+                    styles.moodChip,
+                    isSelected && styles.moodChipSelected,
+                    pressed && styles.moodChipPressed,
                   ]}
-                  onPress={() => setSelectedMood(option.value)}
+                  onPress={() => toggleMood(chip.value)}
                 >
-                  <Icon
-                    name={option.icon as any}
-                    size="xs"
-                    color={BRAND.colors.mossGreen}
-                    strokeWidth={1.8}
-                  />
-                  <Text
-                    style={[styles.moodButtonLabel, isSelected && styles.moodButtonLabelSelected]}
-                  >
-                    {option.label.toUpperCase()}
+                  <Text style={[styles.moodChipLabel, isSelected && styles.moodChipLabelSelected]}>
+                    {chip.label}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
-        </View>
-
-        {/* Journal Input */}
-        <View style={styles.moodJournalContainer}>
-          <Text style={styles.moodJournalLabel}>Want to jot anything down?</Text>
-          <TextInput
-            style={styles.moodJournalInput}
-            placeholder="Today felt like…"
-            placeholderTextColor={BRAND.colors.inkMuted}
-            multiline
-            value={journalText}
-            onChangeText={setJournalText}
-            textAlignVertical="top"
-          />
+          {selectedMoods.size > 1 && (
+            <Text style={styles.moodChipsHelper}>{selectedMoods.size} moods selected</Text>
+          )}
         </View>
       </ScrollView>
 
-      {/* Action Buttons */}
-      <View style={styles.moodButtonContainer}>
+      {/* Footer Actions */}
+      <View style={styles.moodFooter}>
         <TouchableOpacity
-          style={[styles.moodContinueButton, isSaving && styles.moodContinueButtonDisabled]}
+          style={[styles.continueButton, isSaving && styles.continueButtonDisabled]}
           onPress={handleContinue}
           disabled={isSaving}
           activeOpacity={0.8}
         >
-          <View style={styles.moodContinueButtonContent}>
-            <Text style={styles.moodContinueButtonText}>{isSaving ? 'Saving...' : 'Continue'}</Text>
+          <View style={styles.continueButtonContent}>
+            <Text style={styles.continueButtonText}>{isSaving ? 'Saving...' : 'Continue'}</Text>
             {!isSaving && (
               <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
             )}
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.moodSkipButton} onPress={handleSkip} disabled={isSaving}>
-          <Text style={styles.moodSkipButtonText}>Skip for now</Text>
+        <TouchableOpacity style={styles.skipButton} onPress={handleSkip} disabled={isSaving}>
+          <Text style={styles.skipButtonText}>Skip for now</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -705,13 +914,6 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Local state for navigation
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Swipe feedback state
-  const [swipeFeedback, setSwipeFeedback] = useState<'clear' | 'keep' | null>(null);
-  const [feedbackMessage, setFeedbackMessage] = useState('');
-  // Use useMemo instead of useRef(...).current to avoid lint errors about refs during render
-  const feedbackOpacity = useMemo(() => new Animated.Value(0), []);
-  const feedbackBgProgress = useMemo(() => new Animated.Value(0), []);
-
   // Track summary stats for the sweep completion screen
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
 
@@ -853,46 +1055,12 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Card Action Handlers (wired to unified outcome handler)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
-    setFeedbackMessage(getRandomKeepMessage());
-    setSwipeFeedback('keep');
-
-    Animated.parallel([
-      Animated.timing(feedbackOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
-      Animated.timing(feedbackBgProgress, { toValue: 1, duration: 200, useNativeDriver: false }),
-    ]).start();
-
-    setTimeout(() => {
-      handleOutcome('skip');
-      Animated.parallel([
-        Animated.timing(feedbackOpacity, { toValue: 0, duration: 100, useNativeDriver: true }),
-        Animated.timing(feedbackBgProgress, { toValue: 0, duration: 150, useNativeDriver: false }),
-      ]).start(() => {
-        setSwipeFeedback(null);
-        setFeedbackMessage('');
-      });
-    }, 350);
-  }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
+    handleOutcome('skip');
+  }, [handleOutcome]);
 
   const handleClear = useCallback(() => {
-    setFeedbackMessage(getRandomClearMessage());
-    setSwipeFeedback('clear');
-
-    Animated.parallel([
-      Animated.timing(feedbackOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
-      Animated.timing(feedbackBgProgress, { toValue: 1, duration: 200, useNativeDriver: false }),
-    ]).start();
-
-    setTimeout(() => {
-      handleOutcome('clear');
-      Animated.parallel([
-        Animated.timing(feedbackOpacity, { toValue: 0, duration: 100, useNativeDriver: true }),
-        Animated.timing(feedbackBgProgress, { toValue: 0, duration: 150, useNativeDriver: false }),
-      ]).start(() => {
-        setSwipeFeedback(null);
-        setFeedbackMessage('');
-      });
-    }, 450);
-  }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
+    handleOutcome('clear');
+  }, [handleOutcome]);
 
   const handleOpenEdit = useCallback(() => {
     const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -1078,15 +1246,8 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const currentCandidateWithMeta = candidatesWithMeta[currentIndex];
   const currentCandidate = currentCandidateWithMeta.candidate;
 
-  const currentBgColor = swipeFeedback
-    ? feedbackBgProgress.interpolate({
-        inputRange: [0, 1],
-        outputRange: ['#FFFFFF', FEEDBACK_COLORS[swipeFeedback]],
-      })
-    : '#FFFFFF';
-
   return (
-    <Animated.View style={[styles.decisionStepContainer, { backgroundColor: currentBgColor }]}>
+    <View style={styles.decisionStepContainer}>
       {/* Decision Step Header - X close button at top right only */}
       <View style={styles.decisionHeader}>
         <View style={styles.decisionHeaderSpacer} />
@@ -1117,8 +1278,6 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           onConfirmQuickDate={handleConfirmQuickDate}
           onAddToSpace={handleAddToSpace}
           onClose={onClose}
-          feedbackMessage={feedbackMessage}
-          feedbackType={swipeFeedback}
           hideBottomSaveExit={true}
         />
       </View>
@@ -1147,51 +1306,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           </TouchableOpacity>
         )}
       </View>
-
-      {/* Feedback Overlay - Floating text, no background */}
-      {swipeFeedback && (
-        <Modal visible={true} transparent={true} animationType="none" statusBarTranslucent={true}>
-          <View
-            style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
-            pointerEvents="none"
-          >
-            <Animated.View
-              style={{
-                alignItems: 'center',
-                opacity: feedbackOpacity,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 28,
-                  fontWeight: '700',
-                  color: swipeFeedback === 'keep' ? '#4A3F2F' : '#FFFFFF',
-                  lineHeight: 40,
-                  letterSpacing: 2,
-                  textAlign: 'center',
-                  textShadowColor: 'rgba(0, 0, 0, 0.3)',
-                  textShadowOffset: { width: 0, height: 2 },
-                  textShadowRadius: 4,
-                }}
-              >
-                {feedbackMessage}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 13,
-                  fontWeight: '500',
-                  color:
-                    swipeFeedback === 'keep' ? 'rgba(74, 63, 47, 0.8)' : 'rgba(255,255,255,0.8)',
-                  marginTop: 8,
-                }}
-              >
-                {swipeFeedback === 'clear' ? '(archived)' : '(keeping)'}
-              </Text>
-            </Animated.View>
-          </View>
-        </Modal>
-      )}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -1622,11 +1737,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   // ─────────────────────────────────────────────────────────────────────────
-  // SweepMoodStep styles - Gremly Brand Reskin
+  // SweepMoodStep styles - Journal-First Redesign
   // ─────────────────────────────────────────────────────────────────────────
   moodStepContainer: {
     flex: 1,
-    paddingTop: 28, // More space between nav and header
+    paddingTop: 8,
     backgroundColor: BRAND.colors.linenCream,
   },
   scrollContainer: {
@@ -1634,161 +1749,245 @@ const styles = StyleSheet.create({
   },
   moodScrollContent: {
     paddingBottom: 32,
-    paddingHorizontal: 4,
+    paddingHorizontal: 20,
+    paddingTop: 48,
   },
-  moodHeaderSection: {
-    marginBottom: 12, // Reduced by 4-6px from 18 for tighter to chips
-    paddingHorizontal: 12,
+  // Header Row with Mascot
+  moodHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+  },
+  moodHeaderText: {
+    flex: 1,
+  },
+  moodMascotImage: {
+    width: 86,
+    height: 86,
+    opacity: 0.9,
+    marginLeft: 8,
+    marginTop: -12,
   },
   moodStepTitle: {
-    fontSize: 20, // Reduced one more notch (Today greeting minus 1pt)
-    fontWeight: '600', // Semibold
+    fontSize: 22,
+    fontWeight: '600',
     color: BRAND.colors.charcoalInk,
-    marginBottom: 12, // Increased by 8px for header-subheader gap
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(191, 216, 192, 0.5)',
     letterSpacing: -0.3,
   },
   moodStepSubcopy: {
-    fontSize: 13, // 1-2pt smaller
-    fontWeight: '400', // Regular
-    color: 'rgba(34, 34, 34, 0.75)', // Charcoal at 75%
-    lineHeight: 19, // Slightly relaxed
+    fontSize: 15,
+    fontWeight: '400',
+    color: 'rgba(34, 34, 34, 0.75)',
+    lineHeight: 22,
   },
-  moodDivider: {
-    // Kept for potential future use but not rendered
-    height: 1,
-    backgroundColor: 'rgba(191, 216, 192, 0.35)',
-    marginHorizontal: 12,
-    marginTop: 16,
+  // Recent Entries Section (Collapsible)
+  recentEntriesSection: {
+    marginBottom: 16,
+    borderRadius: BRAND.radius.lg,
+    backgroundColor: 'rgba(191, 216, 192, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.30)',
+    overflow: 'hidden',
+  },
+  recentEntriesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  recentEntriesHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recentEntriesHeaderText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  recentEntriesList: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+    gap: 6,
+  },
+  recentEntryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: BRAND.radius.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  recentEntryCardPressed: {
+    backgroundColor: 'rgba(191, 216, 192, 0.25)',
+  },
+  recentEntryTime: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
+    width: 60,
+  },
+  recentEntryPreview: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '400',
+    color: BRAND.colors.charcoalInk,
+  },
+  // Journal Input Section
+  journalSection: {
     marginBottom: 28,
   },
-  // Mood Grid - Centered 2x3 layout (Group 2)
-  moodGridContainer: {
-    alignItems: 'center',
-    marginBottom: 40, // More space before journal section
-    paddingHorizontal: 16,
-  },
-  moodGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 280, // Tighter for 2-col layout
-    gap: 10, // Horizontal gap
-    rowGap: 6, // Reduced by 4px for compact chip block
-  },
-  // Mood Button - Gremly Brand Style with icons
-  moodButton: {
-    width: 130, // Fixed width for 2-col grid
+  promptLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: BRAND.radius.lg, // 14px - design token for chips
-    backgroundColor: 'rgba(191, 216, 192, 0.18)', // Lighter Sage Mist for unselected
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.40)', // Light Sage border for unselected
-    // Soft shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
+    marginBottom: 10,
+    paddingLeft: 4,
   },
-  moodButtonSelected: {
-    backgroundColor: 'rgba(191, 216, 192, 0.50)', // Stronger Sage Mist for selected
-    borderColor: BRAND.colors.mossGreen, // Full Moss Green border
-    borderWidth: 1.5,
-    shadowOpacity: 0.06,
-  },
-  moodButtonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
-  },
-  moodButtonLabel: {
-    fontSize: 12,
+  promptText: {
+    fontSize: 13,
     fontWeight: '500',
-    color: BRAND.colors.charcoalInk, // Charcoal for unselected
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    fontStyle: 'italic',
+    color: BRAND.colors.mossGreen,
   },
-  moodButtonLabelSelected: {
-    color: BRAND.colors.mossGreen, // Full Moss Green for selected
-    fontWeight: '600',
+  journalInputWrapper: {
+    position: 'relative',
   },
-  // Journal Input - Gremly Brand Style (Group 3)
-  moodJournalContainer: {
-    marginTop: 0, // Group 2 marginBottom handles gap
-    marginBottom: 18, // Reduced by 10px from 28
-    marginHorizontal: 12,
-  },
-  moodJournalLabel: {
-    fontSize: 15,
-    fontWeight: '500', // Medium weight
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 12,
-  },
-  moodJournalInput: {
+  journalInput: {
     backgroundColor: BRAND.colors.linenCream,
-    borderRadius: BRAND.radius.lg, // 14px - design token
+    borderRadius: BRAND.radius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.30)', // Sage Mist @ 30%
+    borderColor: 'rgba(191, 216, 192, 0.30)',
     padding: 16,
+    paddingBottom: 44, // Room for prompt button
     fontSize: 16,
     color: BRAND.colors.charcoalInk,
     minHeight: 120,
     lineHeight: 24,
-    // Subtle shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
     shadowRadius: 3,
     elevation: 1,
   },
-  moodButtonContainer: {
-    paddingTop: 0, // Group 3 marginBottom handles gap
+  promptButton: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: BRAND.radius.md,
+    backgroundColor: 'rgba(191, 216, 192, 0.25)',
+  },
+  promptButtonPressed: {
+    backgroundColor: 'rgba(191, 216, 192, 0.40)',
+  },
+  promptButtonLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+    textTransform: 'lowercase',
+  },
+  // Mood Chips Section (Multi-select)
+  moodChipsSection: {
+    marginBottom: 24,
+    marginTop: 8,
+  },
+  moodChipsLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+  moodChipsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  moodChip: {
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    borderRadius: BRAND.radius.sm,
+    backgroundColor: 'rgba(191, 216, 192, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.40)',
+  },
+  moodChipSelected: {
+    backgroundColor: 'rgba(191, 216, 192, 0.50)',
+    borderColor: BRAND.colors.mossGreen,
+    borderWidth: 1.5,
+  },
+  moodChipPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  moodChipLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  moodChipLabelSelected: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
+  },
+  moodChipsHelper: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    marginTop: 8,
+  },
+  // Footer Actions
+  moodFooter: {
+    paddingTop: 8,
     paddingBottom: 16,
     paddingHorizontal: 12,
-    gap: 8, // Tight within Group 4
+    gap: 8,
     backgroundColor: BRAND.colors.linenCream,
   },
-  // Continue Button - CTA style with arrow
-  moodContinueButton: {
-    backgroundColor: BRAND.colors.sageMist, // Solid Sage Mist fill
-    borderWidth: 0, // No border
-    borderRadius: BRAND.radius.xl, // 18px - design token for buttons
-    height: 54, // 52-56px height (chips are ~44px)
+  continueButton: {
+    backgroundColor: BRAND.colors.sageMist,
+    borderRadius: BRAND.radius.xl,
+    height: 54,
     alignItems: 'center',
     justifyContent: 'center',
-    // Soft CTA shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12, // 10-15% opacity
-    shadowRadius: 10, // 8-10px blur
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
     elevation: 3,
   },
-  moodContinueButtonContent: {
+  continueButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  moodContinueButtonDisabled: {
+  continueButtonDisabled: {
     opacity: 0.6,
   },
-  moodContinueButtonText: {
+  continueButtonText: {
     fontSize: 17,
     fontWeight: '600',
     color: BRAND.colors.mossGreen,
   },
-  moodSkipButton: {
+  skipButton: {
     alignItems: 'center',
     paddingVertical: 12,
-    marginTop: 4, // Added 4-6px spacing from Continue
+    marginTop: 4,
   },
-  moodSkipButtonText: {
-    color: 'rgba(34, 34, 34, 0.60)', // Charcoal at 60-70% - clearly secondary
+  skipButtonText: {
+    color: 'rgba(34, 34, 34, 0.60)',
     fontSize: 15,
     fontWeight: '500',
   },
@@ -2044,36 +2243,6 @@ const styles = StyleSheet.create({
   decisionStepContainer: {
     flex: 1,
     backgroundColor: '#FFFFFF', // White background for contrast
-  },
-  swipeFeedbackContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 9999,
-    elevation: 9999,
-  },
-  swipeFeedbackText: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 3,
-    textTransform: 'uppercase',
-    lineHeight: 48, // 1.5x fontSize to ensure full character rendering
-    textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 3 },
-    textShadowRadius: 8,
-  },
-  swipeFeedbackSubtext: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.85)',
-    marginTop: 10,
-    letterSpacing: 1.5,
   },
   decisionHeader: {
     flexDirection: 'row',
