@@ -474,6 +474,31 @@ export function SweepCard({
   const isDragging = useSharedValue(false);
   const borderOpacity = useSharedValue(0); // For smooth border fade
 
+  // Handle swipe right completion - called from worklet via runOnJS
+  const handleSwipeRight = useCallback(() => {
+    if (selectedQuickAction && selectedQuickAction !== 'pickdate' && onConfirmQuickDate) {
+      // User selected a quick date, confirm it
+      if (
+        selectedQuickAction === 'tomorrow' ||
+        selectedQuickAction === '2days' ||
+        selectedQuickAction === 'nextweek'
+      ) {
+        onConfirmQuickDate(selectedQuickAction);
+      } else {
+        // nextsweep or other - just skip
+        onSkip();
+      }
+    } else {
+      // No selection, just keep/skip
+      onSkip();
+    }
+  }, [selectedQuickAction, onConfirmQuickDate, onSkip]);
+
+  // Handle swipe left completion - called from worklet via runOnJS
+  const handleSwipeLeft = useCallback(() => {
+    onClear();
+  }, [onClear]);
+
   // Pan gesture for swiping - now tracks drag state
   const panGesture = Gesture.Pan()
     .activeOffsetX([-10, 10]) // Only activate for horizontal movement
@@ -499,26 +524,29 @@ export function SweepCard({
         translationX < -SWIPE_THRESHOLD || (translationX < -50 && velocityX < -VELOCITY_THRESHOLD);
 
       if (swipedRight) {
-        // Swiped right past threshold → Keep (or confirm selection)
-        if (selectedQuickAction && selectedQuickAction !== 'pickdate' && onConfirmQuickDate) {
-          // User selected a quick date, confirm it
-          if (
-            selectedQuickAction === 'tomorrow' ||
-            selectedQuickAction === '2days' ||
-            selectedQuickAction === 'nextweek'
-          ) {
-            animateOut('right', () => onConfirmQuickDate(selectedQuickAction));
-          } else {
-            // nextsweep or other - just skip
-            animateOut('right', onSkip);
-          }
-        } else {
-          // No selection, just keep/skip
-          animateOut('right', onSkip);
-        }
+        // Swiped right past threshold → animate out and call JS handler
+        translateX.value = withSpring(
+          SWIPE_OUT_DISTANCE,
+          { damping: 20, stiffness: 200, overshootClamping: true },
+          (finished) => {
+            if (finished) {
+              runOnJS(handleSwipeRight)();
+            }
+          },
+        );
+        cardOpacity.value = withTiming(0, { duration: 200 });
       } else if (swipedLeft) {
-        // Swiped left past threshold → Clear
-        animateOut('left', onClear);
+        // Swiped left past threshold → animate out and call JS handler
+        translateX.value = withSpring(
+          -SWIPE_OUT_DISTANCE,
+          { damping: 20, stiffness: 200, overshootClamping: true },
+          (finished) => {
+            if (finished) {
+              runOnJS(handleSwipeLeft)();
+            }
+          },
+        );
+        cardOpacity.value = withTiming(0, { duration: 200 });
       } else {
         // Didn't cross threshold → spring back to center
         translateX.value = withSpring(0, {
