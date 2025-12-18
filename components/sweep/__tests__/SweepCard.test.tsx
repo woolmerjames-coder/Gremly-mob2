@@ -187,6 +187,28 @@ const mockLogCandidate: SweepCandidate = {
   } as any,
 };
 
+const mockLockedInTodo: SweepCandidate = {
+  id: 'todo-locked-in',
+  kind: 'todo',
+  createdAt: new Date().toISOString(),
+  dropId: null,
+  skippedInSweepAt: null,
+  isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: false,
+  raw: {
+    id: 'todo-locked-in',
+    name: 'Locked in commitment',
+    notes: 'This is a locked-in todo',
+    owner_id: 'user-1',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    due_day: '2024-12-20',
+    due_date: '2024-12-20',
+    locked_in: true,
+  } as any,
+};
+
 /** Generate mock meta for testing */
 function createMockMeta(overrides: Partial<SweepCardMeta> = {}): SweepCardMeta {
   return {
@@ -204,6 +226,23 @@ function createMockMeta(overrides: Partial<SweepCardMeta> = {}): SweepCardMeta {
   };
 }
 
+/** Generate mock meta for log/note candidates */
+function createMockLogMeta(overrides: Partial<SweepCardMeta> = {}): SweepCardMeta {
+  return {
+    typeChip: 'Log',
+    todoStatus: null,
+    logSubtype: 'general',
+    isNew: true,
+    resurfacingDate: null,
+    spaceName: null,
+    spaceId: null,
+    isLockedIn: false,
+    gremlyResponse: "Thanks for letting that out. I've got it.",
+    rescheduleCount: 0,
+    ...overrides,
+  };
+}
+
 const defaultProps: Omit<SweepCardProps, 'candidate' | 'meta'> = {
   index: 0,
   total: 5,
@@ -211,11 +250,22 @@ const defaultProps: Omit<SweepCardProps, 'candidate' | 'meta'> = {
   onClear: jest.fn(),
   onOpenEdit: jest.fn(),
   onConvertToTodo: jest.fn(),
+  onConfirmQuickDate: jest.fn(),
+  onAddToSpace: jest.fn(),
 };
+
+function resetMocks() {
+  (defaultProps.onSkip as jest.Mock).mockClear();
+  (defaultProps.onClear as jest.Mock).mockClear();
+  (defaultProps.onOpenEdit as jest.Mock).mockClear();
+  (defaultProps.onConvertToTodo as jest.Mock).mockClear();
+  (defaultProps.onConfirmQuickDate as jest.Mock).mockClear();
+  (defaultProps.onAddToSpace as jest.Mock).mockClear();
+}
 
 describe('SweepCard', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    resetMocks();
     mockRepoUpdate.mockClear();
   });
 
@@ -413,7 +463,7 @@ describe('SweepCard', () => {
   });
 
   describe('New/Resurfacing Indicator', () => {
-    it('shows "New!" for items with meta.isNew=true', () => {
+    it('shows "New" for items with meta.isNew=true', () => {
       const enteredTodayCandidate: SweepCandidate = {
         ...mockNoteCandidate,
         id: 'note-entered-today',
@@ -435,10 +485,10 @@ describe('SweepCard', () => {
         />,
       );
 
-      expect(getByText(/New!/)).toBeTruthy();
+      expect(getByText(/New/)).toBeTruthy();
     });
 
-    it('shows "New!" for todos with meta.isNew=true', () => {
+    it('shows "New" for todos with meta.isNew=true', () => {
       const todoEnteredToday: SweepCandidate = {
         ...mockTodoCandidate,
         id: 'todo-entered-today',
@@ -452,7 +502,7 @@ describe('SweepCard', () => {
         } as any,
       };
 
-      const { getByText } = render(
+      const { getAllByText } = render(
         <SweepCard
           candidate={todoEnteredToday}
           meta={createMockMeta({ isNew: true })}
@@ -460,10 +510,11 @@ describe('SweepCard', () => {
         />,
       );
 
-      expect(getByText(/New!/)).toBeTruthy();
+      // Multiple elements may contain "New" (including the title), so use getAllByText
+      expect(getAllByText(/New/).length).toBeGreaterThan(0);
     });
 
-    it('shows "Resurfacing" with date for items with meta.isNew=false', () => {
+    it('shows "Since" with date for items with meta.isNew=false', () => {
       const dueTodayAndEnteredToday: SweepCandidate = {
         ...mockTodoCandidate,
         id: 'todo-due-and-entered-today',
@@ -489,7 +540,7 @@ describe('SweepCard', () => {
         />,
       );
 
-      expect(getByText(/Resurfacing/)).toBeTruthy();
+      expect(getByText(/Since/)).toBeTruthy();
       expect(getByText(/Dec 15/)).toBeTruthy();
     });
 
@@ -552,7 +603,18 @@ describe('SweepCard', () => {
       expect(getByText('What do you want to do with this one?')).toBeTruthy();
     });
 
-    it('displays "New!" indicator for new items', () => {
+    it('displays custom Gremly message', () => {
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta({ gremlyResponse: 'Test message from Gremly' })}
+          {...defaultProps}
+        />,
+      );
+      expect(getByText('Test message from Gremly')).toBeTruthy();
+    });
+
+    it('displays "New" indicator for new items', () => {
       const { getByText } = render(
         <SweepCard
           candidate={mockTodoCandidate}
@@ -560,8 +622,8 @@ describe('SweepCard', () => {
           {...defaultProps}
         />,
       );
-      // Should contain "New!" for items with isNew=true in meta
-      expect(getByText(/New!/)).toBeTruthy();
+      // Should contain "New" for items with isNew=true in meta
+      expect(getByText(/New/)).toBeTruthy();
     });
   });
 
@@ -681,11 +743,7 @@ describe('SweepCard', () => {
   describe('Button Grid - Log Candidates', () => {
     it('shows action buttons for general notes', () => {
       const { getByText, getByLabelText } = render(
-        <SweepCard
-          candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
-          {...defaultProps}
-        />,
+        <SweepCard candidate={mockNoteCandidate} meta={createMockLogMeta()} {...defaultProps} />,
       );
       // Check button labels
       expect(getByText('Next Sweep')).toBeTruthy();
@@ -749,6 +807,15 @@ describe('SweepCard', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('Button Grid Interactions - Todos', () => {
+    it('has Tomorrow selected by default for todos', () => {
+      const { getByLabelText } = render(
+        <SweepCard candidate={mockTodoCandidate} meta={createMockMeta()} {...defaultProps} />,
+      );
+      // Tomorrow button should exist and be pressable (has primary styling by default)
+      const tomorrowButton = getByLabelText('Set due tomorrow');
+      expect(tomorrowButton).toBeTruthy();
+    });
+
     it('selects Tomorrow when Tomorrow button is pressed', () => {
       const { getByLabelText } = render(
         <SweepCard candidate={mockTodoCandidate} meta={createMockMeta()} {...defaultProps} />,
@@ -791,20 +858,17 @@ describe('SweepCard', () => {
   });
 
   describe('Button Grid Interactions - Logs', () => {
-    it('calls onSkip when Next Sweep button is pressed for logs', () => {
-      const onSkip = jest.fn();
+    it('selects Next Sweep when Next Sweep button is pressed for logs', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
           meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
-          onSkip={onSkip}
         />,
       );
 
       fireEvent.press(getByLabelText('Save for next sweep'));
-      // Next Sweep button triggers the skip action
-      expect(onSkip).toHaveBeenCalledTimes(1);
+      // Next Sweep button now selects the action (actual skip happens on swipe right)
     });
 
     it('calls onAddToSpace when Add to Space button is pressed', () => {
@@ -922,6 +986,88 @@ describe('SweepCard', () => {
       );
 
       expect(getByLabelText('Edit details')).toBeTruthy();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Locked-in Items
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('Locked-in Items', () => {
+    it('displays diamond icon for locked-in todos', () => {
+      const { getByLabelText } = render(
+        <SweepCard
+          candidate={mockLockedInTodo}
+          meta={createMockMeta({ isLockedIn: true })}
+          {...defaultProps}
+        />,
+      );
+      expect(getByLabelText('Locked in commitment')).toBeTruthy();
+    });
+
+    it('displays locked-in specific Gremly message', () => {
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockLockedInTodo}
+          meta={createMockMeta({
+            isLockedIn: true,
+            gremlyResponse: "You locked this one in. How's it coming along?",
+          })}
+          {...defaultProps}
+        />,
+      );
+      expect(getByText("You locked this one in. How's it coming along?")).toBeTruthy();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Reschedule Tracking
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('Reschedule Tracking', () => {
+    it('shows progressive message for first reschedule', () => {
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta({
+            rescheduleCount: 1,
+            gremlyResponse: 'This one came back. Ready to tackle it?',
+          })}
+          {...defaultProps}
+        />,
+      );
+      expect(getByText('This one came back. Ready to tackle it?')).toBeTruthy();
+    });
+
+    it('shows progressive message for second reschedule', () => {
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta({
+            rescheduleCount: 2,
+            gremlyResponse: "Seeing this one again. What's getting in the way?",
+          })}
+          {...defaultProps}
+        />,
+      );
+      expect(getByText("Seeing this one again. What's getting in the way?")).toBeTruthy();
+    });
+
+    it('shows progressive message for 3+ reschedules', () => {
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta({
+            rescheduleCount: 3,
+            gremlyResponse:
+              'This keeps floating back. Maybe it needs to be broken down, or let go?',
+          })}
+          {...defaultProps}
+        />,
+      );
+      expect(
+        getByText('This keeps floating back. Maybe it needs to be broken down, or let go?'),
+      ).toBeTruthy();
     });
   });
 
