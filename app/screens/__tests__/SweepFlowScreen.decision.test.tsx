@@ -19,11 +19,25 @@ jest.mock('../../../lib/sweep/engine', () => ({
   markSweepCompleted: () => Promise.resolve(),
 }));
 
-// Mock store selectors - useSweepCandidatesUnified returns candidates from store
+// Mock store selectors - useSweepCandidatesUnified returns candidates with meta from store
 let mockCandidates: SweepCandidate[] = [];
 jest.mock('../../../lib/store/selectors', () => ({
   __esModule: true,
-  useSweepCandidatesUnified: () => mockCandidates,
+  useSweepCandidatesUnified: () =>
+    mockCandidates.map((candidate) => ({
+      candidate,
+      meta: {
+        typeChip: candidate.kind === 'todo' ? 'To-Do' : 'Log',
+        todoStatus: null,
+        logSubtype: null,
+        isNew: false,
+        resurfacingDate: null,
+        spaceName: null,
+        spaceId: null,
+        isLockedIn: false,
+        gremlyResponse: 'Test gremly response',
+      },
+    })),
   useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
   useIsLoading: () => false,
 }));

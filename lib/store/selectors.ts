@@ -657,12 +657,6 @@ export const selectSweepCandidatesUnified = createSelector(
   },
 );
 
-/** Extract just the SweepCandidate array (backward-compatible) */
-export const selectSweepCandidatesUnifiedRaw = createSelector(
-  [selectSweepCandidatesUnified],
-  (withMeta): SweepCandidate[] => withMeta.map((item) => item.candidate),
-);
-
 /** Count of unified sweep candidates */
 export const selectSweepCandidateCountUnified = createSelector(
   [selectSweepCandidatesUnified],
@@ -1109,8 +1103,7 @@ export const useTodayProgress = () => useGremlyStore(selectTodayProgress);
 
 export const useSweepCandidates = () => useGremlyStore(selectSweepCandidates);
 export const useSweepCount = () => useGremlyStore(selectSweepCandidateCount);
-export const useSweepCandidatesUnified = () => useGremlyStore(selectSweepCandidatesUnifiedRaw);
-export const useSweepCandidatesWithMeta = () => useGremlyStore(selectSweepCandidatesUnified);
+export const useSweepCandidatesUnified = () => useGremlyStore(selectSweepCandidatesUnified);
 export const useSweepCountUnified = () => useGremlyStore(selectSweepCandidateCountUnified);
 
 export const useRecentDrops = () => useGremlyStore(selectRecentDrops);

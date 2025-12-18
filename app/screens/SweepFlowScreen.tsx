@@ -42,7 +42,12 @@ import {
 import type { Habit } from '../../lib/types';
 import { supabase } from '../../lib/supabase/client';
 import { markSweepCompleted } from '../../lib/sweep/engine';
-import type { SweepCandidate, SweepPrimaryActionConfig, SweepSummary } from '../../lib/sweep/types';
+import type {
+  SweepCandidate,
+  SweepCardMeta,
+  SweepPrimaryActionConfig,
+  SweepSummary,
+} from '../../lib/sweep/types';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -574,8 +579,14 @@ interface DecisionStepProps {
  * Hook to snapshot sweep candidates on initial load.
  * Prevents items from disappearing mid-sweep when they're archived/skipped.
  */
-function useSweepSnapshot(allCandidates: SweepCandidate[], storeIsLoading: boolean) {
-  const [snapshot, setSnapshot] = useState<SweepCandidate[] | null>(null);
+function useSweepSnapshot(
+  allCandidates: Array<{ candidate: SweepCandidate; meta: SweepCardMeta }>,
+  storeIsLoading: boolean,
+) {
+  const [snapshot, setSnapshot] = useState<Array<{
+    candidate: SweepCandidate;
+    meta: SweepCardMeta;
+  }> | null>(null);
 
   // Take snapshot once when store finishes loading
   // This is intentional initialization, not a cascading update
@@ -586,7 +597,7 @@ function useSweepSnapshot(allCandidates: SweepCandidate[], storeIsLoading: boole
   }
 
   return {
-    candidates: snapshot ?? [],
+    candidatesWithMeta: snapshot ?? [],
     isLoading: storeIsLoading || snapshot === null,
   };
 }
@@ -597,7 +608,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const storeIsLoading = useIsLoading();
 
   // Snapshot candidates at session start (prevents items disappearing mid-sweep)
-  const { candidates, isLoading } = useSweepSnapshot(allCandidates, storeIsLoading);
+  const { candidatesWithMeta, isLoading } = useSweepSnapshot(allCandidates, storeIsLoading);
 
   // Store mutations for sweep actions
   const updateTodo = useGremlyStore((state) => state.updateTodo);
@@ -628,19 +639,19 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
   // Log candidates for debugging (using snapshot)
   useEffect(() => {
-    if (!isLoading && candidates.length > 0) {
+    if (!isLoading && candidatesWithMeta.length > 0) {
       console.log('[SweepFlow] Candidates from store:', {
-        total: candidates.length,
-        todos: candidates.filter((c) => c.kind === 'todo').length,
-        notes: candidates.filter((c) => c.kind === 'note').length,
-        ids: candidates.map((c) => ({
-          id: c.id.slice(0, 8),
-          kind: c.kind,
-          title: (c.raw as any)?.name || (c.raw as any)?.title,
+        total: candidatesWithMeta.length,
+        todos: candidatesWithMeta.filter((c) => c.candidate.kind === 'todo').length,
+        notes: candidatesWithMeta.filter((c) => c.candidate.kind === 'note').length,
+        ids: candidatesWithMeta.map((c) => ({
+          id: c.candidate.id.slice(0, 8),
+          kind: c.candidate.kind,
+          title: (c.candidate.raw as any)?.name || (c.candidate.raw as any)?.title,
         })),
       });
     }
-  }, [isLoading, candidates]);
+  }, [isLoading, candidatesWithMeta]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Unified Outcome Handler
@@ -656,8 +667,9 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
   const handleOutcome = useCallback(
     async (outcome: SweepOutcome) => {
-      const candidate = candidates[currentIndex];
-      if (!candidate) return;
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta) return;
+      const candidate = candidateWithMeta.candidate;
 
       switch (outcome) {
         case 'skip': {
@@ -720,7 +732,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           return;
       }
     },
-    [candidates, currentIndex, updateTodo, updateNote, archiveTodo, archiveNote],
+    [candidatesWithMeta, currentIndex, updateTodo, updateNote, archiveTodo, archiveNote],
   );
 
   // Keep the ref updated with the latest handleOutcome
@@ -802,8 +814,9 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
 
   const handleOpenEdit = useCallback(() => {
-    const candidate = candidates[currentIndex];
-    if (!candidate) return;
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const candidate = candidateWithMeta.candidate;
 
     // Track which candidate is being edited so we can detect saves
     editingCandidateIdRef.current = candidate.id;
@@ -830,11 +843,12 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       } as AppRecord;
       overlayController.openEdit({ record: fallbackRecord });
     }
-  }, [candidates, currentIndex, todos, notes, overlayController]);
+  }, [candidatesWithMeta, currentIndex, todos, notes, overlayController]);
 
   const handleConvertToTodo = useCallback(() => {
-    const candidate = candidates[currentIndex];
-    if (!candidate || candidate.kind !== 'note') return;
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'note') return;
+    const candidate = candidateWithMeta.candidate;
 
     // Look up full record from store
     const note = notes.find((n) => n.id === candidate.id);
@@ -851,7 +865,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
         sourceNoteId: candidate.id, // Track source for potential archiving
       },
     });
-  }, [candidates, currentIndex, notes, overlayController]);
+  }, [candidatesWithMeta, currentIndex, notes, overlayController]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Primary Action Handler
@@ -931,11 +945,11 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
   // Auto-advance to summary when all cards are processed
   useEffect(() => {
-    if (!isLoading && candidates.length > 0 && currentIndex >= candidates.length) {
+    if (!isLoading && candidatesWithMeta.length > 0 && currentIndex >= candidatesWithMeta.length) {
       // All cards processed - auto-finish to show summary
       onFinished(stats);
     }
-  }, [isLoading, candidates.length, currentIndex, stats, onFinished]);
+  }, [isLoading, candidatesWithMeta.length, currentIndex, stats, onFinished]);
 
   // Loading state
   if (isLoading) {
@@ -952,7 +966,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }
 
   // Empty state - nothing to sweep
-  if (candidates.length === 0) {
+  if (candidatesWithMeta.length === 0) {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.decisionEmptyContainer}>
@@ -975,7 +989,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }
 
   // All cards processed - show brief transition (auto-advances via useEffect above)
-  if (currentIndex >= candidates.length) {
+  if (currentIndex >= candidatesWithMeta.length) {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.decisionLoadingContainer}>
@@ -986,7 +1000,8 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }
 
   // Current candidate to display
-  const currentCandidate = candidates[currentIndex];
+  const currentCandidateWithMeta = candidatesWithMeta[currentIndex];
+  const currentCandidate = currentCandidateWithMeta.candidate;
 
   const currentBgColor = swipeFeedback
     ? feedbackBgProgress.interpolate({
@@ -1018,7 +1033,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
         <SweepCard
           candidate={currentCandidate}
           index={currentIndex}
-          total={candidates.length}
+          total={candidatesWithMeta.length}
           onSkip={handleSkip}
           onClear={handleClear}
           onOpenEdit={handleOpenEdit}
@@ -1043,12 +1058,12 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
             <View
               style={[
                 styles.progressFill,
-                { width: `${((currentIndex + 1) / candidates.length) * 100}%` },
+                { width: `${((currentIndex + 1) / candidatesWithMeta.length) * 100}%` },
               ]}
             />
           </View>
           <Text style={styles.counterText}>
-            {currentIndex + 1} of {candidates.length} items
+            {currentIndex + 1} of {candidatesWithMeta.length} items
           </Text>
         </View>
 

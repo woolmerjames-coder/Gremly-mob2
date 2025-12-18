@@ -5,7 +5,6 @@ import { Text, Box, Button } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useRepo } from '../../../providers/RepoProvider';
 import { useSweepCandidatesUnified } from '../../../lib/store/selectors';
-import type { SweepCandidate } from '../../../lib/sweep/types';
 
 type Props = {
   visible: boolean;
@@ -17,8 +16,8 @@ type Props = {
 export default function SweepDrawer({ visible, onClose, onSweepComplete }: Props) {
   const repo = useRepo(); // Kept for sweepApplyAction (not in store yet)
 
-  // Use store selector for sweep candidates
-  const sweepCandidates = useSweepCandidatesUnified();
+  // Use store selector for sweep candidates (returns { candidate, meta }[])
+  const sweepCandidatesWithMeta = useSweepCandidatesUnified();
 
   // Track actions taken during this sweep session
   const actionsRef = useRef<{ archived: number; total: number }>({ archived: 0, total: 0 });
@@ -82,7 +81,7 @@ export default function SweepDrawer({ visible, onClose, onSweepComplete }: Props
 
               <ScrollView style={{ maxHeight: 420 }}>
                 <Box gap={2}>
-                  {sweepCandidates.length === 0 ? (
+                  {sweepCandidatesWithMeta.length === 0 ? (
                     <Text variant="subtle" style={{ textAlign: 'center', paddingVertical: 24 }}>
                       Nothing to tidy — all clear.
                     </Text>
@@ -91,7 +90,7 @@ export default function SweepDrawer({ visible, onClose, onSweepComplete }: Props
                       <Text variant="subtle" style={{ marginBottom: 4 }}>
                         Select what stays, what shifts, and what can rest.
                       </Text>
-                      {sweepCandidates.map((t: SweepCandidate) => (
+                      {sweepCandidatesWithMeta.map(({ candidate: t }) => (
                         <Card key={t.id} padding="sm" testID={`sweep-item-${t.id}`}>
                           <Box
                             row
