@@ -194,6 +194,40 @@ function formatDueDay(dueDay: string | null | undefined): string {
   }
 }
 
+/**
+ * Normalize a string for comparison: lowercase, trim, remove punctuation, collapse whitespace.
+ * Used to detect if the preview text is redundant with the title.
+ */
+function normalizeForComparison(str: string | null | undefined): string {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s]/g, '') // Remove punctuation
+    .replace(/\s+/g, ' '); // Collapse whitespace
+}
+
+/**
+ * Determine if the user preview should be hidden (redundant with title).
+ * Returns true if:
+ * - Preview is empty/null
+ * - Normalized preview === normalized title
+ * - Normalized title is contained within normalized preview (or vice versa)
+ */
+function shouldHidePreview(title: string, preview: string | null | undefined): boolean {
+  if (!preview || !preview.trim()) return true;
+
+  const normalizedTitle = normalizeForComparison(title);
+  const normalizedPreview = normalizeForComparison(preview);
+
+  if (!normalizedPreview) return true;
+  if (normalizedTitle === normalizedPreview) return true;
+  if (normalizedTitle.includes(normalizedPreview)) return true;
+  if (normalizedPreview.includes(normalizedTitle)) return true;
+
+  return false;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -214,6 +248,23 @@ export function SweepCard({
 }: SweepCardProps) {
   const repo = useRepo();
   const title = getCandidateTitle(candidate);
+
+  // Get user's original input text for preview
+  // For notes: body field contains user's original input
+  // For todos: body field contains the full Mind Drop sentence
+  const userOriginalText = useMemo(() => {
+    if (candidate.kind === 'note') {
+      return candidate.raw.body || null;
+    } else if (candidate.kind === 'todo') {
+      return candidate.raw.body || null;
+    }
+    return null;
+  }, [candidate]);
+
+  // Determine if we should show the user preview
+  const showUserPreview = useMemo(() => {
+    return !shouldHidePreview(title, userOriginalText);
+  }, [title, userOriginalText]);
 
   // Photo attachments for note candidates
   const hasAttachments =
@@ -898,6 +949,12 @@ export function SweepCard({
                 <Text style={styles.titleText} numberOfLines={4}>
                   {title}
                 </Text>
+                {/* User original input preview - 1 line, muted */}
+                {showUserPreview && userOriginalText && (
+                  <Text style={styles.userPreviewText} numberOfLines={1}>
+                    {userOriginalText}
+                  </Text>
+                )}
               </View>
 
               {/* GREMLY RESPONSE - Avatar + speech bubble */}
@@ -1361,9 +1418,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-start',
     alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingTop: 48,
-    paddingBottom: 4,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 0,
     zIndex: 2,
   },
 
@@ -1371,9 +1428,9 @@ const styles = StyleSheet.create({
   swipeCardContainer: {
     width: CARD_WIDTH,
     maxWidth: 400,
-    minHeight: 320,
+    minHeight: 400,
     flex: 1,
-    maxHeight: '98%',
+    maxHeight: '100%',
     // backgroundColor controlled by animatedCardStyle for swipe color transformation
     borderRadius: 16,
     overflow: 'hidden',
@@ -1417,9 +1474,9 @@ const styles = StyleSheet.create({
   },
   contentScrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 48,
-    paddingBottom: 56,
+    paddingHorizontal: 24,
+    paddingTop: 52,
+    paddingBottom: 32,
     position: 'relative',
   },
 
@@ -1488,7 +1545,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 24,
+    marginBottom: 28,
     paddingRight: 40, // Space for edit icon
   },
   chip: {
@@ -1547,7 +1604,7 @@ const styles = StyleSheet.create({
   // Title Section - Hero, airy vertical rhythm
   titleSection: {
     paddingTop: 0,
-    paddingBottom: 0,
+    paddingBottom: 8,
     paddingRight: 44, // Space for edit icon
   },
   titleText: {
@@ -1556,16 +1613,24 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     lineHeight: 34,
     letterSpacing: -0.5,
-    marginBottom: 12,
+    marginBottom: 8,
+  },
+  // User original input preview - muted, smaller, single line
+  userPreviewText: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: 'rgba(34, 34, 34, 0.50)', // Muted charcoal
+    lineHeight: 20,
+    marginTop: 4,
   },
 
   // Gremly Response Section
   gremlyResponseSection: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 24,
-    marginBottom: 32,
+    gap: 10,
+    marginTop: 28,
+    marginBottom: 40,
   },
   gremlyAvatar: {
     width: 40,
@@ -1605,14 +1670,14 @@ const styles = StyleSheet.create({
   // Spacer - Pushes action block to bottom of card
   actionSpacer: {
     flex: 1,
-    minHeight: 24, // Reduced for tighter layout
+    minHeight: 40, // More breathing room before actions
   },
 
   // Divider above action row
   actionDividerContainer: {
     alignItems: 'center',
-    paddingTop: 8, // Tighter spacing
-    paddingBottom: 16,
+    paddingTop: 16,
+    paddingBottom: 20,
   },
   actionDivider: {
     width: '90%',
@@ -1695,17 +1760,17 @@ const styles = StyleSheet.create({
   // Swipe Cue Row - Above the card, aligned with card edges
   swipeCueRow: {
     position: 'absolute',
-    top: 16,
-    left: 32,
-    right: 32,
+    top: 8,
+    left: 24,
+    right: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
     zIndex: 3,
   },
   swipeCueText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
-    color: 'rgba(34, 34, 34, 0.70)', // Charcoal Ink @ 70%
+    color: 'rgba(34, 34, 34, 0.55)', // Reduced prominence
     letterSpacing: 0.2,
   },
 

@@ -2260,41 +2260,43 @@ const styles = StyleSheet.create({
   decisionCloseButton: {
     padding: 8,
   },
-  // Bottom section styles
+  // Bottom section styles - Compact chrome at bottom, clearly separated from card
   bottomSection: {
     alignItems: 'center',
-    paddingBottom: 32,
+    paddingBottom: 12,
     paddingTop: 16,
+    marginTop: 8,
   },
   progressContainer: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 4,
   },
   progressBar: {
-    width: 120,
-    height: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-    borderRadius: 2,
-    marginBottom: 8,
+    width: 100,
+    height: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    borderRadius: 1,
+    marginBottom: 4,
   },
   progressFill: {
     height: '100%',
     backgroundColor: BRAND.colors.mossGreen,
-    borderRadius: 2,
+    borderRadius: 1,
   },
   counterText: {
-    fontSize: 13,
+    fontSize: 11,
     color: BRAND.colors.inkSubtle,
     fontWeight: '500',
+    opacity: 0.8,
   },
   saveExitButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
   },
   saveExitText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '500',
-    color: 'rgba(34, 34, 34, 0.65)',
+    color: 'rgba(34, 34, 34, 0.45)',
     letterSpacing: 0.1,
   },
   decisionPlaceholder: {
