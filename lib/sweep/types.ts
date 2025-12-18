@@ -106,6 +106,39 @@ export interface SweepSummary {
   cleared: number;
 }
 
+/**
+ * Computed display metadata for a Sweep card.
+ * Pre-computed from SweepCandidate + Space data for rendering.
+ */
+export interface SweepCardMeta {
+  /** Type chip label: 'Todo' or 'Log' */
+  typeChip: 'Todo' | 'Log';
+
+  /** Status chip for todos: scheduling state */
+  todoStatus: 'unscheduled' | 'due_today' | 'due_tomorrow' | 'overdue' | null;
+
+  /** Status chip for logs: subtype */
+  logSubtype: 'idea' | 'general' | 'journal' | null;
+
+  /** True if this is the first time in Sweep (never skipped) */
+  isNew: boolean;
+
+  /** Formatted date string if resurfacing, e.g. "Dec 8" */
+  resurfacingDate: string | null;
+
+  /** Space name if assigned */
+  spaceName: string | null;
+
+  /** Space ID if assigned */
+  spaceId: string | null;
+
+  /** True if commitment === true (locked-in item) */
+  isLockedIn: boolean;
+
+  /** Gremly's contextual response message */
+  gremlyResponse: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Primary Action Types
 // ─────────────────────────────────────────────────────────────────────────────
