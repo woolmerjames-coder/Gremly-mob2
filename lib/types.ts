@@ -147,6 +147,8 @@ export interface Todo {
 
   // Sweep tracking
   skipped_in_sweep_at?: string | null;
+  // Sweep reschedule tracking - counts how many times rescheduled via quick date buttons
+  sweep_reschedule_count?: number;
 }
 
 /**

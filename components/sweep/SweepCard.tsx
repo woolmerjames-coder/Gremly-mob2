@@ -26,6 +26,8 @@ import {
   Switch,
   ScrollView,
   Image,
+  Animated as RNAnimated,
+  Easing,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
@@ -248,9 +250,45 @@ export function SweepCard({
   const [isSaving, setIsSaving] = useState(false);
 
   // Track which quick action button is selected (if any)
+  // Default selection: Tomorrow for todos, Next Sweep for logs
+  const getDefaultSelection = useCallback(() => {
+    return candidate.kind === 'todo' ? 'tomorrow' : 'nextsweep';
+  }, [candidate.kind]);
+
   const [selectedQuickAction, setSelectedQuickAction] = useState<
-    'tomorrow' | '2days' | 'nextweek' | 'pickdate' | null
-  >(null);
+    'tomorrow' | '2days' | 'nextweek' | 'pickdate' | 'nextsweep' | null
+  >(() => (candidate.kind === 'todo' ? 'tomorrow' : 'nextsweep'));
+
+  // Track if user has manually changed selection (not just default)
+  const [hasUserSelected, setHasUserSelected] = useState(false);
+
+  // Animated hint arrow
+  const hintArrowAnim = React.useRef(new RNAnimated.Value(0)).current;
+
+  // Start animation when selection exists
+  React.useEffect(() => {
+    if (selectedQuickAction && selectedQuickAction !== 'pickdate') {
+      // Subtle repeating animation
+      const animation = RNAnimated.loop(
+        RNAnimated.sequence([
+          RNAnimated.timing(hintArrowAnim, {
+            toValue: 8,
+            duration: 800,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          RNAnimated.timing(hintArrowAnim, {
+            toValue: 0,
+            duration: 800,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      animation.start();
+      return () => animation.stop();
+    }
+  }, [selectedQuickAction, hintArrowAnim]);
 
   // Reset date picker state when candidate changes
   React.useEffect(() => {
@@ -259,7 +297,8 @@ export function SweepCard({
     setShowTimePicker(false);
     setSelectedTimePreset(null);
     setKeepAfterDatePick(false);
-    setSelectedQuickAction(null);
+    setSelectedQuickAction(getDefaultSelection());
+    setHasUserSelected(false);
     // Pre-fill date based on candidate
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
@@ -267,7 +306,7 @@ export function SweepCard({
     } else {
       setSelectedDate(new Date());
     }
-  }, [candidate.id, candidate.kind, candidate.raw]);
+  }, [candidate.id, candidate.kind, candidate.raw, getDefaultSelection]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Photo Preview Handlers
@@ -286,19 +325,26 @@ export function SweepCard({
   // Quick Date Button Handlers (selection only - confirmed on swipe)
   // ─────────────────────────────────────────────────────────────────────────
   const handleTomorrow = useCallback(() => {
+    console.log('[SweepCard] Tomorrow tapped, setting selection');
     setSelectedQuickAction('tomorrow');
+    setHasUserSelected(true);
   }, []);
 
   const handleIn2Days = useCallback(() => {
+    console.log('[SweepCard] 2 Days tapped, setting selection');
     setSelectedQuickAction('2days');
+    setHasUserSelected(true);
   }, []);
 
   const handleNextWeek = useCallback(() => {
+    console.log('[SweepCard] Next Week tapped, setting selection');
     setSelectedQuickAction('nextweek');
+    setHasUserSelected(true);
   }, []);
 
   const handlePickDate = useCallback(() => {
     setSelectedQuickAction('pickdate');
+    setHasUserSelected(true);
     setShowDatePicker(true);
   }, []);
 
@@ -306,7 +352,8 @@ export function SweepCard({
   // Log Action Handlers
   // ─────────────────────────────────────────────────────────────────────────
   const handleNextSweep = useCallback(() => {
-    setSelectedQuickAction('nextsweep' as any);
+    setSelectedQuickAction('nextsweep');
+    setHasUserSelected(true);
   }, []);
 
   const handleAddToSpace = useCallback(() => {
@@ -724,16 +771,13 @@ export function SweepCard({
                 <Pencil size={16} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
               </TouchableOpacity>
 
-              {/* CHIPS ROW - All chips on one line */}
+              {/* CHIPS ROW - Lightweight metadata line */}
               <View style={styles.chipsRow}>
-                {/* Type chip: Todo or Log */}
-                <View style={styles.chip}>
-                  <Text style={styles.chipText}>{meta.typeChip}</Text>
-                </View>
+                <Text style={styles.chipText}>{meta.typeChip}</Text>
 
-                {/* Status chip: varies by type */}
                 {meta.todoStatus && (
-                  <View style={[styles.chip, meta.todoStatus === 'overdue' && styles.chipOverdue]}>
+                  <>
+                    <Text style={styles.chipSeparator}>·</Text>
                     <Text
                       style={[
                         styles.chipText,
@@ -742,30 +786,30 @@ export function SweepCard({
                     >
                       {getTodoStatusLabel(meta.todoStatus)}
                     </Text>
-                  </View>
+                  </>
                 )}
                 {meta.logSubtype && (
-                  <View style={styles.chip}>
+                  <>
+                    <Text style={styles.chipSeparator}>·</Text>
                     <Text style={styles.chipText}>{getLogSubtypeLabel(meta.logSubtype)}</Text>
-                  </View>
+                  </>
                 )}
 
-                {/* Time chip: New! or Resurfacing */}
-                <Text style={styles.chipTimeText}>
-                  · {meta.isNew ? 'New!' : `Resurfacing · ${meta.resurfacingDate}`}
+                <Text style={styles.chipSeparator}>·</Text>
+                <Text style={styles.chipText}>
+                  {meta.isNew ? 'New' : `Since ${meta.resurfacingDate}`}
                 </Text>
 
-                {/* Space chip if assigned */}
                 {meta.spaceName && (
-                  <View style={styles.chipSpace}>
+                  <>
+                    <Text style={styles.chipSeparator}>·</Text>
                     <Text style={styles.chipSpaceText}>◇ {meta.spaceName}</Text>
-                  </View>
+                  </>
                 )}
 
-                {/* Photo indicator */}
                 {hasAttachments && (
                   <View style={styles.photoIndicator}>
-                    <Camera size={12} color="rgba(34, 34, 34, 0.5)" strokeWidth={2} />
+                    <Camera size={12} color="rgba(34, 34, 34, 0.4)" strokeWidth={2} />
                   </View>
                 )}
               </View>
@@ -951,11 +995,21 @@ export function SweepCard({
                     </View>
 
                     {/* Confirmation hint - shows after selection */}
-                    {selectedQuickAction && selectedQuickAction !== 'pickdate' && (
-                      <Animated.View style={styles.confirmationHint}>
-                        <Text style={styles.confirmationHintText}>Swipe right to confirm →</Text>
-                      </Animated.View>
-                    )}
+                    {hasUserSelected &&
+                      selectedQuickAction &&
+                      selectedQuickAction !== 'pickdate' && (
+                        <View style={styles.confirmationHint}>
+                          <Text style={styles.confirmationHintText}>Swipe right to save</Text>
+                          <RNAnimated.Text
+                            style={[
+                              styles.confirmationHintArrow,
+                              { transform: [{ translateX: hintArrowAnim }] },
+                            ]}
+                          >
+                            →
+                          </RNAnimated.Text>
+                        </View>
+                      )}
                   </>
                 ) : (
                   <>
@@ -1275,8 +1329,8 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignItems: 'center',
     paddingHorizontal: 32,
-    paddingTop: 56,
-    paddingBottom: 8,
+    paddingTop: 48,
+    paddingBottom: 4,
     zIndex: 2,
   },
 
@@ -1286,7 +1340,7 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     minHeight: 320,
     flex: 1,
-    maxHeight: '95%',
+    maxHeight: '98%',
     backgroundColor: BRAND.colors.linenCream, // Linen cream card
     borderRadius: 16,
     overflow: 'hidden',
@@ -1329,7 +1383,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 20,
     paddingTop: 48,
-    paddingBottom: 40,
+    paddingBottom: 56,
     position: 'relative',
   },
 
@@ -1402,15 +1456,22 @@ const styles = StyleSheet.create({
     paddingRight: 40, // Space for edit icon
   },
   chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-    backgroundColor: 'rgba(46, 85, 64, 0.1)',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
   },
   chipText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
     color: BRAND.colors.mossGreen,
+    opacity: 0.7,
+  },
+  chipSeparator: {
+    fontSize: 11,
+    color: BRAND.colors.mossGreen,
+    opacity: 0.4,
+    marginHorizontal: 6,
   },
   chipOverdue: {
     backgroundColor: 'rgba(185, 28, 28, 0.12)',
@@ -1454,11 +1515,11 @@ const styles = StyleSheet.create({
     paddingRight: 44, // Space for edit icon
   },
   titleText: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-    lineHeight: 32,
-    letterSpacing: -0.3,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    lineHeight: 34,
+    letterSpacing: -0.5,
     marginBottom: 12,
   },
 
@@ -1471,14 +1532,14 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   gremlyAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     flexShrink: 0,
   },
   speechBubble: {
     flex: 1,
-    backgroundColor: 'rgba(46, 85, 64, 0.08)',
+    backgroundColor: 'rgba(46, 85, 64, 0.05)',
     borderRadius: 16,
     borderTopLeftRadius: 4,
     paddingVertical: 12,
@@ -1496,12 +1557,13 @@ const styles = StyleSheet.create({
     borderRightWidth: 8,
     borderTopColor: 'transparent',
     borderBottomColor: 'transparent',
-    borderRightColor: 'rgba(46, 85, 64, 0.08)',
+    borderRightColor: 'rgba(46, 85, 64, 0.05)',
   },
   gremlyResponseText: {
     fontSize: 14,
     lineHeight: 20,
     color: BRAND.colors.mossGreen,
+    opacity: 0.75,
   },
 
   // Spacer - Pushes action block to bottom of card
@@ -1525,6 +1587,7 @@ const styles = StyleSheet.create({
   // Action Buttons Section - 4-column grid
   actionButtonsSection: {
     marginBottom: 16,
+    alignItems: 'center',
   },
   actionHintText: {
     fontSize: 12,
@@ -1535,6 +1598,8 @@ const styles = StyleSheet.create({
   buttonGrid: {
     flexDirection: 'row',
     gap: 8,
+    justifyContent: 'center',
+    width: '100%',
   },
   gridButton: {
     flex: 1,
@@ -1572,18 +1637,23 @@ const styles = StyleSheet.create({
 
   // Confirmation hint - appears after quick action selection
   confirmationHint: {
-    marginTop: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(46, 85, 64, 0.08)',
-    borderRadius: 20,
-    alignSelf: 'center',
+    marginTop: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   confirmationHintText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '500',
     color: BRAND.colors.mossGreen,
-    opacity: 0.8,
+    opacity: 0.7,
+  },
+  confirmationHintArrow: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+    opacity: 0.7,
   },
 
   // Swipe Scrims - Behind the card, fade in during drag

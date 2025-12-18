@@ -890,10 +890,14 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       }
 
       try {
+        // Get current reschedule count and increment
+        const currentCount = candidate.raw.sweep_reschedule_count ?? 0;
+
         // Update todo with new due_day and clear skipped_in_sweep_at
         await updateTodo(candidate.id, {
           due_day: toDayString(targetDate),
           skipped_in_sweep_at: null,
+          sweep_reschedule_count: currentCount + 1,
         } as any);
         // Advance to next card (counts as "changed")
         handleOutcome('changed');

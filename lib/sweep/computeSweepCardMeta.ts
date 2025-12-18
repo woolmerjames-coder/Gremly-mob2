@@ -107,9 +107,15 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
   const isLockedIn = candidate.kind === 'todo' && candidate.raw.commitment === true;
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Reschedule count (todos only)
+  // ─────────────────────────────────────────────────────────────────────────
+  const rescheduleCount =
+    candidate.kind === 'todo' ? (candidate.raw.sweep_reschedule_count ?? 0) : 0;
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Gremly response
   // ─────────────────────────────────────────────────────────────────────────
-  const gremlyResponse = getGremlyResponse(candidate, isNew, isLockedIn);
+  const gremlyResponse = getGremlyResponse(candidate, isNew, isLockedIn, rescheduleCount);
 
   return {
     typeChip,
@@ -121,5 +127,6 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
     spaceId,
     isLockedIn,
     gremlyResponse,
+    rescheduleCount,
   };
 }

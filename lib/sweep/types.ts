@@ -137,6 +137,9 @@ export interface SweepCardMeta {
 
   /** Gremly's contextual response message */
   gremlyResponse: string;
+
+  /** Number of times this todo has been rescheduled in Sweep (0 for notes) */
+  rescheduleCount: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
