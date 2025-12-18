@@ -613,18 +613,18 @@ export function SweepCard({
     return { opacity };
   });
 
-  // Animated style for left icon (archive)
+  // Animated style for left icon (checkmark)
   const animatedLeftIconStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
       translateX.value,
-      [-SWIPE_THRESHOLD, -80, 0],
-      [1, 0.6, 0],
+      [-SWIPE_THRESHOLD, -60, 0],
+      [1, 0.7, 0],
       Extrapolation.CLAMP,
     );
     const scale = interpolate(
       translateX.value,
-      [-SWIPE_THRESHOLD, -80, 0],
-      [1, 0.8, 0.5],
+      [-SWIPE_THRESHOLD * 1.2, -SWIPE_THRESHOLD, -60, 0],
+      [1.15, 1.0, 0.6, 0.3],
       Extrapolation.CLAMP,
     );
     return { opacity, transform: [{ scale }] };
@@ -634,17 +634,51 @@ export function SweepCard({
   const animatedRightIconStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
       translateX.value,
-      [0, 80, SWIPE_THRESHOLD],
-      [0, 0.6, 1],
+      [0, 60, SWIPE_THRESHOLD],
+      [0, 0.7, 1],
       Extrapolation.CLAMP,
     );
     const scale = interpolate(
       translateX.value,
-      [0, 80, SWIPE_THRESHOLD],
-      [0.5, 0.8, 1],
+      [0, 60, SWIPE_THRESHOLD, SWIPE_THRESHOLD * 1.2],
+      [0.3, 0.6, 1.0, 1.15],
       Extrapolation.CLAMP,
     );
     return { opacity, transform: [{ scale }] };
+  });
+
+  // Animated style for left text (fades in after icon)
+  const animatedLeftTextStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [-SWIPE_THRESHOLD * 1.2, -SWIPE_THRESHOLD * 0.8, -50],
+      [1, 0.8, 0],
+      Extrapolation.CLAMP,
+    );
+    const translateY = interpolate(
+      translateX.value,
+      [-SWIPE_THRESHOLD, -80, 0],
+      [0, 10, 20],
+      Extrapolation.CLAMP,
+    );
+    return { opacity, transform: [{ translateY }] };
+  });
+
+  // Animated style for right text (fades in after icon)
+  const animatedRightTextStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [50, SWIPE_THRESHOLD * 0.8, SWIPE_THRESHOLD * 1.2],
+      [0, 0.8, 1],
+      Extrapolation.CLAMP,
+    );
+    const translateY = interpolate(
+      translateX.value,
+      [0, 80, SWIPE_THRESHOLD],
+      [20, 10, 0],
+      Extrapolation.CLAMP,
+    );
+    return { opacity, transform: [{ translateY }] };
   });
 
   // Animated style for the card
@@ -707,21 +741,31 @@ export function SweepCard({
 
   return (
     <View style={styles.cardWrapper}>
-      {/* Left Scrim - Moss Green (archive/clear action) */}
+      {/* Left Scrim - Soft Rose (archive/clear action) */}
       <Animated.View style={[styles.swipeScrimLeft, animatedLeftScrimStyle]} pointerEvents="none">
         {!feedbackType && (
-          <Animated.View style={[styles.swipeScrimIcon, animatedLeftIconStyle]}>
-            <Archive size={32} color="rgba(255, 255, 255, 0.9)" strokeWidth={1.5} />
-          </Animated.View>
+          <View style={styles.swipeScrimContent}>
+            <Animated.View style={[styles.swipeScrimIconLarge, animatedLeftIconStyle]}>
+              <Check size={48} color="#FFFFFF" strokeWidth={3} />
+            </Animated.View>
+            <Animated.Text style={[styles.swipeScrimText, animatedLeftTextStyle]}>
+              Done!
+            </Animated.Text>
+          </View>
         )}
       </Animated.View>
 
-      {/* Right Scrim - Golden Pear (keep action) */}
+      {/* Right Scrim - Fresh Sage (keep action) */}
       <Animated.View style={[styles.swipeScrimRight, animatedRightScrimStyle]} pointerEvents="none">
         {!feedbackType && (
-          <Animated.View style={[styles.swipeScrimIcon, animatedRightIconStyle]}>
-            <Check size={32} color="rgba(255, 255, 255, 0.9)" strokeWidth={2} />
-          </Animated.View>
+          <View style={styles.swipeScrimContent}>
+            <Animated.View style={[styles.swipeScrimIconLarge, animatedRightIconStyle]}>
+              <Check size={48} color="#FFFFFF" strokeWidth={3} />
+            </Animated.View>
+            <Animated.Text style={[styles.swipeScrimText, animatedRightTextStyle]}>
+              Saved!
+            </Animated.Text>
+          </View>
         )}
       </Animated.View>
 
@@ -1690,25 +1734,36 @@ const styles = StyleSheet.create({
   // Swipe Scrims - Behind the card, fade in during drag
   swipeScrimLeft: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: BRAND.colors.mossGreen, // Gremly brand green
+    backgroundColor: '#E5C1C5', // Soft rose - closure feeling
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1, // Behind card (cardCenteringContainer has zIndex: 2)
   },
   swipeScrimRight: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#E0C47A', // Golden Pear - Gremly brand warm color
+    backgroundColor: '#B8D4BE', // Fresh sage - preservation feeling
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1, // Behind card (cardCenteringContainer has zIndex: 2)
   },
-  swipeScrimIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  swipeScrimContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  swipeScrimIconLarge: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 16,
+  },
+  swipeScrimText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
 
   // Swipe Cue Row - Above the card, aligned with card edges
