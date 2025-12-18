@@ -16,6 +16,9 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  withTiming,
+  withSequence,
+  withDelay,
   runOnJS,
   interpolate,
   interpolateColor,
@@ -84,6 +87,13 @@ export function SweepHabitRow({
   const hasTriggeredHaptic = useSharedValue(false);
   const isCompletedState = useSharedValue(isCompleted);
 
+  // Explosion animation values
+  const explosionScale = useSharedValue(0);
+  const explosionOpacity = useSharedValue(0);
+  const ringScale = useSharedValue(0);
+  const ringOpacity = useSharedValue(0);
+  const checkScale = useSharedValue(0);
+
   // Update position if isCompleted prop changes
   React.useEffect(() => {
     translateX.value = withSpring(isCompleted ? maxDrag : 0, {
@@ -104,11 +114,34 @@ export function SweepHabitRow({
     }
   }, []);
 
+  // Trigger explosion animation
+  const triggerExplosion = useCallback(() => {
+    'worklet';
+    // Burst effect - BIG
+    explosionScale.value = 0;
+    explosionOpacity.value = 1;
+    explosionScale.value = withSpring(4, { damping: 6, stiffness: 80 });
+    explosionOpacity.value = withDelay(200, withTiming(0, { duration: 600 }));
+
+    // Ring pulse - MASSIVE
+    ringScale.value = 0.5;
+    ringOpacity.value = 0.8;
+    ringScale.value = withSpring(6, { damping: 8, stiffness: 60 });
+    ringOpacity.value = withDelay(250, withTiming(0, { duration: 500 }));
+
+    // Check pop
+    checkScale.value = withSequence(
+      withTiming(1.5, { duration: 150 }),
+      withTiming(1, { duration: 100 }),
+    );
+  }, [explosionScale, explosionOpacity, ringScale, ringOpacity, checkScale]);
+
   // Handle completion
   const handleComplete = useCallback(() => {
     triggerHaptic('success');
+    triggerExplosion();
     onComplete(id);
-  }, [id, onComplete, triggerHaptic]);
+  }, [id, onComplete, triggerHaptic, triggerExplosion]);
 
   // Handle uncomplete (drag back to start)
   const handleUncomplete = useCallback(() => {
@@ -177,14 +210,36 @@ export function SweepHabitRow({
     const fillWidth = translateX.value + GREMLY_SIZE / 2;
     const backgroundColor = interpolateColor(
       translateX.value,
-      [0, maxDrag * SNAP_THRESHOLD, maxDrag],
-      ['rgba(191, 216, 192, 0.3)', 'rgba(191, 216, 192, 0.5)', 'rgba(46, 85, 64, 0.25)'],
+      [0, maxDrag * 0.5, maxDrag * 0.8, maxDrag],
+      [
+        'rgba(191, 216, 192, 0.4)', // Light sage at start
+        'rgba(157, 195, 160, 0.6)', // Getting greener
+        'rgba(95, 145, 100, 0.8)', // Rich green
+        '#2E5540', // Full Moss Green
+      ],
     );
     return {
       width: fillWidth,
       backgroundColor,
     };
   });
+
+  // Explosion burst style
+  const animatedExplosionStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: explosionScale.value }],
+    opacity: explosionOpacity.value,
+  }));
+
+  // Ring pulse style
+  const animatedRingStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ringScale.value }],
+    opacity: ringOpacity.value,
+  }));
+
+  // Check pop style
+  const animatedCheckStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: checkScale.value }],
+  }));
 
   // Animated style for Gremly scale (bounces at threshold)
   const animatedGremlyScaleStyle = useAnimatedStyle(() => {
@@ -220,9 +275,16 @@ export function SweepHabitRow({
           {/* Fill indicator */}
           <Animated.View style={[styles.trackFill, animatedTrackFillStyle]} />
 
-          {/* End marker */}
+          {/* End marker with explosion effects */}
           <View style={styles.endMarker}>
-            <Icon name="Check" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+            {/* Explosion burst */}
+            <Animated.View style={[styles.explosionBurst, animatedExplosionStyle]} />
+            {/* Ring pulse */}
+            <Animated.View style={[styles.explosionRing, animatedRingStyle]} />
+            {/* Check icon with pop */}
+            <Animated.View style={animatedCheckStyle}>
+              <Icon name="Check" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+            </Animated.View>
           </View>
 
           {/* Gremly avatar (draggable) */}
@@ -301,6 +363,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(46, 85, 64, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
+  },
+  explosionBurst: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(46, 85, 64, 0.4)',
+  },
+  explosionRing: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 4,
+    borderColor: BRAND.colors.mossGreen,
+    backgroundColor: 'transparent',
   },
   gremlyContainer: {
     position: 'absolute',

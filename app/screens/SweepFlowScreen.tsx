@@ -33,12 +33,7 @@ import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import {
-  useTodayHabits,
-  useHabitsCompletedToday,
-  useIsLoading,
-  useSweepCandidatesUnified,
-} from '../../lib/store/selectors';
+import { useIsLoading, useSweepCandidatesUnified } from '../../lib/store/selectors';
 import type { Habit } from '../../lib/types';
 import { supabase } from '../../lib/supabase/client';
 import { markSweepCompleted } from '../../lib/sweep/engine';
@@ -58,6 +53,16 @@ import { addDays, nextMonday } from 'date-fns';
 import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
+
+// Sweep habit components and helpers
+import { SweepHabitRow } from '../../components/sweep/SweepHabitRow';
+import {
+  groupHabitsForSweep,
+  getOpenHabitsCount,
+  isHabitsEmpty,
+  type HabitWithMeta,
+  type GroupedHabits,
+} from '../../lib/sweep/habitHelpers';
 import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
 
 // Swipe feedback constants
@@ -364,99 +369,96 @@ function SweepMoodStep({ onContinue }: StepProps) {
 }
 
 /**
- * Step 3: Habits Today
+ * Step 3: Habits Check-in
  *
- * Habits-only step to mark what the user managed today.
- * Everything resets tomorrow - just a simple checklist.
+ * Swipe-to-complete habit rows grouped by cadence (daily/weekly/monthly).
+ * Shows streak for daily habits, progress for weekly/monthly.
+ * Completed habits shown in muted section at bottom.
  *
- * MIGRATED: Now uses Zustand store instead of useTodayEntries/useTodayInteractions
+ * REDESIGNED: Uses SweepHabitRow with swipe gesture instead of checkboxes.
  */
-function SweepWrapUpStep({ onContinue }: StepProps) {
-  // Zustand store selectors
-  const loading = useIsLoading();
-  const todayHabits = useTodayHabits(); // Habits due today (not completed)
-  const completedHabits = useHabitsCompletedToday(); // Habits completed today
-
-  // Store mutations
+function SweepHabitsStep({ onContinue }: StepProps) {
+  // Get raw data from Zustand store
+  const habits = useGremlyStore((state) => state.habits);
+  const habitProgress = useGremlyStore((state) => state.habitProgress);
   const completeHabit = useGremlyStore((state) => state.completeHabit);
   const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
+  const loading = useIsLoading();
 
-  // Track locally completed habits during this session for optimistic UI
-  const [sessionCompletedIds, setSessionCompletedIds] = useState<Set<string>>(new Set());
+  // Group habits by cadence and compute metadata
+  const groupedHabits = useMemo(() => {
+    // Filter to non-archived habits
+    const activeHabits = habits.filter((h) => !h.archived);
+    return groupHabitsForSweep(activeHabits, habitProgress);
+  }, [habits, habitProgress]);
 
-  // Build the set of completed habit IDs (from store + session)
-  const completedHabitIds = useMemo(() => {
-    const ids = new Set<string>();
-    completedHabits.forEach((h) => ids.add(h.id));
-    sessionCompletedIds.forEach((id) => ids.add(id));
-    return ids;
-  }, [completedHabits, sessionCompletedIds]);
+  const openCount = useMemo(() => getOpenHabitsCount(groupedHabits), [groupedHabits]);
+  const isEmpty = useMemo(() => isHabitsEmpty(groupedHabits), [groupedHabits]);
 
-  // Filter to only uncompleted habits for this checklist
-  const habits = useMemo(() => {
-    return todayHabits.filter((h) => !completedHabitIds.has(h.id));
-  }, [todayHabits, completedHabitIds]);
-
-  // Handle habit completion toggle
-  const handleHabitToggle = useCallback(
-    async (habit: Habit) => {
-      const isCompleted = completedHabitIds.has(habit.id);
-
-      if (isCompleted) {
-        // Uncomplete - remove from session completed
-        setSessionCompletedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(habit.id);
-          return next;
-        });
-        try {
-          await uncompleteHabit(habit.id);
-        } catch (error) {
-          console.error('[SweepWrapUpStep] Failed to uncomplete habit:', error);
-          // Add back to session on failure
-          setSessionCompletedIds((prev) => new Set(prev).add(habit.id));
-        }
-      } else {
-        // Complete - add to session completed optimistically
-        setSessionCompletedIds((prev) => new Set(prev).add(habit.id));
-        try {
-          await completeHabit(habit.id);
-        } catch (error) {
-          console.error('[SweepWrapUpStep] Failed to complete habit:', error);
-          // Remove from session on failure
-          setSessionCompletedIds((prev) => {
-            const next = new Set(prev);
-            next.delete(habit.id);
-            return next;
-          });
-        }
+  // Handle habit completion
+  const handleComplete = useCallback(
+    async (habitId: string) => {
+      try {
+        await completeHabit(habitId);
+      } catch (error) {
+        console.error('[SweepHabitsStep] Failed to complete habit:', error);
       }
     },
-    [completedHabitIds, completeHabit, uncompleteHabit],
+    [completeHabit],
   );
 
-  // Check if there are no habits
-  const isEmpty =
-    habits.length === 0 && completedHabits.length === 0 && sessionCompletedIds.size === 0;
-
-  // Count open habits for the reminder message
-  const openHabitsCount = habits.length;
-
-  // Combine uncompleted and completed habits for display
-  // Show uncompleted first, then completed (for checking off)
-  // NOTE: Must be before any early returns to avoid conditional hook error
-  const allHabits = useMemo(() => {
-    // Get all habits that should be shown (due today or already completed)
-    const combined = [...habits];
-    // Add completed habits that aren't already in the list
-    for (const h of completedHabits) {
-      if (!combined.some((c) => c.id === h.id)) {
-        combined.push(h);
+  // Handle habit uncomplete (drag back)
+  const handleUncomplete = useCallback(
+    async (habitId: string) => {
+      try {
+        await uncompleteHabit(habitId);
+      } catch (error) {
+        console.error('[SweepHabitsStep] Failed to uncomplete habit:', error);
       }
-    }
-    return combined;
-  }, [habits, completedHabits]);
+    },
+    [uncompleteHabit],
+  );
 
+  // Render a single habit row
+  const renderHabitRow = useCallback(
+    (item: HabitWithMeta, index: number, array: HabitWithMeta[]) => (
+      <SweepHabitRow
+        key={item.habit.id}
+        id={item.habit.id}
+        name={item.habit.name}
+        cadence={item.cadence}
+        streakDays={item.streakDays}
+        completedThisPeriod={item.completedThisPeriod}
+        targetPerPeriod={item.targetPerPeriod}
+        frequencyLabel={item.frequencyLabel}
+        isCompleted={item.isCompletedToday}
+        onComplete={handleComplete}
+        onUncomplete={handleUncomplete}
+        showDivider={index < array.length - 1}
+      />
+    ),
+    [handleComplete, handleUncomplete],
+  );
+
+  // Render a section with header
+  const renderSection = useCallback(
+    (title: string, items: HabitWithMeta[]) => {
+      if (items.length === 0) return null;
+      return (
+        <View style={styles.habitsSection}>
+          <View style={styles.habitsSectionHeader}>
+            <View style={styles.habitsSectionLine} />
+            <Text style={styles.habitsSectionTitle}>{title}</Text>
+            <View style={styles.habitsSectionLine} />
+          </View>
+          {items.map((item, index) => renderHabitRow(item, index, items))}
+        </View>
+      );
+    },
+    [renderHabitRow],
+  );
+
+  // Loading state
   if (loading) {
     return (
       <View style={styles.wrapUpStepContainer}>
@@ -464,9 +466,7 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
           <Text variant="title" style={styles.wrapUpStepTitle}>
             Habits today
           </Text>
-          <Text style={styles.wrapUpStepSubcopy}>
-            Mark what you managed today. Everything resets tomorrow.
-          </Text>
+          <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={BRAND.colors.mossGreen} />
@@ -487,9 +487,7 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
           <Text variant="title" style={styles.wrapUpStepTitle}>
             Habits today
           </Text>
-          <Text style={styles.wrapUpStepSubcopy}>
-            Mark what you managed today. Everything resets tomorrow.
-          </Text>
+          <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
         </View>
 
         {isEmpty ? (
@@ -499,34 +497,45 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
             </Text>
           </View>
         ) : (
-          <View style={styles.wrapUpSection}>
-            <View style={styles.wrapUpItemsList}>
-              {allHabits.map((habit, index) => (
-                <TouchableOpacity
-                  key={habit.id}
-                  style={[
-                    styles.wrapUpItemRow,
-                    index < allHabits.length - 1 && styles.wrapUpItemRowBorder,
-                  ]}
-                  onPress={() => handleHabitToggle(habit)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.wrapUpItemName}>{habit.name}</Text>
-                  <View style={styles.wrapUpCheckboxContainer}>
-                    <View
-                      style={[
-                        styles.wrapUpCheckbox,
-                        completedHabitIds.has(habit.id) && styles.wrapUpCheckboxChecked,
-                      ]}
-                    >
-                      {completedHabitIds.has(habit.id) && (
-                        <Text style={styles.wrapUpCheckmark}>✓</Text>
-                      )}
-                    </View>
+          <View style={styles.habitsContainer}>
+            {/* Daily Habits */}
+            {renderSection('Daily', groupedHabits.daily)}
+
+            {/* Weekly Habits */}
+            {renderSection('Weekly', groupedHabits.weekly)}
+
+            {/* Monthly Habits */}
+            {renderSection('Monthly', groupedHabits.monthly)}
+
+            {/* Completed Section */}
+            {groupedHabits.completed.length > 0 && (
+              <View style={styles.habitsCompletedSection}>
+                <View style={styles.habitsSectionHeader}>
+                  <View style={styles.habitsSectionLine} />
+                  <Text style={styles.habitsCompletedTitle}>Already done</Text>
+                  <View style={styles.habitsSectionLine} />
+                </View>
+                {groupedHabits.completed.map((item, index) => (
+                  <View
+                    key={item.habit.id}
+                    style={[
+                      styles.completedHabitRow,
+                      index < groupedHabits.completed.length - 1 && styles.completedHabitRowBorder,
+                    ]}
+                  >
+                    <Icon name="Check" size="xs" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+                    <Text style={styles.completedHabitName} numberOfLines={1}>
+                      {item.habit.name}
+                    </Text>
+                    <Text style={styles.completedHabitMeta}>
+                      {item.cadence === 'daily'
+                        ? 'today'
+                        : `${item.completedThisPeriod}/${item.targetPerPeriod} ${item.cadence === 'weekly' ? 'wk' : 'mo'}`}
+                    </Text>
                   </View>
-                </TouchableOpacity>
-              ))}
-            </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -534,13 +543,13 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
       {/* Action Button */}
       <View style={styles.wrapUpButtonContainer}>
         {/* Open habits reminder */}
-        {openHabitsCount > 0 && (
+        {openCount > 0 && (
           <Text style={styles.wrapUpOpenItemsReminder}>
-            {openHabitsCount} habit{openHabitsCount !== 1 ? 's' : ''} still open.
+            {openCount} habit{openCount !== 1 ? 's' : ''} still open.
           </Text>
         )}
-        {openHabitsCount === 0 && !isEmpty && (
-          <Text style={styles.wrapUpOpenItemsReminder}>All habits checked off!</Text>
+        {openCount === 0 && !isEmpty && (
+          <Text style={styles.wrapUpOpenItemsReminder}>All habits done! 🎉</Text>
         )}
         <TouchableOpacity
           style={styles.wrapUpContinueButton}
@@ -549,7 +558,7 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
         >
           <View style={styles.wrapUpContinueButtonContent}>
             <Text style={styles.wrapUpContinueButtonText}>Continue</Text>
-            <Icon name="ArrowRight" size="sm" color="#FFFFFF" strokeWidth={2.5} />
+            <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
           </View>
         </TouchableOpacity>
       </View>
@@ -1365,7 +1374,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             <SweepDecisionStep onFinished={handleDecisionFinished} onClose={handleClose} />
           )}
           {step === 2 && <SweepMoodStep onContinue={handleMoodContinue} />}
-          {step === 3 && <SweepWrapUpStep onContinue={handleWrapUpContinue} />}
+          {step === 3 && <SweepHabitsStep onContinue={handleWrapUpContinue} />}
           {step === 4 && (
             <SweepSummaryStep
               keptCount={keptCount}
@@ -1709,7 +1718,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   // ─────────────────────────────────────────────────────────────────────────
-  // SweepWrapUpStep styles - Gremly Brand Reskin (matched to Mood step)
+  // SweepHabitsStep styles - Gremly Brand Reskin (matched to Mood step)
   // ─────────────────────────────────────────────────────────────────────────
   wrapUpStepContainer: {
     flex: 1,
@@ -1863,7 +1872,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   wrapUpContinueButton: {
-    backgroundColor: BRAND.colors.mossGreen, // Full Moss Green fill
+    backgroundColor: BRAND.colors.sageMist, // Soft sage fill
     borderRadius: BRAND.radius.xl, // Pill shape
     height: 54,
     alignItems: 'center',
@@ -1883,8 +1892,72 @@ const styles = StyleSheet.create({
   wrapUpContinueButtonText: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: BRAND.colors.mossGreen,
   },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Habits Step Styles (Phase 3 redesign)
+  // ─────────────────────────────────────────────────────────────────────────
+  habitsContainer: {
+    paddingHorizontal: 12,
+  },
+  habitsSection: {
+    marginBottom: 8,
+  },
+  habitsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    marginTop: 16,
+    paddingHorizontal: 8,
+  },
+  habitsSectionLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: BRAND.colors.borderSubtle,
+  },
+  habitsSectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.inkMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    paddingHorizontal: 12,
+  },
+  habitsCompletedSection: {
+    marginTop: 24,
+    opacity: 0.7,
+  },
+  habitsCompletedTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    paddingHorizontal: 12,
+  },
+  completedHabitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  completedHabitRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.colors.borderSubtle,
+  },
+  completedHabitName: {
+    flex: 1,
+    fontSize: 14,
+    color: BRAND.colors.inkSubtle,
+    textDecorationLine: 'line-through',
+  },
+  completedHabitMeta: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+  },
+
   // Legacy styles kept for other steps
   loadingContainer: {
     flex: 1,
