@@ -385,6 +385,14 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
   const loading = useIsLoading();
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Session state - tracks toggles during this sweep (not committed yet)
+  // ─────────────────────────────────────────────────────────────────────────
+  // Habits that were NOT completed before but user toggled ON
+  const [sessionCompletions, setSessionCompletions] = useState<Set<string>>(new Set());
+  // Habits that WERE completed before but user toggled OFF
+  const [sessionUncompletions, setSessionUncompletions] = useState<Set<string>>(new Set());
+
   // Group habits by cadence and compute metadata
   const groupedHabits = useMemo(() => {
     // Filter to non-archived habits
@@ -392,32 +400,100 @@ function SweepHabitsStep({ onContinue }: StepProps) {
     return groupHabitsForSweep(activeHabits, habitProgress);
   }, [habits, habitProgress]);
 
-  const openCount = useMemo(() => getOpenHabitsCount(groupedHabits), [groupedHabits]);
+  // Calculate open count considering session toggles
+  const openCount = useMemo(() => {
+    let count = 0;
+
+    // Count habits in each open section that are visually not completed
+    [...groupedHabits.daily, ...groupedHabits.weekly, ...groupedHabits.monthly].forEach((item) => {
+      const isVisuallyCompleted =
+        sessionCompletions.has(item.habit.id) ||
+        (!sessionUncompletions.has(item.habit.id) && item.isCompletedToday);
+      if (!isVisuallyCompleted) {
+        count++;
+      }
+    });
+
+    // Also count any from completed section that user toggled OFF
+    groupedHabits.completed.forEach((item) => {
+      if (sessionUncompletions.has(item.habit.id)) {
+        count++;
+      }
+    });
+
+    return count;
+  }, [groupedHabits, sessionCompletions, sessionUncompletions]);
   const isEmpty = useMemo(() => isHabitsEmpty(groupedHabits), [groupedHabits]);
 
-  // Handle habit completion
-  const handleComplete = useCallback(
-    async (habitId: string) => {
+  // Handle toggle from SweepHabitRow - only updates local session state
+  const handleToggle = useCallback((habitId: string, completed: boolean) => {
+    if (completed) {
+      // User toggled ON
+      setSessionCompletions((prev) => {
+        const next = new Set(prev);
+        next.add(habitId);
+        return next;
+      });
+      setSessionUncompletions((prev) => {
+        const next = new Set(prev);
+        next.delete(habitId);
+        return next;
+      });
+    } else {
+      // User toggled OFF
+      setSessionUncompletions((prev) => {
+        const next = new Set(prev);
+        next.add(habitId);
+        return next;
+      });
+      setSessionCompletions((prev) => {
+        const next = new Set(prev);
+        next.delete(habitId);
+        return next;
+      });
+    }
+  }, []);
+
+  // Determine if a habit should visually appear completed
+  // Takes into account: original state + session toggles
+  const isHabitVisuallyCompleted = useCallback(
+    (habitId: string, wasCompletedToday: boolean): boolean => {
+      // If user explicitly toggled it ON this session, show as completed
+      if (sessionCompletions.has(habitId)) return true;
+      // If user explicitly toggled it OFF this session, show as not completed
+      if (sessionUncompletions.has(habitId)) return false;
+      // Otherwise, use the original state
+      return wasCompletedToday;
+    },
+    [sessionCompletions, sessionUncompletions],
+  );
+
+  // Commit all session changes to Zustand and continue
+  const handleContinue = useCallback(async () => {
+    // Batch complete all newly completed habits
+    const completionPromises = Array.from(sessionCompletions).map(async (habitId) => {
       try {
         await completeHabit(habitId);
       } catch (error) {
-        console.error('[SweepHabitsStep] Failed to complete habit:', error);
+        console.error('[SweepHabitsStep] Failed to complete habit:', habitId, error);
       }
-    },
-    [completeHabit],
-  );
+    });
 
-  // Handle habit uncomplete (drag back)
-  const handleUncomplete = useCallback(
-    async (habitId: string) => {
+    // Batch uncomplete all newly uncompleted habits
+    const uncompletionPromises = Array.from(sessionUncompletions).map(async (habitId) => {
       try {
         await uncompleteHabit(habitId);
       } catch (error) {
-        console.error('[SweepHabitsStep] Failed to uncomplete habit:', error);
+        console.error('[SweepHabitsStep] Failed to uncomplete habit:', habitId, error);
       }
-    },
-    [uncompleteHabit],
-  );
+    });
+
+    // Wait for all to complete
+    await Promise.all([...completionPromises, ...uncompletionPromises]);
+
+    // Continue to next step
+    onContinue();
+  }, [sessionCompletions, sessionUncompletions, completeHabit, uncompleteHabit, onContinue]);
 
   // Render a single habit row
   const renderHabitRow = useCallback(
@@ -431,13 +507,12 @@ function SweepHabitsStep({ onContinue }: StepProps) {
         completedThisPeriod={item.completedThisPeriod}
         targetPerPeriod={item.targetPerPeriod}
         frequencyLabel={item.frequencyLabel}
-        isCompleted={item.isCompletedToday}
-        onComplete={handleComplete}
-        onUncomplete={handleUncomplete}
+        isCompleted={isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday)}
+        onToggle={handleToggle}
         showDivider={index < array.length - 1}
       />
     ),
-    [handleComplete, handleUncomplete],
+    [handleToggle, isHabitVisuallyCompleted],
   );
 
   // Render a section with header
@@ -553,7 +628,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
         )}
         <TouchableOpacity
           style={styles.wrapUpContinueButton}
-          onPress={onContinue}
+          onPress={handleContinue}
           activeOpacity={0.8}
         >
           <View style={styles.wrapUpContinueButtonContent}>

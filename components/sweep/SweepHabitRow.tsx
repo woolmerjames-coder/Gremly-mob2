@@ -9,7 +9,7 @@
  * - No card background - uses divider lines
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, StyleSheet, Image } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -17,8 +17,6 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  withSequence,
-  withDelay,
   runOnJS,
   interpolate,
   interpolateColor,
@@ -40,6 +38,17 @@ const GREMLY_SIZE = 40;
 const COMPLETE_THRESHOLD = 0.75; // 75% of track = complete
 const SNAP_THRESHOLD = 0.5; // 50% = will snap to complete on release
 
+// Confirmation messages - shown when habit is completed
+const CONFIRM_MESSAGES = [
+  'BOOM',
+  'Smashed it',
+  'Another one',
+  'Done',
+  'Nailed it',
+  'Got it',
+  'Crushed it',
+];
+
 export interface SweepHabitRowProps {
   id: string;
   name: string;
@@ -55,12 +64,11 @@ export interface SweepHabitRowProps {
   // Frequency display text (e.g., "Every day", "3x per week")
   frequencyLabel: string;
 
-  // Is this habit already completed for today/period?
+  // Is this habit visually completed? (controlled by parent)
   isCompleted: boolean;
 
-  // Callbacks
-  onComplete: (id: string) => void;
-  onUncomplete?: (id: string) => void;
+  // Toggle callback - notifies parent of state change (doesn't commit to DB)
+  onToggle: (id: string, completed: boolean) => void;
 
   // Show divider below?
   showDivider?: boolean;
@@ -75,8 +83,7 @@ export function SweepHabitRow({
   targetPerPeriod = 1,
   frequencyLabel,
   isCompleted,
-  onComplete,
-  onUncomplete,
+  onToggle,
   showDivider = true,
 }: SweepHabitRowProps) {
   // Calculate the max drag distance (track width minus gremly size)
@@ -87,12 +94,13 @@ export function SweepHabitRow({
   const hasTriggeredHaptic = useSharedValue(false);
   const isCompletedState = useSharedValue(isCompleted);
 
-  // Explosion animation values
-  const explosionScale = useSharedValue(0);
-  const explosionOpacity = useSharedValue(0);
-  const ringScale = useSharedValue(0);
-  const ringOpacity = useSharedValue(0);
+  // Confirmation animation
+  const confirmTextOpacity = useSharedValue(0);
+  const confirmTextScale = useSharedValue(0.8);
   const checkScale = useSharedValue(0);
+
+  // Random confirmation message
+  const [confirmMessage, setConfirmMessage] = useState('');
 
   // Update position if isCompleted prop changes
   React.useEffect(() => {
@@ -114,42 +122,36 @@ export function SweepHabitRow({
     }
   }, []);
 
-  // Trigger explosion animation
-  const triggerExplosion = useCallback(() => {
-    'worklet';
-    // Burst effect - BIG
-    explosionScale.value = 0;
-    explosionOpacity.value = 1;
-    explosionScale.value = withSpring(4, { damping: 6, stiffness: 80 });
-    explosionOpacity.value = withDelay(200, withTiming(0, { duration: 600 }));
+  // Handle toggle - updates visuals and notifies parent
+  const handleToggle = useCallback(
+    (completed: boolean) => {
+      if (completed) {
+        // Completing - show confirmation
+        triggerHaptic('success');
 
-    // Ring pulse - MASSIVE
-    ringScale.value = 0.5;
-    ringOpacity.value = 0.8;
-    ringScale.value = withSpring(6, { damping: 8, stiffness: 60 });
-    ringOpacity.value = withDelay(250, withTiming(0, { duration: 500 }));
+        const msg = CONFIRM_MESSAGES[Math.floor(Math.random() * CONFIRM_MESSAGES.length)];
+        setConfirmMessage(msg);
 
-    // Check pop
-    checkScale.value = withSequence(
-      withTiming(1.5, { duration: 150 }),
-      withTiming(1, { duration: 100 }),
-    );
-  }, [explosionScale, explosionOpacity, ringScale, ringOpacity, checkScale]);
+        confirmTextOpacity.value = 0;
+        confirmTextScale.value = 0.8;
+        confirmTextOpacity.value = withTiming(1, { duration: 200 });
+        confirmTextScale.value = withSpring(1, { damping: 12, stiffness: 200 });
 
-  // Handle completion
-  const handleComplete = useCallback(() => {
-    triggerHaptic('success');
-    triggerExplosion();
-    onComplete(id);
-  }, [id, onComplete, triggerHaptic, triggerExplosion]);
+        checkScale.value = 0;
+        checkScale.value = withSpring(1, { damping: 10, stiffness: 300 });
+      } else {
+        // Uncompleting - hide confirmation
+        triggerHaptic('light');
 
-  // Handle uncomplete (drag back to start)
-  const handleUncomplete = useCallback(() => {
-    if (onUncomplete) {
-      triggerHaptic('light');
-      onUncomplete(id);
-    }
-  }, [id, onUncomplete, triggerHaptic]);
+        confirmTextOpacity.value = withTiming(0, { duration: 150 });
+        checkScale.value = withTiming(0, { duration: 150 });
+        setConfirmMessage('');
+      }
+
+      onToggle(id, completed);
+    },
+    [id, onToggle, triggerHaptic, confirmTextOpacity, confirmTextScale, checkScale],
+  );
 
   // Pan gesture for dragging Gremly
   const panGesture = Gesture.Pan()
@@ -182,7 +184,7 @@ export function SweepHabitRow({
         });
         if (!isCompletedState.value) {
           isCompletedState.value = true;
-          runOnJS(handleComplete)();
+          runOnJS(handleToggle)(true);
         }
       } else {
         // Snap back to start
@@ -192,7 +194,7 @@ export function SweepHabitRow({
         });
         if (isCompletedState.value) {
           isCompletedState.value = false;
-          runOnJS(handleUncomplete)();
+          runOnJS(handleToggle)(false);
         }
       }
       hasTriggeredHaptic.value = false;
@@ -224,19 +226,13 @@ export function SweepHabitRow({
     };
   });
 
-  // Explosion burst style
-  const animatedExplosionStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: explosionScale.value }],
-    opacity: explosionOpacity.value,
+  // Confirmation text animation
+  const animatedConfirmTextStyle = useAnimatedStyle(() => ({
+    opacity: confirmTextOpacity.value,
+    transform: [{ scale: confirmTextScale.value }],
   }));
 
-  // Ring pulse style
-  const animatedRingStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: ringScale.value }],
-    opacity: ringOpacity.value,
-  }));
-
-  // Check pop style
+  // Checkmark animation
   const animatedCheckStyle = useAnimatedStyle(() => ({
     transform: [{ scale: checkScale.value }],
   }));
@@ -275,17 +271,15 @@ export function SweepHabitRow({
           {/* Fill indicator */}
           <Animated.View style={[styles.trackFill, animatedTrackFillStyle]} />
 
-          {/* End marker with explosion effects */}
-          <View style={styles.endMarker}>
-            {/* Explosion burst */}
-            <Animated.View style={[styles.explosionBurst, animatedExplosionStyle]} />
-            {/* Ring pulse */}
-            <Animated.View style={[styles.explosionRing, animatedRingStyle]} />
-            {/* Check icon with pop */}
-            <Animated.View style={animatedCheckStyle}>
-              <Icon name="Check" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-            </Animated.View>
-          </View>
+          {/* Confirmation text - appears in filled green area */}
+          <Animated.View style={[styles.confirmTextContainer, animatedConfirmTextStyle]}>
+            <Text style={styles.confirmText}>{confirmMessage}</Text>
+          </Animated.View>
+
+          {/* Success checkmark at end */}
+          <Animated.View style={[styles.successCheck, animatedCheckStyle]}>
+            <Icon name="Check" size="sm" color="#FFFFFF" strokeWidth={3} />
+          </Animated.View>
 
           {/* Gremly avatar (draggable) */}
           <GestureDetector gesture={panGesture}>
@@ -354,32 +348,30 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderRadius: TRACK_HEIGHT / 2,
   },
-  endMarker: {
+  confirmTextContainer: {
     position: 'absolute',
-    right: 12,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(46, 85, 64, 0.1)',
+    left: 16,
+    right: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'visible',
+    height: '100%',
   },
-  explosionBurst: {
-    position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(46, 85, 64, 0.4)',
+  confirmText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: BRAND.colors.linenCream,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
-  explosionRing: {
+  successCheck: {
     position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 4,
-    borderColor: BRAND.colors.mossGreen,
-    backgroundColor: 'transparent',
+    right: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   gremlyContainer: {
     position: 'absolute',
