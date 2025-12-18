@@ -865,11 +865,11 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }, [candidatesWithMeta, currentIndex, notes, overlayController]);
 
   /**
-   * Quick Date Handler - Sets due_day for todos from button grid
-   * Used for: Tomorrow, 2 Days, Next Week buttons
+   * Handle confirmed quick date (user selected + swiped right)
+   * This is when we actually save the date
    */
-  const handleQuickDate = useCallback(
-    async (preset: 'tomorrow' | '2days' | 'nextweek') => {
+  const handleConfirmQuickDate = useCallback(
+    async (option: 'tomorrow' | '2days' | 'nextweek') => {
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
       const candidate = candidateWithMeta.candidate;
@@ -877,7 +877,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       // Calculate the target date
       const today = new Date();
       let targetDate: Date;
-      switch (preset) {
+      switch (option) {
         case 'tomorrow':
           targetDate = addDays(today, 1);
           break;
@@ -898,7 +898,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
         // Advance to next card (counts as "changed")
         handleOutcome('changed');
       } catch (error) {
-        console.error('[SweepDecisionStep] handleQuickDate error:', error);
+        console.error('[SweepDecisionStep] handleConfirmQuickDate error:', error);
       }
     },
     [candidatesWithMeta, currentIndex, updateTodo, handleOutcome],
@@ -1026,7 +1026,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           onClear={handleClear}
           onOpenEdit={handleOpenEdit}
           onConvertToTodo={handleConvertToTodo}
-          onQuickDate={handleQuickDate}
+          onConfirmQuickDate={handleConfirmQuickDate}
           onAddToSpace={handleAddToSpace}
           onClose={onClose}
           feedbackMessage={feedbackMessage}

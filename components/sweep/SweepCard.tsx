@@ -114,8 +114,8 @@ export interface SweepCardProps {
   onOpenEdit: () => void;
   /** Called when user wants to convert log to todo (opens overlay in convert mode) */
   onConvertToTodo?: () => void;
-  /** Called when user taps a quick date button (Tomorrow, 2 Days, Next Week) */
-  onQuickDate?: (option: 'tomorrow' | '2days' | 'nextweek') => void;
+  /** Called when user swipes right with a quick date selected */
+  onConfirmQuickDate?: (option: 'tomorrow' | '2days' | 'nextweek') => void;
   /** Called when user taps "Add to Space" for logs */
   onAddToSpace?: () => void;
   /** Called when user wants to save progress and exit early */
@@ -205,7 +205,7 @@ export function SweepCard({
   onClear,
   onOpenEdit,
   onConvertToTodo,
-  onQuickDate,
+  onConfirmQuickDate,
   onAddToSpace,
   onClose,
   feedbackMessage: _feedbackMessage,
@@ -247,6 +247,11 @@ export function SweepCard({
   const [clearDateFlag, setClearDateFlag] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Track which quick action button is selected (if any)
+  const [selectedQuickAction, setSelectedQuickAction] = useState<
+    'tomorrow' | '2days' | 'nextweek' | 'pickdate' | null
+  >(null);
+
   // Reset date picker state when candidate changes
   React.useEffect(() => {
     setShowDatePicker(false);
@@ -254,6 +259,7 @@ export function SweepCard({
     setShowTimePicker(false);
     setSelectedTimePreset(null);
     setKeepAfterDatePick(false);
+    setSelectedQuickAction(null);
     // Pre-fill date based on candidate
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
@@ -277,27 +283,22 @@ export function SweepCard({
   }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Quick Date Button Handlers
+  // Quick Date Button Handlers (selection only - confirmed on swipe)
   // ─────────────────────────────────────────────────────────────────────────
   const handleTomorrow = useCallback(() => {
-    if (onQuickDate) {
-      onQuickDate('tomorrow');
-    }
-  }, [onQuickDate]);
+    setSelectedQuickAction('tomorrow');
+  }, []);
 
   const handleIn2Days = useCallback(() => {
-    if (onQuickDate) {
-      onQuickDate('2days');
-    }
-  }, [onQuickDate]);
+    setSelectedQuickAction('2days');
+  }, []);
 
   const handleNextWeek = useCallback(() => {
-    if (onQuickDate) {
-      onQuickDate('nextweek');
-    }
-  }, [onQuickDate]);
+    setSelectedQuickAction('nextweek');
+  }, []);
 
   const handlePickDate = useCallback(() => {
+    setSelectedQuickAction('pickdate');
     setShowDatePicker(true);
   }, []);
 
@@ -305,8 +306,8 @@ export function SweepCard({
   // Log Action Handlers
   // ─────────────────────────────────────────────────────────────────────────
   const handleNextSweep = useCallback(() => {
-    onSkip();
-  }, [onSkip]);
+    setSelectedQuickAction('nextsweep' as any);
+  }, []);
 
   const handleAddToSpace = useCallback(() => {
     if (onAddToSpace) {
@@ -451,9 +452,23 @@ export function SweepCard({
         translationX < -SWIPE_THRESHOLD || (translationX < -50 && velocityX < -VELOCITY_THRESHOLD);
 
       if (swipedRight) {
-        // Swiped right past threshold → Keep
-        // Just proceed - don't block with date picker (user can add date via button if they want)
-        animateOut('right', onSkip);
+        // Swiped right past threshold → Keep (or confirm selection)
+        if (selectedQuickAction && selectedQuickAction !== 'pickdate' && onConfirmQuickDate) {
+          // User selected a quick date, confirm it
+          if (
+            selectedQuickAction === 'tomorrow' ||
+            selectedQuickAction === '2days' ||
+            selectedQuickAction === 'nextweek'
+          ) {
+            animateOut('right', () => onConfirmQuickDate(selectedQuickAction));
+          } else {
+            // nextsweep or other - just skip
+            animateOut('right', onSkip);
+          }
+        } else {
+          // No selection, just keep/skip
+          animateOut('right', onSkip);
+        }
       } else if (swipedLeft) {
         // Swiped left past threshold → Clear
         animateOut('left', onClear);
@@ -784,14 +799,17 @@ export function SweepCard({
                 </Text>
               </View>
 
-              {/* GREMLY RESPONSE - Avatar + contextual message */}
+              {/* GREMLY RESPONSE - Avatar + speech bubble */}
               <View style={styles.gremlyResponseSection}>
                 <Image
                   source={GREMLY_AVATAR}
                   style={styles.gremlyAvatar}
                   accessibilityLabel="Gremly mascot"
                 />
-                <Text style={styles.gremlyResponseText}>{meta.gremlyResponse}</Text>
+                <View style={styles.speechBubble}>
+                  <View style={styles.speechBubbleTail} />
+                  <Text style={styles.gremlyResponseText}>{meta.gremlyResponse}</Text>
+                </View>
               </View>
 
               {/* Spacer - Pushes action block to bottom of card */}
@@ -812,55 +830,132 @@ export function SweepCard({
                     {/* Todo buttons: Tomorrow, 2 Days, Next Week, Pick Date */}
                     <View style={styles.buttonGrid}>
                       <TouchableOpacity
-                        style={[styles.gridButton, styles.gridButtonPrimary]}
+                        style={[
+                          styles.gridButton,
+                          selectedQuickAction === 'tomorrow'
+                            ? styles.gridButtonPrimary
+                            : styles.gridButtonSecondary,
+                        ]}
                         onPress={handleTomorrow}
                         accessibilityLabel="Set due tomorrow"
                         activeOpacity={0.7}
                       >
                         <ArrowRightCircle
                           size={16}
-                          color={BRAND.colors.linenCream}
+                          color={
+                            selectedQuickAction === 'tomorrow'
+                              ? BRAND.colors.linenCream
+                              : BRAND.colors.mossGreen
+                          }
                           strokeWidth={2}
                         />
-                        <Text style={[styles.gridButtonLabel, styles.gridButtonLabelPrimary]}>
+                        <Text
+                          style={[
+                            styles.gridButtonLabel,
+                            selectedQuickAction === 'tomorrow' && styles.gridButtonLabelPrimary,
+                          ]}
+                        >
                           Tomorrow
                         </Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={styles.gridButton}
+                        style={[
+                          styles.gridButton,
+                          selectedQuickAction === '2days'
+                            ? styles.gridButtonPrimary
+                            : styles.gridButtonSecondary,
+                        ]}
                         onPress={handleIn2Days}
                         accessibilityLabel="Set due in 2 days"
                         activeOpacity={0.7}
                       >
                         <ArrowRightCircle
                           size={16}
-                          color={BRAND.colors.mossGreen}
+                          color={
+                            selectedQuickAction === '2days'
+                              ? BRAND.colors.linenCream
+                              : BRAND.colors.mossGreen
+                          }
                           strokeWidth={2}
                         />
-                        <Text style={styles.gridButtonLabel}>2 Days</Text>
+                        <Text
+                          style={[
+                            styles.gridButtonLabel,
+                            selectedQuickAction === '2days' && styles.gridButtonLabelPrimary,
+                          ]}
+                        >
+                          2 Days
+                        </Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={styles.gridButton}
+                        style={[
+                          styles.gridButton,
+                          selectedQuickAction === 'nextweek'
+                            ? styles.gridButtonPrimary
+                            : styles.gridButtonSecondary,
+                        ]}
                         onPress={handleNextWeek}
                         accessibilityLabel="Set due next week"
                         activeOpacity={0.7}
                       >
-                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text style={styles.gridButtonLabel}>Next Week</Text>
+                        <Calendar
+                          size={16}
+                          color={
+                            selectedQuickAction === 'nextweek'
+                              ? BRAND.colors.linenCream
+                              : BRAND.colors.mossGreen
+                          }
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={[
+                            styles.gridButtonLabel,
+                            selectedQuickAction === 'nextweek' && styles.gridButtonLabelPrimary,
+                          ]}
+                        >
+                          Next Week
+                        </Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={styles.gridButton}
+                        style={[
+                          styles.gridButton,
+                          selectedQuickAction === 'pickdate'
+                            ? styles.gridButtonPrimary
+                            : styles.gridButtonSecondary,
+                        ]}
                         onPress={handlePickDate}
                         accessibilityLabel="Pick a date"
                         activeOpacity={0.7}
                       >
-                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text style={styles.gridButtonLabel}>Pick Date</Text>
+                        <Calendar
+                          size={16}
+                          color={
+                            selectedQuickAction === 'pickdate'
+                              ? BRAND.colors.linenCream
+                              : BRAND.colors.mossGreen
+                          }
+                          strokeWidth={2}
+                        />
+                        <Text
+                          style={[
+                            styles.gridButtonLabel,
+                            selectedQuickAction === 'pickdate' && styles.gridButtonLabelPrimary,
+                          ]}
+                        >
+                          Pick Date
+                        </Text>
                       </TouchableOpacity>
                     </View>
+
+                    {/* Confirmation hint - shows after selection */}
+                    {selectedQuickAction && selectedQuickAction !== 'pickdate' && (
+                      <Animated.View style={styles.confirmationHint}>
+                        <Text style={styles.confirmationHintText}>Swipe right to confirm →</Text>
+                      </Animated.View>
+                    )}
                   </>
                 ) : (
                   <>
@@ -908,6 +1003,15 @@ export function SweepCard({
                         <Text style={styles.gridButtonLabel}>Make Todo</Text>
                       </TouchableOpacity>
                     </View>
+
+                    {/* Confirmation hint for Next Sweep */}
+                    {selectedQuickAction === 'nextsweep' && (
+                      <Animated.View style={styles.confirmationHint}>
+                        <Text style={styles.confirmationHintText}>
+                          Swipe right to save for next sweep →
+                        </Text>
+                      </Animated.View>
+                    )}
                   </>
                 )}
               </View>
@@ -1362,23 +1466,42 @@ const styles = StyleSheet.create({
   gremlyResponseSection: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
-    marginTop: 32,
+    gap: 8,
+    marginTop: 24,
     marginBottom: 32,
   },
   gremlyAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     flexShrink: 0,
   },
-  gremlyResponseText: {
+  speechBubble: {
     flex: 1,
+    backgroundColor: 'rgba(46, 85, 64, 0.08)',
+    borderRadius: 16,
+    borderTopLeftRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    position: 'relative',
+  },
+  speechBubbleTail: {
+    position: 'absolute',
+    left: -6,
+    top: 12,
+    width: 0,
+    height: 0,
+    borderTopWidth: 6,
+    borderBottomWidth: 6,
+    borderRightWidth: 8,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderRightColor: 'rgba(46, 85, 64, 0.08)',
+  },
+  gremlyResponseText: {
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 20,
     color: BRAND.colors.mossGreen,
-    opacity: 0.85,
-    paddingTop: 4,
   },
 
   // Spacer - Pushes action block to bottom of card
@@ -1418,14 +1541,18 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
     borderRadius: 12,
     backgroundColor: 'rgba(46, 85, 64, 0.1)',
-    gap: 4,
+    gap: 6,
+    minWidth: 70,
   },
   gridButtonPrimary: {
     backgroundColor: BRAND.colors.mossGreen,
+  },
+  gridButtonSecondary: {
+    backgroundColor: 'rgba(46, 85, 64, 0.1)',
   },
   gridButtonIcon: {
     fontSize: 16,
@@ -1433,14 +1560,30 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   gridButtonLabel: {
-    fontSize: 11,
-    fontWeight: '500',
+    fontSize: 10,
+    fontWeight: '600',
     color: BRAND.colors.mossGreen,
     textAlign: 'center',
-    lineHeight: 14,
+    lineHeight: 12,
   },
   gridButtonLabelPrimary: {
     color: BRAND.colors.linenCream,
+  },
+
+  // Confirmation hint - appears after quick action selection
+  confirmationHint: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(46, 85, 64, 0.08)',
+    borderRadius: 20,
+    alignSelf: 'center',
+  },
+  confirmationHintText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+    opacity: 0.8,
   },
 
   // Swipe Scrims - Behind the card, fade in during drag
