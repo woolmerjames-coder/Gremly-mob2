@@ -46,29 +46,30 @@ import {
   Archive,
   Check,
   Calendar,
-  ArrowRight,
+  ArrowRightCircle,
   CheckSquare,
-  BookOpen,
-  MoreHorizontal,
   Camera,
+  RotateCcw,
+  Plus,
 } from 'lucide-react-native';
 import { format, addDays, setHours, setMinutes } from 'date-fns';
 import { Text, Button, Box } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { toDayString, parseDayString } from '../../lib/date/computeDueDay';
 import { useRepo } from '../../providers/RepoProvider';
-import type { SweepCandidate, SweepPrimaryActionConfig } from '../../lib/sweep/types';
-import { getPrimaryActionForCandidate } from '../../lib/sweep/types';
+import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
+
+// Gremly mascot avatar for card responses
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_AVATAR = require('../../assets/buttonforHP.png');
+
+// Lock-in diamond icon for committed items
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const LOCKIN_ICON = require('../../assets/lockin icon.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CTA Types
 // ─────────────────────────────────────────────────────────────────────────────
-
-export type SweepCtaKind =
-  | 'todo_add_due_date'
-  | 'todo_adjust_due_date'
-  | 'log_convert_to_todo'
-  | 'none';
 
 // Preset time options for time picker
 const PRESET_TIMES = [
@@ -99,6 +100,8 @@ const isTestEnv =
 export interface SweepCardProps {
   /** The sweep candidate to display */
   candidate: SweepCandidate;
+  /** Pre-computed display metadata */
+  meta: SweepCardMeta;
   /** Current index (0-based) */
   index: number;
   /** Total number of candidates */
@@ -109,10 +112,12 @@ export interface SweepCardProps {
   onClear: () => void;
   /** Called when user wants to edit/fix the item (opens full overlay) */
   onOpenEdit: () => void;
-  /** Called when user taps the primary action button (e.g., add date, convert to todo) */
-  onPrimaryAction?: (config: SweepPrimaryActionConfig, candidate: SweepCandidate) => void;
   /** Called when user wants to convert log to todo (opens overlay in convert mode) */
   onConvertToTodo?: () => void;
+  /** Called when user taps a quick date button (Tomorrow, 2 Days, Next Week) */
+  onQuickDate?: (option: 'tomorrow' | '2days' | 'nextweek') => void;
+  /** Called when user taps "Add to Space" for logs */
+  onAddToSpace?: () => void;
   /** Called when user wants to save progress and exit early */
   onClose?: () => void;
   /** Feedback message to show in scrim (e.g. "BYE ✌️", "KEEPING IT") */
@@ -128,58 +133,36 @@ export interface SweepCardProps {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Compute the CTA kind and label based on candidate type and fields.
+ * Get display label for todo status chip
  */
-function computeCtaInfo(candidate: SweepCandidate): { kind: SweepCtaKind; label: string } {
-  switch (candidate.kind) {
-    case 'todo': {
-      // Check if todo has a due date (due_day is canonical)
-      const hasDueDate = !!candidate.raw.due_day || !!candidate.raw.due_date;
-      if (!hasDueDate) {
-        return { kind: 'todo_add_due_date', label: 'Add date' };
-      }
-      return { kind: 'todo_adjust_due_date', label: 'Review date' };
-    }
-
-    case 'note': {
-      // Check if it's a journal log - journals show "Add reminder"
-      const subtype = candidate.raw.subtype;
-      const canonicalType = candidate.raw.canonical_type;
-
-      // Journal detection: subtype='journal' or canonical_type contains 'journal'
-      const isJournal =
-        subtype === 'journal' ||
-        canonicalType === 'journal' ||
-        (canonicalType && canonicalType.includes('journal'));
-
-      if (isJournal) {
-        return { kind: 'none', label: 'Add reminder' };
-      }
-
-      // General logs or idea logs can be converted to todo
-      return { kind: 'log_convert_to_todo', label: 'Convert to to-do' };
-    }
-
+function getTodoStatusLabel(status: SweepCardMeta['todoStatus']): string | null {
+  switch (status) {
+    case 'unscheduled':
+      return 'Unscheduled';
+    case 'due_today':
+      return 'Due today';
+    case 'due_tomorrow':
+      return 'Due tomorrow';
+    case 'overdue':
+      return 'Overdue';
     default:
-      return { kind: 'none', label: '' };
+      return null;
   }
 }
 
 /**
- * Get the display label for the type chip based on candidate kind.
+ * Get display label for log subtype chip
  */
-function getTypeChipLabel(candidate: SweepCandidate): string {
-  switch (candidate.kind) {
-    case 'todo':
-      return 'To-Do';
-    case 'note': {
-      // Check if it's a log/journal type from the raw data
-      const noteRaw = candidate.raw;
-      if (noteRaw.subtype === 'journal' || noteRaw.subtype === 'log') {
-        return 'Log';
-      }
-      return 'Note';
-    }
+function getLogSubtypeLabel(subtype: SweepCardMeta['logSubtype']): string | null {
+  switch (subtype) {
+    case 'idea':
+      return 'Idea';
+    case 'journal':
+      return 'Journal';
+    case 'general':
+      return 'General';
+    default:
+      return null;
   }
 }
 
@@ -193,47 +176,6 @@ function getCandidateTitle(candidate: SweepCandidate): string {
     case 'note':
       return candidate.raw.title || 'Untitled note';
   }
-}
-
-/**
- * Get the body/description preview for a candidate.
- */
-function getCandidateBody(candidate: SweepCandidate): string | null {
-  switch (candidate.kind) {
-    case 'todo':
-      return candidate.raw.body || candidate.raw.notes || null;
-    case 'note':
-      return candidate.raw.body || null;
-  }
-}
-
-/**
- * Format the created timestamp for display - minimal style.
- * Shows "Added today", "Added yesterday", or "Added Dec 1"
- */
-function formatCreatedTimestamp(isoDate: string): string {
-  const date = new Date(isoDate);
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-
-  if (isToday) {
-    return 'Added today';
-  }
-
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const isYesterday = date.toDateString() === yesterday.toDateString();
-
-  if (isYesterday) {
-    return 'Added yesterday';
-  }
-
-  const dateStr = date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
-
-  return `Added ${dateStr}`;
 }
 
 /**
@@ -256,47 +198,22 @@ function formatDueDay(dueDay: string | null | undefined): string {
 
 export function SweepCard({
   candidate,
+  meta,
   index: _index,
   total: _total,
   onSkip,
   onClear,
   onOpenEdit,
-  onPrimaryAction,
   onConvertToTodo,
+  onQuickDate,
+  onAddToSpace,
   onClose,
   feedbackMessage: _feedbackMessage,
   feedbackType,
   hideBottomSaveExit,
 }: SweepCardProps) {
   const repo = useRepo();
-  const typeLabel = getTypeChipLabel(candidate);
   const title = getCandidateTitle(candidate);
-  const body = getCandidateBody(candidate);
-  const timestamp = formatCreatedTimestamp(candidate.createdAt);
-
-  // Compute metadata badge based on priority: Overdue > Due Today > Entered Today
-  // Note: Overdue and Due Today only apply to todos (kind === 'todo')
-  const metadataBadge = useMemo(() => {
-    if (candidate.kind === 'todo' && candidate.isOverdue) {
-      return { label: 'Overdue', style: 'overdue' as const };
-    }
-    if (candidate.kind === 'todo' && candidate.isDueToday) {
-      return { label: 'Due today', style: 'dueToday' as const };
-    }
-    if (candidate.isCreatedToday) {
-      return { label: 'Entered today', style: 'enteredToday' as const };
-    }
-    return null;
-  }, [candidate.kind, candidate.isOverdue, candidate.isDueToday, candidate.isCreatedToday]);
-
-  // Compute primary action config from the new centralized helper
-  const primaryConfig = useMemo(() => getPrimaryActionForCandidate(candidate), [candidate]);
-
-  // Legacy CTA kind and label - kept for date picker modal logic
-  const { kind: ctaKind, label: ctaLabel } = useMemo(() => computeCtaInfo(candidate), [candidate]);
-
-  // Truncate body preview to ~100 chars
-  const bodyPreview = body && body.length > 100 ? `${body.slice(0, 100)}…` : body;
 
   // Photo attachments for note candidates
   const hasAttachments =
@@ -347,15 +264,6 @@ export function SweepCard({
   }, [candidate.id, candidate.kind, candidate.raw]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Primary Action Handler
-  // ─────────────────────────────────────────────────────────────────────────
-  const handlePrimaryActionPress = useCallback(() => {
-    if (primaryConfig && onPrimaryAction) {
-      onPrimaryAction(primaryConfig, candidate);
-    }
-  }, [primaryConfig, onPrimaryAction, candidate]);
-
-  // ─────────────────────────────────────────────────────────────────────────
   // Photo Preview Handlers
   // ─────────────────────────────────────────────────────────────────────────
   const handleOpenPhotoPreview = useCallback((url: string) => {
@@ -369,22 +277,52 @@ export function SweepCard({
   }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Quick Date Button Handlers
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleTomorrow = useCallback(() => {
+    if (onQuickDate) {
+      onQuickDate('tomorrow');
+    }
+  }, [onQuickDate]);
+
+  const handleIn2Days = useCallback(() => {
+    if (onQuickDate) {
+      onQuickDate('2days');
+    }
+  }, [onQuickDate]);
+
+  const handleNextWeek = useCallback(() => {
+    if (onQuickDate) {
+      onQuickDate('nextweek');
+    }
+  }, [onQuickDate]);
+
+  const handlePickDate = useCallback(() => {
+    setShowDatePicker(true);
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Log Action Handlers
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleNextSweep = useCallback(() => {
+    onSkip();
+  }, [onSkip]);
+
+  const handleAddToSpace = useCallback(() => {
+    if (onAddToSpace) {
+      onAddToSpace();
+    }
+  }, [onAddToSpace]);
+
+  const handleMakeTodo = useCallback(() => {
+    if (onConvertToTodo) {
+      onConvertToTodo();
+    }
+  }, [onConvertToTodo]);
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Date Picker Handlers
   // ─────────────────────────────────────────────────────────────────────────
-  const handleMainCtaPress = useCallback(() => {
-    if (ctaKind === 'log_convert_to_todo') {
-      // Open overlay in convert mode
-      if (onConvertToTodo) {
-        onConvertToTodo();
-      } else {
-        // Fallback to regular edit if no convert handler
-        onOpenEdit();
-      }
-    } else if (ctaKind === 'todo_add_due_date' || ctaKind === 'todo_adjust_due_date') {
-      setShowDatePicker(true);
-    }
-  }, [ctaKind, onConvertToTodo, onOpenEdit]);
-
   const handleDateConfirm = useCallback(async () => {
     if (isSaving) return;
     setIsSaving(true);
@@ -701,12 +639,20 @@ export function SweepCard({
       <View style={styles.swipeCueRow} pointerEvents="none">
         <Animated.View style={animatedLeftLabelStyle}>
           <Text style={styles.swipeCueText}>
-            {candidate.kind === 'todo' ? '← Done with this' : '← Remove this'}
+            {candidate.kind === 'todo'
+              ? meta.isLockedIn
+                ? '← Let it go'
+                : '← Done with this'
+              : '← Remove this'}
           </Text>
         </Animated.View>
         <Animated.View style={animatedRightLabelStyle}>
           <Text style={styles.swipeCueText}>
-            {candidate.kind === 'todo' ? 'Still matters →' : 'Save this →'}
+            {candidate.kind === 'todo'
+              ? meta.isLockedIn
+                ? 'Keep commitment →'
+                : 'Still matters →'
+              : 'Save this →'}
           </Text>
         </Animated.View>
       </View>
@@ -715,7 +661,13 @@ export function SweepCard({
       <View style={styles.cardCenteringContainer}>
         <GestureDetector gesture={panGesture}>
           <Animated.View
-            style={[styles.swipeCardContainer, animatedCardContainerStyle, animatedCardStyle]}
+            style={[
+              styles.swipeCardContainer,
+              animatedCardContainerStyle,
+              animatedCardStyle,
+              meta.isLockedIn && styles.cardLockedIn,
+              meta.todoStatus === 'overdue' && styles.cardOverdue,
+            ]}
           >
             {/* Inner Shadow - Top only, creates lifted sheet effect */}
             <LinearGradient
@@ -735,6 +687,17 @@ export function SweepCard({
               showsVerticalScrollIndicator={false}
               bounces={false}
             >
+              {/* Locked-in diamond icon */}
+              {meta.isLockedIn && (
+                <View style={styles.lockedInIconContainer}>
+                  <Image
+                    source={LOCKIN_ICON}
+                    style={styles.lockedInIcon}
+                    accessibilityLabel="Locked in commitment"
+                  />
+                </View>
+              )}
+
               {/* Edit Icon - Top right corner */}
               <TouchableOpacity
                 style={styles.cardEditIcon}
@@ -745,6 +708,52 @@ export function SweepCard({
               >
                 <Pencil size={16} color={BRAND.colors.mossGreen} strokeWidth={1.8} />
               </TouchableOpacity>
+
+              {/* CHIPS ROW - All chips on one line */}
+              <View style={styles.chipsRow}>
+                {/* Type chip: Todo or Log */}
+                <View style={styles.chip}>
+                  <Text style={styles.chipText}>{meta.typeChip}</Text>
+                </View>
+
+                {/* Status chip: varies by type */}
+                {meta.todoStatus && (
+                  <View style={[styles.chip, meta.todoStatus === 'overdue' && styles.chipOverdue]}>
+                    <Text
+                      style={[
+                        styles.chipText,
+                        meta.todoStatus === 'overdue' && styles.chipTextOverdue,
+                      ]}
+                    >
+                      {getTodoStatusLabel(meta.todoStatus)}
+                    </Text>
+                  </View>
+                )}
+                {meta.logSubtype && (
+                  <View style={styles.chip}>
+                    <Text style={styles.chipText}>{getLogSubtypeLabel(meta.logSubtype)}</Text>
+                  </View>
+                )}
+
+                {/* Time chip: New! or Resurfacing */}
+                <Text style={styles.chipTimeText}>
+                  · {meta.isNew ? 'New!' : `Resurfacing · ${meta.resurfacingDate}`}
+                </Text>
+
+                {/* Space chip if assigned */}
+                {meta.spaceName && (
+                  <View style={styles.chipSpace}>
+                    <Text style={styles.chipSpaceText}>◇ {meta.spaceName}</Text>
+                  </View>
+                )}
+
+                {/* Photo indicator */}
+                {hasAttachments && (
+                  <View style={styles.photoIndicator}>
+                    <Camera size={12} color="rgba(34, 34, 34, 0.5)" strokeWidth={2} />
+                  </View>
+                )}
+              </View>
 
               {/* Photo Preview - Large image at top for note candidates with attachments */}
               {hasAttachments && firstAttachment && (
@@ -768,58 +777,21 @@ export function SweepCard({
                 </TouchableOpacity>
               )}
 
-              {/* 1. TITLE - Large, with space for edit icon */}
+              {/* USER TEXT - Large, prominent */}
               <View style={styles.titleSection}>
                 <Text style={styles.titleText} numberOfLines={4}>
                   {title}
                 </Text>
-
-                {/* Body Preview - Under title if present */}
-                {bodyPreview && (
-                  <Text style={styles.bodyText} numberOfLines={3}>
-                    {bodyPreview}
-                  </Text>
-                )}
               </View>
 
-              {/* 2. DIVIDER - Left-aligned, subtle */}
-              <View style={styles.dividerContainer}>
-                <View style={styles.cardDivider} />
-              </View>
-
-              {/* 3. META ROW - Type, timestamp, and optional metadata badge */}
-              <View style={styles.metadataRow}>
-                <Text style={styles.metaLineText}>
-                  {typeLabel.toUpperCase()} · {timestamp}
-                </Text>
-                {metadataBadge && (
-                  <View
-                    style={[
-                      styles.metadataBadge,
-                      metadataBadge.style === 'overdue' && styles.metadataBadgeOverdue,
-                      metadataBadge.style === 'dueToday' && styles.metadataBadgeDueToday,
-                      metadataBadge.style === 'enteredToday' && styles.metadataBadgeEnteredToday,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.metadataBadgeText,
-                        metadataBadge.style === 'overdue' && styles.metadataBadgeTextOverdue,
-                        metadataBadge.style === 'dueToday' && styles.metadataBadgeTextDueToday,
-                        metadataBadge.style === 'enteredToday' &&
-                          styles.metadataBadgeTextEnteredToday,
-                      ]}
-                    >
-                      {metadataBadge.label}
-                    </Text>
-                  </View>
-                )}
-                {/* Camera icon for entries with photo attachments */}
-                {hasAttachments && (
-                  <View style={styles.photoIndicator}>
-                    <Camera size={12} color="rgba(34, 34, 34, 0.5)" strokeWidth={2} />
-                  </View>
-                )}
+              {/* GREMLY RESPONSE - Avatar + contextual message */}
+              <View style={styles.gremlyResponseSection}>
+                <Image
+                  source={GREMLY_AVATAR}
+                  style={styles.gremlyAvatar}
+                  accessibilityLabel="Gremly mascot"
+                />
+                <Text style={styles.gremlyResponseText}>{meta.gremlyResponse}</Text>
               </View>
 
               {/* Spacer - Pushes action block to bottom of card */}
@@ -830,32 +802,115 @@ export function SweepCard({
                 <View style={styles.actionDivider} />
               </View>
 
-              {/* 4. PRIMARY ACTION PILL - Based on primaryConfig from centralized helper */}
-              {primaryConfig && (
-                <View style={styles.ctaPillRow}>
-                  <TouchableOpacity
-                    style={styles.primaryPill}
-                    onPress={handlePrimaryActionPress}
-                    accessibilityLabel={primaryConfig.label}
-                    accessibilityRole="button"
-                    activeOpacity={0.7}
-                  >
-                    {primaryConfig.icon === 'calendar' && (
-                      <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                    )}
-                    {primaryConfig.icon === 'todo' && (
-                      <CheckSquare size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                    )}
-                    {primaryConfig.icon === 'journal' && (
-                      <BookOpen size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                    )}
-                    {primaryConfig.icon === 'more' && (
-                      <MoreHorizontal size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                    )}
-                    <Text style={styles.primaryPillText}>{primaryConfig.label}</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+              {/* ACTION BUTTONS - 4-column grid, different for todos vs logs */}
+              <View style={styles.actionButtonsSection}>
+                {candidate.kind === 'todo' ? (
+                  <>
+                    {/* Todo hint text */}
+                    <Text style={styles.actionHintText}>Set a due date, then swipe right</Text>
+
+                    {/* Todo buttons: Tomorrow, 2 Days, Next Week, Pick Date */}
+                    <View style={styles.buttonGrid}>
+                      <TouchableOpacity
+                        style={[styles.gridButton, styles.gridButtonPrimary]}
+                        onPress={handleTomorrow}
+                        accessibilityLabel="Set due tomorrow"
+                        activeOpacity={0.7}
+                      >
+                        <ArrowRightCircle
+                          size={16}
+                          color={BRAND.colors.linenCream}
+                          strokeWidth={2}
+                        />
+                        <Text style={[styles.gridButtonLabel, styles.gridButtonLabelPrimary]}>
+                          Tomorrow
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.gridButton}
+                        onPress={handleIn2Days}
+                        accessibilityLabel="Set due in 2 days"
+                        activeOpacity={0.7}
+                      >
+                        <ArrowRightCircle
+                          size={16}
+                          color={BRAND.colors.mossGreen}
+                          strokeWidth={2}
+                        />
+                        <Text style={styles.gridButtonLabel}>2 Days</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.gridButton}
+                        onPress={handleNextWeek}
+                        accessibilityLabel="Set due next week"
+                        activeOpacity={0.7}
+                      >
+                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text style={styles.gridButtonLabel}>Next Week</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.gridButton}
+                        onPress={handlePickDate}
+                        accessibilityLabel="Pick a date"
+                        activeOpacity={0.7}
+                      >
+                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text style={styles.gridButtonLabel}>Pick Date</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    {/* Log buttons: Next Sweep, Pick Date, Add to Space, Make Todo */}
+                    <View style={styles.buttonGrid}>
+                      <TouchableOpacity
+                        style={[styles.gridButton, styles.gridButtonPrimary]}
+                        onPress={handleNextSweep}
+                        accessibilityLabel="Save for next sweep"
+                        activeOpacity={0.7}
+                      >
+                        <RotateCcw size={16} color={BRAND.colors.linenCream} strokeWidth={2} />
+                        <Text style={[styles.gridButtonLabel, styles.gridButtonLabelPrimary]}>
+                          Next Sweep
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.gridButton}
+                        onPress={handlePickDate}
+                        accessibilityLabel="Pick a date"
+                        activeOpacity={0.7}
+                      >
+                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text style={styles.gridButtonLabel}>Pick Date</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.gridButton}
+                        onPress={handleAddToSpace}
+                        accessibilityLabel="Add to space"
+                        activeOpacity={0.7}
+                      >
+                        <Plus size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text style={styles.gridButtonLabel}>Add to Space</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.gridButton}
+                        onPress={handleMakeTodo}
+                        accessibilityLabel="Convert to todo"
+                        activeOpacity={0.7}
+                      >
+                        <CheckSquare size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text style={styles.gridButtonLabel}>Make Todo</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </View>
             </ScrollView>
           </Animated.View>
         </GestureDetector>
@@ -916,9 +971,7 @@ export function SweepCard({
               contentContainerStyle={styles.dateModalScroll}
             >
               <Text style={styles.dateModalTitle}>
-                {ctaKind === 'todo_add_due_date' || ctaKind === 'todo_adjust_due_date'
-                  ? 'Set due date'
-                  : 'Set start date'}
+                {candidate.kind === 'todo' ? 'Set due date' : 'Set start date'}
               </Text>
 
               {/* Quick date chips */}
@@ -993,57 +1046,56 @@ export function SweepCard({
               )}
 
               {/* Time toggle - only for todos */}
-              {!clearDateFlag &&
-                (ctaKind === 'todo_add_due_date' || ctaKind === 'todo_adjust_due_date') && (
-                  <Box mt={3} mb={4}>
-                    <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Text style={styles.timeToggleLabel}>Add time?</Text>
-                      <Switch
-                        value={showTimePicker}
-                        onValueChange={(value) => {
-                          setShowTimePicker(value);
-                          if (value && !selectedTimePreset) {
-                            setSelectedTimePreset(PRESET_TIMES[0].key);
-                            const defaultTime = setHours(setMinutes(new Date(), 0), 9);
-                            setSelectedTime(defaultTime);
-                          } else if (!value) {
-                            setSelectedTimePreset(null);
-                          }
-                        }}
-                        trackColor={{ false: '#E0E0E0', true: BRAND.colors.mossGreen }}
-                        thumbColor="#FFFFFF"
-                      />
-                    </Box>
-
-                    {/* Preset Time Chips */}
-                    {showTimePicker && (
-                      <Box mt={3}>
-                        <Box row style={{ flexWrap: 'wrap', rowGap: 8, columnGap: 8 }}>
-                          {PRESET_TIMES.map((preset) => (
-                            <Pressable
-                              key={preset.key}
-                              onPress={() => {
-                                setSelectedTimePreset(preset.key);
-                                const newTime = setHours(
-                                  setMinutes(new Date(), preset.minute),
-                                  preset.hour,
-                                );
-                                setSelectedTime(newTime);
-                              }}
-                              style={({ pressed }) => [
-                                styles.dateChip,
-                                pressed && styles.dateChipPressed,
-                                selectedTimePreset === preset.key && styles.dateChipSelected,
-                              ]}
-                            >
-                              <Text style={styles.dateChipText}>{preset.label}</Text>
-                            </Pressable>
-                          ))}
-                        </Box>
-                      </Box>
-                    )}
+              {!clearDateFlag && candidate.kind === 'todo' && (
+                <Box mt={3} mb={4}>
+                  <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={styles.timeToggleLabel}>Add time?</Text>
+                    <Switch
+                      value={showTimePicker}
+                      onValueChange={(value) => {
+                        setShowTimePicker(value);
+                        if (value && !selectedTimePreset) {
+                          setSelectedTimePreset(PRESET_TIMES[0].key);
+                          const defaultTime = setHours(setMinutes(new Date(), 0), 9);
+                          setSelectedTime(defaultTime);
+                        } else if (!value) {
+                          setSelectedTimePreset(null);
+                        }
+                      }}
+                      trackColor={{ false: '#E0E0E0', true: BRAND.colors.mossGreen }}
+                      thumbColor="#FFFFFF"
+                    />
                   </Box>
-                )}
+
+                  {/* Preset Time Chips */}
+                  {showTimePicker && (
+                    <Box mt={3}>
+                      <Box row style={{ flexWrap: 'wrap', rowGap: 8, columnGap: 8 }}>
+                        {PRESET_TIMES.map((preset) => (
+                          <Pressable
+                            key={preset.key}
+                            onPress={() => {
+                              setSelectedTimePreset(preset.key);
+                              const newTime = setHours(
+                                setMinutes(new Date(), preset.minute),
+                                preset.hour,
+                              );
+                              setSelectedTime(newTime);
+                            }}
+                            style={({ pressed }) => [
+                              styles.dateChip,
+                              pressed && styles.dateChipPressed,
+                              selectedTimePreset === preset.key && styles.dateChipSelected,
+                            ]}
+                          >
+                            <Text style={styles.dateChipText}>{preset.label}</Text>
+                          </Pressable>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                </Box>
+              )}
 
               {/* Action buttons */}
               <View style={styles.dateModalActions}>
@@ -1137,12 +1189,14 @@ const styles = StyleSheet.create({
     // Strong shadow all around for physical card feel
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.22,
-    shadowRadius: 20,
-    elevation: 12,
-    // Subtle border for extra definition
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
+  },
+
+  // Card background variants
+  cardLockedIn: {
+    backgroundColor: BRAND.colors.goldenPear,
+  },
+  cardOverdue: {
+    backgroundColor: '#E8D4C4', // Dusty terracotta
   },
 
   // Gradient Background - Fills card, behind content
@@ -1189,6 +1243,18 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
 
+  // Locked-in Icon
+  lockedInIconContainer: {
+    position: 'absolute',
+    top: 16,
+    right: 56, // Position to left of edit icon (edit is at right: 16, width 36)
+    zIndex: 10,
+  },
+  lockedInIcon: {
+    width: 24,
+    height: 24,
+  },
+
   // Photo Preview Container - Large image at top of card
   photoContainer: {
     width: '100%',
@@ -1221,6 +1287,49 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     opacity: 0.7,
   },
+
+  // Chips Row - All chips on one line
+  chipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 24,
+    paddingRight: 40, // Space for edit icon
+  },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    backgroundColor: 'rgba(46, 85, 64, 0.1)',
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+  },
+  chipOverdue: {
+    backgroundColor: 'rgba(185, 28, 28, 0.12)',
+  },
+  chipTextOverdue: {
+    color: '#B91C1C',
+  },
+  chipTimeText: {
+    fontSize: 12,
+    color: BRAND.colors.mossGreen,
+    opacity: 0.55,
+  },
+  chipSpace: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 20,
+    backgroundColor: 'rgba(46, 85, 64, 0.08)',
+  },
+  chipSpaceText: {
+    fontSize: 12,
+    color: BRAND.colors.mossGreen,
+    opacity: 0.65,
+  },
   // Photo Preview Modal
   photoPreviewBackdrop: {
     flex: 1,
@@ -1237,7 +1346,7 @@ const styles = StyleSheet.create({
   // Title Section - Hero, airy vertical rhythm
   titleSection: {
     paddingTop: 0,
-    paddingBottom: 8,
+    paddingBottom: 0,
     paddingRight: 44, // Space for edit icon
   },
   titleText: {
@@ -1249,148 +1358,27 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  // Body Section - Smaller text under title
-  bodyText: {
-    fontSize: 14,
-    fontWeight: '400',
-    color: BRAND.colors.charcoalInk, // Full charcoal for readability
-    lineHeight: 20,
-  },
-
-  // Divider Container - Left-aligned, tighter rhythm with meta
-  dividerContainer: {
+  // Gremly Response Section
+  gremlyResponseSection: {
+    flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingTop: 16,
-    paddingBottom: 10,
+    gap: 12,
+    marginTop: 32,
+    marginBottom: 32,
   },
-  cardDivider: {
-    height: 1,
-    width: '50%',
-    backgroundColor: 'rgba(191, 216, 192, 0.6)', // sageMistBorder equiv
+  gremlyAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    flexShrink: 0,
   },
-
-  // Metadata Row - Type and timestamp combined
-  metadataRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8, // Tighter spacing
-    gap: 8,
-  },
-  metaLineText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk, // Full charcoal for readability
-    letterSpacing: 0.3,
-  },
-
-  // Overdue Pill - Muted coral/red accent, calm but attention-grabbing
-  // Now generalized as metadataBadge with style variants
-  metadataBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-  },
-  metadataBadgeOverdue: {
-    backgroundColor: 'rgba(196, 92, 74, 0.12)', // OVERDUE_ACCENT @ 12%
-    borderWidth: 1,
-    borderColor: 'rgba(196, 92, 74, 0.25)', // OVERDUE_ACCENT @ 25%
-  },
-  metadataBadgeDueToday: {
-    backgroundColor: 'rgba(46, 85, 64, 0.10)', // Moss Green @ 10%
-    borderWidth: 1,
-    borderColor: 'rgba(46, 85, 64, 0.20)', // Moss Green @ 20%
-  },
-  metadataBadgeEnteredToday: {
-    backgroundColor: 'rgba(34, 34, 34, 0.06)', // Charcoal @ 6%
-    borderWidth: 1,
-    borderColor: 'rgba(34, 34, 34, 0.12)', // Charcoal @ 12%
-  },
-  metadataBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  metadataBadgeTextOverdue: {
-    color: '#C45C4A', // OVERDUE_ACCENT - matches OverdueSection
-  },
-  metadataBadgeTextDueToday: {
-    color: BRAND.colors.mossGreen,
-  },
-  metadataBadgeTextEnteredToday: {
-    color: 'rgba(34, 34, 34, 0.65)', // Charcoal @ 65%
-  },
-
-  // Legacy overduePill styles kept for backward compatibility
-  overduePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    backgroundColor: 'rgba(196, 92, 74, 0.12)', // OVERDUE_ACCENT @ 12%
-    borderWidth: 1,
-    borderColor: 'rgba(196, 92, 74, 0.25)', // OVERDUE_ACCENT @ 25%
-  },
-  overduePillText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#C45C4A', // OVERDUE_ACCENT - matches OverdueSection
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-  },
-
-  // CTA Pill Row - Context-aware action based on item type
-  ctaPillRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  ctaPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 22,
-    backgroundColor: 'rgba(191, 216, 192, 0.20)', // Sage Mist @ 20%
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.6)', // Sage Mist border
-    // Slight shadow like mood chips
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  ctaPillText: {
+  gremlyResponseText: {
+    flex: 1,
     fontSize: 14,
-    fontWeight: '600',
+    lineHeight: 21,
     color: BRAND.colors.mossGreen,
-  },
-
-  // Primary Action Pill - Sage Mist fill, Moss Green text/icon
-  primaryPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 22,
-    backgroundColor: 'rgba(191, 216, 192, 0.45)', // Sage Mist @ 45% - darker for contrast
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.8)', // Sage Mist border - stronger
-    // Slight shadow for depth
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  primaryPillText: {
-    fontSize: 15, // Increased from 14 for readability
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
+    opacity: 0.85,
+    paddingTop: 4,
   },
 
   // Spacer - Pushes action block to bottom of card
@@ -1411,64 +1399,48 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(191, 216, 192, 0.5)', // sageMistBorder
   },
 
-  // Action Pill - Small rounded pill button
-  actionPill: {
+  // Action Buttons Section - 4-column grid
+  actionButtonsSection: {
+    marginBottom: 16,
+  },
+  actionHintText: {
+    fontSize: 12,
+    color: BRAND.colors.mossGreen,
+    opacity: 0.5,
+    marginBottom: 12,
+  },
+  buttonGrid: {
     flexDirection: 'row',
+    gap: 8,
+  },
+  gridButton: {
+    flex: 1,
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(191, 216, 192, 0.12)', // Very faint sage
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.5)', // Sage Mist border
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(46, 85, 64, 0.1)',
+    gap: 4,
   },
-  actionPillText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
-
-  // Legacy date control styles (kept for reference)
-  dateControl: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: BRAND.radius.pill,
-    backgroundColor: BRAND.colors.linenCream,
-    borderWidth: 1.5,
-    borderColor: BRAND.colors.mossGreen,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  dateControlText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-    letterSpacing: 0.3,
-  },
-
-  // Main CTA Button - For logs convert to todo
-  mainCtaButton: {
+  gridButtonPrimary: {
     backgroundColor: BRAND.colors.mossGreen,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: BRAND.radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  mainCtaText: {
-    fontSize: 14,
+  gridButtonIcon: {
+    fontSize: 16,
+    color: BRAND.colors.mossGreen,
     fontWeight: '600',
-    color: '#FFFFFF',
-    letterSpacing: 1,
+  },
+  gridButtonLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  gridButtonLabelPrimary: {
+    color: BRAND.colors.linenCream,
   },
 
   // Swipe Scrims - Behind the card, fade in during drag

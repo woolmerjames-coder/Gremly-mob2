@@ -42,12 +42,7 @@ import {
 import type { Habit } from '../../lib/types';
 import { supabase } from '../../lib/supabase/client';
 import { markSweepCompleted } from '../../lib/sweep/engine';
-import type {
-  SweepCandidate,
-  SweepCardMeta,
-  SweepPrimaryActionConfig,
-  SweepSummary,
-} from '../../lib/sweep/types';
+import type { SweepCandidate, SweepCardMeta, SweepSummary } from '../../lib/sweep/types';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -59,6 +54,8 @@ import {
 } from '../../lib/events/overlaySaved';
 import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
+import { addDays, nextMonday } from 'date-fns';
+import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
 import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
@@ -867,81 +864,71 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     });
   }, [candidatesWithMeta, currentIndex, notes, overlayController]);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Primary Action Handler
-  // ─────────────────────────────────────────────────────────────────────────
   /**
-   * Handle primary action button press based on action type.
-   * Opens the appropriate overlay/picker and returns whether to advance.
-   *
-   * @returns 'advance' if meaningful change was saved, 'stay' if cancelled
-   *
-   * MIGRATED: Now uses Zustand store data instead of repo.getById
+   * Quick Date Handler - Sets due_day for todos from button grid
+   * Used for: Tomorrow, 2 Days, Next Week buttons
    */
-  const handlePrimaryAction = useCallback(
-    (config: SweepPrimaryActionConfig, candidate: SweepCandidate): 'advance' | 'stay' => {
-      // Look up full record from store
-      let fullRecord: AppRecord | undefined;
-      if (candidate.kind === 'todo') {
-        const todo = todos.find((t) => t.id === candidate.id);
-        if (todo) fullRecord = { ...todo, type: 'todo' } as AppRecord;
-      } else if (candidate.kind === 'note') {
-        const note = notes.find((n) => n.id === candidate.id);
-        if (note) fullRecord = { ...note, type: 'note' } as AppRecord;
+  const handleQuickDate = useCallback(
+    async (preset: 'tomorrow' | '2days' | 'nextweek') => {
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      const candidate = candidateWithMeta.candidate;
+
+      // Calculate the target date
+      const today = new Date();
+      let targetDate: Date;
+      switch (preset) {
+        case 'tomorrow':
+          targetDate = addDays(today, 1);
+          break;
+        case '2days':
+          targetDate = addDays(today, 2);
+          break;
+        case 'nextweek':
+          targetDate = nextMonday(today);
+          break;
       }
 
-      const record = fullRecord || ({ ...candidate.raw, type: candidate.kind } as AppRecord);
-
-      switch (config.type) {
-        case 'todo_add_due_date':
-        case 'todo_review_due_date': {
-          // Track this candidate for overlay save detection
-          editingCandidateIdRef.current = candidate.id;
-          // Open the todo in edit mode - the overlay has date picker functionality
-          // The user can set/change the due date there
-          overlayController.openEdit({ record });
-          // Return 'stay' - the overlay save listener will advance on save
-          return 'stay';
-        }
-
-        case 'log_idea_to_todo': {
-          // For conversion, we don't auto-advance since we're creating a new item
-          // The user should explicitly swipe/keep after conversion
-          overlayController.openCreate({
-            type: 'todo',
-            // Note: conversionMeta isn't supported in the current type,
-            // so we use the standard create flow. The user will manually
-            // copy the content if needed, or we can enhance the overlay later.
-          });
-          return 'stay';
-        }
-
-        case 'log_journal_followup': {
-          // For journal follow-up, we're creating a new entry
-          // The user should explicitly keep/clear the original after
-          overlayController.openCreate({
-            type: 'log',
-            logSubtype: 'journal',
-          });
-          return 'stay';
-        }
-
-        case 'log_general_decide': {
-          // Track this candidate for overlay save detection
-          editingCandidateIdRef.current = candidate.id;
-          // Open the full edit overlay for the log
-          // User can convert to todo/habit, add tags, reminders, etc.
-          overlayController.openEdit({ record });
-          return 'stay';
-        }
-
-        default:
-          console.warn('[SweepDecisionStep] Unknown primary action type:', config.type);
-          return 'stay';
+      try {
+        // Update todo with new due_day and clear skipped_in_sweep_at
+        await updateTodo(candidate.id, {
+          due_day: toDayString(targetDate),
+          skipped_in_sweep_at: null,
+        } as any);
+        // Advance to next card (counts as "changed")
+        handleOutcome('changed');
+      } catch (error) {
+        console.error('[SweepDecisionStep] handleQuickDate error:', error);
       }
     },
-    [todos, notes, overlayController],
+    [candidatesWithMeta, currentIndex, updateTodo, handleOutcome],
   );
+
+  /**
+   * Add to Space Handler - Opens edit overlay for space assignment
+   * Used for logs that user wants to organize into a Space
+   */
+  const handleAddToSpace = useCallback(() => {
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const candidate = candidateWithMeta.candidate;
+
+    // Track that we're editing this candidate
+    editingCandidateIdRef.current = candidate.id;
+
+    // Look up full record from store
+    if (candidate.kind === 'note') {
+      const note = notes.find((n) => n.id === candidate.id);
+      if (note) {
+        overlayController.openEdit({ record: { ...note, type: 'note' } });
+      }
+    } else {
+      const todo = todos.find((t) => t.id === candidate.id);
+      if (todo) {
+        overlayController.openEdit({ record: { ...todo, type: 'todo' } });
+      }
+    }
+  }, [candidatesWithMeta, currentIndex, notes, todos, overlayController]);
 
   // Auto-advance to summary when all cards are processed
   useEffect(() => {
@@ -1032,17 +1019,15 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       <View style={styles.decisionCardArea}>
         <SweepCard
           candidate={currentCandidate}
+          meta={currentCandidateWithMeta.meta}
           index={currentIndex}
           total={candidatesWithMeta.length}
           onSkip={handleSkip}
           onClear={handleClear}
           onOpenEdit={handleOpenEdit}
-          onPrimaryAction={async (config, cand) => {
-            // Open the appropriate overlay - save detection is handled
-            // by the overlay save listener which will call handleOutcome('changed')
-            await handlePrimaryAction(config, cand);
-          }}
           onConvertToTodo={handleConvertToTodo}
+          onQuickDate={handleQuickDate}
+          onAddToSpace={handleAddToSpace}
           onClose={onClose}
           feedbackMessage={feedbackMessage}
           feedbackType={swipeFeedback}
