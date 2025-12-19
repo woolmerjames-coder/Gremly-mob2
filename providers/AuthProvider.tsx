@@ -4,6 +4,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   GoogleSignin,
@@ -11,6 +12,7 @@ import {
   isErrorWithCode,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../lib/supabase/client';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { FLAGS } from '../config/flags';
@@ -30,6 +32,7 @@ interface AuthContextValue {
   loading: boolean;
   error: string | null;
   signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
   signInWithEmail: (email: string, password?: string) => Promise<void>;
   devSignIn: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -53,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const initializeStore = async () => {
-      console.log('[AuthProvider] initializeStore called, user.id:', user?.id);
+      if (__DEV__) console.log('[AuthProvider] initializeStore called, user.id:', user?.id);
       if (user?.id) {
         try {
           await initialize(user.id);
@@ -200,6 +203,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const signInWithApple = async () => {
+    if (Platform.OS !== 'ios') {
+      throw new Error('Sign in with Apple is only available on iOS');
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!credential.identityToken) {
+        throw new Error('No identity token returned from Apple');
+      }
+
+      if (__DEV__)
+        console.log('[AuthProvider] Apple identity token received, exchanging with Supabase...');
+
+      const { data, error: supabaseError } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken,
+      });
+
+      if (supabaseError) throw supabaseError;
+
+      // Apple only provides name on FIRST sign-in, save it if available
+      if (credential.fullName?.givenName) {
+        const fullName = [credential.fullName.givenName, credential.fullName.familyName]
+          .filter(Boolean)
+          .join(' ');
+
+        await supabase.auth.updateUser({
+          data: {
+            full_name: fullName,
+            given_name: credential.fullName.givenName,
+            family_name: credential.fullName.familyName,
+          },
+        });
+        if (__DEV__) console.log('[AuthProvider] Apple user name saved:', fullName);
+      }
+
+      if (__DEV__) console.log('[AuthProvider] Apple sign-in successful:', data.user?.email);
+    } catch (err: any) {
+      // User cancelled - don't show error
+      if (err.code === 'ERR_REQUEST_CANCELED') {
+        if (__DEV__) console.log('[AuthProvider] Apple sign-in cancelled by user');
+        throw new Error(''); // Empty message for cancelled
+      }
+
+      const message = err instanceof Error ? err.message : 'Apple sign-in failed';
+      console.error('[AuthProvider] Apple sign-in error:', message);
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const signInWithEmail = async (email: string, password?: string) => {
     setLoading(true);
     setError(null);
@@ -321,6 +385,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading: !isFullyLoaded,
         error,
         signInWithGoogle,
+        signInWithApple,
         signInWithEmail,
         devSignIn,
         signOut,

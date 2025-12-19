@@ -1017,6 +1017,12 @@ export class SupabaseRepo implements IRepo {
         updatePayload.reminders_json = (normalizedPatch as any).reminders ?? null;
       }
 
+      // Time estimate (Phase 2 enrichment)
+      if ('time_estimate_minutes' in normalizedPatch) {
+        updatePayload.time_estimate_minutes =
+          (normalizedPatch as any).time_estimate_minutes ?? null;
+      }
+
       // Development logging for todo updates
       if (__DEV__) {
         console.log('[TodoEdit] patch', normalizedPatch);
@@ -1074,6 +1080,16 @@ export class SupabaseRepo implements IRepo {
       // Map reminders → reminders_json for habit reminders
       if ('reminders' in normalizedPatch) {
         updatePayload.reminders_json = (normalizedPatch as any).reminders ?? null;
+      }
+
+      // Start date (when habit tracking begins)
+      if ('start_date' in normalizedPatch) {
+        updatePayload.start_date = (normalizedPatch as any).start_date ?? null;
+      }
+
+      // End date (optional, for time-bound habits)
+      if ('end_date' in normalizedPatch) {
+        updatePayload.end_date = (normalizedPatch as any).end_date ?? null;
       }
 
       // Development logging for habit updates

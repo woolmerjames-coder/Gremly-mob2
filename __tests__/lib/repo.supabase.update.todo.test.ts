@@ -185,4 +185,32 @@ describe('SupabaseRepo.update - Todo payload construction', () => {
     // Assert: due_time is updated
     expect(updatePayload.due_time).toBe('14:30');
   });
+
+  it('should map time_estimate_minutes in update payload', async () => {
+    await repo.update({
+      id: 'todo-1',
+      patch: {
+        time_estimate_minutes: 30,
+      } as any,
+    });
+
+    const updatePayload = mockUpdate.mock.calls[0][0];
+
+    // Assert: time_estimate_minutes is set
+    expect(updatePayload.time_estimate_minutes).toBe(30);
+  });
+
+  it('should allow clearing time_estimate_minutes to null', async () => {
+    await repo.update({
+      id: 'todo-1',
+      patch: {
+        time_estimate_minutes: null,
+      } as any,
+    });
+
+    const updatePayload = mockUpdate.mock.calls[0][0];
+
+    // Assert: time_estimate_minutes is explicitly null
+    expect(updatePayload.time_estimate_minutes).toBeNull();
+  });
 });

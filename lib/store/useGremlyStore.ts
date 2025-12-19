@@ -137,7 +137,7 @@ interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   // NOTE MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
-  createNote: (note: Partial<Note>) => Promise<Note>;
+  createNote: (note: Partial<Note> & { photoUris?: string[] }) => Promise<Note>;
   updateNote: (id: string, updates: Partial<Note>) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
   archiveNote: (id: string, reason?: string) => Promise<void>;
@@ -175,6 +175,7 @@ interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   // LOG PHOTO MUTATIONS (for Mind Drop attachments)
   // ═══════════════════════════════════════════════════════════════════
+  uploadPhotosForNote: (noteId: string, userId: string, photoUris: string[]) => Promise<void>;
   insertLogPhoto: (params: {
     noteId: string;
     url: string;
@@ -989,12 +990,15 @@ export const useGremlyStore = create<GremlyState>()(
     // NOTE MUTATIONS
     // ═══════════════════════════════════════════════════════════════════
 
-    createNote: async (note: Partial<Note>) => {
+    createNote: async (note: Partial<Note> & { photoUris?: string[] }) => {
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
+      // Extract photoUris before sanitizing (not a DB field)
+      const { photoUris, ...noteData } = note;
+
       const now = new Date().toISOString();
-      const sanitized = sanitizeForSupabase(note as Record<string, unknown>, 'note');
+      const sanitized = sanitizeForSupabase(noteData as Record<string, unknown>, 'note');
       const payload = {
         ...sanitized,
         owner_id: userId,
@@ -1014,6 +1018,16 @@ export const useGremlyStore = create<GremlyState>()(
       set((state) => ({
         notes: [...state.notes, noteWithType],
       }));
+
+      // Upload photos if provided (fire-and-forget, don't block note creation)
+      if (photoUris && photoUris.length > 0) {
+        console.log('[GremlyStore] Uploading photos for note:', data.id, photoUris.length);
+        get()
+          .uploadPhotosForNote(data.id, userId, photoUris)
+          .catch((err) => {
+            console.error('[GremlyStore] Photo upload failed for note:', data.id, err);
+          });
+      }
 
       eventBus.emit('entity:created', {
         entity: noteWithType,
@@ -1529,6 +1543,61 @@ export const useGremlyStore = create<GremlyState>()(
     // ═══════════════════════════════════════════════════════════════════
     // LOG PHOTO MUTATIONS (for Mind Drop attachments)
     // ═══════════════════════════════════════════════════════════════════
+
+    uploadPhotosForNote: async (noteId: string, userId: string, photoUris: string[]) => {
+      const { insertLogPhoto } = get();
+
+      for (let i = 0; i < photoUris.length; i++) {
+        const photoUri = photoUris[i];
+
+        try {
+          // Skip non-local URIs
+          if (!photoUri.startsWith('file://')) {
+            console.warn('[GremlyStore] Skipping non-local URI:', photoUri.substring(0, 50));
+            continue;
+          }
+
+          // 1. Fetch the local file
+          const response = await fetch(photoUri);
+          const arrayBuffer = await response.arrayBuffer();
+
+          // 2. Generate unique storage path
+          const fileExt = photoUri.split('.').pop() || 'jpg';
+          const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+          const storagePath = `${userId}/${noteId}/${uniqueId}.${fileExt}`;
+
+          // 3. Upload to Supabase storage
+          const { error: uploadError } = await supabase.storage
+            .from('log-photos')
+            .upload(storagePath, arrayBuffer, {
+              contentType: 'image/jpeg',
+              upsert: false,
+            });
+
+          if (uploadError) {
+            console.error('[GremlyStore] Storage upload failed:', uploadError);
+            continue; // Try next photo
+          }
+
+          // 4. Get public URL
+          const { data: urlData } = supabase.storage.from('log-photos').getPublicUrl(storagePath);
+
+          const publicUrl = urlData.publicUrl;
+
+          // 5. Insert record into log_photos table
+          await insertLogPhoto({
+            noteId,
+            url: publicUrl,
+            position: i,
+          });
+
+          console.log('[GremlyStore] Photo uploaded successfully:', { noteId, position: i });
+        } catch (err) {
+          console.error('[GremlyStore] Failed to upload photo:', photoUri, err);
+          // Continue with other photos
+        }
+      }
+    },
 
     insertLogPhoto: async (params: { noteId: string; url: string; position: number }) => {
       const userId = get().userId;
