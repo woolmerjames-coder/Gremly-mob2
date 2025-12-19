@@ -38,6 +38,8 @@ export interface SubmitContext {
   spaceId?: string | null;
   /** Photo URIs attached to the drop */
   photoUris?: string[];
+  /** User ID for photo uploads */
+  userId?: string | null;
   /** Source of the submission for analytics */
   source: 'minddrop' | 'today' | 'space' | 'photo';
   /** Optional pre-generated drop ID for pending item correlation */
@@ -306,6 +308,7 @@ export function useMindDropSubmit(): {
               minddrop_stage: 'classified',
               ai_pending: true,
             },
+            photoUris, // Photos will be uploaded automatically by the store
           });
         }
 

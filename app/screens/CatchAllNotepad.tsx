@@ -564,14 +564,11 @@ export async function saveToUnsortedTray(
 }
 
 /**
- * uploadPhotosToNote - Upload photo attachments to a note via Supabase storage
+ * @deprecated Use useGremlyStore().uploadPhotosForNote() instead.
+ * Photo upload is now atomic with note creation via createNote({ photoUris }).
  *
- * This function handles the full photo upload flow:
- * 1. Fetch the file from local URI
- * 2. Upload to Supabase storage (log-photos bucket)
- * 3. Insert record into log_photos table
- *
- * Called after a note is created via Mind Drop pipeline when photos are attached.
+ * This function is kept for legacy V2/V3 pipeline fallback but should not be
+ * called directly. The V4 pipeline (MIND_DROP_V4_ENABLED) uses the store.
  */
 export async function uploadPhotosToNote(
   insertLogPhoto: (params: { noteId: string; url: string; position: number }) => Promise<any>,
@@ -3554,6 +3551,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const result = await mindDropSubmit(effectiveText, {
       spaceId: null, // CatchAllNotepad is global, no space
       photoUris: pendingPhotoUris,
+      userId: userId, // Pass userId for photo uploads
       source: 'minddrop',
       dropId, // Pass the dropId to ensure pending item correlation
     });
