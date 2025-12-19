@@ -1379,18 +1379,14 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
 }
 
 /**
- * Get display kind for category chip - shows subtype for notes
+ * Get display kind for category chip - parent category only
+ * Subtype (Idea, Journal, etc.) is shown via getContextualMeta in the meta row
  */
-function getDisplayKindForChip(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string {
+function getDisplayKindForChip(kind: 'note' | 'todo' | 'habit', _item: UnifiedDrop): string {
   if (kind === 'todo') return 'Todo';
   if (kind === 'habit') return 'Habit';
 
-  // For notes, show the specific subtype with proper capitalization
-  const subtype = item.noteSubtype || item.canonical_type || 'log';
-  if (subtype === 'journal') return 'Journal';
-  if (subtype === 'idea') return 'Idea';
-  if (subtype === 'list') return 'List';
-  if (subtype === 'reference') return 'Reference';
+  // For notes, always show "Log" as the parent category
   return 'Log';
 }
 
