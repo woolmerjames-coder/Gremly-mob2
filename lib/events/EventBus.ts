@@ -54,6 +54,7 @@ export type EventMap = {
     dueDate?: string | null;
     confirmationMessage?: string | null;
     frequency?: string | null;
+    hasPhotos?: boolean;
   };
 };
 

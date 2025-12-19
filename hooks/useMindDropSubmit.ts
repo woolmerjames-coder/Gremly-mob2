@@ -307,6 +307,7 @@ export function useMindDropSubmit(): {
             views: {
               minddrop_stage: 'classified',
               ai_pending: true,
+              ...(photoUris.length > 0 && { has_photos: true }),
             },
             photoUris, // Photos will be uploaded automatically by the store
           });

@@ -91,7 +91,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock } from 'lucide-react-native';
+import { Lock, Camera } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -785,6 +785,7 @@ type UnifiedDrop = {
   canonical_type?: string | null; // Canonical type from buildCanonicalFromMindDrop: 'todo', 'habit', 'log', 'journal'
   labels?: string[]; // Labels from backend: ['log'], ['habit'], ['todo'], ['catchall', 'needs_review'], etc.
   views?: any; // For ai_pending, ai_failed, and other view flags
+  hasPhotos?: boolean; // True if note has photo attachments
 };
 
 /**
@@ -1510,7 +1511,7 @@ const AnimatedMindDropCard: React.FC<{
       {/* Row 2: Confirmation message */}
       <Text style={styles.recentConfirmation}>{getConfirmationMessage(effectiveKind, item)}</Text>
 
-      {/* Row 3: Contextual info (left) + timestamp (right) */}
+      {/* Row 3: Contextual info (left) + [photo icon] timestamp (right) */}
       <View style={styles.recentMetaRow}>
         {(() => {
           const contextMeta = getContextualMeta(effectiveKind, item);
@@ -1523,7 +1524,10 @@ const AnimatedMindDropCard: React.FC<{
             </Text>
           ) : null;
         })()}
-        <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
+          <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -1924,6 +1928,7 @@ const RecentDrops: React.FC<{
             canonical_type: noteAny?.canonical_type ?? null,
             labels: Array.isArray(noteAny?.labels) ? noteAny.labels : [],
             views: noteAny?.views ?? {},
+            hasPhotos: noteAny?.views?.has_photos === true,
           };
         });
 
@@ -2291,6 +2296,7 @@ const RecentDrops: React.FC<{
               labels: Array.isArray(record.labels) ? record.labels : [],
               noteSubtype: record.subtype ?? 'catchall',
               archived: record.archived ?? false,
+              hasPhotos: record.views?.has_photos === true,
             };
 
             // Atomic replacement - no jolt
@@ -2375,6 +2381,7 @@ const RecentDrops: React.FC<{
             tags: payload.tags,
             due_date: payload.dueDate ?? item.due_date,
             frequency: payload.frequency ?? item.frequency,
+            hasPhotos: payload.hasPhotos ?? item.hasPhotos,
             views: {
               ...item.views,
               minddrop_stage: 'enriched',

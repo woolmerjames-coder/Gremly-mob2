@@ -332,6 +332,7 @@ export async function runPhase2(
         dueDate: result.extractedDate,
         confirmationMessage: result.confirmationMessage,
         frequency: result.extractedFrequency ?? null,
+        hasPhotos: entity.views?.has_photos === true,
       });
 
       return result;
