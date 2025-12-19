@@ -160,11 +160,21 @@ export async function runPhase2(
   subtype: LogSubtype | null,
   repo: any, // eslint-disable-line @typescript-eslint/no-explicit-any
 ): Promise<Phase2Result | null> {
+  const t0 = Date.now();
+  const timing: Record<string, number> = {};
+  const mark = (label: string) => {
+    timing[label] = Date.now() - t0;
+    console.log(`[Phase2:Timing] ${label}: ${timing[label]}ms`);
+  };
+
+  mark('start');
+
   // 1. Check feature flag
   if (!FEATURE_FLAGS.PHASE2_ENRICHMENT_ENABLED) {
     console.log('[Phase2] Enrichment disabled by feature flag');
     return null;
   }
+  mark('flag_check');
 
   // 2. Get entity to check current stage
   console.log('[Phase2] Getting entity', { entityId, bucket });
@@ -181,6 +191,7 @@ export async function runPhase2(
     console.log('[Phase2] Entity not found', { entityId });
     return null;
   }
+  mark('entity_fetched');
 
   // 3. Guard: prevent duplicate enrichment
   const currentStage = entity.views?.minddrop_stage;
@@ -189,17 +200,8 @@ export async function runPhase2(
     return null;
   }
 
-  // 4. Update entity to 'enriching' stage
-  try {
-    await repo.update({
-      id: entityId,
-      patch: { views: { ...entity.views, minddrop_stage: 'enriching' } },
-    });
-    console.log('[Phase2] Started enrichment', { entityId, bucket, subtype });
-  } catch (err) {
-    console.log('[Phase2] Failed to set enriching stage', { entityId, error: String(err) });
-    // Continue anyway - enrichment is more important than stage tracking
-  }
+  // 4. Start enrichment (no DB write needed - UI tracks state locally via optimistic updates)
+  console.log('[Phase2] Started enrichment', { entityId, bucket, subtype });
 
   // 5. Call API with retry logic
   let result: Phase2Result | null = null;
@@ -210,6 +212,7 @@ export async function runPhase2(
     console.log('[Phase2] Attempt', { attempt: attempts, maxRetries: MAX_RETRIES + 1 });
 
     result = await callEnrichAPI(text, bucket, subtype);
+    mark('api_returned');
 
     if (result) {
       break; // Success
@@ -250,6 +253,7 @@ export async function runPhase2(
           }
         }
       }
+      mark('validation_complete');
 
       // Build update payload based on bucket type
       // Merge people[] into tags as @name format for persistence
@@ -319,7 +323,9 @@ export async function runPhase2(
         }
       }
 
+      mark('before_final_save');
       await repo.update({ id: entityId, patch: updatePayload });
+      mark('final_save_complete');
 
       console.log('[Phase2] Enrichment complete', {
         entityId,
@@ -341,6 +347,14 @@ export async function runPhase2(
         frequency: result.extractedFrequency ?? null,
         hasPhotos: entity.views?.has_photos === true,
         startDate: result.extractedStartDate ?? (entity as any).start_date ?? null,
+      });
+      mark('event_emitted');
+
+      // Log full timing summary
+      console.log('[Phase2:Timing] SUMMARY', {
+        entityId,
+        total: Date.now() - t0,
+        breakdown: timing,
       });
 
       return result;

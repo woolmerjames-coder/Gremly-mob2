@@ -100,6 +100,7 @@ describe('runPhase2', () => {
             tags: ['shopping', 'groceries'],
             time_estimate_minutes: 15,
             extracted_date: '2025-12-11',
+            extracted_start_date: null,
             extracted_frequency: null,
             people: [],
             confirmation_message: 'Added to your shopping list.',
@@ -120,6 +121,7 @@ describe('runPhase2', () => {
       expect(result?.tags).toEqual(['shopping', 'groceries']);
       expect(result?.timeEstimateMinutes).toBe(15);
       expect(result?.extractedDate).toBe('2025-12-11');
+      expect(result?.extractedStartDate).toBeNull();
       expect(result?.confirmationMessage).toBe('Added to your shopping list.');
     });
 
@@ -138,6 +140,7 @@ describe('runPhase2', () => {
             tags: ['shopping'],
             time_estimate_minutes: 15,
             extracted_date: null,
+            extracted_start_date: null,
             extracted_frequency: null,
             people: [],
             // No confirmation_message field
@@ -209,6 +212,7 @@ describe('runPhase2', () => {
             tags: ['career', 'reflection'],
             time_estimate_minutes: null,
             extracted_date: null,
+            extracted_start_date: null,
             extracted_frequency: null,
             people: [],
           }),
@@ -229,6 +233,107 @@ describe('runPhase2', () => {
           title: 'Reflection on career goals',
         }),
       });
+    });
+
+    test('writes start_date to habit when extracted', async () => {
+      const mockRepo = createMockRepo({
+        id: 'entity-123',
+        views: { minddrop_stage: 'classified' },
+        start_date: null, // Not already set
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            smart_title: 'Morning run',
+            tags: ['fitness'],
+            time_estimate_minutes: null,
+            extracted_date: null,
+            extracted_start_date: '2025-01-01',
+            extracted_frequency: 'daily',
+            people: [],
+          }),
+      });
+
+      await runPhase2(
+        'entity-123',
+        'start running every morning beginning january 1st',
+        'habit',
+        null,
+        mockRepo,
+      );
+
+      // Should write start_date to habit
+      expect(mockRepo.update).toHaveBeenCalledWith({
+        id: 'entity-123',
+        patch: expect.objectContaining({
+          start_date: '2025-01-01',
+        }),
+      });
+    });
+
+    test('returns extractedStartDate in result', async () => {
+      const mockRepo = createMockRepo({
+        id: 'entity-123',
+        views: { minddrop_stage: 'classified' },
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            smart_title: 'Morning meditation',
+            tags: ['mindfulness'],
+            time_estimate_minutes: 15,
+            extracted_date: null,
+            extracted_start_date: '2025-02-01',
+            extracted_frequency: 'daily',
+            people: [],
+          }),
+      });
+
+      const result = await runPhase2(
+        'entity-123',
+        'meditate every morning starting february',
+        'habit',
+        null,
+        mockRepo,
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.extractedStartDate).toBe('2025-02-01');
+    });
+
+    test('does not overwrite existing start_date on habit', async () => {
+      const mockRepo = createMockRepo({
+        id: 'entity-123',
+        views: { minddrop_stage: 'classified' },
+        start_date: '2024-06-01', // Already set
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            smart_title: 'Morning run',
+            tags: ['fitness'],
+            time_estimate_minutes: null,
+            extracted_date: null,
+            extracted_start_date: '2025-01-01', // AI suggests different date
+            extracted_frequency: 'daily',
+            people: [],
+          }),
+      });
+
+      await runPhase2('entity-123', 'start running every morning', 'habit', null, mockRepo);
+
+      // Should NOT include start_date since entity already has one
+      const updateCall = mockRepo.update.mock.calls[0][0];
+      expect(updateCall.patch.start_date).toBeUndefined();
     });
   });
 
@@ -439,7 +544,7 @@ describe('runPhase2', () => {
   });
 
   describe('stage transitions', () => {
-    test('sets stage to enriching before API call', async () => {
+    test('skips intermediate enriching stage for performance (direct to enriched)', async () => {
       const mockRepo = createMockRepo({
         id: 'entity-123',
         views: { minddrop_stage: 'classified' },
@@ -454,6 +559,7 @@ describe('runPhase2', () => {
             tags: [],
             time_estimate_minutes: null,
             extracted_date: null,
+            extracted_start_date: null,
             extracted_frequency: null,
             people: [],
           }),
@@ -461,12 +567,13 @@ describe('runPhase2', () => {
 
       await runPhase2('entity-123', 'task', 'todo', null, mockRepo);
 
-      // First update should set stage to 'enriching'
-      expect(mockRepo.update).toHaveBeenNthCalledWith(1, {
+      // Only ONE update call - direct to enriched (no intermediate enriching stage)
+      expect(mockRepo.update).toHaveBeenCalledTimes(1);
+      expect(mockRepo.update).toHaveBeenCalledWith({
         id: 'entity-123',
         patch: expect.objectContaining({
           views: expect.objectContaining({
-            minddrop_stage: 'enriching',
+            minddrop_stage: 'enriched',
           }),
         }),
       });
