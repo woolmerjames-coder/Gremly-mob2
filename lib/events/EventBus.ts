@@ -55,6 +55,7 @@ export type EventMap = {
     confirmationMessage?: string | null;
     frequency?: string | null;
     hasPhotos?: boolean;
+    startDate?: string | null;
   };
 };
 

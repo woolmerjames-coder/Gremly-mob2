@@ -47,6 +47,7 @@ import {
   Maximize2,
   Star,
   FileText,
+  Clock,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -209,6 +210,18 @@ const PRESET_TIMES = [
   { label: '3:00 PM', hour: 15, minute: 0, key: '3:00-PM' },
   { label: '6:00 PM', hour: 18, minute: 0, key: '6:00-PM' },
   { label: '9:00 PM', hour: 21, minute: 0, key: '9:00-PM' },
+] as const;
+
+// Time estimate options for todos
+const TIME_ESTIMATE_OPTIONS = [
+  { value: 5, label: '5 min' },
+  { value: 10, label: '10 min' },
+  { value: 15, label: '15 min' },
+  { value: 30, label: '30 min' },
+  { value: 45, label: '45 min' },
+  { value: 60, label: '1 hour' },
+  { value: 90, label: '1.5 hours' },
+  { value: 120, label: '2 hours' },
 ] as const;
 
 // Multi-photo support for logs (Phase L5)
@@ -1069,6 +1082,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }
   const [isSaving, setIsSaving] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
+  const [showTimeEstimateModal, setShowTimeEstimateModal] = useState(false);
+  const [showHabitStartDatePicker, setShowHabitStartDatePicker] = useState(false);
+  const [showHabitEndDatePicker, setShowHabitEndDatePicker] = useState(false);
   const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
   const [showSpaceModal, setShowSpaceModal] = useState(false);
 
@@ -3282,6 +3298,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           due_day: dueDay,
           due_date: dueDay, // Set due_date same as due_day for backwards compatibility
           undefined_due: !dueDay, // True if no due date is set
+          time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
           space_id: s.spaceId ?? spaceId ?? null,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -3317,6 +3334,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         due_day: dueDay,
         due_date: dueDay, // Set due_date same as due_day for backwards compatibility
         undefined_due: !dueDay, // True if no due date is set
+        time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -3352,6 +3370,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           space_id: s.spaceId ?? spaceId ?? null,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
+          start_date: s.habit.start_date ?? null,
+          end_date: s.habit.end_date ?? null,
           // Commitment fields (only for todos/habits)
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
@@ -3369,6 +3389,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         space_id: s.spaceId ?? spaceId ?? null,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
+        start_date: s.habit.start_date ?? null,
+        end_date: s.habit.end_date ?? null,
         ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
@@ -5233,6 +5255,56 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     </Text>
                                   </View>
                                 ) : null}
+
+                                {/* Time estimate row for todos */}
+                                {baseType === 'todo' && (
+                                  <View style={styles.dueAndLockRow}>
+                                    <View style={styles.dueDateLeft}>
+                                      <Pressable
+                                        style={styles.dueDatePill}
+                                        onPress={() => setShowTimeEstimateModal(true)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                          state.todo.time_estimate_minutes
+                                            ? `Time estimate: ${state.todo.time_estimate_minutes} minutes`
+                                            : 'Add time estimate'
+                                        }
+                                      >
+                                        <Clock
+                                          size={16}
+                                          color={
+                                            state.todo.time_estimate_minutes
+                                              ? colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.7)'
+                                                : '#666666'
+                                              : colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.5)'
+                                                : '#777777'
+                                          }
+                                          style={styles.dueDateIcon}
+                                        />
+                                        <Text
+                                          style={[
+                                            styles.dueDateText,
+                                            !state.todo.time_estimate_minutes && {
+                                              color:
+                                                colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.5)'
+                                                  : '#777777',
+                                              fontWeight: '400',
+                                            },
+                                          ]}
+                                        >
+                                          {state.todo.time_estimate_minutes
+                                            ? TIME_ESTIMATE_OPTIONS.find(
+                                                (o) => o.value === state.todo.time_estimate_minutes,
+                                              )?.label || `${state.todo.time_estimate_minutes} min`
+                                            : 'Add time estimate'}
+                                        </Text>
+                                      </Pressable>
+                                    </View>
+                                  </View>
+                                )}
                               </Box>
                             ) : null}
 
@@ -5334,6 +5406,75 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       />
                                     </View>
                                   ) : null}
+                                </View>
+
+                                {/* Start/End Date row for habits */}
+                                <View style={styles.habitDateRow}>
+                                  {/* Start Date */}
+                                  <Pressable
+                                    style={styles.habitDatePill}
+                                    onPress={() => setShowHabitStartDatePicker(true)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Set start date"
+                                  >
+                                    <Calendar
+                                      size={14}
+                                      color={
+                                        state.habit.start_date
+                                          ? colorMode === 'dark'
+                                            ? 'rgba(255,255,255,0.7)'
+                                            : '#666666'
+                                          : colorMode === 'dark'
+                                            ? 'rgba(255,255,255,0.5)'
+                                            : '#999999'
+                                      }
+                                    />
+                                    <Text
+                                      style={[
+                                        styles.habitDateText,
+                                        !state.habit.start_date && {
+                                          color:
+                                            colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.5)'
+                                              : '#999999',
+                                        },
+                                      ]}
+                                    >
+                                      {state.habit.start_date
+                                        ? `Starts ${format(parseISO(state.habit.start_date), 'MMM d')}`
+                                        : 'Start TBD'}
+                                    </Text>
+                                  </Pressable>
+
+                                  {/* End Date (optional) */}
+                                  <Pressable
+                                    style={styles.habitDatePill}
+                                    onPress={() => setShowHabitEndDatePicker(true)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Set end date"
+                                  >
+                                    <Calendar
+                                      size={14}
+                                      color={
+                                        colorMode === 'dark' ? 'rgba(255,255,255,0.4)' : '#AAAAAA'
+                                      }
+                                    />
+                                    <Text
+                                      style={[
+                                        styles.habitDateText,
+                                        {
+                                          color:
+                                            colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.4)'
+                                              : '#AAAAAA',
+                                        },
+                                      ]}
+                                    >
+                                      {state.habit.end_date
+                                        ? `Ends ${format(parseISO(state.habit.end_date), 'MMM d')}`
+                                        : 'No end date'}
+                                    </Text>
+                                  </Pressable>
                                 </View>
                               </Box>
                             ) : null}
@@ -6440,6 +6581,281 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             />
                           </Box>
                         </ScrollView>
+                      </Pressable>
+                    </Pressable>
+                  </Modal>
+
+                  {/* Time Estimate Modal */}
+                  <Modal visible={showTimeEstimateModal} transparent animationType="fade">
+                    <Pressable
+                      style={{
+                        flex: 1,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                      }}
+                      onPress={() => setShowTimeEstimateModal(false)}
+                    >
+                      <Pressable
+                        onPress={(e) => e.stopPropagation()}
+                        style={{
+                          width: '92%',
+                          maxWidth: 400,
+                          alignSelf: 'center',
+                          backgroundColor: '#FFFFFF',
+                          paddingHorizontal: 20,
+                          paddingTop: 20,
+                          paddingBottom: 24,
+                          borderRadius: 20,
+                          borderWidth: 1,
+                          borderColor: '#E0E0E0',
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 8 },
+                          shadowOpacity: 0.15,
+                          shadowRadius: 24,
+                          elevation: 8,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 18,
+                            fontWeight: '600',
+                            color: '#222222',
+                            marginBottom: 16,
+                          }}
+                        >
+                          How long will this take?
+                        </Text>
+                        <View style={styles.timeEstimateGrid}>
+                          {TIME_ESTIMATE_OPTIONS.map((option) => (
+                            <Pressable
+                              key={option.value}
+                              style={[
+                                styles.timeEstimateOption,
+                                state.todo.time_estimate_minutes === option.value &&
+                                  styles.timeEstimateOptionSelected,
+                              ]}
+                              onPress={() => {
+                                dispatch({ type: 'SET_TODO_TIME_ESTIMATE', minutes: option.value });
+                                setShowTimeEstimateModal(false);
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.timeEstimateOptionText,
+                                  state.todo.time_estimate_minutes === option.value &&
+                                    styles.timeEstimateOptionTextSelected,
+                                ]}
+                              >
+                                {option.label}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                        {state.todo.time_estimate_minutes && (
+                          <Pressable
+                            style={styles.timeEstimateClearButton}
+                            onPress={() => {
+                              dispatch({ type: 'SET_TODO_TIME_ESTIMATE', minutes: null });
+                              setShowTimeEstimateModal(false);
+                            }}
+                          >
+                            <Text style={styles.timeEstimateClearButtonText}>Clear estimate</Text>
+                          </Pressable>
+                        )}
+                      </Pressable>
+                    </Pressable>
+                  </Modal>
+
+                  {/* Habit Start Date Picker Modal */}
+                  <Modal visible={showHabitStartDatePicker} transparent animationType="fade">
+                    <Pressable
+                      style={{
+                        flex: 1,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                      }}
+                      onPress={() => setShowHabitStartDatePicker(false)}
+                    >
+                      <Pressable
+                        onPress={(e) => e.stopPropagation()}
+                        style={{
+                          width: '92%',
+                          maxWidth: 400,
+                          alignSelf: 'center',
+                          backgroundColor: '#FFFFFF',
+                          paddingHorizontal: 20,
+                          paddingTop: 20,
+                          paddingBottom: 24,
+                          borderRadius: 20,
+                          borderWidth: 1,
+                          borderColor: '#E0E0E0',
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 8 },
+                          shadowOpacity: 0.15,
+                          shadowRadius: 24,
+                          elevation: 8,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 18,
+                            fontWeight: '600',
+                            color: '#222222',
+                            marginBottom: 16,
+                          }}
+                        >
+                          When do you want to start?
+                        </Text>
+                        <DateTimePicker
+                          value={
+                            state.habit.start_date ? parseISO(state.habit.start_date) : new Date()
+                          }
+                          mode="date"
+                          display="spinner"
+                          onChange={(event, date) => {
+                            if (event.type === 'set' && date) {
+                              dispatch({
+                                type: 'SET_HABIT_START_DATE',
+                                date: format(date, 'yyyy-MM-dd'),
+                              });
+                            }
+                            setShowHabitStartDatePicker(false);
+                          }}
+                        />
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            marginTop: 16,
+                          }}
+                        >
+                          <Pressable
+                            onPress={() => {
+                              dispatch({ type: 'SET_HABIT_START_DATE', date: null });
+                              setShowHabitStartDatePicker(false);
+                            }}
+                            style={{ paddingVertical: 8, paddingHorizontal: 12 }}
+                          >
+                            <Text style={{ color: '#888888', fontSize: 14 }}>Leave TBD</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              dispatch({
+                                type: 'SET_HABIT_START_DATE',
+                                date: format(new Date(), 'yyyy-MM-dd'),
+                              });
+                              setShowHabitStartDatePicker(false);
+                            }}
+                            style={{
+                              paddingVertical: 8,
+                              paddingHorizontal: 16,
+                              backgroundColor: lightTokens.colors.moss,
+                              borderRadius: 8,
+                            }}
+                          >
+                            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>
+                              Start Today
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </Pressable>
+                    </Pressable>
+                  </Modal>
+
+                  {/* Habit End Date Picker Modal */}
+                  <Modal visible={showHabitEndDatePicker} transparent animationType="fade">
+                    <Pressable
+                      style={{
+                        flex: 1,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                      }}
+                      onPress={() => setShowHabitEndDatePicker(false)}
+                    >
+                      <Pressable
+                        onPress={(e) => e.stopPropagation()}
+                        style={{
+                          width: '92%',
+                          maxWidth: 400,
+                          alignSelf: 'center',
+                          backgroundColor: '#FFFFFF',
+                          paddingHorizontal: 20,
+                          paddingTop: 20,
+                          paddingBottom: 24,
+                          borderRadius: 20,
+                          borderWidth: 1,
+                          borderColor: '#E0E0E0',
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 8 },
+                          shadowOpacity: 0.15,
+                          shadowRadius: 24,
+                          elevation: 8,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 18,
+                            fontWeight: '600',
+                            color: '#222222',
+                            marginBottom: 16,
+                          }}
+                        >
+                          Set an end date (optional)
+                        </Text>
+                        <DateTimePicker
+                          value={
+                            state.habit.end_date
+                              ? parseISO(state.habit.end_date)
+                              : addDays(new Date(), 30)
+                          }
+                          mode="date"
+                          display="spinner"
+                          minimumDate={
+                            state.habit.start_date ? parseISO(state.habit.start_date) : new Date()
+                          }
+                          onChange={(event, date) => {
+                            if (event.type === 'set' && date) {
+                              dispatch({
+                                type: 'SET_HABIT_END_DATE',
+                                date: format(date, 'yyyy-MM-dd'),
+                              });
+                            }
+                            setShowHabitEndDatePicker(false);
+                          }}
+                        />
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            marginTop: 16,
+                          }}
+                        >
+                          <Pressable
+                            onPress={() => {
+                              dispatch({ type: 'SET_HABIT_END_DATE', date: null });
+                              setShowHabitEndDatePicker(false);
+                            }}
+                            style={{ paddingVertical: 8, paddingHorizontal: 12 }}
+                          >
+                            <Text style={{ color: '#888888', fontSize: 14 }}>No end date</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => setShowHabitEndDatePicker(false)}
+                            style={{
+                              paddingVertical: 8,
+                              paddingHorizontal: 16,
+                              backgroundColor: lightTokens.colors.moss,
+                              borderRadius: 8,
+                            }}
+                          >
+                            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>
+                              Done
+                            </Text>
+                          </Pressable>
+                        </View>
                       </Pressable>
                     </Pressable>
                   </Modal>
@@ -8031,6 +8447,64 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#2E5540',
     fontWeight: '500',
+  },
+
+  /* Time estimate modal styles */
+  timeEstimateGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  timeEstimateOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    minWidth: '30%',
+    alignItems: 'center',
+  },
+  timeEstimateOptionSelected: {
+    backgroundColor: lightTokens.colors.moss,
+  },
+  timeEstimateOptionText: {
+    fontSize: 14,
+    color: '#333333',
+  },
+  timeEstimateOptionTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  timeEstimateClearButton: {
+    marginTop: 16,
+    alignSelf: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  timeEstimateClearButtonText: {
+    fontSize: 14,
+    color: '#888888',
+  },
+
+  /* Habit date row styling */
+  habitDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
+    paddingLeft: 12,
+  },
+  habitDatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+  },
+  habitDateText: {
+    fontSize: 13,
+    color: '#666666',
   },
 
   /* Title actions styling */

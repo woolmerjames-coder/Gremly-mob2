@@ -18,6 +18,7 @@ export interface Phase2Result {
   tags: string[];
   timeEstimateMinutes: number | null;
   extractedDate: string | null;
+  extractedStartDate: string | null;
   extractedFrequency: string | null;
   people: string[];
   confirmationMessage: string | null;
@@ -125,6 +126,7 @@ async function callEnrichAPI(
       tags: Array.isArray(json.tags) ? json.tags : [],
       timeEstimateMinutes: json.time_estimate_minutes ?? null,
       extractedDate: json.extracted_date ?? null,
+      extractedStartDate: json.extracted_start_date ?? null,
       extractedFrequency: json.extracted_frequency ?? null,
       people: Array.isArray(json.people) ? json.people : [],
       confirmationMessage: json.confirmation_message ?? null,
@@ -304,6 +306,10 @@ export async function runPhase2(
         if (result.extractedFrequency) {
           updatePayload.frequency = result.extractedFrequency;
         }
+        // Set start_date if extracted (only if not already set)
+        if (result.extractedStartDate && !entity.start_date) {
+          updatePayload.start_date = result.extractedStartDate;
+        }
       } else {
         // log (note)
         updatePayload.title = result.smartTitle;
@@ -321,6 +327,7 @@ export async function runPhase2(
         tagsCount: result.tags.length,
         hasTimeEstimate: result.timeEstimateMinutes !== null,
         hasDate: result.extractedDate !== null,
+        hasStartDate: result.extractedStartDate !== null,
       });
 
       // Emit event for UI to update card smoothly without refresh
@@ -333,6 +340,7 @@ export async function runPhase2(
         confirmationMessage: result.confirmationMessage,
         frequency: result.extractedFrequency ?? null,
         hasPhotos: entity.views?.has_photos === true,
+        startDate: result.extractedStartDate ?? (entity as any).start_date ?? null,
       });
 
       return result;

@@ -91,7 +91,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock, Camera } from 'lucide-react-native';
+import { Lock, Camera, Clock } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -786,6 +786,8 @@ type UnifiedDrop = {
   labels?: string[]; // Labels from backend: ['log'], ['habit'], ['todo'], ['catchall', 'needs_review'], etc.
   views?: any; // For ai_pending, ai_failed, and other view flags
   hasPhotos?: boolean; // True if note has photo attachments
+  time_estimate_minutes?: number | null; // Time estimate for todos from Phase 2 enrichment
+  start_date?: string | null; // ISO date string for habit start date
 };
 
 /**
@@ -1351,6 +1353,45 @@ function getConfirmationMessage(kind: 'note' | 'todo' | 'habit', item: UnifiedDr
 }
 
 /**
+ * Format time estimate for display in chip
+ * Returns null if no estimate, otherwise returns formatted string like "~15m" or "~1h"
+ */
+function formatTimeEstimate(minutes: number | null | undefined): string | null {
+  if (minutes === null || minutes === undefined) return null;
+  if (minutes < 60) return `~${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMins = minutes % 60;
+  if (remainingMins === 0) return `~${hours}h`;
+  return `~${hours}h ${remainingMins}m`;
+}
+
+/**
+ * Format habit start date for display
+ * Returns "Starts TBD" if null, or "Starts Mon" / "Starts Jan 1" format
+ */
+function formatStartDate(startDate: string | null | undefined): string {
+  if (!startDate) return 'Starts TBD';
+
+  try {
+    const date = new Date(startDate + 'T00:00:00'); // Parse as local date
+    const now = new Date();
+    const diffDays = Math.floor((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    // If within next 7 days, show day name
+    if (diffDays >= 0 && diffDays < 7) {
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      return `Starts ${dayName}`;
+    }
+
+    // Otherwise show "Jan 1" format
+    const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `Starts ${formatted}`;
+  } catch {
+    return 'Starts TBD';
+  }
+}
+
+/**
  * Get contextual metadata string for Mind Drop card meta row
  */
 function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string | null {
@@ -1511,19 +1552,36 @@ const AnimatedMindDropCard: React.FC<{
       {/* Row 2: Confirmation message */}
       <Text style={styles.recentConfirmation}>{getConfirmationMessage(effectiveKind, item)}</Text>
 
-      {/* Row 3: Contextual info (left) + [photo icon] timestamp (right) */}
+      {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
       <View style={styles.recentMetaRow}>
-        {(() => {
-          const contextMeta = getContextualMeta(effectiveKind, item);
-          // Add testID for todos to support due date badge tests
-          const contextTestId =
-            effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
-          return contextMeta ? (
-            <Text testID={contextTestId} style={styles.recentContextPill}>
-              {contextMeta}
-            </Text>
-          ) : null;
-        })()}
+        {/* Left side: context pill + time estimate grouped together */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {(() => {
+            const contextMeta = getContextualMeta(effectiveKind, item);
+            // Add testID for todos to support due date badge tests
+            const contextTestId =
+              effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
+            return contextMeta ? (
+              <Text testID={contextTestId} style={styles.recentContextPill}>
+                {contextMeta}
+              </Text>
+            ) : null;
+          })()}
+          {/* Time estimate chip for todos - next to deadline */}
+          {effectiveKind === 'todo' && item.time_estimate_minutes && (
+            <View style={styles.timeEstimateChip}>
+              <Clock size={10} color="#888" strokeWidth={2} />
+              <Text style={styles.timeEstimateText}>
+                {formatTimeEstimate(item.time_estimate_minutes)}
+              </Text>
+            </View>
+          )}
+          {/* Start date chip for habits */}
+          {effectiveKind === 'habit' && (
+            <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
+          )}
+        </View>
+        {/* Right side: photo icon + timestamp */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
           <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
@@ -1962,6 +2020,7 @@ const RecentDrops: React.FC<{
             canonical_type: (t as any)?.canonical_type ?? null,
             labels: Array.isArray((t as any)?.labels) ? (t as any).labels : [],
             views: (t as any)?.views ?? {},
+            time_estimate_minutes: (t as any)?.time_estimate_minutes ?? null,
           };
         });
 
@@ -1993,6 +2052,7 @@ const RecentDrops: React.FC<{
             canonical_type: (h as any)?.canonical_type ?? null,
             labels: Array.isArray((h as any)?.labels) ? (h as any).labels : [],
             views: (h as any)?.views ?? {},
+            start_date: (h as any)?.start_date ?? null,
           };
         });
 
@@ -2382,6 +2442,8 @@ const RecentDrops: React.FC<{
             due_date: payload.dueDate ?? item.due_date,
             frequency: payload.frequency ?? item.frequency,
             hasPhotos: payload.hasPhotos ?? item.hasPhotos,
+            time_estimate_minutes: payload.timeEstimate ?? item.time_estimate_minutes,
+            start_date: payload.startDate ?? item.start_date,
             views: {
               ...item.views,
               minddrop_stage: 'enriched',
@@ -6475,6 +6537,21 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: c.mutedText,
       fontFamily: 'Inter-Medium',
       overflow: 'hidden',
+    },
+    // Time estimate chip for todos
+    timeEstimateChip: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 3,
+      backgroundColor: 'rgba(230, 240, 255, 0.6)',
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderRadius: 4,
+    },
+    timeEstimateText: {
+      fontSize: 10,
+      color: '#666',
+      fontFamily: 'Inter-Medium',
     },
     // Time ago in metadata row - same as recentMetaDue for consistency
     recentMetaTime: {
