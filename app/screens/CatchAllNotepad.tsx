@@ -2381,6 +2381,7 @@ const RecentDrops: React.FC<{
             title: payload.smartTitle,
             tags: payload.tags,
             due_date: payload.dueDate ?? item.due_date,
+            frequency: payload.frequency ?? item.frequency,
             views: {
               ...item.views,
               minddrop_stage: 'enriched',

@@ -12,7 +12,9 @@ import {
   ActivityIndicator,
   Image,
   SafeAreaView,
+  Platform,
 } from 'react-native';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuth } from '../../providers/AuthProvider';
 
 const COLORS = {
@@ -24,7 +26,7 @@ const COLORS = {
 };
 
 export default function LoginScreen() {
-  const { signInWithGoogle, loading, error, clearError } = useAuth();
+  const { signInWithGoogle, signInWithApple, loading, error, clearError } = useAuth();
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   const handleGoogleSignIn = async () => {
@@ -34,6 +36,21 @@ export default function LoginScreen() {
       await signInWithGoogle();
     } catch (err) {
       console.error('[LoginScreen] Sign in failed:', err);
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    setIsSigningIn(true);
+    clearError();
+    try {
+      await signInWithApple();
+    } catch (err: any) {
+      // Don't log cancelled sign-ins
+      if (err.message) {
+        console.error('[LoginScreen] Apple sign in failed:', err);
+      }
     } finally {
       setIsSigningIn(false);
     }
@@ -83,6 +100,16 @@ export default function LoginScreen() {
               </>
             )}
           </TouchableOpacity>
+
+          {Platform.OS === 'ios' && (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+              cornerRadius={12}
+              style={styles.appleButton}
+              onPress={handleAppleSignIn}
+            />
+          )}
 
           <Text style={styles.disclaimer}>
             By continuing, you agree to our Terms of Service and Privacy Policy
@@ -169,6 +196,11 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: COLORS.charcoal,
+  },
+  appleButton: {
+    width: '100%',
+    height: 54,
+    marginTop: 12,
   },
   disclaimer: {
     fontSize: 12,

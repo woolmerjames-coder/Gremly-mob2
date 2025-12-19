@@ -331,6 +331,7 @@ export async function runPhase2(
         timeEstimate: result.timeEstimateMinutes,
         dueDate: result.extractedDate,
         confirmationMessage: result.confirmationMessage,
+        frequency: result.extractedFrequency ?? null,
       });
 
       return result;
