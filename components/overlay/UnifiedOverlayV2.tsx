@@ -8091,6 +8091,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
           dbFrequency === 'daily' ? 'daily' : dbFrequency === 'weekly' ? 'weekly' : 'custom',
         frequency_json: frequencyJson, // Built from frequency + frequency_value columns
         subtype: (entity as any)?.subtype ?? 'start_habit', // Habit mode
+        start_date: (entity as any)?.start_date ?? null,
+        end_date: (entity as any)?.end_date ?? null,
       },
       todo: {
         title: compactTitle,
@@ -8224,6 +8226,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       // Prefer due_day, fallback to computing from due_date if needed
       due_day: (entity as any)?.due_day ?? null,
       due_time: (entity as any)?.due_time ?? null,
+      time_estimate_minutes: (entity as any)?.time_estimate_minutes ?? null,
     },
     habit: {
       title: name || title || '',
@@ -8232,6 +8235,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         entityFrequency === 'daily' ? 'daily' : entityFrequency === 'weekly' ? 'weekly' : 'custom',
       frequency_json: habitFrequencyJson, // Built from frequency + frequency_value columns
       subtype: (entity as any)?.subtype ?? 'start_habit',
+      start_date: (entity as any)?.start_date ?? null,
+      end_date: (entity as any)?.end_date ?? null,
     },
     tags: extractedTags, // Initialize tags from entity for all types
     stickyTags: normalizeMetaValues(tagsMeta?.sticky),
