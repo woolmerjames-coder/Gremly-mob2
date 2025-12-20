@@ -1086,15 +1086,55 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }, []); // Empty deps - uses refs to avoid re-subscribing
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Card Action Handlers (wired to unified outcome handler)
+  // Card Action Handlers (record decisions, don't commit immediately)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
-    handleOutcome('skip');
-  }, [handleOutcome]);
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const { candidate } = candidateWithMeta;
+
+    recordDecision({
+      candidateId: candidate.id,
+      candidateKind: candidate.kind,
+      action: 'keep',
+    });
+
+    // Update stats
+    setStats((prev) => {
+      const newStats = { ...prev, kept: prev.kept + 1 };
+      // Move to next card (or finish if last)
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        onFinished(newStats);
+      }
+      return newStats;
+    });
+  }, [candidatesWithMeta, currentIndex, recordDecision, onFinished]);
 
   const handleClear = useCallback(() => {
-    handleOutcome('clear');
-  }, [handleOutcome]);
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const { candidate } = candidateWithMeta;
+
+    recordDecision({
+      candidateId: candidate.id,
+      candidateKind: candidate.kind,
+      action: 'clear',
+    });
+
+    // Update stats
+    setStats((prev) => {
+      const newStats = { ...prev, cleared: prev.cleared + 1 };
+      // Move to next card
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        onFinished(newStats);
+      }
+      return newStats;
+    });
+  }, [candidatesWithMeta, currentIndex, recordDecision, onFinished]);
 
   const handleOpenEdit = useCallback(() => {
     const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -1152,13 +1192,13 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
   /**
    * Handle confirmed quick date (user selected + swiped right)
-   * This is when we actually save the date
+   * Records decision with calculated date - actual save happens in batch commit
    */
   const handleConfirmQuickDate = useCallback(
-    async (option: 'tomorrow' | '2days' | 'nextweek') => {
+    (option: 'tomorrow' | '2days' | 'nextweek') => {
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
-      const candidate = candidateWithMeta.candidate;
+      const { candidate } = candidateWithMeta;
 
       // Calculate the target date
       const today = new Date();
@@ -1175,98 +1215,111 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           break;
       }
 
-      try {
-        // Get current reschedule count and increment
-        const currentCount = candidate.raw.sweep_reschedule_count ?? 0;
+      recordDecision({
+        candidateId: candidate.id,
+        candidateKind: candidate.kind,
+        action: 'keep',
+        dueDate: targetDate,
+      });
 
-        // Update todo with new due_day and clear skipped_in_sweep_at
-        await updateTodo(candidate.id, {
-          due_day: toDayString(targetDate),
-          skipped_in_sweep_at: null,
-          sweep_reschedule_count: currentCount + 1,
-        } as any);
-        // Advance to next card (counts as "changed")
-        handleOutcome('changed');
-      } catch (error) {
-        console.error('[SweepDecisionStep] handleConfirmQuickDate error:', error);
-      }
+      // Update stats and move to next card
+      setStats((prev) => {
+        const newStats = { ...prev, kept: prev.kept + 1 };
+        if (currentIndex < candidatesWithMeta.length - 1) {
+          setCurrentIndex(currentIndex + 1);
+        } else {
+          onFinished(newStats);
+        }
+        return newStats;
+      });
     },
-    [candidatesWithMeta, currentIndex, updateTodo, handleOutcome],
+    [candidatesWithMeta, currentIndex, recordDecision, onFinished],
   );
 
   /**
    * Handle confirmed custom date (user picked date in date picker + swiped right)
-   * This is when we actually save the custom date
+   * Records decision with custom date - actual save happens in batch commit
    */
   const handleConfirmCustomDate = useCallback(
-    async (date: Date) => {
+    (date: Date) => {
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
-      const candidate = candidateWithMeta.candidate;
+      const { candidate } = candidateWithMeta;
 
-      try {
-        // Get current reschedule count and increment
-        const currentCount = candidate.raw.sweep_reschedule_count ?? 0;
+      recordDecision({
+        candidateId: candidate.id,
+        candidateKind: candidate.kind,
+        action: 'keep',
+        dueDate: date,
+      });
 
-        // Update todo with new due_day and clear skipped_in_sweep_at
-        await updateTodo(candidate.id, {
-          due_day: toDayString(date),
-          skipped_in_sweep_at: null,
-          sweep_reschedule_count: currentCount + 1,
-        } as any);
-        // Advance to next card (counts as "changed")
-        handleOutcome('changed');
-      } catch (error) {
-        console.error('[SweepDecisionStep] handleConfirmCustomDate error:', error);
-      }
+      // Update stats and move to next card
+      setStats((prev) => {
+        const newStats = { ...prev, kept: prev.kept + 1 };
+        if (currentIndex < candidatesWithMeta.length - 1) {
+          setCurrentIndex(currentIndex + 1);
+        } else {
+          onFinished(newStats);
+        }
+        return newStats;
+      });
     },
-    [candidatesWithMeta, currentIndex, updateTodo, handleOutcome],
+    [candidatesWithMeta, currentIndex, recordDecision, onFinished],
   );
 
   /**
-   * Confirm Habit Start Handler - Sets start date and confirms habit
-   * Used for unconfirmed habits that appear in Sweep
+   * Confirm Habit Start Handler - Records habit start decision
+   * Actual save happens in batch commit
    */
   const handleConfirmHabitStart = useCallback(
-    async (
+    (
       action: 'asktomorrow' | 'starttomorrow' | 'startmonday',
       customDate?: Date,
     ) => {
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'habit') return;
-      const habit = candidateWithMeta.candidate;
+      const { candidate } = candidateWithMeta;
 
-      try {
-        if (action === 'asktomorrow') {
-          // Don't confirm, just skip to next card - habit stays in sweep
-          handleOutcome('skip');
-          return;
-        }
-
+      if (action === 'asktomorrow') {
+        // Skip - will ask again tomorrow
+        recordDecision({
+          candidateId: candidate.id,
+          candidateKind: 'habit',
+          action: 'skip',
+          habitAction: action,
+        });
+      } else {
         // Calculate start date based on action
         let startDate: Date;
-        if (action === 'starttomorrow') {
-          startDate = addDays(new Date(), 1);
-        } else if (action === 'startmonday') {
-          startDate = nextMonday(new Date());
-        } else if (customDate) {
+        if (customDate) {
           startDate = customDate;
+        } else if (action === 'starttomorrow') {
+          startDate = addDays(new Date(), 1);
         } else {
-          return;
+          startDate = nextMonday(new Date());
         }
 
-        // Update habit with start_date and start_date_confirmed
-        await updateHabit(habit.id, {
-          start_date: startDate.toISOString().split('T')[0], // YYYY-MM-DD format
-          start_date_confirmed: true,
+        recordDecision({
+          candidateId: candidate.id,
+          candidateKind: 'habit',
+          action: 'keep',
+          startDate,
+          habitAction: action,
         });
-
-        handleOutcome('changed');
-      } catch (error) {
-        console.error('[SweepDecisionStep] handleConfirmHabitStart error:', error);
       }
+
+      // Update stats and move to next card
+      setStats((prev) => {
+        const newStats = { ...prev, kept: prev.kept + 1 };
+        if (currentIndex < candidatesWithMeta.length - 1) {
+          setCurrentIndex(currentIndex + 1);
+        } else {
+          onFinished(newStats);
+        }
+        return newStats;
+      });
     },
-    [candidatesWithMeta, currentIndex, updateHabit, handleOutcome],
+    [candidatesWithMeta, currentIndex, recordDecision, onFinished],
   );
 
   /**
