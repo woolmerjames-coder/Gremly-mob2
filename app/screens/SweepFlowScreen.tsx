@@ -2242,6 +2242,7 @@ const styles = StyleSheet.create({
   // SweepDecisionStep styles - Linen Cream background with sage card
   decisionStepContainer: {
     flex: 1,
+    position: 'relative', // For absolute positioned behindCardTextContainer
     backgroundColor: '#FFFFFF', // White background for contrast
   },
   decisionHeader: {

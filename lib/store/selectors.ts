@@ -7,6 +7,7 @@ import type {
   SweepCandidateNote,
   SweepCardMeta,
 } from '../sweep/types';
+import type { SweepIntroItem, SweepIntroStats } from '../sweep/introStats';
 import { computeSweepCardMeta } from '../sweep/computeSweepCardMeta';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 
@@ -1620,3 +1621,60 @@ export function filterUnsortedForReview(items: (Todo | Habit | Note)[]): (Todo |
     return false;
   });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWEEP INTRO STATS (computed from store data)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compute sweep intro stats from store data.
+ * This avoids Supabase queries by using data already loaded in Zustand.
+ *
+ * @param state - The Gremly store state
+ * @param lastSweepCompletedAt - The timestamp of the last sweep (null for first sweep)
+ * @returns Stats showing completed and dropped items since last sweep
+ */
+export const selectSweepIntroStats = (
+  state: GremlyState,
+  lastSweepCompletedAt: string | null,
+): SweepIntroStats => {
+  const cutoffTimestamp =
+    lastSweepCompletedAt || new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+  // Completed todos (has completed_at > cutoff)
+  const completedTodos: SweepIntroItem[] = state.todos
+    .filter((t) => t.completed_at && t.completed_at > cutoffTimestamp)
+    .map((t) => ({ id: t.id, name: t.name || 'Untitled', type: 'todo' as const }));
+
+  // Completed habits (from habitProgress where occurred_at > cutoff)
+  const completedHabitIds = new Set(
+    state.habitProgress.filter((p) => p.occurred_at > cutoffTimestamp).map((p) => p.habit_id),
+  );
+  const completedHabits: SweepIntroItem[] = state.habits
+    .filter((h) => completedHabitIds.has(h.id))
+    .map((h) => ({ id: h.id, name: h.name || 'Untitled', type: 'habit' as const }));
+
+  // Dropped items (created since cutoff, not archived, not completed)
+  const droppedTodos: SweepIntroItem[] = state.todos
+    .filter((t) => t.created_at > cutoffTimestamp && !t.archived && !t.completed_at)
+    .map((t) => ({ id: t.id, name: t.name || 'Untitled', type: 'todo' as const }));
+
+  const droppedHabits: SweepIntroItem[] = state.habits
+    .filter((h) => h.created_at > cutoffTimestamp && !h.archived)
+    .map((h) => ({ id: h.id, name: h.name || 'Untitled', type: 'habit' as const }));
+
+  const droppedNotes: SweepIntroItem[] = state.notes
+    .filter((n) => n.created_at > cutoffTimestamp && !n.archived)
+    .map((n) => ({ id: n.id, name: n.title || 'Untitled', type: 'note' as const }));
+
+  return {
+    completed: { todos: completedTodos, habits: completedHabits },
+    dropped: { todos: droppedTodos, habits: droppedHabits, notes: droppedNotes },
+    isFirstSweep: !lastSweepCompletedAt,
+    cutoffTimestamp,
+  };
+};
+
+/** Hook to get sweep intro stats from store */
+export const useSweepIntroStatsFromStore = (lastSweepCompletedAt: string | null) =>
+  useGremlyStore((state) => selectSweepIntroStats(state, lastSweepCompletedAt));

@@ -90,8 +90,9 @@ const VELOCITY_THRESHOLD = 400; // Velocity that can trigger swipe even if thres
 const CARD_WIDTH = SCREEN_WIDTH * 0.84; // 84% of screen width - leaves room for edge labels
 
 // Behind-card confirmation messages (revealed as card moves)
-const CLEAR_MESSAGES = ['DONE', 'CLEARED', 'GONE', 'ARCHIVED'];
-const KEEP_MESSAGES = ['SAVED', 'KEEPING IT', 'ON IT', 'NOTED'];
+// Exported for use in SweepFlowScreen where the text is now rendered
+export const CLEAR_MESSAGES = ['DONE', 'CLEARED', 'GONE', 'ARCHIVED'];
+export const KEEP_MESSAGES = ['SAVED', 'KEEPING IT', 'ON IT', 'NOTED'];
 
 // Check if we're in test environment
 const isTestEnv =
@@ -128,6 +129,8 @@ export interface SweepCardProps {
   onClose?: () => void;
   /** Hide the bottom save/exit section (when parent handles it) */
   hideBottomSaveExit?: boolean;
+  /** Called during swipe with normalized progress (-1 to 1) */
+  onSwipeProgress?: (progress: number) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,6 +248,7 @@ export function SweepCard({
   onAddToSpace,
   onClose,
   hideBottomSaveExit,
+  onSwipeProgress,
 }: SweepCardProps) {
   const repo = useRepo();
   const title = getCandidateTitle(candidate);
@@ -582,6 +586,11 @@ export function SweepCard({
     .onUpdate((event) => {
       translateX.value = event.translationX;
 
+      // Report swipe progress to parent (normalized -1 to 1)
+      if (onSwipeProgress) {
+        runOnJS(onSwipeProgress)(event.translationX / SWIPE_THRESHOLD);
+      }
+
       // Trigger haptic at 80% threshold (once)
       const progress = Math.abs(event.translationX) / SWIPE_THRESHOLD;
       if (progress >= 0.8 && !hasTriggeredHaptic.value) {
@@ -597,6 +606,11 @@ export function SweepCard({
       // Fade out border
       borderOpacity.value = withTiming(0, { duration: 200 });
       const { translationX, velocityX } = event;
+
+      // Reset swipe progress when gesture ends
+      if (onSwipeProgress) {
+        runOnJS(onSwipeProgress)(0);
+      }
 
       // Check if swipe passes threshold (by position or velocity)
       const swipedRight =
@@ -716,46 +730,27 @@ export function SweepCard({
     };
   });
 
-  // Animated style for behind-card confirmation text (LEFT - shown when swiping left)
-  const animatedBehindLeftTextStyle = useAnimatedStyle(() => {
-    // Only show when swiping left (negative translateX)
+  // Animated style for confirmation card (fades in as main card moves)
+  const animatedConfirmationStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
-      translateX.value,
-      [-SWIPE_THRESHOLD, -40, 0],
-      [1, 0.5, 0],
-      Extrapolation.CLAMP,
-    );
-    const scale = interpolate(
-      translateX.value,
-      [-SWIPE_THRESHOLD, 0],
-      [1, 0.9],
-      Extrapolation.CLAMP,
-    );
-    return {
-      opacity,
-      transform: [{ scale }],
-    };
-  });
-
-  // Animated style for behind-card confirmation text (RIGHT - shown when swiping right)
-  const animatedBehindRightTextStyle = useAnimatedStyle(() => {
-    // Only show when swiping right (positive translateX)
-    const opacity = interpolate(
-      translateX.value,
-      [0, 40, SWIPE_THRESHOLD],
+      Math.abs(translateX.value),
+      [0, SWIPE_THRESHOLD * 0.5, SWIPE_THRESHOLD],
       [0, 0.5, 1],
       Extrapolation.CLAMP,
     );
-    const scale = interpolate(
-      translateX.value,
-      [0, SWIPE_THRESHOLD],
-      [0.9, 1],
-      Extrapolation.CLAMP,
-    );
-    return {
-      opacity,
-      transform: [{ scale }],
-    };
+    return { opacity };
+  });
+
+  // Animated style for "keep" text (shown when swiping right)
+  const animatedKeepTextStyle = useAnimatedStyle(() => {
+    const opacity = translateX.value > 0 ? 1 : 0;
+    return { opacity };
+  });
+
+  // Animated style for "clear" text (shown when swiping left)
+  const animatedClearTextStyle = useAnimatedStyle(() => {
+    const opacity = translateX.value < 0 ? 1 : 0;
+    return { opacity };
   });
 
   // Button handlers with animation
@@ -818,17 +813,21 @@ export function SweepCard({
 
       {/* Centered Card Container - Swipeable */}
       <View style={styles.cardCenteringContainer}>
-        {/* Behind-Card Confirmation Text - Centered, shows based on swipe direction */}
-        <View style={styles.behindCardTextContainer} pointerEvents="none">
-          {/* Left message (shown when swiping left) */}
-          <Animated.View style={[styles.behindCardTextWrapper, animatedBehindLeftTextStyle]}>
-            <Text style={styles.behindCardText}>{clearMessage}</Text>
-          </Animated.View>
-          {/* Right message (shown when swiping right) */}
-          <Animated.View style={[styles.behindCardTextWrapper, animatedBehindRightTextStyle]}>
-            <Text style={styles.behindCardText}>{keepMessage}</Text>
-          </Animated.View>
-        </View>
+        {/* Confirmation Card - sits behind main card, fades in as card moves */}
+        <Animated.View style={[styles.confirmationCard, animatedConfirmationStyle]}>
+          <Animated.Text style={[styles.confirmationCardText, animatedKeepTextStyle]}>
+            {keepMessage}
+          </Animated.Text>
+          <Animated.Text
+            style={[
+              styles.confirmationCardText,
+              styles.confirmationCardTextClear,
+              animatedClearTextStyle,
+            ]}
+          >
+            {clearMessage}
+          </Animated.Text>
+        </Animated.View>
 
         <GestureDetector gesture={panGesture}>
           <Animated.View
@@ -1412,6 +1411,7 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
     backgroundColor: '#FFFFFF',
+    overflow: 'visible',
   },
 
   // Card Centering Container - Centers the card horizontally, positioned toward top
@@ -1423,6 +1423,7 @@ const styles = StyleSheet.create({
     paddingTop: 32,
     paddingBottom: 0,
     zIndex: 2,
+    overflow: 'visible',
   },
 
   // Swipe Card Container - The actual card that swipes
@@ -1441,6 +1442,29 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 4, // Android
+  },
+
+  // Confirmation Card - sits behind main card, shows feedback text
+  confirmationCard: {
+    position: 'absolute',
+    top: 250, // lower on the page, centered with main card
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF', // pure white to match page background
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0, // behind the main card
+  },
+  confirmationCardText: {
+    position: 'absolute',
+    fontSize: 32,
+    fontWeight: '800',
+    color: BRAND.colors.sageMist,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+  },
+  confirmationCardTextClear: {
+    color: BRAND.colors.goldenPear,
   },
 
   // Card background variants
@@ -1773,25 +1797,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: 'rgba(34, 34, 34, 0.55)', // Reduced prominence
     letterSpacing: 0.2,
-  },
-
-  // Behind-card confirmation text - centered behind the card
-  behindCardTextContainer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 0, // Behind the card
-  },
-  behindCardTextWrapper: {
-    position: 'absolute',
-  },
-  behindCardText: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: BRAND.colors.mossGreen,
-    letterSpacing: 3,
-    textTransform: 'uppercase',
-    opacity: 0.5,
   },
 
   // Save & Exit Container - Single centered text link
