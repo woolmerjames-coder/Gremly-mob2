@@ -123,6 +123,8 @@ export interface SweepCardProps {
   onConvertToTodo?: () => void;
   /** Called when user swipes right with a quick date selected */
   onConfirmQuickDate?: (option: 'tomorrow' | '2days' | 'nextweek') => void;
+  /** Called when user swipes right with a custom date picked */
+  onConfirmCustomDate?: (date: Date) => void;
   /** Called when user taps "Add to Space" for logs */
   onAddToSpace?: () => void;
   /** Called when user confirms a habit start action */
@@ -252,6 +254,7 @@ export function SweepCard({
   onOpenEdit,
   onConvertToTodo,
   onConfirmQuickDate,
+  onConfirmCustomDate,
   onAddToSpace,
   onConfirmHabitStart,
   onClose,
@@ -318,7 +321,8 @@ export function SweepCard({
   const [selectedTime, setSelectedTime] = useState(new Date());
   const [selectedTimePreset, setSelectedTimePreset] = useState<string | null>(null);
   const [clearDateFlag, setClearDateFlag] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  // Track confirmed custom date from date picker (used when user swipes right with pickdate selected)
+  const [confirmedCustomDate, setConfirmedCustomDate] = useState<Date | null>(null);
 
   // Track which quick action button is selected (if any)
   // Default selection: Tomorrow for todos, Next Sweep for logs
@@ -382,6 +386,7 @@ export function SweepCard({
     setSelectedQuickAction(getDefaultSelection());
     setHasUserSelected(false);
     setSelectedHabitAction('asktomorrow');
+    setConfirmedCustomDate(null);
     // Pre-fill date based on candidate
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
@@ -454,54 +459,24 @@ export function SweepCard({
   // ─────────────────────────────────────────────────────────────────────────
   // Date Picker Handlers
   // ─────────────────────────────────────────────────────────────────────────
-  const handleDateConfirm = useCallback(async () => {
-    if (isSaving) return;
-    setIsSaving(true);
-
-    try {
-      if (candidate.kind !== 'todo') {
-        // Only todos have date pickers in Sweep
-        return;
-      }
-
-      if (clearDateFlag) {
-        // Clear the date
-        await repo.update({
-          id: candidate.id,
-          patch: {
-            due_day: null,
-            due_date: null,
-          } as any, // Todo-specific fields
-        });
-      } else {
-        // Set the date
-        const dueDay = toDayString(selectedDate);
-        await repo.update({
-          id: candidate.id,
-          patch: {
-            due_day: dueDay,
-            due_date: dueDay, // Also set due_date for backward compat
-          } as any, // Todo-specific fields
-        });
-      }
-
-      // If this was triggered by Skip action on undated todo, call onSkip now
-      if (keepAfterDatePick) {
-        setKeepAfterDatePick(false);
-        setShowDatePicker(false);
-        setClearDateFlag(false);
-        setIsSaving(false);
-        onSkip();
-        return;
-      }
-    } catch (error) {
-      console.error('[SweepCard] Failed to update date:', error);
-    } finally {
-      setIsSaving(false);
-      setShowDatePicker(false);
-      setClearDateFlag(false);
-    }
-  }, [candidate, selectedDate, clearDateFlag, isSaving, repo, keepAfterDatePick, onSkip]);
+  /**
+   * Called when user confirms a date in the date picker modal.
+   * Does NOT advance the card - only sets local state.
+   * User must swipe right to actually confirm the date.
+   */
+  const handleDateConfirm = useCallback(() => {
+    // Store the selected date locally
+    setConfirmedCustomDate(selectedDate);
+    // Keep pickdate as the selection
+    setSelectedQuickAction('pickdate');
+    setHasUserSelected(true);
+    // Close the modal
+    setShowDatePicker(false);
+    setClearDateFlag(false);
+    setShowTimePicker(false);
+    setSelectedTimePreset(null);
+    setKeepAfterDatePick(false);
+  }, [selectedDate]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Reanimated Swipe Gesture Handling
@@ -575,7 +550,7 @@ export function SweepCard({
     if (isUnconfirmedHabit && onConfirmHabitStart) {
       if (selectedHabitAction === 'pickdate') {
         // Pass custom date from date picker
-        onConfirmHabitStart('starttomorrow', selectedDate);
+        onConfirmHabitStart('starttomorrow', confirmedCustomDate || selectedDate);
       } else {
         onConfirmHabitStart(selectedHabitAction);
       }
@@ -583,7 +558,7 @@ export function SweepCard({
     }
 
     // Handle todos and notes
-    if (selectedQuickAction && selectedQuickAction !== 'pickdate' && onConfirmQuickDate) {
+    if (selectedQuickAction && onConfirmQuickDate) {
       // User selected a quick date, confirm it
       if (
         selectedQuickAction === 'tomorrow' ||
@@ -591,6 +566,9 @@ export function SweepCard({
         selectedQuickAction === 'nextweek'
       ) {
         onConfirmQuickDate(selectedQuickAction);
+      } else if (selectedQuickAction === 'pickdate' && confirmedCustomDate && onConfirmCustomDate) {
+        // Custom date selected from picker
+        onConfirmCustomDate(confirmedCustomDate);
       } else {
         // nextsweep or other - just skip
         onSkip();
@@ -599,7 +577,7 @@ export function SweepCard({
       // No selection, just keep/skip
       onSkip();
     }
-  }, [isUnconfirmedHabit, selectedHabitAction, selectedDate, onConfirmHabitStart, selectedQuickAction, onConfirmQuickDate, onSkip]);
+  }, [isUnconfirmedHabit, selectedHabitAction, confirmedCustomDate, selectedDate, onConfirmHabitStart, selectedQuickAction, onConfirmQuickDate, onConfirmCustomDate, onSkip]);
 
   // Handle swipe left completion - called from worklet via runOnJS
   const handleSwipeLeft = useCallback(() => {
@@ -1111,15 +1089,15 @@ export function SweepCard({
                             selectedQuickAction === 'pickdate' && styles.gridButtonLabelPrimary,
                           ]}
                         >
-                          Pick Date
+                          {confirmedCustomDate ? format(confirmedCustomDate, 'MMM d') : 'Pick Date'}
                         </Text>
                       </TouchableOpacity>
                     </View>
 
-                    {/* Confirmation hint - shows after selection */}
+                    {/* Confirmation hint - shows after selection (including custom date) */}
                     {hasUserSelected &&
                       selectedQuickAction &&
-                      selectedQuickAction !== 'pickdate' && (
+                      (selectedQuickAction !== 'pickdate' || confirmedCustomDate) && (
                         <View style={styles.confirmationHint}>
                           <Text style={styles.confirmationHintText}>Swipe right to save</Text>
                           <RNAnimated.Text
@@ -1516,15 +1494,11 @@ export function SweepCard({
                   <Text style={styles.dateModalCancelText}>Cancel</Text>
                 </Pressable>
                 <Pressable
-                  style={[
-                    styles.dateModalConfirmButton,
-                    isSaving && styles.dateModalConfirmDisabled,
-                  ]}
+                  style={styles.dateModalConfirmButton}
                   onPress={handleDateConfirm}
-                  disabled={isSaving}
                 >
                   <Text style={styles.dateModalConfirmText}>
-                    {isSaving ? 'Saving…' : clearDateFlag ? 'Clear' : 'Set'}
+                    {clearDateFlag ? 'Clear' : 'Set'}
                   </Text>
                 </Pressable>
               </View>

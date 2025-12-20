@@ -1165,6 +1165,35 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   );
 
   /**
+   * Handle confirmed custom date (user picked date in date picker + swiped right)
+   * This is when we actually save the custom date
+   */
+  const handleConfirmCustomDate = useCallback(
+    async (date: Date) => {
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      const candidate = candidateWithMeta.candidate;
+
+      try {
+        // Get current reschedule count and increment
+        const currentCount = candidate.raw.sweep_reschedule_count ?? 0;
+
+        // Update todo with new due_day and clear skipped_in_sweep_at
+        await updateTodo(candidate.id, {
+          due_day: toDayString(date),
+          skipped_in_sweep_at: null,
+          sweep_reschedule_count: currentCount + 1,
+        } as any);
+        // Advance to next card (counts as "changed")
+        handleOutcome('changed');
+      } catch (error) {
+        console.error('[SweepDecisionStep] handleConfirmCustomDate error:', error);
+      }
+    },
+    [candidatesWithMeta, currentIndex, updateTodo, handleOutcome],
+  );
+
+  /**
    * Confirm Habit Start Handler - Sets start date and confirms habit
    * Used for unconfirmed habits that appear in Sweep
    */
@@ -1326,6 +1355,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           onOpenEdit={handleOpenEdit}
           onConvertToTodo={handleConvertToTodo}
           onConfirmQuickDate={handleConfirmQuickDate}
+          onConfirmCustomDate={handleConfirmCustomDate}
           onAddToSpace={handleAddToSpace}
           onConfirmHabitStart={handleConfirmHabitStart}
           onClose={onClose}
