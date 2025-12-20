@@ -116,6 +116,18 @@ const SWEEP_MOOD_CHIPS: Array<{ value: MoodTag; label: string }> = [
   { value: 'rough', label: 'Rough' },
 ];
 
+// Decision tracking for sweep (stores decisions before committing)
+type SweepDecision = {
+  candidateId: string;
+  candidateKind: 'todo' | 'habit' | 'note';
+  action: 'keep' | 'clear' | 'skip';
+  // For todos with dates:
+  dueDate?: Date;
+  // For habits with start dates:
+  startDate?: Date;
+  habitAction?: 'asktomorrow' | 'starttomorrow' | 'startmonday';
+};
+
 // Map mood tags to DB enum values (for backwards compat)
 const MOOD_TAG_TO_DB: Partial<Record<MoodTag, MoodValue>> = {
   great: 'ecstatic',
@@ -918,6 +930,24 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
   // Track summary stats for the sweep completion screen
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
+
+  // Track decisions without committing them (allows back navigation)
+  const [decisions, setDecisions] = useState<Map<string, SweepDecision>>(new Map());
+
+  // Helper to record a decision (doesn't commit, just stores)
+  const recordDecision = useCallback((decision: SweepDecision) => {
+    setDecisions(prev => {
+      const next = new Map(prev);
+      next.set(decision.candidateId, decision);
+      return next;
+    });
+  }, []);
+
+  // Get existing decision for current card
+  const currentDecision = useMemo(() => {
+    const candidate = candidatesWithMeta[currentIndex]?.candidate;
+    return candidate ? decisions.get(candidate.id) : undefined;
+  }, [decisions, candidatesWithMeta, currentIndex]);
 
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
