@@ -1348,6 +1348,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     }
   }, [candidatesWithMeta, currentIndex, notes, todos, overlayController]);
 
+  /**
+   * Go Back Handler - Navigate to previous card
+   * Allows user to review/change previous decisions
+   */
+  const handleGoBackCard = useCallback(() => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    }
+  }, [currentIndex]);
+
   // Auto-advance to summary when all cards are processed
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0 && currentIndex >= candidatesWithMeta.length) {
@@ -1443,6 +1453,8 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           onConfirmHabitStart={handleConfirmHabitStart}
           onClose={onClose}
           hideBottomSaveExit={true}
+          onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
+          previousDecision={currentDecision}
         />
       </View>
 

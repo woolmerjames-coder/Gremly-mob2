@@ -52,8 +52,9 @@ import {
   Camera,
   RotateCcw,
   Plus,
+  ChevronLeft,
 } from 'lucide-react-native';
-import { format, addDays, setHours, setMinutes } from 'date-fns';
+import { format, addDays, setHours, setMinutes, isSameDay, nextMonday } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import { Text, Button, Box } from '../../ui';
 import { BRAND } from '../../design/brand';
@@ -138,6 +139,15 @@ export interface SweepCardProps {
   hideBottomSaveExit?: boolean;
   /** Called during swipe with normalized progress (-1 to 1) */
   onSwipeProgress?: (progress: number) => void;
+  /** Called when user wants to go back to previous card */
+  onGoBack?: () => void;
+  /** Previous decision to restore selection state when navigating back */
+  previousDecision?: {
+    action: 'keep' | 'clear' | 'skip';
+    dueDate?: Date;
+    startDate?: Date;
+    habitAction?: 'asktomorrow' | 'starttomorrow' | 'startmonday';
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -260,6 +270,8 @@ export function SweepCard({
   onClose,
   hideBottomSaveExit,
   onSwipeProgress,
+  onGoBack,
+  previousDecision,
 }: SweepCardProps) {
   const repo = useRepo();
   const title = getCandidateTitle(candidate);
@@ -376,17 +388,55 @@ export function SweepCard({
     }
   }, [selectedQuickAction, hintArrowAnim]);
 
-  // Reset date picker state when candidate changes
+  // Reset date picker state when candidate changes, or restore previous decision
   React.useEffect(() => {
     setShowDatePicker(false);
     setClearDateFlag(false);
     setShowTimePicker(false);
     setSelectedTimePreset(null);
     setKeepAfterDatePick(false);
+    
+    // Reset to defaults first
     setSelectedQuickAction(getDefaultSelection());
     setHasUserSelected(false);
     setSelectedHabitAction('asktomorrow');
     setConfirmedCustomDate(null);
+
+    // If there's a previous decision, restore it
+    if (previousDecision) {
+      setHasUserSelected(true);
+      
+      if (previousDecision.dueDate) {
+        // Check if it matches a quick action or is custom
+        const tomorrow = addDays(new Date(), 1);
+        const twoDays = addDays(new Date(), 2);
+        const monday = nextMonday(new Date());
+        
+        if (isSameDay(previousDecision.dueDate, tomorrow)) {
+          setSelectedQuickAction('tomorrow');
+        } else if (isSameDay(previousDecision.dueDate, twoDays)) {
+          setSelectedQuickAction('2days');
+        } else if (isSameDay(previousDecision.dueDate, monday)) {
+          setSelectedQuickAction('nextweek');
+        } else {
+          setSelectedQuickAction('pickdate');
+          setConfirmedCustomDate(previousDecision.dueDate);
+        }
+      }
+      
+      if (previousDecision.habitAction) {
+        setSelectedHabitAction(previousDecision.habitAction);
+        if (previousDecision.startDate && previousDecision.habitAction !== 'asktomorrow') {
+          // Check if start date is custom
+          const tomorrow = addDays(new Date(), 1);
+          const monday = nextMonday(new Date());
+          if (!isSameDay(previousDecision.startDate, tomorrow) && !isSameDay(previousDecision.startDate, monday)) {
+            setConfirmedCustomDate(previousDecision.startDate);
+          }
+        }
+      }
+    }
+
     // Pre-fill date based on candidate
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
@@ -394,7 +444,7 @@ export function SweepCard({
     } else {
       setSelectedDate(new Date());
     }
-  }, [candidate.id, candidate.kind, candidate.raw, getDefaultSelection]);
+  }, [candidate.id, candidate.kind, candidate.raw, getDefaultSelection, previousDecision]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Photo Preview Handlers
@@ -876,6 +926,20 @@ export function SweepCard({
                     accessibilityLabel="Locked in commitment"
                   />
                 </View>
+              )}
+
+              {/* Back Button - Top left corner */}
+              {onGoBack && (
+                <TouchableOpacity
+                  style={styles.backButton}
+                  onPress={onGoBack}
+                  accessibilityLabel="Go back to previous card"
+                  accessibilityRole="button"
+                  activeOpacity={0.6}
+                >
+                  <ChevronLeft size={18} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                  <Text style={styles.backButtonText}>Back</Text>
+                </TouchableOpacity>
               )}
 
               {/* Edit Icon - Top right corner */}
@@ -1647,6 +1711,26 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: 'rgba(191, 216, 192, 0.25)', // Sage Mist @ 25%
     zIndex: 10,
+  },
+
+  // Back Button - Top left corner
+  backButton: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(191, 216, 192, 0.25)', // Sage Mist @ 25%
+    zIndex: 10,
+  },
+  backButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+    marginLeft: 2,
   },
 
   // Locked-in Icon
