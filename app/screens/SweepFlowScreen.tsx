@@ -949,6 +949,75 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     return candidate ? decisions.get(candidate.id) : undefined;
   }, [decisions, candidatesWithMeta, currentIndex]);
 
+  /**
+   * Batch commit all recorded decisions to the database.
+   * Called when sweep finishes or user saves and exits.
+   */
+  const commitAllDecisions = useCallback(async () => {
+    const updates: Promise<void>[] = [];
+    let keptCount = 0;
+    let clearedCount = 0;
+
+    decisions.forEach((decision) => {
+      if (decision.action === 'clear') {
+        clearedCount++;
+        if (decision.candidateKind === 'todo') {
+          updates.push(archiveTodo(decision.candidateId, 'swept'));
+        } else if (decision.candidateKind === 'habit') {
+          updates.push(archiveHabit(decision.candidateId, 'swept'));
+        } else if (decision.candidateKind === 'note') {
+          updates.push(archiveNote(decision.candidateId, 'swept'));
+        }
+      } else if (decision.action === 'keep') {
+        keptCount++;
+        if (decision.candidateKind === 'todo' && decision.dueDate) {
+          updates.push(
+            updateTodo(decision.candidateId, {
+              due_day: toDayString(decision.dueDate),
+              skipped_in_sweep_at: null,
+            } as any)
+          );
+        } else if (decision.candidateKind === 'habit' && decision.startDate) {
+          updates.push(
+            updateHabit(decision.candidateId, {
+              start_date: decision.startDate.toISOString().split('T')[0],
+              start_date_confirmed: true,
+            })
+          );
+        }
+        // For 'keep' without date changes (notes, habits with 'asktomorrow'), no update needed
+      }
+      // 'skip' action = no changes to persist
+    });
+
+    try {
+      await Promise.all(updates);
+      console.log('[Sweep] Committed', updates.length, 'decisions');
+    } catch (error) {
+      console.error('[Sweep] Error committing decisions:', error);
+    }
+
+    return { keptCount, clearedCount };
+  }, [decisions, archiveTodo, archiveHabit, archiveNote, updateTodo, updateHabit]);
+
+  /**
+   * Handle save and exit - commits all decisions before closing.
+   */
+  const handleSaveAndExit = useCallback(async () => {
+    await commitAllDecisions();
+    if (onClose) {
+      onClose();
+    }
+  }, [commitAllDecisions, onClose]);
+
+  /**
+   * Handle completing all cards - commits decisions then calls onFinished.
+   */
+  const handleAllCardsComplete = useCallback(async (summary: SweepSummary) => {
+    await commitAllDecisions();
+    onFinished(summary);
+  }, [commitAllDecisions, onFinished]);
+
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
 
@@ -1100,17 +1169,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     });
 
     // Update stats
-    setStats((prev) => {
-      const newStats = { ...prev, kept: prev.kept + 1 };
-      // Move to next card (or finish if last)
-      if (currentIndex < candidatesWithMeta.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-      } else {
-        onFinished(newStats);
-      }
-      return newStats;
-    });
-  }, [candidatesWithMeta, currentIndex, recordDecision, onFinished]);
+    const newStats = { ...stats, kept: stats.kept + 1 };
+    setStats(newStats);
+
+    // Move to next card (or finish if last)
+    if (currentIndex < candidatesWithMeta.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      handleAllCardsComplete(newStats);
+    }
+  }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
 
   const handleClear = useCallback(() => {
     const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -1124,17 +1192,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     });
 
     // Update stats
-    setStats((prev) => {
-      const newStats = { ...prev, cleared: prev.cleared + 1 };
-      // Move to next card
-      if (currentIndex < candidatesWithMeta.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-      } else {
-        onFinished(newStats);
-      }
-      return newStats;
-    });
-  }, [candidatesWithMeta, currentIndex, recordDecision, onFinished]);
+    const newStats = { ...stats, cleared: stats.cleared + 1 };
+    setStats(newStats);
+
+    // Move to next card
+    if (currentIndex < candidatesWithMeta.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      handleAllCardsComplete(newStats);
+    }
+  }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
 
   const handleOpenEdit = useCallback(() => {
     const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -1223,17 +1290,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       });
 
       // Update stats and move to next card
-      setStats((prev) => {
-        const newStats = { ...prev, kept: prev.kept + 1 };
-        if (currentIndex < candidatesWithMeta.length - 1) {
-          setCurrentIndex(currentIndex + 1);
-        } else {
-          onFinished(newStats);
-        }
-        return newStats;
-      });
+      const newStats = { ...stats, kept: stats.kept + 1 };
+      setStats(newStats);
+
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        handleAllCardsComplete(newStats);
+      }
     },
-    [candidatesWithMeta, currentIndex, recordDecision, onFinished],
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
   );
 
   /**
@@ -1254,17 +1320,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       });
 
       // Update stats and move to next card
-      setStats((prev) => {
-        const newStats = { ...prev, kept: prev.kept + 1 };
-        if (currentIndex < candidatesWithMeta.length - 1) {
-          setCurrentIndex(currentIndex + 1);
-        } else {
-          onFinished(newStats);
-        }
-        return newStats;
-      });
+      const newStats = { ...stats, kept: stats.kept + 1 };
+      setStats(newStats);
+
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        handleAllCardsComplete(newStats);
+      }
     },
-    [candidatesWithMeta, currentIndex, recordDecision, onFinished],
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
   );
 
   /**
@@ -1309,17 +1374,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       }
 
       // Update stats and move to next card
-      setStats((prev) => {
-        const newStats = { ...prev, kept: prev.kept + 1 };
-        if (currentIndex < candidatesWithMeta.length - 1) {
-          setCurrentIndex(currentIndex + 1);
-        } else {
-          onFinished(newStats);
-        }
-        return newStats;
-      });
+      const newStats = { ...stats, kept: stats.kept + 1 };
+      setStats(newStats);
+
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        handleAllCardsComplete(newStats);
+      }
     },
-    [candidatesWithMeta, currentIndex, recordDecision, onFinished],
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
   );
 
   /**
@@ -1358,13 +1422,14 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     }
   }, [currentIndex]);
 
-  // Auto-advance to summary when all cards are processed
+  // Auto-advance to summary when all cards are processed (fallback)
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0 && currentIndex >= candidatesWithMeta.length) {
       // All cards processed - auto-finish to show summary
-      onFinished(stats);
+      // This is a fallback - normally last card handler calls handleAllCardsComplete
+      handleAllCardsComplete(stats);
     }
-  }, [isLoading, candidatesWithMeta.length, currentIndex, stats, onFinished]);
+  }, [isLoading, candidatesWithMeta.length, currentIndex, stats, handleAllCardsComplete]);
 
   // Loading state
   if (isLoading) {
@@ -1477,7 +1542,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
         {/* Save and exit */}
         {onClose && (
-          <TouchableOpacity onPress={onClose} style={styles.saveExitButton}>
+          <TouchableOpacity onPress={handleSaveAndExit} style={styles.saveExitButton}>
             <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
           </TouchableOpacity>
         )}
