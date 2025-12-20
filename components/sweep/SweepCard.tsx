@@ -695,16 +695,17 @@ export function SweepCard({
       Extrapolation.CLAMP,
     );
 
-    // Background color morphs based on direction (Option B - Brand aligned)
-    // Left (clear): stays neutral/slightly cool - letting go, not celebratory
-    // Right (keep): warms toward goldenPear - positive action
+    // Background color morphs based on direction (Full brand colors for satisfying feedback)
+    // Left (clear/letting go): goldenPear - warm gold signals "releasing/archiving"
+    // Center: linenCream (brand background)
+    // Right (keep/positive): sageMist - sage green signals "keeping/saving"
     const backgroundColor = interpolateColor(
       translateX.value,
       [-SWIPE_THRESHOLD, 0, SWIPE_THRESHOLD],
       [
-        '#F3F1EC', // Slightly cooler/muted cream (left - neutral letting go)
+        '#E0C47A', // goldenPear (left - releasing/archiving)
         '#F9F6F1', // linenCream (center - brand background)
-        '#FAF6EB', // Warm cream tinted toward goldenPear (right - keeping is good)
+        '#BFD8C0', // sageMist (right - keeping/saving)
       ],
     );
 
