@@ -29,7 +29,8 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
   // ─────────────────────────────────────────────────────────────────────────
   // Type chip
   // ─────────────────────────────────────────────────────────────────────────
-  const typeChip: 'Todo' | 'Log' = candidate.kind === 'todo' ? 'Todo' : 'Log';
+  const typeChip: 'Todo' | 'Log' | 'Habit' =
+    candidate.kind === 'todo' ? 'Todo' : candidate.kind === 'habit' ? 'Habit' : 'Log';
 
   // ─────────────────────────────────────────────────────────────────────────
   // Todo status (only for todos)
@@ -71,6 +72,12 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
       logSubtype = 'general';
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Habit status (only for habits)
+  // ─────────────────────────────────────────────────────────────────────────
+  const habitStatus: SweepCardMeta['habitStatus'] =
+    candidate.kind === 'habit' ? 'needs_start_date' : null;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Is new vs resurfacing
@@ -121,6 +128,7 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
     typeChip,
     todoStatus,
     logSubtype,
+    habitStatus,
     isNew,
     resurfacingDate,
     spaceName,

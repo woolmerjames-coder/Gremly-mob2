@@ -905,6 +905,8 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const archiveTodo = useGremlyStore((state) => state.archiveTodo);
   const updateNote = useGremlyStore((state) => state.updateNote);
   const archiveNote = useGremlyStore((state) => state.archiveNote);
+  const updateHabit = useGremlyStore((state) => state.updateHabit);
+  const archiveHabit = useGremlyStore((state) => state.archiveHabit);
 
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
@@ -980,8 +982,10 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
             if (candidate.kind === 'todo') {
               await archiveTodo(candidate.id, 'swept');
               // EventBus emission handled by store mutation
-            } else {
+            } else if (candidate.kind === 'note') {
               await archiveNote(candidate.id, 'swept');
+            } else if (candidate.kind === 'habit') {
+              await archiveHabit(candidate.id, 'swept');
             }
 
             setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
@@ -1161,6 +1165,52 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   );
 
   /**
+   * Confirm Habit Start Handler - Sets start date and confirms habit
+   * Used for unconfirmed habits that appear in Sweep
+   */
+  const handleConfirmHabitStart = useCallback(
+    async (
+      action: 'asktomorrow' | 'starttomorrow' | 'startmonday',
+      customDate?: Date,
+    ) => {
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'habit') return;
+      const habit = candidateWithMeta.candidate;
+
+      try {
+        if (action === 'asktomorrow') {
+          // Don't confirm, just skip to next card - habit stays in sweep
+          handleOutcome('skip');
+          return;
+        }
+
+        // Calculate start date based on action
+        let startDate: Date;
+        if (action === 'starttomorrow') {
+          startDate = addDays(new Date(), 1);
+        } else if (action === 'startmonday') {
+          startDate = nextMonday(new Date());
+        } else if (customDate) {
+          startDate = customDate;
+        } else {
+          return;
+        }
+
+        // Update habit with start_date and start_date_confirmed
+        await updateHabit(habit.id, {
+          start_date: startDate.toISOString().split('T')[0], // YYYY-MM-DD format
+          start_date_confirmed: true,
+        });
+
+        handleOutcome('changed');
+      } catch (error) {
+        console.error('[SweepDecisionStep] handleConfirmHabitStart error:', error);
+      }
+    },
+    [candidatesWithMeta, currentIndex, updateHabit, handleOutcome],
+  );
+
+  /**
    * Add to Space Handler - Opens edit overlay for space assignment
    * Used for logs that user wants to organize into a Space
    */
@@ -1277,6 +1327,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           onConvertToTodo={handleConvertToTodo}
           onConfirmQuickDate={handleConfirmQuickDate}
           onAddToSpace={handleAddToSpace}
+          onConfirmHabitStart={handleConfirmHabitStart}
           onClose={onClose}
           hideBottomSaveExit={true}
         />
@@ -1473,11 +1524,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   };
 
   const handleMoodContinue = () => {
-    setStep(3); // Mood → Wrap-up / Habits
+    setStep(4); // Mood → Summary
   };
 
   const handleWrapUpContinue = () => {
-    setStep(4); // Wrap-up → Summary
+    setStep(3); // Habits → Mood
   };
 
   const handleDecisionFinished = (summary: SweepSummary) => {
@@ -1492,8 +1543,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       });
     }
 
-    // Advance to Mood step
-    setStep(2); // Decision → Mood
+    // Advance to Habits step
+    setStep(2); // Decision → Habits
   };
 
   const handleSummaryDone = () => {
@@ -1563,8 +1614,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           {step === 1 && (
             <SweepDecisionStep onFinished={handleDecisionFinished} onClose={handleClose} />
           )}
-          {step === 2 && <SweepMoodStep onContinue={handleMoodContinue} />}
-          {step === 3 && <SweepHabitsStep onContinue={handleWrapUpContinue} />}
+          {step === 2 && <SweepHabitsStep onContinue={handleWrapUpContinue} />}
+          {step === 3 && <SweepMoodStep onContinue={handleMoodContinue} />}
           {step === 4 && (
             <SweepSummaryStep
               keptCount={keptCount}

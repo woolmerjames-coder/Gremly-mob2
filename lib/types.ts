@@ -78,6 +78,11 @@ export interface Habit {
   stack_position?: 'before' | 'after' | null;
   stack_offset_minutes?: number | null;
   start_date?: string | null; // ISO date
+  // Whether the user has confirmed when to start this habit
+  // null/undefined start_date + start_date_confirmed: false → needs confirmation in Sweep
+  // null/undefined start_date + start_date_confirmed: true → user chose "start immediately"
+  // Non-null start_date → implicitly confirmed
+  start_date_confirmed?: boolean;
   end_date?: string | null; // ISO date
 
   // Break habit specific fields

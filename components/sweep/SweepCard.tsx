@@ -125,6 +125,11 @@ export interface SweepCardProps {
   onConfirmQuickDate?: (option: 'tomorrow' | '2days' | 'nextweek') => void;
   /** Called when user taps "Add to Space" for logs */
   onAddToSpace?: () => void;
+  /** Called when user confirms a habit start action */
+  onConfirmHabitStart?: (
+    action: 'asktomorrow' | 'starttomorrow' | 'startmonday',
+    customDate?: Date,
+  ) => void;
   /** Called when user wants to save progress and exit early */
   onClose?: () => void;
   /** Hide the bottom save/exit section (when parent handles it) */
@@ -180,6 +185,8 @@ function getCandidateTitle(candidate: SweepCandidate): string {
       return candidate.raw.name || 'Untitled task';
     case 'note':
       return candidate.raw.title || 'Untitled note';
+    case 'habit':
+      return candidate.raw.name || 'Untitled habit';
   }
 }
 
@@ -246,6 +253,7 @@ export function SweepCard({
   onConvertToTodo,
   onConfirmQuickDate,
   onAddToSpace,
+  onConfirmHabitStart,
   onClose,
   hideBottomSaveExit,
   onSwipeProgress,
@@ -325,6 +333,17 @@ export function SweepCard({
   // Track if user has manually changed selection (not just default)
   const [hasUserSelected, setHasUserSelected] = useState(false);
 
+  // Check if this is an unconfirmed habit
+  // Cast to access start_date_confirmed which may not be in Supabase generated types yet
+  const isUnconfirmedHabit =
+    candidate.kind === 'habit' &&
+    !(candidate.raw as { start_date_confirmed?: boolean }).start_date_confirmed;
+
+  // Track selected habit action for unconfirmed habits
+  const [selectedHabitAction, setSelectedHabitAction] = useState<
+    'asktomorrow' | 'starttomorrow' | 'startmonday' | 'pickdate'
+  >('asktomorrow');
+
   // Animated hint arrow
   const hintArrowAnim = React.useRef(new RNAnimated.Value(0)).current;
 
@@ -362,6 +381,7 @@ export function SweepCard({
     setKeepAfterDatePick(false);
     setSelectedQuickAction(getDefaultSelection());
     setHasUserSelected(false);
+    setSelectedHabitAction('asktomorrow');
     // Pre-fill date based on candidate
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
@@ -551,6 +571,18 @@ export function SweepCard({
 
   // Handle swipe right completion - called from worklet via runOnJS
   const handleSwipeRight = useCallback(() => {
+    // Check for unconfirmed habit first
+    if (isUnconfirmedHabit && onConfirmHabitStart) {
+      if (selectedHabitAction === 'pickdate') {
+        // Pass custom date from date picker
+        onConfirmHabitStart('starttomorrow', selectedDate);
+      } else {
+        onConfirmHabitStart(selectedHabitAction);
+      }
+      return;
+    }
+
+    // Handle todos and notes
     if (selectedQuickAction && selectedQuickAction !== 'pickdate' && onConfirmQuickDate) {
       // User selected a quick date, confirm it
       if (
@@ -567,7 +599,7 @@ export function SweepCard({
       // No selection, just keep/skip
       onSkip();
     }
-  }, [selectedQuickAction, onConfirmQuickDate, onSkip]);
+  }, [isUnconfirmedHabit, selectedHabitAction, selectedDate, onConfirmHabitStart, selectedQuickAction, onConfirmQuickDate, onSkip]);
 
   // Handle swipe left completion - called from worklet via runOnJS
   const handleSwipeLeft = useCallback(() => {
@@ -978,7 +1010,7 @@ export function SweepCard({
                 <View style={styles.actionDivider} />
               </View>
 
-              {/* ACTION BUTTONS - 4-column grid, different for todos vs logs */}
+              {/* ACTION BUTTONS - 4-column grid, different for todos vs logs vs habits */}
               <View style={styles.actionButtonsSection}>
                 {candidate.kind === 'todo' ? (
                   <>
@@ -1100,6 +1132,130 @@ export function SweepCard({
                           </RNAnimated.Text>
                         </View>
                       )}
+                  </>
+                ) : isUnconfirmedHabit ? (
+                  <>
+                    {/* Habit hint text */}
+                    <Text style={styles.actionHintText}>When do you want to start?</Text>
+
+                    {/* Habit buttons: Ask Tomorrow, Start Tomorrow, Start Monday, Pick Date */}
+                    <View style={styles.buttonGrid}>
+                      <TouchableOpacity
+                        style={[
+                          styles.gridButton,
+                          selectedHabitAction === 'asktomorrow'
+                            ? styles.gridButtonPrimary
+                            : styles.gridButtonSecondary,
+                        ]}
+                        onPress={() => {
+                          setSelectedHabitAction('asktomorrow');
+                          setHasUserSelected(true);
+                        }}
+                        accessibilityLabel="Ask me tomorrow"
+                        activeOpacity={0.7}
+                      >
+                        <RotateCcw size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text
+                          style={[
+                            styles.gridButtonLabel,
+                            selectedHabitAction === 'asktomorrow' && styles.gridButtonLabelPrimary,
+                          ]}
+                        >
+                          Ask Tomorrow
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.gridButton,
+                          selectedHabitAction === 'starttomorrow'
+                            ? styles.gridButtonPrimary
+                            : styles.gridButtonSecondary,
+                        ]}
+                        onPress={() => {
+                          setSelectedHabitAction('starttomorrow');
+                          setHasUserSelected(true);
+                        }}
+                        accessibilityLabel="Start tomorrow"
+                        activeOpacity={0.7}
+                      >
+                        <ArrowRightCircle size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text
+                          style={[
+                            styles.gridButtonLabel,
+                            selectedHabitAction === 'starttomorrow' && styles.gridButtonLabelPrimary,
+                          ]}
+                        >
+                          Start Tomorrow
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.gridButton,
+                          selectedHabitAction === 'startmonday'
+                            ? styles.gridButtonPrimary
+                            : styles.gridButtonSecondary,
+                        ]}
+                        onPress={() => {
+                          setSelectedHabitAction('startmonday');
+                          setHasUserSelected(true);
+                        }}
+                        accessibilityLabel="Start Monday"
+                        activeOpacity={0.7}
+                      >
+                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text
+                          style={[
+                            styles.gridButtonLabel,
+                            selectedHabitAction === 'startmonday' && styles.gridButtonLabelPrimary,
+                          ]}
+                        >
+                          Start Monday
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.gridButton,
+                          selectedHabitAction === 'pickdate'
+                            ? styles.gridButtonPrimary
+                            : styles.gridButtonSecondary,
+                        ]}
+                        onPress={() => {
+                          setSelectedHabitAction('pickdate');
+                          setShowDatePicker(true);
+                          setHasUserSelected(true);
+                        }}
+                        accessibilityLabel="Pick a start date"
+                        activeOpacity={0.7}
+                      >
+                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text
+                          style={[
+                            styles.gridButtonLabel,
+                            selectedHabitAction === 'pickdate' && styles.gridButtonLabelPrimary,
+                          ]}
+                        >
+                          Pick Date
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Confirmation hint - shows after selection */}
+                    {hasUserSelected && selectedHabitAction && selectedHabitAction !== 'pickdate' && (
+                      <View style={styles.confirmationHint}>
+                        <Text style={styles.confirmationHintText}>Swipe right to confirm</Text>
+                        <RNAnimated.Text
+                          style={[
+                            styles.confirmationHintArrow,
+                            { transform: [{ translateX: hintArrowAnim }] },
+                          ]}
+                        >
+                          →
+                        </RNAnimated.Text>
+                      </View>
+                    )}
                   </>
                 ) : (
                   <>

@@ -18,9 +18,9 @@ import type { Database } from '../../types/supabase';
 
 /**
  * Entity kinds that can appear in Sweep.
- * Note: 'habit' was removed - habits are no longer included in sweep candidates.
+ * Includes habits that need start date confirmation.
  */
-export type SweepEntityKind = 'todo' | 'note';
+export type SweepEntityKind = 'todo' | 'note' | 'habit';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Raw DB Row Types (from Supabase generated types)
@@ -28,6 +28,7 @@ export type SweepEntityKind = 'todo' | 'note';
 
 export type SweepTodoRow = Database['public']['Tables']['todos']['Row'];
 export type SweepNoteRow = Database['public']['Tables']['notes']['Row'];
+export type SweepHabitRow = Database['public']['Tables']['habits']['Row'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Attachment Type (matches log_photos table)
@@ -87,11 +88,17 @@ export interface SweepCandidateNote extends SweepCandidateBase {
   attachments?: SweepAttachment[];
 }
 
+export interface SweepCandidateHabit extends SweepCandidateBase {
+  kind: 'habit';
+  /** Original database row */
+  raw: SweepHabitRow;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Union Type
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type SweepCandidate = SweepCandidateTodo | SweepCandidateNote;
+export type SweepCandidate = SweepCandidateTodo | SweepCandidateNote | SweepCandidateHabit;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sweep Summary
@@ -111,14 +118,17 @@ export interface SweepSummary {
  * Pre-computed from SweepCandidate + Space data for rendering.
  */
 export interface SweepCardMeta {
-  /** Type chip label: 'Todo' or 'Log' */
-  typeChip: 'Todo' | 'Log';
+  /** Type chip label: 'Todo', 'Log', or 'Habit' */
+  typeChip: 'Todo' | 'Log' | 'Habit';
 
   /** Status chip for todos: scheduling state */
   todoStatus: 'unscheduled' | 'due_today' | 'due_tomorrow' | 'overdue' | null;
 
   /** Status chip for logs: subtype */
   logSubtype: 'idea' | 'general' | 'journal' | null;
+
+  /** Status chip for habits: needs start date confirmation */
+  habitStatus: 'needs_start_date' | null;
 
   /** True if this is the first time in Sweep (never skipped) */
   isNew: boolean;
@@ -149,14 +159,14 @@ export interface SweepCardMeta {
 /**
  * Discriminated union for context-aware primary actions on Sweep cards.
  * Each type maps to a specific user intent based on item type and state.
- * Note: habit_review_plan was removed - habits are no longer in sweep.
  */
 export type SweepPrimaryActionType =
   | 'todo_add_due_date'
   | 'todo_review_due_date'
   | 'log_idea_to_todo'
   | 'log_journal_followup'
-  | 'log_general_decide';
+  | 'log_general_decide'
+  | 'habit_set_start_date';
 
 /**
  * Configuration for the primary action button shown on a Sweep card.
@@ -164,7 +174,7 @@ export type SweepPrimaryActionType =
 export interface SweepPrimaryActionConfig {
   type: SweepPrimaryActionType;
   label: string;
-  icon: 'calendar' | 'todo' | 'journal' | 'more';
+  icon: 'calendar' | 'todo' | 'journal' | 'more' | 'habit';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

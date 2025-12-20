@@ -5,6 +5,7 @@ import type {
   SweepCandidate,
   SweepCandidateTodo,
   SweepCandidateNote,
+  SweepCandidateHabit,
   SweepCardMeta,
 } from '../sweep/types';
 import type { SweepIntroItem, SweepIntroStats } from '../sweep/introStats';
@@ -391,6 +392,16 @@ export const selectHabitsCompletedToday = createSelector(
   },
 );
 
+/**
+ * Habits that need start date confirmation in Sweep.
+ * An unconfirmed habit is one where:
+ * - archived !== true
+ * - start_date_confirmed !== true (either false, null, or undefined)
+ */
+export const selectUnconfirmedHabits = createSelector([selectHabits], (habits): Habit[] =>
+  habits.filter((h) => !h.archived && h.start_date_confirmed !== true),
+);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // TODO SELECTORS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -557,17 +568,19 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
 
 /**
  * Unified sweep candidates with pre-computed display metadata.
- * Includes todos (overdue, due today, undated) and notes (ideas, general).
+ * Includes todos (overdue, due today, undated), notes (ideas, general),
+ * and habits that need start date confirmation.
  *
  * Sort order:
  * 1. Locked-in items first (commitment = true)
  * 2. Overdue todos
  * 3. Due today todos
- * 4. Everything else by createdAt ascending
+ * 4. Unconfirmed habits
+ * 5. Everything else by createdAt ascending
  */
 export const selectSweepCandidatesUnified = createSelector(
-  [selectTodos, selectNotes, selectSpaces],
-  (todos, notes, spaces): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
+  [selectTodos, selectNotes, selectUnconfirmedHabits, selectSpaces],
+  (todos, notes, unconfirmedHabits, spaces): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
     const today = getTodayDayString();
     const sevenDaysAgo = getDaysAgoDayString(7);
     const candidates: SweepCandidate[] = [];
@@ -630,13 +643,29 @@ export const selectSweepCandidatesUnified = createSelector(
       }
     }
 
+    // Process unconfirmed habits
+    for (const habit of unconfirmedHabits) {
+      const isCreatedToday = habit.created_at?.startsWith(today) ?? false;
+      candidates.push({
+        id: habit.id,
+        kind: 'habit',
+        createdAt: habit.created_at ?? '',
+        dropId: null,
+        skippedInSweepAt: null,
+        isOverdue: false,
+        isDueToday: false,
+        isCreatedToday,
+        raw: habit as any,
+      } satisfies SweepCandidateHabit);
+    }
+
     // Compute meta for each candidate
     const withMeta = candidates.map((candidate) => ({
       candidate,
       meta: computeSweepCardMeta(candidate, spaces),
     }));
 
-    // Sort: locked-in first, then overdue, then due today, then by createdAt
+    // Sort: locked-in first, then overdue, then due today, then habits, then by createdAt
     withMeta.sort((a, b) => {
       // Locked-in items surface first
       if (a.meta.isLockedIn && !b.meta.isLockedIn) return -1;
@@ -649,6 +678,12 @@ export const selectSweepCandidatesUnified = createSelector(
       // Then due today
       if (a.candidate.isDueToday && !b.candidate.isDueToday) return -1;
       if (!a.candidate.isDueToday && b.candidate.isDueToday) return 1;
+
+      // Then habits (needs start date confirmation)
+      const aIsHabit = a.candidate.kind === 'habit';
+      const bIsHabit = b.candidate.kind === 'habit';
+      if (aIsHabit && !bIsHabit) return -1;
+      if (!aIsHabit && bIsHabit) return 1;
 
       // Then by createdAt ascending (oldest first)
       return (a.candidate.createdAt ?? '').localeCompare(b.candidate.createdAt ?? '');
