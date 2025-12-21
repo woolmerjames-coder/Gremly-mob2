@@ -212,6 +212,31 @@ jest.mock('expo-image-picker', () => ({
   },
 }));
 
+// Mock expo-apple-authentication
+jest.mock('expo-apple-authentication', () => ({
+  signInAsync: jest.fn(() =>
+    Promise.resolve({
+      user: 'mock-user-id',
+      email: 'mock@email.com',
+      fullName: { givenName: 'Mock', familyName: 'User' },
+      identityToken: 'mock-identity-token',
+      authorizationCode: 'mock-auth-code',
+    }),
+  ),
+  getCredentialStateAsync: jest.fn(() => Promise.resolve(1)), // AppleAuthenticationCredentialState.AUTHORIZED
+  isAvailableAsync: jest.fn(() => Promise.resolve(true)),
+  AppleAuthenticationScope: {
+    FULL_NAME: 0,
+    EMAIL: 1,
+  },
+  AppleAuthenticationCredentialState: {
+    REVOKED: 0,
+    AUTHORIZED: 1,
+    NOT_FOUND: 2,
+    TRANSFERRED: 3,
+  },
+}));
+
 // Mock actions sheet globally to avoid pulling in gesture-handler/reanimated internals during tests
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 jest.mock('react-native-actions-sheet', () => ({

@@ -69,6 +69,7 @@ export interface CreateRecordInput {
   // Extended todo fields (Phase 7+)
   due_day?: string | null; // YYYY-MM-DD canonical field for date-based logic
   due_time?: string | null; // HH:mm format for time due
+  time_estimate_minutes?: number | null; // Estimated minutes to complete
 
   // Extended journal/note fields (Phase 7+) - only used when subtype='journal'
   date?: string | null; // ISO date for journal entry
