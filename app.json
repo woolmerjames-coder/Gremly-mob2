@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "gremly-mob2",
+    "name": "Gremly",
     "slug": "gremly-mob2",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,11 +14,25 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.gremly.mob2",
       "buildNumber": "7",
+      "usesAppleSignIn": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "GIDClientID": "81105861621-ombuvivk9f9kifkoji8pgvnfsvstovqi.apps.googleusercontent.com",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.81105861621-ombuvivk9f9kifkoji8pgvnfsvstovqi",
+              "gremly",
+              "com.gremly.mob2"
+            ]
+          }
+        ],
+        "NSCameraUsageDescription": "Gremly uses your camera to capture photos of notes, receipts, and moments you want to remember.",
+        "NSPhotoLibraryUsageDescription": "Gremly accesses your photo library to add images to your notes and logs.",
+        "NSMicrophoneUsageDescription": "Gremly uses your microphone for voice notes and audio capture."
       }
     },
     "android": {
@@ -33,6 +47,9 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      "expo-apple-authentication"
+    ],
     "extra": {
       "EXPO_PUBLIC_MIND_DROP_V2": "process.env.EXPO_PUBLIC_MIND_DROP_V2",
       "eas": {
