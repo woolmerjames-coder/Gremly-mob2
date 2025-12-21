@@ -550,5 +550,8 @@ function getTableName(kind: SweepEntityKind): 'todos' | 'notes' {
       return 'todos';
     case 'note':
       return 'notes';
+    case 'habit':
+      // Habits are no longer included in sweep candidates, but TypeScript needs exhaustive switch
+      throw new Error('Habits are not supported in sweep engine');
   }
 }
