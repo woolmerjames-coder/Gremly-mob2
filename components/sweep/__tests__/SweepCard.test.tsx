@@ -1246,4 +1246,119 @@ describe('SweepCard', () => {
       expect(getByLabelText('Full size photo')).toBeTruthy();
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Back Button and Previous Decision Restoration
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('Back Button', () => {
+    it('renders back button when onGoBack is provided', () => {
+      const onGoBack = jest.fn();
+      const { getByLabelText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          onGoBack={onGoBack}
+        />,
+      );
+
+      expect(getByLabelText('Go back to previous card')).toBeTruthy();
+    });
+
+    it('does NOT render back button when onGoBack is undefined', () => {
+      const { queryByLabelText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          onGoBack={undefined}
+        />,
+      );
+
+      expect(queryByLabelText('Go back to previous card')).toBeNull();
+    });
+
+    it('calls onGoBack when back button is pressed', () => {
+      const onGoBack = jest.fn();
+      const { getByLabelText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          onGoBack={onGoBack}
+        />,
+      );
+
+      fireEvent.press(getByLabelText('Go back to previous card'));
+
+      expect(onGoBack).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows "Back" text in the back button', () => {
+      const onGoBack = jest.fn();
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          onGoBack={onGoBack}
+        />,
+      );
+
+      expect(getByText('Back')).toBeTruthy();
+    });
+  });
+
+  describe('Previous Decision Restoration', () => {
+    it('renders correctly when previousDecision is provided', () => {
+      const previousDecision = {
+        action: 'keep' as const,
+        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // Tomorrow
+      };
+
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          previousDecision={previousDecision}
+        />,
+      );
+
+      // Card should still render
+      expect(getByText('Buy groceries')).toBeTruthy();
+    });
+
+    it('renders correctly without previousDecision', () => {
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          previousDecision={undefined}
+        />,
+      );
+
+      expect(getByText('Buy groceries')).toBeTruthy();
+    });
+
+    it('maintains clear decision from previous state', () => {
+      const previousDecision = {
+        action: 'clear' as const,
+      };
+
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          previousDecision={previousDecision}
+        />,
+      );
+
+      // Card should still render and be interactive
+      expect(getByText('Buy groceries')).toBeTruthy();
+    });
+  });
 });

@@ -932,11 +932,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
 
   // Track decisions without committing them (allows back navigation)
+  // Use both state (for UI re-renders) and ref (for immediate access in async operations)
   const [decisions, setDecisions] = useState<Map<string, SweepDecision>>(new Map());
+  const decisionsRef = useRef<Map<string, SweepDecision>>(new Map());
 
   // Helper to record a decision (doesn't commit, just stores)
   const recordDecision = useCallback((decision: SweepDecision) => {
-    setDecisions(prev => {
+    // Update ref immediately (synchronous)
+    decisionsRef.current.set(decision.candidateId, decision);
+    // Update state for UI (triggers re-render)
+    setDecisions((prev) => {
       const next = new Map(prev);
       next.set(decision.candidateId, decision);
       return next;
@@ -952,13 +957,16 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   /**
    * Batch commit all recorded decisions to the database.
    * Called when sweep finishes or user saves and exits.
+   * Uses ref instead of state to ensure we have the latest decisions
+   * (state updates may not have been applied yet in the same render cycle).
    */
   const commitAllDecisions = useCallback(async () => {
     const updates: Promise<void>[] = [];
     let keptCount = 0;
     let clearedCount = 0;
 
-    decisions.forEach((decision) => {
+    // Use ref for immediate access to latest decisions
+    decisionsRef.current.forEach((decision) => {
       if (decision.action === 'clear') {
         clearedCount++;
         if (decision.candidateKind === 'todo') {
@@ -975,14 +983,14 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
             updateTodo(decision.candidateId, {
               due_day: toDayString(decision.dueDate),
               skipped_in_sweep_at: null,
-            } as any)
+            } as any),
           );
         } else if (decision.candidateKind === 'habit' && decision.startDate) {
           updates.push(
             updateHabit(decision.candidateId, {
               start_date: decision.startDate.toISOString().split('T')[0],
               start_date_confirmed: true,
-            })
+            }),
           );
         }
         // For 'keep' without date changes (notes, habits with 'asktomorrow'), no update needed
@@ -998,7 +1006,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
     }
 
     return { keptCount, clearedCount };
-  }, [decisions, archiveTodo, archiveHabit, archiveNote, updateTodo, updateHabit]);
+  }, [archiveTodo, archiveHabit, archiveNote, updateTodo, updateHabit]);
 
   /**
    * Handle save and exit - commits all decisions before closing.
@@ -1013,10 +1021,13 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   /**
    * Handle completing all cards - commits decisions then calls onFinished.
    */
-  const handleAllCardsComplete = useCallback(async (summary: SweepSummary) => {
-    await commitAllDecisions();
-    onFinished(summary);
-  }, [commitAllDecisions, onFinished]);
+  const handleAllCardsComplete = useCallback(
+    async (summary: SweepSummary) => {
+      await commitAllDecisions();
+      onFinished(summary);
+    },
+    [commitAllDecisions, onFinished],
+  );
 
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
@@ -1337,10 +1348,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
    * Actual save happens in batch commit
    */
   const handleConfirmHabitStart = useCallback(
-    (
-      action: 'asktomorrow' | 'starttomorrow' | 'startmonday',
-      customDate?: Date,
-    ) => {
+    (action: 'asktomorrow' | 'starttomorrow' | 'startmonday', customDate?: Date) => {
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'habit') return;
       const { candidate } = candidateWithMeta;

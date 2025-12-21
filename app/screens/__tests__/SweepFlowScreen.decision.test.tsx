@@ -62,6 +62,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
       todos: mockStoreTodos,
       notes: mockStoreNotes,
       habits: [],
+      habitProgress: [],
       isLoading: false,
       updateTodo: mockUpdateTodo,
       archiveTodo: mockArchiveTodo,
@@ -290,7 +291,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
     });
 
-    it('transitions to mood step when Done is pressed', async () => {
+    it('transitions to habits step when Done is pressed', async () => {
       mockFetchSweepCandidates.mockResolvedValue([]);
 
       const result = await renderAtDecisionStep();
@@ -301,9 +302,9 @@ describe('SweepFlowScreen - Decision Step', () => {
 
       fireEvent.press(result.getByText('Done'));
 
-      // Should now be on Mood step (step 2)
+      // Should now be on Habits step (step 2)
       await waitFor(() => {
-        expect(result.getByText('How did today feel?')).toBeTruthy();
+        expect(result.getByText('Habits today')).toBeTruthy();
       });
     });
   });
@@ -385,9 +386,13 @@ describe('SweepFlowScreen - Decision Step', () => {
       mockArchiveTodo.mockClear();
     });
 
-    it('calls updateTodo with skipped_in_sweep_at when Skip is pressed', async () => {
-      mockCandidates = [mockTodoCandidate];
-      mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
+    // NOTE: With deferred commit pattern, mutations don't happen immediately.
+    // Decisions are recorded locally and committed when sweep completes.
+    // See SweepFlowScreen.deferred.test.tsx for comprehensive deferred commit tests.
+
+    it('does NOT call updateTodo immediately when Skip is pressed (deferred commit)', async () => {
+      mockCandidates = [mockTodoCandidate, mockNoteCandidate];
+      mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
 
@@ -397,17 +402,18 @@ describe('SweepFlowScreen - Decision Step', () => {
 
       fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
+      // Wait for card to advance to verify action was processed
       await waitFor(() => {
-        expect(mockUpdateTodo).toHaveBeenCalledWith(
-          'todo-1',
-          expect.objectContaining({ skipped_in_sweep_at: expect.any(String) }),
-        );
+        result.getByText('Test note');
       });
+
+      // With deferred commit, skip doesn't write to DB at all
+      expect(mockUpdateTodo).not.toHaveBeenCalled();
     });
 
-    it('calls archiveTodo with reason "swept" when Clear is pressed', async () => {
-      mockCandidates = [mockTodoCandidate];
-      mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
+    it('does NOT call archiveTodo immediately when Clear is pressed (deferred commit)', async () => {
+      mockCandidates = [mockTodoCandidate, mockNoteCandidate];
+      mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
 
@@ -417,9 +423,13 @@ describe('SweepFlowScreen - Decision Step', () => {
 
       fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
 
+      // Wait for card to advance to verify action was processed
       await waitFor(() => {
-        expect(mockArchiveTodo).toHaveBeenCalledWith('todo-1', 'swept');
+        result.getByText('Test note');
       });
+
+      // With deferred commit, archiveTodo is NOT called until sweep completes
+      expect(mockArchiveTodo).not.toHaveBeenCalled();
     });
 
     it('still advances when store mutation throws error', async () => {
@@ -443,7 +453,7 @@ describe('SweepFlowScreen - Decision Step', () => {
   });
 
   describe('Completion State', () => {
-    it('auto-advances to mood step after all cards processed', async () => {
+    it('auto-advances to habits step after all cards processed', async () => {
       mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
@@ -455,9 +465,9 @@ describe('SweepFlowScreen - Decision Step', () => {
 
       fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
 
-      // Should auto-advance to Mood step (step 2)
+      // Should auto-advance to Habits step (step 2)
       await waitFor(() => {
-        expect(result.getByText('How did today feel?')).toBeTruthy();
+        expect(result.getByText('Habits today')).toBeTruthy();
       });
     });
   });
