@@ -1040,6 +1040,7 @@ export type Database = {
           space_id: string | null;
           status: string;
           subtype: string | null;
+          sweep_reschedule_count: number | null;
           tags: Json | null;
           tags_meta: Json | null;
           title: string;
@@ -1083,6 +1084,7 @@ export type Database = {
           space_id?: string | null;
           status?: string;
           subtype?: string | null;
+          sweep_reschedule_count?: number | null;
           tags?: Json | null;
           tags_meta?: Json | null;
           title: string;
@@ -1126,6 +1128,7 @@ export type Database = {
           space_id?: string | null;
           status?: string;
           subtype?: string | null;
+          sweep_reschedule_count?: number | null;
           tags?: Json | null;
           tags_meta?: Json | null;
           title?: string;

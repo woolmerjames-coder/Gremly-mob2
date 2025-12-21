@@ -13,7 +13,6 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { useGremlyStore } from '../store/useGremlyStore';
 import { eventBus } from '../events';
 import { emitChatEvent } from '../../app/lib/chat/events';
 import type { AppRecord } from '../types';
@@ -64,12 +63,6 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
   const repo = useRepo();
   const overlayController = useUnifiedOverlayController();
 
-  // Zustand store mutations for completion
-  const storeCompleteTodo = useGremlyStore((s) => s.completeTodo);
-  const storeUncompleteTodo = useGremlyStore((s) => s.uncompleteTodo);
-  const storeCompleteHabit = useGremlyStore((s) => s.completeHabit);
-  const storeUncompleteHabit = useGremlyStore((s) => s.uncompleteHabit);
-
   // Optimistic completion state (items that appear completed in UI)
   const [completedHabitIds, setCompletedHabitIds] = useState<Set<string>>(new Set());
   const [completedTodoIds, setCompletedTodoIds] = useState<Set<string>>(new Set());
@@ -83,7 +76,7 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
   // Track the most recent pending completion for undo UI
   const [lastPendingInfo, setLastPendingInfo] = useState<PendingCompletionInfo | null>(null);
 
-  // On unmount: just clear the undo timeouts (completions are already persisted)
+  // Clear all pending timeouts on unmount
   useEffect(() => {
     return () => {
       pendingCompletionsRef.current.forEach((pending) => {
@@ -180,13 +173,6 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
   /**
    * Shared helper to handle completion with undo window.
    * Works for both habits and todos.
-   *
-   * NEW FLOW (persist-first):
-   * 1. Immediately persist to Supabase (don't wait for undo window)
-   * 2. Show optimistic UI
-   * 3. If user undoes within window, call undoCompletion to revert
-   *
-   * This ensures completions are never lost due to app reload/crash.
    */
   const completeItemWithUndo = useCallback(
     async (
@@ -201,7 +187,7 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         return () => {};
       }
 
-      console.log('[useTodayInteractions] Starting completion (persist-first):', {
+      console.log('[useTodayInteractions] Starting completion with undo window:', {
         id,
         type,
         label,
@@ -219,78 +205,76 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         options.onCelebration();
       }
 
-      // 3. PERSIST IMMEDIATELY via Zustand store (handles optimistic update + Supabase sync)
-      try {
-        console.log('[useTodayInteractions] Persisting completion via store:', {
-          id,
-          type,
-        });
-
-        if (type === 'habit') {
-          await storeCompleteHabit(id);
-          emitChatEvent({
-            type: 'habit_checkin',
-            payload: {
-              habitId: id,
-              skipCelebration: options.showCelebrationToast === false,
-            },
-          });
-          eventBus.emit('TodayCompleteHabit', {
-            habitId: id,
-            streakAfter: (meta?.streakCount || 0) + 1,
-          });
-        } else {
-          await storeCompleteTodo(id);
-          emitChatEvent({
-            type: 'todo_completed',
-            payload: {
-              todoId: id,
-              skipCelebration: options.showCelebrationToast === false,
-            },
-          });
-          eventBus.emit('TodayCompleteTodo', { todoId: id, overdue: meta?.overdue || false });
-        }
-
-        console.log('[useTodayInteractions] Completion persisted successfully:', id);
-        // Note: ItemCompleted event is emitted by the store
-      } catch (err) {
-        console.error('[useTodayInteractions] Failed to persist completion:', err);
-        // Revert optimistic UI on error
-        if (type === 'habit') {
-          setCompletedHabitIds((prev) => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-          });
-        } else {
-          setCompletedTodoIds((prev) => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-          });
-        }
-        return () => {};
-      }
-
-      // 4. Set up undo window - if user undoes, we call undoCompletion to revert
-      const timeoutId = setTimeout(() => {
-        // Undo window expired - remove from pending map
+      // 3. Set up pending completion with timeout
+      const timeoutId = setTimeout(async () => {
+        // Remove from pending map
         pendingCompletionsRef.current.delete(id);
         setPendingUpdateTrigger((t) => t + 1);
 
-        console.log('[useTodayInteractions] Undo window expired, completion is final:', id);
+        try {
+          const nowIso = new Date().toISOString();
+          console.log('[useTodayInteractions] Persisting completion:', { id, type, nowIso });
 
-        // Update last pending info to mark as persisted (undo no longer possible)
-        setLastPendingInfo((prev) =>
-          prev && prev.id === id ? { ...prev, persisted: true } : prev,
-        );
+          // Persist to Supabase
+          if (type === 'habit') {
+            await repo.completeHabit(id, nowIso);
+            emitChatEvent({
+              type: 'habit_checkin',
+              payload: {
+                habitId: id,
+                skipCelebration: options.showCelebrationToast === false,
+              },
+            });
+            eventBus.emit('TodayCompleteHabit', {
+              habitId: id,
+              streakAfter: (meta?.streakCount || 0) + 1,
+            });
+          } else {
+            await repo.completeTodo(id, nowIso);
+            emitChatEvent({
+              type: 'todo_completed',
+              payload: {
+                todoId: id,
+                skipCelebration: options.showCelebrationToast === false,
+              },
+            });
+            eventBus.emit('TodayCompleteTodo', { todoId: id, overdue: meta?.overdue || false });
+          }
 
-        // Notify caller that item is permanently completed
-        options.onItemPermanentlyCompleted?.(id, type);
+          console.log('[useTodayInteractions] Completion persisted successfully:', id);
 
-        // Reload data if callback provided
-        if (options.onReload) {
-          void options.onReload();
+          // Emit ItemCompleted event for header glow + progress update
+          eventBus.emit('ItemCompleted', { id, type });
+
+          // Notify caller that item is permanently completed
+          options.onItemPermanentlyCompleted?.(id, type);
+
+          // Update last pending info to mark as persisted
+          setLastPendingInfo((prev) =>
+            prev && prev.id === id ? { ...prev, persisted: true } : prev,
+          );
+
+          // Reload data if callback provided
+          if (options.onReload) {
+            await options.onReload();
+          }
+        } catch (err) {
+          console.error('[useTodayInteractions] Failed to persist completion:', err);
+          // Revert optimistic UI on error
+          if (type === 'habit') {
+            setCompletedHabitIds((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+          } else {
+            setCompletedTodoIds((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+          }
+          setLastPendingInfo((prev) => (prev && prev.id === id ? null : prev));
         }
       }, UNDO_WINDOW_MS);
 
@@ -302,7 +286,7 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
       // Update last pending info for UI
       setLastPendingInfo({ id, type, label, persisted: false });
 
-      // 5. Return undo function - since we persisted immediately, undo must revert in DB
+      // 4. Return undo function
       return () => {
         const pendingItem = pendingCompletionsRef.current.get(id);
         if (!pendingItem) {
@@ -310,36 +294,14 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
           return;
         }
 
-        console.log('[useTodayInteractions] Undoing completion (reverting via store):', {
-          id,
-          type,
-        });
+        console.log('[useTodayInteractions] Undoing completion:', { id, type });
 
-        // Clear the timeout (no need to mark as final)
+        // Clear the timeout (prevent persistence)
         clearTimeout(pendingItem.timeoutId);
 
         // Remove from pending map
         pendingCompletionsRef.current.delete(id);
         setPendingUpdateTrigger((t) => t + 1);
-
-        // Revert via store mutations (handles optimistic update + Supabase sync)
-        if (type === 'habit') {
-          void storeUncompleteHabit(id)
-            .then(() => {
-              console.log('[useTodayInteractions] Undo persisted via store:', id);
-            })
-            .catch((err) => {
-              console.error('[useTodayInteractions] Failed to undo via store:', err);
-            });
-        } else {
-          void storeUncompleteTodo(id)
-            .then(() => {
-              console.log('[useTodayInteractions] Undo persisted via store:', id);
-            })
-            .catch((err) => {
-              console.error('[useTodayInteractions] Failed to undo via store:', err);
-            });
-        }
 
         // Revert optimistic UI
         if (type === 'habit') {
@@ -362,14 +324,7 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         eventBus.emit('TodayUndoCompletion', { entityType: type });
       };
     },
-    [
-      storeCompleteTodo,
-      storeCompleteHabit,
-      storeUncompleteTodo,
-      storeUncompleteHabit,
-      options,
-      isItemCompletedOrPending,
-    ],
+    [repo, options, isItemCompletedOrPending],
   );
 
   /**
@@ -440,14 +395,10 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
       return;
     }
 
-    // If already persisted, need to undo via store
+    // If already persisted, need to undo from server
     if (persisted) {
       try {
-        if (type === 'habit') {
-          await storeUncompleteHabit(id);
-        } else {
-          await storeUncompleteTodo(id);
-        }
+        await repo.undoCompletion(id);
 
         if (type === 'habit') {
           setCompletedHabitIds((prev) => {
@@ -466,13 +417,15 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         setLastPendingInfo(null);
         eventBus.emit('TodayUndoCompletion', { entityType: type });
 
-        // No reload needed - store auto-updates
+        if (options.onReload) {
+          await options.onReload();
+        }
       } catch (err) {
         console.error('Failed to undo completion:', err);
         Alert.alert('Undo failed', 'Please try again in a moment.');
       }
     }
-  }, [storeUncompleteHabit, storeUncompleteTodo, lastPendingInfo]);
+  }, [repo, lastPendingInfo, options]);
 
   /**
    * Undo a specific completion by id and type.
@@ -489,12 +442,8 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
           setPendingUpdateTrigger((t) => t + 1);
         }
 
-        // Undo via store mutations
-        if (type === 'habit') {
-          await storeUncompleteHabit(id);
-        } else {
-          await storeUncompleteTodo(id);
-        }
+        // Always try to undo from server (item may have been persisted)
+        await repo.undoCompletion(id);
 
         // Update local state
         if (type === 'habit') {
@@ -514,7 +463,10 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         // Clear last pending if it was this item
         setLastPendingInfo((prev) => (prev && prev.id === id ? null : prev));
 
-        // No reload needed - store auto-updates
+        // Reload data
+        if (options.onReload) {
+          await options.onReload();
+        }
 
         eventBus.emit('TodayUndoCompletion', { entityType: type });
       } catch (err) {
@@ -522,7 +474,7 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         Alert.alert('Undo failed', 'Please try again in a moment.');
       }
     },
-    [storeUncompleteHabit, storeUncompleteTodo],
+    [repo, options],
   );
 
   /**

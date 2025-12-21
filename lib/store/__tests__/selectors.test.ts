@@ -510,7 +510,7 @@ describe('selectSweepCandidatesUnified', () => {
     jest.useRealTimers();
   });
 
-  it('returns overdue todos as sweep candidates', () => {
+  it('returns overdue todos as sweep candidates with meta', () => {
     const state = makeState({
       todos: [
         makeTodo({ id: 't1', due_day: '2025-12-10' }), // Overdue
@@ -520,9 +520,16 @@ describe('selectSweepCandidatesUnified', () => {
 
     const result = selectSweepCandidatesUnified(state as any);
 
-    const todoIds = result.filter((c) => c.kind === 'todo').map((c) => c.id);
+    // Result is Array<{ candidate, meta }>
+    const todoIds = result
+      .filter((item) => item.candidate.kind === 'todo')
+      .map((item) => item.candidate.id);
     expect(todoIds).toContain('t1');
     expect(todoIds).not.toContain('t2');
+    // Verify meta is present
+    const t1Item = result.find((item) => item.candidate.id === 't1');
+    expect(t1Item?.meta).toBeDefined();
+    expect(t1Item?.meta.typeChip).toBe('Todo');
   });
 
   it('returns undated todos as sweep candidates', () => {
@@ -533,7 +540,7 @@ describe('selectSweepCandidatesUnified', () => {
 
     const result = selectSweepCandidatesUnified(state as any);
 
-    expect(result.some((c) => c.id === 't1')).toBe(true);
+    expect(result.some((item) => item.candidate.id === 't1')).toBe(true);
   });
 });
 

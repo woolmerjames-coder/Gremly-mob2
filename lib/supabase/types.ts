@@ -543,6 +543,7 @@ export type Database = {
           reminders_json: Json | null;
           space_id: string | null;
           subtype: string | null;
+          sweep_reschedule_count: number | null;
           tags: Json | null;
           title: string | null;
           undefined_due: boolean | null;
@@ -561,6 +562,7 @@ export type Database = {
           reminders_json?: Json | null;
           space_id?: string | null;
           subtype?: string | null;
+          sweep_reschedule_count?: number | null;
           tags?: Json | null;
           title?: string | null;
           undefined_due?: boolean | null;
@@ -579,6 +581,7 @@ export type Database = {
           reminders_json?: Json | null;
           space_id?: string | null;
           subtype?: string | null;
+          sweep_reschedule_count?: number | null;
           tags?: Json | null;
           title?: string | null;
           undefined_due?: boolean | null;

@@ -59,7 +59,7 @@ export async function fetchSweepIntroStats(
   };
 
   try {
-    // 1. Get last_sweep_completed_at from cortex_preferences
+    // 1. Get last_sweep_completed_at from cortex_preferences (must run first)
     const { data: prefs, error: prefsError } = await client
       .from('cortex_preferences')
       .select('last_sweep_completed_at')
@@ -76,130 +76,123 @@ export async function fetchSweepIntroStats(
     const isFirstSweep = !lastSweepAt;
     const cutoffTimestamp = lastSweepAt || new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
-    // 3. Query completed todos (completed_at > cutoff)
-    let completedTodos: SweepIntroItem[] = [];
-    try {
-      const { data: todoData, error: todoError } = await client
+    // 3. Run all data queries in parallel for faster loading
+    const [
+      completedTodosResult,
+      completedHabitsResult,
+      droppedTodosResult,
+      droppedHabitsResult,
+      droppedNotesResult,
+    ] = await Promise.all([
+      // Completed todos (completed_at > cutoff)
+      client
         .from('todos')
         .select('id, name')
         .eq('owner_id', ownerId)
         .gt('completed_at', cutoffTimestamp)
-        .eq('status', 'completed');
+        .eq('status', 'completed'),
 
-      if (todoError) {
-        console.warn('[introStats] Failed to fetch completed todos:', todoError);
-      } else if (todoData) {
-        completedTodos = todoData.map((t) => ({
-          id: t.id,
-          name: t.name || 'Untitled todo',
-          type: 'todo' as const,
-        }));
-      }
-    } catch (err) {
-      console.warn('[introStats] Error fetching completed todos:', err);
-    }
-
-    // 4. Query completed habits (from habit_progress, dedupe by habit_id)
-    let completedHabits: SweepIntroItem[] = [];
-    try {
-      const { data: progressData, error: progressError } = await client
+      // Completed habits (from habit_progress)
+      client
         .from('habit_progress')
         .select('habit_id, habits(id, name)')
         .eq('owner_id', ownerId)
-        .gt('occurred_at', cutoffTimestamp);
+        .gt('occurred_at', cutoffTimestamp),
 
-      if (progressError) {
-        console.warn('[introStats] Failed to fetch habit_progress:', progressError);
-      } else if (progressData) {
-        // Dedupe by habit_id - one habit can have multiple completions
-        const seenHabitIds = new Set<string>();
-        completedHabits = progressData
-          .filter((p) => {
-            if (seenHabitIds.has(p.habit_id)) return false;
-            seenHabitIds.add(p.habit_id);
-            return true;
-          })
-          .map((p) => {
-            const habit = p.habits as { id: string; name: string } | null;
-            return {
-              id: p.habit_id,
-              name: habit?.name || 'Untitled habit',
-              type: 'habit' as const,
-            };
-          });
-      }
-    } catch (err) {
-      console.warn('[introStats] Error fetching completed habits:', err);
-    }
-
-    // 5. Query dropped todos (created since cutoff, not archived, not completed)
-    let droppedTodos: SweepIntroItem[] = [];
-    try {
-      const { data: newTodoData, error: newTodoError } = await client
+      // Dropped todos (created since cutoff, not archived, not completed)
+      client
         .from('todos')
         .select('id, name')
         .eq('owner_id', ownerId)
         .gt('created_at', cutoffTimestamp)
         .eq('archived', false)
-        .neq('status', 'completed');
+        .neq('status', 'completed'),
 
-      if (newTodoError) {
-        console.warn('[introStats] Failed to fetch dropped todos:', newTodoError);
-      } else if (newTodoData) {
-        droppedTodos = newTodoData.map((t) => ({
-          id: t.id,
-          name: t.name || 'Untitled todo',
-          type: 'todo' as const,
-        }));
-      }
-    } catch (err) {
-      console.warn('[introStats] Error fetching dropped todos:', err);
-    }
-
-    // 6. Query dropped habits (created since cutoff, not archived)
-    let droppedHabits: SweepIntroItem[] = [];
-    try {
-      const { data: newHabitData, error: newHabitError } = await client
+      // Dropped habits (created since cutoff, not archived)
+      client
         .from('habits')
         .select('id, name')
         .eq('owner_id', ownerId)
         .gt('created_at', cutoffTimestamp)
-        .eq('archived', false);
+        .eq('archived', false),
 
-      if (newHabitError) {
-        console.warn('[introStats] Failed to fetch dropped habits:', newHabitError);
-      } else if (newHabitData) {
-        droppedHabits = newHabitData.map((h) => ({
-          id: h.id,
-          name: h.name || 'Untitled habit',
-          type: 'habit' as const,
-        }));
-      }
-    } catch (err) {
-      console.warn('[introStats] Error fetching dropped habits:', err);
-    }
-
-    // 7. Query dropped notes (created since cutoff, not archived)
-    let droppedNotes: SweepIntroItem[] = [];
-    try {
-      const { data: newNoteData, error: newNoteError } = await client
+      // Dropped notes (created since cutoff, not archived)
+      client
         .from('notes')
         .select('id, title')
         .eq('owner_id', ownerId)
         .gt('created_at', cutoffTimestamp)
-        .eq('archived', false);
+        .eq('archived', false),
+    ]);
 
-      if (newNoteError) {
-        console.warn('[introStats] Failed to fetch dropped notes:', newNoteError);
-      } else if (newNoteData) {
-        droppedNotes = newNoteData.map((n) => ({
-          id: n.id,
-          name: n.title || 'Untitled note',
-          type: 'note' as const,
-        }));
-      }
-    } catch (err) {
-      console.warn('[introStats] Error fetching dropped notes:', err);
+    // 4. Process completed todos
+    let completedTodos: SweepIntroItem[] = [];
+    if (completedTodosResult.error) {
+      console.warn('[introStats] Failed to fetch completed todos:', completedTodosResult.error);
+    } else if (completedTodosResult.data) {
+      completedTodos = completedTodosResult.data.map((t) => ({
+        id: t.id,
+        name: t.name || 'Untitled todo',
+        type: 'todo' as const,
+      }));
+    }
+
+    // 5. Process completed habits (dedupe by habit_id)
+    let completedHabits: SweepIntroItem[] = [];
+    if (completedHabitsResult.error) {
+      console.warn('[introStats] Failed to fetch habit_progress:', completedHabitsResult.error);
+    } else if (completedHabitsResult.data) {
+      const seenHabitIds = new Set<string>();
+      completedHabits = completedHabitsResult.data
+        .filter((p) => {
+          if (seenHabitIds.has(p.habit_id)) return false;
+          seenHabitIds.add(p.habit_id);
+          return true;
+        })
+        .map((p) => {
+          const habit = p.habits as { id: string; name: string } | null;
+          return {
+            id: p.habit_id,
+            name: habit?.name || 'Untitled habit',
+            type: 'habit' as const,
+          };
+        });
+    }
+
+    // 6. Process dropped todos
+    let droppedTodos: SweepIntroItem[] = [];
+    if (droppedTodosResult.error) {
+      console.warn('[introStats] Failed to fetch dropped todos:', droppedTodosResult.error);
+    } else if (droppedTodosResult.data) {
+      droppedTodos = droppedTodosResult.data.map((t) => ({
+        id: t.id,
+        name: t.name || 'Untitled todo',
+        type: 'todo' as const,
+      }));
+    }
+
+    // 7. Process dropped habits
+    let droppedHabits: SweepIntroItem[] = [];
+    if (droppedHabitsResult.error) {
+      console.warn('[introStats] Failed to fetch dropped habits:', droppedHabitsResult.error);
+    } else if (droppedHabitsResult.data) {
+      droppedHabits = droppedHabitsResult.data.map((h) => ({
+        id: h.id,
+        name: h.name || 'Untitled habit',
+        type: 'habit' as const,
+      }));
+    }
+
+    // 8. Process dropped notes
+    let droppedNotes: SweepIntroItem[] = [];
+    if (droppedNotesResult.error) {
+      console.warn('[introStats] Failed to fetch dropped notes:', droppedNotesResult.error);
+    } else if (droppedNotesResult.data) {
+      droppedNotes = droppedNotesResult.data.map((n) => ({
+        id: n.id,
+        name: n.title || 'Untitled note',
+        type: 'note' as const,
+      }));
     }
 
     return {

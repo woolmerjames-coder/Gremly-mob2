@@ -1,8 +1,8 @@
 /**
  * SweepFlowScreen Habits Today Step Empty State Tests
  *
- * Tests the empty state of the "Habits today" step (step 3) when there are no habits.
- * New flow: Intro (0) → Decision (1) → Mood (2) → Habits (3) → Summary (4)
+ * Tests the empty state of the "Habits today" step (step 2) when there are no habits.
+ * Flow: Intro (0) → Decision (1) → Habits (2) → Mood (3) → Summary (4)
  * Separate file due to Jest module caching constraints.
  */
 
@@ -100,8 +100,8 @@ jest.mock('@react-navigation/native', () => {
 import SweepFlowScreen from '../SweepFlowScreen';
 
 /**
- * Helper to navigate to Habits step (step 3)
- * Flow: Intro (0) → Decision (1) → Mood (2) → Habits (3)
+ * Helper to navigate to Habits step (step 2)
+ * Flow: Intro (0) → Decision (1) → Habits (2)
  */
 async function navigateToHabitsStep(result: ReturnType<typeof render>) {
   // Step 0: Intro - tap "Start Sweeping" to go to Decision
@@ -110,19 +110,13 @@ async function navigateToHabitsStep(result: ReturnType<typeof render>) {
   });
   fireEvent.press(result.getByText('Start Sweeping'));
 
-  // Step 1: Decision - empty state, tap "Done" to go to Mood
+  // Step 1: Decision - empty state, tap "Done" to go to Habits
   await waitFor(() => {
     expect(result.getByText("Nothing to Sweep right now — you're all clear.")).toBeTruthy();
   });
   fireEvent.press(result.getByText('Done'));
 
-  // Step 2: Mood - skip to go to Habits
-  await waitFor(() => {
-    expect(result.getByText('How did today feel?')).toBeTruthy();
-  });
-  fireEvent.press(result.getByText('Skip for now'));
-
-  // Step 3: Habits - wait for it to appear
+  // Step 2: Habits - wait for it to appear
   await waitFor(() => {
     expect(result.getByText('Habits today')).toBeTruthy();
   });
@@ -161,7 +155,7 @@ describe('SweepFlowScreen - Habits Today Step (Empty State)', () => {
     expect(result.getByText('Continue')).toBeTruthy();
   });
 
-  it('advances to summary when pressing Continue in empty state', async () => {
+  it('advances to mood step when pressing Continue in empty state', async () => {
     const result = render(<SweepFlowScreen />);
 
     await navigateToHabitsStep(result);
@@ -169,9 +163,9 @@ describe('SweepFlowScreen - Habits Today Step (Empty State)', () => {
     // Press Continue
     fireEvent.press(result.getByText('Continue'));
 
-    // Should advance to Summary step
+    // Should advance to Mood step (step 3)
     await waitFor(() => {
-      expect(result.getByText('Sweep complete')).toBeTruthy();
+      expect(result.getByText('How was your day?')).toBeTruthy();
     });
   });
 });

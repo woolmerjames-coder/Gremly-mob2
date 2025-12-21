@@ -154,7 +154,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
   const lockedItemsRaw = useGremlyStore(selectTodayLockedItems);
   const activeItemsRaw = useGremlyStore(selectTodayActiveItems);
   const completedItemsRaw = useGremlyStore(selectTodayCompletedItems);
-  const sweepCandidatesRaw = useGremlyStore(selectSweepCandidatesUnified);
+  const sweepCandidatesWithMeta = useGremlyStore(selectSweepCandidatesUnified);
   const overdueTodosRaw = useGremlyStore(selectOverdueTodos);
   const recentDropsRaw = useGremlyStore(selectRecentDrops);
   const progressState = useGremlyStore(selectTodayProgress);
@@ -257,7 +257,9 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
     const hasAnyLogsToday = capturesCount > 0;
 
     // Transform sweep candidates to legacy format (only todos)
-    const sweepCandidates: SweepCandidate[] = sweepCandidatesRaw
+    // sweepCandidatesWithMeta is Array<{ candidate, meta }>, extract candidate
+    const sweepCandidates: SweepCandidate[] = sweepCandidatesWithMeta
+      .map(({ candidate: c }) => c)
       .filter((c) => c.kind === 'todo')
       .map((c) => ({
         id: c.id,
@@ -368,7 +370,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
     lockedItemsRaw,
     activeItemsRaw,
     completedItemsRaw,
-    sweepCandidatesRaw,
+    sweepCandidatesWithMeta,
     overdueTodosRaw,
     recentDropsRaw,
     progressState,

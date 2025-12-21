@@ -33,16 +33,11 @@ import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import {
-  useTodayHabits,
-  useHabitsCompletedToday,
-  useIsLoading,
-  useSweepCandidatesUnified,
-} from '../../lib/store/selectors';
+import { useIsLoading, useSweepCandidatesUnified } from '../../lib/store/selectors';
 import type { Habit } from '../../lib/types';
 import { supabase } from '../../lib/supabase/client';
 import { markSweepCompleted } from '../../lib/sweep/engine';
-import type { SweepCandidate, SweepPrimaryActionConfig, SweepSummary } from '../../lib/sweep/types';
+import type { SweepCandidate, SweepCardMeta, SweepSummary } from '../../lib/sweep/types';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -54,26 +49,29 @@ import {
 } from '../../lib/events/overlaySaved';
 import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
+import { addDays, nextMonday } from 'date-fns';
+import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
-import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
 
-// Swipe feedback constants
-const CLEAR_MESSAGES = ['BYE ✌️', 'SEE YA', 'GONE', 'CLEARED', 'SWEPT'];
-const KEEP_MESSAGES = ['KEEPING IT', 'STILL ON', 'NOTED', 'ON IT'];
-const getRandomClearMessage = () =>
-  CLEAR_MESSAGES[Math.floor(Math.random() * CLEAR_MESSAGES.length)];
-const getRandomKeepMessage = () => KEEP_MESSAGES[Math.floor(Math.random() * KEEP_MESSAGES.length)];
-const FEEDBACK_COLORS = {
-  clear: '#34D399', // Vibrant emerald green
-  keep: '#FBBF24', // Punchy amber/gold
-};
+// Sweep habit components and helpers
+import { SweepHabitRow } from '../../components/sweep/SweepHabitRow';
+import {
+  groupHabitsForSweep,
+  getOpenHabitsCount,
+  isHabitsEmpty,
+  type HabitWithMeta,
+  type GroupedHabits,
+} from '../../lib/sweep/habitHelpers';
+import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/fistbumpgremly.png');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_JOURNAL = require('../../assets/mascot/JournalGremly.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -91,7 +89,66 @@ interface StepProps {
 // Mood value type - aligned with existing journal log moods
 type MoodValue = 'happy' | 'neutral' | 'sad' | 'ecstatic' | 'low' | 'tired';
 
-// Mood options for Sweep check-in (brand-style chips with icons)
+// Extended mood tag type for multi-select (includes new moods not in DB enum)
+type MoodTag =
+  | 'great'
+  | 'good'
+  | 'okay'
+  | 'low'
+  | 'tired'
+  | 'anxious'
+  | 'grateful'
+  | 'scattered'
+  | 'hopeful'
+  | 'rough';
+
+// Mood chip options for Sweep check-in (multi-select)
+const SWEEP_MOOD_CHIPS: Array<{ value: MoodTag; label: string }> = [
+  { value: 'great', label: 'Great' },
+  { value: 'good', label: 'Good' },
+  { value: 'okay', label: 'Okay' },
+  { value: 'low', label: 'Low' },
+  { value: 'tired', label: 'Tired' },
+  { value: 'anxious', label: 'Anxious' },
+  { value: 'grateful', label: 'Grateful' },
+  { value: 'scattered', label: 'Scattered' },
+  { value: 'hopeful', label: 'Hopeful' },
+  { value: 'rough', label: 'Rough' },
+];
+
+// Decision tracking for sweep (stores decisions before committing)
+type SweepDecision = {
+  candidateId: string;
+  candidateKind: 'todo' | 'habit' | 'note';
+  action: 'keep' | 'clear' | 'skip';
+  // For todos with dates:
+  dueDate?: Date;
+  // For habits with start dates:
+  startDate?: Date;
+  habitAction?: 'asktomorrow' | 'starttomorrow' | 'startmonday';
+};
+
+// Map mood tags to DB enum values (for backwards compat)
+const MOOD_TAG_TO_DB: Partial<Record<MoodTag, MoodValue>> = {
+  great: 'ecstatic',
+  good: 'happy',
+  okay: 'neutral',
+  low: 'low',
+  tired: 'tired',
+  rough: 'sad',
+};
+
+// Journal prompts for inspiration
+const JOURNAL_PROMPTS = [
+  'What are you grateful for today?',
+  'What would have made today better?',
+  'What small moment brought you joy?',
+  'How is your energy right now?',
+  "What's weighing on your mind?",
+  'What are you looking forward to tomorrow?',
+];
+
+// Legacy mood options (kept for reference)
 const SWEEP_MOOD_OPTIONS: Array<{ value: MoodValue; label: string; icon: string }> = [
   { value: 'ecstatic', label: 'Great', icon: 'Sun' },
   { value: 'happy', label: 'Good', icon: 'CheckCircle2' },
@@ -189,10 +246,10 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
       </ScrollView>
 
       {/* 8. Button */}
-      <View style={styles.moodButtonContainer}>
-        <TouchableOpacity style={styles.moodContinueButton} onPress={onStart} activeOpacity={0.8}>
-          <View style={styles.moodContinueButtonContent}>
-            <Text style={styles.moodContinueButtonText}>Start Sweeping</Text>
+      <View style={styles.moodFooter}>
+        <TouchableOpacity style={styles.continueButton} onPress={onStart} activeOpacity={0.8}>
+          <View style={styles.continueButtonContent}>
+            <Text style={styles.continueButtonText}>Start Sweeping</Text>
             <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
           </View>
         </TouchableOpacity>
@@ -221,53 +278,159 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
  * MIGRATED: Now uses Zustand store's createNote instead of useRepo
  */
 function SweepMoodStep({ onContinue }: StepProps) {
-  // Use store's createNote mutation
+  // Store mutations and data
   const createNote = useGremlyStore((state) => state.createNote);
-  const [selectedMood, setSelectedMood] = useState<MoodValue | null>(null);
+  const notes = useGremlyStore((state) => state.notes);
+  const overlay = useGlobalOverlay();
+
+  // Get recent entries since last sweep
+  const { stats, isLoading: statsLoading } = useSweepIntroStats();
+
+  // State
+  const [selectedMoods, setSelectedMoods] = useState<Set<MoodTag>>(new Set());
   const [journalText, setJournalText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isEntriesExpanded, setIsEntriesExpanded] = useState(false);
+  const [activePrompt, setActivePrompt] = useState<string | null>(null);
+  const [promptIndex, setPromptIndex] = useState(0);
 
+  // Animation for chevron rotation
+  const chevronRotation = useRef(new Animated.Value(0)).current;
+
+  // Compute recent entries (journals created since last sweep, excluding sweep reflections)
+  const recentEntries = useMemo(() => {
+    if (!stats?.cutoffTimestamp) return [];
+    const cutoff = stats.cutoffTimestamp;
+    return notes
+      .filter((n) => {
+        // Must not be archived and have a created_at after cutoff
+        if (n.archived || !n.created_at || n.created_at <= cutoff) return false;
+        // Only show journal entries (not log-idea, log-general, etc.)
+        if (n.subtype !== 'journal') return false;
+        // Exclude previous sweep reflection notes
+        if (n.views?.sweep_reflection) return false;
+        return true;
+      })
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+      .slice(0, 5); // Limit to 5 entries
+  }, [notes, stats?.cutoffTimestamp]);
+
+  const hasRecentEntries = recentEntries.length > 0;
+
+  // Toggle mood selection (multi-select)
+  const toggleMood = useCallback((mood: MoodTag) => {
+    setSelectedMoods((prev) => {
+      const next = new Set(prev);
+      if (next.has(mood)) {
+        next.delete(mood);
+      } else {
+        next.add(mood);
+      }
+      return next;
+    });
+  }, []);
+
+  // Toggle entries expansion
+  const toggleEntriesExpanded = useCallback(() => {
+    const toValue = isEntriesExpanded ? 0 : 1;
+    Animated.timing(chevronRotation, {
+      toValue,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    setIsEntriesExpanded(!isEntriesExpanded);
+  }, [isEntriesExpanded, chevronRotation]);
+
+  // Cycle through prompts
+  const handlePromptPress = useCallback(() => {
+    if (activePrompt) {
+      // Go to next prompt
+      const nextIndex = (promptIndex + 1) % JOURNAL_PROMPTS.length;
+      setPromptIndex(nextIndex);
+      setActivePrompt(JOURNAL_PROMPTS[nextIndex]);
+    } else {
+      // Show first prompt
+      setActivePrompt(JOURNAL_PROMPTS[0]);
+      setPromptIndex(0);
+    }
+  }, [activePrompt, promptIndex]);
+
+  // Format relative time
+  const formatRelativeTime = useCallback((isoDate: string): string => {
+    const date = new Date(isoDate);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffHours < 1) return 'Just now';
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'Yesterday';
+    return `${diffDays}d ago`;
+  }, []);
+
+  // Open entry in overlay view mode
+  const handleOpenEntry = useCallback(
+    (entry: (typeof notes)[0]) => {
+      overlay.openView({ record: entry as any, spaceId: null });
+    },
+    [overlay],
+  );
+
+  // Save and continue
   const handleContinue = useCallback(async () => {
     // If nothing to save, just continue
-    if (!selectedMood && !journalText.trim()) {
+    if (selectedMoods.size === 0 && !journalText.trim()) {
       onContinue();
       return;
     }
 
     setIsSaving(true);
     try {
-      // Create a journal note for the sweep reflection using store mutation
+      // Map first selected mood to DB enum for backwards compat
+      const moodArray = Array.from(selectedMoods);
+      const primaryMood = moodArray[0] ? MOOD_TAG_TO_DB[moodArray[0]] : undefined;
+
+      // Create a journal note for the sweep reflection
       await createNote({
         subtype: 'journal',
-        title: journalText.trim() || `Evening reflection`,
+        title: journalText.trim() || 'Evening reflection',
         body: journalText.trim() || undefined,
-        mood: selectedMood ?? undefined,
-        origin: 'manual', // Using 'manual' since 'sweep' isn't in the union yet
+        mood: primaryMood,
+        origin: 'manual',
         canonicalType: 'log',
         journal_subtype: 'reflection',
         tags: ['reflection', 'sweep'],
         views: {
-          sweep_origin: true, // Mark as created from Sweep flow
+          sweep_origin: true,
           sweep_reflection: true,
           sweep_date: new Date().toISOString().split('T')[0],
+          sweep_moods: moodArray, // Store all selected moods
         },
       });
-
-      // TODO: Add error handling / retry UI if save fails
     } catch (error) {
-      // Fail silent for now - don't block the sweep flow
-      // TODO: Consider showing a subtle error indicator
       console.warn('[SweepMoodStep] Failed to save reflection:', error);
     } finally {
       setIsSaving(false);
       onContinue();
     }
-  }, [createNote, selectedMood, journalText, onContinue]);
+  }, [createNote, selectedMoods, journalText, onContinue]);
 
   const handleSkip = useCallback(() => {
-    // Skip without saving anything
     onContinue();
   }, [onContinue]);
+
+  // Chevron rotation interpolation
+  const chevronRotateStyle = {
+    transform: [
+      {
+        rotate: chevronRotation.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['0deg', '180deg'],
+        }),
+      },
+    ],
+  };
 
   return (
     <KeyboardAvoidingView
@@ -281,80 +444,145 @@ function SweepMoodStep({ onContinue }: StepProps) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Section */}
-        <View style={styles.moodHeaderSection}>
-          <Text variant="title" style={styles.moodStepTitle}>
-            How did today feel?
-          </Text>
-          <Text style={styles.moodStepSubcopy}>
-            A quick check-in helps Gremly match your plan to your mood.
-          </Text>
+        {/* Header Section with Mascot */}
+        <View style={styles.moodHeaderRow}>
+          <View style={styles.moodHeaderText}>
+            <Text variant="title" style={styles.moodStepTitle}>
+              How was your day?
+            </Text>
+            <Text style={styles.moodStepSubcopy}>
+              Everything here is optional,{'\n'}just a moment to pause.
+            </Text>
+          </View>
+          <Image
+            source={GREMLY_JOURNAL}
+            style={styles.moodMascotImage}
+            resizeMode="contain"
+            accessibilityLabel="Gremly journal mascot"
+          />
         </View>
 
-        {/* Mood Selector - Centered 2x3 Grid */}
-        <View style={styles.moodGridContainer}>
-          <View style={styles.moodGrid}>
-            {SWEEP_MOOD_OPTIONS.map((option) => {
-              const isSelected = selectedMood === option.value;
+        {/* Recent Entries Section (Collapsible) */}
+        {hasRecentEntries && (
+          <View style={styles.recentEntriesSection}>
+            <Pressable
+              style={styles.recentEntriesHeader}
+              onPress={toggleEntriesExpanded}
+              accessibilityRole="button"
+              accessibilityLabel={`${recentEntries.length} thoughts saved since last sweep. Tap to ${isEntriesExpanded ? 'collapse' : 'expand'}`}
+            >
+              <View style={styles.recentEntriesHeaderLeft}>
+                <Icon name="Check" size="xs" color={BRAND.colors.mossGreen} strokeWidth={2} />
+                <Text style={styles.recentEntriesHeaderText}>
+                  {recentEntries.length} thought{recentEntries.length !== 1 ? 's' : ''} saved
+                </Text>
+              </View>
+              <Animated.View style={chevronRotateStyle}>
+                <Icon name="ChevronDown" size="xs" color={BRAND.colors.inkMuted} strokeWidth={2} />
+              </Animated.View>
+            </Pressable>
+
+            {isEntriesExpanded && (
+              <View style={styles.recentEntriesList}>
+                {recentEntries.map((entry) => (
+                  <Pressable
+                    key={entry.id}
+                    style={({ pressed }) => [
+                      styles.recentEntryCard,
+                      pressed && styles.recentEntryCardPressed,
+                    ]}
+                    onPress={() => handleOpenEntry(entry)}
+                  >
+                    <Text style={styles.recentEntryTime}>
+                      {formatRelativeTime(entry.created_at)}
+                    </Text>
+                    <Text style={styles.recentEntryPreview} numberOfLines={1}>
+                      {entry.title || entry.body || 'Untitled'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Journal Input Section */}
+        <View style={styles.journalSection}>
+          {/* Prompt line (optional) */}
+          {activePrompt && (
+            <View style={styles.promptLine}>
+              <Icon name="Lightbulb" size="xs" color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+              <Text style={styles.promptText}>{activePrompt}</Text>
+            </View>
+          )}
+
+          {/* Journal TextInput with prompt button */}
+          <View style={styles.journalInputWrapper}>
+            <TextInput
+              style={styles.journalInput}
+              placeholder="Today felt like..."
+              placeholderTextColor={BRAND.colors.inkMuted}
+              multiline
+              value={journalText}
+              onChangeText={setJournalText}
+              textAlignVertical="top"
+            />
+            <Pressable
+              style={({ pressed }) => [styles.promptButton, pressed && styles.promptButtonPressed]}
+              onPress={handlePromptPress}
+            >
+              <Icon name="Lightbulb" size="xs" color={BRAND.colors.mossGreen} strokeWidth={1.8} />
+              <Text style={styles.promptButtonLabel}>{activePrompt ? 'next' : 'prompt'}</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Mood Chips Section (Multi-select) */}
+        <View style={styles.moodChipsSection}>
+          <Text style={styles.moodChipsLabel}>Tag a mood</Text>
+          <View style={styles.moodChipsGrid}>
+            {SWEEP_MOOD_CHIPS.map((chip) => {
+              const isSelected = selectedMoods.has(chip.value);
               return (
                 <Pressable
-                  key={option.value}
+                  key={chip.value}
                   style={({ pressed }) => [
-                    styles.moodButton,
-                    isSelected && styles.moodButtonSelected,
-                    pressed && styles.moodButtonPressed,
+                    styles.moodChip,
+                    isSelected && styles.moodChipSelected,
+                    pressed && styles.moodChipPressed,
                   ]}
-                  onPress={() => setSelectedMood(option.value)}
+                  onPress={() => toggleMood(chip.value)}
                 >
-                  <Icon
-                    name={option.icon as any}
-                    size="xs"
-                    color={BRAND.colors.mossGreen}
-                    strokeWidth={1.8}
-                  />
-                  <Text
-                    style={[styles.moodButtonLabel, isSelected && styles.moodButtonLabelSelected]}
-                  >
-                    {option.label.toUpperCase()}
+                  <Text style={[styles.moodChipLabel, isSelected && styles.moodChipLabelSelected]}>
+                    {chip.label}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
-        </View>
-
-        {/* Journal Input */}
-        <View style={styles.moodJournalContainer}>
-          <Text style={styles.moodJournalLabel}>Want to jot anything down?</Text>
-          <TextInput
-            style={styles.moodJournalInput}
-            placeholder="Today felt like…"
-            placeholderTextColor={BRAND.colors.inkMuted}
-            multiline
-            value={journalText}
-            onChangeText={setJournalText}
-            textAlignVertical="top"
-          />
+          {selectedMoods.size > 1 && (
+            <Text style={styles.moodChipsHelper}>{selectedMoods.size} moods selected</Text>
+          )}
         </View>
       </ScrollView>
 
-      {/* Action Buttons */}
-      <View style={styles.moodButtonContainer}>
+      {/* Footer Actions */}
+      <View style={styles.moodFooter}>
         <TouchableOpacity
-          style={[styles.moodContinueButton, isSaving && styles.moodContinueButtonDisabled]}
+          style={[styles.continueButton, isSaving && styles.continueButtonDisabled]}
           onPress={handleContinue}
           disabled={isSaving}
           activeOpacity={0.8}
         >
-          <View style={styles.moodContinueButtonContent}>
-            <Text style={styles.moodContinueButtonText}>{isSaving ? 'Saving...' : 'Continue'}</Text>
+          <View style={styles.continueButtonContent}>
+            <Text style={styles.continueButtonText}>{isSaving ? 'Saving...' : 'Continue'}</Text>
             {!isSaving && (
               <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
             )}
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.moodSkipButton} onPress={handleSkip} disabled={isSaving}>
-          <Text style={styles.moodSkipButtonText}>Skip for now</Text>
+        <TouchableOpacity style={styles.skipButton} onPress={handleSkip} disabled={isSaving}>
+          <Text style={styles.skipButtonText}>Skip for now</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -362,99 +590,171 @@ function SweepMoodStep({ onContinue }: StepProps) {
 }
 
 /**
- * Step 3: Habits Today
+ * Step 3: Habits Check-in
  *
- * Habits-only step to mark what the user managed today.
- * Everything resets tomorrow - just a simple checklist.
+ * Swipe-to-complete habit rows grouped by cadence (daily/weekly/monthly).
+ * Shows streak for daily habits, progress for weekly/monthly.
+ * Completed habits shown in muted section at bottom.
  *
- * MIGRATED: Now uses Zustand store instead of useTodayEntries/useTodayInteractions
+ * REDESIGNED: Uses SweepHabitRow with swipe gesture instead of checkboxes.
  */
-function SweepWrapUpStep({ onContinue }: StepProps) {
-  // Zustand store selectors
-  const loading = useIsLoading();
-  const todayHabits = useTodayHabits(); // Habits due today (not completed)
-  const completedHabits = useHabitsCompletedToday(); // Habits completed today
-
-  // Store mutations
+function SweepHabitsStep({ onContinue }: StepProps) {
+  // Get raw data from Zustand store
+  const habits = useGremlyStore((state) => state.habits);
+  const habitProgress = useGremlyStore((state) => state.habitProgress);
   const completeHabit = useGremlyStore((state) => state.completeHabit);
   const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
+  const loading = useIsLoading();
 
-  // Track locally completed habits during this session for optimistic UI
-  const [sessionCompletedIds, setSessionCompletedIds] = useState<Set<string>>(new Set());
+  // ─────────────────────────────────────────────────────────────────────────
+  // Session state - tracks toggles during this sweep (not committed yet)
+  // ─────────────────────────────────────────────────────────────────────────
+  // Habits that were NOT completed before but user toggled ON
+  const [sessionCompletions, setSessionCompletions] = useState<Set<string>>(new Set());
+  // Habits that WERE completed before but user toggled OFF
+  const [sessionUncompletions, setSessionUncompletions] = useState<Set<string>>(new Set());
 
-  // Build the set of completed habit IDs (from store + session)
-  const completedHabitIds = useMemo(() => {
-    const ids = new Set<string>();
-    completedHabits.forEach((h) => ids.add(h.id));
-    sessionCompletedIds.forEach((id) => ids.add(id));
-    return ids;
-  }, [completedHabits, sessionCompletedIds]);
+  // Group habits by cadence and compute metadata
+  const groupedHabits = useMemo(() => {
+    // Filter to non-archived habits
+    const activeHabits = habits.filter((h) => !h.archived);
+    return groupHabitsForSweep(activeHabits, habitProgress);
+  }, [habits, habitProgress]);
 
-  // Filter to only uncompleted habits for this checklist
-  const habits = useMemo(() => {
-    return todayHabits.filter((h) => !completedHabitIds.has(h.id));
-  }, [todayHabits, completedHabitIds]);
+  // Calculate open count considering session toggles
+  const openCount = useMemo(() => {
+    let count = 0;
 
-  // Handle habit completion toggle
-  const handleHabitToggle = useCallback(
-    async (habit: Habit) => {
-      const isCompleted = completedHabitIds.has(habit.id);
-
-      if (isCompleted) {
-        // Uncomplete - remove from session completed
-        setSessionCompletedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(habit.id);
-          return next;
-        });
-        try {
-          await uncompleteHabit(habit.id);
-        } catch (error) {
-          console.error('[SweepWrapUpStep] Failed to uncomplete habit:', error);
-          // Add back to session on failure
-          setSessionCompletedIds((prev) => new Set(prev).add(habit.id));
-        }
-      } else {
-        // Complete - add to session completed optimistically
-        setSessionCompletedIds((prev) => new Set(prev).add(habit.id));
-        try {
-          await completeHabit(habit.id);
-        } catch (error) {
-          console.error('[SweepWrapUpStep] Failed to complete habit:', error);
-          // Remove from session on failure
-          setSessionCompletedIds((prev) => {
-            const next = new Set(prev);
-            next.delete(habit.id);
-            return next;
-          });
-        }
+    // Count habits in each open section that are visually not completed
+    [...groupedHabits.daily, ...groupedHabits.weekly, ...groupedHabits.monthly].forEach((item) => {
+      const isVisuallyCompleted =
+        sessionCompletions.has(item.habit.id) ||
+        (!sessionUncompletions.has(item.habit.id) && item.isCompletedToday);
+      if (!isVisuallyCompleted) {
+        count++;
       }
+    });
+
+    // Also count any from completed section that user toggled OFF
+    groupedHabits.completed.forEach((item) => {
+      if (sessionUncompletions.has(item.habit.id)) {
+        count++;
+      }
+    });
+
+    return count;
+  }, [groupedHabits, sessionCompletions, sessionUncompletions]);
+  const isEmpty = useMemo(() => isHabitsEmpty(groupedHabits), [groupedHabits]);
+
+  // Handle toggle from SweepHabitRow - only updates local session state
+  const handleToggle = useCallback((habitId: string, completed: boolean) => {
+    if (completed) {
+      // User toggled ON
+      setSessionCompletions((prev) => {
+        const next = new Set(prev);
+        next.add(habitId);
+        return next;
+      });
+      setSessionUncompletions((prev) => {
+        const next = new Set(prev);
+        next.delete(habitId);
+        return next;
+      });
+    } else {
+      // User toggled OFF
+      setSessionUncompletions((prev) => {
+        const next = new Set(prev);
+        next.add(habitId);
+        return next;
+      });
+      setSessionCompletions((prev) => {
+        const next = new Set(prev);
+        next.delete(habitId);
+        return next;
+      });
+    }
+  }, []);
+
+  // Determine if a habit should visually appear completed
+  // Takes into account: original state + session toggles
+  const isHabitVisuallyCompleted = useCallback(
+    (habitId: string, wasCompletedToday: boolean): boolean => {
+      // If user explicitly toggled it ON this session, show as completed
+      if (sessionCompletions.has(habitId)) return true;
+      // If user explicitly toggled it OFF this session, show as not completed
+      if (sessionUncompletions.has(habitId)) return false;
+      // Otherwise, use the original state
+      return wasCompletedToday;
     },
-    [completedHabitIds, completeHabit, uncompleteHabit],
+    [sessionCompletions, sessionUncompletions],
   );
 
-  // Check if there are no habits
-  const isEmpty =
-    habits.length === 0 && completedHabits.length === 0 && sessionCompletedIds.size === 0;
-
-  // Count open habits for the reminder message
-  const openHabitsCount = habits.length;
-
-  // Combine uncompleted and completed habits for display
-  // Show uncompleted first, then completed (for checking off)
-  // NOTE: Must be before any early returns to avoid conditional hook error
-  const allHabits = useMemo(() => {
-    // Get all habits that should be shown (due today or already completed)
-    const combined = [...habits];
-    // Add completed habits that aren't already in the list
-    for (const h of completedHabits) {
-      if (!combined.some((c) => c.id === h.id)) {
-        combined.push(h);
+  // Commit all session changes to Zustand and continue
+  const handleContinue = useCallback(async () => {
+    // Batch complete all newly completed habits
+    const completionPromises = Array.from(sessionCompletions).map(async (habitId) => {
+      try {
+        await completeHabit(habitId);
+      } catch (error) {
+        console.error('[SweepHabitsStep] Failed to complete habit:', habitId, error);
       }
-    }
-    return combined;
-  }, [habits, completedHabits]);
+    });
 
+    // Batch uncomplete all newly uncompleted habits
+    const uncompletionPromises = Array.from(sessionUncompletions).map(async (habitId) => {
+      try {
+        await uncompleteHabit(habitId);
+      } catch (error) {
+        console.error('[SweepHabitsStep] Failed to uncomplete habit:', habitId, error);
+      }
+    });
+
+    // Wait for all to complete
+    await Promise.all([...completionPromises, ...uncompletionPromises]);
+
+    // Continue to next step
+    onContinue();
+  }, [sessionCompletions, sessionUncompletions, completeHabit, uncompleteHabit, onContinue]);
+
+  // Render a single habit row
+  const renderHabitRow = useCallback(
+    (item: HabitWithMeta, index: number, array: HabitWithMeta[]) => (
+      <SweepHabitRow
+        key={item.habit.id}
+        id={item.habit.id}
+        name={item.habit.name}
+        cadence={item.cadence}
+        streakDays={item.streakDays}
+        completedThisPeriod={item.completedThisPeriod}
+        targetPerPeriod={item.targetPerPeriod}
+        frequencyLabel={item.frequencyLabel}
+        isCompleted={isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday)}
+        onToggle={handleToggle}
+        showDivider={index < array.length - 1}
+      />
+    ),
+    [handleToggle, isHabitVisuallyCompleted],
+  );
+
+  // Render a section with header
+  const renderSection = useCallback(
+    (title: string, items: HabitWithMeta[]) => {
+      if (items.length === 0) return null;
+      return (
+        <View style={styles.habitsSection}>
+          <View style={styles.habitsSectionHeader}>
+            <View style={styles.habitsSectionLine} />
+            <Text style={styles.habitsSectionTitle}>{title}</Text>
+            <View style={styles.habitsSectionLine} />
+          </View>
+          {items.map((item, index) => renderHabitRow(item, index, items))}
+        </View>
+      );
+    },
+    [renderHabitRow],
+  );
+
+  // Loading state
   if (loading) {
     return (
       <View style={styles.wrapUpStepContainer}>
@@ -462,9 +762,7 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
           <Text variant="title" style={styles.wrapUpStepTitle}>
             Habits today
           </Text>
-          <Text style={styles.wrapUpStepSubcopy}>
-            Mark what you managed today. Everything resets tomorrow.
-          </Text>
+          <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={BRAND.colors.mossGreen} />
@@ -485,9 +783,7 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
           <Text variant="title" style={styles.wrapUpStepTitle}>
             Habits today
           </Text>
-          <Text style={styles.wrapUpStepSubcopy}>
-            Mark what you managed today. Everything resets tomorrow.
-          </Text>
+          <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
         </View>
 
         {isEmpty ? (
@@ -497,34 +793,45 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
             </Text>
           </View>
         ) : (
-          <View style={styles.wrapUpSection}>
-            <View style={styles.wrapUpItemsList}>
-              {allHabits.map((habit, index) => (
-                <TouchableOpacity
-                  key={habit.id}
-                  style={[
-                    styles.wrapUpItemRow,
-                    index < allHabits.length - 1 && styles.wrapUpItemRowBorder,
-                  ]}
-                  onPress={() => handleHabitToggle(habit)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.wrapUpItemName}>{habit.name}</Text>
-                  <View style={styles.wrapUpCheckboxContainer}>
-                    <View
-                      style={[
-                        styles.wrapUpCheckbox,
-                        completedHabitIds.has(habit.id) && styles.wrapUpCheckboxChecked,
-                      ]}
-                    >
-                      {completedHabitIds.has(habit.id) && (
-                        <Text style={styles.wrapUpCheckmark}>✓</Text>
-                      )}
-                    </View>
+          <View style={styles.habitsContainer}>
+            {/* Daily Habits */}
+            {renderSection('Daily', groupedHabits.daily)}
+
+            {/* Weekly Habits */}
+            {renderSection('Weekly', groupedHabits.weekly)}
+
+            {/* Monthly Habits */}
+            {renderSection('Monthly', groupedHabits.monthly)}
+
+            {/* Completed Section */}
+            {groupedHabits.completed.length > 0 && (
+              <View style={styles.habitsCompletedSection}>
+                <View style={styles.habitsSectionHeader}>
+                  <View style={styles.habitsSectionLine} />
+                  <Text style={styles.habitsCompletedTitle}>Already done</Text>
+                  <View style={styles.habitsSectionLine} />
+                </View>
+                {groupedHabits.completed.map((item, index) => (
+                  <View
+                    key={item.habit.id}
+                    style={[
+                      styles.completedHabitRow,
+                      index < groupedHabits.completed.length - 1 && styles.completedHabitRowBorder,
+                    ]}
+                  >
+                    <Icon name="Check" size="xs" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+                    <Text style={styles.completedHabitName} numberOfLines={1}>
+                      {item.habit.name}
+                    </Text>
+                    <Text style={styles.completedHabitMeta}>
+                      {item.cadence === 'daily'
+                        ? 'today'
+                        : `${item.completedThisPeriod}/${item.targetPerPeriod} ${item.cadence === 'weekly' ? 'wk' : 'mo'}`}
+                    </Text>
                   </View>
-                </TouchableOpacity>
-              ))}
-            </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -532,22 +839,22 @@ function SweepWrapUpStep({ onContinue }: StepProps) {
       {/* Action Button */}
       <View style={styles.wrapUpButtonContainer}>
         {/* Open habits reminder */}
-        {openHabitsCount > 0 && (
+        {openCount > 0 && (
           <Text style={styles.wrapUpOpenItemsReminder}>
-            {openHabitsCount} habit{openHabitsCount !== 1 ? 's' : ''} still open.
+            {openCount} habit{openCount !== 1 ? 's' : ''} still open.
           </Text>
         )}
-        {openHabitsCount === 0 && !isEmpty && (
-          <Text style={styles.wrapUpOpenItemsReminder}>All habits checked off!</Text>
+        {openCount === 0 && !isEmpty && (
+          <Text style={styles.wrapUpOpenItemsReminder}>All habits done! 🎉</Text>
         )}
         <TouchableOpacity
           style={styles.wrapUpContinueButton}
-          onPress={onContinue}
+          onPress={handleContinue}
           activeOpacity={0.8}
         >
           <View style={styles.wrapUpContinueButtonContent}>
             <Text style={styles.wrapUpContinueButtonText}>Continue</Text>
-            <Icon name="ArrowRight" size="sm" color="#FFFFFF" strokeWidth={2.5} />
+            <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
           </View>
         </TouchableOpacity>
       </View>
@@ -574,8 +881,14 @@ interface DecisionStepProps {
  * Hook to snapshot sweep candidates on initial load.
  * Prevents items from disappearing mid-sweep when they're archived/skipped.
  */
-function useSweepSnapshot(allCandidates: SweepCandidate[], storeIsLoading: boolean) {
-  const [snapshot, setSnapshot] = useState<SweepCandidate[] | null>(null);
+function useSweepSnapshot(
+  allCandidates: Array<{ candidate: SweepCandidate; meta: SweepCardMeta }>,
+  storeIsLoading: boolean,
+) {
+  const [snapshot, setSnapshot] = useState<Array<{
+    candidate: SweepCandidate;
+    meta: SweepCardMeta;
+  }> | null>(null);
 
   // Take snapshot once when store finishes loading
   // This is intentional initialization, not a cascading update
@@ -586,7 +899,7 @@ function useSweepSnapshot(allCandidates: SweepCandidate[], storeIsLoading: boole
   }
 
   return {
-    candidates: snapshot ?? [],
+    candidatesWithMeta: snapshot ?? [],
     isLoading: storeIsLoading || snapshot === null,
   };
 }
@@ -597,13 +910,15 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const storeIsLoading = useIsLoading();
 
   // Snapshot candidates at session start (prevents items disappearing mid-sweep)
-  const { candidates, isLoading } = useSweepSnapshot(allCandidates, storeIsLoading);
+  const { candidatesWithMeta, isLoading } = useSweepSnapshot(allCandidates, storeIsLoading);
 
   // Store mutations for sweep actions
   const updateTodo = useGremlyStore((state) => state.updateTodo);
   const archiveTodo = useGremlyStore((state) => state.archiveTodo);
   const updateNote = useGremlyStore((state) => state.updateNote);
   const archiveNote = useGremlyStore((state) => state.archiveNote);
+  const updateHabit = useGremlyStore((state) => state.updateHabit);
+  const archiveHabit = useGremlyStore((state) => state.archiveHabit);
 
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
@@ -613,34 +928,125 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   // Local state for navigation
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Swipe feedback state
-  const [swipeFeedback, setSwipeFeedback] = useState<'clear' | 'keep' | null>(null);
-  const [feedbackMessage, setFeedbackMessage] = useState('');
-  // Use useMemo instead of useRef(...).current to avoid lint errors about refs during render
-  const feedbackOpacity = useMemo(() => new Animated.Value(0), []);
-  const feedbackBgProgress = useMemo(() => new Animated.Value(0), []);
-
   // Track summary stats for the sweep completion screen
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
+
+  // Track decisions without committing them (allows back navigation)
+  // Use both state (for UI re-renders) and ref (for immediate access in async operations)
+  const [decisions, setDecisions] = useState<Map<string, SweepDecision>>(new Map());
+  const decisionsRef = useRef<Map<string, SweepDecision>>(new Map());
+
+  // Helper to record a decision (doesn't commit, just stores)
+  const recordDecision = useCallback((decision: SweepDecision) => {
+    // Update ref immediately (synchronous)
+    decisionsRef.current.set(decision.candidateId, decision);
+    // Update state for UI (triggers re-render)
+    setDecisions((prev) => {
+      const next = new Map(prev);
+      next.set(decision.candidateId, decision);
+      return next;
+    });
+  }, []);
+
+  // Get existing decision for current card
+  const currentDecision = useMemo(() => {
+    const candidate = candidatesWithMeta[currentIndex]?.candidate;
+    return candidate ? decisions.get(candidate.id) : undefined;
+  }, [decisions, candidatesWithMeta, currentIndex]);
+
+  /**
+   * Batch commit all recorded decisions to the database.
+   * Called when sweep finishes or user saves and exits.
+   * Uses ref instead of state to ensure we have the latest decisions
+   * (state updates may not have been applied yet in the same render cycle).
+   */
+  const commitAllDecisions = useCallback(async () => {
+    const updates: Promise<void>[] = [];
+    let keptCount = 0;
+    let clearedCount = 0;
+
+    // Use ref for immediate access to latest decisions
+    decisionsRef.current.forEach((decision) => {
+      if (decision.action === 'clear') {
+        clearedCount++;
+        if (decision.candidateKind === 'todo') {
+          updates.push(archiveTodo(decision.candidateId, 'swept'));
+        } else if (decision.candidateKind === 'habit') {
+          updates.push(archiveHabit(decision.candidateId, 'swept'));
+        } else if (decision.candidateKind === 'note') {
+          updates.push(archiveNote(decision.candidateId, 'swept'));
+        }
+      } else if (decision.action === 'keep') {
+        keptCount++;
+        if (decision.candidateKind === 'todo' && decision.dueDate) {
+          updates.push(
+            updateTodo(decision.candidateId, {
+              due_day: toDayString(decision.dueDate),
+              skipped_in_sweep_at: null,
+            } as any),
+          );
+        } else if (decision.candidateKind === 'habit' && decision.startDate) {
+          updates.push(
+            updateHabit(decision.candidateId, {
+              start_date: decision.startDate.toISOString().split('T')[0],
+              start_date_confirmed: true,
+            }),
+          );
+        }
+        // For 'keep' without date changes (notes, habits with 'asktomorrow'), no update needed
+      }
+      // 'skip' action = no changes to persist
+    });
+
+    try {
+      await Promise.all(updates);
+      console.log('[Sweep] Committed', updates.length, 'decisions');
+    } catch (error) {
+      console.error('[Sweep] Error committing decisions:', error);
+    }
+
+    return { keptCount, clearedCount };
+  }, [archiveTodo, archiveHabit, archiveNote, updateTodo, updateHabit]);
+
+  /**
+   * Handle save and exit - commits all decisions before closing.
+   */
+  const handleSaveAndExit = useCallback(async () => {
+    await commitAllDecisions();
+    if (onClose) {
+      onClose();
+    }
+  }, [commitAllDecisions, onClose]);
+
+  /**
+   * Handle completing all cards - commits decisions then calls onFinished.
+   */
+  const handleAllCardsComplete = useCallback(
+    async (summary: SweepSummary) => {
+      await commitAllDecisions();
+      onFinished(summary);
+    },
+    [commitAllDecisions, onFinished],
+  );
 
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
 
   // Log candidates for debugging (using snapshot)
   useEffect(() => {
-    if (!isLoading && candidates.length > 0) {
+    if (!isLoading && candidatesWithMeta.length > 0) {
       console.log('[SweepFlow] Candidates from store:', {
-        total: candidates.length,
-        todos: candidates.filter((c) => c.kind === 'todo').length,
-        notes: candidates.filter((c) => c.kind === 'note').length,
-        ids: candidates.map((c) => ({
-          id: c.id.slice(0, 8),
-          kind: c.kind,
-          title: (c.raw as any)?.name || (c.raw as any)?.title,
+        total: candidatesWithMeta.length,
+        todos: candidatesWithMeta.filter((c) => c.candidate.kind === 'todo').length,
+        notes: candidatesWithMeta.filter((c) => c.candidate.kind === 'note').length,
+        ids: candidatesWithMeta.map((c) => ({
+          id: c.candidate.id.slice(0, 8),
+          kind: c.candidate.kind,
+          title: (c.candidate.raw as any)?.name || (c.candidate.raw as any)?.title,
         })),
       });
     }
-  }, [isLoading, candidates]);
+  }, [isLoading, candidatesWithMeta]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Unified Outcome Handler
@@ -656,8 +1062,9 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
 
   const handleOutcome = useCallback(
     async (outcome: SweepOutcome) => {
-      const candidate = candidates[currentIndex];
-      if (!candidate) return;
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta) return;
+      const candidate = candidateWithMeta.candidate;
 
       switch (outcome) {
         case 'skip': {
@@ -685,8 +1092,10 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
             if (candidate.kind === 'todo') {
               await archiveTodo(candidate.id, 'swept');
               // EventBus emission handled by store mutation
-            } else {
+            } else if (candidate.kind === 'note') {
               await archiveNote(candidate.id, 'swept');
+            } else if (candidate.kind === 'habit') {
+              await archiveHabit(candidate.id, 'swept');
             }
 
             setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
@@ -720,7 +1129,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
           return;
       }
     },
-    [candidates, currentIndex, updateTodo, updateNote, archiveTodo, archiveNote],
+    [candidatesWithMeta, currentIndex, updateTodo, updateNote, archiveTodo, archiveNote],
   );
 
   // Keep the ref updated with the latest handleOutcome
@@ -757,53 +1166,58 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }, []); // Empty deps - uses refs to avoid re-subscribing
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Card Action Handlers (wired to unified outcome handler)
+  // Card Action Handlers (record decisions, don't commit immediately)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
-    setFeedbackMessage(getRandomKeepMessage());
-    setSwipeFeedback('keep');
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const { candidate } = candidateWithMeta;
 
-    Animated.parallel([
-      Animated.timing(feedbackOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
-      Animated.timing(feedbackBgProgress, { toValue: 1, duration: 200, useNativeDriver: false }),
-    ]).start();
+    recordDecision({
+      candidateId: candidate.id,
+      candidateKind: candidate.kind,
+      action: 'keep',
+    });
 
-    setTimeout(() => {
-      handleOutcome('skip');
-      Animated.parallel([
-        Animated.timing(feedbackOpacity, { toValue: 0, duration: 100, useNativeDriver: true }),
-        Animated.timing(feedbackBgProgress, { toValue: 0, duration: 150, useNativeDriver: false }),
-      ]).start(() => {
-        setSwipeFeedback(null);
-        setFeedbackMessage('');
-      });
-    }, 350);
-  }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
+    // Update stats
+    const newStats = { ...stats, kept: stats.kept + 1 };
+    setStats(newStats);
+
+    // Move to next card (or finish if last)
+    if (currentIndex < candidatesWithMeta.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      handleAllCardsComplete(newStats);
+    }
+  }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
 
   const handleClear = useCallback(() => {
-    setFeedbackMessage(getRandomClearMessage());
-    setSwipeFeedback('clear');
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const { candidate } = candidateWithMeta;
 
-    Animated.parallel([
-      Animated.timing(feedbackOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
-      Animated.timing(feedbackBgProgress, { toValue: 1, duration: 200, useNativeDriver: false }),
-    ]).start();
+    recordDecision({
+      candidateId: candidate.id,
+      candidateKind: candidate.kind,
+      action: 'clear',
+    });
 
-    setTimeout(() => {
-      handleOutcome('clear');
-      Animated.parallel([
-        Animated.timing(feedbackOpacity, { toValue: 0, duration: 100, useNativeDriver: true }),
-        Animated.timing(feedbackBgProgress, { toValue: 0, duration: 150, useNativeDriver: false }),
-      ]).start(() => {
-        setSwipeFeedback(null);
-        setFeedbackMessage('');
-      });
-    }, 450);
-  }, [handleOutcome, feedbackOpacity, feedbackBgProgress]);
+    // Update stats
+    const newStats = { ...stats, cleared: stats.cleared + 1 };
+    setStats(newStats);
+
+    // Move to next card
+    if (currentIndex < candidatesWithMeta.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      handleAllCardsComplete(newStats);
+    }
+  }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
 
   const handleOpenEdit = useCallback(() => {
-    const candidate = candidates[currentIndex];
-    if (!candidate) return;
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const candidate = candidateWithMeta.candidate;
 
     // Track which candidate is being edited so we can detect saves
     editingCandidateIdRef.current = candidate.id;
@@ -830,11 +1244,12 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       } as AppRecord;
       overlayController.openEdit({ record: fallbackRecord });
     }
-  }, [candidates, currentIndex, todos, notes, overlayController]);
+  }, [candidatesWithMeta, currentIndex, todos, notes, overlayController]);
 
   const handleConvertToTodo = useCallback(() => {
-    const candidate = candidates[currentIndex];
-    if (!candidate || candidate.kind !== 'note') return;
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'note') return;
+    const candidate = candidateWithMeta.candidate;
 
     // Look up full record from store
     const note = notes.find((n) => n.id === candidate.id);
@@ -851,91 +1266,178 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
         sourceNoteId: candidate.id, // Track source for potential archiving
       },
     });
-  }, [candidates, currentIndex, notes, overlayController]);
+  }, [candidatesWithMeta, currentIndex, notes, overlayController]);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Primary Action Handler
-  // ─────────────────────────────────────────────────────────────────────────
   /**
-   * Handle primary action button press based on action type.
-   * Opens the appropriate overlay/picker and returns whether to advance.
-   *
-   * @returns 'advance' if meaningful change was saved, 'stay' if cancelled
-   *
-   * MIGRATED: Now uses Zustand store data instead of repo.getById
+   * Handle confirmed quick date (user selected + swiped right)
+   * Records decision with calculated date - actual save happens in batch commit
    */
-  const handlePrimaryAction = useCallback(
-    (config: SweepPrimaryActionConfig, candidate: SweepCandidate): 'advance' | 'stay' => {
-      // Look up full record from store
-      let fullRecord: AppRecord | undefined;
-      if (candidate.kind === 'todo') {
-        const todo = todos.find((t) => t.id === candidate.id);
-        if (todo) fullRecord = { ...todo, type: 'todo' } as AppRecord;
-      } else if (candidate.kind === 'note') {
-        const note = notes.find((n) => n.id === candidate.id);
-        if (note) fullRecord = { ...note, type: 'note' } as AppRecord;
+  const handleConfirmQuickDate = useCallback(
+    (option: 'tomorrow' | '2days' | 'nextweek') => {
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      const { candidate } = candidateWithMeta;
+
+      // Calculate the target date
+      const today = new Date();
+      let targetDate: Date;
+      switch (option) {
+        case 'tomorrow':
+          targetDate = addDays(today, 1);
+          break;
+        case '2days':
+          targetDate = addDays(today, 2);
+          break;
+        case 'nextweek':
+          targetDate = nextMonday(today);
+          break;
       }
 
-      const record = fullRecord || ({ ...candidate.raw, type: candidate.kind } as AppRecord);
+      recordDecision({
+        candidateId: candidate.id,
+        candidateKind: candidate.kind,
+        action: 'keep',
+        dueDate: targetDate,
+      });
 
-      switch (config.type) {
-        case 'todo_add_due_date':
-        case 'todo_review_due_date': {
-          // Track this candidate for overlay save detection
-          editingCandidateIdRef.current = candidate.id;
-          // Open the todo in edit mode - the overlay has date picker functionality
-          // The user can set/change the due date there
-          overlayController.openEdit({ record });
-          // Return 'stay' - the overlay save listener will advance on save
-          return 'stay';
-        }
+      // Update stats and move to next card
+      const newStats = { ...stats, kept: stats.kept + 1 };
+      setStats(newStats);
 
-        case 'log_idea_to_todo': {
-          // For conversion, we don't auto-advance since we're creating a new item
-          // The user should explicitly swipe/keep after conversion
-          overlayController.openCreate({
-            type: 'todo',
-            // Note: conversionMeta isn't supported in the current type,
-            // so we use the standard create flow. The user will manually
-            // copy the content if needed, or we can enhance the overlay later.
-          });
-          return 'stay';
-        }
-
-        case 'log_journal_followup': {
-          // For journal follow-up, we're creating a new entry
-          // The user should explicitly keep/clear the original after
-          overlayController.openCreate({
-            type: 'log',
-            logSubtype: 'journal',
-          });
-          return 'stay';
-        }
-
-        case 'log_general_decide': {
-          // Track this candidate for overlay save detection
-          editingCandidateIdRef.current = candidate.id;
-          // Open the full edit overlay for the log
-          // User can convert to todo/habit, add tags, reminders, etc.
-          overlayController.openEdit({ record });
-          return 'stay';
-        }
-
-        default:
-          console.warn('[SweepDecisionStep] Unknown primary action type:', config.type);
-          return 'stay';
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        handleAllCardsComplete(newStats);
       }
     },
-    [todos, notes, overlayController],
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
   );
 
-  // Auto-advance to summary when all cards are processed
-  useEffect(() => {
-    if (!isLoading && candidates.length > 0 && currentIndex >= candidates.length) {
-      // All cards processed - auto-finish to show summary
-      onFinished(stats);
+  /**
+   * Handle confirmed custom date (user picked date in date picker + swiped right)
+   * Records decision with custom date - actual save happens in batch commit
+   */
+  const handleConfirmCustomDate = useCallback(
+    (date: Date) => {
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      const { candidate } = candidateWithMeta;
+
+      recordDecision({
+        candidateId: candidate.id,
+        candidateKind: candidate.kind,
+        action: 'keep',
+        dueDate: date,
+      });
+
+      // Update stats and move to next card
+      const newStats = { ...stats, kept: stats.kept + 1 };
+      setStats(newStats);
+
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        handleAllCardsComplete(newStats);
+      }
+    },
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
+  );
+
+  /**
+   * Confirm Habit Start Handler - Records habit start decision
+   * Actual save happens in batch commit
+   */
+  const handleConfirmHabitStart = useCallback(
+    (action: 'asktomorrow' | 'starttomorrow' | 'startmonday', customDate?: Date) => {
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'habit') return;
+      const { candidate } = candidateWithMeta;
+
+      if (action === 'asktomorrow') {
+        // Skip - will ask again tomorrow
+        recordDecision({
+          candidateId: candidate.id,
+          candidateKind: 'habit',
+          action: 'skip',
+          habitAction: action,
+        });
+      } else {
+        // Calculate start date based on action
+        let startDate: Date;
+        if (customDate) {
+          startDate = customDate;
+        } else if (action === 'starttomorrow') {
+          startDate = addDays(new Date(), 1);
+        } else {
+          startDate = nextMonday(new Date());
+        }
+
+        recordDecision({
+          candidateId: candidate.id,
+          candidateKind: 'habit',
+          action: 'keep',
+          startDate,
+          habitAction: action,
+        });
+      }
+
+      // Update stats and move to next card
+      const newStats = { ...stats, kept: stats.kept + 1 };
+      setStats(newStats);
+
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        handleAllCardsComplete(newStats);
+      }
+    },
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
+  );
+
+  /**
+   * Add to Space Handler - Opens edit overlay for space assignment
+   * Used for logs that user wants to organize into a Space
+   */
+  const handleAddToSpace = useCallback(() => {
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const candidate = candidateWithMeta.candidate;
+
+    // Track that we're editing this candidate
+    editingCandidateIdRef.current = candidate.id;
+
+    // Look up full record from store
+    if (candidate.kind === 'note') {
+      const note = notes.find((n) => n.id === candidate.id);
+      if (note) {
+        overlayController.openEdit({ record: { ...note, type: 'note' } });
+      }
+    } else {
+      const todo = todos.find((t) => t.id === candidate.id);
+      if (todo) {
+        overlayController.openEdit({ record: { ...todo, type: 'todo' } });
+      }
     }
-  }, [isLoading, candidates.length, currentIndex, stats, onFinished]);
+  }, [candidatesWithMeta, currentIndex, notes, todos, overlayController]);
+
+  /**
+   * Go Back Handler - Navigate to previous card
+   * Allows user to review/change previous decisions
+   */
+  const handleGoBackCard = useCallback(() => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    }
+  }, [currentIndex]);
+
+  // Auto-advance to summary when all cards are processed (fallback)
+  useEffect(() => {
+    if (!isLoading && candidatesWithMeta.length > 0 && currentIndex >= candidatesWithMeta.length) {
+      // All cards processed - auto-finish to show summary
+      // This is a fallback - normally last card handler calls handleAllCardsComplete
+      handleAllCardsComplete(stats);
+    }
+  }, [isLoading, candidatesWithMeta.length, currentIndex, stats, handleAllCardsComplete]);
 
   // Loading state
   if (isLoading) {
@@ -952,7 +1454,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }
 
   // Empty state - nothing to sweep
-  if (candidates.length === 0) {
+  if (candidatesWithMeta.length === 0) {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.decisionEmptyContainer}>
@@ -975,7 +1477,7 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }
 
   // All cards processed - show brief transition (auto-advances via useEffect above)
-  if (currentIndex >= candidates.length) {
+  if (currentIndex >= candidatesWithMeta.length) {
     return (
       <View style={styles.stepContainer}>
         <View style={styles.decisionLoadingContainer}>
@@ -986,17 +1488,11 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   }
 
   // Current candidate to display
-  const currentCandidate = candidates[currentIndex];
-
-  const currentBgColor = swipeFeedback
-    ? feedbackBgProgress.interpolate({
-        inputRange: [0, 1],
-        outputRange: ['#FFFFFF', FEEDBACK_COLORS[swipeFeedback]],
-      })
-    : '#FFFFFF';
+  const currentCandidateWithMeta = candidatesWithMeta[currentIndex];
+  const currentCandidate = currentCandidateWithMeta.candidate;
 
   return (
-    <Animated.View style={[styles.decisionStepContainer, { backgroundColor: currentBgColor }]}>
+    <View style={styles.decisionStepContainer}>
       {/* Decision Step Header - X close button at top right only */}
       <View style={styles.decisionHeader}>
         <View style={styles.decisionHeaderSpacer} />
@@ -1017,21 +1513,21 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
       <View style={styles.decisionCardArea}>
         <SweepCard
           candidate={currentCandidate}
+          meta={currentCandidateWithMeta.meta}
           index={currentIndex}
-          total={candidates.length}
+          total={candidatesWithMeta.length}
           onSkip={handleSkip}
           onClear={handleClear}
           onOpenEdit={handleOpenEdit}
-          onPrimaryAction={async (config, cand) => {
-            // Open the appropriate overlay - save detection is handled
-            // by the overlay save listener which will call handleOutcome('changed')
-            await handlePrimaryAction(config, cand);
-          }}
           onConvertToTodo={handleConvertToTodo}
+          onConfirmQuickDate={handleConfirmQuickDate}
+          onConfirmCustomDate={handleConfirmCustomDate}
+          onAddToSpace={handleAddToSpace}
+          onConfirmHabitStart={handleConfirmHabitStart}
           onClose={onClose}
-          feedbackMessage={feedbackMessage}
-          feedbackType={swipeFeedback}
           hideBottomSaveExit={true}
+          onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
+          previousDecision={currentDecision}
         />
       </View>
 
@@ -1043,67 +1539,23 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
             <View
               style={[
                 styles.progressFill,
-                { width: `${((currentIndex + 1) / candidates.length) * 100}%` },
+                { width: `${((currentIndex + 1) / candidatesWithMeta.length) * 100}%` },
               ]}
             />
           </View>
           <Text style={styles.counterText}>
-            {currentIndex + 1} of {candidates.length} items
+            {currentIndex + 1} of {candidatesWithMeta.length} items
           </Text>
         </View>
 
         {/* Save and exit */}
         {onClose && (
-          <TouchableOpacity onPress={onClose} style={styles.saveExitButton}>
+          <TouchableOpacity onPress={handleSaveAndExit} style={styles.saveExitButton}>
             <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
           </TouchableOpacity>
         )}
       </View>
-
-      {/* Feedback Overlay - Floating text, no background */}
-      {swipeFeedback && (
-        <Modal visible={true} transparent={true} animationType="none" statusBarTranslucent={true}>
-          <View
-            style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
-            pointerEvents="none"
-          >
-            <Animated.View
-              style={{
-                alignItems: 'center',
-                opacity: feedbackOpacity,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 28,
-                  fontWeight: '700',
-                  color: swipeFeedback === 'keep' ? '#4A3F2F' : '#FFFFFF',
-                  lineHeight: 40,
-                  letterSpacing: 2,
-                  textAlign: 'center',
-                  textShadowColor: 'rgba(0, 0, 0, 0.3)',
-                  textShadowOffset: { width: 0, height: 2 },
-                  textShadowRadius: 4,
-                }}
-              >
-                {feedbackMessage}
-              </Text>
-              <Text
-                style={{
-                  fontSize: 13,
-                  fontWeight: '500',
-                  color:
-                    swipeFeedback === 'keep' ? 'rgba(74, 63, 47, 0.8)' : 'rgba(255,255,255,0.8)',
-                  marginTop: 8,
-                }}
-              >
-                {swipeFeedback === 'clear' ? '(archived)' : '(keeping)'}
-              </Text>
-            </Animated.View>
-          </View>
-        </Modal>
-      )}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -1270,11 +1722,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   };
 
   const handleMoodContinue = () => {
-    setStep(3); // Mood → Wrap-up / Habits
+    setStep(4); // Mood → Summary
   };
 
   const handleWrapUpContinue = () => {
-    setStep(4); // Wrap-up → Summary
+    setStep(3); // Habits → Mood
   };
 
   const handleDecisionFinished = (summary: SweepSummary) => {
@@ -1289,8 +1741,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       });
     }
 
-    // Advance to Mood step
-    setStep(2); // Decision → Mood
+    // Advance to Habits step
+    setStep(2); // Decision → Habits
   };
 
   const handleSummaryDone = () => {
@@ -1360,8 +1812,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           {step === 1 && (
             <SweepDecisionStep onFinished={handleDecisionFinished} onClose={handleClose} />
           )}
-          {step === 2 && <SweepMoodStep onContinue={handleMoodContinue} />}
-          {step === 3 && <SweepWrapUpStep onContinue={handleWrapUpContinue} />}
+          {step === 2 && <SweepHabitsStep onContinue={handleWrapUpContinue} />}
+          {step === 3 && <SweepMoodStep onContinue={handleMoodContinue} />}
           {step === 4 && (
             <SweepSummaryStep
               keptCount={keptCount}
@@ -1534,11 +1986,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   // ─────────────────────────────────────────────────────────────────────────
-  // SweepMoodStep styles - Gremly Brand Reskin
+  // SweepMoodStep styles - Journal-First Redesign
   // ─────────────────────────────────────────────────────────────────────────
   moodStepContainer: {
     flex: 1,
-    paddingTop: 28, // More space between nav and header
+    paddingTop: 8,
     backgroundColor: BRAND.colors.linenCream,
   },
   scrollContainer: {
@@ -1546,166 +1998,250 @@ const styles = StyleSheet.create({
   },
   moodScrollContent: {
     paddingBottom: 32,
-    paddingHorizontal: 4,
+    paddingHorizontal: 20,
+    paddingTop: 48,
   },
-  moodHeaderSection: {
-    marginBottom: 12, // Reduced by 4-6px from 18 for tighter to chips
-    paddingHorizontal: 12,
+  // Header Row with Mascot
+  moodHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+  },
+  moodHeaderText: {
+    flex: 1,
+  },
+  moodMascotImage: {
+    width: 86,
+    height: 86,
+    opacity: 0.9,
+    marginLeft: 8,
+    marginTop: -12,
   },
   moodStepTitle: {
-    fontSize: 20, // Reduced one more notch (Today greeting minus 1pt)
-    fontWeight: '600', // Semibold
+    fontSize: 22,
+    fontWeight: '600',
     color: BRAND.colors.charcoalInk,
-    marginBottom: 12, // Increased by 8px for header-subheader gap
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(191, 216, 192, 0.5)',
     letterSpacing: -0.3,
   },
   moodStepSubcopy: {
-    fontSize: 13, // 1-2pt smaller
-    fontWeight: '400', // Regular
-    color: 'rgba(34, 34, 34, 0.75)', // Charcoal at 75%
-    lineHeight: 19, // Slightly relaxed
+    fontSize: 15,
+    fontWeight: '400',
+    color: 'rgba(34, 34, 34, 0.75)',
+    lineHeight: 22,
   },
-  moodDivider: {
-    // Kept for potential future use but not rendered
-    height: 1,
-    backgroundColor: 'rgba(191, 216, 192, 0.35)',
-    marginHorizontal: 12,
-    marginTop: 16,
+  // Recent Entries Section (Collapsible)
+  recentEntriesSection: {
+    marginBottom: 16,
+    borderRadius: BRAND.radius.lg,
+    backgroundColor: 'rgba(191, 216, 192, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.30)',
+    overflow: 'hidden',
+  },
+  recentEntriesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  recentEntriesHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recentEntriesHeaderText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  recentEntriesList: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+    gap: 6,
+  },
+  recentEntryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: BRAND.radius.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  recentEntryCardPressed: {
+    backgroundColor: 'rgba(191, 216, 192, 0.25)',
+  },
+  recentEntryTime: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
+    width: 60,
+  },
+  recentEntryPreview: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '400',
+    color: BRAND.colors.charcoalInk,
+  },
+  // Journal Input Section
+  journalSection: {
     marginBottom: 28,
   },
-  // Mood Grid - Centered 2x3 layout (Group 2)
-  moodGridContainer: {
-    alignItems: 'center',
-    marginBottom: 40, // More space before journal section
-    paddingHorizontal: 16,
-  },
-  moodGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 280, // Tighter for 2-col layout
-    gap: 10, // Horizontal gap
-    rowGap: 6, // Reduced by 4px for compact chip block
-  },
-  // Mood Button - Gremly Brand Style with icons
-  moodButton: {
-    width: 130, // Fixed width for 2-col grid
+  promptLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: BRAND.radius.lg, // 14px - design token for chips
-    backgroundColor: 'rgba(191, 216, 192, 0.18)', // Lighter Sage Mist for unselected
-    borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.40)', // Light Sage border for unselected
-    // Soft shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
+    marginBottom: 10,
+    paddingLeft: 4,
   },
-  moodButtonSelected: {
-    backgroundColor: 'rgba(191, 216, 192, 0.50)', // Stronger Sage Mist for selected
-    borderColor: BRAND.colors.mossGreen, // Full Moss Green border
-    borderWidth: 1.5,
-    shadowOpacity: 0.06,
-  },
-  moodButtonPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
-  },
-  moodButtonLabel: {
-    fontSize: 12,
+  promptText: {
+    fontSize: 13,
     fontWeight: '500',
-    color: BRAND.colors.charcoalInk, // Charcoal for unselected
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    fontStyle: 'italic',
+    color: BRAND.colors.mossGreen,
   },
-  moodButtonLabelSelected: {
-    color: BRAND.colors.mossGreen, // Full Moss Green for selected
-    fontWeight: '600',
+  journalInputWrapper: {
+    position: 'relative',
   },
-  // Journal Input - Gremly Brand Style (Group 3)
-  moodJournalContainer: {
-    marginTop: 0, // Group 2 marginBottom handles gap
-    marginBottom: 18, // Reduced by 10px from 28
-    marginHorizontal: 12,
-  },
-  moodJournalLabel: {
-    fontSize: 15,
-    fontWeight: '500', // Medium weight
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 12,
-  },
-  moodJournalInput: {
+  journalInput: {
     backgroundColor: BRAND.colors.linenCream,
-    borderRadius: BRAND.radius.lg, // 14px - design token
+    borderRadius: BRAND.radius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(191, 216, 192, 0.30)', // Sage Mist @ 30%
+    borderColor: 'rgba(191, 216, 192, 0.30)',
     padding: 16,
+    paddingBottom: 44, // Room for prompt button
     fontSize: 16,
     color: BRAND.colors.charcoalInk,
     minHeight: 120,
     lineHeight: 24,
-    // Subtle shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
     shadowRadius: 3,
     elevation: 1,
   },
-  moodButtonContainer: {
-    paddingTop: 0, // Group 3 marginBottom handles gap
+  promptButton: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: BRAND.radius.md,
+    backgroundColor: 'rgba(191, 216, 192, 0.25)',
+  },
+  promptButtonPressed: {
+    backgroundColor: 'rgba(191, 216, 192, 0.40)',
+  },
+  promptButtonLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+    textTransform: 'lowercase',
+  },
+  // Mood Chips Section (Multi-select)
+  moodChipsSection: {
+    marginBottom: 24,
+    marginTop: 8,
+  },
+  moodChipsLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+  moodChipsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  moodChip: {
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    borderRadius: BRAND.radius.sm,
+    backgroundColor: 'rgba(191, 216, 192, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(191, 216, 192, 0.40)',
+  },
+  moodChipSelected: {
+    backgroundColor: 'rgba(191, 216, 192, 0.50)',
+    borderColor: BRAND.colors.mossGreen,
+    borderWidth: 1.5,
+  },
+  moodChipPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  moodChipLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  moodChipLabelSelected: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
+  },
+  moodChipsHelper: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    marginTop: 8,
+  },
+  // Footer Actions
+  moodFooter: {
+    paddingTop: 8,
     paddingBottom: 16,
     paddingHorizontal: 12,
-    gap: 8, // Tight within Group 4
+    gap: 8,
     backgroundColor: BRAND.colors.linenCream,
   },
-  // Continue Button - CTA style with arrow
-  moodContinueButton: {
-    backgroundColor: BRAND.colors.sageMist, // Solid Sage Mist fill
-    borderWidth: 0, // No border
-    borderRadius: BRAND.radius.xl, // 18px - design token for buttons
-    height: 54, // 52-56px height (chips are ~44px)
+  continueButton: {
+    backgroundColor: BRAND.colors.sageMist,
+    borderRadius: BRAND.radius.xl,
+    height: 54,
     alignItems: 'center',
     justifyContent: 'center',
-    // Soft CTA shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12, // 10-15% opacity
-    shadowRadius: 10, // 8-10px blur
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
     elevation: 3,
   },
-  moodContinueButtonContent: {
+  continueButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  moodContinueButtonDisabled: {
+  continueButtonDisabled: {
     opacity: 0.6,
   },
-  moodContinueButtonText: {
+  continueButtonText: {
     fontSize: 17,
     fontWeight: '600',
     color: BRAND.colors.mossGreen,
   },
-  moodSkipButton: {
+  skipButton: {
     alignItems: 'center',
     paddingVertical: 12,
-    marginTop: 4, // Added 4-6px spacing from Continue
+    marginTop: 4,
   },
-  moodSkipButtonText: {
-    color: 'rgba(34, 34, 34, 0.60)', // Charcoal at 60-70% - clearly secondary
+  skipButtonText: {
+    color: 'rgba(34, 34, 34, 0.60)',
     fontSize: 15,
     fontWeight: '500',
   },
   // ─────────────────────────────────────────────────────────────────────────
-  // SweepWrapUpStep styles - Gremly Brand Reskin (matched to Mood step)
+  // SweepHabitsStep styles - Gremly Brand Reskin (matched to Mood step)
   // ─────────────────────────────────────────────────────────────────────────
   wrapUpStepContainer: {
     flex: 1,
@@ -1859,7 +2395,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   wrapUpContinueButton: {
-    backgroundColor: BRAND.colors.mossGreen, // Full Moss Green fill
+    backgroundColor: BRAND.colors.sageMist, // Soft sage fill
     borderRadius: BRAND.radius.xl, // Pill shape
     height: 54,
     alignItems: 'center',
@@ -1879,8 +2415,72 @@ const styles = StyleSheet.create({
   wrapUpContinueButtonText: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: BRAND.colors.mossGreen,
   },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Habits Step Styles (Phase 3 redesign)
+  // ─────────────────────────────────────────────────────────────────────────
+  habitsContainer: {
+    paddingHorizontal: 12,
+  },
+  habitsSection: {
+    marginBottom: 8,
+  },
+  habitsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    marginTop: 16,
+    paddingHorizontal: 8,
+  },
+  habitsSectionLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: BRAND.colors.borderSubtle,
+  },
+  habitsSectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.inkMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    paddingHorizontal: 12,
+  },
+  habitsCompletedSection: {
+    marginTop: 24,
+    opacity: 0.7,
+  },
+  habitsCompletedTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    paddingHorizontal: 12,
+  },
+  completedHabitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  completedHabitRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.colors.borderSubtle,
+  },
+  completedHabitName: {
+    flex: 1,
+    fontSize: 14,
+    color: BRAND.colors.inkSubtle,
+    textDecorationLine: 'line-through',
+  },
+  completedHabitMeta: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+  },
+
   // Legacy styles kept for other steps
   loadingContainer: {
     flex: 1,
@@ -1891,37 +2491,8 @@ const styles = StyleSheet.create({
   // SweepDecisionStep styles - Linen Cream background with sage card
   decisionStepContainer: {
     flex: 1,
+    position: 'relative', // For absolute positioned behindCardTextContainer
     backgroundColor: '#FFFFFF', // White background for contrast
-  },
-  swipeFeedbackContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 9999,
-    elevation: 9999,
-  },
-  swipeFeedbackText: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 3,
-    textTransform: 'uppercase',
-    lineHeight: 48, // 1.5x fontSize to ensure full character rendering
-    textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 3 },
-    textShadowRadius: 8,
-  },
-  swipeFeedbackSubtext: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.85)',
-    marginTop: 10,
-    letterSpacing: 1.5,
   },
   decisionHeader: {
     flexDirection: 'row',
@@ -1939,41 +2510,43 @@ const styles = StyleSheet.create({
   decisionCloseButton: {
     padding: 8,
   },
-  // Bottom section styles
+  // Bottom section styles - Compact chrome at bottom, clearly separated from card
   bottomSection: {
     alignItems: 'center',
-    paddingBottom: 32,
+    paddingBottom: 12,
     paddingTop: 16,
+    marginTop: 8,
   },
   progressContainer: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 4,
   },
   progressBar: {
-    width: 120,
-    height: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-    borderRadius: 2,
-    marginBottom: 8,
+    width: 100,
+    height: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    borderRadius: 1,
+    marginBottom: 4,
   },
   progressFill: {
     height: '100%',
     backgroundColor: BRAND.colors.mossGreen,
-    borderRadius: 2,
+    borderRadius: 1,
   },
   counterText: {
-    fontSize: 13,
+    fontSize: 11,
     color: BRAND.colors.inkSubtle,
     fontWeight: '500',
+    opacity: 0.8,
   },
   saveExitButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
   },
   saveExitText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '500',
-    color: 'rgba(34, 34, 34, 0.65)',
+    color: 'rgba(34, 34, 34, 0.45)',
     letterSpacing: 0.1,
   },
   decisionPlaceholder: {
