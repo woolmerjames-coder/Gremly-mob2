@@ -8,6 +8,7 @@
 import type { MindDropBucket, LogSubtype } from './types';
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { env, getEnv } from '../env';
+import { getDateService } from '../date/DateService';
 import { validateEnrichmentResult } from './phase2Validation';
 import { eventBus } from '../events/EventBus';
 
@@ -73,15 +74,16 @@ async function callEnrichAPI(
     return null;
   }
 
-  // Use local date, not UTC
-  const now = new Date();
-  const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  // Get date context from DateService (single source of truth)
+  const dateService = getDateService();
+  const currentDate = dateService.getCurrentDate();
+  const timezone = dateService.getTimezone();
+  const dayOfWeek = dateService.getDayOfWeek();
 
   console.log('[Phase2] Date context', {
     currentDate,
-    localDate: now.toLocaleDateString(),
-    isoFull: now.toISOString(),
-    timezoneOffset: now.getTimezoneOffset(),
+    timezone,
+    dayOfWeek,
   });
 
   // Create timeout promise
@@ -101,6 +103,8 @@ async function callEnrichAPI(
         bucket,
         subtype,
         currentDate,
+        timezone,
+        dayOfWeek,
       }),
       signal: controller.signal,
     });
