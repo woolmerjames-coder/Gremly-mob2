@@ -36,7 +36,7 @@ import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
-import { callSpaceChat } from '../../lib/cortex/CortexClient';
+import { callSpaceChat, callSpaceChatStreaming } from '../../lib/cortex/CortexClient';
 import { checkQuickResponse, getQuickResponseText } from '../../lib/chat/quickResponses';
 import { perfMonitor } from '../../lib/chat/performanceMonitor';
 import { getEnv } from '../../lib/env';
@@ -229,6 +229,12 @@ export default function ChatThreadScreen({ route }: Props) {
   // Phase 10.7D: Debounce timer ref
   const sendDebounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
+  // Streaming support refs
+  const streamingControllerRef = useRef<{ close: () => void } | null>(null);
+  const streamingMessageIdRef = useRef<string | null>(null);
+  const wordBufferRef = useRef<string[]>([]);
+  const wordFlushIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   // Mascot controller for Phase 10.6
   const mascot = useMascotController();
 
@@ -263,6 +269,10 @@ export default function ChatThreadScreen({ route }: Props) {
     appendEntryCard,
     removeMessage,
     updateMessage,
+    createStreamingMessage,
+    updateStreamingContent,
+    finalizeStreamingMessage,
+    cancelStreaming,
   } = useChatMessages(chatId, spaceId);
 
   // Helper function to convert messages for resolution
@@ -273,6 +283,34 @@ export default function ChatThreadScreen({ route }: Props) {
       timestamp: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
     }));
   }, [messages]);
+
+  // Streaming word buffer flush helpers
+  const flushWordBuffer = useCallback(() => {
+    const messageId = streamingMessageIdRef.current;
+    if (!messageId || wordBufferRef.current.length === 0) return;
+    const wordsToFlush = wordBufferRef.current.splice(0, 3);
+    updateStreamingContent(messageId, wordsToFlush.join(''), 'append');
+  }, [updateStreamingContent]);
+
+  const startWordFlushInterval = useCallback(() => {
+    if (wordFlushIntervalRef.current) return;
+    wordFlushIntervalRef.current = setInterval(flushWordBuffer, 50);
+  }, [flushWordBuffer]);
+
+  const stopWordFlushInterval = useCallback(() => {
+    if (wordFlushIntervalRef.current) {
+      clearInterval(wordFlushIntervalRef.current);
+      wordFlushIntervalRef.current = null;
+    }
+    if (streamingMessageIdRef.current && wordBufferRef.current.length > 0) {
+      updateStreamingContent(
+        streamingMessageIdRef.current,
+        wordBufferRef.current.join(''),
+        'append',
+      );
+      wordBufferRef.current = [];
+    }
+  }, [updateStreamingContent]);
 
   // Space Chat enhanced context hook - use currentChatId (may be null for new chats)
   const spaceChatEnhanced = useSpaceChatEnhanced({
@@ -628,7 +666,7 @@ export default function ChatThreadScreen({ route }: Props) {
         // Phase 10.6: Start thinking animation for API call
         mascot.thinking();
 
-        // 2. Process with Cortex in parallel (Phase 10.3)
+        // 2. Process with Cortex streaming (Phase 12)
         try {
           // Ensure we have a valid session before making cortex calls
           const validSession = await auth.waitForSession(3000);
@@ -646,8 +684,6 @@ export default function ChatThreadScreen({ route }: Props) {
             payload: { requestId: Date.now().toString(), lane: 'space_chat' },
           });
 
-          const cortexStartTime = Date.now();
-
           // Build conversation history for context
           const conversationHistory = messages.slice(-8).map((m) => ({
             role: m.role as 'user' | 'assistant',
@@ -657,206 +693,91 @@ export default function ChatThreadScreen({ route }: Props) {
           // Add current user message
           conversationHistory.push({ role: 'user' as const, content: trimmedText });
 
-          // Call GPT via Space Chat pipeline
-          const spaceChatResult = await callSpaceChat(conversationHistory, {
-            spaceId: chat.space_id || spaceId,
-            chatId: chat.id,
-            systemPrompt: spaceChatEnhanced.systemPrompt,
-          });
-
-          const cortexDuration = Date.now() - cortexStartTime;
-
-          // Record API call performance
-          await perfMonitor.recordApiCall(cortexDuration);
-
-          if (__DEV__ || process.env.EXPO_PUBLIC_DEBUG_CORTEX === 'on') {
-            console.log('[Chat] Space Chat API call completed', {
-              duration: `${cortexDuration}ms`,
-              ok: spaceChatResult.ok,
-            });
+          // Create streaming message placeholder
+          const streamingResult = await createStreamingMessage();
+          if (!streamingResult) {
+            await appendAssistantMessage('Sorry, something went wrong.');
+            setSending(false);
+            return;
           }
 
-          // Handle error
-          if (!spaceChatResult.ok) {
-            console.error('[ChatThread] Space Chat failed:', spaceChatResult.error);
-            throw new Error(spaceChatResult.error || 'Space Chat request failed');
-          }
+          const { messageId } = streamingResult;
+          streamingMessageIdRef.current = messageId;
+          startWordFlushInterval();
 
-          // Map response to expected format
-          const chatData = spaceChatResult.data as { content?: string } | undefined;
-          const response = {
-            explanation: chatData?.content || '',
-            replyText: chatData?.content || '',
-            actions: [] as any[],
-            suggestions: [] as any[],
-            mode: 'keep' as const,
-            confidence: 1,
-            meta: {} as Record<string, any>,
-          };
-
-          // REMOVED: Automatic action creation without user confirmation (lines 800-883)
-          // Phase 10.6: Determine mascot state based on cortex response
-          let shouldTriggerPlayful = false;
-
-          // Normalize actions array for type safety
-          const actions = Array.isArray(response.actions) ? response.actions : [];
-
-          // Check if this is chit-chat/conversational content
-          if (response.mode === 'keep' && actions.length === 0) {
-            // Simple heuristic for chit-chat detection
-            const chitChatPatterns =
-              /\b(hello|hi|hey|thanks|thank you|how are you|what's up|good morning|good afternoon|good evening)\b/i;
-            if (chitChatPatterns.test(trimmedText.toLowerCase())) {
-              shouldTriggerPlayful = true;
-            }
-          }
-
-          // Add AI response message for all cortex responses (explanation or replyText)
-          const assistantText = response.explanation?.trim() || response.replyText?.trim() || '';
-
-          if (assistantText) {
-            // NON-BLOCKING FLOW: Show message immediately, detect saveable in background
-            // 1. Append message to chat IMMEDIATELY (no saveable yet)
-            const appendedMessage = await appendAssistantMessage(
-              assistantText,
-              undefined,
-              undefined,
-              null, // No saveable data initially
-            );
-
-            // Log AI message addition
-            if (__DEV__) {
-              console.log(
-                '[Chat] Adding AI message immediately (saveable detection in background)',
-                {
-                  messageId: appendedMessage?.id,
-                },
-              );
-            }
-
-            // 2. Run saveable detection in background, update message when done
-            if (appendedMessage?.id) {
-              spaceChatEnhanced
-                .runSaveableDetection(assistantText, trimmedText, appendedMessage.id)
-                .then((detectionResult) => {
-                  if (__DEV__) {
-                    console.log('[Chat] Saveable detection complete (background):', {
-                      messageId: appendedMessage.id,
-                      detected: detectionResult?.isSaveable ?? false,
-                      type: detectionResult?.suggestedType,
-                      title: detectionResult?.prefill?.title,
-                    });
-                  }
-
-                  // 3. If saveable detected, update the existing message with saveable data
-                  if (detectionResult?.isSaveable && detectionResult.suggestedType) {
-                    const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
-                      todo: 'todo',
-                      habit: 'habit',
-                      'log-general': 'note',
-                      'log-list': 'note',
-                      'log-idea': 'note',
-                    };
-                    const saveableData = {
-                      type: typeMap[detectionResult.suggestedType] || 'note',
-                      title: detectionResult.prefill?.title || '',
-                      content: detectionResult.prefill?.content,
-                      prefillData: detectionResult.prefill,
-                    };
-
-                    // Update message with saveable data (triggers re-render with save button)
-                    updateMessage(appendedMessage.id, {
-                      saveable: saveableData,
-                      saveableDismissed: false,
-                    });
-
-                    if (__DEV__) {
-                      console.log('[Chat] Message updated with saveable:', {
-                        messageId: appendedMessage.id,
-                        saveableType: saveableData.type,
-                      });
-                    }
-                  }
-                })
-                .catch((err) => {
-                  console.error('[ChatThread] Background saveable detection failed:', err);
-                });
-            }
-
-            // Phase 10.8: Maybe refresh Space Insight summary (background, fire-and-forget)
-            if (getEnv('EXPO_PUBLIC_SPACE_SUMMARY_BG') === 'on' && spaceId) {
-              // Convert messages to ChatTurn format
-              const historyTurns = messages.map((m) => ({
-                role: m.role as 'user' | 'assistant',
-                text: m.content,
-              }));
-
-              const hasLatestUser = historyTurns.some(
-                (turn) => turn.role === 'user' && turn.text === trimmedText,
-              );
-
-              if (!hasLatestUser) {
-                historyTurns.push({ role: 'user', text: trimmedText });
-              }
-
-              historyTurns.push({ role: 'assistant', text: assistantText });
-
-              const turns = historyTurns;
-
-              const lastMsgId = appendedMessage?.id || messages[messages.length - 1]?.id;
-
-              // Context update handled by useSpaceChatEnhanced
-              if (__DEV__) {
-                console.log('[ChatThread] Turn complete, context managed by enhanced hook');
-              }
-            }
-
-            // Phase 10.6: Emit response final event
-            emitChatEvent({
-              type: 'response_final',
-              payload: {
-                requestId: Date.now().toString(),
-                assistantKind: response.meta.kind,
-                hasActions: response.actions && response.actions.length > 0,
-                hasSuggestions: response.suggestions && response.suggestions.length > 0,
+          // Call GPT via streaming Space Chat pipeline
+          streamingControllerRef.current = callSpaceChatStreaming(
+            conversationHistory,
+            {
+              spaceId: chat.space_id || spaceId,
+              chatId: activeChatId || chat.id,
+              systemPrompt: spaceChatEnhanced.systemPrompt,
+            },
+            {
+              onChunk: (delta) => {
+                // Split on whitespace boundaries to buffer words
+                wordBufferRef.current.push(...delta.split(/(?<=\s)/));
               },
-            });
+              onComplete: async (finalText) => {
+                stopWordFlushInterval();
+                const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
+                streamingMessageIdRef.current = null;
+                streamingControllerRef.current = null;
+                mascot.replying();
 
-            // Phase 10.6: Trigger appropriate mascot state after assistant message
-            if (shouldTriggerPlayful) {
-              mascot.playful();
-            } else {
-              mascot.replying();
-            }
+                // Run saveable detection on completed message
+                if (finalizedMessage?.id) {
+                  spaceChatEnhanced
+                    .runSaveableDetection(finalText, trimmedText, finalizedMessage.id)
+                    .then((result) => {
+                      if (result?.isSaveable && result.suggestedType) {
+                        const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
+                          todo: 'todo',
+                          habit: 'habit',
+                          'log-general': 'note',
+                          'log-list': 'note',
+                          'log-idea': 'note',
+                        };
+                        updateMessage(finalizedMessage.id, {
+                          saveable: {
+                            type: typeMap[result.suggestedType] || 'note',
+                            title: result.prefill?.title || '',
+                          },
+                          saveableDismissed: false,
+                        });
+                      }
+                    })
+                    .catch((err) => {
+                      console.error('[ChatThread] Background saveable detection failed:', err);
+                    });
+                }
 
-            // Space Chat: Update rolling context after turn completes
-            spaceChatEnhanced.onTurnComplete(trimmedText, assistantText).catch((err) => {
-              if (__DEV__) {
-                console.error('[ChatThread] Context update failed:', err);
-              }
-            });
-          } else {
-            // EMPTY RESPONSE HANDLING: API returned no content
-            // This can happen when the model spends reasoning tokens but produces nothing
-            console.warn('[ChatThread] API returned empty content', {
-              responseKeys: Object.keys(response),
-              explanation: response.explanation,
-              replyText: response.replyText,
-            });
+                // Space Chat: Update rolling context after turn completes
+                spaceChatEnhanced.onTurnComplete(trimmedText, finalText).catch((err) => {
+                  if (__DEV__) {
+                    console.error('[ChatThread] Context update failed:', err);
+                  }
+                });
 
-            // Show a friendly fallback message instead of leaving the chat frozen
-            const fallbackContent =
-              'Hmm, I lost my train of thought there. Could you say that again?';
-
-            await appendAssistantMessage(fallbackContent, {
-              wasEmptyResponse: true,
-            });
-
-            // Trigger a gentle mascot state
-            mascot.replying();
-
-            // Skip saveable detection for fallback messages (nothing to save)
-          }
+                setTimeout(() => mascot.idle(), 800);
+                setSending(false);
+              },
+              onError: async (error, partialText) => {
+                console.error(
+                  '[ChatThread] Streaming error:',
+                  error,
+                  'partial:',
+                  partialText?.length,
+                );
+                stopWordFlushInterval();
+                cancelStreaming(messageId);
+                streamingMessageIdRef.current = null;
+                streamingControllerRef.current = null;
+                mascot.idle();
+                setSending(false);
+              },
+            },
+          );
         } catch (cortexError: any) {
           // Enhanced cortex error handling with detailed logging
           console.error('[ChatThread] Cortex decision failed:', {
@@ -925,6 +846,13 @@ export default function ChatThreadScreen({ route }: Props) {
       hideActionToast,
       spaceChatEnhanced,
       spaceId,
+      createStreamingMessage,
+      updateStreamingContent,
+      finalizeStreamingMessage,
+      cancelStreaming,
+      startWordFlushInterval,
+      stopWordFlushInterval,
+      updateMessage,
     ],
   );
 
@@ -949,6 +877,23 @@ export default function ChatThreadScreen({ route }: Props) {
       }, 200);
     },
     [handleSend],
+  );
+
+  // Handle retry for failed streaming messages
+  const handleRetryStream = useCallback(
+    (messageId: string) => {
+      const messageIndex = messages.findIndex((m) => m.id === messageId);
+      const precedingUserMessage = messages
+        .slice(0, messageIndex)
+        .reverse()
+        .find((m) => m.role === 'user');
+      if (!precedingUserMessage) return;
+
+      removeMessage(messageId);
+      // Re-trigger send with the original user message
+      handleSendDebounced(precedingUserMessage.content);
+    },
+    [messages, removeMessage, handleSendDebounced],
   );
 
   // Handle dismiss saveable card from ChatBubble
@@ -1208,11 +1153,19 @@ export default function ChatThreadScreen({ route }: Props) {
             onSavePress={() => handleBubbleSave(message)}
             onEditPress={() => handleBubbleEdit(message)}
             onDismissSaveable={handleDismissSaveable}
+            onRetryStream={handleRetryStream}
           />
         </View>
       );
     },
-    [spaceId, overlayController, handleBubbleSave, handleBubbleEdit, handleDismissSaveable],
+    [
+      spaceId,
+      overlayController,
+      handleBubbleSave,
+      handleBubbleEdit,
+      handleDismissSaveable,
+      handleRetryStream,
+    ],
   );
 
   // Environment gate - wrap entire chat UI

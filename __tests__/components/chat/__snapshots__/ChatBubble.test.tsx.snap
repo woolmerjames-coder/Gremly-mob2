@@ -237,3 +237,127 @@ exports[`ChatBubble renders user message correctly 1`] = `
   </View>
 </View>
 `;
+
+exports[`ChatBubble streaming state renders streaming cursor when isStreaming is true 1`] = `
+<View
+  style={
+    [
+      {
+        "marginVertical": 4,
+        "paddingHorizontal": 16,
+      },
+      false,
+      {
+        "alignItems": "flex-start",
+        "marginBottom": 4,
+      },
+    ]
+  }
+>
+  <View
+    style={
+      [
+        {
+          "borderRadius": 14,
+          "maxWidth": "85%",
+          "minWidth": 40,
+          "paddingHorizontal": 14,
+          "paddingVertical": 10,
+        },
+        false,
+        {
+          "alignSelf": "flex-start",
+          "backgroundColor": "transparent",
+          "borderLeftColor": "rgba(212, 164, 74, 0.60)",
+          "borderLeftWidth": 2,
+          "borderRadius": 0,
+          "marginLeft": -4,
+          "marginTop": -6,
+          "maxWidth": "100%",
+          "paddingLeft": 14,
+        },
+      ]
+    }
+  >
+    <View
+      style={
+        {
+          "paddingVertical": 2,
+        }
+      }
+    >
+      <View
+        style={
+          {
+            "marginBottom": 12,
+          }
+        }
+      >
+        <Text
+          style={
+            [
+              {
+                "color": "#0E1116",
+                "fontFamily": "Inter-Regular",
+                "fontSize": 16,
+                "fontWeight": "400",
+                "lineHeight": 22.4,
+              },
+              {
+                "color": "#2D2D2D",
+                "fontSize": 15,
+                "letterSpacing": -0.2,
+                "lineHeight": 21,
+              },
+            ]
+          }
+        >
+          <Text
+            style={
+              [
+                {
+                  "color": "#0E1116",
+                  "fontFamily": "Inter-Regular",
+                  "fontSize": 16,
+                  "fontWeight": "400",
+                  "lineHeight": 22.4,
+                },
+                {
+                  "color": "#2D2D2D",
+                  "letterSpacing": -0.2,
+                },
+              ]
+            }
+          >
+            Hi there! This is an assistant response with some longer text to test the bubble styling.
+          </Text>
+        </Text>
+      </View>
+      <View
+        style={
+          {
+            "flexDirection": "row",
+            "marginTop": 4,
+          }
+        }
+      >
+        <View
+          style={
+            [
+              {
+                "backgroundColor": "#E0C47A",
+                "borderRadius": 3,
+                "height": 6,
+                "marginBottom": 2,
+                "marginLeft": 4,
+                "width": 6,
+              },
+              undefined,
+            ]
+          }
+        />
+      </View>
+    </View>
+  </View>
+</View>
+`;

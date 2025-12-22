@@ -71,6 +71,14 @@ export interface UseChatMessagesResult {
   ) => Promise<SpaceChatMessage | undefined>;
   removeMessage: (messageId: string) => void;
   updateMessage: (messageId: string, updates: Partial<SpaceChatMessage>) => void;
+  // Streaming support
+  createStreamingMessage: () => Promise<{ messageId: string; chatId: string } | undefined>;
+  updateStreamingContent: (messageId: string, content: string, mode?: 'append' | 'replace') => void;
+  finalizeStreamingMessage: (
+    messageId: string,
+    finalContent: string,
+  ) => Promise<SpaceChatMessage | undefined>;
+  cancelStreaming: (messageId: string) => void;
 }
 
 export function useChatMessages(
@@ -103,6 +111,10 @@ export function useChatMessages(
   const saveableDataRef = useRef<Map<string, { saveable: any; saveableDismissed: boolean }>>(
     new Map(),
   );
+
+  // Streaming message support
+  const streamingMessagesRef = useRef<Set<string>>(new Set());
+  const streamingContentRef = useRef<Map<string, string>>(new Map());
 
   const { user } = useAuth();
 
@@ -506,6 +518,107 @@ export function useChatMessages(
     refresh();
   }, [refresh]);
 
+  // ============================================================================
+  // Streaming Support
+  // ============================================================================
+
+  const createStreamingMessage = useCallback(async (): Promise<
+    { messageId: string; chatId: string } | undefined
+  > => {
+    const targetChatId = currentChatIdRef.current || currentChatId;
+    if (!targetChatId || !spaceId || !user?.id) return undefined;
+
+    isAddingMessageRef.current = true;
+    try {
+      const input: SpaceChatMessageInsert = {
+        chat_id: targetChatId,
+        space_id: spaceId,
+        role: 'assistant',
+        content: '',
+        metadata_json: { streaming: true },
+      };
+
+      const newMessage = await messageRepo.append(input);
+      streamingMessagesRef.current.add(newMessage.id);
+      streamingContentRef.current.set(newMessage.id, '');
+      setMessages((prev) => [...prev, { ...newMessage, isStreaming: true } as SpaceChatMessage]);
+      return { messageId: newMessage.id, chatId: targetChatId };
+    } finally {
+      isAddingMessageRef.current = false;
+    }
+  }, [currentChatId, spaceId, user?.id, messageRepo]);
+
+  const updateStreamingContent = useCallback(
+    (messageId: string, content: string, mode: 'append' | 'replace' = 'replace') => {
+      if (!streamingMessagesRef.current.has(messageId)) return;
+
+      if (mode === 'append') {
+        const existing = streamingContentRef.current.get(messageId) || '';
+        streamingContentRef.current.set(messageId, existing + content);
+      } else {
+        streamingContentRef.current.set(messageId, content);
+      }
+
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== messageId) return msg;
+          const newContent = mode === 'append' ? (msg.content || '') + content : content;
+          return { ...msg, content: newContent };
+        }),
+      );
+    },
+    [],
+  );
+
+  const finalizeStreamingMessage = useCallback(
+    async (messageId: string, finalContent: string) => {
+      streamingMessagesRef.current.delete(messageId);
+      streamingContentRef.current.delete(messageId);
+
+      await messageRepo.update(messageId, {
+        content: finalContent,
+        metadata_json: { streaming: false },
+      });
+
+      let finalizedMessage: SpaceChatMessage | undefined;
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== messageId) return msg;
+          finalizedMessage = {
+            ...msg,
+            content: finalContent,
+            isStreaming: false,
+          } as SpaceChatMessage;
+          return finalizedMessage;
+        }),
+      );
+
+      const targetChatId = currentChatIdRef.current || currentChatId;
+      if (targetChatId) {
+        await chatRepo.update(targetChatId, { last_message_snippet: finalContent.slice(0, 100) });
+      }
+      return finalizedMessage;
+    },
+    [currentChatId, messageRepo, chatRepo],
+  );
+
+  const cancelStreaming = useCallback((messageId: string) => {
+    const partialContent = streamingContentRef.current.get(messageId) || '';
+    streamingMessagesRef.current.delete(messageId);
+    streamingContentRef.current.delete(messageId);
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id !== messageId) return msg;
+        return {
+          ...msg,
+          content: partialContent || msg.content,
+          isStreaming: false,
+          streamingCancelled: true,
+        } as SpaceChatMessage;
+      }),
+    );
+  }, []);
+
   return {
     messages,
     loading,
@@ -519,5 +632,10 @@ export function useChatMessages(
     appendSavedItemCard,
     removeMessage,
     updateMessage,
+    // Streaming support
+    createStreamingMessage,
+    updateStreamingContent,
+    finalizeStreamingMessage,
+    cancelStreaming,
   };
 }

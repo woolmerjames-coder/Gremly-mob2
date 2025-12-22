@@ -794,11 +794,18 @@ type UnifiedDrop = {
  * Visual state for Mind Drop items in Recent Drops list
  * - 'pending': AI enrichment in progress (views.ai_pending = true)
  * - 'enriching': Phase 2 enrichment in progress (entity exists, refining)
+ * - 'streaming': Phase 2 streaming in progress (fields arriving progressively)
  * - 'revealing': Typewriter reveal animation in progress
  * - 'failed': AI enrichment failed (views.ai_failed = true)
  * - 'complete': AI enrichment complete or not needed
  */
-type MindDropVisualState = 'pending' | 'enriching' | 'revealing' | 'failed' | 'complete';
+type MindDropVisualState =
+  | 'pending'
+  | 'enriching'
+  | 'streaming'
+  | 'revealing'
+  | 'failed'
+  | 'complete';
 
 /**
  * Get visual state for a Mind Drop item based on views flags
@@ -823,6 +830,11 @@ function getMindDropVisualState(entity: {
   // Phase 2 in progress - entity exists, show enriching animation
   if (views.minddrop_stage === 'enriching') {
     return 'enriching';
+  }
+
+  // Phase 2 streaming - fields arriving progressively
+  if (views.minddrop_stage === 'streaming') {
+    return 'streaming';
   }
 
   // Explicitly failed
@@ -1550,7 +1562,23 @@ const AnimatedMindDropCard: React.FC<{
       </View>
 
       {/* Row 2: Confirmation message */}
-      <Text style={styles.recentConfirmation}>{getConfirmationMessage(effectiveKind, item)}</Text>
+      {(() => {
+        const confirmationMsg = getConfirmationMessage(effectiveKind, item);
+        const isStreaming =
+          item.views?.minddrop_stage === 'streaming' || item.views?.minddrop_stage === 'enriching';
+
+        if (isStreaming && confirmationMsg) {
+          return (
+            <TypewriterText
+              text={confirmationMsg}
+              style={styles.recentConfirmation}
+              duration={Math.min(confirmationMsg.length * 25, 800)}
+            />
+          );
+        }
+
+        return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
+      })()}
 
       {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
       <View style={styles.recentMetaRow}>
@@ -2455,6 +2483,47 @@ const RecentDrops: React.FC<{
       );
     });
 
+    // Listen for Phase 2 streaming field updates for progressive UI
+    const unsubFieldUpdated = eventBus.on('entity:field_updated', (payload) => {
+      const { entityId, field, value } = payload;
+      console.log('🔵 [RecentDrops] entity:field_updated received', { entityId, field, value });
+
+      setItems((prev) => {
+        const matchingItem = prev.find((item) => item.id === entityId);
+        console.log('🔵 [RecentDrops] Found matching item?', !!matchingItem, matchingItem?.id);
+
+        return prev.map((item) => {
+          if (item.id !== entityId) return item;
+
+          // Update the specific field that changed
+          if (field === 'smart_title') {
+            console.log('🔴 UPDATING TITLE IN STATE:', value);
+            return { ...item, title: value };
+          }
+          if (field === 'confirmation_message') {
+            console.log('🟡 UPDATING CONFIRMATION IN STATE:', value);
+            return {
+              ...item,
+              views: { ...item.views, confirmation_message: value },
+            };
+          }
+          if (field === 'tags') {
+            console.log('🟢 UPDATING TAGS IN STATE:', value);
+            return { ...item, tags: value };
+          }
+          if (field === 'minddrop_stage') {
+            console.log('🟣 UPDATING STAGE IN STATE:', value);
+            return {
+              ...item,
+              views: { ...item.views, minddrop_stage: value },
+            };
+          }
+
+          return item;
+        });
+      });
+    });
+
     // Remove completed items from list immediately
     const unsubItemCompleted = eventBus.on(
       'ItemCompleted',
@@ -2471,6 +2540,7 @@ const RecentDrops: React.FC<{
       unsubscribe();
       unsubEntityCreated();
       unsubEntityEnriched();
+      unsubFieldUpdated();
       unsubItemCompleted();
     };
   }, [load, removePendingItem, replacePendingWithReal]);

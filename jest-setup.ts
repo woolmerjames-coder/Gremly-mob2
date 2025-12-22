@@ -135,6 +135,8 @@ jest.mock('react-native-reanimated', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     withSequence: jest.fn((...values: any[]) => values[values.length - 1]),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    cancelAnimation: jest.fn(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createAnimatedComponent: jest.fn((Component: any) => Component),
     useReducedMotion: jest.fn(() => true), // Always return true in tests to skip animations
     Easing: (() => {
