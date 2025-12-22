@@ -102,6 +102,9 @@ interface GremlyState {
   lastSyncedAt: Date | null;
   userId: string | null;
 
+  // User preferences
+  userTimezone: string | null;
+
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
   // ═══════════════════════════════════════════════════════════════════
@@ -214,6 +217,7 @@ const initialState = {
   isInitialized: false,
   lastSyncedAt: null as Date | null,
   userId: null as string | null,
+  userTimezone: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
