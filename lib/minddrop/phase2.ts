@@ -578,9 +578,9 @@ export async function runPhase2Streaming(
             // Emit enriched event
             eventBus.emit('entity:enriched', {
               entityId,
-              smartTitle: result.smart_title,
+              smartTitle: result.smart_title ?? '',
               confirmationMessage: result.confirmation_message,
-              tags: result.tags,
+              tags: result.tags ?? [],
               timeEstimate: result.time_estimate_minutes,
               dueDate: result.extracted_date,
               startDate: result.extracted_start_date,

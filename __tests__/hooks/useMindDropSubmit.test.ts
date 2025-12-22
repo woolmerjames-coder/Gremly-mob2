@@ -4,7 +4,7 @@
  * Tests for the Mind Drop submission hook (uses Zustand store methods)
  */
 
-import { renderHook, act, waitFor } from '@testing-library/react-native';
+import { renderHook, act } from '@testing-library/react-native';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useMindDropStore } from '../../lib/stores/mindDropStore';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
