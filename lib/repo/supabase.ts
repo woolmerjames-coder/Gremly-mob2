@@ -4763,6 +4763,29 @@ export class SupabaseSpaceChatMessageRepo {
 
     return data as import('../types').SpaceChatMessage;
   }
+
+  async update(
+    messageId: string,
+    updates: { content?: string; metadata_json?: Record<string, unknown> | null },
+  ): Promise<import('../types').SpaceChatMessage> {
+    const userId = this.ensureUserId();
+
+    const { data, error } = await supabase
+      .from('space_chat_messages')
+      .update({
+        ...(updates.content !== undefined && { content: updates.content }),
+        ...(updates.metadata_json !== undefined && { metadata_json: updates.metadata_json }),
+      })
+      .eq('id', messageId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update space chat message: ${error.message}`);
+    if (!data) throw new Error('No data returned from update space chat message');
+
+    return data as import('../types').SpaceChatMessage;
+  }
 }
 
 /**

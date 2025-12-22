@@ -11,6 +11,7 @@ import { SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
 import SaveButton from './SaveButton';
+import { InlineStreamingCursor } from './StreamingCursor';
 import type { SaveableType } from '../../lib/chat/saveableTypes';
 
 interface ChatBubbleProps {
@@ -22,6 +23,8 @@ interface ChatBubbleProps {
   onEditPress?: (saveable: NonNullable<SpaceChatMessage['saveable']>) => void;
   /** Called when user dismisses the saveable card */
   onDismissSaveable?: (messageId: string) => void;
+  /** Called when user taps to retry a failed streaming message */
+  onRetryStream?: (messageId: string) => void;
 }
 
 function ChatBubbleInner({
@@ -30,9 +33,14 @@ function ChatBubbleInner({
   onSavePress,
   onEditPress,
   onDismissSaveable,
+  onRetryStream,
 }: ChatBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
+
+  // Streaming state
+  const isStreaming = (message as any).isStreaming === true;
+  const streamingFailed = (message as any).streamingCancelled === true;
 
   // Skip animations in test environment
   const isTestEnv = process.env.JEST_WORKAROUND === '1';
@@ -77,14 +85,41 @@ function ChatBubbleInner({
         style={[styles.bubble, isUser && styles.userBubble, isAssistant && styles.assistantBubble]}
       >
         {isAssistant ? (
-          <View style={{ paddingVertical: 2 }}>{renderFormattedContent(message.content)}</View>
+          <View style={{ paddingVertical: 2 }}>
+            {renderFormattedContent(message.content)}
+            {isStreaming && (
+              <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                <InlineStreamingCursor visible={true} />
+              </View>
+            )}
+            {streamingFailed && message.content && (
+              <View
+                style={{
+                  marginTop: 8,
+                  paddingTop: 8,
+                  borderTopWidth: 1,
+                  borderTopColor: 'rgba(0,0,0,0.1)',
+                }}
+              >
+                <Text style={{ fontSize: 13, color: '#666', fontStyle: 'italic' }}>
+                  Hmm, I lost my train of thought.{' '}
+                  <Text
+                    style={{ color: '#E0C47A', fontWeight: '500' }}
+                    onPress={() => onRetryStream?.(message.id)}
+                  >
+                    Tap to continue
+                  </Text>
+                </Text>
+              </View>
+            )}
+          </View>
         ) : (
           <Text style={[styles.text, isUser && styles.userText]}>{message.content}</Text>
         )}
       </View>
 
-      {/* Saveable card - render if exists and not dismissed */}
-      {isAssistant && message.saveable && !message.saveableDismissed && (
+      {/* Saveable card - render if exists, not dismissed, and not streaming */}
+      {isAssistant && message.saveable && !message.saveableDismissed && !isStreaming && (
         <View style={styles.saveableCardContainer}>
           <SaveButton
             suggestedType={getSaveableType(message.saveable.type)}

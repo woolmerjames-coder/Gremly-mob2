@@ -2,6 +2,7 @@
 // Typed client for Supabase Edge Function cortex-proxy
 // NO OpenAI keys in client code
 import { env, getEnv } from '../env';
+import EventSource from 'react-native-sse';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -13,6 +14,19 @@ const log = (...a: any[]) => {
 export type CortexClientResult<T = any> =
   | { ok: true; data: T }
   | { ok: false; error: string; status?: number };
+
+export interface StreamingEvent {
+  delta?: string;
+  done: boolean;
+  full_content?: string;
+  error?: string;
+}
+
+export interface StreamingCallbacks {
+  onChunk: (text: string, fullTextSoFar: string) => void;
+  onComplete: (fullText: string) => void;
+  onError: (error: string, partialText: string) => void;
+}
 
 const mask = (value: string) => (value ? `${value.slice(0, 4)}…${value.slice(-4)}` : '(missing)');
 
@@ -294,6 +308,88 @@ export async function callSpaceChat(
     },
     { raw: true },
   );
+}
+
+/**
+ * Call the Cortex proxy for Space Chat with streaming support using EventSource (SSE).
+ * Returns an object with a close() method to cancel the request.
+ *
+ * @param messages - The conversation messages
+ * @param opts - Options including spaceId, chatId, and optional system prompt override
+ * @param callbacks - Callbacks for streaming events (onChunk, onComplete, onError)
+ * @returns Object with close() method to cancel the stream
+ */
+export function callSpaceChatStreaming(
+  messages: ChatMessage[],
+  opts: { spaceId: string; chatId: string; systemPrompt?: string },
+  callbacks: StreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) {
+    callbacks.onError('Missing CORTEX_URL', '');
+    return { close: () => {} };
+  }
+  if (isAiDisabled()) {
+    callbacks.onError('AI disabled', '');
+    return { close: () => {} };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  const allMessages: ChatMessage[] = opts.systemPrompt
+    ? [{ role: 'system', content: opts.systemPrompt }, ...messages]
+    : messages;
+
+  let fullText = '';
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      type: 'chat',
+      model: 'gpt-4o',
+      messages: allMessages,
+      temperature: 0.7,
+      max_completion_tokens: 400,
+      lane: 'space_chat',
+      stream: true,
+      spaceId: opts.spaceId,
+      chatId: opts.chatId,
+    }),
+  });
+
+  es.addEventListener('message', (event: any) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.error) {
+        callbacks.onError(data.error, fullText);
+        es.close();
+        return;
+      }
+      if (data.delta) {
+        fullText += data.delta;
+        callbacks.onChunk(data.delta, fullText);
+      }
+      if (data.done) {
+        callbacks.onComplete(data.full_content || fullText);
+        es.close();
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    callbacks.onError(event.message || 'Stream error', fullText);
+    es.close();
+  });
+
+  return { close: () => es.close() };
 }
 
 export async function callComplete(
@@ -642,5 +738,6 @@ export const CortexClient = {
   callComplete,
   callClassify,
   callSpaceChat,
+  callSpaceChatStreaming,
   callEnrichPhase2,
 };
