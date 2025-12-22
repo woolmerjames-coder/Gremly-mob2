@@ -63,14 +63,14 @@ export function getHabitSweepPrediction(habit: Habit): SweepPrediction {
     return { type: 'none', label: '-' };
   }
 
-  // Needs start date confirmation = next sweep
-  if (!habit.start_date_confirmed && !habit.start_date) {
+  // Unconfirmed habits appear in Sweep decision cards
+  if (habit.start_date_confirmed !== true) {
     return { type: 'next', label: 'Next Sweep' };
   }
 
-  // Active habits appear in sweep for daily check-in
-  // (This is simplified - actual logic may vary based on cadence)
-  return { type: 'next', label: 'Next Sweep' };
+  // Confirmed habits only appear in check-in section (not decision cards)
+  // So they don't show "Next Sweep" in the Hub table
+  return { type: 'none', label: '-' };
 }
 
 /**
