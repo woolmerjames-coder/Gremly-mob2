@@ -47,8 +47,10 @@ function makeCalendarItem(overrides: Partial<CalendarItem> = {}): CalendarItem {
     time: null,
     isCompleted: false,
     isOverdue: false,
-    spaceName: undefined,
-    rawItem: { id: 'raw-1', type: 'todo' } as any,
+    space: null,
+    milestone: null,
+    tags: [],
+    raw: { id: 'raw-1', type: 'todo' } as any,
     ...overrides,
   };
 }
