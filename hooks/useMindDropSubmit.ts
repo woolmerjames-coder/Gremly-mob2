@@ -21,7 +21,7 @@ import {
 import { generateDropId } from '../lib/minddrop/ids';
 import { eventBus } from '../lib/events/EventBus';
 import { runPhase1 } from '../lib/minddrop/phase1';
-import { runPhase2 } from '../lib/minddrop/phase2';
+import { runPhase2, runPhase2Streaming } from '../lib/minddrop/phase2';
 import type { MindDropBucket, LogSubtype } from '../lib/minddrop/types';
 import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
@@ -376,22 +376,32 @@ export function useMindDropSubmit(): {
         const entityIdForPhase2 = entity.id;
         const testEnabledForPhase2 = testEnabled;
 
-        runPhase2(entityIdForPhase2, effectiveText, phase1Result.bucket, phase1Result.subtype, repo)
+        runPhase2Streaming(
+          entityIdForPhase2,
+          effectiveText,
+          phase1Result.bucket,
+          phase1Result.subtype,
+          repo,
+          (field, value) => {
+            // This callback fires for each field as it streams in
+            console.log(`[MindDrop:Phase2:Stream] ${field}:`, value);
+          },
+        )
           .then((enrichment) => {
             if (enrichment) {
               console.log('[MindDrop:Phase2] Enrichment complete', {
                 entityId: entityIdForPhase2,
-                smartTitle: enrichment.smartTitle.substring(0, 30) + '...',
-                tagsCount: enrichment.tags.length,
+                smartTitle: enrichment.smart_title?.substring(0, 30) + '...',
+                tagsCount: enrichment.tags?.length || 0,
               });
 
               if (testEnabledForPhase2) {
                 testLogger.assert('phase2_enriched', true, {
                   entityId: entityIdForPhase2,
-                  smartTitle: enrichment.smartTitle,
-                  tagsCount: enrichment.tags.length,
-                  hasDate: !!enrichment.extractedDate,
-                  hasTimeEstimate: enrichment.timeEstimateMinutes !== null,
+                  smartTitle: enrichment.smart_title,
+                  tagsCount: enrichment.tags?.length || 0,
+                  hasDate: !!enrichment.extracted_date,
+                  hasTimeEstimate: enrichment.time_estimate_minutes !== null,
                 });
                 testLogger.end(true);
               }

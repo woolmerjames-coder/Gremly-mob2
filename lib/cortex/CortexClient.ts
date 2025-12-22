@@ -28,6 +28,24 @@ export interface StreamingCallbacks {
   onError: (error: string, partialText: string) => void;
 }
 
+export interface Phase2StreamingCallbacks {
+  onField: (field: string, value: any) => void;
+  onComplete: (result: Phase2EnrichmentResult) => void;
+  onError: (error: string) => void;
+}
+
+export interface Phase2EnrichmentResult {
+  smart_title?: string;
+  confirmation_message?: string;
+  tags?: string[];
+  time_estimate_minutes?: number | null;
+  extracted_date?: string | null;
+  extracted_start_date?: string | null;
+  extracted_frequency?: string | null;
+  people?: string[];
+  latency_ms?: number;
+}
+
 const mask = (value: string) => (value ? `${value.slice(0, 4)}…${value.slice(-4)}` : '(missing)');
 
 let warnedMissingAnon = false;
@@ -733,6 +751,134 @@ export async function callEnrichPhase2(params: {
   }
 }
 
+/**
+ * Streaming version of callEnrichPhase2 - fields arrive as they're generated.
+ * Returns a close() function to cancel the stream.
+ *
+ * @param params - Enrichment parameters
+ * @param callbacks - Callbacks for field updates, completion, and errors
+ * @returns Object with close() method to cancel the stream
+ */
+export function callEnrichPhase2Streaming(
+  params: {
+    text: string;
+    bucket: 'todo' | 'habit' | 'log';
+    subtype?: string | null;
+    recentTitles?: string[];
+  },
+  callbacks: Phase2StreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    callbacks.onError('Missing CORTEX_URL');
+    return { close: () => {} };
+  }
+
+  if (isAiDisabled()) {
+    callbacks.onError('AI disabled');
+    return { close: () => {} };
+  }
+
+  const supabaseAnonKey = readSupabaseAnonKey();
+
+  const now = new Date();
+  const currentDate = now.toISOString().split('T')[0];
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
+
+  console.log('[CortexClient:SSE] Opening EventSource to', baseUrl);
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(supabaseAnonKey && {
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        apikey: supabaseAnonKey,
+      }),
+    },
+    body: JSON.stringify({
+      type: 'enrich-phase2',
+      stream: true,
+      text: params.text,
+      bucket: params.bucket,
+      subtype: params.subtype || null,
+      recentTitles: params.recentTitles || [],
+      currentDate,
+      timezone,
+      dayOfWeek,
+    }),
+    pollingInterval: 0,
+  });
+
+  const finalResult: Phase2EnrichmentResult = {};
+  let isClosed = false;
+
+  es.addEventListener('open', () => {
+    console.log('[CortexClient:SSE] Connection opened');
+  });
+
+  es.addEventListener('message', (event: any) => {
+    if (isClosed) return;
+    console.log('[CortexClient:SSE] Received message:', event.data);
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.error) {
+        isClosed = true;
+        callbacks.onError(data.error);
+        es.close();
+        return;
+      }
+
+      // Handle individual field updates
+      if (data.field && !data.done) {
+        finalResult[data.field as keyof Phase2EnrichmentResult] = data.value;
+        callbacks.onField(data.field, data.value);
+      }
+
+      // Handle completion
+      if (data.done) {
+        isClosed = true;
+        // Merge any final fields
+        const completeResult: Phase2EnrichmentResult = {
+          ...finalResult,
+          smart_title: data.smart_title || finalResult.smart_title,
+          confirmation_message: data.confirmation_message || finalResult.confirmation_message,
+          tags: data.tags || finalResult.tags,
+          time_estimate_minutes: data.time_estimate_minutes ?? finalResult.time_estimate_minutes,
+          extracted_date: data.extracted_date || finalResult.extracted_date,
+          extracted_start_date: data.extracted_start_date || finalResult.extracted_start_date,
+          extracted_frequency: data.extracted_frequency || finalResult.extracted_frequency,
+          people: data.people || finalResult.people,
+          latency_ms: data.latency_ms,
+        };
+        console.log('[CortexClient:SSE] Completed, closing');
+        callbacks.onComplete(completeResult);
+        es.close();
+      }
+    } catch (e) {
+      console.error('[CortexClient:SSE] Parse error:', e);
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    if (isClosed) return;
+    isClosed = true;
+    console.error('[CortexClient:SSE] Error event:', event);
+    callbacks.onError(event.message || 'SSE connection error');
+    es.close();
+  });
+
+  return {
+    close: () => {
+      isClosed = true;
+      es.close();
+    },
+  };
+}
+
 export const CortexClient = {
   callChat,
   callComplete,
@@ -740,4 +886,5 @@ export const CortexClient = {
   callSpaceChat,
   callSpaceChatStreaming,
   callEnrichPhase2,
+  callEnrichPhase2Streaming,
 };

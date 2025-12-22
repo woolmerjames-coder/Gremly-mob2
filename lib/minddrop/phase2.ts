@@ -11,6 +11,7 @@ import { env, getEnv } from '../env';
 import { getDateService } from '../date/DateService';
 import { validateEnrichmentResult } from './phase2Validation';
 import { eventBus } from '../events/EventBus';
+import { callEnrichPhase2Streaming, Phase2EnrichmentResult } from '../cortex/CortexClient';
 
 // --- Types ---
 
@@ -399,4 +400,225 @@ export async function runPhase2(
   }
 
   return null;
+}
+
+/**
+ * Streaming version of Phase 2 enrichment.
+ * Fields arrive progressively and are persisted/emitted as they come in.
+ *
+ * @param entityId - The ID of the entity to enrich
+ * @param text - The original text to extract from
+ * @param bucket - The classified bucket
+ * @param subtype - The subtype (for logs)
+ * @param repo - The repository to update the entity
+ * @param onFieldUpdate - Optional callback for each field as it arrives (for UI updates)
+ * @returns Phase2EnrichmentResult or null if enrichment failed
+ */
+export async function runPhase2Streaming(
+  entityId: string,
+  text: string,
+  bucket: MindDropBucket,
+  subtype: LogSubtype | null,
+  repo: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+  onFieldUpdate?: (field: string, value: any) => void,
+): Promise<Phase2EnrichmentResult | null> {
+  const logTiming = (label: string, startTime: number) => {
+    console.log(`[Phase2:Streaming:Timing] ${label}: ${Date.now() - startTime}ms`);
+  };
+
+  const t0 = Date.now();
+  logTiming('start', t0);
+
+  // Check feature flag
+  if (!FEATURE_FLAGS.PHASE2_ENRICHMENT_ENABLED) {
+    console.log('[Phase2:Streaming] Enrichment disabled by feature flag');
+    return null;
+  }
+
+  // Get entity for update
+  let entity: any;
+  try {
+    entity = await repo.getById(entityId);
+  } catch (err) {
+    console.error('[Phase2:Streaming] Failed to get entity', err);
+    return null;
+  }
+
+  if (!entity) {
+    console.error('[Phase2:Streaming] Entity not found', { entityId });
+    return null;
+  }
+
+  logTiming('entity_fetched', t0);
+
+  // Guard: prevent duplicate enrichment
+  const currentStage = entity.views?.minddrop_stage;
+  if (currentStage === 'enriched' || currentStage === 'enrichment_failed') {
+    console.log('[Phase2:Streaming] Skipping - already processed', {
+      entityId,
+      stage: currentStage,
+    });
+    return null;
+  }
+
+  // Set streaming stage for UI animation
+  try {
+    const currentViews = entity.views || {};
+    await repo.update({
+      id: entityId,
+      patch: {
+        views: { ...currentViews, minddrop_stage: 'streaming', ai_pending: true },
+      },
+    });
+
+    // Update local entity reference
+    entity.views = { ...currentViews, minddrop_stage: 'streaming', ai_pending: true };
+
+    console.log('[Phase2:Streaming] Set streaming stage', { entityId });
+  } catch (err) {
+    console.error('[Phase2:Streaming] Failed to set streaming stage', err);
+    // Continue anyway - streaming will still work, just without the animation
+  }
+
+  logTiming('streaming_stage_set', t0);
+
+  return new Promise((resolve) => {
+    const partialResult: Partial<Phase2EnrichmentResult> = {};
+
+    const controller = callEnrichPhase2Streaming(
+      { text, bucket, subtype, recentTitles: [] },
+      {
+        onField: (field, value) => {
+          console.log(`[Phase2:Streaming] Field received: ${field}`, value);
+          partialResult[field as keyof Phase2EnrichmentResult] = value;
+
+          // Notify UI IMMEDIATELY (don't await DB)
+          onFieldUpdate?.(field, value);
+
+          // Emit event for UI update IMMEDIATELY
+          eventBus.emit('entity:field_updated', {
+            entityId,
+            field: field as any,
+            value,
+          });
+
+          // Persist to DB in background (fire and forget)
+          if (field === 'smart_title' && value) {
+            const titleField = bucket === 'log' ? 'title' : 'name';
+            repo.update({ id: entityId, patch: { [titleField]: value } }).catch((err: any) => {
+              console.error('[Phase2:Streaming] Failed to update title', err);
+            });
+          }
+
+          if (field === 'confirmation_message' && value) {
+            const currentViews = entity.views || {};
+            repo
+              .update({
+                id: entityId,
+                patch: {
+                  views: { ...currentViews, confirmation_message: value },
+                },
+              })
+              .catch((err: any) => {
+                console.error('[Phase2:Streaming] Failed to update confirmation', err);
+              });
+          }
+
+          if (field === 'tags' && Array.isArray(value)) {
+            repo.update({ id: entityId, patch: { tags: value } }).catch((err: any) => {
+              console.error('[Phase2:Streaming] Failed to update tags', err);
+            });
+          }
+        },
+
+        onComplete: async (result) => {
+          logTiming('streaming_complete', t0);
+
+          // Final save with all fields
+          try {
+            const titleField = bucket === 'log' ? 'title' : 'name';
+            const updatePayload: any = {
+              [titleField]: result.smart_title,
+              tags: result.tags || [],
+              views: {
+                ...(entity.views || {}),
+                confirmation_message: result.confirmation_message,
+                ai_pending: false,
+                minddrop_stage: 'enriched',
+              },
+            };
+
+            if (bucket === 'todo') {
+              if (result.time_estimate_minutes) {
+                updatePayload.time_estimate_minutes = result.time_estimate_minutes;
+              }
+              if (result.extracted_date) {
+                updatePayload.due_date = result.extracted_date;
+                // Extract YYYY-MM-DD portion for due_day
+                const dueDayValue = result.extracted_date.split('T')[0];
+                if (/^\d{4}-\d{2}-\d{2}$/.test(dueDayValue)) {
+                  updatePayload.due_day = dueDayValue;
+                }
+              }
+            }
+
+            if (bucket === 'habit') {
+              if (result.extracted_start_date) {
+                updatePayload.start_date = result.extracted_start_date;
+              }
+              if (result.extracted_frequency) {
+                updatePayload.frequency = result.extracted_frequency;
+              }
+            }
+
+            await repo.update({ id: entityId, patch: updatePayload });
+
+            logTiming('final_save_complete', t0);
+
+            // Emit enriched event
+            eventBus.emit('entity:enriched', {
+              entityId,
+              smartTitle: result.smart_title,
+              confirmationMessage: result.confirmation_message,
+              tags: result.tags,
+              timeEstimate: result.time_estimate_minutes,
+              dueDate: result.extracted_date,
+              startDate: result.extracted_start_date,
+              frequency: result.extracted_frequency,
+            });
+
+            resolve(result);
+          } catch (err) {
+            console.error('[Phase2:Streaming] Final save failed', err);
+            resolve(result);
+          }
+        },
+
+        onError: (error) => {
+          console.error('[Phase2:Streaming] Error', error);
+
+          // Set failure state
+          const fallbackTitle = text.trim().substring(0, 60);
+          repo
+            .update({
+              id: entityId,
+              patch: {
+                [bucket === 'log' ? 'title' : 'name']: fallbackTitle,
+                views: {
+                  ...(entity.views || {}),
+                  minddrop_stage: 'enrichment_failed',
+                  ai_failed: true,
+                  ai_pending: false,
+                },
+              },
+            })
+            .catch((err: any) => {
+              console.error('[Phase2:Streaming] Failed to set failure state', err);
+            });
+
+          resolve(null);
+        },
+      },
+    );
+  });
 }

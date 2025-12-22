@@ -57,6 +57,18 @@ export type EventMap = {
     hasPhotos?: boolean;
     startDate?: string | null;
   };
+  // Phase 2 streaming field update event
+  'entity:field_updated': {
+    entityId: string;
+    field:
+      | 'smart_title'
+      | 'confirmation_message'
+      | 'tags'
+      | 'time_estimate_minutes'
+      | 'extracted_date'
+      | 'minddrop_stage';
+    value: any;
+  };
 };
 
 type Handler<T> = (payload: T) => void;
