@@ -1,0 +1,19 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`InlineStreamingCursor renders a pulsing dot when visible 1`] = `
+<View
+  style={
+    [
+      {
+        "backgroundColor": "#E0C47A",
+        "borderRadius": 3,
+        "height": 6,
+        "marginBottom": 2,
+        "marginLeft": 4,
+        "width": 6,
+      },
+      undefined,
+    ]
+  }
+/>
+`;
