@@ -58,7 +58,7 @@ import { Modal } from 'react-native';
 import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
-import { toDayString, getTodayDayString, parseDayString } from '../../lib/date/computeDueDay';
+import { getDateService } from '../../lib/date';
 import {
   lightTokens,
   darkTokens,
@@ -2149,14 +2149,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
    */
   function formatDueDay(dueDay: string | null | undefined): string {
     if (!dueDay) return '';
-    try {
-      // Parse the YYYY-MM-DD string as a local date
-      const parsed = parseDayString(dueDay);
-      if (!parsed) return '';
-      return format(parsed, 'MMM d');
-    } catch (e) {
-      return '';
-    }
+    return getDateService().formatForChip(dueDay);
   }
 
   useEffect(() => {
@@ -3037,7 +3030,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       if (dateOrNull) {
         // Compute due_day using local timezone helper
-        const dueDay = toDayString(dateOrNull);
+        const dueDay = getDateService().toDateString(dateOrNull);
 
         console.log('[handleTodoDueChange] Setting due_day:', dueDay);
 
@@ -5136,7 +5129,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         onPress={() => {
                                           // Pre-fill date picker with current due_day if set
                                           if (state.todo.due_day) {
-                                            const parsed = parseDayString(state.todo.due_day);
+                                            const parsed = getDateService().fromDateString(
+                                              state.todo.due_day,
+                                            );
                                             if (parsed) {
                                               setSelectedDate(parsed);
                                             }

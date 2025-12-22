@@ -6,6 +6,7 @@
  */
 
 import type { MindDropBucket } from './types';
+import { getDateService } from '../date/DateService';
 
 // Import Phase2Result type (we define it here to avoid circular deps)
 export interface Phase2Result {
@@ -13,6 +14,7 @@ export interface Phase2Result {
   tags: string[];
   timeEstimateMinutes: number | null;
   extractedDate: string | null;
+  extractedStartDate: string | null;
   extractedFrequency: string | null;
   people: string[];
 }
@@ -68,17 +70,6 @@ function extractWords(text: string, maxWords?: number): Set<string> {
  */
 function appearsInText(needle: string, haystack: string): boolean {
   return haystack.toLowerCase().includes(needle.toLowerCase());
-}
-
-/**
- * Parse a date string and check if it's valid
- */
-function parseDate(dateStr: string): Date | null {
-  const parsed = new Date(dateStr);
-  if (isNaN(parsed.getTime())) {
-    return null;
-  }
-  return parsed;
 }
 
 // --- Main Validation Function ---
@@ -147,27 +138,34 @@ export function validateEnrichmentResult(
     }
   }
 
-  // --- 4. Date Validation ---
+  // --- 4. Date Validation (using DateService) ---
   if (result.extractedDate) {
-    const parsed = parseDate(result.extractedDate);
+    const dateService = getDateService();
+    const validatedDate = dateService.parseAIDate(result.extractedDate);
 
-    if (parsed) {
-      const now = new Date();
-      const oneYearAgo = new Date(now);
-      oneYearAgo.setFullYear(now.getFullYear() - 1);
-
-      const twoYearsFromNow = new Date(now);
-      twoYearsFromNow.setFullYear(now.getFullYear() + 2);
-
-      if (parsed < oneYearAgo || parsed > twoYearsFromNow) {
-        issues.push('date_implausible');
-        corrections.extractedDate = null;
-        needsCorrection = true;
-      }
-    } else {
-      // Invalid date format
-      issues.push('date_invalid_format');
+    if (validatedDate === null) {
+      // parseAIDate returns null for invalid format OR implausible range
+      issues.push('date_invalid_or_implausible');
       corrections.extractedDate = null;
+      needsCorrection = true;
+    } else if (validatedDate !== result.extractedDate) {
+      // Date was normalized (e.g., had time component stripped)
+      corrections.extractedDate = validatedDate;
+      needsCorrection = true;
+    }
+  }
+
+  // --- 4b. Start Date Validation for Habits ---
+  if (result.extractedStartDate) {
+    const dateService = getDateService();
+    const validatedStartDate = dateService.parseAIDate(result.extractedStartDate);
+
+    if (validatedStartDate === null) {
+      issues.push('start_date_invalid_or_implausible');
+      corrections.extractedStartDate = null;
+      needsCorrection = true;
+    } else if (validatedStartDate !== result.extractedStartDate) {
+      corrections.extractedStartDate = validatedStartDate;
       needsCorrection = true;
     }
   }

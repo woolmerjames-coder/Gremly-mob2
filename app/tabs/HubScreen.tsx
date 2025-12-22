@@ -37,13 +37,17 @@ import { useAuth } from '../../providers/AuthProvider';
 import SegmentedTabs from '../../components/SegmentedTabs';
 import ScopeSelector, { type ScopeOption } from '../../components/ScopeSelector';
 import HubItemCard, { type HubItem } from '../../components/HubItemCard';
+import { WeekStrip, CalendarDayView } from '../../components/calendar';
+import { AllItemsTable } from '../../components/hub';
+import { getDateService } from '../../lib/date';
+import type { CalendarItem } from '../../lib/store/calendarSelectors';
 import UnsortedReviewSheet, { type UnsortedItem } from '../../components/UnsortedReviewSheet';
 import PeopleList, { type PersonWithCounts } from '../../components/people/PeopleList';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import type { AppRecord, Space, Person, Tag } from '../../lib/types';
+import type { AppRecord, Space, Person, Tag, Todo, Habit, Note } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
@@ -96,7 +100,7 @@ const HUB_V1 = true;
 type HubV1TypeFilter = 'todo' | 'habit' | 'note' | 'space';
 type HubV1TimeRange = 'week' | 'month' | '3months' | 'all';
 type HubV1StatusFilter = 'active' | 'completed' | 'all';
-type HubV1View = 'all' | 'journals';
+type HubV1View = 'all' | 'journals' | 'calendar';
 
 const TIME_RANGE_LABELS: Record<HubV1TimeRange, string> = {
   week: 'This Week',
@@ -203,6 +207,8 @@ export default function HubScreen() {
   const [hubV1TimeRange, setHubV1TimeRange] = useState<HubV1TimeRange>('month');
   const [hubV1Status, setHubV1Status] = useState<HubV1StatusFilter>('active');
   const [hubView, setHubView] = useState<HubV1View>('all');
+  // Calendar view date state
+  const [calendarDate, setCalendarDate] = useState<string>(() => getDateService().getCurrentDate());
   // Save previous type selections when switching to Journal View
   const savedTypesRef = useRef<Set<HubV1TypeFilter> | null>(null);
   // Analyze journals modal state
@@ -820,7 +826,7 @@ export default function HubScreen() {
             />
           </View>
 
-          {/* View Toggle: All Items | Journal View */}
+          {/* View Toggle: All Items | Journals | Calendar */}
           <View
             style={[
               hubV1Styles.viewToggleContainer,
@@ -828,10 +834,12 @@ export default function HubScreen() {
             ]}
             testID="hub-view-toggle"
           >
-            {(['all', 'journals'] as const).map((mode) => {
+            {(['all', 'journals', 'calendar'] as const).map((mode) => {
               const isActive = hubView === mode;
-              const label = mode === 'all' ? 'All Items' : 'Journals';
-              const IconComponent = mode === 'all' ? LayoutGrid : BookOpen;
+              const label =
+                mode === 'all' ? 'All Items' : mode === 'journals' ? 'Journals' : 'Calendar';
+              const IconComponent =
+                mode === 'all' ? LayoutGrid : mode === 'journals' ? BookOpen : Calendar;
               return (
                 <Pressable
                   key={mode}
@@ -841,6 +849,13 @@ export default function HubScreen() {
                       // Switching to Journal View: save current type selections
                       savedTypesRef.current = new Set(hubV1Types);
                       setHubV1Types(new Set(['note'])); // Lock to notes only
+                    } else if (mode === 'calendar') {
+                      // Reset calendar to today when switching to calendar view
+                      setCalendarDate(getDateService().getCurrentDate());
+                      // Also save type selections like journals
+                      if (!savedTypesRef.current) {
+                        savedTypesRef.current = new Set(hubV1Types);
+                      }
                     } else {
                       // Switching to All Items: restore saved type selections
                       if (savedTypesRef.current) {
@@ -886,15 +901,16 @@ export default function HubScreen() {
                     style={[
                       hubV1Styles.filterChip,
                       hubV1Types.has('todo') && hubV1Styles.filterChipActive,
-                      hubView === 'journals' && hubV1Styles.filterChipDisabled,
+                      (hubView === 'journals' || hubView === 'calendar') &&
+                        hubV1Styles.filterChipDisabled,
                     ]}
                     onPress={() => toggleTypeFilter('todo')}
-                    disabled={hubView === 'journals'}
+                    disabled={hubView === 'journals' || hubView === 'calendar'}
                     testID="filter-type-todo"
                     accessibilityRole="checkbox"
                     accessibilityState={{
                       checked: hubV1Types.has('todo'),
-                      disabled: hubView === 'journals',
+                      disabled: hubView === 'journals' || hubView === 'calendar',
                     }}
                     accessibilityLabel="Filter by To-Dos"
                   >
@@ -902,7 +918,8 @@ export default function HubScreen() {
                       style={[
                         hubV1Styles.filterChipText,
                         hubV1Types.has('todo') && hubV1Styles.filterChipTextActive,
-                        hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                        (hubView === 'journals' || hubView === 'calendar') &&
+                          hubV1Styles.filterChipTextDisabled,
                       ]}
                     >
                       To-Dos
@@ -912,15 +929,16 @@ export default function HubScreen() {
                     style={[
                       hubV1Styles.filterChip,
                       hubV1Types.has('habit') && hubV1Styles.filterChipActive,
-                      hubView === 'journals' && hubV1Styles.filterChipDisabled,
+                      (hubView === 'journals' || hubView === 'calendar') &&
+                        hubV1Styles.filterChipDisabled,
                     ]}
                     onPress={() => toggleTypeFilter('habit')}
-                    disabled={hubView === 'journals'}
+                    disabled={hubView === 'journals' || hubView === 'calendar'}
                     testID="filter-type-habit"
                     accessibilityRole="checkbox"
                     accessibilityState={{
                       checked: hubV1Types.has('habit'),
-                      disabled: hubView === 'journals',
+                      disabled: hubView === 'journals' || hubView === 'calendar',
                     }}
                     accessibilityLabel="Filter by Habits"
                   >
@@ -928,7 +946,8 @@ export default function HubScreen() {
                       style={[
                         hubV1Styles.filterChipText,
                         hubV1Types.has('habit') && hubV1Styles.filterChipTextActive,
-                        hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                        (hubView === 'journals' || hubView === 'calendar') &&
+                          hubV1Styles.filterChipTextDisabled,
                       ]}
                     >
                       Habits
@@ -942,12 +961,12 @@ export default function HubScreen() {
                         : hubV1Types.has('note') && hubV1Styles.filterChipActive,
                     ]}
                     onPress={() => toggleTypeFilter('note')}
-                    disabled={hubView === 'journals'}
+                    disabled={hubView === 'journals' || hubView === 'calendar'}
                     testID="filter-type-note"
                     accessibilityRole="checkbox"
                     accessibilityState={{
                       checked: hubView === 'journals' || hubV1Types.has('note'),
-                      disabled: hubView === 'journals',
+                      disabled: hubView === 'journals' || hubView === 'calendar',
                     }}
                     accessibilityLabel={
                       hubView === 'journals' ? 'Filter by Journals' : 'Filter by Logs'
@@ -968,15 +987,16 @@ export default function HubScreen() {
                     style={[
                       hubV1Styles.filterChip,
                       hubV1Types.has('space') && hubV1Styles.filterChipActive,
-                      hubView === 'journals' && hubV1Styles.filterChipDisabled,
+                      (hubView === 'journals' || hubView === 'calendar') &&
+                        hubV1Styles.filterChipDisabled,
                     ]}
                     onPress={() => toggleTypeFilter('space')}
-                    disabled={hubView === 'journals'}
+                    disabled={hubView === 'journals' || hubView === 'calendar'}
                     testID="filter-type-space"
                     accessibilityRole="checkbox"
                     accessibilityState={{
                       checked: hubV1Types.has('space'),
-                      disabled: hubView === 'journals',
+                      disabled: hubView === 'journals' || hubView === 'calendar',
                     }}
                     accessibilityLabel="Filter by Spaces"
                   >
@@ -984,7 +1004,8 @@ export default function HubScreen() {
                       style={[
                         hubV1Styles.filterChipText,
                         hubV1Types.has('space') && hubV1Styles.filterChipTextActive,
-                        hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                        (hubView === 'journals' || hubView === 'calendar') &&
+                          hubV1Styles.filterChipTextDisabled,
                       ]}
                     >
                       Spaces
@@ -1121,7 +1142,27 @@ export default function HubScreen() {
             // HUB MODE (idle state)
             // =================================================================
             <View style={hubV1Styles.hubModeContainer}>
-              {hubView === 'journals' ? (
+              {hubView === 'calendar' ? (
+                // ===============================================================
+                // CALENDAR VIEW: WeekStrip + CalendarDayView
+                // ===============================================================
+                <View style={{ flex: 1, marginHorizontal: -spacing.md }}>
+                  <WeekStrip selectedDate={calendarDate} onSelectDate={setCalendarDate} />
+                  <CalendarDayView
+                    selectedDate={calendarDate}
+                    onItemPress={(item: CalendarItem) => {
+                      // Open overlay based on item type
+                      if (item.type === 'todo') {
+                        overlayController.openEdit({ record: item.raw as Todo });
+                      } else if (item.type === 'habit') {
+                        overlayController.openEdit({ record: item.raw as Habit });
+                      } else if (item.type === 'journal') {
+                        overlayController.openEdit({ record: item.raw as Note });
+                      }
+                    }}
+                  />
+                </View>
+              ) : hubView === 'journals' ? (
                 // ===============================================================
                 // JOURNAL VIEW: Timeline grouped by month
                 // ===============================================================
@@ -1225,56 +1266,22 @@ export default function HubScreen() {
                 )
               ) : (
                 // ===============================================================
-                // ALL ITEMS VIEW: Original Hub sections
+                // ALL ITEMS VIEW: Table with filters
                 // ===============================================================
-                <>
-                  {/* Section 1: So you don't forget... (only render if items exist) */}
-                  {needsAttentionItems.length > 0 && (
-                    <View style={hubV1Styles.section}>
-                      <View style={hubV1Styles.sectionHeader}>
-                        <Text style={hubV1Styles.sectionTitle}>So you don't forget…</Text>
-                        <View style={hubV1Styles.countBadge}>
-                          <Text style={hubV1Styles.countBadgeText}>
-                            {needsAttentionItems.length}
-                          </Text>
-                        </View>
-                      </View>
-                      {needsAttentionItems.map((attentionItem) => {
-                        const record = attentionItem.item;
-                        const hubItem = toHubItem(record);
-                        return (
-                          <TouchableOpacity
-                            key={record.id}
-                            style={hubV1Styles.attentionRow}
-                            onPress={() => handleOpenEdit(record)}
-                            testID={`attention-item-${record.id}`}
-                          >
-                            <View style={hubV1Styles.attentionContent}>
-                              <Text style={hubV1Styles.attentionTitle} numberOfLines={1}>
-                                {hubItem.title}
-                              </Text>
-                              <Text style={hubV1Styles.attentionReason}>
-                                {formatReasonLabel(attentionItem)}
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  )}
-
-                  {/* Archived drawer */}
-                  <TouchableOpacity
-                    style={hubV1Styles.archivedRow}
-                    onPress={handleArchivedPress}
-                    testID="hub-archived-btn"
-                  >
-                    <View style={hubV1Styles.archivedRowContent}>
-                      <Archive size={16} color={colors.gray600} />
-                      <Text style={hubV1Styles.archivedRowText}>Check archived items</Text>
-                    </View>
-                  </TouchableOpacity>
-                </>
+                <View style={{ flex: 1, marginHorizontal: -spacing.md }}>
+                  <AllItemsTable
+                    onItemPress={(item) => {
+                      // Open overlay based on item type
+                      if (item.type === 'todo') {
+                        overlayController.openEdit({ record: item as Todo });
+                      } else if (item.type === 'habit') {
+                        overlayController.openEdit({ record: item as Habit });
+                      } else if (item.type === 'note') {
+                        overlayController.openEdit({ record: item as Note });
+                      }
+                    }}
+                  />
+                </View>
               )}
             </View>
           )}

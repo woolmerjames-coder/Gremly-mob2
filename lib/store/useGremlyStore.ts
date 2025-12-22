@@ -102,6 +102,14 @@ interface GremlyState {
   lastSyncedAt: Date | null;
   userId: string | null;
 
+  // User preferences
+  userTimezone: string | null;
+  setUserTimezone: (tz: string) => void;
+
+  // Calendar view state
+  calendarFocusDate: string | null;
+  setCalendarFocusDate: (date: string | null) => void;
+
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
   // ═══════════════════════════════════════════════════════════════════
@@ -214,6 +222,8 @@ const initialState = {
   isInitialized: false,
   lastSyncedAt: null as Date | null,
   userId: null as string | null,
+  userTimezone: null as string | null,
+  calendarFocusDate: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -305,6 +315,11 @@ export const useGremlyStore = create<GremlyState>()(
           milestones: milestonesRes.data?.length ?? 0,
         });
 
+        // Auto-detect timezone on initialize
+        const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        set({ userTimezone: detectedTimezone });
+        console.log('[GremlyStore] ✅ Detected timezone:', detectedTimezone);
+
         // Subscribe to EventBus for bidirectional sync
         if (eventBusUnsubscribe) {
           eventBusUnsubscribe(); // Clean up any existing subscription
@@ -340,8 +355,17 @@ export const useGremlyStore = create<GremlyState>()(
         isInitialized: false,
         lastSyncedAt: null,
         userId: null,
+        userTimezone: null,
+        calendarFocusDate: null,
       });
     },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PREFERENCE SETTERS
+    // ═══════════════════════════════════════════════════════════════════
+
+    setUserTimezone: (tz: string) => set({ userTimezone: tz }),
+    setCalendarFocusDate: (date: string | null) => set({ calendarFocusDate: date }),
 
     // ═══════════════════════════════════════════════════════════════════
     // TODO MUTATIONS

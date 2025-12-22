@@ -43,7 +43,7 @@ import {
   useTodayProgress,
   useOverdueTodos,
   useRecentDrops,
-  useSweepCount,
+  useSweepCountUnified,
   useCompletedToday,
   useTodayHabits,
   useYourNotes,
@@ -257,8 +257,8 @@ export default function NowScreenV1() {
     percent: progressPercent,
   } = progress;
 
-  // Sweep count
-  const sweepCandidateCount = useSweepCount();
+  // Sweep count (unified includes todos, notes, and unconfirmed habits)
+  const sweepCandidateCount = useSweepCountUnified();
 
   // Logs count for header
   const logsToday = useTodayLogsCount();
