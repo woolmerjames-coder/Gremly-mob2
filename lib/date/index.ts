@@ -1,11 +1,13 @@
 /**
  * Date Module - Public API
  *
- * All date operations should go through this module.
- * Do not import from individual files.
+ * All date operations should import from this file:
+ *   import { getDateService, useDateService } from '../date';
+ *
+ * Do NOT import from individual files directly.
  */
 
-// Core service
+// Primary API - use these
 export {
   DateService,
   createDateService,
@@ -16,9 +18,17 @@ export {
   type DateServiceConfig,
 } from './DateService';
 
-// React hook
 export { useDateService } from './useDateService';
 
-// Re-export legacy functions for backward compatibility during migration
-// These will be deprecated once all code uses DateService directly
-export { getTodayDayString, toDayString, parseDayString, computeDueDay } from './computeDueDay';
+// Formatting helper (uses DateService internally)
+export { formatDue, type FormatDueOptions } from './formatDue';
+
+// Deprecated - keeping for backward compatibility
+// These now delegate to DateService internally
+export {
+  getTodayDayString,
+  toDayString,
+  parseDayString,
+  computeDueDay,
+  computeDueTime,
+} from './computeDueDay';
