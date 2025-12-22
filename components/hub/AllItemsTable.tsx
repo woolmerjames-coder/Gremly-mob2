@@ -141,11 +141,11 @@ function getStatus(item: Todo | Habit | Note): 'active' | 'completed' | 'overdue
 export default function AllItemsTable({ onItemPress }: AllItemsTableProps) {
   const [filter, setFilter] = useState<FilterType>('all');
 
-  // Get data from store
-  const todos = useGremlyStore((s): Todo[] => s.todos);
-  const habits = useGremlyStore((s): Habit[] => s.habits);
-  const notes = useGremlyStore((s): Note[] => s.notes);
-  const spaces = useGremlyStore((s): Space[] => s.spaces);
+  // Get data from store (with fallbacks for safety)
+  const todos = useGremlyStore((s): Todo[] => s.todos) ?? [];
+  const habits = useGremlyStore((s): Habit[] => s.habits) ?? [];
+  const notes = useGremlyStore((s): Note[] => s.notes) ?? [];
+  const spaces = useGremlyStore((s): Space[] => s.spaces) ?? [];
 
   // Build space lookup
   const spaceMap = useMemo(() => {
