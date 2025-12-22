@@ -40,10 +40,10 @@ export function parseDayString(dayString: string | null | undefined): Date | nul
 }
 
 /**
- * @deprecated Use getDateService().parseAIDate(isoDate) instead
+ * @deprecated Use getDateService().extractDateFromIso(isoDate) instead
  */
 export function computeDueDay(isoDate: string | null | undefined): string | null {
-  return getDateService().parseAIDate(isoDate);
+  return getDateService().extractDateFromIso(isoDate);
 }
 
 /**

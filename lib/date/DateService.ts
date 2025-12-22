@@ -408,6 +408,39 @@ export class DateService {
     return normalizedDate;
   }
 
+  /**
+   * Extract YYYY-MM-DD date from an ISO datetime string without range validation.
+   * Use this for general date extraction (not AI responses).
+   *
+   * Handles:
+   * - Already in YYYY-MM-DD format: returns as-is
+   * - ISO datetime with 'T': extracts date portion
+   * - UTC midnight pattern: extracts date without timezone shift
+   */
+  extractDateFromIso(isoDate: string | null | undefined): string | null {
+    if (!isoDate || typeof isoDate !== 'string') return null;
+
+    // Already in correct format
+    if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+      return isoDate;
+    }
+
+    // Check for UTC midnight pattern to avoid timezone shift
+    const utcMidnightMatch = isoDate.match(/^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?(?:Z|\+00:00)$/);
+    if (utcMidnightMatch) {
+      return utcMidnightMatch[1];
+    }
+
+    // Parse as date and extract local date
+    try {
+      const dateObj = new Date(isoDate);
+      if (isNaN(dateObj.getTime())) return null;
+      return this.toDateString(dateObj);
+    } catch {
+      return null;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // CONVERSION
   // ═══════════════════════════════════════════════════════════════════

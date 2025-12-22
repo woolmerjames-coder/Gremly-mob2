@@ -3,16 +3,20 @@
  */
 
 import { formatDue } from '../../../lib/date/formatDue';
+import { resetDateService } from '../../../lib/date';
 
 describe('formatDue', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     // Set current time to Nov 8, 2025, 10:00 AM
     jest.setSystemTime(new Date('2025-11-08T10:00:00'));
+    // Reset DateService so it picks up the fake time
+    resetDateService();
   });
 
   afterEach(() => {
     jest.useRealTimers();
+    resetDateService();
   });
 
   describe('no due date', () => {
@@ -98,9 +102,9 @@ describe('formatDue', () => {
       expect(formatDue(december.toISOString())).toBe('due Dec 5');
     });
 
-    it('shows "due Jan 15" for next year', () => {
+    it('shows "due Jan 15, 2026" for next year (includes year when different)', () => {
       const january = new Date('2026-01-15T00:00:00');
-      expect(formatDue(january.toISOString())).toBe('due Jan 15');
+      expect(formatDue(january.toISOString())).toBe('due Jan 15, 2026');
     });
 
     it('shows "due Dec 25 @ HH:mm" with time', () => {
