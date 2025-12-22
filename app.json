@@ -4,7 +4,7 @@
     "slug": "gremly-mob2",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/mascot/ios_gremly_icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "scheme": "gremly",
@@ -14,6 +14,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "icon": "./assets/mascot/ios_gremly_icon.png",
       "supportsTablet": false,
       "bundleIdentifier": "com.gremly.mob2",
       "buildNumber": "7",
