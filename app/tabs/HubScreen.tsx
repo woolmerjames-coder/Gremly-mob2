@@ -38,6 +38,7 @@ import SegmentedTabs from '../../components/SegmentedTabs';
 import ScopeSelector, { type ScopeOption } from '../../components/ScopeSelector';
 import HubItemCard, { type HubItem } from '../../components/HubItemCard';
 import { WeekStrip, CalendarDayView } from '../../components/calendar';
+import { AllItemsTable } from '../../components/hub';
 import { getDateService } from '../../lib/date';
 import type { CalendarItem } from '../../lib/store/calendarSelectors';
 import UnsortedReviewSheet, { type UnsortedItem } from '../../components/UnsortedReviewSheet';
@@ -1265,56 +1266,22 @@ export default function HubScreen() {
                 )
               ) : (
                 // ===============================================================
-                // ALL ITEMS VIEW: Original Hub sections
+                // ALL ITEMS VIEW: Table with filters
                 // ===============================================================
-                <>
-                  {/* Section 1: So you don't forget... (only render if items exist) */}
-                  {needsAttentionItems.length > 0 && (
-                    <View style={hubV1Styles.section}>
-                      <View style={hubV1Styles.sectionHeader}>
-                        <Text style={hubV1Styles.sectionTitle}>So you don't forget…</Text>
-                        <View style={hubV1Styles.countBadge}>
-                          <Text style={hubV1Styles.countBadgeText}>
-                            {needsAttentionItems.length}
-                          </Text>
-                        </View>
-                      </View>
-                      {needsAttentionItems.map((attentionItem) => {
-                        const record = attentionItem.item;
-                        const hubItem = toHubItem(record);
-                        return (
-                          <TouchableOpacity
-                            key={record.id}
-                            style={hubV1Styles.attentionRow}
-                            onPress={() => handleOpenEdit(record)}
-                            testID={`attention-item-${record.id}`}
-                          >
-                            <View style={hubV1Styles.attentionContent}>
-                              <Text style={hubV1Styles.attentionTitle} numberOfLines={1}>
-                                {hubItem.title}
-                              </Text>
-                              <Text style={hubV1Styles.attentionReason}>
-                                {formatReasonLabel(attentionItem)}
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  )}
-
-                  {/* Archived drawer */}
-                  <TouchableOpacity
-                    style={hubV1Styles.archivedRow}
-                    onPress={handleArchivedPress}
-                    testID="hub-archived-btn"
-                  >
-                    <View style={hubV1Styles.archivedRowContent}>
-                      <Archive size={16} color={colors.gray600} />
-                      <Text style={hubV1Styles.archivedRowText}>Check archived items</Text>
-                    </View>
-                  </TouchableOpacity>
-                </>
+                <View style={{ flex: 1, marginHorizontal: -spacing.md }}>
+                  <AllItemsTable
+                    onItemPress={(item) => {
+                      // Open overlay based on item type
+                      if (item.type === 'todo') {
+                        overlayController.openEdit({ record: item as Todo });
+                      } else if (item.type === 'habit') {
+                        overlayController.openEdit({ record: item as Habit });
+                      } else if (item.type === 'note') {
+                        overlayController.openEdit({ record: item as Note });
+                      }
+                    }}
+                  />
+                </View>
               )}
             </View>
           )}

@@ -1,29 +1,64 @@
 /**
  * CalendarDayView - Shows all items for a selected date
  *
- * Displays todos, habits, and journals in a timeline format.
- * Groups by: Timed items, then untimed items.
+ * Displays todos, habits, and journals in a minimal list style.
+ * Matches Gremly brand and Today screen style exactly.
  */
 
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { CheckCircle2, Circle, Activity, BookOpen, Clock, MapPin } from 'lucide-react-native';
-import { colors, radii, spacing, shadows } from '../../theme/tokens';
 import { getDateService } from '../../lib/date';
 import { useCalendarItemsForDate, type CalendarItem } from '../../lib/store/calendarSelectors';
+
+// ═══════════════════════════════════════════════════════════════════
+// BRAND COLORS
+// ═══════════════════════════════════════════════════════════════════
+
+const BRAND = {
+  linenCream: '#F9F6F1',
+  mossGreen: '#2E5540',
+  sageMist: '#BFD8C0',
+  charcoalInk: '#222222',
+  mutedSageText: '#768879',
+  danger: '#9E3B3B',
+  white: '#FFFFFF',
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// TYPES
+// ═══════════════════════════════════════════════════════════════════
 
 interface CalendarDayViewProps {
   selectedDate: string; // YYYY-MM-DD
   onItemPress: (item: CalendarItem) => void;
 }
 
-// Theme color mapping for space badges
-const themeColors: Record<string, string> = {
-  deepTeal: colors.deepTeal,
-  mint: colors.mint,
-  cream: '#D4C5A9',
-  periwinkle: colors.periwinkle,
-};
+// ═══════════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════════
+
+// Format time for display (HH:mm -> h:mm AM/PM)
+function formatTime(time: string): string {
+  const [hours, minutes] = time.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
+}
+
+// Get subtitle text for item
+function getSubtitle(item: CalendarItem): string {
+  if (item.type === 'todo') {
+    return item.time ? `Todo · ${formatTime(item.time)}` : 'Todo';
+  }
+  if (item.type === 'habit') {
+    return 'Habit · Daily';
+  }
+  return 'Journal';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// COMPONENT
+// ═══════════════════════════════════════════════════════════════════
 
 export default function CalendarDayView({ selectedDate, onItemPress }: CalendarDayViewProps) {
   const dateService = getDateService();
@@ -36,15 +71,16 @@ export default function CalendarDayView({ selectedDate, onItemPress }: CalendarD
   // Format the header date
   const headerDate = dateService.formatForOverlay(selectedDate);
 
+  // Empty state
   if (items.length === 0) {
     return (
-      <View style={styles.emptyContainer}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.emptyContent}>
         <Text style={styles.headerDate}>{headerDate}</Text>
-        <View style={styles.emptyContent}>
+        <View style={styles.emptyCenter}>
           <Text style={styles.emptyText}>Nothing scheduled</Text>
-          <Text style={styles.emptySubtext}>Drop something in Mind Drop to add it here</Text>
+          <Text style={styles.emptyHint}>Your day is wide open</Text>
         </View>
-      </View>
+      </ScrollView>
     );
   }
 
@@ -53,243 +89,156 @@ export default function CalendarDayView({ selectedDate, onItemPress }: CalendarD
       <Text style={styles.headerDate}>{headerDate}</Text>
 
       {/* Timed items */}
-      {timedItems.length > 0 && (
-        <View style={styles.section}>
-          {timedItems.map((item) => (
-            <CalendarItemRow key={item.id} item={item} onPress={() => onItemPress(item)} />
-          ))}
-        </View>
+      {timedItems.map((item) => (
+        <TouchableOpacity
+          key={item.id}
+          style={styles.card}
+          onPress={() => onItemPress(item)}
+          activeOpacity={0.7}
+        >
+          <View
+            style={[
+              styles.leftBorder,
+              item.isCompleted && styles.leftBorderCompleted,
+              !item.isCompleted && item.isOverdue && styles.leftBorderOverdue,
+            ]}
+          />
+          <View style={styles.cardContent}>
+            <Text
+              style={[styles.title, item.isCompleted && styles.titleCompleted]}
+              numberOfLines={1}
+            >
+              {item.title}
+            </Text>
+            <Text style={styles.subtitle}>{getSubtitle(item)}</Text>
+          </View>
+        </TouchableOpacity>
+      ))}
+
+      {/* Divider for untimed section */}
+      {timedItems.length > 0 && untimedItems.length > 0 && (
+        <Text style={styles.sectionDivider}>No specific time</Text>
       )}
 
       {/* Untimed items */}
-      {untimedItems.length > 0 && (
-        <View style={styles.section}>
-          {timedItems.length > 0 && <Text style={styles.sectionLabel}>No specific time</Text>}
-          {untimedItems.map((item) => (
-            <CalendarItemRow key={item.id} item={item} onPress={() => onItemPress(item)} />
-          ))}
-        </View>
-      )}
+      {untimedItems.map((item) => (
+        <TouchableOpacity
+          key={item.id}
+          style={styles.card}
+          onPress={() => onItemPress(item)}
+          activeOpacity={0.7}
+        >
+          <View
+            style={[
+              styles.leftBorder,
+              item.isCompleted && styles.leftBorderCompleted,
+              !item.isCompleted && item.isOverdue && styles.leftBorderOverdue,
+            ]}
+          />
+          <View style={styles.cardContent}>
+            <Text
+              style={[styles.title, item.isCompleted && styles.titleCompleted]}
+              numberOfLines={1}
+            >
+              {item.title}
+            </Text>
+            <Text style={styles.subtitle}>{getSubtitle(item)}</Text>
+          </View>
+        </TouchableOpacity>
+      ))}
     </ScrollView>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CALENDAR ITEM ROW
+// STYLES
 // ═══════════════════════════════════════════════════════════════════
-
-function CalendarItemRow({ item, onPress }: { item: CalendarItem; onPress: () => void }) {
-  // Icon based on type and completion state
-  const renderIcon = () => {
-    if (item.type === 'todo') {
-      if (item.isCompleted) {
-        return <CheckCircle2 size={20} color={colors.success} />;
-      }
-      if (item.isOverdue) {
-        return <Circle size={20} color={colors.warning} />;
-      }
-      return <Circle size={20} color={colors.deepTeal} />;
-    }
-    if (item.type === 'habit') {
-      return <Activity size={20} color={item.isCompleted ? colors.success : colors.periwinkle} />;
-    }
-    if (item.type === 'journal') {
-      return <BookOpen size={20} color={colors.gray600} />;
-    }
-    return <Circle size={20} color={colors.gray400} />;
-  };
-
-  // Format time for display
-  const formatTime = (time: string): string => {
-    const [hours, minutes] = time.split(':').map(Number);
-    const period = hours >= 12 ? 'PM' : 'AM';
-    const displayHours = hours % 12 || 12;
-    return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
-  };
-
-  const spaceColor = item.space?.theme
-    ? themeColors[item.space.theme] || colors.deepTeal
-    : colors.deepTeal;
-
-  return (
-    <TouchableOpacity style={[styles.itemRow, shadows.card]} onPress={onPress} activeOpacity={0.7}>
-      <View style={styles.itemIcon}>{renderIcon()}</View>
-
-      <View style={styles.itemContent}>
-        {/* Time badge */}
-        {item.time && (
-          <View style={styles.timeBadge}>
-            <Clock size={10} color={colors.gray600} />
-            <Text style={styles.timeText}>{formatTime(item.time)}</Text>
-          </View>
-        )}
-
-        {/* Title */}
-        <Text
-          style={[styles.itemTitle, item.isCompleted && styles.itemTitleCompleted]}
-          numberOfLines={2}
-        >
-          {item.title}
-        </Text>
-
-        {/* Space badge */}
-        {item.space && (
-          <View style={[styles.spaceBadge, { backgroundColor: spaceColor + '20' }]}>
-            <MapPin size={10} color={spaceColor} />
-            <Text style={[styles.spaceText, { color: spaceColor }]}>{item.space.name}</Text>
-          </View>
-        )}
-
-        {/* Tags (show first 2) */}
-        {item.tags.length > 0 && (
-          <View style={styles.tagsRow}>
-            {item.tags.slice(0, 2).map((tag) => (
-              <View key={tag} style={styles.tagChip}>
-                <Text style={styles.tagText}>{tag}</Text>
-              </View>
-            ))}
-            {item.tags.length > 2 && <Text style={styles.tagMore}>+{item.tags.length - 2}</Text>}
-          </View>
-        )}
-      </View>
-
-      {/* Type indicator */}
-      <View style={styles.typeIndicator}>
-        <Text style={styles.typeText}>
-          {item.type === 'todo' ? 'To-Do' : item.type === 'habit' ? 'Habit' : 'Journal'}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.cream,
+    backgroundColor: BRAND.linenCream,
   },
   content: {
-    padding: spacing.md,
-    paddingBottom: spacing['2xl'],
-  },
-  headerDate: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.deepTeal,
-    marginBottom: spacing.md,
-  },
-  section: {
-    marginBottom: spacing.md,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.gray600,
-    marginBottom: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  // Empty state
-  emptyContainer: {
-    flex: 1,
-    backgroundColor: colors.cream,
-    padding: spacing.md,
+    padding: 16,
+    paddingBottom: 40,
   },
   emptyContent: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingBottom: 100,
+    padding: 16,
   },
-  emptyText: {
+  headerDate: {
     fontSize: 18,
+    fontWeight: '700',
+    color: BRAND.mossGreen,
+    marginBottom: 16,
+  },
+  sectionDivider: {
+    fontSize: 13,
     fontWeight: '600',
-    color: colors.gray600,
-    marginBottom: spacing.xs,
+    color: BRAND.mutedSageText,
+    marginTop: 20,
+    marginBottom: 12,
   },
-  emptySubtext: {
-    fontSize: 14,
-    color: colors.gray400,
-    textAlign: 'center',
-  },
-  // Item row
-  itemRow: {
+  // Card
+  card: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: colors.white,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
+    backgroundColor: BRAND.white,
+    borderRadius: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+    overflow: 'hidden',
   },
-  itemIcon: {
-    marginRight: spacing.sm,
-    paddingTop: 2,
+  leftBorder: {
+    width: 3,
+    backgroundColor: BRAND.mossGreen,
   },
-  itemContent: {
+  leftBorderCompleted: {
+    backgroundColor: BRAND.sageMist,
+  },
+  leftBorderOverdue: {
+    backgroundColor: BRAND.danger,
+  },
+  cardContent: {
     flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
-  timeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 4,
-  },
-  timeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.gray600,
-  },
-  itemTitle: {
+  title: {
     fontSize: 15,
     fontWeight: '600',
-    color: colors.ink,
-    marginBottom: 4,
+    color: BRAND.charcoalInk,
+    marginBottom: 2,
   },
-  itemTitleCompleted: {
+  titleCompleted: {
     textDecorationLine: 'line-through',
-    color: colors.gray400,
+    color: BRAND.mutedSageText,
   },
-  spaceBadge: {
-    flexDirection: 'row',
+  subtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: BRAND.mutedSageText,
+  },
+  // Empty state
+  emptyCenter: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 4,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 2,
-    borderRadius: radii.sm,
+    paddingBottom: 60,
+  },
+  emptyText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: BRAND.mutedSageText,
     marginBottom: 4,
   },
-  spaceText: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  tagsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    flexWrap: 'wrap',
-  },
-  tagChip: {
-    backgroundColor: colors.gray100,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 2,
-    borderRadius: radii.sm,
-  },
-  tagText: {
-    fontSize: 10,
-    color: colors.gray600,
-    fontWeight: '500',
-  },
-  tagMore: {
-    fontSize: 10,
-    color: colors.gray400,
-  },
-  typeIndicator: {
-    paddingLeft: spacing.sm,
-  },
-  typeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.gray400,
-    textTransform: 'uppercase',
+  emptyHint: {
+    fontSize: 14,
+    color: BRAND.mutedSageText,
+    opacity: 0.7,
   },
 });

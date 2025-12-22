@@ -22,3 +22,5 @@ export type { PopularTagsSectionProps } from './PopularTagsSection';
 
 export { default as ArchivedLinkRow } from './ArchivedLinkRow';
 export type { ArchivedLinkRowProps } from './ArchivedLinkRow';
+
+export { default as AllItemsTable } from './AllItemsTable';

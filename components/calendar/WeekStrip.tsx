@@ -3,23 +3,43 @@
  *
  * Shows 7 days centered on the selected date.
  * Tapping a day selects it. Dots indicate days with items.
+ * Matches Gremly brand styling.
  */
 
-import React, { useRef } from 'react';
+import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
-import { colors, radii, spacing } from '../../theme/tokens';
 import { getDateService } from '../../lib/date';
 import { useDatesWithItems } from '../../lib/store/calendarSelectors';
+
+// ═══════════════════════════════════════════════════════════════════
+// BRAND COLORS
+// ═══════════════════════════════════════════════════════════════════
+
+const BRAND = {
+  linenCream: '#F9F6F1',
+  mossGreen: '#2E5540',
+  sageMist: '#BFD8C0',
+  charcoalInk: '#222222',
+  mutedSageText: '#768879',
+  white: '#FFFFFF',
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// TYPES
+// ═══════════════════════════════════════════════════════════════════
 
 interface WeekStripProps {
   selectedDate: string; // YYYY-MM-DD
   onSelectDate: (date: string) => void;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// COMPONENT
+// ═══════════════════════════════════════════════════════════════════
+
 export default function WeekStrip({ selectedDate, onSelectDate }: WeekStripProps) {
   const dateService = getDateService();
-  const scrollRef = useRef<ScrollView>(null);
 
   // Generate 7 days centered on selected date (3 before, selected, 3 after)
   const days: string[] = [];
@@ -47,24 +67,23 @@ export default function WeekStrip({ selectedDate, onSelectDate }: WeekStripProps
 
   return (
     <View style={styles.container}>
-      {/* Navigation arrows + Today button */}
+      {/* Navigation row */}
       <View style={styles.navRow}>
-        <TouchableOpacity onPress={goToPreviousWeek} style={styles.navButton}>
-          <ChevronLeft size={20} color={colors.deepTeal} />
+        <TouchableOpacity onPress={goToPreviousWeek} style={styles.navButton} activeOpacity={0.6}>
+          <ChevronLeft size={20} color={BRAND.mossGreen} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
+        <TouchableOpacity onPress={goToToday} style={styles.todayButton} activeOpacity={0.7}>
           <Text style={styles.todayButtonText}>Today</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={goToNextWeek} style={styles.navButton}>
-          <ChevronRight size={20} color={colors.deepTeal} />
+        <TouchableOpacity onPress={goToNextWeek} style={styles.navButton} activeOpacity={0.6}>
+          <ChevronRight size={20} color={BRAND.mossGreen} />
         </TouchableOpacity>
       </View>
 
-      {/* Day pills */}
+      {/* Days row */}
       <ScrollView
-        ref={scrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.daysRow}
@@ -89,20 +108,11 @@ export default function WeekStrip({ selectedDate, onSelectDate }: WeekStripProps
                 isSelected && styles.dayPillSelected,
                 isToday && !isSelected && styles.dayPillToday,
               ]}
+              activeOpacity={0.7}
             >
-              <Text style={[styles.dayName, isSelected && styles.dayTextSelected]}>{dayName}</Text>
-              <Text
-                style={[
-                  styles.dayNum,
-                  isSelected && styles.dayTextSelected,
-                  isToday && !isSelected && styles.dayNumToday,
-                ]}
-              >
-                {dayNum}
-              </Text>
-              {/* Dot indicator for days with items */}
-              {hasItems && !isSelected && <View style={styles.dot} />}
-              {hasItems && isSelected && <View style={styles.dotSelected} />}
+              <Text style={[styles.dayName, isSelected && styles.dayNameSelected]}>{dayName}</Text>
+              <Text style={[styles.dayNum, isSelected && styles.dayNumSelected]}>{dayNum}</Text>
+              {hasItems && <View style={[styles.dot, isSelected && styles.dotSelected]} />}
             </TouchableOpacity>
           );
         })}
@@ -111,81 +121,89 @@ export default function WeekStrip({ selectedDate, onSelectDate }: WeekStripProps
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// STYLES
+// ═══════════════════════════════════════════════════════════════════
+
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.white,
-    paddingVertical: spacing.sm,
+    backgroundColor: BRAND.linenCream,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray200,
+    borderBottomColor: BRAND.sageMist,
   },
+  // Navigation
   navRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.sm,
-    gap: spacing.md,
+    marginBottom: 12,
+    gap: 16,
   },
   navButton: {
-    padding: spacing.xs,
+    padding: 8,
   },
   todayButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    backgroundColor: colors.mint,
-    borderRadius: radii.md,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: BRAND.sageMist,
+    borderRadius: 999,
   },
   todayButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: colors.deepTeal,
+    color: BRAND.mossGreen,
   },
+  // Days row
   daysRow: {
     flexDirection: 'row',
-    paddingHorizontal: spacing.md,
-    gap: spacing.xs,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    gap: 8,
   },
+  // Day pill
   dayPill: {
     alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.lg,
-    minWidth: 48,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    minWidth: 44,
   },
   dayPillSelected: {
-    backgroundColor: colors.deepTeal,
+    backgroundColor: BRAND.mossGreen,
   },
   dayPillToday: {
-    backgroundColor: colors.gray100,
+    backgroundColor: BRAND.sageMist,
   },
+  // Day text
   dayName: {
     fontSize: 11,
     fontWeight: '500',
-    color: colors.gray600,
+    color: BRAND.mutedSageText,
     marginBottom: 2,
+  },
+  dayNameSelected: {
+    color: BRAND.white,
   },
   dayNum: {
     fontSize: 16,
-    fontWeight: '700',
-    color: colors.ink,
+    fontWeight: '600',
+    color: BRAND.charcoalInk,
   },
-  dayNumToday: {
-    color: colors.deepTeal,
+  dayNumSelected: {
+    color: BRAND.white,
   },
-  dayTextSelected: {
-    color: colors.white,
-  },
+  // Dot indicator
   dot: {
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: colors.deepTeal,
+    backgroundColor: BRAND.mossGreen,
     marginTop: 4,
   },
   dotSelected: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.mint,
+    backgroundColor: BRAND.white,
     marginTop: 4,
   },
 });
