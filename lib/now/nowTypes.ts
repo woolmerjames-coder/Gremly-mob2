@@ -30,6 +30,10 @@ export interface NowLockedItem {
   completedAt?: string | null;
   /** Human-readable frequency like "3 times a week" */
   frequency?: string;
+  /** Space ID for this item */
+  spaceId?: string | null;
+  /** Space name for display */
+  spaceName?: string | null;
 }
 
 /**
@@ -54,6 +58,10 @@ export interface NowActiveItem {
   timeWindow?: 'morning' | 'midday' | 'evening' | 'any';
   /** Human-readable frequency like "3 times a week" */
   frequency?: string;
+  /** Space ID for this item */
+  spaceId?: string | null;
+  /** Space name for display */
+  spaceName?: string | null;
 }
 
 /**
