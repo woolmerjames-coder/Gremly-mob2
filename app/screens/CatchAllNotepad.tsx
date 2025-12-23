@@ -1597,12 +1597,24 @@ const AnimatedMindDropCard: React.FC<{
           })()}
           {/* Time estimate chip for todos - next to deadline */}
           {effectiveKind === 'todo' && item.time_estimate_minutes && (
-            <View style={styles.timeEstimateChip}>
-              <Clock size={10} color="#888" strokeWidth={2} />
-              <Text style={styles.timeEstimateText}>
-                {formatTimeEstimate(item.time_estimate_minutes)}
-              </Text>
-            </View>
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                Alert.alert(
+                  '⏱️ Time Estimate',
+                  'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                  [{ text: 'Got it', style: 'default' }],
+                );
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <View style={styles.timeEstimateChip}>
+                <Clock size={10} color="#888" strokeWidth={2} />
+                <Text style={styles.timeEstimateText}>
+                  {formatTimeEstimate(item.time_estimate_minutes)}
+                </Text>
+              </View>
+            </Pressable>
           )}
           {/* Start date chip for habits */}
           {effectiveKind === 'habit' && (
