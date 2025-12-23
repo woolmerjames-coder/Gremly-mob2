@@ -1,9 +1,10 @@
 import 'react-native-gesture-handler'; // must be first
 import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useColorScheme, Linking } from 'react-native';
+import { useColorScheme, Linking, View } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
 
@@ -22,10 +23,16 @@ import { env } from './lib/env';
 import { useBrandFonts } from './app/theme/fonts';
 import { testLogger } from './src/utils/TestLogger';
 
+// Prevent the splash screen from auto-hiding before app is ready
+SplashScreen.preventAutoHideAsync();
+
 export default function App() {
   const { fontsLoaded, fontsError } = useBrandFonts();
   const scheme = useColorScheme();
   const bootProbeRan = useRef(false);
+
+  // Derive app readiness from fonts (no setState needed)
+  const appIsReady = fontsLoaded || fontsError;
 
   useEffect(() => {
     // Dev-only boot probe: emit 3 [TEST] lines on every app boot
@@ -84,35 +91,45 @@ export default function App() {
     };
   }, []);
 
-  if (!fontsLoaded && !fontsError) {
+  // Hide splash screen after root view layout
+  const onLayoutRootView = useCallback(async () => {
+    if (appIsReady) {
+      // Hide the splash screen after the root view has laid out
+      await SplashScreen.hideAsync();
+    }
+  }, [appIsReady]);
+
+  if (!appIsReady) {
     return null;
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <DsToggleProvider>
-          <ThemeProvider>
-            <AuthProvider>
-              <RepoProvider>
-                <SheetProvider>
-                  <CortexProvider>
-                    <CelebrationProvider>
-                      <OverlayProvider>
-                        <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
-                          <RootNavigator />
-                          <OverlayHost />
-                        </NavigationContainer>
-                      </OverlayProvider>
-                    </CelebrationProvider>
-                  </CortexProvider>
-                </SheetProvider>
-              </RepoProvider>
-            </AuthProvider>
-          </ThemeProvider>
-        </DsToggleProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <DsToggleProvider>
+            <ThemeProvider>
+              <AuthProvider>
+                <RepoProvider>
+                  <SheetProvider>
+                    <CortexProvider>
+                      <CelebrationProvider>
+                        <OverlayProvider>
+                          <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+                            <RootNavigator />
+                            <OverlayHost />
+                          </NavigationContainer>
+                        </OverlayProvider>
+                      </CelebrationProvider>
+                    </CortexProvider>
+                  </SheetProvider>
+                </RepoProvider>
+              </AuthProvider>
+            </ThemeProvider>
+          </DsToggleProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </View>
   );
 }
 

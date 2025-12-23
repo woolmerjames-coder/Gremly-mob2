@@ -54,6 +54,7 @@
     "expo-haptics": "15.0.7",
     "expo-image-picker": "17.0.8",
     "expo-linear-gradient": "~15.0.7",
+    "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.8",
     "lottie-react-native": "7.3.4",
     "lucide-react-native": "0.545.0",

@@ -9,9 +9,9 @@
     "newArchEnabled": true,
     "scheme": "gremly",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/mascot/gremly-mascot.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#BFD8C0"
     },
     "ios": {
       "icon": "./assets/mascot/ios_gremly_icon.png",
