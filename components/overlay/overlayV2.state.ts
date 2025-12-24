@@ -217,10 +217,14 @@ type Action =
   | { type: 'SET_CHECKLIST_MODE'; enabled: boolean }
   | { type: 'TOGGLE_CHECKLIST_MODE' }
   | { type: 'PUSH_UNDO'; entry: { kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> } }
-  | { type: 'UNDO_LAST' };
+  | { type: 'UNDO_LAST' }
+  | { type: 'RESET' };
 
 export function v2Reducer(state: V2State, action: Action): V2State {
   switch (action.type) {
+    case 'RESET': {
+      return { ...initialV2State };
+    }
     case 'PUSH_UNDO': {
       const stack = (state.undoStack ?? []).concat([action.entry]);
       return { ...state, undoStack: stack };

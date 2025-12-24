@@ -1026,6 +1026,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const baseType = state.baseType;
   const isBreakHabit = baseType === 'habit' && state.habit.subtype === 'break_habit';
 
+  // Track previous entity ID to detect entity changes
+  const prevEntityIdRef = useRef<string | null>(null);
+  const currentEntityId = (initialEntity as any)?.id ?? null;
+
   // Log kind detection (Phase L1)
   const isLog = baseType === 'log';
   const logKind = isLog ? state.log.kind : 'basic';
@@ -1363,6 +1367,47 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     currentTagsRef.current = state.tags;
   }, [state.tags]);
   const hasLoadedEditTagsRef = useRef(false);
+
+  // Reset all state when entity changes - MUST run before HYDRATE_EDIT effects
+  useEffect(() => {
+    const prev = prevEntityIdRef.current;
+    const shouldReset = visible && currentEntityId !== prev;
+
+    if (shouldReset && prev !== null) {
+      // Entity changed while visible or overlay opened with new entity
+      console.log('[UnifiedOverlayV2] Entity changed, full reset', { prev, new: currentEntityId });
+
+      // Reset reducer state
+      dispatch({ type: 'RESET' });
+
+      // Reset all useState values that hold entity-specific data
+      setReminders([]);
+      setChecklistItems(null);
+      setIsFavorite(false);
+      setSourceNote(null);
+      setShowTodoPreview(false);
+      setExtractedItems([]);
+      setViewModeEntity(null);
+      setIsExpandedEditor(false);
+      setIsPreviewMode(false);
+      setTagsDirty(false);
+      setSaveError(null);
+      setShowSaveToast(false);
+      setPhotoUri(null);
+      setLogPhotos([]);
+      setSelectedPhotoIndex(null);
+      setMood('neutral');
+
+      // Reset refs
+      createPrefillAppliedRef.current = false;
+      editAutoPrefillRanRef.current = false;
+      hasLoadedEditTagsRef.current = false;
+      aiTitlePersistedRef.current = false;
+    }
+
+    // Always update the ref to track current entity
+    prevEntityIdRef.current = currentEntityId;
+  }, [visible, currentEntityId]);
 
   async function canEnableCommitment(): Promise<boolean> {
     try {
