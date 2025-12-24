@@ -60,6 +60,12 @@ export interface SubmitResult {
   entityId?: string;
   /** The classified bucket */
   bucket?: MindDropBucket;
+  /** The classification confidence (0-1) */
+  confidence?: number;
+  /** The log subtype (for log bucket) */
+  subtype?: LogSubtype | null;
+  /** The due date if extracted */
+  dueDate?: string | null;
   /** Error if submission failed */
   error?: Error;
 }
@@ -434,6 +440,9 @@ export function useMindDropSubmit(): {
           dropId,
           entityId: entity.id,
           bucket,
+          confidence: phase1Result.confidence,
+          subtype: phase1Result.subtype,
+          dueDate: (entity as any).due_date ?? (entity as any).due_day ?? null,
         };
       } catch (error) {
         // Clean up pending item on error
