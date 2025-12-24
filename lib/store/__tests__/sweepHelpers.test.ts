@@ -17,11 +17,11 @@ import type { Todo, Habit, Note } from '../../types';
 // TEST SETUP
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const TODAY = '2025-12-22';
-const YESTERDAY = '2025-12-21';
-const TOMORROW = '2025-12-23';
-const WEEK_AGO = '2025-12-15';
-const TWO_WEEKS_AGO = '2025-12-08';
+const TODAY = '2025-12-24';
+const YESTERDAY = '2025-12-23';
+const TOMORROW = '2025-12-25';
+const WEEK_AGO = '2025-12-17';
+const TWO_WEEKS_AGO = '2025-12-10';
 
 beforeEach(() => {
   resetDateService();
@@ -239,7 +239,7 @@ describe('getNoteSweepPrediction', () => {
   it('returns "Next Sweep" for recent ideas (created 6 days ago)', () => {
     const note = makeNote({
       subtype: 'idea',
-      created_at: `2025-12-16T10:00:00Z`, // 6 days ago from TODAY
+      created_at: `2025-12-18T10:00:00Z`, // 6 days ago from TODAY
     });
     const result = getNoteSweepPrediction(note);
     expect(result).toEqual({ type: 'next', label: 'Next Sweep' });

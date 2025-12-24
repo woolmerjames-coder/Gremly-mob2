@@ -78,6 +78,7 @@ import { useTheme } from '../../src/theme/useTheme';
 import { useReducedMotion } from '../../src/hooks/useReducedMotion';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
+import Reanimated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase/client';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/copy';
@@ -1597,12 +1598,24 @@ const AnimatedMindDropCard: React.FC<{
           })()}
           {/* Time estimate chip for todos - next to deadline */}
           {effectiveKind === 'todo' && item.time_estimate_minutes && (
-            <View style={styles.timeEstimateChip}>
-              <Clock size={10} color="#888" strokeWidth={2} />
-              <Text style={styles.timeEstimateText}>
-                {formatTimeEstimate(item.time_estimate_minutes)}
-              </Text>
-            </View>
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                Alert.alert(
+                  '⏱️ Time Estimate',
+                  'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                  [{ text: 'Got it', style: 'default' }],
+                );
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <View style={styles.timeEstimateChip}>
+                <Clock size={10} color="#888" strokeWidth={2} />
+                <Text style={styles.timeEstimateText}>
+                  {formatTimeEstimate(item.time_estimate_minutes)}
+                </Text>
+              </View>
+            </Pressable>
           )}
           {/* Start date chip for habits */}
           {effectiveKind === 'habit' && (
@@ -3044,6 +3057,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
+  const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
+  const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSpeechRef = useRef<string | null>(null);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
   // Photo drop: Track if current submission has photos (for classification default to log-general)
   const currentSubmissionHasPhotosRef = useRef(false);
@@ -3054,6 +3070,109 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const timeout = setTimeout(() => setShowPhotoTextNudge(false), 5000);
     return () => clearTimeout(timeout);
   }, [showPhotoTextNudge]);
+
+  // Cleanup gremlySpeech timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (gremlySpeechTimeoutRef.current) {
+        clearTimeout(gremlySpeechTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Helper to show Gremly speech bubble with auto-dismiss
+  const showGremlySpeech = useCallback((message: string, durationMs = 3500) => {
+    if (gremlySpeechTimeoutRef.current) {
+      clearTimeout(gremlySpeechTimeoutRef.current);
+    }
+    lastSpeechRef.current = message;
+    setGremlySpeech(message);
+    gremlySpeechTimeoutRef.current = setTimeout(() => {
+      setGremlySpeech(null);
+    }, durationMs);
+  }, []);
+
+  // Generate contextual speech based on classification result
+  type SpeechContext = {
+    kind: 'todo' | 'habit' | 'log';
+    logSubtype?: 'journal' | 'idea' | 'general' | null;
+    confidence: number;
+    dueDate?: string | null;
+    mode: 'auto' | 'ask' | 'keep' | 'reply';
+  };
+
+  const pickRandom = <T,>(options: T[]): T => {
+    return options[Math.floor(Math.random() * options.length)];
+  };
+
+  const getGremlySpeech = useCallback((ctx: SpeechContext): string | null => {
+    const { kind, logSubtype, confidence, dueDate, mode } = ctx;
+
+    let message: string | null = null;
+
+    // High confidence auto-classification
+    if (mode === 'auto' && confidence >= 0.8) {
+      if (kind === 'todo') {
+        if (dueDate) {
+          // Format the date nicely
+          try {
+            const date = new Date(dueDate);
+            const formattedDate = date.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            });
+            message = pickRandom([
+              `On it — due ${formattedDate}.`,
+              `Task locked in for ${formattedDate}.`,
+              `Got it — ${formattedDate}.`,
+            ]);
+          } catch {
+            message = 'Task added.';
+          }
+        } else {
+          message = pickRandom([
+            'Task captured. Pick a date in Sweep.',
+            'Added. Set a date in Sweep.',
+            'Got it. Date it in Sweep.',
+          ]);
+        }
+      } else if (kind === 'habit') {
+        message = pickRandom(['Habit saved.', 'New habit tracked.', 'Habit locked in.']);
+      } else if (kind === 'log') {
+        if (logSubtype === 'journal') {
+          message = pickRandom([
+            'Saved to your journal.',
+            'Journal entry saved.',
+            'Noted in your journal.',
+          ]);
+        } else if (logSubtype === 'idea') {
+          message = pickRandom(['Idea captured.', 'Interesting — saved.', 'Idea logged.']);
+        } else {
+          message = pickRandom(['Thought saved.', 'Got it.', 'Captured.']);
+        }
+      }
+    }
+    // Medium confidence or ask mode
+    else if (confidence >= 0.5 || mode === 'ask') {
+      message = pickRandom([
+        `Saved as a ${kind}. Review in Sweep.`,
+        `Captured as a ${kind}. Check it in Sweep.`,
+      ]);
+    }
+    // Low confidence
+    else if (confidence < 0.5) {
+      message = pickRandom(['Saved. Review in Sweep.', 'Captured. Check it in Sweep.']);
+    }
+
+    // Don't repeat the same message twice in a row
+    if (message && message === lastSpeechRef.current) {
+      // If we got the same message, try to get a different one
+      // For simplicity, just return null to skip this time
+      return null;
+    }
+
+    return message;
+  }, []);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pulseScale] = useState(() => new Animated.Value(1));
@@ -3703,13 +3822,31 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // causing the database constraint to return the existing entity instead of creating a new one
       dropIdRef.current = null;
       submissionIdRef.current = null;
+
+      // Map log subtype to UI-friendly format
+      const noteSubtype =
+        result.bucket === 'log'
+          ? result.subtype === 'journal'
+            ? 'journal'
+            : result.subtype === 'idea'
+              ? 'idea'
+              : 'general'
+          : undefined;
+
       return {
         created: {
           todos: result.bucket === 'todo' ? [result.entityId!] : [],
           notes: result.bucket === 'log' ? [result.entityId!] : [],
           habits: result.bucket === 'habit' ? [result.entityId!] : [],
         },
-        createdDetails: [{ kind: result.bucket === 'log' ? 'note' : result.bucket! }],
+        createdDetails: [
+          {
+            kind: result.bucket === 'log' ? 'note' : result.bucket!,
+            noteSubtype,
+          },
+        ],
+        decisionConfidence: result.confidence,
+        decisionMode: 'auto',
       };
     } else {
       console.error('[MindDrop:NewPipeline] Submit failed:', result.error);
@@ -5345,8 +5482,35 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         submissionMutex.current.delete(textHash);
       }, 2000);
 
-      await handleMindDropSubmit();
+      const result = await handleMindDropSubmit();
       setIsSubmitting(false);
+
+      // Show speech based on classification result using full getGremlySpeech logic
+      if (result.createdDetails?.length > 0) {
+        const detail = result.createdDetails[0];
+        const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
+
+        // Get due date from created entity if available
+        let dueDate: string | null = null;
+        if (uiKind === 'todo' && result.created?.todos?.[0]) {
+          const createdTodo = getItemById(result.created.todos[0]);
+          dueDate = (createdTodo as any)?.due_date ?? (createdTodo as any)?.due_day ?? null;
+        }
+
+        const speechCtx: SpeechContext = {
+          kind: uiKind as 'todo' | 'habit' | 'log',
+          logSubtype: (detail as any).noteSubtype as 'journal' | 'idea' | 'general' | null,
+          confidence: (result as any).decisionConfidence ?? 0.9, // V4 hook doesn't expose confidence yet, assume high
+          dueDate,
+          mode: 'auto', // V4 is always auto mode
+        };
+        const speech = getGremlySpeech(speechCtx);
+        if (speech) {
+          lastSpeechRef.current = speech;
+          showGremlySpeech(speech);
+        }
+      }
+
       submitLockRef.current = false;
       currentSubmissionHasPhotosRef.current = false;
       return;
@@ -5477,6 +5641,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Immediately reset UI state
         resetState();
         setIsSubmitting(false);
+
+        // Show optimistic speech based on predicted kind
+        const optimisticSpeech =
+          probableKind === 'todo'
+            ? 'Added as a task.'
+            : probableKind === 'habit'
+              ? 'Habit saved.'
+              : 'Thought saved.';
+        showGremlySpeech(optimisticSpeech);
+
         submitLockRef.current = false;
         lastSubmittedTextRef.current = effectiveText;
 
@@ -5513,7 +5687,45 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         return;
       }
 
-      // SUCCESS PATH — summarize created items
+      // SUCCESS PATH — summarize created items and show Gremly speech
+
+      // Generate contextual speech based on classification result
+      console.log('[Gremly Speech] finalResult.createdDetails:', finalResult.createdDetails);
+      if (finalResult.createdDetails?.length > 0) {
+        const detail = finalResult.createdDetails[0];
+        const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
+
+        // Get due date from created todo if available
+        let dueDate: string | null = null;
+        if (uiKind === 'todo' && finalResult.created?.todos?.[0]) {
+          const createdTodo = getItemById(finalResult.created.todos[0]);
+          dueDate = (createdTodo as any)?.due_date ?? null;
+        }
+
+        const speechCtx: SpeechContext = {
+          kind: uiKind as 'todo' | 'habit' | 'log',
+          logSubtype: (detail as any).noteSubtype as 'journal' | 'idea' | 'general' | null,
+          confidence: finalResult.decisionConfidence ?? 0,
+          dueDate,
+          mode: (finalResult.decisionMode as 'auto' | 'ask' | 'keep' | 'reply') ?? 'auto',
+        };
+        console.log('[Gremly Speech] speechCtx:', speechCtx);
+        const speech = getGremlySpeech(speechCtx);
+        console.log(
+          '[Gremly Speech] generated speech:',
+          speech,
+          'lastSpeechRef:',
+          lastSpeechRef.current,
+        );
+        if (speech) {
+          lastSpeechRef.current = speech;
+          showGremlySpeech(speech);
+          console.log('[Gremly Speech] showGremlySpeech called with:', speech);
+        }
+      } else {
+        console.log('[Gremly Speech] No createdDetails, skipping speech');
+      }
+
       if ((finalResult?.suggestions?.length ?? 0) > 0) {
         try {
           AccessibilityInfo.announceForAccessibility?.('Mind Drop organized successfully.');
@@ -5573,6 +5785,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ensureSubmissionAndDropIds,
     user,
     userId,
+    showGremlySpeech,
+    getGremlySpeech,
   ]);
 
   // Photo Drop handlers
@@ -5681,42 +5895,62 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         {/* Header + greeting at the top */}
         <View style={styles.headerContainer}>
           <View style={styles.headerRow} testID="minddrop-header">
-            <View style={styles.headerLeftGroup}>
-              <Pressable
-                accessibilityLabel="Go back"
-                accessibilityRole="button"
-                onPress={handleBack}
-                hitSlop={12}
-                style={styles.headerBackBtn}
-              >
-                <Text style={styles.headerBackText}>{'<'}</Text>
-              </Pressable>
-              <Image
-                ref={headerTitleRef}
-                source={MINDDROP_HEADER}
-                style={styles.headerTitle}
-                resizeMode="contain"
-                accessibilityLabel="Mind Drop"
-                accessibilityIgnoresInvertColors
-              />
-              <Pressable
-                accessibilityLabel="About Mind Drop"
-                accessibilityRole="button"
-                testID="minddrop-info-header"
-                style={styles.headerInfoBtn}
-                onPress={handleInfoOpen}
-                hitSlop={12}
-              >
-                <Icon name="Info" size="sm" color={c.mossGreen} />
-              </Pressable>
-            </View>
+            {/* Back button */}
+            <Pressable
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+              onPress={handleBack}
+              hitSlop={12}
+              style={styles.headerBackBtn}
+            >
+              <Text style={styles.headerBackText}>{'<'}</Text>
+            </Pressable>
+
+            {/* Gremly mascot - left side, original size */}
+            <Image
+              source={GREMLY_TOP}
+              style={styles.headerMascotLeft}
+              resizeMode="contain"
+              accessibilityIgnoresInvertColors
+            />
+
+            {/* Spacer to push logo right */}
+            <View style={{ flex: 1 }} />
+
+            {/* MindDrop logo - right side, original size */}
+            <Image
+              ref={headerTitleRef}
+              source={MINDDROP_HEADER}
+              style={styles.headerTitleRight}
+              resizeMode="contain"
+              accessibilityLabel="Mind Drop"
+              accessibilityIgnoresInvertColors
+            />
           </View>
-          <Image
-            source={GREMLY_TOP}
-            style={styles.headerMascot}
-            resizeMode="contain"
-            accessibilityIgnoresInvertColors
-          />
+
+          {/* Info button - absolutely positioned top right */}
+          <Pressable
+            accessibilityLabel="About Mind Drop"
+            accessibilityRole="button"
+            testID="minddrop-info-header"
+            style={styles.headerInfoBtnAbsolute}
+            onPress={handleInfoOpen}
+            hitSlop={12}
+          >
+            <Icon name="Info" size="sm" color={c.mossGreen} />
+          </Pressable>
+
+          {/* Speech bubble - absolutely positioned below mascot, in the whitespace under MindDrop */}
+          {gremlySpeech && (
+            <Reanimated.View
+              style={styles.speechBubbleAbsolute}
+              entering={FadeIn.duration(250)}
+              exiting={FadeOut.duration(200)}
+            >
+              <Text style={styles.speechBubbleText}>{gremlySpeech}</Text>
+              <View style={styles.speechBubbleTail} />
+            </Reanimated.View>
+          )}
         </View>
 
         {/* Scrollable Recent Drops in the middle - fades when input is focused */}
@@ -6057,6 +6291,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       paddingTop: 4,
       paddingBottom: 0,
       marginBottom: -8,
+      zIndex: 1,
     },
 
     headerRow: {
@@ -6066,17 +6301,16 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       minHeight: 32,
       paddingVertical: 0,
     },
-    headerLeftGroup: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      flex: 1,
-    },
-    headerTitle: {
-      height: 64,
-      width: 162, // 64 * (450/178) = ~162px
-      resizeMode: 'contain',
-      marginLeft: 8,
+    headerMascotLeft: {
+      width: 64,
+      height: 72,
       marginRight: 8,
+    },
+    headerTitleRight: {
+      height: 64,
+      width: 162,
+      resizeMode: 'contain',
+      marginLeft: 'auto',
     },
     headerBackBtn: {
       padding: 6,
@@ -6088,18 +6322,48 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'PlusJakartaSans-Bold',
       lineHeight: 28,
     },
-    headerInfoBtn: {
+    headerInfoBtnAbsolute: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
       padding: 8,
-      marginLeft: 8,
       borderRadius: 9999,
       backgroundColor: 'transparent',
     },
-    headerMascot: {
+    speechBubbleAbsolute: {
       position: 'absolute',
-      width: 64,
-      height: 72,
-      right: 12,
-      top: -8,
+      top: 52,
+      left: 90,
+      backgroundColor: '#FFFFFF',
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      maxWidth: 200,
+      shadowColor: '#000',
+      shadowOpacity: 0.08,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 10,
+      zIndex: 100,
+    },
+    speechBubbleText: {
+      fontFamily: 'Inter-Regular',
+      fontSize: 12,
+      color: '#8A9490',
+      lineHeight: 16,
+    },
+    speechBubbleTail: {
+      position: 'absolute',
+      left: -8,
+      top: 12,
+      width: 0,
+      height: 0,
+      borderTopWidth: 8,
+      borderBottomWidth: 8,
+      borderRightWidth: 10,
+      borderTopColor: 'transparent',
+      borderBottomColor: 'transparent',
+      borderRightColor: '#FFFFFF',
     },
 
     contextPrompt: {

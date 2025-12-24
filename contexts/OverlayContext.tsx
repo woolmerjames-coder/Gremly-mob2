@@ -266,7 +266,10 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       initialSpaceId: undefined,
       conversionMeta: undefined,
       initialText: undefined,
+      initialLogPhotoUris: undefined,
       entity: undefined,
+      views: undefined,
+      defaultDueToday: undefined,
     });
     isOpeningRef.current = false;
     if (debounceTimerRef.current) {

@@ -425,6 +425,16 @@ export const OverlayHost = () => {
     [close, conversionMeta],
   );
 
+  // Safety check: In edit/view modes, don't render if entity data hasn't arrived yet
+  // This prevents rendering with stale data from a previous session
+  const isEditOrViewMode = mode === 'edit' || mode === 'view';
+  const hasEntityId = !!(effectiveInitialEntity as any)?.id;
+  const shouldSkipRender = visible && isEditOrViewMode && !hasEntityId;
+
+  if (shouldSkipRender) {
+    console.warn('[OverlayHost] Skipping render - waiting for entity data');
+  }
+
   return (
     <>
       <CreateSpaceModal />
@@ -434,7 +444,7 @@ export const OverlayHost = () => {
           above app content without dimming or modal backdrop. The overlay
           itself controls its internal layout (height/scrollable) and should
           not rely on Modal transparency. */}
-      {visible ? (
+      {visible && !shouldSkipRender ? (
         <View
           pointerEvents="box-none"
           style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 1000 }}
@@ -466,33 +476,6 @@ export const OverlayHost = () => {
           </View>
         </View>
       ) : null}
-
-      {__DEV__ && (
-        <Pressable
-          testID="dev-button"
-          onPress={() => navigation.navigate('DevLogin')}
-          style={{
-            position: 'absolute',
-            bottom: 24,
-            right: 24,
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-            alignItems: 'center',
-            justifyContent: 'center',
-            elevation: 5,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.3,
-            shadowRadius: 4,
-          }}
-        >
-          <Text variant="label" style={{ color: '#FFF', fontSize: 12, fontWeight: '700' }}>
-            DEV
-          </Text>
-        </Pressable>
-      )}
     </>
   );
 };

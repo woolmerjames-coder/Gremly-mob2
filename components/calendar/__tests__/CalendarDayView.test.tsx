@@ -13,7 +13,7 @@ import { useCalendarItemsForDate, type CalendarItem } from '../../../lib/store/c
 // TEST SETUP
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const TODAY = '2025-12-22';
+const TODAY = '2025-12-24';
 
 jest.mock('../../../lib/store/calendarSelectors', () => ({
   useCalendarItemsForDate: jest.fn(),

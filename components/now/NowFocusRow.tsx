@@ -467,6 +467,15 @@ export function NowFocusRow({
                 {item.type === 'habit' && frequencyLabel && (
                   <Text style={styles.frequencyLabel}>· {frequencyLabel}</Text>
                 )}
+                {/* Space chip - show if item has a space */}
+                {'spaceName' in item && item.spaceName && (
+                  <>
+                    <Text style={styles.metaSeparator}> · </Text>
+                    <View style={styles.spaceChip}>
+                      <Text style={styles.spaceChipText}>{item.spaceName}</Text>
+                    </View>
+                  </>
+                )}
               </Box>
             </Box>
 
@@ -650,6 +659,18 @@ const styles = StyleSheet.create({
     lineHeight: 13,
     marginLeft: 4,
     color: '#666',
+    fontFamily: 'Inter-Medium',
+  },
+  spaceChip: {
+    backgroundColor: '#F5EFE6', // Warm cream background
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  spaceChipText: {
+    fontSize: 11,
+    lineHeight: 13,
+    color: '#6B5A46', // Warm brown text
     fontFamily: 'Inter-Medium',
   },
   checkboxContainer: {

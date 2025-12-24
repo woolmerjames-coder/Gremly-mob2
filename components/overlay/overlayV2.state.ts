@@ -114,7 +114,8 @@ export type V2State = {
   detected: { mentions: string[]; dates: string[] };
   // Phase 4 additions
   expanded: boolean;
-  spaceId: string | null;
+  // undefined = never set (use fallback), null = explicitly cleared via "None", string = explicitly set
+  spaceId: string | null | undefined;
   person: PersonLink;
   format: FormatKind; // notes only
   reminderAt: string | null; // ISO-ish
@@ -147,7 +148,7 @@ export const initialV2State: V2State = {
   list: null,
   detected: { mentions: [], dates: [] },
   expanded: false,
-  spaceId: null,
+  spaceId: undefined, // undefined = never set, null = explicitly cleared
   person: null,
   format: 'plain',
   reminderAt: null,
@@ -207,7 +208,7 @@ type Action =
   | { type: 'TOGGLE_LIST_ITEM'; id: string; checked: boolean }
   | { type: 'SET_DETECTED'; mentions: string[]; dates: string[] }
   | { type: 'TOGGLE_EXPANDED' }
-  | { type: 'SET_SPACE'; spaceId: string | null }
+  | { type: 'SET_SPACE'; spaceId: string | null } // null means user selected "None"
   | { type: 'SET_PERSON'; person: PersonLink }
   | { type: 'SET_FORMAT'; fmt: FormatKind }
   | { type: 'SET_REMINDER'; when: string | null }
@@ -217,10 +218,14 @@ type Action =
   | { type: 'SET_CHECKLIST_MODE'; enabled: boolean }
   | { type: 'TOGGLE_CHECKLIST_MODE' }
   | { type: 'PUSH_UNDO'; entry: { kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> } }
-  | { type: 'UNDO_LAST' };
+  | { type: 'UNDO_LAST' }
+  | { type: 'RESET' };
 
 export function v2Reducer(state: V2State, action: Action): V2State {
   switch (action.type) {
+    case 'RESET': {
+      return { ...initialV2State };
+    }
     case 'PUSH_UNDO': {
       const stack = (state.undoStack ?? []).concat([action.entry]);
       return { ...state, undoStack: stack };

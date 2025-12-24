@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CI: true
+      # Skip Supabase CLI download in CI (not needed for tests)
+      SUPABASE_SKIP_POSTINSTALL: 1
       # Force in-memory backend to avoid network in tests
       EXPO_PUBLIC_REPO_BACKEND: memory
       # If any tests accidentally read these, keep them empty to fail fast (but we shouldn't need them)
@@ -55,6 +57,8 @@ jobs:
     timeout-minutes: 25
     env:
       CI: true
+      # Skip Supabase CLI download in CI (not needed for tests)
+      SUPABASE_SKIP_POSTINSTALL: 1
       # Force in-memory backend to avoid network in tests
       EXPO_PUBLIC_REPO_BACKEND: memory
       # If any tests accidentally read these, keep them empty to fail fast (but we shouldn't need them)

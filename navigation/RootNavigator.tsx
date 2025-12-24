@@ -1,7 +1,13 @@
 import React from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { Image, StyleSheet, Dimensions } from 'react-native';
+import Animated, { SlideOutUp, Easing } from 'react-native-reanimated';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../providers/AuthProvider';
+import { Text } from '../ui';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_MASCOT = require('../assets/mascot/gremly-mascot.png');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 import LoginScreen from '../app/screens/LoginScreen';
 import TabNavigator from './TabNavigator';
@@ -37,9 +43,13 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function LoadingScreen() {
   return (
-    <View style={styles.loadingContainer}>
-      <ActivityIndicator size="large" color="#5B7C6B" />
-    </View>
+    <Animated.View
+      style={styles.loadingContainer}
+      exiting={SlideOutUp.duration(400).easing(Easing.out(Easing.ease))}
+    >
+      <Image source={GREMLY_MASCOT} style={styles.loadingMascot} resizeMode="contain" />
+      <Text style={styles.loadingText}>Gremly</Text>
+    </Animated.View>
   );
 }
 
@@ -131,6 +141,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FAF9F6',
+    backgroundColor: '#BFD8C0',
+  },
+  loadingMascot: {
+    width: SCREEN_WIDTH * 0.5,
+    height: SCREEN_WIDTH * 0.5,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 28,
+    fontFamily: 'PlusJakartaSans-Bold',
+    color: '#2D3A35',
+    lineHeight: 40,
   },
 });
