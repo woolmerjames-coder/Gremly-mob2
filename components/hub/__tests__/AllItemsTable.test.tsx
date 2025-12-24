@@ -14,8 +14,8 @@ import type { Todo, Habit, Note, Space } from '../../../lib/types';
 // TEST SETUP
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const TODAY = '2025-12-22';
-const YESTERDAY = '2025-12-21';
+const TODAY = '2025-12-24';
+const YESTERDAY = '2025-12-23';
 
 jest.mock('../../../lib/store/useGremlyStore');
 const mockUseGremlyStore = useGremlyStore as jest.MockedFunction<typeof useGremlyStore>;
@@ -439,7 +439,7 @@ describe('AllItemsTable', () => {
     });
 
     it('shows days ago for recent items', () => {
-      const todo = makeTodo({ created_at: '2025-12-19T10:00:00Z' }); // 3 days ago
+      const todo = makeTodo({ created_at: '2025-12-21T10:00:00Z' }); // 3 days ago from Dec 24
       setupMockStore({ todos: [todo] });
 
       const { getByText } = render(<AllItemsTable onItemPress={jest.fn()} />);

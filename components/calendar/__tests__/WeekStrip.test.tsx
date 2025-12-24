@@ -13,7 +13,7 @@ import { useDatesWithItems } from '../../../lib/store/calendarSelectors';
 // TEST SETUP
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const TODAY = '2025-12-22'; // Monday
+const TODAY = '2025-12-24'; // Tuesday (current date for stable tests)
 
 jest.mock('../../../lib/store/calendarSelectors', () => ({
   useDatesWithItems: jest.fn(),
@@ -42,30 +42,30 @@ describe('WeekStrip', () => {
     it('renders 7 days centered on selected date', () => {
       const { getByText } = render(<WeekStrip selectedDate={TODAY} onSelectDate={jest.fn()} />);
 
-      // Dec 22, 2025 is Monday
-      // 3 days before: Dec 19 (Fri), Dec 20 (Sat), Dec 21 (Sun)
-      // Selected: Dec 22 (Mon)
-      // 3 days after: Dec 23 (Tue), Dec 24 (Wed), Dec 25 (Thu)
-      expect(getByText('Fri')).toBeTruthy();
-      expect(getByText('Sat')).toBeTruthy();
+      // Dec 24, 2025 is Tuesday
+      // 3 days before: Dec 21 (Sun), Dec 22 (Mon), Dec 23 (Tue)
+      // Selected: Dec 24 (Wed)
+      // 3 days after: Dec 25 (Thu), Dec 26 (Fri), Dec 27 (Sat)
       expect(getByText('Sun')).toBeTruthy();
       expect(getByText('Mon')).toBeTruthy();
       expect(getByText('Tue')).toBeTruthy();
       expect(getByText('Wed')).toBeTruthy();
       expect(getByText('Thu')).toBeTruthy();
+      expect(getByText('Fri')).toBeTruthy();
+      expect(getByText('Sat')).toBeTruthy();
     });
 
     it('shows day numbers correctly', () => {
       const { getByText } = render(<WeekStrip selectedDate={TODAY} onSelectDate={jest.fn()} />);
 
-      // Dec 19-25
-      expect(getByText('19')).toBeTruthy();
-      expect(getByText('20')).toBeTruthy();
+      // Dec 21-27
       expect(getByText('21')).toBeTruthy();
       expect(getByText('22')).toBeTruthy();
       expect(getByText('23')).toBeTruthy();
       expect(getByText('24')).toBeTruthy();
       expect(getByText('25')).toBeTruthy();
+      expect(getByText('26')).toBeTruthy();
+      expect(getByText('27')).toBeTruthy();
     });
 
     it('renders Today button', () => {
@@ -124,8 +124,8 @@ describe('WeekStrip', () => {
       const touchables = UNSAFE_getAllByType(require('react-native').TouchableOpacity);
       fireEvent.press(touchables[0]);
 
-      // Dec 22 - 7 = Dec 15
-      expect(onSelectDate).toHaveBeenCalledWith('2025-12-15');
+      // Dec 24 - 7 = Dec 17
+      expect(onSelectDate).toHaveBeenCalledWith('2025-12-17');
     });
 
     it('navigates forward one week when right chevron is pressed', () => {
@@ -138,8 +138,8 @@ describe('WeekStrip', () => {
       const touchables = UNSAFE_getAllByType(require('react-native').TouchableOpacity);
       fireEvent.press(touchables[2]);
 
-      // Dec 22 + 7 = Dec 29
-      expect(onSelectDate).toHaveBeenCalledWith('2025-12-29');
+      // Dec 24 + 7 = Dec 31
+      expect(onSelectDate).toHaveBeenCalledWith('2025-12-31');
     });
   });
 
@@ -198,8 +198,8 @@ describe('WeekStrip', () => {
     it('queries useDatesWithItems with correct date range', () => {
       render(<WeekStrip selectedDate={TODAY} onSelectDate={jest.fn()} />);
 
-      // Should query for 3 days before to 3 days after
-      expect(mockUseDatesWithItems).toHaveBeenCalledWith('2025-12-19', '2025-12-25');
+      // Should query for 3 days before to 3 days after (Dec 24 center → Dec 21 to Dec 27)
+      expect(mockUseDatesWithItems).toHaveBeenCalledWith('2025-12-21', '2025-12-27');
     });
 
     it('updates date range when selected date changes', () => {
