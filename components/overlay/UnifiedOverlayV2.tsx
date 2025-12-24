@@ -3329,6 +3329,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
         // due_at is NOT used for todos - we only send due_day and due_date
         const dueDay = s.todo.due_day ?? null;
+        // Resolve space_id: explicit null means "None" selected, undefined means use fallback
+        const resolvedSpaceId = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
+        if (__DEV__ && s.spaceId === null) {
+          console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
+        }
         return {
           type: 'todo' as const,
           ...canonical, // Spread canonical fields (title, name, body, tags, tags_meta, canonicalType, labels)
@@ -3337,7 +3342,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           due_date: dueDay, // Set due_date same as due_day for backwards compatibility
           undefined_due: !dueDay, // True if no due date is set
           time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
-          space_id: s.spaceId ?? spaceId ?? null,
+          space_id: resolvedSpaceId,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
           // Commitment fields (only for todos/habits)
@@ -3363,6 +3368,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
       // due_at is NOT used for todos - we only send due_day and due_date
       const dueDay = s.todo.due_day ?? null;
+      // Resolve space_id: explicit null means "None" selected, undefined means use fallback
+      const resolvedSpaceId2 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
+      if (__DEV__ && s.spaceId === null) {
+        console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
+      }
       return {
         type: 'todo' as const,
         title: effectiveTitle,
@@ -3373,7 +3383,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         due_date: dueDay, // Set due_date same as due_day for backwards compatibility
         undefined_due: !dueDay, // True if no due date is set
         time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
-        space_id: s.spaceId ?? spaceId ?? null,
+        space_id: resolvedSpaceId2,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
         ...tagsPayload, // Conditionally include tags/tags_meta
@@ -3399,13 +3409,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           existing: initialEntity,
         });
 
+        // Resolve space_id: explicit null means "None" selected, undefined means use fallback
+        const resolvedSpaceId3 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
+        if (__DEV__ && s.spaceId === null) {
+          console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
+        }
         return {
           type: 'habit' as const,
           ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
           frequency: s.habit.schedule ?? 'custom',
           frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
           subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
-          space_id: s.spaceId ?? spaceId ?? null,
+          space_id: resolvedSpaceId3,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
           start_date: s.habit.start_date ?? null,
@@ -3417,6 +3432,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         };
       }
 
+      // Resolve space_id: explicit null means "None" selected, undefined means use fallback
+      const resolvedSpaceId4 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
+      if (__DEV__ && s.spaceId === null) {
+        console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
+      }
       return {
         type: 'habit' as const,
         title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
@@ -3424,7 +3444,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         frequency: s.habit.schedule ?? 'custom',
         frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
         subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
-        space_id: s.spaceId ?? spaceId ?? null,
+        space_id: resolvedSpaceId4,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
         start_date: s.habit.start_date ?? null,
@@ -3491,11 +3511,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
           : viewsWithPrefillFlag;
 
+      // Resolve space_id: explicit null means "None" selected, undefined means use fallback
+      const resolvedSpaceId5 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
+      if (__DEV__ && s.spaceId === null) {
+        console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
+      }
       return {
         type: 'note' as const,
         ...canonical, // Spread canonical fields (title, body, tags, tags_meta, canonicalType, labels)
         ...logConfirmationPatch, // Override with confirmed log status and correct subtype
-        space_id: s.spaceId ?? spaceId ?? null,
+        space_id: resolvedSpaceId5,
         origin: 'catchall' as const,
         views: viewsWithPrivate, // Add views with minddrop_prefilled_v1 and private_journal flags
         ...moodPatch,
@@ -3522,6 +3547,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         (preserveExistingTitle ? (initialEntity as any).title : firstLine(s.log.body)) ||
         'Untitled note';
 
+    // Resolve space_id: explicit null means "None" selected, undefined means use fallback
+    const resolvedSpaceId6 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
+    if (__DEV__ && s.spaceId === null) {
+      console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
+    }
     // base note payload (for non-Mind Drop logs or manual log creation)
     const base = {
       type: 'note' as const,
@@ -3530,7 +3560,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       labels: ['log'] as const, // Mark as confirmed log
       title: derivedTitle,
       body: s.log.body,
-      space_id: s.spaceId ?? spaceId ?? null,
+      space_id: resolvedSpaceId6,
       origin: 'catchall' as const,
       views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
       ...tagsPayload, // Conditionally include tags/tags_meta

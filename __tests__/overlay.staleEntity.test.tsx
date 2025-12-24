@@ -37,7 +37,7 @@ describe('Overlay Stale Entity Prevention', () => {
       // Verify all fields are reset to initial values
       expect(resetState.baseType).toBe('log'); // initialV2State default
       expect(resetState.tags).toEqual([]);
-      expect(resetState.spaceId).toBeNull();
+      expect(resetState.spaceId).toBeUndefined(); // undefined = never set (initial state)
       expect(resetState.todo.title).toBe('');
       expect(resetState.todo.details).toBe('');
       expect(resetState.todo.due_day).toBeNull();
@@ -158,7 +158,7 @@ describe('Overlay Stale Entity Prevention', () => {
       // Verify NO data from entity A remains
       expect(resetState.baseType).toBe('log');
       expect(resetState.tags).toEqual([]);
-      expect(resetState.spaceId).toBeNull();
+      expect(resetState.spaceId).toBeUndefined(); // undefined = never set (initial state)
 
       // Todo fields reset
       expect(resetState.todo.title).toBe('');

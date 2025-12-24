@@ -2,7 +2,8 @@
  * AttachExistingModal - Modal for attaching existing items to a Space
  *
  * Shows a list of unattached entities (todos, habits, notes) that can be
- * selected to attach to the current space.
+ * selected to attach to the current space. Supports multi-select with
+ * batch attach.
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -14,6 +15,8 @@ import {
   ActivityIndicator,
   Pressable,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { Check, Circle } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { makeStyles } from '../../design/makeStyles';
 import { BRAND } from '../../design/brand';
@@ -25,7 +28,7 @@ interface AttachExistingModalProps {
   spaceId: string;
   spaceName: string;
   onClose: () => void;
-  /** Called when an item is successfully attached */
+  /** Called when items are successfully attached */
   onAttached: () => void;
 }
 
@@ -99,8 +102,25 @@ const useStyles = makeStyles((t) => ({
     borderRadius: t.radius[2],
     marginBottom: t.spacing[2],
   },
+  itemRowSelected: {
+    backgroundColor: BRAND.colors.sageMist,
+  },
   itemRowPressed: {
     opacity: 0.8,
+  },
+  selectionIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: t.spacing[3],
+    borderWidth: 2,
+    borderColor: t.colors.subtle,
+  },
+  selectionIndicatorSelected: {
+    backgroundColor: BRAND.colors.mossGreen,
+    borderColor: BRAND.colors.mossGreen,
   },
   itemIcon: {
     width: 32,
@@ -154,9 +174,29 @@ const useStyles = makeStyles((t) => ({
     justifyContent: 'center',
     paddingVertical: t.spacing[7],
   },
+  footer: {
+    paddingHorizontal: t.spacing[5],
+    paddingTop: t.spacing[3],
+    gap: t.spacing[2],
+  },
+  doneButton: {
+    backgroundColor: BRAND.colors.mossGreen,
+    paddingVertical: t.spacing[3],
+    borderRadius: t.radius[2],
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: t.spacing[2],
+  },
+  doneButtonDisabled: {
+    backgroundColor: t.colors.border,
+  },
+  doneButtonText: {
+    fontSize: t.typography.size.md,
+    fontFamily: t.typography.fontFamily.bold,
+    color: '#FFFFFF',
+  },
   cancelButton: {
-    marginHorizontal: t.spacing[5],
-    marginTop: t.spacing[3],
     paddingVertical: t.spacing[3],
     alignItems: 'center',
   },
@@ -178,9 +218,10 @@ export function AttachExistingModal({
   const repo = useRepo();
   const [filter, setFilter] = useState<FilterType>('all');
   const [loading, setLoading] = useState(false);
-  const [attaching, setAttaching] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
   const [items, setItems] = useState<AppRecord[]>([]);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Load unattached items when modal opens
   React.useEffect(() => {
@@ -190,6 +231,7 @@ export function AttachExistingModal({
     if (!visible) {
       setHasLoaded(false);
       setItems([]);
+      setSelectedIds(new Set());
     }
   }, [visible]);
 
@@ -198,14 +240,30 @@ export function AttachExistingModal({
     try {
       // Get all items without a space_id (unattached)
       const allItems = await Promise.resolve(repo.getAll());
-      const unattached = allItems.filter((item: AppRecord) => {
-        // Only include items without a space or in a different space
-        const itemSpaceId = (item as any).space_id;
-        if (itemSpaceId === spaceId) return false; // Already in this space
-        if (itemSpaceId) return false; // Attached to another space
-        // Include todos, habits, and notes
-        return item.type === 'todo' || item.type === 'habit' || item.type === 'note';
-      });
+      const unattached = allItems
+        .filter((item: AppRecord) => {
+          // Only include items without a space or in a different space
+          const itemSpaceId = (item as any).space_id;
+          if (itemSpaceId === spaceId) return false; // Already in this space
+          if (itemSpaceId) return false; // Attached to another space
+
+          // Exclude archived items
+          if ((item as any).archived === true) return false;
+          if ((item as any).archived_at) return false;
+
+          // Exclude deleted items
+          if ((item as any).deleted === true) return false;
+
+          // Include todos, habits, and notes
+          return item.type === 'todo' || item.type === 'habit' || item.type === 'note';
+        })
+        // Sort by created_at descending (most recent first)
+        .sort((a, b) => {
+          const aDate = (a as any).created_at || '';
+          const bDate = (b as any).created_at || '';
+          return bDate.localeCompare(aDate);
+        });
+
       setItems(unattached);
       setHasLoaded(true);
     } catch (err) {
@@ -224,28 +282,49 @@ export function AttachExistingModal({
     return items;
   }, [items, filter]);
 
-  // Handle attaching an item
-  const handleAttach = useCallback(
-    async (item: AppRecord) => {
-      setAttaching(item.id);
-      try {
-        await repo.update({
-          id: item.id,
-          patch: { space_id: spaceId } as any,
-        });
-        console.log('[AttachExistingModal] Attached item to space', { itemId: item.id, spaceId });
-        // Remove from list
-        setItems((prev) => prev.filter((i) => i.id !== item.id));
-        onAttached();
-        onClose();
-      } catch (err) {
-        console.error('[AttachExistingModal] Failed to attach item', err);
-      } finally {
-        setAttaching(null);
+  // Toggle selection of an item
+  const handleToggleSelect = useCallback((itemId: string) => {
+    Haptics.selectionAsync();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
       }
-    },
-    [repo, spaceId, onAttached, onClose],
-  );
+      return next;
+    });
+  }, []);
+
+  // Batch attach all selected items
+  const handleAttachSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+
+    setAttaching(true);
+    try {
+      // Attach all selected items in parallel
+      const attachPromises = Array.from(selectedIds).map((itemId) =>
+        repo.update({
+          id: itemId,
+          patch: { space_id: spaceId } as any,
+        }),
+      );
+
+      await Promise.all(attachPromises);
+      console.log('[AttachExistingModal] Attached items to space', {
+        count: selectedIds.size,
+        spaceId,
+      });
+
+      // Call onAttached once for the batch
+      onAttached();
+      onClose();
+    } catch (err) {
+      console.error('[AttachExistingModal] Failed to attach items', err);
+    } finally {
+      setAttaching(false);
+    }
+  }, [selectedIds, repo, spaceId, onAttached, onClose]);
 
   // Get item display info
   const getItemInfo = (item: AppRecord) => {
@@ -281,16 +360,24 @@ export function AttachExistingModal({
 
   const renderItem = ({ item }: { item: AppRecord }) => {
     const { icon, typeLabel, title } = getItemInfo(item);
-    const isAttaching = attaching === item.id;
+    const isSelected = selectedIds.has(item.id);
 
     return (
       <Pressable
-        onPress={() => handleAttach(item)}
-        disabled={isAttaching}
-        style={({ pressed }) => [styles.itemRow, pressed && styles.itemRowPressed]}
-        accessibilityRole="button"
-        accessibilityLabel={`Attach ${title} to ${spaceName}`}
+        onPress={() => handleToggleSelect(item.id)}
+        disabled={attaching}
+        style={({ pressed }) => [
+          styles.itemRow,
+          isSelected && styles.itemRowSelected,
+          pressed && styles.itemRowPressed,
+        ]}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: isSelected }}
+        accessibilityLabel={`${isSelected ? 'Deselect' : 'Select'} ${title}`}
       >
+        <View style={[styles.selectionIndicator, isSelected && styles.selectionIndicatorSelected]}>
+          {isSelected && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
+        </View>
         <View style={styles.itemIcon}>
           <Text style={styles.itemIconText}>{icon}</Text>
         </View>
@@ -300,7 +387,6 @@ export function AttachExistingModal({
           </Text>
           <Text style={styles.itemType}>{typeLabel}</Text>
         </View>
-        {isAttaching && <ActivityIndicator size="small" color={BRAND.colors.mossGreen} />}
       </Pressable>
     );
   };
@@ -312,6 +398,14 @@ export function AttachExistingModal({
     { key: 'notes', label: 'Notes' },
   ];
 
+  const selectedCount = selectedIds.size;
+  const doneButtonText =
+    selectedCount === 0
+      ? 'Select items'
+      : selectedCount === 1
+        ? 'Add 1 item'
+        : `Add ${selectedCount} items`;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
@@ -321,8 +415,8 @@ export function AttachExistingModal({
           onPress={(e) => e.stopPropagation()}
         >
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Attach existing item</Text>
-            <Text style={styles.headerSubtitle}>Select an item to add to {spaceName}</Text>
+            <Text style={styles.headerTitle}>Attach existing items</Text>
+            <Text style={styles.headerSubtitle}>Select items to add to {spaceName}</Text>
           </View>
 
           <View style={styles.filterRow}>
@@ -359,12 +453,29 @@ export function AttachExistingModal({
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.listContent}
               showsVerticalScrollIndicator={false}
+              extraData={selectedIds}
             />
           )}
 
-          <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
+          <View style={styles.footer}>
+            <Pressable
+              onPress={handleAttachSelected}
+              disabled={selectedCount === 0 || attaching}
+              style={[styles.doneButton, selectedCount === 0 && styles.doneButtonDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel={doneButtonText}
+            >
+              {attaching ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.doneButtonText}>{doneButtonText}</Text>
+              )}
+            </Pressable>
+
+            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
