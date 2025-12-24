@@ -3711,24 +3711,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           });
         }
 
-        // Step 2: Archive/delete old record from source table
-        try {
-          const entityType = originalEntityType as 'todo' | 'habit' | 'note';
-          await deleteEntityOrDrop(repo as any, oldId, entityType, dropId);
-
-          if (__DEV__) {
-            console.log('[OverlayTypeChange] Old record archived/deleted', {
-              oldId,
-              entityType,
-            });
-          }
-        } catch (removeError) {
-          console.warn(
-            '[OverlayTypeChange] Failed to remove original during conversion:',
-            removeError,
-          );
-          // Non-fatal: continue even if old record cleanup fails
-        }
+        // Step 2: Archive/delete old record - moved to fire-and-forget background IIFE
+        // (handled after overlay closes, see backgroundConversionOldId below)
 
         // Emit conversion telemetry
         try {
@@ -3774,277 +3758,299 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         }
       }
 
-      // Handle multi-photo uploads and deletions for logs (Phase L5)
-      if (baseType === 'log' && result?.id && userId) {
-        console.log('[UnifiedOverlayV2] Processing log photos:', {
-          baseType,
-          noteId: result.id,
-          userId,
-          photoCount: logPhotos.length,
-          photos: logPhotos.map((p) => ({ url: p.url, isNew: p.isNew, isDeleted: p.isDeleted })),
-        });
-        try {
-          const noteId = result.id;
-          const { supabase } = await import('../../lib/supabase/client');
+      // ─────────────────────────────────────────────────────────────────────────
+      // IMMEDIATE CLOSE: Core save succeeded, close overlay immediately
+      // Zustand mutations already did optimistic updates, so UI is correct.
+      // ─────────────────────────────────────────────────────────────────────────
+      const savedType = (result as any)?.type ?? baseType;
+      const savedId = result?.id;
 
-          // Process deletions first
-          for (const photo of logPhotos) {
-            if (photo.isDeleted && photo.id) {
-              try {
-                // Delete from store (store mutation)
-                await deleteLogPhoto(photo.id);
-
-                // Try to delete from storage (best effort)
-                if (photo.url && photo.url.includes('log-photos/')) {
-                  const pathMatch = photo.url.match(/log-photos\/(.+)$/);
-                  if (pathMatch) {
-                    await supabase.storage.from('log-photos').remove([pathMatch[1]]);
-                  }
-                }
-              } catch (err) {
-                console.error('[UnifiedOverlayV2] Error deleting photo:', err);
-              }
-            }
-          }
-
-          // Process new photo uploads
-          const activePhotos = logPhotos.filter((p) => !p.isDeleted);
-          console.log('[UnifiedOverlayV2] Active photos to process:', activePhotos.length);
-          for (let i = 0; i < activePhotos.length; i++) {
-            const photo = activePhotos[i];
-            console.log('[UnifiedOverlayV2] Processing photo', i, ':', {
-              isNew: photo.isNew,
-              url: photo.url.substring(0, 50),
-            });
-            if (photo.isNew && photo.url.startsWith('file://')) {
-              try {
-                console.log('[UnifiedOverlayV2] Uploading new photo...');
-                // Generate unique storage path
-                const fileExt = photo.url.split('.').pop() || 'jpg';
-                const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
-                const storagePath = `${userId}/${noteId}/${uniqueId}.${fileExt}`;
-                console.log('[UnifiedOverlayV2] Storage path:', storagePath);
-
-                // React Native: Create ArrayBuffer from file URI
-                console.log('[UnifiedOverlayV2] Fetching file...');
-                const response = await fetch(photo.url);
-                console.log('[UnifiedOverlayV2] Converting to ArrayBuffer...');
-                const arrayBuffer = await response.arrayBuffer();
-                console.log('[UnifiedOverlayV2] ArrayBuffer size:', arrayBuffer.byteLength);
-
-                // Upload to storage
-                console.log('[UnifiedOverlayV2] Uploading to Supabase storage...');
-                const { data: uploadData, error: uploadError } = await supabase.storage
-                  .from('log-photos')
-                  .upload(storagePath, arrayBuffer, {
-                    contentType: 'image/jpeg',
-                    upsert: false,
-                  });
-
-                if (uploadError) {
-                  console.error('[UnifiedOverlayV2] Failed to upload photo:', uploadError);
-                  continue;
-                }
-                console.log('[UnifiedOverlayV2] Upload successful:', uploadData);
-
-                // Get public URL
-                const { data: urlData } = supabase.storage
-                  .from('log-photos')
-                  .getPublicUrl(storagePath);
-
-                const publicUrl = urlData?.publicUrl || storagePath;
-                console.log('[UnifiedOverlayV2] Public URL:', publicUrl);
-
-                // Insert into store (store mutation)
-                console.log('[UnifiedOverlayV2] Inserting photo record via store mutation...');
-                await insertLogPhoto({
-                  noteId,
-                  url: publicUrl,
-                  position: i,
-                });
-                console.log('[UnifiedOverlayV2] Photo record inserted successfully');
-              } catch (err) {
-                console.error('[UnifiedOverlayV2] Error uploading photo:', err);
-              }
-            } else if (!photo.isNew && photo.id) {
-              // Update position for existing photos (store mutation)
-              try {
-                await updateLogPhotoPosition(photo.id, i);
-              } catch (err) {
-                console.error('[UnifiedOverlayV2] Error updating photo position:', err);
-              }
-            }
-          }
-        } catch (err) {
-          console.error('[UnifiedOverlayV2] Error processing log photos:', err);
-        }
-      }
-
-      // After a successful create/update, link any pending Phase‑8 tags/people
-      try {
-        const itemType = baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note';
-
-        // Link any pending tags first (non-blocking failures)
-        if ((phase8Links as any)?.pendingTagIds?.length) {
-          for (const tagId of (phase8Links as any).pendingTagIds) {
-            try {
-              // Cast to any for Phase 8 helpers
-              await (repo as any).linkTag({ itemId: result.id, tagId, itemType });
-            } catch (err) {
-              console.error('[Phase8] Failed to link pending tag to item:', err);
-            }
-          }
-        }
-
-        // Link any pending people
-        if ((phase8Links as any)?.pendingPeople?.length) {
-          for (const person of (phase8Links as any).pendingPeople) {
-            try {
-              await (repo as any).linkPerson({
-                itemId: result.id,
-                itemType,
-                personName: person.personName,
-                personEmail: person.personEmail,
-              });
-            } catch (err) {
-              console.error('[Phase8] Failed to link pending person to item:', err);
-            }
-          }
-        }
-
-        // If there are pendingPeople entries (temp links), try to persist them
-        if ((phase8Links as any)?.pendingPeople?.length) {
-          for (const p of (phase8Links as any).pendingPeople) {
-            try {
-              const pid = p.id; // temp id from usePhase8LinksState (e.g., temp-...)
-              if (pid && typeof (repo as any).linkPersonToEntity === 'function') {
-                await (repo as any).linkPersonToEntity({ entityId: result.id, personId: pid });
-              } else if (
-                pid &&
-                (repo as any).entities &&
-                typeof (repo as any).entities.linkPerson === 'function'
-              ) {
-                await (repo as any).entities.linkPerson({ entityId: result.id, personId: pid });
-              } else if (
-                pid &&
-                (repo as any).people &&
-                typeof (repo as any).people.linkToEntity === 'function'
-              ) {
-                await (repo as any).people.linkToEntity({ entityId: result.id, personId: pid });
-              }
-            } catch (err) {
-              console.error('[Phase8] Failed to persist pending person link:', err);
-            }
-          }
-        }
-
-        // Clear any pending markers in the links state (UI cleanup)
-        try {
-          phase8Links.clearPendingPeople?.();
-          phase8Links.clearPendingTags?.();
-        } catch (err) {
-          // ignore
-        }
-      } catch (err) {
-        // Non-fatal: linking errors should not block the save flow
-        console.error('[UnifiedOverlayV2] post-save linking failed', err);
-      }
-      // Attempt to link the explicitly selected person (non-blocking)
-      try {
-        await linkSelectedPerson(repo, result?.id, (state as any).person?.id);
-      } catch (err) {
-        console.error('[UnifiedOverlayV2] person link failed', err);
-      }
-
+      // Clear saving state and draft
       setIsSaving(false);
-      await clearOverlayV2Draft(draftKey);
+      void clearOverlayV2Draft(draftKey);
 
-      // Fire a subtle header pulse and toast success without blocking the close flow
-      if (!reduceMotion) {
-        try {
-          // fire a success haptic (non-blocking)
-          Haptics?.notificationAsync?.(Haptics.NotificationFeedbackType?.Success);
-        } catch (err) {
-          // ignore
-        }
-        try {
-          headerPulse.value = conditionalAnimation(
-            withSequence(withTiming(1, { duration: 140 }), withTiming(0, { duration: 220 })),
-            0,
-            reduceMotion,
-          );
-        } catch (err) {
-          // ignore mocked reanimated environments
-        }
-      }
-
-      setShowSaveToast(true);
-      if (saveToastTimerRef.current) {
-        clearTimeout(saveToastTimerRef.current as any);
-      }
-      saveToastTimerRef.current = setTimeout(() => {
-        setShowSaveToast(false);
-        saveToastTimerRef.current = null;
-      }, 1500) as unknown as number;
-
-      void emitOverlayEvent({
-        type: 'overlay_save',
-        entryType: baseType,
-        titleLen: telemetryTitle.length,
-        tagCount: telemetryTagCount,
-        dueAt: telemetryDueAt ?? null,
-      });
-
-      // Emit overlay saved analytics and call parent onSaved if supplied
+      // Notify parent and close
       try {
-        const savedType = (result as any)?.type ?? baseType;
-        eventBus.emit('OverlaySaved', { id: result?.id, type: savedType });
-        // NOTE: entity:created is already emitted by store mutations (createTodo, createHabit, createNote)
-        // Removed duplicate emission here to prevent double processing
-      } catch (e) {
-        // ignore
-      }
-      try {
-        // Notify parent (OverlayHost) so it can run its saved hooks
         if (__DEV__) {
-          console.log('[UnifiedOverlayV2] About to call onSaved', {
-            hasOnSaved: !!onSaved,
-            resultId: result?.id,
-            resultType: (result as any)?.type ?? baseType,
+          console.log('[UnifiedOverlayV2] Closing immediately after save', {
+            savedId,
+            savedType,
           });
         }
         onSaved?.({
-          id: result?.id,
-          type: (result as any)?.type ?? baseType,
+          id: savedId,
+          type: savedType,
           savedEntity: result,
         } as any);
-        if (__DEV__) {
-          console.log('[UnifiedOverlayV2] onSaved called successfully');
-        }
       } catch (e) {
         console.error('[UnifiedOverlayV2] onSaved failed:', e);
       }
 
-      // show a quick save pulse before closing (respect reduced motion)
-      const runClose = () => onClose?.();
-      if (reduceMotion) {
-        runClose();
-      } else {
-        // animate via reanimated shared value and call close after duration
-        const dur = 200;
+      // Fire success haptic before close
+      if (!reduceMotion) {
         try {
-          if (typeof (savePulse as any)?.value !== 'undefined') {
-            (savePulse as any).value = conditionalAnimation(
-              withSequence(withTiming(1, { duration: dur }), withTiming(0, { duration: dur })),
-              0,
-              reduceMotion,
+          Haptics?.notificationAsync?.(Haptics.NotificationFeedbackType?.Success);
+        } catch (err) {
+          // ignore
+        }
+      }
+
+      // Close immediately - no animation delay
+      onClose?.();
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // FIRE-AND-FORGET BACKGROUND SYNC
+      // Photo uploads, tag/person linking, and telemetry run after overlay closes.
+      // Capture result in closure since overlay state will be cleared.
+      // ─────────────────────────────────────────────────────────────────────────
+      const backgroundResult = result;
+      const backgroundBaseType = baseType;
+      const backgroundLogPhotos = [...logPhotos];
+      const backgroundUserId = userId;
+      const backgroundPhase8Links = phase8Links;
+      const backgroundRepo = repo;
+      const backgroundState = state;
+
+      // Capture cross-table conversion info for background archival
+      const backgroundConversionOldId = isTypeConversion ? (initialEntity as any)?.id : null;
+      const backgroundConversionEntityType = isTypeConversion
+        ? (originalEntityType as 'todo' | 'habit' | 'note')
+        : null;
+      const backgroundConversionDropId = isTypeConversion
+        ? ((fullEntity as any)?.drop_id ?? (initialEntity as any)?.drop_id ?? null)
+        : null;
+
+      (async () => {
+        try {
+          // Archive old entity for cross-table conversions (fire-and-forget)
+          if (backgroundConversionOldId && backgroundConversionEntityType) {
+            try {
+              await deleteEntityOrDrop(
+                backgroundRepo as any,
+                backgroundConversionOldId,
+                backgroundConversionEntityType,
+                backgroundConversionDropId,
+              );
+              console.log('[UnifiedOverlayV2] Background: old entity archived', {
+                oldId: backgroundConversionOldId,
+                entityType: backgroundConversionEntityType,
+              });
+            } catch (removeError) {
+              console.warn(
+                '[UnifiedOverlayV2] Background: Failed to archive old entity during conversion:',
+                removeError,
+              );
+              // Non-fatal: new entity already exists
+            }
+          }
+
+          // Handle multi-photo uploads and deletions for logs (Phase L5)
+          if (backgroundBaseType === 'log' && backgroundResult?.id && backgroundUserId) {
+            console.log('[UnifiedOverlayV2] Background: Processing log photos:', {
+              noteId: backgroundResult.id,
+              photoCount: backgroundLogPhotos.length,
+            });
+            try {
+              const noteId = backgroundResult.id;
+              const { supabase } = await import('../../lib/supabase/client');
+
+              // Process deletions first
+              for (const photo of backgroundLogPhotos) {
+                if (photo.isDeleted && photo.id) {
+                  try {
+                    // Delete from store (store mutation)
+                    await deleteLogPhoto(photo.id);
+
+                    // Try to delete from storage (best effort)
+                    if (photo.url && photo.url.includes('log-photos/')) {
+                      const pathMatch = photo.url.match(/log-photos\/(.+)$/);
+                      if (pathMatch) {
+                        await supabase.storage.from('log-photos').remove([pathMatch[1]]);
+                      }
+                    }
+                  } catch (err) {
+                    console.error('[UnifiedOverlayV2] Background: Error deleting photo:', err);
+                  }
+                }
+              }
+
+              // Process new photo uploads
+              const activePhotos = backgroundLogPhotos.filter((p) => !p.isDeleted);
+              for (let i = 0; i < activePhotos.length; i++) {
+                const photo = activePhotos[i];
+                if (photo.isNew && photo.url.startsWith('file://')) {
+                  try {
+                    // Generate unique storage path
+                    const fileExt = photo.url.split('.').pop() || 'jpg';
+                    const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+                    const storagePath = `${backgroundUserId}/${noteId}/${uniqueId}.${fileExt}`;
+
+                    // React Native: Create ArrayBuffer from file URI
+                    const response = await fetch(photo.url);
+                    const arrayBuffer = await response.arrayBuffer();
+
+                    // Upload to storage
+                    const { error: uploadError } = await supabase.storage
+                      .from('log-photos')
+                      .upload(storagePath, arrayBuffer, {
+                        contentType: 'image/jpeg',
+                        upsert: false,
+                      });
+
+                    if (uploadError) {
+                      console.error(
+                        '[UnifiedOverlayV2] Background: Failed to upload photo:',
+                        uploadError,
+                      );
+                      continue;
+                    }
+
+                    // Get public URL
+                    const { data: urlData } = supabase.storage
+                      .from('log-photos')
+                      .getPublicUrl(storagePath);
+
+                    const publicUrl = urlData?.publicUrl || storagePath;
+
+                    // Insert into store (store mutation)
+                    await insertLogPhoto({
+                      noteId,
+                      url: publicUrl,
+                      position: i,
+                    });
+                  } catch (err) {
+                    console.error('[UnifiedOverlayV2] Background: Error uploading photo:', err);
+                  }
+                } else if (!photo.isNew && photo.id) {
+                  // Update position for existing photos (store mutation)
+                  try {
+                    await updateLogPhotoPosition(photo.id, i);
+                  } catch (err) {
+                    console.error(
+                      '[UnifiedOverlayV2] Background: Error updating photo position:',
+                      err,
+                    );
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('[UnifiedOverlayV2] Background: Error processing log photos:', err);
+            }
+          }
+
+          // Link any pending Phase‑8 tags/people
+          try {
+            const itemType =
+              backgroundBaseType === 'todo'
+                ? 'todo'
+                : backgroundBaseType === 'habit'
+                  ? 'habit'
+                  : 'note';
+
+            // Link any pending tags first (non-blocking failures)
+            if ((backgroundPhase8Links as any)?.pendingTagIds?.length) {
+              for (const tagId of (backgroundPhase8Links as any).pendingTagIds) {
+                try {
+                  await (backgroundRepo as any).linkTag({
+                    itemId: backgroundResult.id,
+                    tagId,
+                    itemType,
+                  });
+                } catch (err) {
+                  console.error('[Phase8] Background: Failed to link pending tag to item:', err);
+                }
+              }
+            }
+
+            // Link any pending people
+            if ((backgroundPhase8Links as any)?.pendingPeople?.length) {
+              for (const person of (backgroundPhase8Links as any).pendingPeople) {
+                try {
+                  await (backgroundRepo as any).linkPerson({
+                    itemId: backgroundResult.id,
+                    itemType,
+                    personName: person.personName,
+                    personEmail: person.personEmail,
+                  });
+                } catch (err) {
+                  console.error('[Phase8] Background: Failed to link pending person to item:', err);
+                }
+              }
+            }
+
+            // If there are pendingPeople entries (temp links), try to persist them
+            if ((backgroundPhase8Links as any)?.pendingPeople?.length) {
+              for (const p of (backgroundPhase8Links as any).pendingPeople) {
+                try {
+                  const pid = p.id;
+                  if (pid && typeof (backgroundRepo as any).linkPersonToEntity === 'function') {
+                    await (backgroundRepo as any).linkPersonToEntity({
+                      entityId: backgroundResult.id,
+                      personId: pid,
+                    });
+                  } else if (
+                    pid &&
+                    (backgroundRepo as any).entities &&
+                    typeof (backgroundRepo as any).entities.linkPerson === 'function'
+                  ) {
+                    await (backgroundRepo as any).entities.linkPerson({
+                      entityId: backgroundResult.id,
+                      personId: pid,
+                    });
+                  } else if (
+                    pid &&
+                    (backgroundRepo as any).people &&
+                    typeof (backgroundRepo as any).people.linkToEntity === 'function'
+                  ) {
+                    await (backgroundRepo as any).people.linkToEntity({
+                      entityId: backgroundResult.id,
+                      personId: pid,
+                    });
+                  }
+                } catch (err) {
+                  console.error('[Phase8] Background: Failed to persist pending person link:', err);
+                }
+              }
+            }
+
+            // Note: Removed clearPendingPeople/clearPendingTags calls here
+            // These would attempt to update React state after overlay unmount
+            // The state will be reset when the overlay reopens anyway
+          } catch (err) {
+            console.error('[UnifiedOverlayV2] Background: post-save linking failed', err);
+          }
+
+          // Attempt to link the explicitly selected person (non-blocking)
+          try {
+            await linkSelectedPerson(
+              backgroundRepo,
+              backgroundResult?.id,
+              (backgroundState as any).person?.id,
             );
+          } catch (err) {
+            console.error('[UnifiedOverlayV2] Background: person link failed', err);
+          }
+
+          // Emit telemetry
+          void emitOverlayEvent({
+            type: 'overlay_save',
+            entryType: backgroundBaseType,
+            titleLen: telemetryTitle.length,
+            tagCount: telemetryTagCount,
+            dueAt: telemetryDueAt ?? null,
+          });
+
+          // Emit overlay saved analytics
+          try {
+            eventBus.emit('OverlaySaved', { id: backgroundResult?.id, type: savedType });
+          } catch (e) {
+            // ignore
           }
         } catch (err) {
-          // ignore mocked reanimated environments
+          console.error('[UnifiedOverlayV2] Background sync failed:', err);
+          // Could show a toast here, but don't block the user
         }
-        setTimeout(() => runClose(), dur * 2);
-      }
+      })();
     } catch (e) {
       console.error('[UnifiedOverlayV2] save failed', e);
       // show inline retry bar; do not clear draft
