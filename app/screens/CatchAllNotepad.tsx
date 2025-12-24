@@ -3058,7 +3058,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
-  const [isGremlyThinking, setIsGremlyThinking] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpeechRef = useRef<string | null>(null);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
@@ -3091,14 +3090,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     gremlySpeechTimeoutRef.current = setTimeout(() => {
       setGremlySpeech(null);
     }, durationMs);
-  }, []);
-
-  const showGremlyThinking = useCallback(() => {
-    setIsGremlyThinking(true);
-  }, []);
-
-  const hideGremlyThinking = useCallback(() => {
-    setIsGremlyThinking(false);
   }, []);
 
   // Generate contextual speech based on classification result
@@ -5433,7 +5424,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return;
     }
     setIsSubmitting(true);
-    showGremlyThinking();
 
     const now = Date.now();
     const trimmed = note.trim();
@@ -5451,7 +5441,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     if (!effectiveText) {
       setIsSubmitting(false);
-      hideGremlyThinking();
       submitLockRef.current = false;
       currentSubmissionHasPhotosRef.current = false;
       return;
@@ -5462,7 +5451,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     if (submissionMutex.current.get(textHash)) {
       console.log('[MindDrop] Duplicate submission blocked', textHash);
       setIsSubmitting(false);
-      hideGremlyThinking();
       submitLockRef.current = false;
       currentSubmissionHasPhotosRef.current = false;
       return;
@@ -5478,7 +5466,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       effectiveText === lastSubmittedTextRef.current
     ) {
       setIsSubmitting(false);
-      hideGremlyThinking();
       submitLockRef.current = false;
       // Clear mutex after window
       setTimeout(() => {
@@ -5497,7 +5484,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       const result = await handleMindDropSubmit();
       setIsSubmitting(false);
-      hideGremlyThinking();
 
       // Show speech based on classification result using full getGremlySpeech logic
       if (result.createdDetails?.length > 0) {
@@ -5545,7 +5531,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       ]);
       setNote('');
       setIsSubmitting(false);
-      hideGremlyThinking();
       submitLockRef.current = false;
       return;
     }
@@ -5611,7 +5596,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         triggerRecentRefresh();
         // A11y focus target after clearing input
         focusGreetingForA11y();
-        hideGremlyThinking();
         return;
       }
 
@@ -5657,7 +5641,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Immediately reset UI state
         resetState();
         setIsSubmitting(false);
-        hideGremlyThinking();
 
         // Show optimistic speech based on predicted kind
         const optimisticSpeech =
@@ -5695,19 +5678,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (!pipelineResult.success) {
         // Pipeline handled failure (offline save or unsorted fallback)
         // resetState, toasts, and triggerRecentRefresh already called in pipeline
-        hideGremlyThinking();
         return;
       }
 
       const finalResult = pipelineResult.result;
       if (!finalResult) {
         // Shouldn't reach here, but handle gracefully
-        hideGremlyThinking();
         return;
       }
 
       // SUCCESS PATH — summarize created items and show Gremly speech
-      hideGremlyThinking();
 
       // Generate contextual speech based on classification result
       console.log('[Gremly Speech] finalResult.createdDetails:', finalResult.createdDetails);
@@ -5805,8 +5785,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ensureSubmissionAndDropIds,
     user,
     userId,
-    showGremlyThinking,
-    hideGremlyThinking,
     showGremlySpeech,
     getGremlySpeech,
   ]);
@@ -5963,17 +5941,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           </Pressable>
 
           {/* Speech bubble - absolutely positioned below mascot, in the whitespace under MindDrop */}
-          {isGremlyThinking && !gremlySpeech && (
-            <Reanimated.View
-              style={[styles.speechBubbleAbsolute, styles.speechBubbleThinking]}
-              entering={FadeIn.duration(150)}
-              exiting={FadeOut.duration(150)}
-            >
-              <Text style={styles.speechBubbleTextThinking}>•••</Text>
-              <View style={styles.speechBubbleTail} />
-            </Reanimated.View>
-          )}
-
           {gremlySpeech && (
             <Reanimated.View
               style={styles.speechBubbleAbsolute}
@@ -6379,19 +6346,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       elevation: 10,
       zIndex: 100,
     },
-    speechBubbleThinking: {
-      backgroundColor: 'rgba(245, 247, 246, 0.8)',
-    },
     speechBubbleText: {
       fontFamily: 'Inter-Regular',
       fontSize: 12,
       color: '#8A9490',
       lineHeight: 16,
-    },
-    speechBubbleTextThinking: {
-      fontFamily: 'Inter-Regular',
-      fontSize: 12,
-      color: '#A8B0AC',
     },
     speechBubbleTail: {
       position: 'absolute',

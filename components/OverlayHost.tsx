@@ -476,33 +476,6 @@ export const OverlayHost = () => {
           </View>
         </View>
       ) : null}
-
-      {__DEV__ && (
-        <Pressable
-          testID="dev-button"
-          onPress={() => navigation.navigate('DevLogin')}
-          style={{
-            position: 'absolute',
-            bottom: 24,
-            right: 24,
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-            alignItems: 'center',
-            justifyContent: 'center',
-            elevation: 5,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.3,
-            shadowRadius: 4,
-          }}
-        >
-          <Text variant="label" style={{ color: '#FFF', fontSize: 12, fontWeight: '700' }}>
-            DEV
-          </Text>
-        </Pressable>
-      )}
     </>
   );
 };
