@@ -1,20 +1,18 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Image, View, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { CalendarDays, ArrowDown, Globe, Search } from 'lucide-react-native';
 import TodayScreen from '../app/tabs/TodayScreen';
 import HubScreen from '../app/tabs/HubScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
-
-// Tab bar icons
-import TODAY_ICON from '../assets/todayiconnobg.png';
-import SEARCH_ICON from '../assets/searchiconnobg.png';
-import GREMLY_BUTTON from '../assets/buttonforHP.png';
+import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
 /**
  * Tab navigator param list for type safety
  */
 export type TabParamList = {
   Today: undefined;
-  Gremly: undefined;
+  MindDrop: undefined;
+  Spaces: undefined;
   Hub: undefined;
 };
 
@@ -26,30 +24,26 @@ const LINEN_CREAM = '#F9F6F1';
 const LINEN_GRAY = '#E3E0D9';
 
 /**
- * TabIcon - Renders tab bar icons with focus state
+ * TabIcon - Renders tab bar icons with focus state using Lucide icons
  */
 function TabIcon({
-  source,
+  Icon,
   focused,
   size = 26,
-  tinted = true,
 }: {
-  source: any;
+  Icon: React.ComponentType<{ size: number; color: string; strokeWidth?: number }>;
   focused: boolean;
   size?: number;
-  tinted?: boolean;
 }) {
   return (
-    <View style={[styles.iconContainer, focused && styles.iconContainerFocused]}>
-      <Image
-        source={source}
-        style={[
-          { width: size, height: size },
-          { opacity: focused ? 1 : 0.6 },
-          tinted && { tintColor: MOSS_GREEN },
-        ]}
-        resizeMode="contain"
-      />
+    <View
+      style={[
+        styles.iconContainer,
+        focused && styles.iconContainerFocused,
+        { opacity: focused ? 1 : 0.6 },
+      ]}
+    >
+      <Icon size={size} color={MOSS_GREEN} strokeWidth={focused ? 2 : 1.5} />
     </View>
   );
 }
@@ -57,16 +51,17 @@ function TabIcon({
 /**
  * TabNavigator - Main bottom tab navigation
  *
- * Three tabs:
+ * Four tabs:
  * - Today: Daily view with todos, habits, and schedule
- * - Gremly: Home screen with MindDrop capture + Spaces list
- * - Search: Global search across all content (formerly Hub)
+ * - MindDrop: Quick capture notepad
+ * - Spaces: Browse and manage Spaces
+ * - Hub: Global search across all content
  */
 
 export default function TabNavigator() {
   return (
     <Tab.Navigator
-      initialRouteName="Gremly"
+      initialRouteName="MindDrop"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: MOSS_GREEN,
@@ -94,23 +89,28 @@ export default function TabNavigator() {
         name="Today"
         component={TodayScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon source={TODAY_ICON} focused={focused} size={26} />,
+          tabBarIcon: ({ focused }) => <TabIcon Icon={CalendarDays} focused={focused} size={26} />,
         }}
       />
       <Tab.Screen
-        name="Gremly"
+        name="MindDrop"
+        component={CatchAllNotepad}
+        options={{
+          tabBarIcon: ({ focused }) => <TabIcon Icon={ArrowDown} focused={focused} size={26} />,
+        }}
+      />
+      <Tab.Screen
+        name="Spaces"
         component={SpacesScreen}
         options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon source={GREMLY_BUTTON} focused={focused} size={32} tinted={false} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon Icon={Globe} focused={focused} size={26} />,
         }}
       />
       <Tab.Screen
         name="Hub"
         component={HubScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon source={SEARCH_ICON} focused={focused} size={26} />,
+          tabBarIcon: ({ focused }) => <TabIcon Icon={Search} focused={focused} size={26} />,
         }}
       />
     </Tab.Navigator>

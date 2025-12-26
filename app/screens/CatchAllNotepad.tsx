@@ -92,7 +92,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock, Camera, Clock } from 'lucide-react-native';
+import { Lock, Camera, Clock, LogOut } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -110,6 +110,7 @@ import {
 } from '../../lib/minddrop/pipelineStages';
 import GREMLY_TOP from '../../assets/mascot/gremly-mascot.png';
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
+import GREMLY_WORDMARK from '../../assets/gremly_wordmark-removebg.png';
 import MascotIcon from '../../components/MascotIcon';
 import {
   filterAndNormalizeTags,
@@ -3027,7 +3028,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 
   const { decideWithContext } = useCortex();
-  const { user, userId } = useAuth();
+  const { user, userId, signOut } = useAuth();
   const { submit: mindDropSubmit, isSubmitting: isMindDropSubmitting } = useMindDropSubmit();
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
@@ -5892,63 +5893,81 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     return (
       <View style={styles.mainContainer} {...panResponder.panHandlers}>
+        {/* Top Nav Bar - edge to edge, extends under status bar */}
+        <View
+          style={[
+            styles.topNavBar,
+            {
+              paddingTop: insets.top + 4,
+              marginHorizontal: -16, // Counteract mainContainer padding to go edge-to-edge
+            },
+          ]}
+        >
+          {/* Left side: Wordmark only */}
+          <Image
+            source={GREMLY_WORDMARK}
+            style={styles.topNavWordmark}
+            resizeMode="contain"
+            accessibilityLabel="Gremly"
+            accessibilityIgnoresInvertColors
+          />
+          {/* Right side: Logout */}
+          <Pressable
+            accessibilityLabel="Sign out"
+            accessibilityRole="button"
+            onPress={signOut}
+            hitSlop={12}
+            style={styles.topNavLogoutBtn}
+          >
+            <LogOut size={20} color="#6A6F76" />
+          </Pressable>
+        </View>
+        <View style={[styles.topNavDivider, { marginHorizontal: -16 }]} />
+
         {/* Header + greeting at the top */}
         <View style={styles.headerContainer}>
+          {/* Mascot + MindDrop title centered with info button */}
           <View style={styles.headerRow} testID="minddrop-header">
-            {/* Back button */}
-            <Pressable
-              accessibilityLabel="Go back"
-              accessibilityRole="button"
-              onPress={handleBack}
-              hitSlop={12}
-              style={styles.headerBackBtn}
-            >
-              <Text style={styles.headerBackText}>{'<'}</Text>
-            </Pressable>
-
-            {/* Gremly mascot - left side, original size */}
             <Image
               source={GREMLY_TOP}
-              style={styles.headerMascotLeft}
+              style={styles.headerMascot}
               resizeMode="contain"
               accessibilityIgnoresInvertColors
             />
-
-            {/* Spacer to push logo right */}
-            <View style={{ flex: 1 }} />
-
-            {/* MindDrop logo - right side, original size */}
-            <Image
-              ref={headerTitleRef}
-              source={MINDDROP_HEADER}
-              style={styles.headerTitleRight}
-              resizeMode="contain"
-              accessibilityLabel="Mind Drop"
-              accessibilityIgnoresInvertColors
-            />
+            <View style={styles.titleWithInfo}>
+              <View style={styles.titleImageWrapper}>
+                <Image
+                  ref={headerTitleRef}
+                  source={MINDDROP_HEADER}
+                  style={styles.headerTitleCenter}
+                  resizeMode="contain"
+                  accessibilityLabel="Mind Drop"
+                  accessibilityIgnoresInvertColors
+                />
+                <View style={styles.titleUnderline} />
+              </View>
+              <Pressable
+                accessibilityLabel="About Mind Drop"
+                accessibilityRole="button"
+                testID="minddrop-info-header"
+                style={styles.headerInfoBtn}
+                onPress={handleInfoOpen}
+                hitSlop={12}
+              >
+                <Icon name="Info" size="sm" color={c.mossGreen} />
+              </Pressable>
+            </View>
           </View>
 
-          {/* Info button - absolutely positioned top right */}
-          <Pressable
-            accessibilityLabel="About Mind Drop"
-            accessibilityRole="button"
-            testID="minddrop-info-header"
-            style={styles.headerInfoBtnAbsolute}
-            onPress={handleInfoOpen}
-            hitSlop={12}
-          >
-            <Icon name="Info" size="sm" color={c.mossGreen} />
-          </Pressable>
-
-          {/* Speech bubble - absolutely positioned below mascot, in the whitespace under MindDrop */}
+          {/* Speech bubble - positioned to come from mascot above */}
           {gremlySpeech && (
             <Reanimated.View
               style={styles.speechBubbleAbsolute}
               entering={FadeIn.duration(250)}
               exiting={FadeOut.duration(200)}
             >
+              <View style={styles.speechBubbleTailUp} />
               <Text style={styles.speechBubbleText}>{gremlySpeech}</Text>
-              <View style={styles.speechBubbleTail} />
             </Reanimated.View>
           )}
         </View>
@@ -6136,16 +6155,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Text>
             </View>
           )}
-
-          {statsVisible ? (
-            <View style={styles.trustRow} testID="minddrop-trust">
-              <Text style={styles.trustStyled} testID="minddrop-trust-text">
-                {organizedToday === 1
-                  ? '1 thought organized today'
-                  : `${organizedToday} thoughts organized today`}
-              </Text>
-            </View>
-          ) : null}
         </View>
       </View>
     );
@@ -6243,9 +6252,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           style={[
             styles.contentWrapper,
             {
-              paddingTop: insets.top + SPACE * 3,
-              paddingBottom: 8,
-              paddingHorizontal: SPACE * 2,
+              paddingBottom: 0,
             },
           ]}
         >
@@ -6274,6 +6281,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     // Container for entire Mind Drop UI with header-middle-bottom layout
     mainContainer: {
       flex: 1,
+      paddingHorizontal: 16,
     },
     // Scrollable section for Recent Drops in the middle
     scrollableSection: {
@@ -6284,61 +6292,97 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     fixedTopSection: {
       // No flex: this section sizes to its content
       // Note: Name kept as fixedTopSection for compatibility but now positioned at bottom
+      paddingBottom: 88, // Tab bar (72px) + gap (16px) - button renders above this padding
     },
     headerContainer: {
       position: 'relative',
-      paddingRight: 72,
-      paddingTop: 4,
+      paddingTop: 16,
       paddingBottom: 0,
-      marginBottom: -8,
+      marginBottom: -20,
       zIndex: 1,
     },
 
+    topNavBar: {
+      backgroundColor: '#E5EDE7',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingBottom: 6,
+      // paddingTop is set dynamically via insets.top in the component
+    },
+    topNavWordmark: {
+      height: 24,
+      width: 100,
+    },
+    topNavLogoutBtn: {
+      padding: 8,
+    },
+    topNavDivider: {
+      height: 1,
+      backgroundColor: '#E3E0D9',
+    },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'flex-start',
-      minHeight: 32,
+      justifyContent: 'center',
       paddingVertical: 0,
     },
-    headerMascotLeft: {
-      width: 64,
-      height: 72,
-      marginRight: 8,
+    headerMascot: {
+      height: 56,
+      width: 56,
+      marginRight: 4,
+      marginTop: -8,
     },
-    headerTitleRight: {
+    titleWithInfo: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+    },
+    titleImageWrapper: {
+      position: 'relative',
+    },
+    headerTitleCenter: {
       height: 64,
-      width: 162,
+      width: 180,
       resizeMode: 'contain',
-      marginLeft: 'auto',
     },
-    headerBackBtn: {
-      padding: 6,
-      marginRight: 12,
-    },
-    headerBackText: {
-      color: c.mossGreen, // Phase 2: mossGreen for secondary actions
-      fontSize: 24,
-      fontFamily: 'PlusJakartaSans-Bold',
-      lineHeight: 28,
-    },
-    headerInfoBtnAbsolute: {
+    titleUnderline: {
       position: 'absolute',
-      top: 0,
-      right: 0,
-      padding: 8,
-      borderRadius: 9999,
-      backgroundColor: 'transparent',
+      left: 25, // Shifted right to center under MindDrop text
+      top: 40, // Moved up closer to text baseline
+      width: 108, // ~60% of 180px width
+      height: 3,
+      backgroundColor: '#D4A853',
+      borderRadius: 2,
+    },
+    headerInfoBtn: {
+      padding: 4,
+      marginLeft: 4,
+      marginTop: -2,
+    },
+    countBadge: {
+      backgroundColor: '#BFD8C0',
+      borderRadius: 10,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      marginLeft: 2,
+      marginTop: -2,
+    },
+    countBadgeText: {
+      fontSize: 11,
+      fontFamily: 'Inter-Medium',
+      color: '#2E5540',
     },
     speechBubbleAbsolute: {
       position: 'absolute',
-      top: 52,
-      left: 90,
+      top: 50,
+      left: 70,
       backgroundColor: '#FFFFFF',
       borderRadius: 14,
       paddingHorizontal: 14,
       paddingVertical: 10,
-      maxWidth: 200,
+      paddingLeft: 18,
+      maxWidth: 180,
       shadowColor: '#000',
       shadowOpacity: 0.08,
       shadowRadius: 8,
@@ -6352,7 +6396,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: '#8A9490',
       lineHeight: 16,
     },
-    speechBubbleTail: {
+    speechBubbleTailLeft: {
       position: 'absolute',
       left: -8,
       top: 12,
@@ -6360,10 +6404,23 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       height: 0,
       borderTopWidth: 8,
       borderBottomWidth: 8,
-      borderRightWidth: 10,
+      borderRightWidth: 8,
       borderTopColor: 'transparent',
       borderBottomColor: 'transparent',
       borderRightColor: '#FFFFFF',
+    },
+    speechBubbleTailUp: {
+      position: 'absolute',
+      left: 20,
+      top: -8,
+      width: 0,
+      height: 0,
+      borderLeftWidth: 8,
+      borderRightWidth: 8,
+      borderBottomWidth: 8,
+      borderLeftColor: 'transparent',
+      borderRightColor: 'transparent',
+      borderBottomColor: '#FFFFFF',
     },
 
     contextPrompt: {
@@ -6581,12 +6638,12 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
 
     submitButtonWrapper: {
-      marginTop: space * 2,
+      marginTop: space * 1.5,
       marginBottom: 0,
       width: '100%',
     },
     submitButtonWrapperNoStats: {
-      marginBottom: space,
+      marginBottom: 0,
     },
     submitPressable: {
       width: '100%',
@@ -6649,8 +6706,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
 
     trustRow: {
-      marginTop: space * 2,
-      marginBottom: space * 2,
+      marginTop: space * 1.5,
+      marginBottom: space * 0.5,
       alignItems: 'center',
       minHeight: 20,
     },
