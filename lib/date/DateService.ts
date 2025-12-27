@@ -704,6 +704,7 @@ let instance: DateService | null = null;
 /**
  * Factory function to create a new DateService instance.
  * Use this in tests to inject a custom clock or timezone.
+ * Also sets the singleton instance so getDateService() returns this instance.
  *
  * @example
  * const service = createDateService({
@@ -712,7 +713,8 @@ let instance: DateService | null = null;
  * });
  */
 export function createDateService(config?: DateServiceConfig): DateService {
-  return new DateService(config);
+  instance = new DateService(config);
+  return instance;
 }
 
 /**

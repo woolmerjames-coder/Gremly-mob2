@@ -5,12 +5,22 @@
  */
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { View, StyleSheet, Alert, ToastAndroid, Platform, Pressable, Animated } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  Alert,
+  ToastAndroid,
+  Platform,
+  Pressable,
+  Animated,
+  Image,
+} from 'react-native';
 import { Box, Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import { runCortexProxyDiag } from '../../lib/cortex/diag';
 import { isReducedMotion } from '../../lib/a11y/reducedMotion';
-import Mascot from '../../assets/mascot/mascot.ai.svg';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const Mascot = require('../../assets/mascot/gremly-mascot.png');
 
 type TimeWindow = 'morning' | 'midday' | 'evening';
 
@@ -139,7 +149,7 @@ export default function TodayMascotHeader({
         )}
       </View>
 
-      {/* Mascot with SVG */}
+      {/* Mascot with PNG image */}
       <Pressable
         onPress={onMascotPress}
         onLongPress={__DEV__ ? devPing : undefined}
@@ -157,7 +167,7 @@ export default function TodayMascotHeader({
             },
           ]}
         >
-          <Mascot width={72} height={72} />
+          <Image source={Mascot} style={{ width: 72, height: 72 }} resizeMode="contain" />
         </Animated.View>
       </Pressable>
 

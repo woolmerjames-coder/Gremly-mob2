@@ -1,20 +1,23 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Image, View, StyleSheet } from 'react-native';
+import { Image, StyleSheet } from 'react-native';
 import TodayScreen from '../app/tabs/TodayScreen';
 import HubScreen from '../app/tabs/HubScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
+import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
-// Tab bar icons
-import TODAY_ICON from '../assets/todayiconnobg.png';
-import SEARCH_ICON from '../assets/searchiconnobg.png';
-import GREMLY_BUTTON from '../assets/buttonforHP.png';
+// Tab bar icon images
+import TODAY_ICON from '../assets/todayicon-bg.png';
+import MINDDROP_ICON from '../assets/minddropicon-bg.png';
+import SPACES_ICON from '../assets/spacesicon-bg.png';
+import HUB_ICON from '../assets/hubicon-bg.png';
 
 /**
  * Tab navigator param list for type safety
  */
 export type TabParamList = {
   Today: undefined;
-  Gremly: undefined;
+  MindDrop: undefined;
+  Spaces: undefined;
   Hub: undefined;
 };
 
@@ -26,47 +29,19 @@ const LINEN_CREAM = '#F9F6F1';
 const LINEN_GRAY = '#E3E0D9';
 
 /**
- * TabIcon - Renders tab bar icons with focus state
- */
-function TabIcon({
-  source,
-  focused,
-  size = 26,
-  tinted = true,
-}: {
-  source: any;
-  focused: boolean;
-  size?: number;
-  tinted?: boolean;
-}) {
-  return (
-    <View style={[styles.iconContainer, focused && styles.iconContainerFocused]}>
-      <Image
-        source={source}
-        style={[
-          { width: size, height: size },
-          { opacity: focused ? 1 : 0.6 },
-          tinted && { tintColor: MOSS_GREEN },
-        ]}
-        resizeMode="contain"
-      />
-    </View>
-  );
-}
-
-/**
  * TabNavigator - Main bottom tab navigation
  *
- * Three tabs:
+ * Four tabs:
  * - Today: Daily view with todos, habits, and schedule
- * - Gremly: Home screen with MindDrop capture + Spaces list
- * - Search: Global search across all content (formerly Hub)
+ * - MindDrop: Quick capture notepad
+ * - Spaces: Browse and manage Spaces
+ * - Hub: Global search across all content
  */
 
 export default function TabNavigator() {
   return (
     <Tab.Navigator
-      initialRouteName="Gremly"
+      initialRouteName="MindDrop"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: MOSS_GREEN,
@@ -94,15 +69,38 @@ export default function TabNavigator() {
         name="Today"
         component={TodayScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon source={TODAY_ICON} focused={focused} size={26} />,
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={TODAY_ICON}
+              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+              resizeMode="contain"
+            />
+          ),
         }}
       />
       <Tab.Screen
-        name="Gremly"
+        name="MindDrop"
+        component={CatchAllNotepad}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={MINDDROP_ICON}
+              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+              resizeMode="contain"
+            />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Spaces"
         component={SpacesScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={GREMLY_BUTTON} focused={focused} size={32} tinted={false} />
+            <Image
+              source={SPACES_ICON}
+              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+              resizeMode="contain"
+            />
           ),
         }}
       />
@@ -110,19 +108,15 @@ export default function TabNavigator() {
         name="Hub"
         component={HubScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon source={SEARCH_ICON} focused={focused} size={26} />,
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={HUB_ICON}
+              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+              resizeMode="contain"
+            />
+          ),
         }}
       />
     </Tab.Navigator>
   );
 }
-
-const styles = StyleSheet.create({
-  iconContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconContainerFocused: {
-    marginTop: -2, // Subtle lift when active
-  },
-});

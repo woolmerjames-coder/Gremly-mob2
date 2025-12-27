@@ -1,5 +1,5 @@
 /**
- * MascotIcon - Animated SVG mascot for empty states and success moments
+ * MascotIcon - Animated mascot for empty states and success moments
  * Phase 7: Added pulse animation, emotion states, and reduced motion support
  *
  * Features:
@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { View, ViewStyle } from 'react-native';
+import { View, ViewStyle, Image } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -19,7 +19,8 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { useReducedMotion } from '../design/animations';
-import MascotSvg from '../assets/mascot/mascot.ai.svg';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const MascotImage = require('../assets/mascot/gremly-mascot.png');
 
 interface MascotIconProps {
   pose?: 'neutral' | 'think' | 'celebrate' | 'default';
@@ -110,11 +111,11 @@ export default function MascotIcon({
     <View style={style} accessibilityLabel={accessibilityLabel} accessible>
       {animate && !isReducedMotion ? (
         <AnimatedView style={animatedStyle}>
-          <MascotSvg width={size} height={size} />
+          <Image source={MascotImage} style={{ width: size, height: size }} resizeMode="contain" />
         </AnimatedView>
       ) : (
         <View>
-          <MascotSvg width={size} height={size} />
+          <Image source={MascotImage} style={{ width: size, height: size }} resizeMode="contain" />
         </View>
       )}
     </View>

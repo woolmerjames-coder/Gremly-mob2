@@ -92,7 +92,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock, Camera, Clock } from 'lucide-react-native';
+import { Lock, Camera, Clock, LogOut } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -450,17 +450,6 @@ const MindDropInput = React.memo<MindDropInputProps>(
                 flexShrink: 1,
               }}
             >
-              <View style={{ marginRight: 6 }}>
-                <Icon name="Lock" size="xs" color={lockIconColor} strokeWidth={1.75} />
-              </View>
-              <Text
-                testID="minddrop-privacy"
-                style={hudTextStyle}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                Private & secure
-              </Text>
               <Text
                 testID="minddrop-charcount"
                 style={hudTextStyle}
@@ -3027,7 +3016,29 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   );
 
   const { decideWithContext } = useCortex();
-  const { user, userId } = useAuth();
+  const { user, userId, signOut } = useAuth();
+
+  // Sign out confirmation handler
+  const handleSignOutPress = useCallback(() => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await signOut();
+          } catch (err) {
+            console.error('[MindDrop] Sign out failed:', err);
+          }
+        },
+      },
+    ]);
+  }, [signOut]);
+
   const { submit: mindDropSubmit, isSubmitting: isMindDropSubmitting } = useMindDropSubmit();
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
@@ -3082,15 +3093,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Helper to show Gremly speech bubble with auto-dismiss
   const showGremlySpeech = useCallback((message: string, durationMs = 3500) => {
+    console.log('[Gremly Speech] showGremlySpeech called:', { message, durationMs });
     if (gremlySpeechTimeoutRef.current) {
       clearTimeout(gremlySpeechTimeoutRef.current);
     }
     lastSpeechRef.current = message;
     setGremlySpeech(message);
     gremlySpeechTimeoutRef.current = setTimeout(() => {
+      console.log('[Gremly Speech] Auto-dismissing speech bubble');
       setGremlySpeech(null);
     }, durationMs);
   }, []);
+
+  // Show a greeting on mount (for testing - can be removed or made conditional later)
+  useEffect(() => {
+    // Delay slightly so the animation is visible
+    const timer = setTimeout(() => {
+      showGremlySpeech("What's on your mind?", 4000);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [showGremlySpeech]);
 
   // Generate contextual speech based on classification result
   type SpeechContext = {
@@ -3524,13 +3546,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const handleInfoOpen = useCallback(() => setInfoOpen(true), []);
   const handleInfoClose = useCallback(() => setInfoOpen(false), []);
-  const handleBack = useCallback(() => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      (navigation as any).navigate('Tabs');
-    }
-  }, [navigation]);
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -5892,63 +5907,59 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     return (
       <View style={styles.mainContainer} {...panResponder.panHandlers}>
-        {/* Header + greeting at the top */}
-        <View style={styles.headerContainer}>
-          <View style={styles.headerRow} testID="minddrop-header">
-            {/* Back button */}
-            <Pressable
-              accessibilityLabel="Go back"
-              accessibilityRole="button"
-              onPress={handleBack}
-              hitSlop={12}
-              style={styles.headerBackBtn}
-            >
-              <Text style={styles.headerBackText}>{'<'}</Text>
-            </Pressable>
-
-            {/* Gremly mascot - left side, original size */}
+        {/* Header Row: Mascot + MindDrop title (left) ... Logout (right) */}
+        <View
+          style={[
+            styles.headerRow,
+            {
+              paddingTop: insets.top + 16,
+            },
+          ]}
+          testID="minddrop-header"
+        >
+          {/* Left group: Mascot + MindDrop title */}
+          <View style={styles.headerLeftGroup}>
             <Image
               source={GREMLY_TOP}
-              style={styles.headerMascotLeft}
+              style={styles.headerMascot}
               resizeMode="contain"
               accessibilityIgnoresInvertColors
             />
-
-            {/* Spacer to push logo right */}
-            <View style={{ flex: 1 }} />
-
-            {/* MindDrop logo - right side, original size */}
-            <Image
-              ref={headerTitleRef}
-              source={MINDDROP_HEADER}
-              style={styles.headerTitleRight}
-              resizeMode="contain"
-              accessibilityLabel="Mind Drop"
-              accessibilityIgnoresInvertColors
-            />
+            <View style={styles.titleImageWrapper}>
+              <Image
+                ref={headerTitleRef}
+                source={MINDDROP_HEADER}
+                style={styles.headerTitleCenter}
+                resizeMode="contain"
+                accessibilityLabel="Mind Drop"
+                accessibilityIgnoresInvertColors
+              />
+              <View style={styles.titleUnderline} />
+            </View>
           </View>
 
-          {/* Info button - absolutely positioned top right */}
+          {/* Right side: Logout button (aligned to top) */}
           <Pressable
-            accessibilityLabel="About Mind Drop"
+            accessibilityLabel="Sign out"
             accessibilityRole="button"
-            testID="minddrop-info-header"
-            style={styles.headerInfoBtnAbsolute}
-            onPress={handleInfoOpen}
+            onPress={handleSignOutPress}
             hitSlop={12}
+            style={styles.logoutBtn}
           >
-            <Icon name="Info" size="sm" color={c.mossGreen} />
+            <LogOut size={20} color="#6A6F76" />
           </Pressable>
 
-          {/* Speech bubble - absolutely positioned below mascot, in the whitespace under MindDrop */}
+          {/* Speech bubble - absolutely positioned, overlays content */}
           {gremlySpeech && (
             <Reanimated.View
-              style={styles.speechBubbleAbsolute}
+              style={styles.speechBubbleContainer}
               entering={FadeIn.duration(250)}
               exiting={FadeOut.duration(200)}
             >
-              <Text style={styles.speechBubbleText}>{gremlySpeech}</Text>
-              <View style={styles.speechBubbleTail} />
+              <View style={styles.speechBubbleTailUp} />
+              <View style={styles.speechBubble}>
+                <Text style={styles.speechBubbleText}>{gremlySpeech}</Text>
+              </View>
             </Reanimated.View>
           )}
         </View>
@@ -6032,20 +6043,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             </ScrollView>
           )}
 
-          {note.length > 0 ? (
+          {note.length >= 1500 ? (
             <View style={styles.helperRow}>
-              <View style={styles.helperLeft}>
-                <Icon name="Lock" size="xs" color={c.goldenPear} strokeWidth={1.75} />
-                <Text testID="minddrop-privacy" style={styles.helperText} numberOfLines={1}>
-                  Private & secure
-                </Text>
-              </View>
-              {note.length >= 1500 ? (
-                <Text
-                  testID="minddrop-counter"
-                  style={styles.helperCounter}
-                >{`${note.length}/${MAX_INPUT_CHARACTERS}`}</Text>
-              ) : null}
+              <View style={{ flex: 1 }} />
+              <Text
+                testID="minddrop-counter"
+                style={styles.helperCounter}
+              >{`${note.length}/${MAX_INPUT_CHARACTERS}`}</Text>
             </View>
           ) : null}
 
@@ -6136,16 +6140,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </Text>
             </View>
           )}
-
-          {statsVisible ? (
-            <View style={styles.trustRow} testID="minddrop-trust">
-              <Text style={styles.trustStyled} testID="minddrop-trust-text">
-                {organizedToday === 1
-                  ? '1 thought organized today'
-                  : `${organizedToday} thoughts organized today`}
-              </Text>
-            </View>
-          ) : null}
         </View>
       </View>
     );
@@ -6175,7 +6169,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleTodayCountChange,
     overlay,
     inputDynHeight,
-    handleBack,
     handleInfoOpen,
     recentDropsOpacity,
     isInputFocused,
@@ -6243,9 +6236,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           style={[
             styles.contentWrapper,
             {
-              paddingTop: insets.top + SPACE * 3,
-              paddingBottom: 8,
-              paddingHorizontal: SPACE * 2,
+              paddingBottom: 0,
             },
           ]}
         >
@@ -6274,6 +6265,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     // Container for entire Mind Drop UI with header-middle-bottom layout
     mainContainer: {
       flex: 1,
+      paddingHorizontal: 16,
     },
     // Scrollable section for Recent Drops in the middle
     scrollableSection: {
@@ -6284,67 +6276,86 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     fixedTopSection: {
       // No flex: this section sizes to its content
       // Note: Name kept as fixedTopSection for compatibility but now positioned at bottom
+      paddingBottom: 88, // Tab bar (72px) + gap (16px) - button renders above this padding
     },
     headerContainer: {
       position: 'relative',
-      paddingRight: 72,
-      paddingTop: 4,
+      paddingTop: 0,
       paddingBottom: 0,
-      marginBottom: -8,
+      marginBottom: 0,
       zIndex: 1,
     },
 
     headerRow: {
       flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'flex-start',
-      minHeight: 32,
-      paddingVertical: 0,
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingBottom: 4,
+      position: 'relative', // For absolute positioning of speech bubble
+      // paddingTop is set dynamically via insets.top in the component
     },
-    headerMascotLeft: {
+    headerLeftGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginLeft: 20, // Shift group toward center
+    },
+    logoutBtn: {
+      padding: 8,
+      marginTop: 4,
+    },
+    headerMascot: {
+      height: 64,
       width: 64,
-      height: 72,
       marginRight: 8,
     },
-    headerTitleRight: {
+    titleImageWrapper: {
+      position: 'relative',
+    },
+    headerTitleCenter: {
       height: 64,
-      width: 162,
+      width: 180,
       resizeMode: 'contain',
-      marginLeft: 'auto',
     },
-    headerBackBtn: {
-      padding: 6,
-      marginRight: 12,
-    },
-    headerBackText: {
-      color: c.mossGreen, // Phase 2: mossGreen for secondary actions
-      fontSize: 24,
-      fontFamily: 'PlusJakartaSans-Bold',
-      lineHeight: 28,
-    },
-    headerInfoBtnAbsolute: {
+    titleUnderline: {
       position: 'absolute',
-      top: 0,
-      right: 0,
-      padding: 8,
-      borderRadius: 9999,
-      backgroundColor: 'transparent',
+      left: 25, // Shifted right to center under MindDrop text
+      top: 40, // Moved up closer to text baseline
+      width: 108, // ~60% of 180px width
+      height: 3,
+      backgroundColor: '#D4A853',
+      borderRadius: 2,
     },
-    speechBubbleAbsolute: {
+    countBadge: {
+      backgroundColor: '#BFD8C0',
+      borderRadius: 10,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      marginLeft: 2,
+      marginTop: -2,
+    },
+    countBadgeText: {
+      fontSize: 11,
+      fontFamily: 'Inter-Medium',
+      color: '#2E5540',
+    },
+    speechBubbleContainer: {
       position: 'absolute',
-      top: 52,
-      left: 90,
+      top: 105, // Below header row, connected to mascot
+      left: 56, // Align with mascot position
+      zIndex: 100,
+    },
+    speechBubble: {
       backgroundColor: '#FFFFFF',
       borderRadius: 14,
       paddingHorizontal: 14,
       paddingVertical: 10,
-      maxWidth: 200,
+      maxWidth: 220,
       shadowColor: '#000',
       shadowOpacity: 0.08,
       shadowRadius: 8,
       shadowOffset: { width: 0, height: 2 },
       elevation: 10,
-      zIndex: 100,
     },
     speechBubbleText: {
       fontFamily: 'Inter-Regular',
@@ -6352,18 +6363,17 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: '#8A9490',
       lineHeight: 16,
     },
-    speechBubbleTail: {
-      position: 'absolute',
-      left: -8,
-      top: 12,
+    speechBubbleTailUp: {
+      marginLeft: 24,
+      marginBottom: -1,
       width: 0,
       height: 0,
-      borderTopWidth: 8,
+      borderLeftWidth: 8,
+      borderRightWidth: 8,
       borderBottomWidth: 8,
-      borderRightWidth: 10,
-      borderTopColor: 'transparent',
-      borderBottomColor: 'transparent',
-      borderRightColor: '#FFFFFF',
+      borderLeftColor: 'transparent',
+      borderRightColor: 'transparent',
+      borderBottomColor: '#FFFFFF',
     },
 
     contextPrompt: {
@@ -6581,12 +6591,12 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
 
     submitButtonWrapper: {
-      marginTop: space * 2,
+      marginTop: space * 1.5,
       marginBottom: 0,
       width: '100%',
     },
     submitButtonWrapperNoStats: {
-      marginBottom: space,
+      marginBottom: 0,
     },
     submitPressable: {
       width: '100%',
@@ -6649,8 +6659,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
 
     trustRow: {
-      marginTop: space * 2,
-      marginBottom: space * 2,
+      marginTop: space * 1.5,
+      marginBottom: space * 0.5,
       alignItems: 'center',
       minHeight: 20,
     },
