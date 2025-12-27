@@ -78,7 +78,19 @@ import { useTheme } from '../../src/theme/useTheme';
 import { useReducedMotion } from '../../src/hooks/useReducedMotion';
 import { shouldUseHaptics } from '../../config/featureFlags';
 import { haptics } from '../../lib/haptics';
-import Reanimated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Reanimated, {
+  FadeIn,
+  FadeOut,
+  SlideInDown,
+  Layout,
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withRepeat,
+  withSequence,
+  cancelAnimation,
+  Easing as ReanimatedEasing,
+} from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase/client';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/copy';
@@ -96,6 +108,12 @@ import { Lock, Camera, Clock, LogOut } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
+import {
+  getGremlySpeech,
+  getGreetingSpeech,
+  getEmptyStateSpeech,
+  type SpeechContext,
+} from '../../lib/speech/gremlySpeech';
 import {
   appendLineageToWhyString,
   hasChecklist,
@@ -134,6 +152,8 @@ const THINKING_MICROCOPY = [
 ] as const;
 
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
+
+const TYPEWRITER_CHAR_DELAY_MS = 28;
 
 // Auto-grow constants: aligned for deterministic behavior
 const LINE_HEIGHT = 24; // Must match styles.input lineHeight
@@ -987,14 +1007,28 @@ const TypewriterText: React.FC<{
 };
 
 /**
- * PendingSkeleton - Phase 1: Classifying
- * Shows 3 shimmer bars matching final card layout + "Organizing..." indicator
- * Height matches final card (88px) to prevent layout jump
+ * Helper to truncate text for optimistic display
+ */
+const truncateText = (text: string, maxLength: number): string => {
+  if (!text) return '';
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return trimmed.substring(0, maxLength - 3).trim() + '...';
+};
+
+/**
+ * PendingSkeleton - Phase 1: Classifying with calm arrival animation
+ * Shows raw input text immediately with gentle shimmer + skeleton for secondary fields
+ * Slides in smoothly for ADHD-friendly experience
  */
 const PendingSkeleton: React.FC<{
+  item: UnifiedDrop;
+  effectiveKind: 'note' | 'todo' | 'habit';
+  badgeStyleKey: string;
   styles: any;
   c: any;
-}> = ({ styles, c }) => {
+  index?: number; // For stagger delay
+}> = ({ item, effectiveKind, badgeStyleKey, styles, c, index = 0 }) => {
   const [dots, setDots] = React.useState('');
 
   // Animated dots: cycle through '', '.', '..', '...'
@@ -1005,9 +1039,41 @@ const PendingSkeleton: React.FC<{
     return () => clearInterval(interval);
   }, []);
 
+  // Shimmer animation for draft title - gentle pulse between 0.5 and 0.85 opacity
+  const titleOpacity = useSharedValue(0.6);
+
+  React.useEffect(() => {
+    titleOpacity.value = withRepeat(
+      withSequence(
+        withTiming(0.85, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+        withTiming(0.5, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+      ),
+      -1,
+      true,
+    );
+
+    return () => {
+      cancelAnimation(titleOpacity);
+    };
+  }, []);
+
+  const titleAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: titleOpacity.value,
+  }));
+
+  // Show raw text as title immediately (truncated to 50 chars)
+  const displayTitle = truncateText(item.text || item.title || '', 50);
+
+  // Stagger delay for multiple cards
+  const staggerDelay = index * 80;
+
   return (
-    <View
+    <Reanimated.View
       testID="minddrop-pending-skeleton"
+      entering={SlideInDown.duration(280)
+        .delay(staggerDelay)
+        .easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+      layout={Layout.duration(200)}
       style={[
         styles.recentCard,
         {
@@ -1015,17 +1081,27 @@ const PendingSkeleton: React.FC<{
         },
       ]}
     >
-      {/* Row 1: Title shimmer */}
+      {/* Row 1: Title (raw text with shimmer) + Kind badge */}
       <View style={styles.recentTopRow}>
-        <ShimmerBar width="65%" height={16} />
+        <Reanimated.Text
+          numberOfLines={1}
+          style={[styles.recentTitle, { fontStyle: 'italic' }, titleAnimatedStyle]}
+        >
+          {displayTitle || '—'}
+        </Reanimated.Text>
+        <View style={styles.recentTopRight}>
+          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
+            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Log'}
+          </Text>
+        </View>
       </View>
 
-      {/* Row 2: Confirmation shimmer */}
+      {/* Row 2: Confirmation skeleton shimmer */}
       <View>
         <ShimmerBar width="45%" height={14} />
       </View>
 
-      {/* Row 3: Context shimmer + Organizing indicator */}
+      {/* Row 3: Context skeleton + Organizing indicator */}
       <View style={styles.recentMetaRow}>
         <ShimmerBar width={70} height={12} />
         <Text
@@ -1034,7 +1110,7 @@ const PendingSkeleton: React.FC<{
           Organizing{dots}
         </Text>
       </View>
-    </View>
+    </Reanimated.View>
   );
 };
 
@@ -1054,17 +1130,18 @@ const relativeTime = (iso: string) => {
 
 /**
  * EnrichingSkeleton - Phase 2: AI knows the type, refining details
- * Shows 3 shimmer bars + category chip + timestamp on right
+ * Shows raw text title + category chip + timestamp, skeleton for secondary fields
  * Breathing border indicates active processing
+ * Has calm shimmer on title that crossfades to full opacity when AI title is ready
  */
 const EnrichingSkeleton: React.FC<{
   item: UnifiedDrop;
   effectiveKind: 'note' | 'todo' | 'habit';
-  displayKind: string;
   badgeStyleKey: string;
   styles: any;
   c: any;
-}> = ({ item, effectiveKind, displayKind, badgeStyleKey, styles, c }) => {
+  index?: number; // For stagger delay
+}> = ({ item, effectiveKind, badgeStyleKey, styles, c, index = 0 }) => {
   // Breathing border animation
   const borderOpacity = React.useMemo(() => new Animated.Value(0.15), []);
 
@@ -1094,6 +1171,50 @@ const EnrichingSkeleton: React.FC<{
     outputRange: ['rgba(46, 85, 64, 0.15)', 'rgba(46, 85, 64, 0.35)'],
   });
 
+  // Detect if AI title is ready (different from raw text)
+  const rawText = item.text || '';
+  const aiTitle = item.title || '';
+  const isAITitleReady =
+    aiTitle && aiTitle !== rawText && !aiTitle.startsWith(rawText.substring(0, 20));
+
+  // Shimmer animation for draft title - pulse between 0.5 and 0.85
+  const titleOpacity = useSharedValue(isAITitleReady ? 1 : 0.6);
+
+  React.useEffect(() => {
+    if (isAITitleReady) {
+      // Crossfade to full opacity when AI title arrives
+      cancelAnimation(titleOpacity);
+      titleOpacity.value = withTiming(1, { duration: 300 });
+    } else {
+      // Gentle shimmer while waiting
+      titleOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.85, {
+            duration: 1200,
+            easing: ReanimatedEasing.inOut(ReanimatedEasing.ease),
+          }),
+          withTiming(0.5, {
+            duration: 1200,
+            easing: ReanimatedEasing.inOut(ReanimatedEasing.ease),
+          }),
+        ),
+        -1,
+        true,
+      );
+    }
+
+    return () => {
+      cancelAnimation(titleOpacity);
+    };
+  }, [isAITitleReady]);
+
+  const titleAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: titleOpacity.value,
+  }));
+
+  // Show AI title if ready, otherwise raw text (truncated)
+  const displayTitle = truncateText(isAITitleReady ? aiTitle : rawText, 50);
+
   return (
     <Animated.View
       testID="minddrop-enriching-skeleton"
@@ -1106,11 +1227,22 @@ const EnrichingSkeleton: React.FC<{
         },
       ]}
     >
-      {/* Row 1: Title shimmer + Category chip */}
+      {/* Row 1: Title (raw or AI) with shimmer/crossfade + Category chip */}
       <View style={styles.recentTopRow}>
-        <ShimmerBar width="55%" height={16} />
+        <Reanimated.Text
+          numberOfLines={1}
+          style={[
+            styles.recentTitle,
+            !isAITitleReady && { fontStyle: 'italic' },
+            titleAnimatedStyle,
+          ]}
+        >
+          {displayTitle || '—'}
+        </Reanimated.Text>
         <View style={styles.recentTopRight}>
-          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>{displayKind}</Text>
+          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
+            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Log'}
+          </Text>
         </View>
       </View>
 
@@ -1447,6 +1579,7 @@ const AnimatedMindDropCard: React.FC<{
   mode: string;
   handleEdit: (id: string, kind: UnifiedDrop['kind'], unsorted?: boolean) => void;
   handleDelete: (id: string, kind: UnifiedDrop['kind']) => void;
+  index?: number; // For stagger delay in calm arrival animation
 }> = ({
   item,
   isPending,
@@ -1459,6 +1592,7 @@ const AnimatedMindDropCard: React.FC<{
   mode,
   handleEdit,
   handleDelete,
+  index = 0,
 }) => {
   // Get visual state from item
   const itemVisualState = getMindDropVisualState(item);
@@ -1490,9 +1624,18 @@ const AnimatedMindDropCard: React.FC<{
       ? 'complete'
       : itemVisualState;
 
-  // Phase 1: Still creating entity - show skeleton with 3 shimmer bars
+  // Phase 1: Still creating entity - show raw text with skeleton for secondary fields
   if (visualState === 'pending') {
-    return <PendingSkeleton styles={styles} c={c} />;
+    return (
+      <PendingSkeleton
+        item={item}
+        effectiveKind={effectiveKind}
+        badgeStyleKey={badgeStyleKey}
+        styles={styles}
+        c={c}
+        index={index}
+      />
+    );
   }
 
   // Phase 2: Entity exists, enriching in progress - show shimmers + chip/timestamp
@@ -1501,10 +1644,10 @@ const AnimatedMindDropCard: React.FC<{
       <EnrichingSkeleton
         item={item}
         effectiveKind={effectiveKind}
-        displayKind={displayKind}
         badgeStyleKey={badgeStyleKey}
         styles={styles}
         c={c}
+        index={index}
       />
     );
   }
@@ -2674,7 +2817,7 @@ const RecentDrops: React.FC<{
               keyboardShouldPersistTaps="handled"
             >
               {/* Pending items (optimistic UI) */}
-              {pendingItems.map((item) => {
+              {pendingItems.map((item, index) => {
                 const effectiveKind = item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
                 const badgeStyleKey =
@@ -2699,11 +2842,12 @@ const RecentDrops: React.FC<{
                     mode={themeMode}
                     handleEdit={() => {}} // No-op for pending
                     handleDelete={() => {}} // No-op for pending
+                    index={index}
                   />
                 );
               })}
               {/* Real items from database */}
-              {items.map((item) => {
+              {items.map((item, index) => {
                 const effectiveKind = item.optimisticKind ?? item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
                 const showLegacyUnsortedBadge =
@@ -2733,6 +2877,7 @@ const RecentDrops: React.FC<{
                     mode={themeMode}
                     handleEdit={handleEdit}
                     handleDelete={handleDelete}
+                    index={pendingItems.length + index}
                   />
                 );
               })}
@@ -3105,95 +3250,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }, durationMs);
   }, []);
 
-  // Show a greeting on mount (for testing - can be removed or made conditional later)
+  // State for tracking drops today and returning user detection
+  const [dropsToday, setDropsToday] = useState(0);
+  const lastDropTimeRef = useRef<number | null>(null);
+
+  // Show a contextual greeting on mount
   useEffect(() => {
     // Delay slightly so the animation is visible
     const timer = setTimeout(() => {
-      showGremlySpeech("What's on your mind?", 4000);
+      const greeting = getGreetingSpeech();
+      showGremlySpeech(greeting.message, greeting.duration);
     }, 500);
     return () => clearTimeout(timer);
   }, [showGremlySpeech]);
 
-  // Generate contextual speech based on classification result
-  type SpeechContext = {
-    kind: 'todo' | 'habit' | 'log';
-    logSubtype?: 'journal' | 'idea' | 'general' | null;
-    confidence: number;
-    dueDate?: string | null;
-    mode: 'auto' | 'ask' | 'keep' | 'reply';
-  };
-
-  const pickRandom = <T,>(options: T[]): T => {
-    return options[Math.floor(Math.random() * options.length)];
-  };
-
-  const getGremlySpeech = useCallback((ctx: SpeechContext): string | null => {
-    const { kind, logSubtype, confidence, dueDate, mode } = ctx;
-
-    let message: string | null = null;
-
-    // High confidence auto-classification
-    if (mode === 'auto' && confidence >= 0.8) {
-      if (kind === 'todo') {
-        if (dueDate) {
-          // Format the date nicely
-          try {
-            const date = new Date(dueDate);
-            const formattedDate = date.toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-            });
-            message = pickRandom([
-              `On it — due ${formattedDate}.`,
-              `Task locked in for ${formattedDate}.`,
-              `Got it — ${formattedDate}.`,
-            ]);
-          } catch {
-            message = 'Task added.';
-          }
-        } else {
-          message = pickRandom([
-            'Task captured. Pick a date in Sweep.',
-            'Added. Set a date in Sweep.',
-            'Got it. Date it in Sweep.',
-          ]);
-        }
-      } else if (kind === 'habit') {
-        message = pickRandom(['Habit saved.', 'New habit tracked.', 'Habit locked in.']);
-      } else if (kind === 'log') {
-        if (logSubtype === 'journal') {
-          message = pickRandom([
-            'Saved to your journal.',
-            'Journal entry saved.',
-            'Noted in your journal.',
-          ]);
-        } else if (logSubtype === 'idea') {
-          message = pickRandom(['Idea captured.', 'Interesting — saved.', 'Idea logged.']);
-        } else {
-          message = pickRandom(['Thought saved.', 'Got it.', 'Captured.']);
-        }
-      }
-    }
-    // Medium confidence or ask mode
-    else if (confidence >= 0.5 || mode === 'ask') {
-      message = pickRandom([
-        `Saved as a ${kind}. Review in Sweep.`,
-        `Captured as a ${kind}. Check it in Sweep.`,
-      ]);
-    }
-    // Low confidence
-    else if (confidence < 0.5) {
-      message = pickRandom(['Saved. Review in Sweep.', 'Captured. Check it in Sweep.']);
-    }
-
-    // Don't repeat the same message twice in a row
-    if (message && message === lastSpeechRef.current) {
-      // If we got the same message, try to get a different one
-      // For simplicity, just return null to skip this time
-      return null;
-    }
-
-    return message;
+  // Helper to check if user is returning (>24h since last drop)
+  const isReturningUser = useCallback(() => {
+    if (!lastDropTimeRef.current) return false;
+    return Date.now() - lastDropTimeRef.current > 24 * 60 * 60 * 1000;
   }, []);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -5512,17 +5586,31 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           dueDate = (createdTodo as any)?.due_date ?? (createdTodo as any)?.due_day ?? null;
         }
 
+        // Map confidence number to category
+        const rawConfidence = (result as any).decisionConfidence ?? 0.9;
+        const confidenceCategory: 'high' | 'medium' | 'low' =
+          rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
+
+        const newDropsToday = dropsToday + 1;
+        setDropsToday(newDropsToday);
+        lastDropTimeRef.current = Date.now();
+
         const speechCtx: SpeechContext = {
-          kind: uiKind as 'todo' | 'habit' | 'log',
-          logSubtype: (detail as any).noteSubtype as 'journal' | 'idea' | 'general' | null,
-          confidence: (result as any).decisionConfidence ?? 0.9, // V4 hook doesn't expose confidence yet, assume high
+          kind: uiKind,
+          logSubtype: (detail as any).noteSubtype || undefined,
+          confidence: confidenceCategory,
           dueDate,
-          mode: 'auto', // V4 is always auto mode
+          mode: 'auto',
+          dropsToday: newDropsToday,
+          isFirstDrop: dropsToday === 0,
+          hasPhotos: pendingPhotoUris.length > 0,
+          isReturningUser: isReturningUser(),
+          error: null,
         };
-        const speech = getGremlySpeech(speechCtx);
-        if (speech) {
-          lastSpeechRef.current = speech;
-          showGremlySpeech(speech);
+        const speechResult = getGremlySpeech(speechCtx);
+        if (speechResult) {
+          lastSpeechRef.current = speechResult.message;
+          showGremlySpeech(speechResult.message, speechResult.duration);
         }
       }
 
@@ -5717,25 +5805,39 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           dueDate = (createdTodo as any)?.due_date ?? null;
         }
 
+        // Map confidence number to category
+        const rawConfidence = finalResult.decisionConfidence ?? 0;
+        const confidenceCategory: 'high' | 'medium' | 'low' =
+          rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
+
+        const newDropsToday = dropsToday + 1;
+        setDropsToday(newDropsToday);
+        lastDropTimeRef.current = Date.now();
+
         const speechCtx: SpeechContext = {
-          kind: uiKind as 'todo' | 'habit' | 'log',
-          logSubtype: (detail as any).noteSubtype as 'journal' | 'idea' | 'general' | null,
-          confidence: finalResult.decisionConfidence ?? 0,
+          kind: uiKind,
+          logSubtype: (detail as any).noteSubtype || undefined,
+          confidence: confidenceCategory,
           dueDate,
-          mode: (finalResult.decisionMode as 'auto' | 'ask' | 'keep' | 'reply') ?? 'auto',
+          mode: (finalResult.decisionMode as string) ?? 'auto',
+          dropsToday: newDropsToday,
+          isFirstDrop: dropsToday === 0,
+          hasPhotos: currentSubmissionHasPhotosRef.current,
+          isReturningUser: isReturningUser(),
+          error: null,
         };
         console.log('[Gremly Speech] speechCtx:', speechCtx);
-        const speech = getGremlySpeech(speechCtx);
+        const speechResult = getGremlySpeech(speechCtx);
         console.log(
           '[Gremly Speech] generated speech:',
-          speech,
+          speechResult,
           'lastSpeechRef:',
           lastSpeechRef.current,
         );
-        if (speech) {
-          lastSpeechRef.current = speech;
-          showGremlySpeech(speech);
-          console.log('[Gremly Speech] showGremlySpeech called with:', speech);
+        if (speechResult) {
+          lastSpeechRef.current = speechResult.message;
+          showGremlySpeech(speechResult.message, speechResult.duration);
+          console.log('[Gremly Speech] showGremlySpeech called with:', speechResult.message);
         }
       } else {
         console.log('[Gremly Speech] No createdDetails, skipping speech');
@@ -5801,7 +5903,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     user,
     userId,
     showGremlySpeech,
-    getGremlySpeech,
+    dropsToday,
+    isReturningUser,
   ]);
 
   // Photo Drop handlers
@@ -5949,17 +6052,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             <LogOut size={20} color="#6A6F76" />
           </Pressable>
 
-          {/* Speech bubble - absolutely positioned, overlays content */}
+          {/* Gremly speech - absolutely positioned to overlay without affecting layout */}
           {gremlySpeech && (
             <Reanimated.View
-              style={styles.speechBubbleContainer}
-              entering={FadeIn.duration(250)}
-              exiting={FadeOut.duration(200)}
+              style={styles.gremlySpeechContainer}
+              entering={FadeIn.duration(200)}
+              exiting={FadeOut.duration(150)}
             >
-              <View style={styles.speechBubbleTailUp} />
-              <View style={styles.speechBubble}>
-                <Text style={styles.speechBubbleText}>{gremlySpeech}</Text>
-              </View>
+              <TypewriterText text={gremlySpeech} style={styles.gremlySpeechText} />
             </Reanimated.View>
           )}
         </View>
@@ -6322,9 +6422,9 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       left: 25, // Shifted right to center under MindDrop text
       top: 40, // Moved up closer to text baseline
       width: 108, // ~60% of 180px width
-      height: 3,
+      height: 2,
       backgroundColor: '#D4A853',
-      borderRadius: 2,
+      borderRadius: 1,
     },
     countBadge: {
       backgroundColor: '#BFD8C0',
@@ -6339,41 +6439,18 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Medium',
       color: '#2E5540',
     },
-    speechBubbleContainer: {
+    gremlySpeechContainer: {
       position: 'absolute',
-      top: 105, // Below header row, connected to mascot
-      left: 56, // Align with mascot position
+      top: 130,
+      left: 36,
       zIndex: 100,
+      maxWidth: 200,
     },
-    speechBubble: {
-      backgroundColor: '#FFFFFF',
-      borderRadius: 14,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      maxWidth: 220,
-      shadowColor: '#000',
-      shadowOpacity: 0.08,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 10,
-    },
-    speechBubbleText: {
+    gremlySpeechText: {
       fontFamily: 'Inter-Regular',
-      fontSize: 12,
-      color: '#8A9490',
-      lineHeight: 16,
-    },
-    speechBubbleTailUp: {
-      marginLeft: 24,
-      marginBottom: -1,
-      width: 0,
-      height: 0,
-      borderLeftWidth: 8,
-      borderRightWidth: 8,
-      borderBottomWidth: 8,
-      borderLeftColor: 'transparent',
-      borderRightColor: 'transparent',
-      borderBottomColor: '#FFFFFF',
+      fontSize: 13,
+      color: '#6B7C6E',
+      lineHeight: 18,
     },
 
     contextPrompt: {
