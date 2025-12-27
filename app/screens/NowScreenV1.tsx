@@ -35,6 +35,9 @@ import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
+import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
+import { OneThingCard } from '../components/today/OneThingCard';
+import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
 // Store and selectors
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import {
@@ -244,6 +247,22 @@ export default function NowScreenV1() {
   const loading = useIsLoading();
   const isInitialized = useGremlyStore((state) => state.isInitialized);
 
+  // Morning Brief
+  const { hasCompletedBriefToday, oneThingId, oneThingType, brief } = useMorningBrief();
+  const [isBriefSheetVisible, setBriefSheetVisible] = useState(false);
+
+  // Get One Thing details from store
+  const oneThingItem = useGremlyStore((s) => {
+    if (!oneThingId || !oneThingType) return null;
+    if (oneThingType === 'todo') {
+      const todo = s.todos.find((t) => t.id === oneThingId);
+      return todo ? { name: todo.name || todo.title || 'Untitled', type: 'todo' as const } : null;
+    } else {
+      const habit = s.habits.find((h) => h.id === oneThingId);
+      return habit ? { name: habit.name || 'Untitled', type: 'habit' as const } : null;
+    }
+  });
+
   // Today's items - already filtered by selectors
   const lockedItems = useLockedItems();
   const activeItems = useActiveItems();
@@ -435,6 +454,20 @@ export default function NowScreenV1() {
     setQuickAddVisible(true);
   }, []);
 
+  // Handle opening Morning Brief sheet
+  const handleOpenBrief = useCallback(() => {
+    setBriefSheetVisible(true);
+  }, []);
+
+  // Handle One Thing card press (open detail)
+  const handleOneThingPress = useCallback(() => {
+    if (oneThingId && oneThingType) {
+      overlayController.openEdit({
+        record: { id: oneThingId, type: oneThingType } as any,
+      });
+    }
+  }, [oneThingId, oneThingType, overlayController]);
+
   // Add item to Today's Focus by setting due_day to today
   const handleAddToToday = useCallback(
     async (item: SweepCandidate) => {
@@ -552,21 +585,45 @@ export default function NowScreenV1() {
         <View style={styles.focusSectionHeaderLeft}>
           <Text style={styles.focusSectionTitle}>Today's Focus</Text>
         </View>
-        {/* Right: Add to Today header button */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.headerAddButton,
-            pressed && styles.headerAddButtonPressed,
-          ]}
-          onPress={handleAddPress}
-          testID="header-add-to-today"
-          accessibilityRole="button"
-          accessibilityLabel="Add to Today"
-        >
-          <Text style={styles.headerAddButtonText}>+ Add to Today</Text>
-        </Pressable>
+        {/* Right: Action buttons */}
+        <View style={styles.headerActions}>
+          {/* Organize button */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerOrganizeButton,
+              pressed && styles.headerButtonPressed,
+            ]}
+            onPress={handleOpenBrief}
+            testID="header-organize"
+            accessibilityRole="button"
+            accessibilityLabel="Organize your day"
+          >
+            <Text style={styles.headerOrganizeButtonText}>Organize</Text>
+          </Pressable>
+
+          {/* Add to Today button */}
+          <Pressable
+            style={({ pressed }) => [styles.headerAddButton, pressed && styles.headerButtonPressed]}
+            onPress={handleAddPress}
+            testID="header-add-to-today"
+            accessibilityRole="button"
+            accessibilityLabel="Add to Today"
+          >
+            <Text style={styles.headerAddButtonText}>+ Add</Text>
+          </Pressable>
+        </View>
       </View>
       <View style={styles.focusSectionDivider} />
+
+      {/* One Thing Card - shows when brief is completed */}
+      {hasCompletedBriefToday && oneThingItem && (
+        <OneThingCard
+          title={oneThingItem.name}
+          type={oneThingItem.type}
+          onPress={handleOneThingPress}
+          onChangePress={handleOpenBrief}
+        />
+      )}
       <View style={styles.focusSectionWrapper}>
         <TodayFocusList
           lockedItems={displayLockedItems}
@@ -670,6 +727,12 @@ export default function NowScreenV1() {
           setSelectedJournalId(null);
           // Store auto-updates, no reload needed
         }}
+      />
+
+      {/* Morning Brief Sheet */}
+      <MorningBriefSheet
+        visible={isBriefSheetVisible}
+        onClose={() => setBriefSheetVisible(false)}
       />
     </Screen>
   );
@@ -1002,6 +1065,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0E1116',
   },
+  // Header actions container
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  // Organize button
+  headerOrganizeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2E5540',
+  },
+  headerOrganizeButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#2E5540',
+  },
+  headerButtonPressed: {
+    opacity: 0.7,
+  },
   // Header Add to Today button - small ghost pill
   headerAddButton: {
     flexDirection: 'row',
@@ -1010,9 +1098,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 14,
-  },
-  headerAddButtonPressed: {
-    backgroundColor: '#D4E4D6', // Slightly darker on press
   },
   headerAddButtonText: {
     fontSize: 12,
