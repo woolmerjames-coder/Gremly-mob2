@@ -3546,13 +3546,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const handleInfoOpen = useCallback(() => setInfoOpen(true), []);
   const handleInfoClose = useCallback(() => setInfoOpen(false), []);
-  const handleBack = useCallback(() => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      (navigation as any).navigate('Tabs');
-    }
-  }, [navigation]);
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -6176,7 +6169,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleTodayCountChange,
     overlay,
     inputDynHeight,
-    handleBack,
     handleInfoOpen,
     recentDropsOpacity,
     isInputFocused,

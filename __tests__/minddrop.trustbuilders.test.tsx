@@ -106,8 +106,9 @@ describe('Mind Drop Trust Builders', () => {
   // Due to async timing complexities with the refreshOrganizedToday callback and mock repo setup,
   // these are marked as skip. The core behavior (static trust line rendering) is tested above
   // and in app/screens/__tests__/CatchAllNotepad.greeting.placeholder.test.tsx
+  // UPDATE: Trust row ("X thoughts organized today") was removed in navigation refactor
 
-  test('displays static count message when items exist', async () => {
+  test.skip('displays static count message when items exist', async () => {
     setTodayCounts(2, 1, 0); // total 3
     render(<CatchAllNotepad testOrganizedTodayOverride={3} />);
 
@@ -115,7 +116,7 @@ describe('Mind Drop Trust Builders', () => {
     expect(String(trustText.props.children)).toBe('3 thoughts organized today');
   });
 
-  test('shows singular "thought" when count is 1', async () => {
+  test.skip('shows singular "thought" when count is 1', async () => {
     setTodayCounts(1, 0, 0);
     render(<CatchAllNotepad testOrganizedTodayOverride={1} />);
 

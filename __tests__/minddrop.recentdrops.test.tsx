@@ -312,7 +312,8 @@ describe('RecentDrops in Mind Drop', () => {
     expect((badgeLabel as string).toLowerCase()).toContain('due');
   });
 
-  test('shows singular stats copy when exactly one item is organized today', async () => {
+  // NOTE: Stats row ("X thoughts organized today") was removed in navigation refactor
+  test.skip('shows singular stats copy when exactly one item is organized today', async () => {
     const now = new Date();
     const notes = [makeNote('n-single', 'single note', now)];
     // Set up selector mocks
@@ -327,7 +328,8 @@ describe('RecentDrops in Mind Drop', () => {
     expect(screen.getByText('1 thought organized today')).toBeTruthy();
   });
 
-  test('shows plural stats copy when multiple items are organized today', async () => {
+  // NOTE: Stats row ("X thoughts organized today") was removed in navigation refactor
+  test.skip('shows plural stats copy when multiple items are organized today', async () => {
     const now = new Date();
     const notes = [
       makeNote('n1', 'first note', now),
@@ -345,7 +347,8 @@ describe('RecentDrops in Mind Drop', () => {
     expect(screen.getByText('2 thoughts organized today')).toBeTruthy();
   });
 
-  test('hides stats row when nothing has been organized today', async () => {
+  // NOTE: Stats row ("X thoughts organized today") was removed in navigation refactor
+  test.skip('hides stats row when nothing has been organized today', async () => {
     // Set up selector mocks to return empty
     (mockSelectRecentNotes as jest.Mock).mockReturnValue([]);
     (mockSelectRecentTodos as jest.Mock).mockReturnValue([]);

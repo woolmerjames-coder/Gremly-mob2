@@ -77,7 +77,8 @@ describe('CatchAllNotepad greeting and static placeholder', () => {
     expect(counter.props.children).toBe('1500/2000');
   });
 
-  it('renders the privacy badge with expected copy', () => {
+  // NOTE: Privacy badge ("Private & secure") was removed in navigation refactor
+  it.skip('renders the privacy badge with expected copy', () => {
     render(<CatchAllNotepad />);
     const input = screen.getByTestId('minddrop-input');
     fireEvent.changeText(input, 'privacy check');
