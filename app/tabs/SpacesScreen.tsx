@@ -119,6 +119,17 @@ function SpacesScreen() {
               <MascotIcon size={72} />
               <Text style={styles.emptyTitle}>Where your deeper thinking lives</Text>
               <Text style={styles.emptySubtitle}>Projects · Plans · Habits · Research</Text>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: '500',
+                  color: '#2E5540',
+                  marginTop: 12,
+                  textAlign: 'center',
+                }}
+              >
+                Chat with Gremly
+              </Text>
             </View>
           ) : (
             <View style={styles.spacesList}>
@@ -171,11 +182,11 @@ function SpacesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F9F6F1',
   },
   animatedContainer: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F9F6F1',
   },
   header: {
     paddingHorizontal: 20,
@@ -243,7 +254,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 14,
     paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F9F6F1',
   },
   spaceRowContent: {
     flexDirection: 'row',

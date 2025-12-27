@@ -6349,7 +6349,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     speechBubbleContainer: {
       position: 'absolute',
-      top: 120, // Below header row, overlays Recent drops
+      top: 105, // Below header row, connected to mascot
       left: 56, // Align with mascot position
       zIndex: 100,
     },

@@ -1,5 +1,5 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Image } from 'react-native';
+import { Image, StyleSheet } from 'react-native';
 import TodayScreen from '../app/tabs/TodayScreen';
 import HubScreen from '../app/tabs/HubScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
