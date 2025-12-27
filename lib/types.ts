@@ -493,6 +493,62 @@ export interface HabitBuddy {
  */
 export type MascotState = 'idle' | 'thinking' | 'replying' | 'playful' | 'celebration' | 'rest';
 
+// ============================================================================
+// MORNING BRIEF TYPES
+// ============================================================================
+
+/**
+ * Sequenced item reference - stored in time block arrays
+ */
+export interface SequencedItem {
+  id: ID;
+  type: 'todo' | 'habit';
+}
+
+/**
+ * Time blocks for Morning Brief sequencing
+ */
+export type TimeBlock = 'morning' | 'day' | 'evening' | 'whenever';
+
+/**
+ * DailyBrief - Daily intention-setting state
+ * Stored in Supabase, synced via Zustand store
+ */
+export interface DailyBrief {
+  id: ID;
+  owner_id: ID;
+
+  /** Date this brief applies to (YYYY-MM-DD format) */
+  date: string;
+
+  /** The ONE thing - anchor task for the day */
+  one_thing_id: ID | null;
+  one_thing_type: 'todo' | 'habit' | null;
+
+  /** Time block sequences */
+  morning_sequence: SequencedItem[];
+  day_sequence: SequencedItem[];
+  evening_sequence: SequencedItem[];
+
+  /** Timestamp when brief was completed (null = not completed) */
+  completed_at: string | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Input type for creating/updating a brief
+ */
+export interface DailyBriefInput {
+  one_thing_id?: ID | null;
+  one_thing_type?: 'todo' | 'habit' | null;
+  morning_sequence?: SequencedItem[];
+  day_sequence?: SequencedItem[];
+  evening_sequence?: SequencedItem[];
+  completed_at?: string | null;
+}
+
 /**
  * Helper functions
  */

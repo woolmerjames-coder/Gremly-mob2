@@ -1,7 +1,17 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { supabase } from '../supabase/client';
-import type { Todo, Habit, Note, Space, Tag, SpaceChat, SpaceChatMessage } from '../types';
+import type {
+  Todo,
+  Habit,
+  Note,
+  Space,
+  Tag,
+  SpaceChat,
+  SpaceChatMessage,
+  DailyBrief,
+  DailyBriefInput,
+} from '../types';
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
 
@@ -95,6 +105,12 @@ interface GremlyState {
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
   milestones: Milestone[];
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MORNING BRIEF STATE
+  // ═══════════════════════════════════════════════════════════════════
+  dailyBrief: DailyBrief | null;
+  dailyBriefLoading: boolean;
 
   // Loading/sync state
   isLoading: boolean;
@@ -194,6 +210,13 @@ interface GremlyState {
   listLogPhotos: (noteId: string) => Promise<Array<{ id: string; url: string; position: number }>>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // MORNING BRIEF MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  fetchTodayBrief: () => Promise<void>;
+  saveBrief: (input: DailyBriefInput) => Promise<void>;
+  clearBrief: () => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
   // BULK/UTILITY
   // ═══════════════════════════════════════════════════════════════════
   refreshFromServer: () => Promise<void>;
@@ -218,6 +241,8 @@ const initialState = {
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
   milestones: [] as Milestone[],
+  dailyBrief: null as DailyBrief | null,
+  dailyBriefLoading: false,
   isLoading: false,
   isInitialized: false,
   lastSyncedAt: null as Date | null,
@@ -262,6 +287,7 @@ export const useGremlyStore = create<GremlyState>()(
           progressRes,
           chatsRes,
           milestonesRes,
+          dailyBriefRes,
         ] = await Promise.all([
           supabase.from('todos').select('*').eq('owner_id', userId),
           supabase.from('habits').select('*').eq('owner_id', userId),
@@ -275,6 +301,12 @@ export const useGremlyStore = create<GremlyState>()(
             .gte('occurred_day', sinceDate),
           supabase.from('space_chats').select('*').eq('user_id', userId),
           supabase.from('space_milestones').select('*').eq('owner_id', userId),
+          supabase
+            .from('daily_briefs')
+            .select('*')
+            .eq('owner_id', userId)
+            .eq('date', new Date().toISOString().split('T')[0])
+            .maybeSingle(),
         ]);
 
         // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
@@ -284,10 +316,12 @@ export const useGremlyStore = create<GremlyState>()(
         if (spacesRes.error) throw spacesRes.error;
         if (tagsRes.error) throw tagsRes.error;
         if (progressRes.error) throw progressRes.error;
-        // Log but don't throw for chats/milestones
+        // Log but don't throw for chats/milestones/dailyBrief
         if (chatsRes.error) console.warn('[GremlyStore] space_chats fetch error:', chatsRes.error);
         if (milestonesRes.error)
           console.warn('[GremlyStore] milestones fetch error:', milestonesRes.error);
+        if (dailyBriefRes.error)
+          console.warn('[GremlyStore] daily_briefs fetch error:', dailyBriefRes.error);
 
         set({
           // Add type field since DB doesn't store it
@@ -299,6 +333,7 @@ export const useGremlyStore = create<GremlyState>()(
           habitProgress: progressRes.data ?? [],
           spaceChats: chatsRes.data ?? [],
           milestones: milestonesRes.data ?? [],
+          dailyBrief: dailyBriefRes.data ?? null,
           spaceChatMessages: [], // Messages are loaded on-demand per chat
           isLoading: false,
           isInitialized: true,
@@ -313,6 +348,7 @@ export const useGremlyStore = create<GremlyState>()(
           habitProgress: progressRes.data?.length ?? 0,
           spaceChats: chatsRes.data?.length ?? 0,
           milestones: milestonesRes.data?.length ?? 0,
+          dailyBrief: dailyBriefRes.data?.id ?? 'none',
         });
 
         // Auto-detect timezone on initialize
@@ -351,6 +387,8 @@ export const useGremlyStore = create<GremlyState>()(
         spaceChats: [],
         spaceChatMessages: [],
         milestones: [],
+        dailyBrief: null,
+        dailyBriefLoading: false,
         isLoading: false,
         isInitialized: false,
         lastSyncedAt: null,
@@ -1737,6 +1775,136 @@ export const useGremlyStore = create<GremlyState>()(
       } catch (error) {
         console.error('[GremlyStore] refreshFromServer failed:', error);
         set({ isLoading: false });
+      }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MORNING BRIEF MUTATIONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    fetchTodayBrief: async () => {
+      const userId = get().userId;
+      if (!userId) return;
+
+      const todayDate = new Date().toISOString().split('T')[0];
+
+      set({ dailyBriefLoading: true });
+
+      try {
+        const { data, error } = await supabase
+          .from('daily_briefs')
+          .select('*')
+          .eq('owner_id', userId)
+          .eq('date', todayDate)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        set({
+          dailyBrief: data ?? null,
+          dailyBriefLoading: false,
+        });
+
+        console.log('[GremlyStore] ✅ Fetched daily brief:', data?.id ?? 'none');
+      } catch (error) {
+        console.error('[GremlyStore] ❌ fetchTodayBrief failed:', error);
+        set({ dailyBriefLoading: false });
+      }
+    },
+
+    saveBrief: async (input: DailyBriefInput) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const todayDate = new Date().toISOString().split('T')[0];
+      const now = new Date().toISOString();
+      const existingBrief = get().dailyBrief;
+
+      // Build the payload
+      const payload = {
+        owner_id: userId,
+        date: todayDate,
+        one_thing_id: input.one_thing_id ?? null,
+        one_thing_type: input.one_thing_type ?? null,
+        morning_sequence: input.morning_sequence ?? [],
+        day_sequence: input.day_sequence ?? [],
+        evening_sequence: input.evening_sequence ?? [],
+        completed_at: input.completed_at ?? now,
+        updated_at: now,
+      };
+
+      // Optimistic update
+      const optimisticBrief: DailyBrief = {
+        id: existingBrief?.id ?? `temp_${Date.now()}`,
+        ...payload,
+        created_at: existingBrief?.created_at ?? now,
+      };
+      set({ dailyBrief: optimisticBrief });
+
+      try {
+        if (existingBrief?.id && !existingBrief.id.startsWith('temp_')) {
+          // Update existing brief
+          const { error } = await supabase
+            .from('daily_briefs')
+            .update(payload)
+            .eq('id', existingBrief.id);
+
+          if (error) throw error;
+          console.log('[GremlyStore] ✅ Updated daily brief:', existingBrief.id);
+        } else {
+          // Insert new brief (upsert pattern)
+          const { data, error } = await supabase
+            .from('daily_briefs')
+            .upsert(payload, {
+              onConflict: 'owner_id,date',
+              ignoreDuplicates: false,
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+
+          // Update with real ID from database
+          set({ dailyBrief: data });
+          console.log('[GremlyStore] ✅ Created daily brief:', data.id);
+        }
+
+        // Emit event for other components
+        eventBus.emit('DailyBriefSaved', { date: todayDate });
+      } catch (error) {
+        console.error('[GremlyStore] ❌ saveBrief failed:', error);
+        // Rollback optimistic update
+        set({ dailyBrief: existingBrief });
+        throw error;
+      }
+    },
+
+    clearBrief: async () => {
+      const userId = get().userId;
+      if (!userId) return;
+
+      const todayDate = new Date().toISOString().split('T')[0];
+      const existingBrief = get().dailyBrief;
+
+      // Optimistic update
+      set({ dailyBrief: null });
+
+      try {
+        const { error } = await supabase
+          .from('daily_briefs')
+          .delete()
+          .eq('owner_id', userId)
+          .eq('date', todayDate);
+
+        if (error) throw error;
+
+        console.log('[GremlyStore] ✅ Cleared daily brief');
+        eventBus.emit('DailyBriefCleared', { date: todayDate });
+      } catch (error) {
+        console.error('[GremlyStore] ❌ clearBrief failed:', error);
+        // Rollback
+        set({ dailyBrief: existingBrief });
+        throw error;
       }
     },
 

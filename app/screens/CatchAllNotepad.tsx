@@ -6443,14 +6443,14 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       position: 'absolute',
       top: 130,
       left: 36,
+      right: 80, // Leave room for the arrow icon on the right
       zIndex: 100,
-      maxWidth: 200,
     },
     gremlySpeechText: {
-      fontFamily: 'Inter-Regular',
-      fontSize: 13,
-      color: '#6B7C6E',
-      lineHeight: 18,
+      fontFamily: 'Inter-Medium',
+      fontSize: 14,
+      color: '#2E5540',
+      lineHeight: 20,
     },
 
     contextPrompt: {
