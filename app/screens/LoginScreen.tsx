@@ -26,7 +26,7 @@ const COLORS = {
 };
 
 export default function LoginScreen() {
-  const { signInWithGoogle, signInWithApple, loading, error, clearError } = useAuth();
+  const { signInWithGoogle, signInWithApple, loading, error, clearError, devSignIn } = useAuth();
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   const handleGoogleSignIn = async () => {
@@ -114,6 +114,21 @@ export default function LoginScreen() {
           <Text style={styles.disclaimer}>
             By continuing, you agree to our Terms of Service and Privacy Policy
           </Text>
+
+          {__DEV__ && (
+            <TouchableOpacity
+              style={styles.devButton}
+              onPress={async () => {
+                try {
+                  await devSignIn();
+                } catch (err) {
+                  console.error('[LoginScreen] Dev sign in failed:', err);
+                }
+              }}
+            >
+              <Text style={styles.devButtonText}>🛠️ Dev Sign In</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -208,5 +223,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
     paddingHorizontal: 20,
+  },
+  devButton: {
+    marginTop: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#FFD700',
+    borderRadius: 8,
+  },
+  devButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
   },
 });

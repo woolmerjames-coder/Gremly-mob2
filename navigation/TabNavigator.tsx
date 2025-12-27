@@ -1,10 +1,15 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, StyleSheet } from 'react-native';
-import { CalendarDays, ArrowDown, Globe, Search } from 'lucide-react-native';
+import { Image } from 'react-native';
 import TodayScreen from '../app/tabs/TodayScreen';
 import HubScreen from '../app/tabs/HubScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
+
+// Tab bar icon images
+import TODAY_ICON from '../assets/todayicon-bg.png';
+import MINDDROP_ICON from '../assets/minddropicon-bg.png';
+import SPACES_ICON from '../assets/spacesicon-bg.png';
+import HUB_ICON from '../assets/hubicon-bg.png';
 
 /**
  * Tab navigator param list for type safety
@@ -22,31 +27,6 @@ const Tab = createBottomTabNavigator<TabParamList>();
 const MOSS_GREEN = '#2E5540';
 const LINEN_CREAM = '#F9F6F1';
 const LINEN_GRAY = '#E3E0D9';
-
-/**
- * TabIcon - Renders tab bar icons with focus state using Lucide icons
- */
-function TabIcon({
-  Icon,
-  focused,
-  size = 26,
-}: {
-  Icon: React.ComponentType<{ size: number; color: string; strokeWidth?: number }>;
-  focused: boolean;
-  size?: number;
-}) {
-  return (
-    <View
-      style={[
-        styles.iconContainer,
-        focused && styles.iconContainerFocused,
-        { opacity: focused ? 1 : 0.6 },
-      ]}
-    >
-      <Icon size={size} color={MOSS_GREEN} strokeWidth={focused ? 2 : 1.5} />
-    </View>
-  );
-}
 
 /**
  * TabNavigator - Main bottom tab navigation
@@ -89,40 +69,54 @@ export default function TabNavigator() {
         name="Today"
         component={TodayScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon Icon={CalendarDays} focused={focused} size={26} />,
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={TODAY_ICON}
+              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+              resizeMode="contain"
+            />
+          ),
         }}
       />
       <Tab.Screen
         name="MindDrop"
         component={CatchAllNotepad}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon Icon={ArrowDown} focused={focused} size={26} />,
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={MINDDROP_ICON}
+              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+              resizeMode="contain"
+            />
+          ),
         }}
       />
       <Tab.Screen
         name="Spaces"
         component={SpacesScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon Icon={Globe} focused={focused} size={26} />,
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={SPACES_ICON}
+              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+              resizeMode="contain"
+            />
+          ),
         }}
       />
       <Tab.Screen
         name="Hub"
         component={HubScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon Icon={Search} focused={focused} size={26} />,
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={HUB_ICON}
+              style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+              resizeMode="contain"
+            />
+          ),
         }}
       />
     </Tab.Navigator>
   );
 }
-
-const styles = StyleSheet.create({
-  iconContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconContainerFocused: {
-    marginTop: -2, // Subtle lift when active
-  },
-});

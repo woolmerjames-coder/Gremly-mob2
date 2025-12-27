@@ -28,14 +28,16 @@ import { useCallback } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
-import { StyleSheet, View, Pressable, Alert, ScrollView } from 'react-native';
+import { StyleSheet, View, Pressable, Alert, ScrollView, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { Plus } from 'lucide-react-native';
 
+import SPACES_TITLE from '../../assets/spacestitle.png';
+
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useActiveSpaces } from '../../lib/store/selectors';
-import { Box, Text } from '../../ui';
+import { Text } from '../../ui';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { setNewSpaceCallback } from '../../components/CreateSpaceModal';
 import { useReducedMotion } from '../../design/animations';
@@ -92,7 +94,12 @@ function SpacesScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Spaces</Text>
+          <Image
+            source={SPACES_TITLE}
+            style={styles.headerTitleImage}
+            resizeMode="contain"
+            accessibilityLabel="Spaces"
+          />
         </View>
 
         <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
@@ -177,11 +184,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  headerTitle: {
-    fontFamily: 'PlusJakartaSans-SemiBold',
-    fontSize: 22,
-    fontWeight: '600',
-    color: '#222222',
+  headerTitleImage: {
+    height: 34,
+    width: 140,
   },
   content: {
     flex: 1,
