@@ -230,6 +230,12 @@ interface GremlyState {
   clearBrief: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // COMMITMENT MUTATIONS (with optimistic Zustand updates)
+  // ═══════════════════════════════════════════════════════════════════
+  addCommitment: (id: string, type: 'todo' | 'habit', note?: string | null) => Promise<void>;
+  removeCommitment: (id: string, type: 'todo' | 'habit', reason?: string | null) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
   // BULK/UTILITY
   // ═══════════════════════════════════════════════════════════════════
   refreshFromServer: () => Promise<void>;
@@ -1918,6 +1924,116 @@ export const useGremlyStore = create<GremlyState>()(
         // Rollback
         set({ dailyBrief: existingBrief });
         throw error;
+      }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // COMMITMENT MUTATIONS (with optimistic Zustand updates)
+    // ═══════════════════════════════════════════════════════════════════
+
+    addCommitment: async (id: string, type: 'todo' | 'habit', note?: string | null) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const startedAt = new Date().toISOString();
+      const table = type === 'habit' ? 'habits' : 'todos';
+
+      // 1. Optimistic update to Zustand
+      if (type === 'todo') {
+        set((state) => ({
+          todos: state.todos.map((t) =>
+            t.id === id
+              ? {
+                  ...t,
+                  commitment: true,
+                  commitment_started_at: startedAt,
+                  commitment_note: note ?? null,
+                }
+              : t,
+          ),
+        }));
+      } else {
+        set((state) => ({
+          habits: state.habits.map((h) =>
+            h.id === id
+              ? {
+                  ...h,
+                  commitment: true,
+                  commitment_started_at: startedAt,
+                  commitment_note: note ?? null,
+                }
+              : h,
+          ),
+        }));
+      }
+
+      // 2. Persist to Supabase directly
+      const { error } = await supabase
+        .from(table)
+        .update({
+          commitment: true,
+          commitment_started_at: startedAt,
+          ...(note !== undefined ? { commitment_note: note } : {}),
+        })
+        .eq('id', id)
+        .eq('owner_id', userId);
+
+      if (error) {
+        console.error('[GremlyStore] addCommitment failed:', error);
+        throw new Error(`COMMITMENT_SET_FAILED: ${error.message}`);
+      }
+    },
+
+    removeCommitment: async (id: string, type: 'todo' | 'habit', reason?: string | null) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const archivedAt = new Date().toISOString();
+      const table = type === 'habit' ? 'habits' : 'todos';
+
+      // 1. Optimistic update to Zustand
+      if (type === 'todo') {
+        set((state) => ({
+          todos: state.todos.map((t) =>
+            t.id === id
+              ? {
+                  ...t,
+                  commitment: false,
+                  commitment_archived_at: archivedAt,
+                  commitment_note: reason ?? t.commitment_note,
+                }
+              : t,
+          ),
+        }));
+      } else {
+        set((state) => ({
+          habits: state.habits.map((h) =>
+            h.id === id
+              ? {
+                  ...h,
+                  commitment: false,
+                  commitment_archived_at: archivedAt,
+                  commitment_note: reason ?? h.commitment_note,
+                }
+              : h,
+          ),
+        }));
+      }
+
+      // 2. Persist to Supabase directly
+      const { error } = await supabase
+        .from(table)
+        .update({
+          commitment: false,
+          commitment_archived_at: archivedAt,
+          ...(reason ? { commitment_note: reason } : {}),
+        })
+        .eq('id', id)
+        .eq('owner_id', userId);
+
+      if (error) {
+        console.error('[GremlyStore] removeCommitment failed:', error);
+        throw new Error(`COMMITMENT_REMOVE_FAILED: ${error.message}`);
       }
     },
 
