@@ -74,6 +74,19 @@ function sanitizeForSupabase(
     sanitized.name = sanitized.title;
   }
 
+  // CRITICAL: Sync due_date and due_day for todos to satisfy DB constraint 'todos_due_day_matches'
+  // When due_day is set/updated, due_date must match. When due_day is cleared, due_date must also be cleared.
+  if (entityType === 'todo' && 'due_day' in sanitized) {
+    const dueDay = sanitized.due_day as string | null | undefined;
+    if (dueDay && /^\d{4}-\d{2}-\d{2}$/.test(dueDay)) {
+      // due_day is a valid YYYY-MM-DD string - sync due_date
+      sanitized.due_date = dueDay;
+    } else if (dueDay === null) {
+      // due_day is being cleared - also clear due_date
+      sanitized.due_date = null;
+    }
+  }
+
   return sanitized;
 }
 
@@ -1820,12 +1833,12 @@ export const useGremlyStore = create<GremlyState>()(
       const now = new Date().toISOString();
       const existingBrief = get().dailyBrief;
 
-      // Build the payload
+      // Build the payload (one_thing_id/one_thing_type deprecated - locked items use locked_in field)
       const payload = {
         owner_id: userId,
         date: todayDate,
-        one_thing_id: input.one_thing_id ?? null,
-        one_thing_type: input.one_thing_type ?? null,
+        one_thing_id: null, // Deprecated - kept for DB compatibility
+        one_thing_type: null, // Deprecated - kept for DB compatibility
         morning_sequence: input.morning_sequence ?? [],
         day_sequence: input.day_sequence ?? [],
         evening_sequence: input.evening_sequence ?? [],

@@ -68,7 +68,7 @@ const GREMLY_AVATAR = require('../../assets/buttonforHP.png');
 
 // Lock-in diamond icon for committed items
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const LOCKIN_ICON = require('../../assets/lockin icon.png');
+const LOCKIN_ICON = require('../../assets/lockin_icon.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CTA Types
@@ -395,7 +395,7 @@ export function SweepCard({
     setShowTimePicker(false);
     setSelectedTimePreset(null);
     setKeepAfterDatePick(false);
-    
+
     // Reset to defaults first
     setSelectedQuickAction(getDefaultSelection());
     setHasUserSelected(false);
@@ -405,13 +405,13 @@ export function SweepCard({
     // If there's a previous decision, restore it
     if (previousDecision) {
       setHasUserSelected(true);
-      
+
       if (previousDecision.dueDate) {
         // Check if it matches a quick action or is custom
         const tomorrow = addDays(new Date(), 1);
         const twoDays = addDays(new Date(), 2);
         const monday = nextMonday(new Date());
-        
+
         if (isSameDay(previousDecision.dueDate, tomorrow)) {
           setSelectedQuickAction('tomorrow');
         } else if (isSameDay(previousDecision.dueDate, twoDays)) {
@@ -423,14 +423,17 @@ export function SweepCard({
           setConfirmedCustomDate(previousDecision.dueDate);
         }
       }
-      
+
       if (previousDecision.habitAction) {
         setSelectedHabitAction(previousDecision.habitAction);
         if (previousDecision.startDate && previousDecision.habitAction !== 'asktomorrow') {
           // Check if start date is custom
           const tomorrow = addDays(new Date(), 1);
           const monday = nextMonday(new Date());
-          if (!isSameDay(previousDecision.startDate, tomorrow) && !isSameDay(previousDecision.startDate, monday)) {
+          if (
+            !isSameDay(previousDecision.startDate, tomorrow) &&
+            !isSameDay(previousDecision.startDate, monday)
+          ) {
             setConfirmedCustomDate(previousDecision.startDate);
           }
         }
@@ -627,7 +630,17 @@ export function SweepCard({
       // No selection, just keep/skip
       onSkip();
     }
-  }, [isUnconfirmedHabit, selectedHabitAction, confirmedCustomDate, selectedDate, onConfirmHabitStart, selectedQuickAction, onConfirmQuickDate, onConfirmCustomDate, onSkip]);
+  }, [
+    isUnconfirmedHabit,
+    selectedHabitAction,
+    confirmedCustomDate,
+    selectedDate,
+    onConfirmHabitStart,
+    selectedQuickAction,
+    onConfirmQuickDate,
+    onConfirmCustomDate,
+    onSkip,
+  ]);
 
   // Handle swipe left completion - called from worklet via runOnJS
   const handleSwipeLeft = useCallback(() => {
@@ -1221,11 +1234,16 @@ export function SweepCard({
                         accessibilityLabel="Start tomorrow"
                         activeOpacity={0.7}
                       >
-                        <ArrowRightCircle size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <ArrowRightCircle
+                          size={16}
+                          color={BRAND.colors.mossGreen}
+                          strokeWidth={2}
+                        />
                         <Text
                           style={[
                             styles.gridButtonLabel,
-                            selectedHabitAction === 'starttomorrow' && styles.gridButtonLabelPrimary,
+                            selectedHabitAction === 'starttomorrow' &&
+                              styles.gridButtonLabelPrimary,
                           ]}
                         >
                           Start Tomorrow
@@ -1285,19 +1303,21 @@ export function SweepCard({
                     </View>
 
                     {/* Confirmation hint - shows after selection */}
-                    {hasUserSelected && selectedHabitAction && selectedHabitAction !== 'pickdate' && (
-                      <View style={styles.confirmationHint}>
-                        <Text style={styles.confirmationHintText}>Swipe right to confirm</Text>
-                        <RNAnimated.Text
-                          style={[
-                            styles.confirmationHintArrow,
-                            { transform: [{ translateX: hintArrowAnim }] },
-                          ]}
-                        >
-                          →
-                        </RNAnimated.Text>
-                      </View>
-                    )}
+                    {hasUserSelected &&
+                      selectedHabitAction &&
+                      selectedHabitAction !== 'pickdate' && (
+                        <View style={styles.confirmationHint}>
+                          <Text style={styles.confirmationHintText}>Swipe right to confirm</Text>
+                          <RNAnimated.Text
+                            style={[
+                              styles.confirmationHintArrow,
+                              { transform: [{ translateX: hintArrowAnim }] },
+                            ]}
+                          >
+                            →
+                          </RNAnimated.Text>
+                        </View>
+                      )}
                   </>
                 ) : (
                   <>
@@ -1557,13 +1577,8 @@ export function SweepCard({
                 >
                   <Text style={styles.dateModalCancelText}>Cancel</Text>
                 </Pressable>
-                <Pressable
-                  style={styles.dateModalConfirmButton}
-                  onPress={handleDateConfirm}
-                >
-                  <Text style={styles.dateModalConfirmText}>
-                    {clearDateFlag ? 'Clear' : 'Set'}
-                  </Text>
+                <Pressable style={styles.dateModalConfirmButton} onPress={handleDateConfirm}>
+                  <Text style={styles.dateModalConfirmText}>{clearDateFlag ? 'Clear' : 'Set'}</Text>
                 </Pressable>
               </View>
             </ScrollView>

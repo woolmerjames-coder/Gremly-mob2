@@ -93,6 +93,10 @@ export interface Habit {
 
   // Phase 12: Pinned items feature
   is_pinned?: boolean;
+
+  // Morning Brief: locked-in items
+  locked_in?: boolean;
+  locked_in_at?: string | null;
 }
 
 /**
@@ -155,6 +159,10 @@ export interface Todo {
   skipped_in_sweep_at?: string | null;
   // Sweep reschedule tracking - counts how many times rescheduled via quick date buttons
   sweep_reschedule_count?: number;
+
+  // Morning Brief: locked-in items
+  locked_in?: boolean;
+  locked_in_at?: string | null;
 }
 
 /**
@@ -521,8 +529,9 @@ export interface DailyBrief {
   /** Date this brief applies to (YYYY-MM-DD format) */
   date: string;
 
-  /** The ONE thing - anchor task for the day */
+  /** @deprecated Use locked_in field on todos/habits instead */
   one_thing_id: ID | null;
+  /** @deprecated Use locked_in field on todos/habits instead */
   one_thing_type: 'todo' | 'habit' | null;
 
   /** Time block sequences */
@@ -541,7 +550,9 @@ export interface DailyBrief {
  * Input type for creating/updating a brief
  */
 export interface DailyBriefInput {
+  /** @deprecated Use locked_in field on todos/habits instead */
   one_thing_id?: ID | null;
+  /** @deprecated Use locked_in field on todos/habits instead */
   one_thing_type?: 'todo' | 'habit' | null;
   morning_sequence?: SequencedItem[];
   day_sequence?: SequencedItem[];

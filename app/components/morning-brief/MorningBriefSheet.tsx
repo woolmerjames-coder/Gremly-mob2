@@ -1,13 +1,12 @@
 /**
  * MorningBriefSheet - Morning Brief Flow Modal
  *
- * Bottom sheet for daily intention-setting:
+ * Two-step flow:
  * 1. Select "One Thing" (or skip)
- * 2. Optionally sequence tasks into time blocks
- * 3. Done - Today page reflects the intention
+ * 2. Optionally sequence tasks into time blocks (Morning/Day/Evening)
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,68 +17,224 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
+import DraggableFlatList, {
+  ScaleDecorator,
+  RenderItemParams,
+} from 'react-native-draggable-flatlist';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BRAND } from '../../../design/brand';
 import { useMorningBrief } from '../../../lib/today/hooks/useMorningBrief';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
-import type { DailyBriefInput } from '../../../lib/types';
+import { useLockedItems } from '../../../lib/store/selectors';
+import { useRepo } from '../../../providers/RepoProvider';
+import type { SequencedItem } from '../../../lib/types';
 
 // Step in the brief flow
-type BriefStep = 'one-thing' | 'sequence' | 'done';
+type BriefStep = 'one-thing' | 'sequence';
+
+// Time block for sequencing
+type TimeBlock = 'morning' | 'day' | 'evening' | 'whenever';
+
+// Task item with block assignment
+interface SequenceTask {
+  id: string;
+  type: 'todo' | 'habit';
+  name: string;
+  block: TimeBlock;
+}
 
 interface MorningBriefSheetProps {
   visible: boolean;
   onClose: () => void;
+  /** Called when brief is saved (for marking daily open) */
+  onComplete?: () => void;
 }
 
-export function MorningBriefSheet({ visible, onClose }: MorningBriefSheetProps) {
+// Block labels and colors
+const BLOCK_CONFIG: Record<TimeBlock, { label: string; color: string; icon: string }> = {
+  morning: { label: 'Morning', color: '#F59E0B', icon: '☀️' },
+  day: { label: 'Day', color: '#3B82F6', icon: '🌤' },
+  evening: { label: 'Evening', color: '#8B5CF6', icon: '🌙' },
+  whenever: { label: 'Whenever', color: BRAND.colors.inkMuted, icon: '📋' },
+};
+
+const MAX_SELECTIONS = 3;
+
+/**
+ * Get today's date string in YYYY-MM-DD format (local time)
+ */
+function getTodayDateString(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBriefSheetProps) {
   const insets = useSafeAreaInsets();
-  const {
-    candidates,
-    saveBrief,
-    brief,
-    oneThingId,
-    morningSequence,
-    daySequence,
-    eveningSequence,
-  } = useMorningBrief();
+  const repo = useRepo();
+
+  // Morning brief - sequences only
+  const { saveBrief, morningSequence, daySequence, eveningSequence } = useMorningBrief();
+
+  // Locked items from selectors (single source of truth)
+  const rawLockedItems = useLockedItems();
+  const lockedItems = useMemo(() => {
+    return rawLockedItems.map((item) => ({
+      id: item.id,
+      type: ('cadence' in item ? 'habit' : 'todo') as 'todo' | 'habit',
+      name: item.name || ('title' in item ? (item as any).title : '') || 'Untitled',
+    }));
+  }, [rawLockedItems]);
+  const lockedItemIds = useMemo(() => new Set(lockedItems.map((item) => item.id)), [lockedItems]);
+
+  // Candidates: active todos due today + daily habits (excluding already locked)
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+  const candidates = useMemo(() => {
+    const todayDate = getTodayDateString();
+
+    const todayTodos = todos
+      .filter((t) => {
+        if (t.archived || t.completed_at || t.commitment) return false;
+        if (t.due_day && t.due_day > todayDate) return false;
+        return true;
+      })
+      .map((t) => ({
+        id: t.id,
+        type: 'todo' as const,
+        name: t.name || t.title || 'Untitled',
+      }));
+
+    const todayHabits = habits
+      .filter((h) => {
+        if (h.archived || h.commitment) return false;
+        return h.cadence === 'daily' || !h.cadence;
+      })
+      .map((h) => ({
+        id: h.id,
+        type: 'habit' as const,
+        name: h.name || 'Untitled',
+      }));
+
+    return [...todayTodos, ...todayHabits];
+  }, [todos, habits]);
+
+  // Lock items using repo.addCommitment
+  const lockItems = useCallback(
+    async (items: Array<{ id: string; type: 'todo' | 'habit' }>) => {
+      const limitedItems = items.slice(0, MAX_SELECTIONS);
+      await Promise.all(limitedItems.map((item) => repo.addCommitment(item.id, item.type, null)));
+    },
+    [repo],
+  );
 
   // Quick-add state
   const [quickAddText, setQuickAddText] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
 
-  // Selection state
-  const [selectedOneThingId, setSelectedOneThingId] = useState<string | null>(oneThingId);
-  const [selectedOneThingType, setSelectedOneThingType] = useState<'todo' | 'habit' | null>(
-    brief?.one_thing_type ?? null,
+  // Multi-select state - initialize from already locked items
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
+    return new Set(lockedItems.map((item) => item.id));
+  });
+  const [selectedItems, setSelectedItems] = useState<Array<{ id: string; type: 'todo' | 'habit' }>>(
+    () => lockedItems.map((item) => ({ id: item.id, type: item.type })),
   );
 
+  // Shake animation for max selection feedback
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const [maxWarning, setMaxWarning] = useState(false);
+
+  const triggerShake = useCallback(() => {
+    setMaxWarning(true);
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start(() => {
+      setTimeout(() => setMaxWarning(false), 1500);
+    });
+  }, [shakeAnim]);
+
   // Flow step
-  const [_step, setStep] = useState<BriefStep>('one-thing');
+  const [step, setStep] = useState<BriefStep>('one-thing');
+
+  // Sequencing state - initialize from existing brief or candidates
+  const [sequenceTasks, setSequenceTasks] = useState<SequenceTask[]>(() => {
+    // Build initial sequence from existing brief or default all to 'whenever'
+    const taskMap = new Map<string, SequenceTask>();
+
+    // Add all candidates as 'whenever' first
+    candidates.forEach((c) => {
+      taskMap.set(c.id, { ...c, block: 'whenever' });
+    });
+
+    // Override with existing sequences
+    morningSequence.forEach((item) => {
+      const existing = taskMap.get(item.id);
+      if (existing) {
+        taskMap.set(item.id, { ...existing, block: 'morning' });
+      }
+    });
+    daySequence.forEach((item) => {
+      const existing = taskMap.get(item.id);
+      if (existing) {
+        taskMap.set(item.id, { ...existing, block: 'day' });
+      }
+    });
+    eveningSequence.forEach((item) => {
+      const existing = taskMap.get(item.id);
+      if (existing) {
+        taskMap.set(item.id, { ...existing, block: 'evening' });
+      }
+    });
+
+    return Array.from(taskMap.values());
+  });
 
   // Store actions for quick-add
   const createTodo = useGremlyStore((s) => s.createTodo);
 
-  // Get selected item details
-  const selectedItem = useMemo(() => {
-    if (!selectedOneThingId) return null;
-    return candidates.find((c) => c.id === selectedOneThingId) ?? null;
-  }, [selectedOneThingId, candidates]);
+  // Get anchor item (first selected)
+  const anchorItem = useMemo(() => {
+    if (selectedItems.length === 0) return null;
+    const firstId = selectedItems[0].id;
+    return candidates.find((c) => c.id === firstId) ?? null;
+  }, [selectedItems, candidates]);
 
-  // Handle task selection
-  const handleSelectTask = useCallback((id: string, type: 'todo' | 'habit') => {
-    setSelectedOneThingId(id);
-    setSelectedOneThingType(type);
-  }, []);
+  // Handle task selection (step 1) - toggle multi-select
+  const handleSelectTask = useCallback(
+    (id: string, type: 'todo' | 'habit') => {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) {
+          // Deselect
+          next.delete(id);
+          setSelectedItems((items) => items.filter((item) => item.id !== id));
+        } else {
+          // Check max limit
+          if (next.size >= MAX_SELECTIONS) {
+            triggerShake();
+            return prev; // Don't modify
+          }
+          // Select
+          next.add(id);
+          setSelectedItems((items) => [...items, { id, type }]);
+        }
+        return next;
+      });
+    },
+    [triggerShake],
+  );
 
-  // Handle quick-add (inline Mind Drop)
+  // Handle quick-add
   const handleQuickAdd = useCallback(async () => {
     if (!quickAddText.trim()) return;
 
     setIsAddingTask(true);
     try {
-      // Create todo with today's date
       const todayDate = new Date().toISOString().split('T')[0];
       const newTodo = await createTodo({
         name: quickAddText.trim(),
@@ -87,9 +242,18 @@ export function MorningBriefSheet({ visible, onClose }: MorningBriefSheetProps) 
         ai_placed: false,
       });
 
-      // Auto-select the new task
-      setSelectedOneThingId(newTodo.id);
-      setSelectedOneThingType('todo');
+      // Auto-select the new task (if under limit)
+      if (selectedIds.size < MAX_SELECTIONS) {
+        setSelectedIds((prev) => new Set(prev).add(newTodo.id));
+        setSelectedItems((prev) => [...prev, { id: newTodo.id, type: 'todo' }]);
+      }
+
+      // Add to sequence tasks
+      setSequenceTasks((prev) => [
+        ...prev,
+        { id: newTodo.id, type: 'todo', name: newTodo.name, block: 'whenever' },
+      ]);
+
       setQuickAddText('');
     } catch (error) {
       console.error('[MorningBrief] Quick add failed:', error);
@@ -98,40 +262,80 @@ export function MorningBriefSheet({ visible, onClose }: MorningBriefSheetProps) 
     }
   }, [quickAddText, createTodo]);
 
-  // Handle "Set as One Thing" / proceed
-  const handleSetOneThing = useCallback(async () => {
-    // Save the brief with One Thing
+  // Handle proceeding to sequence step
+  const handleProceedToSequence = useCallback(() => {
+    setStep('sequence');
+  }, []);
+
+  // Handle block assignment
+  const handleAssignBlock = useCallback((taskId: string, block: TimeBlock) => {
+    setSequenceTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, block } : t)));
+  }, []);
+
+  // Handle final save
+  const handleSave = useCallback(async () => {
+    // Lock all selected items
+    if (selectedItems.length > 0) {
+      await lockItems(selectedItems);
+    }
+
+    // Build sequences from current state
+    const morning: SequencedItem[] = sequenceTasks
+      .filter((t) => t.block === 'morning')
+      .map((t) => ({ id: t.id, type: t.type }));
+
+    const day: SequencedItem[] = sequenceTasks
+      .filter((t) => t.block === 'day')
+      .map((t) => ({ id: t.id, type: t.type }));
+
+    const evening: SequencedItem[] = sequenceTasks
+      .filter((t) => t.block === 'evening')
+      .map((t) => ({ id: t.id, type: t.type }));
+
     await saveBrief({
-      one_thing_id: selectedOneThingId,
-      one_thing_type: selectedOneThingType,
-      morning_sequence: morningSequence,
-      day_sequence: daySequence,
-      evening_sequence: eveningSequence,
+      morning_sequence: morning,
+      day_sequence: day,
+      evening_sequence: evening,
     });
 
-    // Move to sequence step or close
-    // For v1, skip sequencing and just close
+    onComplete?.();
     onClose();
-  }, [
-    selectedOneThingId,
-    selectedOneThingType,
-    saveBrief,
-    morningSequence,
-    daySequence,
-    eveningSequence,
-    onClose,
-  ]);
+  }, [sequenceTasks, selectedItems, lockItems, saveBrief, onComplete, onClose]);
+
+  // Handle "Lock It In" (skip sequencing)
+  const handleLockItIn = useCallback(async () => {
+    // Lock all selected items
+    if (selectedItems.length > 0) {
+      await lockItems(selectedItems);
+    }
+
+    await saveBrief({
+      morning_sequence: [],
+      day_sequence: [],
+      evening_sequence: [],
+    });
+
+    onComplete?.();
+    onClose();
+  }, [selectedItems, lockItems, saveBrief, onComplete, onClose]);
 
   // Handle skip
   const handleSkip = useCallback(() => {
-    // Close without saving - user keeps flat list
+    onComplete?.();
     onClose();
-  }, [onClose]);
+  }, [onComplete, onClose]);
 
-  // Render task item
-  const renderTaskItem = useCallback(
+  // Handle back to step 1
+  const handleBack = useCallback(() => {
+    setStep('one-thing');
+  }, []);
+
+  // Render task item for step 1 (selection)
+  const renderSelectionItem = useCallback(
     ({ item }: { item: (typeof candidates)[0] }) => {
-      const isSelected = item.id === selectedOneThingId;
+      const isSelected = selectedIds.has(item.id);
+      const selectionIndex = selectedItems.findIndex((s) => s.id === item.id);
+      const isAnchor = selectionIndex === 0;
 
       return (
         <Pressable
@@ -139,22 +343,228 @@ export function MorningBriefSheet({ visible, onClose }: MorningBriefSheetProps) 
           onPress={() => handleSelectTask(item.id, item.type)}
           testID={`brief-task-${item.id}`}
         >
-          {/* Selection indicator */}
-          <View style={[styles.radio, isSelected && styles.radioSelected]}>
-            {isSelected && <View style={styles.radioDot} />}
+          <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+            {isSelected && <Text style={styles.checkmark}>✓</Text>}
           </View>
 
-          {/* Task info */}
           <View style={styles.taskInfo}>
             <Text style={styles.taskName} numberOfLines={2}>
+              {isAnchor && '⚓ '}
               {item.name}
             </Text>
-            <Text style={styles.taskType}>{item.type === 'habit' ? 'Habit' : 'To-do'}</Text>
+            <Text style={styles.taskType}>
+              {item.type === 'habit' ? 'Habit' : 'To-do'}
+              {isAnchor && ' · Anchor'}
+            </Text>
           </View>
         </Pressable>
       );
     },
-    [selectedOneThingId, handleSelectTask],
+    [selectedIds, selectedItems, handleSelectTask],
+  );
+
+  // Render task item for step 2 (sequencing)
+  const renderSequenceItem = useCallback(
+    ({ item, drag, isActive }: RenderItemParams<SequenceTask>) => {
+      const isLocked = selectedIds.has(item.id);
+      const lockIndex = selectedItems.findIndex((s) => s.id === item.id);
+      const isAnchor = lockIndex === 0;
+      const blockConfig = BLOCK_CONFIG[item.block];
+
+      return (
+        <ScaleDecorator>
+          <Pressable
+            style={[
+              styles.sequenceItem,
+              isActive && styles.sequenceItemActive,
+              isLocked && styles.sequenceItemLocked,
+            ]}
+            onLongPress={drag}
+            delayLongPress={150}
+            testID={`sequence-task-${item.id}`}
+          >
+            {/* Drag handle */}
+            <View style={styles.dragHandle}>
+              <Text style={styles.dragHandleText}>⋮⋮</Text>
+            </View>
+
+            {/* Task info */}
+            <View style={styles.sequenceTaskInfo}>
+              <Text style={styles.sequenceTaskName} numberOfLines={1}>
+                {isAnchor ? '⚓ ' : isLocked ? '🔒 ' : ''}
+                {item.name}
+              </Text>
+            </View>
+
+            {/* Block selector */}
+            <View style={styles.blockSelector}>
+              {(['morning', 'day', 'evening'] as TimeBlock[]).map((block) => {
+                const config = BLOCK_CONFIG[block];
+                const isCurrentBlock = item.block === block;
+
+                return (
+                  <Pressable
+                    key={block}
+                    style={[styles.blockPill, isCurrentBlock && { backgroundColor: config.color }]}
+                    onPress={() => handleAssignBlock(item.id, block)}
+                    hitSlop={4}
+                  >
+                    <Text
+                      style={[styles.blockPillText, isCurrentBlock && styles.blockPillTextActive]}
+                    >
+                      {config.label.charAt(0)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Pressable>
+        </ScaleDecorator>
+      );
+    },
+    [selectedIds, selectedItems, handleAssignBlock],
+  );
+
+  // Step 1: Lock In Selection
+  const renderStepOneThing = () => (
+    <>
+      <View style={styles.content}>
+        <Animated.View style={{ transform: [{ translateX: shakeAnim }] }}>
+          <Text style={styles.question}>What matters most today?</Text>
+        </Animated.View>
+
+        <Text style={styles.subtext}>Pick up to 3 tasks to lock in. First one is your anchor.</Text>
+
+        {/* Selection counter */}
+        <View style={styles.selectionCounter}>
+          <Text style={[styles.selectionCountText, maxWarning && styles.selectionCountWarning]}>
+            {selectedIds.size} of {MAX_SELECTIONS} selected
+            {maxWarning && ' — Max reached!'}
+          </Text>
+        </View>
+
+        {/* Quick add input */}
+        <View style={styles.quickAddContainer}>
+          <TextInput
+            style={styles.quickAddInput}
+            placeholder="Or type something new..."
+            placeholderTextColor={BRAND.colors.inkMuted}
+            value={quickAddText}
+            onChangeText={setQuickAddText}
+            onSubmitEditing={handleQuickAdd}
+            returnKeyType="done"
+            editable={!isAddingTask}
+          />
+          {quickAddText.length > 0 && (
+            <Pressable
+              style={styles.quickAddButton}
+              onPress={handleQuickAdd}
+              disabled={isAddingTask}
+            >
+              <Text style={styles.quickAddButtonText}>{isAddingTask ? '...' : 'Add'}</Text>
+            </Pressable>
+          )}
+        </View>
+
+        {/* Task list */}
+        <FlatList
+          data={candidates}
+          keyExtractor={(item) => item.id}
+          renderItem={renderSelectionItem}
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>No tasks yet. Type above to add one.</Text>
+            </View>
+          }
+        />
+      </View>
+
+      {/* Footer */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+        {selectedIds.size > 0 ? (
+          <View style={styles.footerButtons}>
+            <Pressable
+              style={styles.secondaryButton}
+              onPress={handleLockItIn}
+              testID="brief-lock-it-in"
+            >
+              <Text style={styles.secondaryButtonText}>Lock It In</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.primaryButton}
+              onPress={handleProceedToSequence}
+              testID="brief-sequence"
+            >
+              <Text style={styles.primaryButtonText}>Sequence Day</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            style={[styles.primaryButton, styles.primaryButtonDisabled]}
+            disabled
+            testID="brief-confirm"
+          >
+            <Text style={[styles.primaryButtonText, styles.primaryButtonTextDisabled]}>
+              Select a Task
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </>
+  );
+
+  // Step 2: Sequencing
+  const renderStepSequence = () => (
+    <>
+      <View style={styles.content}>
+        <Text style={styles.question}>Sequence your day</Text>
+
+        <Text style={styles.subtext}>
+          Drag tasks or tap M/D/E to assign time blocks. Leave as-is for "whenever."
+        </Text>
+
+        {/* Block legend */}
+        <View style={styles.blockLegend}>
+          {(['morning', 'day', 'evening'] as TimeBlock[]).map((block) => {
+            const config = BLOCK_CONFIG[block];
+            return (
+              <View key={block} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: config.color }]} />
+                <Text style={styles.legendText}>{config.label}</Text>
+              </View>
+            );
+          })}
+        </View>
+
+        {/* Draggable task list */}
+        <GestureHandlerRootView style={styles.list}>
+          <DraggableFlatList
+            data={sequenceTasks}
+            keyExtractor={(item) => item.id}
+            renderItem={renderSequenceItem}
+            onDragEnd={({ data }) => setSequenceTasks(data)}
+            containerStyle={styles.listContent}
+          />
+        </GestureHandlerRootView>
+      </View>
+
+      {/* Footer */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+        <View style={styles.footerButtons}>
+          <Pressable style={styles.secondaryButton} onPress={handleBack} testID="brief-back">
+            <Text style={styles.secondaryButtonText}>Back</Text>
+          </Pressable>
+
+          <Pressable style={styles.primaryButton} onPress={handleSave} testID="brief-save">
+            <Text style={styles.primaryButtonText}>Lock It In</Text>
+          </Pressable>
+        </View>
+      </View>
+    </>
   );
 
   return (
@@ -162,7 +572,7 @@ export function MorningBriefSheet({ visible, onClose }: MorningBriefSheetProps) 
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={handleSkip}
     >
       <KeyboardAvoidingView
         style={styles.container}
@@ -171,80 +581,18 @@ export function MorningBriefSheet({ visible, onClose }: MorningBriefSheetProps) 
         {/* Header */}
         <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
           <Pressable onPress={handleSkip} hitSlop={12} testID="brief-skip">
-            <Text style={styles.skipText}>Skip</Text>
+            <Text style={styles.skipText}>{step === 'one-thing' ? 'Skip' : 'Cancel'}</Text>
           </Pressable>
 
-          <Text style={styles.headerTitle}>Set Your Intention</Text>
-
-          <View style={{ width: 40 }} />
-        </View>
-
-        {/* Main content */}
-        <View style={styles.content}>
-          {/* Question */}
-          <Text style={styles.question}>What's the ONE thing that would make today a win?</Text>
-
-          <Text style={styles.subtext}>
-            Pick one task to anchor your day. Everything else is bonus.
+          <Text style={styles.headerTitle}>
+            {step === 'one-thing' ? 'Lock in your focus' : 'Plan Your Day'}
           </Text>
 
-          {/* Quick add input */}
-          <View style={styles.quickAddContainer}>
-            <TextInput
-              style={styles.quickAddInput}
-              placeholder="Or type something new..."
-              placeholderTextColor={BRAND.colors.inkMuted}
-              value={quickAddText}
-              onChangeText={setQuickAddText}
-              onSubmitEditing={handleQuickAdd}
-              returnKeyType="done"
-              editable={!isAddingTask}
-            />
-            {quickAddText.length > 0 && (
-              <Pressable
-                style={styles.quickAddButton}
-                onPress={handleQuickAdd}
-                disabled={isAddingTask}
-              >
-                <Text style={styles.quickAddButtonText}>{isAddingTask ? '...' : 'Add'}</Text>
-              </Pressable>
-            )}
-          </View>
-
-          {/* Task list */}
-          <FlatList
-            data={candidates}
-            keyExtractor={(item) => item.id}
-            renderItem={renderTaskItem}
-            style={styles.list}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>No tasks yet. Type above to add one.</Text>
-              </View>
-            }
-          />
+          <View style={{ width: 50 }} />
         </View>
 
-        {/* Footer */}
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-          <Pressable
-            style={[styles.primaryButton, !selectedOneThingId && styles.primaryButtonDisabled]}
-            onPress={handleSetOneThing}
-            disabled={!selectedOneThingId}
-            testID="brief-confirm"
-          >
-            <Text
-              style={[
-                styles.primaryButtonText,
-                !selectedOneThingId && styles.primaryButtonTextDisabled,
-              ]}
-            >
-              {selectedOneThingId ? 'Lock It In' : 'Select a Task'}
-            </Text>
-          </Pressable>
-        </View>
+        {/* Step content */}
+        {step === 'one-thing' ? renderStepOneThing() : renderStepSequence()}
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -340,24 +688,36 @@ const styles = StyleSheet.create({
     borderColor: BRAND.colors.mossGreen,
     backgroundColor: 'rgba(46, 85, 64, 0.04)',
   },
-  radio: {
+  checkbox: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: 6,
     borderWidth: 2,
     borderColor: BRAND.colors.inkMuted,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
-  radioSelected: {
+  checkboxSelected: {
     borderColor: BRAND.colors.mossGreen,
-  },
-  radioDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
     backgroundColor: BRAND.colors.mossGreen,
+  },
+  checkmark: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: BRAND.colors.surface,
+  },
+  selectionCounter: {
+    marginBottom: 12,
+  },
+  selectionCountText: {
+    fontSize: 14,
+    color: BRAND.colors.inkSubtle,
+    fontWeight: '500',
+  },
+  selectionCountWarning: {
+    color: '#EF4444',
+    fontWeight: '600',
   },
   taskInfo: {
     flex: 1,
@@ -388,7 +748,12 @@ const styles = StyleSheet.create({
     borderTopColor: BRAND.colors.borderSubtle,
     backgroundColor: BRAND.colors.linenCream,
   },
+  footerButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
   primaryButton: {
+    flex: 1,
     backgroundColor: BRAND.colors.mossGreen,
     borderRadius: BRAND.radius.md,
     paddingVertical: 16,
@@ -404,5 +769,96 @@ const styles = StyleSheet.create({
   },
   primaryButtonTextDisabled: {
     color: BRAND.colors.inkMuted,
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    borderRadius: BRAND.radius.md,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: BRAND.colors.mossGreen,
+  },
+  secondaryButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+  },
+  // Sequencing styles
+  blockLegend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+    marginBottom: 16,
+    paddingVertical: 8,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendText: {
+    fontSize: 13,
+    color: BRAND.colors.inkSubtle,
+  },
+  sequenceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: BRAND.radius.md,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+  },
+  sequenceItemActive: {
+    backgroundColor: BRAND.colors.sageMist,
+    transform: [{ scale: 1.02 }],
+  },
+  sequenceItemLocked: {
+    borderColor: BRAND.colors.mossGreen,
+    borderWidth: 2,
+  },
+  dragHandle: {
+    paddingRight: 12,
+    paddingVertical: 4,
+  },
+  dragHandleText: {
+    fontSize: 16,
+    color: BRAND.colors.inkMuted,
+    letterSpacing: -2,
+  },
+  sequenceTaskInfo: {
+    flex: 1,
+  },
+  sequenceTaskName: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  blockSelector: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  blockPill: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: BRAND.colors.borderSubtle,
+  },
+  blockPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.inkMuted,
+  },
+  blockPillTextActive: {
+    color: BRAND.colors.surface,
   },
 });

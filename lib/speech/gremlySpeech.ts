@@ -236,6 +236,28 @@ const SPEECH_POOLS = {
     'Inbox zero! Enjoy it while it lasts.',
     "Nothing here yet. What's on your mind?",
   ],
+
+  MORNING_BRIEF: {
+    prompt: [
+      "Good morning! Let's set up your day.",
+      "Rise and shine! What's your One Thing today?",
+      'New day, fresh start. Pick your focus.',
+      "Morning! Let's get clear on today.",
+      'Hey there! Ready to plan your day?',
+    ],
+    complete: [
+      "Locked in! You've got this.",
+      "Perfect. Go get 'em!",
+      'Day planned. Time to crush it.',
+      "You're all set. Let's do this!",
+      'Great choices. Today is yours.',
+    ],
+    skip: [
+      "No worries! I'm here when you're ready.",
+      'All good. Come back anytime.',
+      'Skipped for now. You know where to find me!',
+    ],
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -346,6 +368,19 @@ export function getGreetingSpeech(): { message: string; duration: number } {
 
 export function getEmptyStateSpeech(): { message: string; duration: number } {
   const message = pickRandom(SPEECH_POOLS.EMPTY_STATE, recentMessages);
+  trackMessage(message);
+  return {
+    message,
+    duration: calculateDuration(message),
+  };
+}
+
+export function getMorningBriefSpeech(event: 'prompt' | 'complete' | 'skip'): {
+  message: string;
+  duration: number;
+} {
+  const pool = SPEECH_POOLS.MORNING_BRIEF[event];
+  const message = pickRandom(pool, recentMessages);
   trackMessage(message);
   return {
     message,
