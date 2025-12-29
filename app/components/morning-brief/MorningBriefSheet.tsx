@@ -431,7 +431,8 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     setSummaryExpanded(false);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: reset state when modal opens
     setSelectedTaskId(null);
-  }, [visible, rawLockedItems, morningSequence, daySequence, eveningSequence]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentional: only re-run when modal visibility changes
+  }, [visible]);
 
   // Derived bucket contents (ordered)
   const unorganizedTasks = useMemo(
@@ -569,28 +570,27 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
   // Remove a task from its bucket
   const handleRemoveFromBucket = useCallback(
-    async (taskId: string) => {
-      // If this was an originally locked item, we need to remove the commitment
+    (taskId: string) => {
+      // If this was an originally locked item, remove the commitment (fire and forget)
       if (originalLockedIdsRef.current.has(taskId)) {
-        try {
-          const item = rawLockedItems.find((i) => i.id === taskId);
-          if (item) {
-            const itemType = ('cadence' in item ? 'habit' : 'todo') as 'todo' | 'habit';
-            await removeCommitment(taskId, itemType);
-          }
-        } catch (error) {
-          console.error('[MorningBrief] Failed to remove commitment:', error);
+        const item = rawLockedItems.find((i) => i.id === taskId);
+        if (item) {
+          const itemType = ('cadence' in item ? 'habit' : 'todo') as 'todo' | 'habit';
+          // Fire and forget - don't await
+          removeCommitment(taskId, itemType).catch((error) => {
+            console.error('[MorningBrief] Failed to remove commitment:', error);
+          });
         }
       }
 
-      // Remove from local assignments
+      // Remove from local assignments immediately
       setAssignments((prev) => {
         const next = new Map(prev);
         next.delete(taskId);
         return next;
       });
 
-      // Remove from bucket order
+      // Remove from bucket orders
       setBucketOrders((prev) => {
         const next = new Map(prev);
         for (const [key, order] of next) {
