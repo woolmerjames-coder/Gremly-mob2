@@ -53,6 +53,8 @@ import { useMorningBrief } from '../../../lib/today/hooks/useMorningBrief';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useLockedItems } from '../../../lib/store/selectors';
 import { Clock, Sunrise, Sun, Moon } from 'lucide-react-native';
+import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
+import { useNowQuickAdd } from '../../../lib/now/useNowQuickAdd';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_FACE = require('../../../assets/buttonforHP.png');
@@ -282,6 +284,30 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   const [draggingTask, setDraggingTask] = useState<TaskItem | null>(null);
   const [highlightedBucket, setHighlightedBucket] = useState<Bucket | null>(null);
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
+
+  // Quick add modal state
+  const [isQuickAddVisible, setQuickAddVisible] = useState(false);
+  const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+
+  // Quick add hook with optimistic UI
+  const quickAdd = useNowQuickAdd({
+    onStart: (draftTitle) => {
+      setOptimisticQuickAdd({
+        id: `morning-brief-optimistic-${Date.now()}`,
+        title: draftTitle,
+      });
+      setQuickAddVisible(false);
+    },
+    onComplete: () => {
+      setOptimisticQuickAdd(null);
+    },
+    onError: () => {
+      setOptimisticQuickAdd(null);
+    },
+  });
 
   // Re-initialize assignments when modal opens
   useEffect(() => {
@@ -578,6 +604,22 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     setSelectedTaskId(taskId);
   }, []);
 
+  const handleAddPress = useCallback(() => {
+    setQuickAddVisible(true);
+  }, []);
+
+  const handleQuickAddSubmit = useCallback(
+    (text: string) => {
+      quickAdd.onQuickAdd(text);
+    },
+    [quickAdd],
+  );
+
+  const handleQuickAddManual = useCallback(() => {
+    setQuickAddVisible(false);
+    // Could open full overlay here if needed
+  }, []);
+
   // Render a bucket drop zone
   const renderBucket = useCallback(
     (bucket: (typeof BUCKETS)[0], itemCount: number) => {
@@ -694,12 +736,34 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
               Long-press and drag tasks to schedule, or tap to assign.
             </Text>
 
+            {/* Add to Today button */}
+            <Pressable style={styles.addToTodayButton} onPress={handleAddPress}>
+              <Text style={styles.addToTodayButtonText}>+ Add to Today</Text>
+            </Pressable>
+
             {/* Scrollable task list - takes available space */}
             <ScrollView
               style={styles.taskListScroll}
               contentContainerStyle={styles.taskListContent}
               showsVerticalScrollIndicator={true}
             >
+              {/* Optimistic quick-add card */}
+              {optimisticQuickAdd && (
+                <View style={[styles.taskCard, styles.taskCardOptimistic]}>
+                  <Image
+                    source={require('../../../assets/buttonforHP.png')}
+                    style={styles.gremlyHandle}
+                    resizeMode="contain"
+                  />
+                  <View style={styles.taskInfo}>
+                    <Text style={styles.taskName} numberOfLines={1}>
+                      {optimisticQuickAdd.title}
+                    </Text>
+                    <Text style={styles.taskType}>Processing...</Text>
+                  </View>
+                </View>
+              )}
+
               {unorganizedTasks.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyStateText}>All tasks scheduled!</Text>
@@ -889,6 +953,14 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
               </Pressable>
             </Modal>
           )}
+
+          {/* Quick Add Modal */}
+          <NowQuickAddModal
+            visible={isQuickAddVisible}
+            onClose={() => setQuickAddVisible(false)}
+            onSubmit={handleQuickAddSubmit}
+            onPressManualAdd={handleQuickAddManual}
+          />
         </KeyboardAvoidingView>
       </GestureHandlerRootView>
     </Modal>
@@ -952,6 +1024,26 @@ const styles = StyleSheet.create({
   },
   taskCardDragging: {
     opacity: 0.3,
+  },
+  taskCardOptimistic: {
+    opacity: 0.6,
+    borderStyle: 'dashed',
+  },
+  addToTodayButton: {
+    alignSelf: 'flex-end',
+    backgroundColor: BRAND.colors.surface,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: BRAND.radius.pill,
+    borderWidth: 1,
+    borderColor: BRAND.colors.sageMist,
+    marginBottom: 12,
+    ...BRAND.elevation.one,
+  },
+  addToTodayButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
   gremlyHandle: {
     width: 32,
