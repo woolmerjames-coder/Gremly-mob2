@@ -40,9 +40,8 @@ import {
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
   withTiming,
-  runOnJS,
+  withSequence,
 } from 'react-native-reanimated';
 import DraggableFlatList, {
   RenderItemParams,
@@ -55,9 +54,7 @@ import { useLockedItems } from '../../../lib/store/selectors';
 import { Clock, Sunrise, Sun, Moon } from 'lucide-react-native';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { useNowQuickAdd } from '../../../lib/now/useNowQuickAdd';
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_FACE = require('../../../assets/buttonforHP.png');
+import { triggerMedium, triggerSuccess } from '../../../lib/haptics';
 
 // Bucket types for task organization
 type Bucket = 'lock-in' | 'morning' | 'day' | 'evening';
@@ -275,6 +272,8 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
   // Track which items were originally locked (from Zustand) vs newly assigned
   const originalLockedIdsRef = useRef<Set<string>>(new Set());
+  // Flag to prevent re-initialization during modal close
+  const isClosingRef = useRef(false);
 
   // Bucket layout refs for drop detection
   const bucketLayouts = useRef<Map<Bucket, LayoutRectangle>>(new Map());
@@ -309,9 +308,81 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     },
   });
 
+  // Animated scale values for bucket pulse animation
+  const lockInScale = useSharedValue(1);
+  const morningScale = useSharedValue(1);
+  const dayScale = useSharedValue(1);
+  const eveningScale = useSharedValue(1);
+
+  const lockInAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: lockInScale.value }],
+  }));
+
+  const morningAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: morningScale.value }],
+  }));
+
+  const dayAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: dayScale.value }],
+  }));
+
+  const eveningAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: eveningScale.value }],
+  }));
+
+  const bucketAnimatedStyles = useMemo<Record<Bucket, ReturnType<typeof useAnimatedStyle>>>(
+    () => ({
+      'lock-in': lockInAnimatedStyle,
+      morning: morningAnimatedStyle,
+      day: dayAnimatedStyle,
+      evening: eveningAnimatedStyle,
+    }),
+    [lockInAnimatedStyle, morningAnimatedStyle, dayAnimatedStyle, eveningAnimatedStyle],
+  );
+
+  const triggerBucketPulse = useCallback(
+    (bucket: Bucket) => {
+      // Haptic feedback
+      if (bucket === 'lock-in') {
+        triggerSuccess(); // Stronger feedback for Lock In
+      } else {
+        triggerMedium();
+      }
+
+      // Pulse animation: scale up then back
+      const pulseSequence = withSequence(
+        withTiming(1.15, { duration: 100 }),
+        withTiming(1, { duration: 150 }),
+      );
+
+      // Apply animation to the appropriate bucket
+      if (bucket === 'lock-in') {
+        // eslint-disable-next-line react-hooks/immutability
+        lockInScale.value = pulseSequence;
+      } else if (bucket === 'morning') {
+        // eslint-disable-next-line react-hooks/immutability
+        morningScale.value = pulseSequence;
+      } else if (bucket === 'day') {
+        // eslint-disable-next-line react-hooks/immutability
+        dayScale.value = pulseSequence;
+      } else if (bucket === 'evening') {
+        // eslint-disable-next-line react-hooks/immutability
+        eveningScale.value = pulseSequence;
+      }
+    },
+    [lockInScale, morningScale, dayScale, eveningScale],
+  );
+
   // Re-initialize assignments when modal opens
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      // Reset closing flag when modal is hidden
+      isClosingRef.current = false;
+      return;
+    }
+
+    // Skip re-initialization if we're in the process of closing
+    if (isClosingRef.current) return;
 
     // Capture original locked IDs at modal open time
     originalLockedIdsRef.current = new Set(rawLockedItems.map((item) => item.id));
@@ -394,6 +465,10 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
   const handleDone = useCallback(async () => {
     const originalLockedIds = originalLockedIdsRef.current;
+
+    // Set flag to prevent re-initialization flicker during close
+    isClosingRef.current = true;
+
     try {
       // 1. Find items that were originally locked but are NO LONGER in lock-in bucket
       for (const id of originalLockedIds) {
@@ -426,6 +501,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         evening_sequence: eSeq,
       });
 
+      // Close immediately after all saves complete
       onComplete?.();
       onClose();
     } catch (error) {
@@ -447,41 +523,49 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   ]);
 
   // Assign a task to a bucket
-  const handleAssignToBucket = useCallback((taskId: string, bucket: Bucket) => {
-    setAssignments((prev) => {
-      const next = new Map(prev);
-      if (bucket === 'lock-in') {
-        const currentLockInCount = Array.from(prev.values()).filter((b) => b === 'lock-in').length;
-        if (currentLockInCount >= 3 && prev.get(taskId) !== 'lock-in') {
-          // Max 3 items in lock-in - don't add
-          return prev;
+  const handleAssignToBucket = useCallback(
+    (taskId: string, bucket: Bucket) => {
+      setAssignments((prev) => {
+        const next = new Map(prev);
+        if (bucket === 'lock-in') {
+          const currentLockInCount = Array.from(prev.values()).filter(
+            (b) => b === 'lock-in',
+          ).length;
+          if (currentLockInCount >= 3 && prev.get(taskId) !== 'lock-in') {
+            // Max 3 items in lock-in - don't add
+            return prev;
+          }
         }
-      }
-      next.set(taskId, bucket);
-      return next;
-    });
+        next.set(taskId, bucket);
+        return next;
+      });
 
-    // Add to bucket order
-    setBucketOrders((prev) => {
-      const next = new Map(prev);
-      // Remove from old bucket if exists
-      for (const [key, order] of next) {
-        const idx = order.indexOf(taskId);
-        if (idx !== -1) {
-          next.set(
-            key,
-            order.filter((id) => id !== taskId),
-          );
+      // Add to bucket order
+      setBucketOrders((prev) => {
+        const next = new Map(prev);
+        // Remove from old bucket if exists
+        for (const [key, order] of next) {
+          const idx = order.indexOf(taskId);
+          if (idx !== -1) {
+            next.set(
+              key,
+              order.filter((id) => id !== taskId),
+            );
+          }
         }
-      }
-      // Add to new bucket
-      const currentOrder = next.get(bucket) || [];
-      next.set(bucket, [...currentOrder, taskId]);
-      return next;
-    });
+        // Add to new bucket
+        const currentOrder = next.get(bucket) || [];
+        next.set(bucket, [...currentOrder, taskId]);
+        return next;
+      });
 
-    setSelectedTaskId(null);
-  }, []);
+      // Trigger dopamine pulse
+      triggerBucketPulse(bucket);
+
+      setSelectedTaskId(null);
+    },
+    [triggerBucketPulse],
+  );
 
   // Remove a task from its bucket
   const handleRemoveFromBucket = useCallback(
@@ -627,7 +711,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
       const isMaxed = bucket.key === 'lock-in' && itemCount >= 3 && !isHighlighted;
 
       return (
-        <View
+        <Animated.View
           key={bucket.key}
           ref={(ref) => {
             bucketRefs.current.set(bucket.key, ref);
@@ -637,6 +721,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             bucket.key === 'lock-in' && styles.bucketLockIn,
             isHighlighted && styles.bucketHighlighted,
             { borderColor: isHighlighted ? bucket.color : BRAND.colors.borderSubtle },
+            bucketAnimatedStyles[bucket.key],
           ]}
           onLayout={(e) => {
             e.target.measureInWindow((x, y, width, height) => {
@@ -663,10 +748,10 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             </View>
           )}
           {isMaxed && <Text style={styles.bucketMaxText}>max</Text>}
-        </View>
+        </Animated.View>
       );
     },
-    [highlightedBucket],
+    [highlightedBucket, bucketAnimatedStyles],
   );
 
   // Render item for DraggableFlatList (within-bucket reordering)
@@ -1000,6 +1085,7 @@ const styles = StyleSheet.create({
   },
   taskListScroll: {
     flex: 1,
+    minHeight: 0,
   },
   taskListContent: {
     paddingBottom: 16,
