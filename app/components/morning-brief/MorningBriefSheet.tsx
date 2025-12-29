@@ -51,6 +51,10 @@ import { BRAND } from '../../../design/brand';
 import { useMorningBrief } from '../../../lib/today/hooks/useMorningBrief';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useLockedItems } from '../../../lib/store/selectors';
+import { Clock } from 'lucide-react-native';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_FACE = require('../../../assets/buttonforHP.png');
 
 // Bucket types for task organization
 type Bucket = 'lock-in' | 'morning' | 'day' | 'evening';
@@ -86,6 +90,16 @@ const BUCKETS: { key: Bucket; icon: string; label: string; color: string }[] = [
   { key: 'day', icon: '◐', label: 'Day', color: '#3B82F6' },
   { key: 'evening', icon: '☽', label: 'Evening', color: '#8B5CF6' },
 ];
+
+// Format time estimate for display
+function formatTimeEstimate(minutes: number | null | undefined): string | null {
+  if (!minutes || minutes <= 0) return null;
+  if (minutes < 60) return `${minutes}m`;
+  const hours = minutes / 60;
+  if (hours === 1) return '1h';
+  if (Number.isInteger(hours)) return `${hours}h`;
+  return `${hours.toFixed(1)}h`;
+}
 
 // Draggable task card component
 interface DraggableTaskCardProps {
@@ -185,6 +199,14 @@ function DraggableTaskCard({
                   </Text>
                   <Text style={styles.taskType}>{task.type === 'habit' ? 'Habit' : 'To-do'}</Text>
                 </View>
+                {formatTimeEstimate(task.timeEstimate) && (
+                  <View style={styles.timeEstimate}>
+                    <Clock size={12} color={BRAND.colors.inkMuted} />
+                    <Text style={styles.timeEstimateText}>
+                      {formatTimeEstimate(task.timeEstimate)}
+                    </Text>
+                  </View>
+                )}
               </Animated.View>
             </PanGestureHandler>
           </Animated.View>
@@ -223,6 +245,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         id: t.id,
         type: 'todo' as const,
         name: t.name || t.title || 'Untitled',
+        timeEstimate: t.time_estimate_minutes,
       }));
 
     const todayHabits = habits
@@ -234,6 +257,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         id: h.id,
         type: 'habit' as const,
         name: h.name || 'Untitled',
+        timeEstimate: null,
       }));
 
     return [...todayTodos, ...todayHabits];
@@ -856,17 +880,17 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   taskList: {
-    flex: 1,
-    marginBottom: 16,
+    maxHeight: 280,
+    marginBottom: 12,
   },
   taskCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: BRAND.colors.surface,
     borderRadius: BRAND.radius.md,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 6,
     borderWidth: 1,
     borderColor: BRAND.colors.borderSubtle,
     shadowColor: '#000',
@@ -887,13 +911,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   taskName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '500',
     color: BRAND.colors.charcoalInk,
     marginBottom: 2,
   },
   taskType: {
-    fontSize: 12,
+    fontSize: 11,
+    color: BRAND.colors.inkMuted,
+  },
+  timeEstimate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  timeEstimateText: {
+    fontSize: 11,
     color: BRAND.colors.inkMuted,
   },
   emptyState: {
