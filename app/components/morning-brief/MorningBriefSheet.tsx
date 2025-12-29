@@ -51,7 +51,7 @@ import { BRAND } from '../../../design/brand';
 import { useMorningBrief } from '../../../lib/today/hooks/useMorningBrief';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useLockedItems } from '../../../lib/store/selectors';
-import { Clock } from 'lucide-react-native';
+import { Clock, Sunrise, Sun, Moon } from 'lucide-react-native';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_FACE = require('../../../assets/buttonforHP.png');
@@ -86,9 +86,9 @@ function getTodayDateString(): string {
 // Bucket configuration
 const BUCKETS: { key: Bucket; icon: string; label: string; color: string }[] = [
   { key: 'lock-in', icon: '◇', label: 'Lock In', color: BRAND.colors.mossGreen },
-  { key: 'morning', icon: '☀', label: 'Morning', color: '#F59E0B' },
-  { key: 'day', icon: '◐', label: 'Day', color: '#3B82F6' },
-  { key: 'evening', icon: '☽', label: 'Evening', color: '#8B5CF6' },
+  { key: 'morning', icon: '☀', label: 'Morning', color: BRAND.colors.goldenPear },
+  { key: 'day', icon: '◐', label: 'Day', color: BRAND.colors.mossGreen },
+  { key: 'evening', icon: '☽', label: 'Evening', color: BRAND.colors.periwinkleSmoke },
 ];
 
 // Format time estimate for display
@@ -600,7 +600,18 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             });
           }}
         >
-          <Text style={[styles.bucketIcon, { color: bucket.color }]}>{bucket.icon}</Text>
+          {bucket.key === 'lock-in' && (
+            <Text style={[styles.bucketIcon, { color: bucket.color }]}>{bucket.icon}</Text>
+          )}
+          {bucket.key === 'morning' && (
+            <Sunrise size={22} color={BRAND.colors.goldenPear} style={styles.bucketIconLucide} />
+          )}
+          {bucket.key === 'day' && (
+            <Sun size={22} color={BRAND.colors.sageMist} style={styles.bucketIconLucide} />
+          )}
+          {bucket.key === 'evening' && (
+            <Moon size={22} color={BRAND.colors.periwinkleSmoke} style={styles.bucketIconLucide} />
+          )}
           <Text style={styles.bucketLabel}>{bucket.label}</Text>
           {itemCount > 0 && (
             <View style={[styles.bucketBadge, { backgroundColor: bucket.color }]}>
@@ -621,7 +632,26 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         <ScaleDecorator>
           <View style={[styles.summaryRow, isActive && styles.summaryRowActive]}>
             <Pressable style={styles.summaryRowContent} onLongPress={drag} disabled={isActive}>
-              <Text style={[styles.summaryBucketIcon, { color: bucketColor }]}>{bucketIcon}</Text>
+              {bucket === 'lock-in' && (
+                <Text style={[styles.summaryBucketIcon, { color: bucketColor }]}>{bucketIcon}</Text>
+              )}
+              {bucket === 'morning' && (
+                <Sunrise
+                  size={14}
+                  color={BRAND.colors.goldenPear}
+                  style={styles.summaryIconLucide}
+                />
+              )}
+              {bucket === 'day' && (
+                <Sun size={14} color={BRAND.colors.sageMist} style={styles.summaryIconLucide} />
+              )}
+              {bucket === 'evening' && (
+                <Moon
+                  size={14}
+                  color={BRAND.colors.periwinkleSmoke}
+                  style={styles.summaryIconLucide}
+                />
+              )}
               <Text style={styles.summaryItemName} numberOfLines={1}>
                 {item.name}
               </Text>
@@ -731,7 +761,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                       <DraggableFlatList
                         data={morningItems}
                         keyExtractor={(item) => item.id}
-                        renderItem={renderBucketItem('morning', '#F59E0B', '☀')}
+                        renderItem={renderBucketItem('morning', BRAND.colors.goldenPear, '☀')}
                         onDragEnd={({ data }) => handleReorder('morning', data)}
                         scrollEnabled={false}
                       />
@@ -741,7 +771,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                       <DraggableFlatList
                         data={dayItems}
                         keyExtractor={(item) => item.id}
-                        renderItem={renderBucketItem('day', '#3B82F6', '◐')}
+                        renderItem={renderBucketItem('day', BRAND.colors.mossGreen, '◐')}
                         onDragEnd={({ data }) => handleReorder('day', data)}
                         scrollEnabled={false}
                       />
@@ -751,7 +781,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                       <DraggableFlatList
                         data={eveningItems}
                         keyExtractor={(item) => item.id}
-                        renderItem={renderBucketItem('evening', '#8B5CF6', '☽')}
+                        renderItem={renderBucketItem('evening', BRAND.colors.periwinkleSmoke, '☽')}
                         onDragEnd={({ data }) => handleReorder('evening', data)}
                         scrollEnabled={false}
                       />
@@ -815,7 +845,11 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                     style={styles.pickerOption}
                     onPress={() => handleAssignToBucket(selectedTaskId, 'morning')}
                   >
-                    <Text style={[styles.pickerOptionIcon, { color: '#F59E0B' }]}>☀</Text>
+                    <Sunrise
+                      size={18}
+                      color={BRAND.colors.goldenPear}
+                      style={styles.pickerIconLucide}
+                    />
                     <Text style={styles.pickerOptionText}>Morning</Text>
                   </Pressable>
 
@@ -823,7 +857,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                     style={styles.pickerOption}
                     onPress={() => handleAssignToBucket(selectedTaskId, 'day')}
                   >
-                    <Text style={[styles.pickerOptionIcon, { color: '#3B82F6' }]}>◐</Text>
+                    <Sun size={18} color={BRAND.colors.sageMist} style={styles.pickerIconLucide} />
                     <Text style={styles.pickerOptionText}>Day</Text>
                   </Pressable>
 
@@ -831,7 +865,11 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                     style={styles.pickerOption}
                     onPress={() => handleAssignToBucket(selectedTaskId, 'evening')}
                   >
-                    <Text style={[styles.pickerOptionIcon, { color: '#8B5CF6' }]}>☽</Text>
+                    <Moon
+                      size={18}
+                      color={BRAND.colors.periwinkleSmoke}
+                      style={styles.pickerIconLucide}
+                    />
                     <Text style={styles.pickerOptionText}>Evening</Text>
                   </Pressable>
 
@@ -980,6 +1018,9 @@ const styles = StyleSheet.create({
     color: BRAND.colors.mossGreen,
     marginBottom: 4,
   },
+  bucketIconLucide: {
+    marginBottom: 4,
+  },
   bucketLabel: {
     fontSize: 10,
     fontWeight: '500',
@@ -1052,6 +1093,10 @@ const styles = StyleSheet.create({
   summaryBucketIcon: {
     fontSize: 14,
     color: BRAND.colors.mossGreen,
+    marginRight: 8,
+    width: 20,
+  },
+  summaryIconLucide: {
     marginRight: 8,
     width: 20,
   },
@@ -1162,6 +1207,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginRight: 12,
     color: BRAND.colors.mossGreen,
+  },
+  pickerIconLucide: {
+    marginRight: 12,
   },
   pickerOptionText: {
     fontSize: 16,
