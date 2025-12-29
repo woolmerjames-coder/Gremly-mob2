@@ -23,6 +23,7 @@ import {
   Platform,
   LayoutRectangle,
   Image,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -591,6 +592,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
           }}
           style={[
             styles.bucket,
+            bucket.key === 'lock-in' && styles.bucketLockIn,
             isHighlighted && styles.bucketHighlighted,
             { borderColor: isHighlighted ? bucket.color : BRAND.colors.borderSubtle },
           ]}
@@ -601,7 +603,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
           }}
         >
           {bucket.key === 'lock-in' && (
-            <Text style={[styles.bucketIcon, { color: bucket.color }]}>{bucket.icon}</Text>
+            <Text style={[styles.bucketIcon, styles.bucketIconLockIn]}>{bucket.icon}</Text>
           )}
           {bucket.key === 'morning' && (
             <Sunrise size={22} color={BRAND.colors.goldenPear} style={styles.bucketIconLucide} />
@@ -692,8 +694,12 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
               Long-press and drag tasks to schedule, or tap to assign.
             </Text>
 
-            {/* Unorganized task list */}
-            <View style={styles.taskList}>
+            {/* Scrollable task list - takes available space */}
+            <ScrollView
+              style={styles.taskListScroll}
+              contentContainerStyle={styles.taskListContent}
+              showsVerticalScrollIndicator={true}
+            >
               {unorganizedTasks.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyStateText}>All tasks scheduled!</Text>
@@ -711,8 +717,11 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                   />
                 ))
               )}
-            </View>
+            </ScrollView>
+          </View>
 
+          {/* Bottom section - pinned above footer */}
+          <View style={styles.bottomSection}>
             {/* Divider line */}
             <View style={styles.dividerContainer}>
               <View style={styles.dividerLine} />
@@ -917,9 +926,17 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 16,
   },
-  taskList: {
-    maxHeight: 280,
-    marginBottom: 12,
+  taskListScroll: {
+    flex: 1,
+  },
+  taskListContent: {
+    paddingBottom: 16,
+  },
+  bottomSection: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
+    backgroundColor: BRAND.colors.linenCream,
   },
   taskCard: {
     flexDirection: 'row',
@@ -931,11 +948,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     borderWidth: 1,
     borderColor: BRAND.colors.borderSubtle,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    ...BRAND.elevation.one,
   },
   taskCardDragging: {
     opacity: 0.3,
@@ -1008,15 +1021,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+    ...BRAND.elevation.one,
   },
   bucketHighlighted: {
     borderStyle: 'solid',
     transform: [{ scale: 1.05 }],
   },
+  bucketLockIn: {
+    backgroundColor: 'rgba(46, 85, 64, 0.08)',
+    borderColor: BRAND.colors.mossGreen,
+    borderStyle: 'solid',
+    ...BRAND.elevation.two,
+  },
   bucketIcon: {
     fontSize: 20,
     color: BRAND.colors.mossGreen,
     marginBottom: 4,
+  },
+  bucketIconLockIn: {
+    color: BRAND.colors.mossGreen,
+    fontSize: 24,
+    fontWeight: '600',
   },
   bucketIconLucide: {
     marginBottom: 4,
@@ -1052,6 +1077,7 @@ const styles = StyleSheet.create({
     borderRadius: BRAND.radius.md,
     overflow: 'hidden',
     maxHeight: 200,
+    ...BRAND.elevation.one,
   },
   summaryHeader: {
     flexDirection: 'row',
@@ -1186,6 +1212,7 @@ const styles = StyleSheet.create({
     padding: 20,
     width: '80%',
     maxWidth: 300,
+    ...BRAND.elevation.two,
   },
   pickerTitle: {
     fontSize: 17,
