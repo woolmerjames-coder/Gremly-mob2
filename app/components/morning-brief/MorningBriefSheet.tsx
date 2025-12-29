@@ -5,6 +5,11 @@
  * - Lock In (1-3 committed items)
  * - Morning / Day / Evening time blocks
  * - Unorganized pool
+ *
+ * Features:
+ * - Drag from unorganized list to bucket to assign
+ * - Drag within bucket to reorder (via DraggableFlatList)
+ * - Tap fallback opens picker modal
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
@@ -14,11 +19,34 @@ import {
   StyleSheet,
   Modal,
   Pressable,
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
+  LayoutRectangle,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  GestureHandlerRootView,
+  PanGestureHandler,
+  State,
+  PanGestureHandlerStateChangeEvent,
+  PanGestureHandlerGestureEvent,
+  LongPressGestureHandler,
+  TapGestureHandler,
+  TapGestureHandlerStateChangeEvent,
+  TouchableOpacity,
+} from 'react-native-gesture-handler';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
+import DraggableFlatList, {
+  RenderItemParams,
+  ScaleDecorator,
+} from 'react-native-draggable-flatlist';
 import { BRAND } from '../../../design/brand';
 import { useMorningBrief } from '../../../lib/today/hooks/useMorningBrief';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
@@ -26,6 +54,12 @@ import { useLockedItems } from '../../../lib/store/selectors';
 
 // Bucket types for task organization
 type Bucket = 'lock-in' | 'morning' | 'day' | 'evening';
+
+interface TaskItem {
+  id: string;
+  type: 'todo' | 'habit';
+  name: string;
+}
 
 interface MorningBriefSheetProps {
   visible: boolean;
@@ -39,7 +73,125 @@ interface MorningBriefSheetProps {
  */
 function getTodayDateString(): string {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return year + '-' + month + '-' + day;
+}
+
+// Bucket configuration
+const BUCKETS: { key: Bucket; icon: string; label: string; color: string }[] = [
+  { key: 'lock-in', icon: '◇', label: 'Lock In', color: BRAND.colors.mossGreen },
+  { key: 'morning', icon: '☀', label: 'Morning', color: '#F59E0B' },
+  { key: 'day', icon: '◐', label: 'Day', color: '#3B82F6' },
+  { key: 'evening', icon: '☽', label: 'Evening', color: '#8B5CF6' },
+];
+
+// Draggable task card component
+interface DraggableTaskCardProps {
+  task: TaskItem;
+  onDragStart: (task: TaskItem, x: number, y: number) => void;
+  onDragMove: (x: number, y: number) => void;
+  onDragEnd: (x: number, y: number) => void;
+  onTap: (taskId: string) => void;
+  isDragging: boolean;
+}
+
+function DraggableTaskCard({
+  task,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+  onTap,
+  isDragging,
+}: DraggableTaskCardProps) {
+  const panRef = useRef<PanGestureHandler>(null);
+  const longPressRef = useRef<LongPressGestureHandler>(null);
+  const tapRef = useRef<TapGestureHandler>(null);
+  const isActiveDrag = useRef(false);
+
+  const handlePanGesture = useCallback(
+    (event: PanGestureHandlerGestureEvent) => {
+      if (isActiveDrag.current) {
+        onDragMove(event.nativeEvent.absoluteX, event.nativeEvent.absoluteY);
+      }
+    },
+    [onDragMove],
+  );
+
+  const handlePanStateChange = useCallback(
+    (event: PanGestureHandlerStateChangeEvent) => {
+      if (event.nativeEvent.state === State.END || event.nativeEvent.state === State.CANCELLED) {
+        if (isActiveDrag.current) {
+          isActiveDrag.current = false;
+          onDragEnd(event.nativeEvent.absoluteX, event.nativeEvent.absoluteY);
+        }
+      }
+    },
+    [onDragEnd],
+  );
+
+  const handleLongPressStateChange = useCallback(
+    (event: { nativeEvent: { state: number; absoluteX: number; absoluteY: number } }) => {
+      if (event.nativeEvent.state === State.ACTIVE) {
+        isActiveDrag.current = true;
+        onDragStart(task, event.nativeEvent.absoluteX, event.nativeEvent.absoluteY);
+      }
+    },
+    [task, onDragStart],
+  );
+
+  const handleTapStateChange = useCallback(
+    (event: TapGestureHandlerStateChangeEvent) => {
+      if (event.nativeEvent.state === State.END) {
+        // Only trigger tap if we're not in a drag
+        if (!isActiveDrag.current) {
+          onTap(task.id);
+        }
+      }
+    },
+    [task.id, onTap],
+  );
+
+  return (
+    <TapGestureHandler
+      ref={tapRef}
+      onHandlerStateChange={handleTapStateChange}
+      waitFor={longPressRef}
+    >
+      <Animated.View>
+        <LongPressGestureHandler
+          ref={longPressRef}
+          onHandlerStateChange={handleLongPressStateChange}
+          minDurationMs={150}
+          simultaneousHandlers={panRef}
+        >
+          <Animated.View>
+            <PanGestureHandler
+              ref={panRef}
+              onGestureEvent={handlePanGesture}
+              onHandlerStateChange={handlePanStateChange}
+              simultaneousHandlers={longPressRef}
+              minDist={0}
+            >
+              <Animated.View style={[styles.taskCard, isDragging && styles.taskCardDragging]}>
+                <Image
+                  source={require('../../../assets/buttonforHP.png')}
+                  style={styles.gremlyHandle}
+                />
+                <View style={styles.taskInfo}>
+                  <Text style={styles.taskName} numberOfLines={1}>
+                    {task.name}
+                  </Text>
+                  <Text style={styles.taskType}>{task.type === 'habit' ? 'Habit' : 'To-do'}</Text>
+                </View>
+              </Animated.View>
+            </PanGestureHandler>
+          </Animated.View>
+        </LongPressGestureHandler>
+      </Animated.View>
+    </TapGestureHandler>
+  );
 }
 
 export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBriefSheetProps) {
@@ -54,15 +206,6 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
   // Locked items from selectors (single source of truth)
   const rawLockedItems = useLockedItems();
-
-  console.log(
-    '[MorningBrief] rawLockedItems:',
-    rawLockedItems.map((i) => i.name),
-  );
-  console.log('[MorningBrief] rawLockedItems FULL:', JSON.stringify(rawLockedItems[0]));
-  console.log('[MorningBrief] morningSequence:', morningSequence);
-  console.log('[MorningBrief] daySequence:', daySequence);
-  console.log('[MorningBrief] eveningSequence:', eveningSequence);
 
   // Candidates: active todos due today + daily habits
   const todos = useGremlyStore((s) => s.todos);
@@ -98,11 +241,22 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
   // Assignment state: maps task ID to bucket
   const [assignments, setAssignments] = useState<Map<string, Bucket>>(new Map());
+  // Order within each bucket (for reordering)
+  const [bucketOrders, setBucketOrders] = useState<Map<Bucket, string[]>>(new Map());
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   // Track which items were originally locked (from Zustand) vs newly assigned
   const originalLockedIdsRef = useRef<Set<string>>(new Set());
+
+  // Bucket layout refs for drop detection
+  const bucketLayouts = useRef<Map<Bucket, LayoutRectangle>>(new Map());
+  const bucketRefs = useRef<Map<Bucket, View | null>>(new Map());
+
+  // Drag state
+  const [draggingTask, setDraggingTask] = useState<TaskItem | null>(null);
+  const [highlightedBucket, setHighlightedBucket] = useState<Bucket | null>(null);
+  const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
 
   // Re-initialize assignments when modal opens
   useEffect(() => {
@@ -112,16 +266,22 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     originalLockedIdsRef.current = new Set(rawLockedItems.map((item) => item.id));
 
     const initial = new Map<string, Bucket>();
+    const orders = new Map<Bucket, string[]>();
+
+    // Initialize empty orders for each bucket
+    BUCKETS.forEach((b) => orders.set(b.key, []));
 
     // Add locked items
     rawLockedItems.forEach((item) => {
       initial.set(item.id, 'lock-in');
+      orders.get('lock-in')!.push(item.id);
     });
 
     // Add morning sequence items
     morningSequence.forEach((item) => {
       if (!initial.has(item.id)) {
         initial.set(item.id, 'morning');
+        orders.get('morning')!.push(item.id);
       }
     });
 
@@ -129,6 +289,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     daySequence.forEach((item) => {
       if (!initial.has(item.id)) {
         initial.set(item.id, 'day');
+        orders.get('day')!.push(item.id);
       }
     });
 
@@ -136,43 +297,41 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     eveningSequence.forEach((item) => {
       if (!initial.has(item.id)) {
         initial.set(item.id, 'evening');
+        orders.get('evening')!.push(item.id);
       }
     });
 
-    console.log('[MorningBrief] Initialized assignments:', initial.size);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: reset state when modal opens
     setAssignments(initial);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: reset state when modal opens
+    setBucketOrders(orders);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: reset state when modal opens
     setSummaryExpanded(false);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: reset state when modal opens
     setSelectedTaskId(null);
   }, [visible, rawLockedItems, morningSequence, daySequence, eveningSequence]);
 
-  // Derived bucket contents
+  // Derived bucket contents (ordered)
   const unorganizedTasks = useMemo(
     () => candidates.filter((c) => !assignments.has(c.id)),
     [candidates, assignments],
   );
 
-  const lockInItems = useMemo(
-    () => candidates.filter((c) => assignments.get(c.id) === 'lock-in'),
-    [candidates, assignments],
+  const getOrderedBucketItems = useCallback(
+    (bucket: Bucket): TaskItem[] => {
+      const order = bucketOrders.get(bucket) || [];
+      const itemsMap = new Map(candidates.map((c) => [c.id, c]));
+      return order
+        .filter((id) => assignments.get(id) === bucket && itemsMap.has(id))
+        .map((id) => itemsMap.get(id)!);
+    },
+    [candidates, assignments, bucketOrders],
   );
 
-  const morningItems = useMemo(
-    () => candidates.filter((c) => assignments.get(c.id) === 'morning'),
-    [candidates, assignments],
-  );
-
-  const dayItems = useMemo(
-    () => candidates.filter((c) => assignments.get(c.id) === 'day'),
-    [candidates, assignments],
-  );
-
-  const eveningItems = useMemo(
-    () => candidates.filter((c) => assignments.get(c.id) === 'evening'),
-    [candidates, assignments],
-  );
+  const lockInItems = useMemo(() => getOrderedBucketItems('lock-in'), [getOrderedBucketItems]);
+  const morningItems = useMemo(() => getOrderedBucketItems('morning'), [getOrderedBucketItems]);
+  const dayItems = useMemo(() => getOrderedBucketItems('day'), [getOrderedBucketItems]);
+  const eveningItems = useMemo(() => getOrderedBucketItems('evening'), [getOrderedBucketItems]);
 
   const scheduledCount = assignments.size;
 
@@ -184,11 +343,6 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
   const handleDone = useCallback(async () => {
     const originalLockedIds = originalLockedIdsRef.current;
-    console.log('[MorningBrief] handleDone - originalLockedIds:', Array.from(originalLockedIds));
-    console.log(
-      '[MorningBrief] handleDone - current assignments:',
-      Array.from(assignments.entries()),
-    );
     try {
       // 1. Find items that were originally locked but are NO LONGER in lock-in bucket
       for (const id of originalLockedIds) {
@@ -198,7 +352,6 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
           const item = rawLockedItems.find((i) => i.id === id);
           if (item) {
             const itemType = ('cadence' in item ? 'habit' : 'todo') as 'todo' | 'habit';
-            console.log('[MorningBrief] REMOVING commitment for:', id, itemType);
             await removeCommitment(id, itemType);
           }
         }
@@ -211,15 +364,15 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         }
       }
 
-      // 3. Build and save sequences
-      const morningSequence = morningItems.map((item) => ({ id: item.id, type: item.type }));
-      const daySequence = dayItems.map((item) => ({ id: item.id, type: item.type }));
-      const eveningSequence = eveningItems.map((item) => ({ id: item.id, type: item.type }));
+      // 3. Build and save sequences (using ordered items)
+      const mSeq = morningItems.map((item) => ({ id: item.id, type: item.type }));
+      const dSeq = dayItems.map((item) => ({ id: item.id, type: item.type }));
+      const eSeq = eveningItems.map((item) => ({ id: item.id, type: item.type }));
 
       await saveBrief({
-        morning_sequence: morningSequence,
-        day_sequence: daySequence,
-        evening_sequence: eveningSequence,
+        morning_sequence: mSeq,
+        day_sequence: dSeq,
+        evening_sequence: eSeq,
       });
 
       onComplete?.();
@@ -243,21 +396,41 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   ]);
 
   // Assign a task to a bucket
-  const handleAssignToBucket = useCallback(
-    (taskId: string, bucket: Bucket) => {
-      setAssignments((prev) => {
-        const next = new Map(prev);
-        if (bucket === 'lock-in' && lockInItems.length >= 3) {
+  const handleAssignToBucket = useCallback((taskId: string, bucket: Bucket) => {
+    setAssignments((prev) => {
+      const next = new Map(prev);
+      if (bucket === 'lock-in') {
+        const currentLockInCount = Array.from(prev.values()).filter((b) => b === 'lock-in').length;
+        if (currentLockInCount >= 3 && prev.get(taskId) !== 'lock-in') {
           // Max 3 items in lock-in - don't add
           return prev;
         }
-        next.set(taskId, bucket);
-        return next;
-      });
-      setSelectedTaskId(null);
-    },
-    [lockInItems.length],
-  );
+      }
+      next.set(taskId, bucket);
+      return next;
+    });
+
+    // Add to bucket order
+    setBucketOrders((prev) => {
+      const next = new Map(prev);
+      // Remove from old bucket if exists
+      for (const [key, order] of next) {
+        const idx = order.indexOf(taskId);
+        if (idx !== -1) {
+          next.set(
+            key,
+            order.filter((id) => id !== taskId),
+          );
+        }
+      }
+      // Add to new bucket
+      const currentOrder = next.get(bucket) || [];
+      next.set(bucket, [...currentOrder, taskId]);
+      return next;
+    });
+
+    setSelectedTaskId(null);
+  }, []);
 
   // Remove a task from its bucket
   const handleRemoveFromBucket = useCallback(
@@ -265,7 +438,6 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
       // If this was an originally locked item, we need to remove the commitment
       if (originalLockedIdsRef.current.has(taskId)) {
         try {
-          // Find the item to get its type
           const item = rawLockedItems.find((i) => i.id === taskId);
           if (item) {
             const itemType = ('cadence' in item ? 'habit' : 'todo') as 'todo' | 'habit';
@@ -282,14 +454,166 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         next.delete(taskId);
         return next;
       });
+
+      // Remove from bucket order
+      setBucketOrders((prev) => {
+        const next = new Map(prev);
+        for (const [key, order] of next) {
+          const idx = order.indexOf(taskId);
+          if (idx !== -1) {
+            next.set(
+              key,
+              order.filter((id) => id !== taskId),
+            );
+          }
+        }
+        return next;
+      });
     },
     [rawLockedItems, removeCommitment],
   );
 
-  // Tap a task card to open picker
-  const handleTaskPress = useCallback((taskId: string) => {
+  // Reorder within a bucket
+  const handleReorder = useCallback((bucket: Bucket, newOrder: TaskItem[]) => {
+    setBucketOrders((prev) => {
+      const next = new Map(prev);
+      next.set(
+        bucket,
+        newOrder.map((item) => item.id),
+      );
+      return next;
+    });
+  }, []);
+
+  // Detect which bucket the drag position is over
+  const detectBucketAtPosition = useCallback((x: number, y: number): Bucket | null => {
+    for (const [bucket, layout] of bucketLayouts.current) {
+      if (
+        x >= layout.x &&
+        x <= layout.x + layout.width &&
+        y >= layout.y &&
+        y <= layout.y + layout.height
+      ) {
+        return bucket;
+      }
+    }
+    return null;
+  }, []);
+
+  // Drag handlers
+  const remeasureBuckets = useCallback(() => {
+    // Small delay to let layout settle
+    setTimeout(() => {
+      for (const [bucket, ref] of bucketRefs.current) {
+        if (ref) {
+          ref.measureInWindow((x, y, width, height) => {
+            if (width > 0 && height > 0) {
+              bucketLayouts.current.set(bucket, { x, y, width, height });
+            }
+          });
+        }
+      }
+    }, 100);
+  }, []);
+
+  const handleDragStart = useCallback(
+    (task: TaskItem, x: number, y: number) => {
+      // Re-measure buckets at drag start in case layout changed
+      remeasureBuckets();
+      setDraggingTask(task);
+      setDragPos({ x, y });
+    },
+    [remeasureBuckets],
+  );
+
+  const handleDragMove = useCallback(
+    (x: number, y: number) => {
+      setDragPos({ x, y });
+      const bucket = detectBucketAtPosition(x, y);
+      setHighlightedBucket(bucket);
+    },
+    [detectBucketAtPosition],
+  );
+
+  const handleDragEnd = useCallback(
+    (x: number, y: number) => {
+      if (draggingTask) {
+        const bucket = detectBucketAtPosition(x, y);
+        if (bucket) {
+          handleAssignToBucket(draggingTask.id, bucket);
+        }
+      }
+      setDraggingTask(null);
+      setHighlightedBucket(null);
+    },
+    [draggingTask, detectBucketAtPosition, handleAssignToBucket],
+  );
+
+  const handleTap = useCallback((taskId: string) => {
     setSelectedTaskId(taskId);
   }, []);
+
+  // Render a bucket drop zone
+  const renderBucket = useCallback(
+    (bucket: (typeof BUCKETS)[0], itemCount: number) => {
+      const isHighlighted = highlightedBucket === bucket.key;
+      const isMaxed = bucket.key === 'lock-in' && itemCount >= 3 && !isHighlighted;
+
+      return (
+        <View
+          key={bucket.key}
+          ref={(ref) => {
+            bucketRefs.current.set(bucket.key, ref);
+          }}
+          style={[
+            styles.bucket,
+            isHighlighted && styles.bucketHighlighted,
+            { borderColor: isHighlighted ? bucket.color : BRAND.colors.borderSubtle },
+          ]}
+          onLayout={(e) => {
+            e.target.measureInWindow((x, y, width, height) => {
+              bucketLayouts.current.set(bucket.key, { x, y, width, height });
+            });
+          }}
+        >
+          <Text style={[styles.bucketIcon, { color: bucket.color }]}>{bucket.icon}</Text>
+          <Text style={styles.bucketLabel}>{bucket.label}</Text>
+          {itemCount > 0 && (
+            <View style={[styles.bucketBadge, { backgroundColor: bucket.color }]}>
+              <Text style={styles.bucketBadgeText}>{itemCount}</Text>
+            </View>
+          )}
+          {isMaxed && <Text style={styles.bucketMaxText}>max</Text>}
+        </View>
+      );
+    },
+    [highlightedBucket],
+  );
+
+  // Render item for DraggableFlatList (within-bucket reordering)
+  const renderBucketItem = useCallback(
+    (bucket: Bucket, bucketColor: string, bucketIcon: string) =>
+      ({ item, drag, isActive }: RenderItemParams<TaskItem>) => (
+        <ScaleDecorator>
+          <View style={[styles.summaryRow, isActive && styles.summaryRowActive]}>
+            <Pressable style={styles.summaryRowContent} onLongPress={drag} disabled={isActive}>
+              <Text style={[styles.summaryBucketIcon, { color: bucketColor }]}>{bucketIcon}</Text>
+              <Text style={styles.summaryItemName} numberOfLines={1}>
+                {item.name}
+              </Text>
+            </Pressable>
+            <TouchableOpacity
+              onPress={() => handleRemoveFromBucket(item.id)}
+              style={styles.summaryRemoveButton}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.summaryRemove}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </ScaleDecorator>
+      ),
+    [handleRemoveFromBucket],
+  );
 
   return (
     <Modal
@@ -298,239 +622,204 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
       presentationStyle="pageSheet"
       onRequestClose={handleSkip}
     >
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        {/* Header */}
-        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-          <Pressable onPress={handleSkip} hitSlop={12}>
-            <Text style={styles.skipText}>Skip</Text>
-          </Pressable>
-          <Text style={styles.headerTitle}>Plan Your Day</Text>
-          <View style={{ width: 50 }} />
-        </View>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Plan Your Day</Text>
+          </View>
 
-        {/* Content */}
-        <View style={styles.content}>
-          <Text style={styles.subtext}>
-            Organize your day, or do things whenever you find the time.
-            {'\n\n'}
-            We recommend locking in 1 item every day so you know you'll get it done (up to 3 if you
-            like).
-          </Text>
+          {/* Content */}
+          <View style={styles.content}>
+            <Text style={styles.subtext}>
+              Long-press and drag tasks to schedule, or tap to assign.
+            </Text>
 
-          {/* Unorganized task list */}
-          <ScrollView
-            style={styles.taskList}
-            contentContainerStyle={styles.taskListContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {unorganizedTasks.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateText}>All tasks scheduled!</Text>
-              </View>
-            ) : (
-              unorganizedTasks.map((task) => (
+            {/* Unorganized task list */}
+            <View style={styles.taskList}>
+              {unorganizedTasks.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateText}>All tasks scheduled!</Text>
+                </View>
+              ) : (
+                unorganizedTasks.map((task) => (
+                  <DraggableTaskCard
+                    key={task.id}
+                    task={task}
+                    onDragStart={handleDragStart}
+                    onDragMove={handleDragMove}
+                    onDragEnd={handleDragEnd}
+                    onTap={handleTap}
+                    isDragging={draggingTask?.id === task.id}
+                  />
+                ))
+              )}
+            </View>
+
+            {/* Divider line */}
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>Drop here to schedule</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Drop zone buckets */}
+            <View style={styles.bucketsRow}>
+              {renderBucket(BUCKETS[0], lockInItems.length)}
+              {renderBucket(BUCKETS[1], morningItems.length)}
+              {renderBucket(BUCKETS[2], dayItems.length)}
+              {renderBucket(BUCKETS[3], eveningItems.length)}
+            </View>
+
+            {/* Expandable summary with reorderable lists */}
+            {scheduledCount > 0 && (
+              <View style={styles.summaryContainer} pointerEvents={draggingTask ? 'none' : 'auto'}>
                 <Pressable
-                  key={task.id}
-                  style={styles.taskCard}
-                  onPress={() => handleTaskPress(task.id)}
+                  style={styles.summaryHeader}
+                  onPress={() => {
+                    setSummaryExpanded(!summaryExpanded);
+                    // Re-measure buckets after summary toggle
+                    remeasureBuckets();
+                  }}
                 >
-                  <View style={styles.dragHandle}>
-                    <Text style={styles.dragHandleText}>⋮⋮</Text>
-                  </View>
-                  <View style={styles.taskInfo}>
-                    <Text style={styles.taskName} numberOfLines={1}>
-                      {task.name}
-                    </Text>
-                    <Text style={styles.taskType}>{task.type === 'habit' ? 'Habit' : 'To-do'}</Text>
-                  </View>
+                  <Text style={styles.summaryText}>
+                    {scheduledCount} item{scheduledCount !== 1 ? 's' : ''} scheduled
+                  </Text>
+                  <Text style={styles.summaryChevron}>{summaryExpanded ? '▲' : '▼'}</Text>
                 </Pressable>
-              ))
+
+                {summaryExpanded && (
+                  <View style={styles.summaryContent}>
+                    {lockInItems.length > 0 && (
+                      <DraggableFlatList
+                        data={lockInItems}
+                        keyExtractor={(item) => item.id}
+                        renderItem={renderBucketItem('lock-in', BRAND.colors.mossGreen, '◇')}
+                        onDragEnd={({ data }) => handleReorder('lock-in', data)}
+                        scrollEnabled={false}
+                      />
+                    )}
+
+                    {morningItems.length > 0 && (
+                      <DraggableFlatList
+                        data={morningItems}
+                        keyExtractor={(item) => item.id}
+                        renderItem={renderBucketItem('morning', '#F59E0B', '☀')}
+                        onDragEnd={({ data }) => handleReorder('morning', data)}
+                        scrollEnabled={false}
+                      />
+                    )}
+
+                    {dayItems.length > 0 && (
+                      <DraggableFlatList
+                        data={dayItems}
+                        keyExtractor={(item) => item.id}
+                        renderItem={renderBucketItem('day', '#3B82F6', '◐')}
+                        onDragEnd={({ data }) => handleReorder('day', data)}
+                        scrollEnabled={false}
+                      />
+                    )}
+
+                    {eveningItems.length > 0 && (
+                      <DraggableFlatList
+                        data={eveningItems}
+                        keyExtractor={(item) => item.id}
+                        renderItem={renderBucketItem('evening', '#8B5CF6', '☽')}
+                        onDragEnd={({ data }) => handleReorder('evening', data)}
+                        scrollEnabled={false}
+                      />
+                    )}
+                  </View>
+                )}
+              </View>
             )}
-          </ScrollView>
-
-          {/* Divider line */}
-          <View style={styles.dividerContainer}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>Drag tasks to schedule</Text>
-            <View style={styles.dividerLine} />
           </View>
 
-          {/* Drop zone buckets */}
-          <View style={styles.bucketsRow}>
-            <View style={styles.bucket}>
-              <Text style={styles.bucketIcon}>◇</Text>
-              <Text style={styles.bucketLabel}>Lock In</Text>
-              {lockInItems.length > 0 && (
-                <View style={[styles.bucketBadge, { backgroundColor: BRAND.colors.mossGreen }]}>
-                  <Text style={styles.bucketBadgeText}>{lockInItems.length}</Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.bucket}>
-              <Text style={[styles.bucketIcon, { color: '#F59E0B' }]}>☀</Text>
-              <Text style={styles.bucketLabel}>Morning</Text>
-              {morningItems.length > 0 && (
-                <View style={[styles.bucketBadge, { backgroundColor: '#F59E0B' }]}>
-                  <Text style={styles.bucketBadgeText}>{morningItems.length}</Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.bucket}>
-              <Text style={[styles.bucketIcon, { color: '#3B82F6' }]}>◐</Text>
-              <Text style={styles.bucketLabel}>Day</Text>
-              {dayItems.length > 0 && (
-                <View style={[styles.bucketBadge, { backgroundColor: '#3B82F6' }]}>
-                  <Text style={styles.bucketBadgeText}>{dayItems.length}</Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.bucket}>
-              <Text style={[styles.bucketIcon, { color: '#8B5CF6' }]}>☽</Text>
-              <Text style={styles.bucketLabel}>Evening</Text>
-              {eveningItems.length > 0 && (
-                <View style={[styles.bucketBadge, { backgroundColor: '#8B5CF6' }]}>
-                  <Text style={styles.bucketBadgeText}>{eveningItems.length}</Text>
-                </View>
-              )}
-            </View>
-          </View>
-
-          {/* Expandable summary */}
-          {scheduledCount > 0 && (
-            <View style={styles.summaryContainer}>
-              <Pressable
-                style={styles.summaryHeader}
-                onPress={() => setSummaryExpanded(!summaryExpanded)}
-              >
-                <Text style={styles.summaryText}>
-                  {scheduledCount} item{scheduledCount !== 1 ? 's' : ''} scheduled
-                </Text>
-                <Text style={styles.summaryChevron}>{summaryExpanded ? '▲' : '▼'}</Text>
+          {/* Footer */}
+          <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.footerButtons}>
+              <Pressable style={styles.skipButton} onPress={handleSkip}>
+                <Text style={styles.skipButtonText}>Skip</Text>
               </Pressable>
+              <Pressable style={styles.doneButton} onPress={handleDone}>
+                <Text style={styles.doneButtonText}>Done</Text>
+              </Pressable>
+            </View>
+          </View>
 
-              {summaryExpanded && (
-                <View style={styles.summaryContent}>
-                  {lockInItems.map((item) => (
-                    <View key={item.id} style={styles.summaryRow}>
-                      <Text style={styles.summaryBucketIcon}>◇</Text>
-                      <Text style={styles.summaryItemName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <Pressable onPress={() => handleRemoveFromBucket(item.id)} hitSlop={8}>
-                        <Text style={styles.summaryRemove}>✕</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-
-                  {morningItems.map((item) => (
-                    <View key={item.id} style={styles.summaryRow}>
-                      <Text style={[styles.summaryBucketIcon, { color: '#F59E0B' }]}>☀</Text>
-                      <Text style={styles.summaryItemName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <Pressable onPress={() => handleRemoveFromBucket(item.id)} hitSlop={8}>
-                        <Text style={styles.summaryRemove}>✕</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-
-                  {dayItems.map((item) => (
-                    <View key={item.id} style={styles.summaryRow}>
-                      <Text style={[styles.summaryBucketIcon, { color: '#3B82F6' }]}>◐</Text>
-                      <Text style={styles.summaryItemName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <Pressable onPress={() => handleRemoveFromBucket(item.id)} hitSlop={8}>
-                        <Text style={styles.summaryRemove}>✕</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-
-                  {eveningItems.map((item) => (
-                    <View key={item.id} style={styles.summaryRow}>
-                      <Text style={[styles.summaryBucketIcon, { color: '#8B5CF6' }]}>☽</Text>
-                      <Text style={styles.summaryItemName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <Pressable onPress={() => handleRemoveFromBucket(item.id)} hitSlop={8}>
-                        <Text style={styles.summaryRemove}>✕</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-                </View>
-              )}
+          {/* Drag overlay */}
+          {draggingTask && (
+            <View
+              style={[styles.dragOverlay, { top: dragPos.y - 30, left: dragPos.x - 100 }]}
+              pointerEvents="none"
+            >
+              <View style={styles.dragOverlayCard}>
+                <Text style={styles.dragOverlayText} numberOfLines={1}>
+                  {draggingTask.name}
+                </Text>
+              </View>
             </View>
           )}
-        </View>
 
-        {/* Footer */}
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-          <Pressable style={styles.primaryButton} onPress={handleDone}>
-            <Text style={styles.primaryButtonText}>Done</Text>
-          </Pressable>
-        </View>
+          {/* Bucket picker modal (tap fallback) */}
+          {selectedTaskId && (
+            <Modal
+              visible={true}
+              transparent={true}
+              animationType="fade"
+              onRequestClose={() => setSelectedTaskId(null)}
+            >
+              <Pressable style={styles.pickerOverlay} onPress={() => setSelectedTaskId(null)}>
+                <View style={styles.pickerContainer}>
+                  <Text style={styles.pickerTitle}>Assign to:</Text>
 
-        {/* Bucket picker modal */}
-        {selectedTaskId && (
-          <Modal
-            visible={true}
-            transparent={true}
-            animationType="fade"
-            onRequestClose={() => setSelectedTaskId(null)}
-          >
-            <Pressable style={styles.pickerOverlay} onPress={() => setSelectedTaskId(null)}>
-              <View style={styles.pickerContainer}>
-                <Text style={styles.pickerTitle}>Assign to:</Text>
+                  <Pressable
+                    style={styles.pickerOption}
+                    onPress={() => handleAssignToBucket(selectedTaskId, 'lock-in')}
+                  >
+                    <Text style={styles.pickerOptionIcon}>◇</Text>
+                    <Text style={styles.pickerOptionText}>Lock In</Text>
+                    {lockInItems.length >= 3 && (
+                      <Text style={styles.pickerOptionDisabled}>(max 3)</Text>
+                    )}
+                  </Pressable>
 
-                <Pressable
-                  style={styles.pickerOption}
-                  onPress={() => handleAssignToBucket(selectedTaskId, 'lock-in')}
-                >
-                  <Text style={styles.pickerOptionIcon}>◇</Text>
-                  <Text style={styles.pickerOptionText}>Lock In</Text>
-                  {lockInItems.length >= 3 && (
-                    <Text style={styles.pickerOptionDisabled}>(max 3)</Text>
-                  )}
-                </Pressable>
+                  <Pressable
+                    style={styles.pickerOption}
+                    onPress={() => handleAssignToBucket(selectedTaskId, 'morning')}
+                  >
+                    <Text style={[styles.pickerOptionIcon, { color: '#F59E0B' }]}>☀</Text>
+                    <Text style={styles.pickerOptionText}>Morning</Text>
+                  </Pressable>
 
-                <Pressable
-                  style={styles.pickerOption}
-                  onPress={() => handleAssignToBucket(selectedTaskId, 'morning')}
-                >
-                  <Text style={[styles.pickerOptionIcon, { color: '#F59E0B' }]}>☀</Text>
-                  <Text style={styles.pickerOptionText}>Morning</Text>
-                </Pressable>
+                  <Pressable
+                    style={styles.pickerOption}
+                    onPress={() => handleAssignToBucket(selectedTaskId, 'day')}
+                  >
+                    <Text style={[styles.pickerOptionIcon, { color: '#3B82F6' }]}>◐</Text>
+                    <Text style={styles.pickerOptionText}>Day</Text>
+                  </Pressable>
 
-                <Pressable
-                  style={styles.pickerOption}
-                  onPress={() => handleAssignToBucket(selectedTaskId, 'day')}
-                >
-                  <Text style={[styles.pickerOptionIcon, { color: '#3B82F6' }]}>◐</Text>
-                  <Text style={styles.pickerOptionText}>Day</Text>
-                </Pressable>
+                  <Pressable
+                    style={styles.pickerOption}
+                    onPress={() => handleAssignToBucket(selectedTaskId, 'evening')}
+                  >
+                    <Text style={[styles.pickerOptionIcon, { color: '#8B5CF6' }]}>☽</Text>
+                    <Text style={styles.pickerOptionText}>Evening</Text>
+                  </Pressable>
 
-                <Pressable
-                  style={styles.pickerOption}
-                  onPress={() => handleAssignToBucket(selectedTaskId, 'evening')}
-                >
-                  <Text style={[styles.pickerOptionIcon, { color: '#8B5CF6' }]}>☽</Text>
-                  <Text style={styles.pickerOptionText}>Evening</Text>
-                </Pressable>
-
-                <Pressable style={styles.pickerCancel} onPress={() => setSelectedTaskId(null)}>
-                  <Text style={styles.pickerCancelText}>Cancel</Text>
-                </Pressable>
-              </View>
-            </Pressable>
-          </Modal>
-        )}
-      </KeyboardAvoidingView>
+                  <Pressable style={styles.pickerCancel} onPress={() => setSelectedTaskId(null)}>
+                    <Text style={styles.pickerCancelText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </Pressable>
+            </Modal>
+          )}
+        </KeyboardAvoidingView>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -543,8 +832,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: BRAND.colors.borderSubtle,
@@ -553,10 +843,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
-  },
-  skipText: {
-    fontSize: 16,
-    color: BRAND.colors.mossGreen,
   },
   content: {
     flex: 1,
@@ -567,14 +853,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: BRAND.colors.inkSubtle,
     lineHeight: 22,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   taskList: {
     flex: 1,
     marginBottom: 16,
-  },
-  taskListContent: {
-    paddingBottom: 8,
   },
   taskCard: {
     flexDirection: 'row',
@@ -592,14 +875,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     elevation: 1,
   },
-  dragHandle: {
-    paddingRight: 12,
-    paddingVertical: 4,
+  taskCardDragging: {
+    opacity: 0.3,
   },
-  dragHandleText: {
-    fontSize: 16,
-    color: BRAND.colors.inkMuted,
-    letterSpacing: -2,
+  gremlyHandle: {
+    width: 32,
+    height: 32,
+    marginRight: 12,
   },
   taskInfo: {
     flex: 1,
@@ -656,6 +938,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
   },
+  bucketHighlighted: {
+    borderStyle: 'solid',
+    transform: [{ scale: 1.05 }],
+  },
   bucketIcon: {
     fontSize: 20,
     color: BRAND.colors.mossGreen,
@@ -681,10 +967,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: BRAND.colors.surface,
   },
+  bucketMaxText: {
+    position: 'absolute',
+    bottom: -8,
+    fontSize: 9,
+    color: BRAND.colors.inkMuted,
+  },
   summaryContainer: {
     backgroundColor: BRAND.colors.surface,
     borderRadius: BRAND.radius.md,
     overflow: 'hidden',
+    maxHeight: 200,
   },
   summaryHeader: {
     flexDirection: 'row',
@@ -706,12 +999,22 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: BRAND.colors.borderSubtle,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    paddingVertical: 6,
+    backgroundColor: BRAND.colors.surface,
+  },
+  summaryRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  summaryRowActive: {
+    backgroundColor: BRAND.colors.linenCream,
+    borderRadius: BRAND.radius.sm,
   },
   summaryBucketIcon: {
     fontSize: 14,
@@ -724,15 +1027,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: BRAND.colors.charcoalInk,
   },
+  summaryRemoveButton: {
+    padding: 8,
+  },
   summaryRemove: {
     fontSize: 14,
     color: BRAND.colors.inkMuted,
-    paddingLeft: 8,
-  },
-  placeholderText: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
   },
   footer: {
     paddingHorizontal: 20,
@@ -741,16 +1041,59 @@ const styles = StyleSheet.create({
     borderTopColor: BRAND.colors.borderSubtle,
     backgroundColor: BRAND.colors.linenCream,
   },
-  primaryButton: {
-    backgroundColor: BRAND.colors.mossGreen,
+  footerButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  skipButton: {
+    flex: 1,
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: BRAND.radius.md,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+  },
+  skipButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: BRAND.colors.inkSubtle,
+  },
+  doneButton: {
+    flex: 1,
+    backgroundColor: BRAND.colors.sageMist,
     borderRadius: BRAND.radius.md,
     paddingVertical: 16,
     alignItems: 'center',
   },
-  primaryButtonText: {
+  doneButtonText: {
     fontSize: 17,
     fontWeight: '600',
-    color: BRAND.colors.surface,
+    color: BRAND.colors.charcoalInk,
+  },
+  dragOverlay: {
+    position: 'absolute',
+    width: 200,
+    zIndex: 1000,
+  },
+  dragOverlayCard: {
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: BRAND.radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 2,
+    borderColor: BRAND.colors.mossGreen,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  dragOverlayText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
   },
   // Picker modal styles
   pickerOverlay: {
