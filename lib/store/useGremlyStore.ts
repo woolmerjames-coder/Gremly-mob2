@@ -585,6 +585,14 @@ export const useGremlyStore = create<GremlyState>()(
         ),
       }));
 
+      // Log after optimistic update
+      console.log('[GremlyStore] archiveTodo optimistic update:', {
+        id: id.slice(0, 8),
+        archived: true,
+        todosCount: get().todos.length,
+        archivedTodosCount: get().todos.filter((t) => t.archived).length,
+      });
+
       // 2. SYNC TO SUPABASE
       const { error } = await supabase
         .from('todos')

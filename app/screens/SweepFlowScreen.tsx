@@ -189,13 +189,11 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
     (stats?.dropped.notes.length ?? 0);
 
   // Determine headline based on activity level
+  // Activity-based headlines take priority over "first sweep"
   let headline = 'Time to Sweep your day';
   let subcopy = 'Quick swipes to decide what stays and what goes.';
 
-  if (stats?.isFirstSweep) {
-    headline = 'Your first Sweep';
-    subcopy = 'Quick swipes to clear the clutter. Left to archive, right to keep.';
-  } else if (totalCompleted >= 5) {
+  if (totalCompleted >= 5) {
     headline = 'Look at you go';
     subcopy = "You've been productive. Let's tidy up what's left.";
   } else if (totalCompleted >= 1) {
@@ -204,6 +202,11 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
   } else if (totalCaptured >= 5) {
     headline = 'Lots on your mind';
     subcopy = 'Quick swipes to decide what stays and what goes.';
+  } else if (stats?.isFirstSweep && totalCaptured === 0) {
+    // Only show "first sweep" if there's truly nothing to show
+    headline = 'Your first Sweep';
+    subcopy =
+      "Your ritual to close those open tabs. Swipe left to archive, right to keep. Let's do it.";
   }
 
   return (
@@ -241,9 +244,7 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
         <View style={styles.introTitleUnderline} />
 
         {/* 7. Subcopy - centered */}
-        <Text style={styles.introSubcopy}>
-          Your ritual to close those open tabs. Swipe left to archive, right to keep. Let's do it.
-        </Text>
+        <Text style={styles.introSubcopy}>{subcopy}</Text>
       </ScrollView>
 
       {/* 8. Button */}
@@ -898,6 +899,11 @@ function useSweepSnapshot(
   if (!storeIsLoading && snapshot === null) {
     // Using conditional setState is acceptable for one-time initialization
     // when the condition is based on loading state
+    console.log('[SweepSnapshot] Taking snapshot with', allCandidates.length, 'candidates');
+    console.log(
+      '[SweepSnapshot] Candidate IDs:',
+      allCandidates.map((c) => c.candidate.id.slice(0, 8)),
+    );
     setSnapshot(allCandidates);
   }
 

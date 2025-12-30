@@ -483,6 +483,61 @@ export default function SweepTestScreen() {
     );
   }, [user?.id]);
 
+  // ---------------------------------------------------------------------------
+  // Verify Actions Handlers
+  // ---------------------------------------------------------------------------
+
+  const handleCheckRecentArchives = useCallback(async () => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Not logged in');
+      return;
+    }
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+    const { data: archivedTodos } = await supabase
+      .from('todos')
+      .select('id, name, archived_at, archived_reason')
+      .eq('owner_id', user.id)
+      .eq('archived', true)
+      .gte('archived_at', fiveMinutesAgo);
+
+    const { data: archivedNotes } = await supabase
+      .from('notes')
+      .select('id, title, archived_at')
+      .eq('owner_id', user.id)
+      .eq('archived', true)
+      .gte('archived_at', fiveMinutesAgo);
+
+    const todoNames = archivedTodos?.map((t) => t.name).join(', ') || 'none';
+    const noteNames = archivedNotes?.map((n) => n.title).join(', ') || 'none';
+
+    Alert.alert(
+      'Recent Archives (last 5 min)',
+      `Todos (${archivedTodos?.length || 0}): ${todoNames}\n\nNotes (${archivedNotes?.length || 0}): ${noteNames}`,
+    );
+  }, [user?.id]);
+
+  const handleCheckRecentDateChanges = useCallback(async () => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Not logged in');
+      return;
+    }
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+    const { data: updatedTodos } = await supabase
+      .from('todos')
+      .select('id, name, due_day, updated_at')
+      .eq('owner_id', user.id)
+      .eq('archived', false)
+      .gte('updated_at', fiveMinutesAgo)
+      .not('due_day', 'is', null);
+
+    const summary =
+      updatedTodos?.map((t) => `${t.name} → ${t.due_day}`).join('\n') || 'No recent changes';
+
+    Alert.alert('Recent Date Changes (last 5 min)', summary);
+  }, [user?.id]);
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
@@ -675,6 +730,22 @@ export default function SweepTestScreen() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.warningButton} onPress={handleSetLastSweepYesterday}>
                 <Text style={styles.warningButtonText}>Set to Yesterday</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Verify Actions Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionHeader}>Verify Actions</Text>
+          <View style={styles.sectionContent}>
+            <Text style={styles.verifySubheader}>Check Database Persistence</Text>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.infoButton} onPress={handleCheckRecentArchives}>
+                <Text style={styles.infoButtonText}>Check Recent Archives</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.infoButton} onPress={handleCheckRecentDateChanges}>
+                <Text style={styles.infoButtonText}>Check Recent Date Changes</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -987,6 +1058,30 @@ const styles = StyleSheet.create({
   warningButtonText: {
     color: BRAND.colors.surface,
     fontSize: 12,
+    fontWeight: '600',
+    ...BRAND.typography.bodyMedium,
+  },
+  // Verify Actions styles
+  verifySubheader: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.inkSubtle,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    ...BRAND.typography.bodyMedium,
+  },
+  infoButton: {
+    flex: 1,
+    backgroundColor: '#1976D2',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: BRAND.radius.md,
+    alignItems: 'center',
+  },
+  infoButtonText: {
+    color: BRAND.colors.surface,
+    fontSize: 11,
     fontWeight: '600',
     ...BRAND.typography.bodyMedium,
   },

@@ -580,14 +580,28 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
  */
 export const selectSweepCandidatesUnified = createSelector(
   [selectTodos, selectNotes, selectUnconfirmedHabits, selectSpaces],
-  (todos, notes, unconfirmedHabits, spaces): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
+  (
+    todos,
+    notes,
+    unconfirmedHabits,
+    spaces,
+  ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
+    console.log('[SweepSelector] Running selectSweepCandidatesUnified');
     const today = getTodayDayString();
     const sevenDaysAgo = getDaysAgoDayString(7);
     const candidates: SweepCandidate[] = [];
 
     // Process todos
     for (const todo of todos) {
-      if (todo.archived || todo.completed_at) continue;
+      if (todo.archived || todo.completed_at) {
+        console.log('[SweepSelector] Filtered out todo:', {
+          id: todo.id.slice(0, 8),
+          name: todo.name?.slice(0, 20),
+          archived: todo.archived,
+          completed_at: !!todo.completed_at,
+        });
+        continue;
+      }
 
       const dueDay = todo.due_day;
       const isOverdue = dueDay ? dueDay < today : false;
