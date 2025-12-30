@@ -8,6 +8,7 @@ import {
 import { buildMindDropDerivedFields } from './minddrop/minddropShared';
 import { normalizeTodoTitle } from './minddrop/normalizeTodoTitle';
 import { getEffectiveLogSubtype } from './logs/getEffectiveLogSubtype';
+import { parseHabitFrequency } from './sweep/habitHelpers';
 
 type LineageMeta = {
   originId: string;
@@ -485,6 +486,9 @@ export const convertUnsortedToHabit = async (
     const habitName = options.nameOverride ?? (firstLine || 'New habit');
     const frequency = options.frequency ?? 'daily';
 
+    // Parse frequency into structured cadence and target fields
+    const parsedFrequency = parseHabitFrequency(options.frequency, options.frequencyValue);
+
     // Filter labels: remove catchall/needs_review, add habit
     const originalLabels = note.labels ?? [];
     const filteredLabels = originalLabels.filter(
@@ -500,8 +504,10 @@ export const convertUnsortedToHabit = async (
     const habitInput: CreateRecordInput = {
       type: 'habit',
       name: habitName,
-      frequency,
+      frequency: parsedFrequency.frequency,
       frequency_value: options.frequencyValue ?? null,
+      cadence: parsedFrequency.cadence,
+      target_per_period: parsedFrequency.target_per_period,
       subtype: 'start_habit', // Default: most habits are about starting new behaviors
       notes: derived.notes, // Preserve full Mind Drop text in notes field using shared helper
       space_id: note.space_id ?? null,

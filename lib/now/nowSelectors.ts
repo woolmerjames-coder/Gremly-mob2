@@ -29,6 +29,7 @@ import {
   getFrequencyLabel,
   type FrequencyConfig,
 } from '../../components/overlay/frequencyHelpers';
+import { getFrequencyLabel as getHabitFrequencyLabel } from '../sweep/habitHelpers';
 
 export interface NowWeeklyCaptureCounts {
   listCount: number;
@@ -60,65 +61,27 @@ function buildCadenceLabelForHabit(
   habit: Habit,
   progress: HabitProgressSnapshot,
 ): string | undefined {
-  // CANONICAL SOURCE: Use frequency_value (maps to frequency_json in DB)
-  // This is what the overlay editor writes, so it's always up-to-date
-  const frequencyJson = (habit as any).frequency_value;
+  // Use centralized frequency label logic
+  const baseLabel = getHabitFrequencyLabel(habit);
 
-  if (__DEV__) {
-    console.log('[buildCadenceLabelForHabit]', {
-      habitName: habit.name,
-      frequency_value: frequencyJson,
-      frequency: habit.frequency,
-      cadence: habit.cadence,
-    });
-  }
-
-  // If we have frequency_value (from the overlay), use the shared helper
-  if (frequencyJson && typeof frequencyJson === 'object') {
-    const config = jsonToFrequency(frequencyJson);
-    return getFrequencyLabel(config);
-  }
-
-  // Fallback to legacy cadence field for backwards compatibility
-  const cadence = habit.cadence ?? habit.frequency ?? 'daily';
-
-  if (cadence === 'daily') {
-    const targetPerDay = habit.target_per_day ?? 1;
-    if (targetPerDay <= 1) {
-      return 'Daily';
-    }
-    if (typeof progress.today === 'number') {
-      const completed = clampProgress(progress.today, targetPerDay);
-      return `${completed}/${targetPerDay} today`;
-    }
-    return 'Daily';
-  }
-
-  if (cadence === 'weekly') {
-    const targetPerWeek = habit.target_per_period ?? 1;
-    if (targetPerWeek > 0 && typeof progress.thisWeek === 'number') {
-      const completed = clampProgress(progress.thisWeek, targetPerWeek);
-      return `${completed}/${targetPerWeek} this week`;
-    }
-    return `${targetPerWeek}× per week`;
-  }
-
-  if (cadence === 'monthly') {
-    const targetPerMonth = habit.target_per_period ?? 1;
-    if (typeof progress.thisMonth === 'number') {
-      const completed = clampProgress(progress.thisMonth, targetPerMonth);
-      return `${completed}/${targetPerMonth} this month`;
-    }
-    return `${targetPerMonth}× per month`;
-  }
-
-  // Handle 'custom' frequency string - try to derive from target_per_period
-  if (cadence === 'custom') {
+  // Add progress context for weekly/monthly habits
+  if (habit.cadence === 'weekly' || habit.cadence === 'week') {
     const target = habit.target_per_period ?? 1;
-    return `${target}× per week`;
+    if (typeof progress.thisWeek === 'number') {
+      const completed = Math.min(progress.thisWeek, target);
+      return `${completed}/${target} this week`;
+    }
   }
 
-  return 'Daily'; // Default fallback
+  if (habit.cadence === 'monthly' || habit.cadence === 'month') {
+    const target = habit.target_per_period ?? 1;
+    if (typeof progress.thisMonth === 'number') {
+      const completed = Math.min(progress.thisMonth, target);
+      return `${completed}/${target} this month`;
+    }
+  }
+
+  return baseLabel;
 }
 
 function getHabitProgressSnapshot(

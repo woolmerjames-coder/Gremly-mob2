@@ -131,16 +131,51 @@ import {
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
 /**
- * Constructs frequency_json from DB columns: frequency (string) and frequency_value (number)
- * This bridges the DB schema (frequency + frequency_value) to the overlay's FrequencyConfig format
+ * Constructs frequency_json from DB columns for the overlay's FrequencyConfig format.
+ *
+ * Handles two DB schemas:
+ * 1. New schema: cadence ('daily'|'weekly'|'monthly') + target_per_period (number)
+ * 2. Legacy schema: frequency (string) + frequency_value (number)
+ *
+ * Priority: cadence/target_per_period > frequency_value > parsed frequency string
  */
 function buildFrequencyJsonFromDb(
   frequency: string | null | undefined,
   frequencyValue: number | null | undefined,
+  cadence?: string | null,
+  targetPerPeriod?: number | null,
 ): any {
   // If frequency_value is already a JSON object, use it directly (legacy support)
   if (frequencyValue && typeof frequencyValue === 'object') {
     return frequencyValue;
+  }
+
+  // NEW: Check cadence + target_per_period first (canonical schema)
+  if (cadence) {
+    const normalizedCadence = cadence.toLowerCase();
+    const target = targetPerPeriod ?? 1;
+
+    // Map cadence to unit
+    let unit: 'day' | 'week' | 'month' = 'day';
+    if (normalizedCadence === 'weekly' || normalizedCadence === 'week') {
+      unit = 'week';
+    } else if (normalizedCadence === 'monthly' || normalizedCadence === 'month') {
+      unit = 'month';
+    }
+
+    // If target > 1 or not daily, use custom mode
+    if (target > 1 || unit !== 'day') {
+      if (target === 1) {
+        // "1 time per week" -> simple weekly, "1 time per month" -> simple monthly
+        if (unit === 'week') return { type: 'simple', value: 'weekly' };
+        if (unit === 'month') return { type: 'simple', value: 'monthly' };
+        return { type: 'simple', value: 'daily' };
+      }
+      return { type: 'custom', count: target, unit };
+    }
+
+    // Daily with target=1 -> simple daily
+    return { type: 'simple', value: 'daily' };
   }
 
   const freq = (frequency || 'daily').toLowerCase();
@@ -150,6 +185,19 @@ function buildFrequencyJsonFromDb(
     // Map frequency to custom unit
     const unit = freq === 'weekly' ? 'week' : freq === 'monthly' ? 'month' : 'day';
     return { type: 'custom', count: frequencyValue, unit };
+  }
+
+  // Parse "Nx/week" or "Nx/month" format (common format from habit creation)
+  const nxMatch = freq.match(/(\d+)x\/(week|month|day)/i);
+  if (nxMatch) {
+    const count = parseInt(nxMatch[1], 10);
+    const unit = nxMatch[2].toLowerCase();
+    if (count === 1) {
+      if (unit === 'week') return { type: 'simple', value: 'weekly' };
+      if (unit === 'month') return { type: 'simple', value: 'monthly' };
+      return { type: 'simple', value: 'daily' };
+    }
+    return { type: 'custom', count, unit };
   }
 
   // Parse "N times a week/day/month" format from AI enrichment
@@ -8301,10 +8349,18 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     const commitmentNote = (entity as any)?.commitment_note ?? '';
     const commitmentStartedAt = (entity as any)?.commitment_started_at ?? null;
 
-    // Build frequency_json from DB columns (frequency + frequency_value)
+    // Build frequency_json from DB columns
+    // Priority: cadence + target_per_period (canonical) > frequency + frequency_value (legacy)
+    const dbCadence = (entity as any)?.cadence;
+    const dbTargetPerPeriod = (entity as any)?.target_per_period;
     const dbFrequency = (entity as any)?.frequency;
     const dbFrequencyValue = (entity as any)?.frequency_value;
-    const frequencyJson = buildFrequencyJsonFromDb(dbFrequency, dbFrequencyValue);
+    const frequencyJson = buildFrequencyJsonFromDb(
+      dbFrequency,
+      dbFrequencyValue,
+      dbCadence,
+      dbTargetPerPeriod,
+    );
 
     if (__DEV__) {
       console.log('[UnifiedOverlayV2.init] Loaded habit with:', {
@@ -8312,11 +8368,24 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         commitment,
         commitmentNote: commitmentNote?.slice?.(0, 30) || null,
         commitmentStartedAt,
+        cadence: dbCadence,
+        target_per_period: dbTargetPerPeriod,
         frequency: dbFrequency,
         frequency_value: dbFrequencyValue,
         frequencyJson,
       });
     }
+
+    // Determine schedule from cadence (new) or frequency (legacy)
+    const effectiveCadence = dbCadence || dbFrequency || 'daily';
+    const scheduleFromCadence =
+      effectiveCadence === 'daily'
+        ? 'daily'
+        : effectiveCadence === 'weekly' || effectiveCadence === 'week'
+          ? 'weekly'
+          : effectiveCadence === 'monthly' || effectiveCadence === 'month'
+            ? 'weekly'
+            : 'custom';
 
     return {
       baseType: 'habit',
@@ -8325,9 +8394,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       habit: {
         title: compactTitle,
         notes: habitLongText,
-        schedule:
-          dbFrequency === 'daily' ? 'daily' : dbFrequency === 'weekly' ? 'weekly' : 'custom',
-        frequency_json: frequencyJson, // Built from frequency + frequency_value columns
+        schedule: scheduleFromCadence,
+        frequency_json: frequencyJson, // Built from cadence/target_per_period or frequency columns
         subtype: (entity as any)?.subtype ?? 'start_habit', // Habit mode
         start_date: (entity as any)?.start_date ?? null,
         end_date: (entity as any)?.end_date ?? null,
@@ -8425,9 +8493,17 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
   const reminders = (entity as any)?.reminders ?? null;
 
   // Build frequency_json from DB columns (for habits loaded via todo/log path)
+  // Priority: cadence + target_per_period (canonical) > frequency + frequency_value (legacy)
+  const entityCadence = (entity as any)?.cadence;
+  const entityTargetPerPeriod = (entity as any)?.target_per_period;
   const entityFrequency = (entity as any)?.frequency;
   const entityFrequencyValue = (entity as any)?.frequency_value;
-  const habitFrequencyJson = buildFrequencyJsonFromDb(entityFrequency, entityFrequencyValue);
+  const habitFrequencyJson = buildFrequencyJsonFromDb(
+    entityFrequency,
+    entityFrequencyValue,
+    entityCadence,
+    entityTargetPerPeriod,
+  );
 
   if (__DEV__) {
     console.log('[UnifiedOverlayV2.init] Loaded entity with:', {

@@ -14,6 +14,7 @@ import type {
 } from '../types';
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
+import { parseHabitFrequency } from '../sweep/habitHelpers';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
@@ -652,7 +653,19 @@ export const useGremlyStore = create<GremlyState>()(
       if (!userId) throw new Error('Not authenticated');
 
       const now = new Date().toISOString();
-      const sanitized = sanitizeForSupabase(habit as Record<string, unknown>, 'habit');
+
+      // Parse frequency into structured fields if not already set
+      let habitData = habit;
+      if (!habit.cadence || !habit.target_per_period) {
+        const parsed = parseHabitFrequency(habit.frequency, habit.frequency_value as number | null);
+        habitData = {
+          ...habit,
+          cadence: habit.cadence ?? parsed.cadence,
+          target_per_period: habit.target_per_period ?? parsed.target_per_period,
+        };
+      }
+
+      const sanitized = sanitizeForSupabase(habitData as Record<string, unknown>, 'habit');
       const payload = {
         ...sanitized,
         owner_id: userId,

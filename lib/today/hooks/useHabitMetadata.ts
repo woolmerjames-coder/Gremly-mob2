@@ -3,6 +3,10 @@
 import { useMemo } from 'react';
 import { useGremlyStore } from '../../store/useGremlyStore';
 import type { Habit } from '../../types';
+import {
+  getFrequencyLabel as getHabitFrequencyLabel,
+  normalizeCadence,
+} from '../../sweep/habitHelpers';
 
 export interface HabitMetadata {
   type: 'streak' | 'days_since' | 'rolling_progress';
@@ -76,10 +80,8 @@ export function computeHabitMetadata(
   habit: HabitForMetadata,
   habitProgress: HabitProgressRow[],
 ): HabitMetadata {
-  // ALWAYS infer cadence from frequency string first (most accurate source)
-  // Fall back to habit.cadence only if frequency doesn't indicate weekly/monthly
-  const inferredFromFreq = inferCadenceFromFrequency(habit.frequency);
-  const cadence = inferredFromFreq !== 'daily' ? inferredFromFreq : (habit.cadence ?? 'daily');
+  // Use centralized cadence normalization
+  const cadence = normalizeCadence(habit.cadence);
 
   // ALWAYS infer target from frequency string first
   // Fall back to habit.target_per_period only if frequency doesn't have a number
@@ -87,48 +89,8 @@ export function computeHabitMetadata(
   const targetPerPeriod = inferredTarget ?? habit.target_per_period ?? 1;
   const today = new Date();
 
-  // Compute frequency label - parse from frequency string first, then cadence
-  const getFrequencyLabel = (): string => {
-    // Primary: parse human-readable frequency string like "3 times a week"
-    if (habit.frequency) {
-      const freq = habit.frequency.toLowerCase();
-
-      // Check for "X times a week" pattern
-      const weekMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?week/i);
-      if (weekMatch) {
-        const count = parseInt(weekMatch[1], 10);
-        return `${count}x/week`;
-      }
-
-      // Check for "X times a month" pattern
-      const monthMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?month/i);
-      if (monthMatch) {
-        const count = parseInt(monthMatch[1], 10);
-        return `${count}x/month`;
-      }
-
-      // Check for "daily" or "every day"
-      if (freq === 'daily' || freq.includes('every day')) {
-        return 'Daily';
-      }
-    }
-
-    // Secondary: use cadence field (handle 'day'/'daily', 'week'/'weekly', 'month'/'monthly')
-    const normalizedCadence = cadence.toLowerCase();
-    if (normalizedCadence === 'daily' || normalizedCadence === 'day') {
-      return 'Daily';
-    }
-    if (normalizedCadence === 'weekly' || normalizedCadence === 'week') {
-      return `${targetPerPeriod}x/week`;
-    }
-    if (normalizedCadence === 'monthly' || normalizedCadence === 'month') {
-      return `${targetPerPeriod}x/month`;
-    }
-
-    return 'Daily';
-  };
-
-  const frequencyLabel = getFrequencyLabel();
+  // Use centralized frequency label from habitHelpers
+  const frequencyLabel = getHabitFrequencyLabel(habit as Habit);
 
   // Helper to format date as local YYYY-MM-DD
   const toLocalDateString = (date: Date): string => {
