@@ -19,6 +19,7 @@ export interface Phase2Result {
   smartTitle: string;
   tags: string[];
   timeEstimateMinutes: number | null;
+  timeWindow: 'morning' | 'day' | 'evening' | null;
   extractedDate: string | null;
   extractedStartDate: string | null;
   extractedFrequency: string | null;
@@ -130,6 +131,7 @@ async function callEnrichAPI(
       smartTitle: json.smart_title || generateFallbackTitle(text),
       tags: Array.isArray(json.tags) ? json.tags : [],
       timeEstimateMinutes: json.time_estimate_minutes ?? null,
+      timeWindow: json.time_window ?? null,
       extractedDate: json.extracted_date ?? null,
       extractedStartDate: json.extracted_start_date ?? null,
       extractedFrequency: json.extracted_frequency ?? null,
@@ -296,6 +298,9 @@ export async function runPhase2(
         if (result.timeEstimateMinutes !== null) {
           updatePayload.time_estimate_minutes = result.timeEstimateMinutes;
         }
+        if (result.timeWindow) {
+          updatePayload.time_window = result.timeWindow;
+        }
         if (result.extractedDate) {
           updatePayload.due_date = result.extractedDate;
           // CRITICAL: due_day is the canonical field for Today page visibility
@@ -314,6 +319,9 @@ export async function runPhase2(
         }
         if (result.extractedFrequency) {
           updatePayload.frequency = result.extractedFrequency;
+        }
+        if (result.timeWindow) {
+          updatePayload.time_window = result.timeWindow;
         }
         // Set start_date if extracted (only if not already set)
         if (result.extractedStartDate && !entity.start_date) {
@@ -347,6 +355,7 @@ export async function runPhase2(
         smartTitle: result.smartTitle,
         tags: result.tags,
         timeEstimate: result.timeEstimateMinutes,
+        time_window: result.timeWindow,
         dueDate: result.extractedDate,
         confirmationMessage: result.confirmationMessage,
         frequency: result.extractedFrequency ?? null,
@@ -552,6 +561,9 @@ export async function runPhase2Streaming(
               if (result.time_estimate_minutes) {
                 updatePayload.time_estimate_minutes = result.time_estimate_minutes;
               }
+              if (result.time_window) {
+                updatePayload.time_window = result.time_window;
+              }
               if (result.extracted_date) {
                 updatePayload.due_date = result.extracted_date;
                 // Extract YYYY-MM-DD portion for due_day
@@ -569,6 +581,9 @@ export async function runPhase2Streaming(
               if (result.extracted_frequency) {
                 updatePayload.frequency = result.extracted_frequency;
               }
+              if (result.time_window) {
+                updatePayload.time_window = result.time_window;
+              }
             }
 
             await repo.update({ id: entityId, patch: updatePayload });
@@ -582,6 +597,7 @@ export async function runPhase2Streaming(
               confirmationMessage: result.confirmation_message,
               tags: result.tags ?? [],
               timeEstimate: result.time_estimate_minutes,
+              time_window: result.time_window,
               dueDate: result.extracted_date,
               startDate: result.extracted_start_date,
               frequency: result.extracted_frequency,

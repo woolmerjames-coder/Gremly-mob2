@@ -56,6 +56,7 @@ export type EventMap = {
     frequency?: string | null;
     hasPhotos?: boolean;
     startDate?: string | null;
+    time_window?: 'morning' | 'day' | 'evening' | null;
   };
   // Phase 2 streaming field update event
   'entity:field_updated': {
@@ -69,6 +70,9 @@ export type EventMap = {
       | 'minddrop_stage';
     value: any;
   };
+  // Daily Brief events
+  DailyBriefSaved: { date: string };
+  DailyBriefCleared: { date: string };
 };
 
 type Handler<T> = (payload: T) => void;

@@ -2,9 +2,8 @@
  * NowFocusRow - Divider-style row for Today focus items
  *
  * Layout:
- * - Left accent bar (green for habits, blue for todos) for ALL items
+ * - Diamond lock icon inline with title for locked items
  * - Title text gets full width
- * - Locked-in indicator moved to subtitle line: ◇ Locked in · Todo
  * - Clean divider lines between items
  * - Satisfying completion animation with swipe-out and message reveal
  */
@@ -20,12 +19,11 @@ import Animated, {
   runOnJS,
   Easing,
 } from 'react-native-reanimated';
-import { Box, Text } from '../../ui';
+import { Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
 import { useReducedMotion } from '../../design/animations';
 import { triggerMedium } from '../../lib/haptics';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
-import { NowTypeChip } from './NowTypeChip';
 import { Flame, RotateCcw, RefreshCw, Calendar } from 'lucide-react-native';
 import { computeHabitMetadata } from '../../lib/today/hooks/useHabitMetadata';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -39,10 +37,6 @@ const MetadataIconMap = {
   Calendar,
 } as const;
 
-// Lock-in diamond icon
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const LOCKIN_ICON = require('../../assets/lockin icon.png');
-
 // Gremly face icon for completion messages
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_FACE = require('../../assets/buttonforHP.png');
@@ -50,13 +44,7 @@ const GREMLY_FACE = require('../../assets/buttonforHP.png');
 // Screen width for swipe-out animation
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-// Accent colors for item types
-const ACCENT_COLORS = {
-  habit: '#2E5540', // Moss Green
-  todo: '#4A7FBF', // Soft blue matching Todo chip background tone
-} as const;
-
-// Brand green for lock-in elements
+// Brand green for lock-in elements and One Thing accent
 const BRAND_GREEN = '#2E5540';
 
 // Divider color
@@ -89,7 +77,7 @@ const TIMING = {
 };
 
 // Row height including padding
-const ROW_HEIGHT = 64; // Increased for more breathing room
+const ROW_HEIGHT = 56; // Height for 2-line layout (title + metadata)
 
 type NowItem = NowLockedItem | NowActiveItem | NowFutureItem;
 
@@ -110,6 +98,8 @@ interface NowFocusRowProps {
   isLocked?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
+  isOneThing?: boolean;
+  timeBlock?: 'morning' | 'day' | 'evening' | null;
   onPress?: () => void;
   onToggleComplete?: () => void;
   onAnimationComplete?: () => void;
@@ -144,6 +134,19 @@ function parseFrequencyLabel(frequency: string | undefined | null): string {
   return 'Daily';
 }
 
+/**
+ * Format time estimate in minutes to a human-readable string.
+ * Examples: 15 -> "15 min", 60 -> "1 hr", 90 -> "1.5 hrs"
+ */
+function formatTimeEstimate(minutes: number | null | undefined): string {
+  if (!minutes || minutes <= 0) return '';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = minutes / 60;
+  if (hours === 1) return '1 hr';
+  if (Number.isInteger(hours)) return `${hours} hrs`;
+  return `${hours.toFixed(1)} hrs`;
+}
+
 export function NowFocusRow({
   item,
   isCompleted = false,
@@ -151,18 +154,43 @@ export function NowFocusRow({
   isLocked = false,
   isFirst = false,
   isLast: _isLast = false,
+  isOneThing: _isOneThing = false,
+  timeBlock = null,
   onPress,
   onToggleComplete,
   onAnimationComplete,
 }: NowFocusRowProps) {
+  // DEBUG - remove after fixing
+  console.log(
+    '[NowFocusRow] item:',
+    item.name,
+    'type:',
+    item.type,
+    'timeBlock:',
+    timeBlock,
+    'isLocked:',
+    isLocked,
+  );
+
   const tokens = useTokens();
   const reducedMotion = useReducedMotion();
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   // Get the full habit from store to access frequency field
   const habits = useGremlyStore((s) => s.habits);
+  // Get the full todo from store to access time_estimate_minutes
+  const todos = useGremlyStore((s) => s.todos);
 
   // Look up the full habit from the store to get the frequency field
   const fullHabit = item.type === 'habit' ? habits.find((h) => h.id === item.id) : null;
+
+  // Look up the full todo from the store to get time_estimate_minutes
+  const fullTodo = item.type === 'todo' ? todos.find((t) => t.id === item.id) : null;
+
+  // Compute time estimate label for todos
+  const timeEstimateLabel = React.useMemo(() => {
+    if (item.type !== 'todo' || !fullTodo) return null;
+    return formatTimeEstimate(fullTodo.time_estimate_minutes);
+  }, [item.type, fullTodo]);
 
   // Compute frequency label directly from Zustand habit data
   const frequencyLabel = React.useMemo(() => {
@@ -222,8 +250,6 @@ export function NowFocusRow({
   const rowHeight = useSharedValue(measuredHeight);
   const messageOpacity = useSharedValue(0);
   const checkboxScale = useSharedValue(1);
-
-  const accentColor = ACCENT_COLORS[item.type];
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -379,10 +405,17 @@ export function NowFocusRow({
     transform: [{ translateX: translateX.value }],
   }));
 
-  const rowAnimatedStyle = useAnimatedStyle(() => ({
-    height: rowHeight.value,
-    overflow: 'hidden' as const,
-  }));
+  const rowAnimatedStyle = useAnimatedStyle(() => {
+    // Only constrain height during collapse animation
+    if (animationPhase === 'collapsing' || animationPhase === 'done') {
+      return {
+        height: rowHeight.value,
+        overflow: 'hidden' as const,
+      };
+    }
+    // During normal display, let content determine height
+    return {};
+  });
 
   const messageAnimatedStyle = useAnimatedStyle(() => ({
     opacity: messageOpacity.value,
@@ -414,118 +447,104 @@ export function NowFocusRow({
   }
 
   return (
-    <Animated.View style={[styles.rowWrapper, rowAnimatedStyle]} onLayout={handleLayout}>
-      {/* Message revealed underneath - positioned absolutely behind the card */}
+    <Animated.View
+      style={[
+        styles.rowWrapper,
+        animationPhase === 'collapsing' ? { height: rowHeight.value, overflow: 'hidden' } : {},
+      ]}
+      onLayout={handleLayout}
+    >
+      {/* Completion message - revealed when card slides out */}
       <Animated.View style={[styles.messageContainer, messageAnimatedStyle]}>
         <Image source={GREMLY_FACE} style={styles.gremlyFace} resizeMode="contain" />
         <Text style={styles.messageText}>{completionMessage}</Text>
       </Animated.View>
 
-      {/* Main card content - slides out to the right */}
+      {/* Main card */}
       <Animated.View style={[styles.cardContainer, cardAnimatedStyle]}>
-        {/* Top divider - only show if not first item */}
+        {/* Divider line at top (not on first item) */}
         {!isFirst && <View style={styles.divider} />}
 
-        <TouchableOpacity style={styles.rowContainer} onPress={onPress} activeOpacity={0.7}>
-          {/* Left accent bar - always shown for all items */}
-          <View style={styles.leftIndicatorContainer}>
-            <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+        <TouchableOpacity style={styles.rowContent} onPress={onPress} activeOpacity={0.7}>
+          {/* Left: Title + Chips */}
+          <View style={styles.leftContent}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.title,
+                isLocked && styles.titleLocked,
+                (isFuture || isFlexible) && styles.titleDimmed,
+                showStrikethrough && styles.titleCompleted,
+              ]}
+            >
+              {item.name}
+            </Text>
+            <View style={styles.chipsRow}>
+              {/* Todo: time estimate chip */}
+              {item.type === 'todo' && (
+                <View style={[styles.chip, styles.chipTodo]}>
+                  <Text style={styles.chipText}>
+                    {timeEstimateLabel ? `~${timeEstimateLabel}` : 'No time estimate'}
+                  </Text>
+                </View>
+              )}
+
+              {/* Habit: frequency chip */}
+              {item.type === 'habit' && frequencyLabel && (
+                <View style={[styles.chip, styles.chipHabit]}>
+                  <Text style={styles.chipText}>{frequencyLabel}</Text>
+                </View>
+              )}
+
+              {/* Habit: progress chip (e.g., "5/7 this week") */}
+              {item.type === 'habit' && habitMetadata && habitMetadata.label && (
+                <View style={[styles.chip, styles.chipHabit]}>
+                  {MetadataIcon && (
+                    <MetadataIcon
+                      size={11}
+                      color={habitMetadata.icon === 'Flame' ? '#D4A017' : '#666'}
+                      style={styles.chipIcon}
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.chipText,
+                      habitMetadata.icon === 'Flame' && styles.chipTextStreak,
+                    ]}
+                  >
+                    {habitMetadata.label}
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
 
-          {/* Content area */}
-          <Box style={styles.content}>
-            {/* Left section: Title + Tag */}
-            <Box style={[styles.textContainer, (isFuture || isFlexible) && styles.dimmedText]}>
-              {/* Title row - full width for task name */}
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.itemText,
-                  { color: tokens.colors.text, fontFamily: tokens.typography.fontFamily.medium },
-                  showStrikethrough && styles.itemTextCompleted,
-                ]}
-              >
-                {item.name}
+          {/* Middle: Status label (vertically centered) */}
+          {(isLocked || timeBlock) && (
+            <View style={styles.statusContainer}>
+              <Text style={[styles.statusText, isLocked && styles.statusTextLocked]}>
+                {isLocked ? 'Locked in' : timeBlock}
               </Text>
+              {isLocked && <Text style={styles.statusDiamond}>◇</Text>}
+            </View>
+          )}
 
-              {/* Subtitle row - includes locked-in indicator if applicable */}
-              <Box style={styles.metaRow}>
-                {/* Locked-in indicator at start of subtitle */}
-                {isLocked && (
-                  <>
-                    <Image
-                      source={LOCKIN_ICON}
-                      style={styles.lockinIconSubtitle}
-                      resizeMode="contain"
-                    />
-                    <Text style={styles.lockedInTextSubtitle}>Locked in</Text>
-                    <Text style={styles.metaSeparator}> · </Text>
-                  </>
-                )}
-                <NowTypeChip type={item.type} />
-                {/* Frequency label after Habit chip - directly from Zustand */}
-                {item.type === 'habit' && frequencyLabel && (
-                  <Text style={styles.frequencyLabel}>· {frequencyLabel}</Text>
-                )}
-                {/* Space chip - show if item has a space */}
-                {'spaceName' in item && item.spaceName && (
-                  <>
-                    <Text style={styles.metaSeparator}> · </Text>
-                    <View style={styles.spaceChip}>
-                      <Text style={styles.spaceChipText}>{item.spaceName}</Text>
-                    </View>
-                  </>
-                )}
-              </Box>
-            </Box>
-
-            {/* Middle section: Habit metadata (between title and checkbox) */}
-            {item.type === 'habit' && habitMetadata && MetadataIcon && (
-              <View style={styles.habitMetadataContainer}>
-                <MetadataIcon
-                  size={habitMetadata.type === 'streak' ? 16 : 12}
-                  color={
-                    habitMetadata.icon === 'Flame' ? BRAND.colors.goldenPear : tokens.colors.subtle
-                  }
-                />
-                <Text
-                  style={[
-                    habitMetadata.type === 'streak'
-                      ? styles.habitStreakText
-                      : styles.habitMetadataText,
-                    {
-                      color:
-                        habitMetadata.icon === 'Flame'
-                          ? BRAND.colors.goldenPear
-                          : tokens.colors.subtle,
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {habitMetadata.label}
-                  {habitMetadata.periodLabel ? ` ${habitMetadata.periodLabel}` : ''}
-                </Text>
-              </View>
-            )}
-
-            {/* Checkbox */}
-            <TouchableOpacity
-              onPress={handleToggleComplete}
-              style={styles.checkboxContainer}
-              activeOpacity={0.7}
+          {/* Right: Checkbox (vertically centered) */}
+          <TouchableOpacity
+            onPress={handleToggleComplete}
+            style={styles.checkboxTouchArea}
+            activeOpacity={0.7}
+          >
+            <Animated.View
+              style={[
+                styles.checkbox,
+                showChecked && styles.checkboxChecked,
+                checkboxAnimatedStyle,
+              ]}
             >
-              <Animated.View
-                style={[
-                  styles.checkbox,
-                  { borderColor: showChecked ? tokens.colors.mossGreen : tokens.colors.subtle },
-                  showChecked && { backgroundColor: tokens.colors.mossGreen },
-                  checkboxAnimatedStyle,
-                ]}
-              >
-                {showChecked && <Text style={styles.checkmark}>✓</Text>}
-              </Animated.View>
-            </TouchableOpacity>
-          </Box>
+              {showChecked && <Text style={styles.checkmark}>✓</Text>}
+            </Animated.View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Animated.View>
     </Animated.View>
@@ -535,12 +554,11 @@ export function NowFocusRow({
 const styles = StyleSheet.create({
   rowWrapper: {
     position: 'relative',
-    backgroundColor: '#FDF8F3', // Match page background
-    overflow: 'hidden', // Required for collapse animation
+    backgroundColor: '#FDF8F3',
   },
   cardContainer: {
-    backgroundColor: '#FDF8F3', // Match page background
-    zIndex: 1, // Card sits above message
+    backgroundColor: '#FDF8F3',
+    zIndex: 1,
   },
   messageContainer: {
     position: 'absolute',
@@ -552,8 +570,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
-    zIndex: 0, // Message is behind card
-    backgroundColor: '#FDF8F3', // Ensure message area has background
+    zIndex: 0,
+    backgroundColor: '#FDF8F3',
   },
   gremlyFace: {
     width: 26,
@@ -563,138 +581,116 @@ const styles = StyleSheet.create({
   messageText: {
     fontSize: 15,
     fontWeight: '500',
-    color: BRAND_GREEN,
-  },
-  rowContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 14, // Increased bottom padding for breathing room
-    paddingRight: 4,
+    color: '#2E5540',
   },
   divider: {
     height: 1,
-    backgroundColor: DIVIDER_COLOR,
-    marginLeft: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    marginLeft: 16,
   },
-  leftIndicatorContainer: {
-    width: 20,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingLeft: 2,
+  rowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingLeft: 16,
+    paddingRight: 8,
   },
-  accentBar: {
-    width: 3,
-    height: 36, // Slightly taller to match new row height
-    borderRadius: 4,
-  },
-  content: {
+  leftContent: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  textContainer: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  dimmedText: {
-    opacity: 0.6,
-  },
-  itemText: {
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  itemTextCompleted: {
-    textDecorationLine: 'line-through',
-    opacity: 0.6,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'nowrap',
-    marginTop: 5, // Slightly more space between title and subtitle
-  },
-  // Locked-in indicator in subtitle
-  lockinIconSubtitle: {
-    width: 12,
-    height: 12,
-    marginRight: 3,
-  },
-  lockedInTextSubtitle: {
-    fontSize: 11,
-    lineHeight: 13,
-    color: BRAND_GREEN,
-    fontWeight: '500',
-  },
-  metaSeparator: {
-    fontSize: 11,
-    lineHeight: 13,
-    color: '#999',
-  },
-  cadenceLabel: {
-    marginLeft: 4,
-    fontSize: 11,
-    lineHeight: 13,
-  },
-  habitMetadataContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 'auto',
     marginRight: 8,
+  },
+  title: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+  titleLocked: {
+    color: '#2E5540',
+  },
+  titleDimmed: {
+    opacity: 0.5,
+  },
+  titleCompleted: {
+    textDecorationLine: 'line-through',
+    opacity: 0.5,
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    width: 80,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#888',
+    textTransform: 'capitalize',
+  },
+  statusTextLocked: {
+    color: '#2E5540',
+    fontWeight: '600',
+  },
+  statusDiamond: {
+    fontSize: 10,
+    color: '#2E5540',
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 4,
   },
-  habitMetadataText: {
-    fontSize: 11,
-    lineHeight: 13,
-    fontWeight: '500',
-  },
-  habitStreakText: {
-    fontSize: 14,
-    lineHeight: 16,
-    fontWeight: '700',
-  },
-  frequencyLabel: {
-    fontSize: 11,
-    lineHeight: 13,
-    marginLeft: 4,
-    color: '#666',
-    fontFamily: 'Inter-Medium',
-  },
-  spaceChip: {
-    backgroundColor: '#F5EFE6', // Warm cream background
-    borderRadius: 4,
-    paddingHorizontal: 5,
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
     paddingVertical: 1,
+    borderRadius: 3,
+    gap: 3,
   },
-  spaceChipText: {
-    fontSize: 11,
-    lineHeight: 13,
-    color: '#6B5A46', // Warm brown text
-    fontFamily: 'Inter-Medium',
+  chipTodo: {
+    backgroundColor: '#E8E4F0', // Periwinkle smoke
   },
-  checkboxContainer: {
-    marginLeft: 8,
-    minWidth: 44,
-    minHeight: 44,
+  chipHabit: {
+    backgroundColor: '#E0EBE4', // Sage mist
+  },
+  chipIcon: {
+    marginRight: 2,
+  },
+  chipText: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#555',
+    lineHeight: 12,
+  },
+  chipTextStreak: {
+    color: '#D4A017',
+  },
+  checkboxTouchArea: {
+    width: 44,
+    height: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },
   checkbox: {
-    width: 20,
-    height: 20,
+    width: 22,
+    height: 22,
     borderRadius: 6,
     borderWidth: 2,
-    backgroundColor: '#FFFFFF',
+    borderColor: '#ccc',
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
   },
+  checkboxChecked: {
+    backgroundColor: '#2E5540',
+    borderColor: '#2E5540',
+  },
   checkmark: {
-    color: '#FFFFFF',
-    fontSize: 12,
+    color: '#fff',
+    fontSize: 14,
     fontWeight: '700',
-    lineHeight: 12,
-    textAlign: 'center',
   },
 });
 

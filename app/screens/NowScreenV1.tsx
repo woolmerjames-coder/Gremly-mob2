@@ -35,6 +35,9 @@ import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { NowWeekPopup } from '../../components/now/NowWeekPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
+import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
+import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
+import { useDailyAppOpen } from '../../lib/today/hooks/useDailyAppOpen';
 // Store and selectors
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import {
@@ -244,12 +247,36 @@ export default function NowScreenV1() {
   const loading = useIsLoading();
   const isInitialized = useGremlyStore((state) => state.isInitialized);
 
-  // Today's items - already filtered by selectors
-  const lockedItems = useLockedItems();
+  // Morning Brief - sequences and brief state
+  const { hasCompletedBriefToday, brief } = useMorningBrief();
+  const [isBriefSheetVisible, setBriefSheetVisible] = useState(false);
+
+  // Daily app open detection
+  const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
+
+  // Auto-open Morning Brief on first open of the day
+  useEffect(() => {
+    if (!isChecking && isFirstOpenToday && !hasCompletedBriefToday && isInitialized && !loading) {
+      // Small delay to let the screen render first
+      const timer = setTimeout(() => {
+        setBriefSheetVisible(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading]);
+
+  // Today's items - from selectors (single source of truth)
+  const rawLockedItems = useLockedItems();
   const activeItems = useActiveItems();
   const completedToday = useCompletedToday();
   const overdueTodos = useOverdueTodos();
   const recentDrops = useRecentDrops();
+
+  // Derive lockedItemIds from selector result
+  const lockedItemIds = useMemo(
+    () => new Set(rawLockedItems.map((item) => item.id)),
+    [rawLockedItems],
+  );
 
   // Habits
   const habitsToday = useTodayHabits();
@@ -288,10 +315,6 @@ export default function NowScreenV1() {
   // Today date string (for addToToday)
   const todayDayString = new Date().toISOString().split('T')[0];
 
-  // Derived: has any work today
-  const hasAnyTodayWork =
-    lockedItems.length > 0 || activeItems.length > 0 || completedToday.length > 0;
-
   // NowData for header (computed locally)
   const nowData = useMemo(() => {
     const now = new Date();
@@ -320,17 +343,86 @@ export default function NowScreenV1() {
   const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
   const updateTodo = useGremlyStore((state) => state.updateTodo);
 
-  // Locked items - transform to Now types and sort
-  const displayLockedItems = useMemo(() => {
-    const transformed = lockedItems.map((item) => toLockedItem(item, spacesMap));
-    return transformed;
-  }, [lockedItems, spacesMap]);
+  // Locked items - transform rawLockedItems to Now types
+  // rawLockedItems comes from useLockedItems selector (single source of truth)
+  const displayLockedItems = useMemo((): NowLockedItem[] => {
+    return rawLockedItems.map((item) => {
+      const isTodo = !('cadence' in item);
+      const space = spacesMap.get(item.space_id ?? '');
+
+      if (isTodo) {
+        const todo = item as any; // Todo type
+        return {
+          id: item.id,
+          type: 'todo' as const,
+          name: item.name || todo.title || 'Untitled',
+          locked: true as const,
+          dueDay: todo.due_day ?? null,
+          spaceId: item.space_id ?? null,
+          spaceName: space?.name ?? null,
+        };
+      } else {
+        const habit = item as any; // Habit type
+        return {
+          id: item.id,
+          type: 'habit' as const,
+          name: item.name || 'Untitled',
+          locked: true as const,
+          cadence: habit.cadence,
+          targetPerPeriod: habit.target_per_period,
+          frequency: habit.frequency,
+          spaceId: item.space_id ?? null,
+          spaceName: space?.name ?? null,
+        };
+      }
+    });
+  }, [rawLockedItems, spacesMap]);
+
+  // Derived: has any work today
+  const hasAnyTodayWork =
+    displayLockedItems.length > 0 || activeItems.length > 0 || completedToday.length > 0;
 
   // Active items - transform to Now types and apply time window sorting
   const displayActiveItems = useMemo(() => {
     const transformed = activeItems.map((item) => toActiveItem(item, spacesMap));
     return sortActiveItems(transformed);
   }, [activeItems, spacesMap]);
+
+  // Sort active items respecting morning brief sequence
+  // NOTE: Locked items are handled separately - they appear at the VERY TOP before any time blocks
+  const sortedActiveItems = useMemo(() => {
+    // Build priority map from sequences
+    const priorityMap = new Map<string, number>();
+    let priority = 0;
+
+    if (brief) {
+      // Morning items first
+      brief.morning_sequence?.forEach((item) => {
+        priorityMap.set(item.id, priority++);
+      });
+
+      // Day items next
+      brief.day_sequence?.forEach((item) => {
+        priorityMap.set(item.id, priority++);
+      });
+
+      // Evening items next
+      brief.evening_sequence?.forEach((item) => {
+        priorityMap.set(item.id, priority++);
+      });
+    }
+
+    // Filter OUT locked items - they're rendered separately at the top
+    const nonLockedItems = displayActiveItems.filter((item) => !lockedItemIds.has(item.id));
+
+    // Sort by sequence priority, then unsequenced
+    return [...nonLockedItems].sort((a, b) => {
+      // Sort by sequence priority
+      const aPriority = priorityMap.get(a.id) ?? 999;
+      const bPriority = priorityMap.get(b.id) ?? 999;
+      return aPriority - bPriority;
+    });
+  }, [displayActiveItems, brief, lockedItemIds]);
 
   // Completed items - transform to Now types
   const displayCompletedToday = useMemo(() => {
@@ -423,16 +515,21 @@ export default function NowScreenV1() {
 
   // Handle overwhelm plan submission
   const handleOverwhelmSubmit = useCallback(() => {
-    const selectedItems = [...lockedItems, ...activeItems]
+    const selectedItems = [...displayLockedItems, ...activeItems]
       .filter((item) => overwhelm.selectedIds.includes(item.id))
       .map((item) => ({ id: item.id, title: item.name }));
 
     void overwhelm.requestPlan(selectedItems);
-  }, [overwhelm, lockedItems, activeItems]);
+  }, [overwhelm, displayLockedItems, activeItems]);
 
   // Handle add press - opens quick-add MindDrop modal
   const handleAddPress = useCallback(() => {
     setQuickAddVisible(true);
+  }, []);
+
+  // Handle opening Morning Brief sheet
+  const handleOpenBrief = useCallback(() => {
+    setBriefSheetVisible(true);
   }, []);
 
   // Add item to Today's Focus by setting due_day to today
@@ -552,25 +649,40 @@ export default function NowScreenV1() {
         <View style={styles.focusSectionHeaderLeft}>
           <Text style={styles.focusSectionTitle}>Today's Focus</Text>
         </View>
-        {/* Right: Add to Today header button */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.headerAddButton,
-            pressed && styles.headerAddButtonPressed,
-          ]}
-          onPress={handleAddPress}
-          testID="header-add-to-today"
-          accessibilityRole="button"
-          accessibilityLabel="Add to Today"
-        >
-          <Text style={styles.headerAddButtonText}>+ Add to Today</Text>
-        </Pressable>
+        {/* Right: Action buttons */}
+        <View style={styles.headerActions}>
+          {/* Organize button - periwinkle */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerOrganizeButton,
+              pressed && styles.headerButtonPressed,
+            ]}
+            onPress={handleOpenBrief}
+            testID="header-organize"
+            accessibilityRole="button"
+            accessibilityLabel="Organize your day"
+          >
+            <Text style={styles.headerOrganizeButtonText}>Organize</Text>
+          </Pressable>
+
+          {/* Add to Today button - sage */}
+          <Pressable
+            style={({ pressed }) => [styles.headerAddButton, pressed && styles.headerButtonPressed]}
+            onPress={handleAddPress}
+            testID="header-add-to-today"
+            accessibilityRole="button"
+            accessibilityLabel="Add to Today"
+          >
+            <Text style={styles.headerAddButtonText}>+ Add to Today</Text>
+          </Pressable>
+        </View>
       </View>
       <View style={styles.focusSectionDivider} />
+
       <View style={styles.focusSectionWrapper}>
         <TodayFocusList
           lockedItems={displayLockedItems}
-          activeItems={displayActiveItems}
+          activeItems={sortedActiveItems}
           futureItems={[]} // Future items selector not implemented yet
           progressPercent={progressPercent}
           hasAnyTodayWork={hasAnyTodayWork}
@@ -581,6 +693,8 @@ export default function NowScreenV1() {
           recentDrops={displayRecentDrops}
           onAddToToday={handleAddToToday}
           bottomInset={insets.bottom}
+          brief={brief}
+          lockedItemIds={lockedItemIds}
         />
       </View>
 
@@ -670,6 +784,13 @@ export default function NowScreenV1() {
           setSelectedJournalId(null);
           // Store auto-updates, no reload needed
         }}
+      />
+
+      {/* Morning Brief Sheet */}
+      <MorningBriefSheet
+        visible={isBriefSheetVisible}
+        onClose={() => setBriefSheetVisible(false)}
+        onComplete={markTodayOpened}
       />
     </Screen>
   );
@@ -815,6 +936,12 @@ type TodayFocusListProps = {
   recentDrops: SweepCandidate[];
   onAddToToday: (item: SweepCandidate) => void;
   bottomInset: number;
+  brief?: {
+    morning_sequence?: { id: string }[];
+    day_sequence?: { id: string }[];
+    evening_sequence?: { id: string }[];
+  } | null;
+  lockedItemIds?: Set<string>;
 };
 
 function TodayFocusList({
@@ -830,6 +957,8 @@ function TodayFocusList({
   recentDrops,
   onAddToToday,
   bottomInset,
+  brief,
+  lockedItemIds,
 }: TodayFocusListProps) {
   // Track leaving card for exit animation
   const [leavingCard, setLeavingCard] = useState<{ id: string; title: string } | null>(null);
@@ -851,6 +980,40 @@ function TodayFocusList({
   const handleExitComplete = useCallback(() => {
     setLeavingCard(null);
   }, []);
+
+  // Helper to get time block for an item
+  const getTimeBlock = (itemId: string): 'morning' | 'day' | 'evening' | null => {
+    if (!brief) return null;
+    if (brief.morning_sequence?.some((i) => i.id === itemId)) return 'morning';
+    if (brief.day_sequence?.some((i) => i.id === itemId)) return 'day';
+    if (brief.evening_sequence?.some((i) => i.id === itemId)) return 'evening';
+    return null;
+  };
+
+  // Build flat sorted list: locked items first, then active items sorted by sequence
+  const sortedItems = useMemo(() => {
+    // Create set of locked item IDs
+    const lockedIds = new Set(lockedItems.map((i) => i.id));
+
+    // Filter out locked items from activeItems (they're rendered first)
+    const nonLockedItems = activeItems.filter((i) => !lockedIds.has(i.id));
+
+    // Sort non-locked items by sequence priority: morning -> day -> evening -> whenever
+    const morningIds = new Set(brief?.morning_sequence?.map((i) => i.id) || []);
+    const dayIds = new Set(brief?.day_sequence?.map((i) => i.id) || []);
+    const eveningIds = new Set(brief?.evening_sequence?.map((i) => i.id) || []);
+
+    const getSequencePriority = (id: string): number => {
+      if (morningIds.has(id)) return 0;
+      if (dayIds.has(id)) return 1;
+      if (eveningIds.has(id)) return 2;
+      return 3; // whenever
+    };
+
+    return [...nonLockedItems].sort(
+      (a, b) => getSequencePriority(a.id) - getSequencePriority(b.id),
+    );
+  }, [activeItems, brief, lockedItems]);
 
   const hasNoItems =
     lockedItems.length === 0 && activeItems.length === 0 && !optimisticQuickAdd && !leavingCard;
@@ -876,26 +1039,29 @@ function TodayFocusList({
         </View>
       )}
 
+      {/* Locked items first */}
       {lockedItems.map((item, index) => (
         <NowFocusRow
           key={item.id}
           item={item}
-          isCompleted={false} // Selectors filter out completed items
+          isCompleted={false}
           isLocked
+          timeBlock={getTimeBlock(item.id)}
           isFirst={index === 0}
-          isLast={index === lockedItems.length - 1 && activeItems.length === 0}
           onPress={() => onPressItem?.(item)}
           onToggleComplete={() => onToggleComplete?.(item)}
         />
       ))}
 
-      {activeItems.map((item, index) => (
+      {/* Then sorted active items (non-locked) */}
+      {sortedItems.map((item, index) => (
         <NowFocusRow
           key={item.id}
           item={item}
-          isCompleted={false} // Selectors filter out completed items
+          isCompleted={false}
+          isLocked={false}
+          timeBlock={getTimeBlock(item.id)}
           isFirst={lockedItems.length === 0 && index === 0}
-          isLast={index === activeItems.length - 1}
           onPress={() => onPressItem?.(item)}
           onToggleComplete={() => onToggleComplete?.(item)}
         />
@@ -1002,22 +1168,38 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0E1116',
   },
-  // Header Add to Today button - small ghost pill
-  headerAddButton: {
+  // Header actions container
+  headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F0EB', // Very light Sage Mist tint
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 8,
+  },
+  // Organize button - periwinkle
+  headerOrganizeButton: {
+    backgroundColor: 'rgba(156, 166, 224, 0.15)', // Light periwinkle tint
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 14,
   },
-  headerAddButtonPressed: {
-    backgroundColor: '#D4E4D6', // Slightly darker on press
+  headerOrganizeButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#9CA6E0', // Periwinkle smoke
+  },
+  headerButtonPressed: {
+    opacity: 0.7,
+  },
+  // Header Add to Today button - sage
+  headerAddButton: {
+    backgroundColor: '#E8F0EB', // Light sage tint
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   headerAddButtonText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#2E5540', // Moss Green
+    color: '#2E5540', // Moss green
   },
   sweepPillContainer: {
     position: 'absolute',

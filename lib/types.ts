@@ -93,6 +93,13 @@ export interface Habit {
 
   // Phase 12: Pinned items feature
   is_pinned?: boolean;
+
+  // Morning Brief: locked-in items
+  locked_in?: boolean;
+  locked_in_at?: string | null;
+
+  // Preferred time of day for scheduling
+  time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 }
 
 /**
@@ -155,6 +162,13 @@ export interface Todo {
   skipped_in_sweep_at?: string | null;
   // Sweep reschedule tracking - counts how many times rescheduled via quick date buttons
   sweep_reschedule_count?: number;
+
+  // Morning Brief: locked-in items
+  locked_in?: boolean;
+  locked_in_at?: string | null;
+
+  // Preferred time of day for scheduling
+  time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 }
 
 /**
@@ -492,6 +506,65 @@ export interface HabitBuddy {
  * Controls visual feedback and animations during chat interactions
  */
 export type MascotState = 'idle' | 'thinking' | 'replying' | 'playful' | 'celebration' | 'rest';
+
+// ============================================================================
+// MORNING BRIEF TYPES
+// ============================================================================
+
+/**
+ * Sequenced item reference - stored in time block arrays
+ */
+export interface SequencedItem {
+  id: ID;
+  type: 'todo' | 'habit';
+}
+
+/**
+ * Time blocks for Morning Brief sequencing
+ */
+export type TimeBlock = 'morning' | 'day' | 'evening' | 'whenever';
+
+/**
+ * DailyBrief - Daily intention-setting state
+ * Stored in Supabase, synced via Zustand store
+ */
+export interface DailyBrief {
+  id: ID;
+  owner_id: ID;
+
+  /** Date this brief applies to (YYYY-MM-DD format) */
+  date: string;
+
+  /** @deprecated Use locked_in field on todos/habits instead */
+  one_thing_id: ID | null;
+  /** @deprecated Use locked_in field on todos/habits instead */
+  one_thing_type: 'todo' | 'habit' | null;
+
+  /** Time block sequences */
+  morning_sequence: SequencedItem[];
+  day_sequence: SequencedItem[];
+  evening_sequence: SequencedItem[];
+
+  /** Timestamp when brief was completed (null = not completed) */
+  completed_at: string | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Input type for creating/updating a brief
+ */
+export interface DailyBriefInput {
+  /** @deprecated Use locked_in field on todos/habits instead */
+  one_thing_id?: ID | null;
+  /** @deprecated Use locked_in field on todos/habits instead */
+  one_thing_type?: 'todo' | 'habit' | null;
+  morning_sequence?: SequencedItem[];
+  day_sequence?: SequencedItem[];
+  evening_sequence?: SequencedItem[];
+  completed_at?: string | null;
+}
 
 /**
  * Helper functions

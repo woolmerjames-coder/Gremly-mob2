@@ -224,6 +224,17 @@ const TIME_ESTIMATE_OPTIONS = [
   { value: 120, label: '2 hours' },
 ] as const;
 
+// Time window options for todos and habits (preferred time of day)
+const TIME_WINDOW_OPTIONS: {
+  label: string;
+  value: 'any' | 'morning' | 'day' | 'evening' | null;
+}[] = [
+  { label: 'Any time', value: null },
+  { label: 'Morning', value: 'morning' },
+  { label: 'Day', value: 'day' },
+  { label: 'Evening', value: 'evening' },
+];
+
 // Multi-photo support for logs (Phase L5)
 type LogPhoto = {
   id?: string; // existing DB row id (for edit mode)
@@ -1087,6 +1098,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   const [showTimeEstimateModal, setShowTimeEstimateModal] = useState(false);
+  const [showTimeWindowModal, setShowTimeWindowModal] = useState(false);
   const [showHabitStartDatePicker, setShowHabitStartDatePicker] = useState(false);
   const [showHabitEndDatePicker, setShowHabitEndDatePicker] = useState(false);
   const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
@@ -3342,6 +3354,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           due_date: dueDay, // Set due_date same as due_day for backwards compatibility
           undefined_due: !dueDay, // True if no due date is set
           time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
+          time_window: s.todo.time_window ?? null,
           space_id: resolvedSpaceId,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -3383,6 +3396,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         due_date: dueDay, // Set due_date same as due_day for backwards compatibility
         undefined_due: !dueDay, // True if no due date is set
         time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
+        time_window: s.todo.time_window ?? null,
         space_id: resolvedSpaceId2,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -3425,6 +3439,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
           start_date: s.habit.start_date ?? null,
           end_date: s.habit.end_date ?? null,
+          time_window: s.habit.time_window ?? null,
           // Commitment fields (only for todos/habits)
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
@@ -3449,6 +3464,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
         start_date: s.habit.start_date ?? null,
         end_date: s.habit.end_date ?? null,
+        time_window: s.habit.time_window ?? null,
         ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
@@ -5378,6 +5394,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             : 'Add time estimate'}
                                         </Text>
                                       </Pressable>
+
+                                      {/* Time Window Picker */}
+                                      <Pressable
+                                        style={[styles.dueDatePill, { marginLeft: 8 }]}
+                                        onPress={() => setShowTimeWindowModal(true)}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                          state.todo.time_window
+                                            ? `Time window: ${state.todo.time_window}`
+                                            : 'Set time window'
+                                        }
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.dueDateText,
+                                            !state.todo.time_window && {
+                                              color:
+                                                colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.5)'
+                                                  : '#777777',
+                                              fontWeight: '400',
+                                            },
+                                          ]}
+                                        >
+                                          {state.todo.time_window
+                                            ? TIME_WINDOW_OPTIONS.find(
+                                                (o) => o.value === state.todo.time_window,
+                                              )?.label || state.todo.time_window
+                                            : 'Any time'}
+                                        </Text>
+                                      </Pressable>
                                     </View>
                                   </View>
                                 )}
@@ -5549,6 +5596,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       {state.habit.end_date
                                         ? `Ends ${format(parseISO(state.habit.end_date), 'MMM d')}`
                                         : 'No end date'}
+                                    </Text>
+                                  </Pressable>
+
+                                  {/* Time Window Picker */}
+                                  <Pressable
+                                    style={styles.habitDatePill}
+                                    onPress={() => setShowTimeWindowModal(true)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={
+                                      state.habit.time_window
+                                        ? `Time window: ${state.habit.time_window}`
+                                        : 'Set time window'
+                                    }
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.habitDateText,
+                                        !state.habit.time_window && {
+                                          color:
+                                            colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.5)'
+                                              : '#999999',
+                                        },
+                                      ]}
+                                    >
+                                      {state.habit.time_window
+                                        ? TIME_WINDOW_OPTIONS.find(
+                                            (o) => o.value === state.habit.time_window,
+                                          )?.label || state.habit.time_window
+                                        : 'Any time'}
                                     </Text>
                                   </Pressable>
                                 </View>
@@ -6739,6 +6816,91 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <Text style={styles.timeEstimateClearButtonText}>Clear estimate</Text>
                           </Pressable>
                         )}
+                      </Pressable>
+                    </Pressable>
+                  </Modal>
+
+                  {/* Time Window Modal */}
+                  <Modal visible={showTimeWindowModal} transparent animationType="fade">
+                    <Pressable
+                      style={{
+                        flex: 1,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                      }}
+                      onPress={() => setShowTimeWindowModal(false)}
+                    >
+                      <Pressable
+                        onPress={(e) => e.stopPropagation()}
+                        style={{
+                          width: '92%',
+                          maxWidth: 400,
+                          alignSelf: 'center',
+                          backgroundColor: '#FFFFFF',
+                          paddingHorizontal: 20,
+                          paddingTop: 20,
+                          paddingBottom: 24,
+                          borderRadius: 20,
+                          borderWidth: 1,
+                          borderColor: '#E0E0E0',
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 8 },
+                          shadowOpacity: 0.15,
+                          shadowRadius: 24,
+                          elevation: 8,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 18,
+                            fontWeight: '600',
+                            color: '#222222',
+                            marginBottom: 16,
+                          }}
+                        >
+                          Preferred time of day
+                        </Text>
+                        <View style={styles.timeEstimateGrid}>
+                          {TIME_WINDOW_OPTIONS.map((option) => {
+                            const isSelected =
+                              baseType === 'todo'
+                                ? state.todo.time_window === option.value
+                                : state.habit.time_window === option.value;
+                            return (
+                              <Pressable
+                                key={option.value ?? 'null'}
+                                style={[
+                                  styles.timeEstimateOption,
+                                  isSelected && styles.timeEstimateOptionSelected,
+                                ]}
+                                onPress={() => {
+                                  if (baseType === 'todo') {
+                                    dispatch({
+                                      type: 'SET_TODO_TIME_WINDOW',
+                                      window: option.value,
+                                    });
+                                  } else {
+                                    dispatch({
+                                      type: 'SET_HABIT_TIME_WINDOW',
+                                      window: option.value,
+                                    });
+                                  }
+                                  setShowTimeWindowModal(false);
+                                }}
+                              >
+                                <Text
+                                  style={[
+                                    styles.timeEstimateOptionText,
+                                    isSelected && styles.timeEstimateOptionTextSelected,
+                                  ]}
+                                >
+                                  {option.label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
                       </Pressable>
                     </Pressable>
                   </Modal>
@@ -8169,6 +8331,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         subtype: (entity as any)?.subtype ?? 'start_habit', // Habit mode
         start_date: (entity as any)?.start_date ?? null,
         end_date: (entity as any)?.end_date ?? null,
+        time_window: (entity as any)?.time_window ?? null,
       },
       todo: {
         title: compactTitle,
@@ -8303,6 +8466,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       due_day: (entity as any)?.due_day ?? null,
       due_time: (entity as any)?.due_time ?? null,
       time_estimate_minutes: (entity as any)?.time_estimate_minutes ?? null,
+      time_window: (entity as any)?.time_window ?? null,
     },
     habit: {
       title: name || title || '',
@@ -8313,6 +8477,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       subtype: (entity as any)?.subtype ?? 'start_habit',
       start_date: (entity as any)?.start_date ?? null,
       end_date: (entity as any)?.end_date ?? null,
+      time_window: (entity as any)?.time_window ?? null,
     },
     tags: extractedTags, // Initialize tags from entity for all types
     stickyTags: normalizeMetaValues(tagsMeta?.sticky),

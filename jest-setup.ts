@@ -61,26 +61,19 @@ jest.mock('react-native-reanimated', () => {
   const { View } = RN;
 
   // Mock animation builder chain - must return self for method chaining
+  // Using arrow functions instead of jest.fn() to avoid being reset by resetMocks: true
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const createMockAnimation = (): any => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mock: any = {
-      duration: jest.fn(function () {
-        return mock;
-      }),
-      springify: jest.fn(function () {
-        return mock;
-      }),
-      mass: jest.fn(function () {
-        return mock;
-      }),
-      delay: jest.fn(function () {
-        return mock;
-      }),
-      withInitialValues: jest.fn(function () {
-        return mock;
-      }),
-    };
+    const mock: any = {};
+    mock.duration = () => mock;
+    mock.springify = () => mock;
+    mock.mass = () => mock;
+    mock.delay = () => mock;
+    mock.withInitialValues = () => mock;
+    mock.easing = () => mock;
+    mock.damping = () => mock;
+    mock.stiffness = () => mock;
     return mock;
   };
 
@@ -110,11 +103,8 @@ jest.mock('react-native-reanimated', () => {
     SlideOutDown: createMockAnimation(),
     ZoomIn: createMockAnimation(),
     ZoomOut: createMockAnimation(),
-    // Layout animation
-    Layout: {
-      springify: jest.fn(() => ({})),
-      duration: jest.fn(() => ({})),
-    },
+    // Layout animation - use chainable mock like animations
+    Layout: createMockAnimation(),
     // useSharedValue returns a mutable shared value object
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     useSharedValue: (initialValue: any) => {

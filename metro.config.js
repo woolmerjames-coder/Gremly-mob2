@@ -17,4 +17,8 @@ config.resolver = {
   sourceExts: [...new Set([...config.resolver.sourceExts, 'svg'])],
 };
 
+// Use project-local cache to avoid system temp folder permission issues
+config.cacheStores = [];
+config.fileMapCacheDirectory = './.metro-cache';
+
 module.exports = config;
