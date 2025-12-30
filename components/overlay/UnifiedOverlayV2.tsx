@@ -234,6 +234,42 @@ function buildFrequencyJsonFromDb(
 }
 
 /**
+ * Convert frequency_json back to canonical cadence/target_per_period fields.
+ * This ensures the DB has the canonical fields set when saving a habit.
+ *
+ * @param frequencyJson - The frequency_json object from overlay state
+ * @param schedule - The schedule string from overlay state (fallback)
+ * @returns Object with cadence and target_per_period
+ */
+function frequencyJsonToCadenceFields(
+  frequencyJson: any,
+  schedule?: string | null,
+): { cadence: 'daily' | 'weekly' | 'monthly'; target_per_period: number } {
+  // Parse from frequency_json object
+  if (frequencyJson && typeof frequencyJson === 'object') {
+    if (frequencyJson.type === 'simple') {
+      const value = frequencyJson.value?.toLowerCase();
+      if (value === 'weekly') return { cadence: 'weekly', target_per_period: 1 };
+      if (value === 'monthly') return { cadence: 'monthly', target_per_period: 1 };
+      return { cadence: 'daily', target_per_period: 1 };
+    }
+    if (frequencyJson.type === 'custom') {
+      const count = frequencyJson.count ?? 1;
+      const unit = frequencyJson.unit?.toLowerCase();
+      if (unit === 'week') return { cadence: 'weekly', target_per_period: count };
+      if (unit === 'month') return { cadence: 'monthly', target_per_period: count };
+      return { cadence: 'daily', target_per_period: count };
+    }
+  }
+
+  // Fallback to schedule string
+  const sched = (schedule || 'daily').toLowerCase();
+  if (sched === 'weekly') return { cadence: 'weekly', target_per_period: 1 };
+  if (sched === 'monthly') return { cadence: 'monthly', target_per_period: 1 };
+  return { cadence: 'daily', target_per_period: 1 };
+}
+
+/**
  * TYPE_FAMILY maps BaseType to Supabase table family.
  * - 'note' family: logs/notes (stored in `notes` table)
  * - 'todo' family: todos (stored in `todos` table)
@@ -3481,6 +3517,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
           frequency: s.habit.schedule ?? 'custom',
           frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
+          ...frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule), // Set cadence/target_per_period
           subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
           space_id: resolvedSpaceId3,
           origin: 'catchall' as const,
@@ -3506,6 +3543,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         notes: s.habit.notes || null,
         frequency: s.habit.schedule ?? 'custom',
         frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
+        ...frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule), // Set cadence/target_per_period
         subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
         space_id: resolvedSpaceId4,
         origin: 'catchall' as const,

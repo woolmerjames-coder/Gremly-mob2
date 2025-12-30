@@ -97,6 +97,7 @@ import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { AppRecord, LogSubtype, NoteSubtype } from '../../lib/types';
+import { getFrequencyLabel } from '../../lib/sweep/habitHelpers';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -788,6 +789,8 @@ type UnifiedDrop = {
   due_day?: string | null; // YYYY-MM-DD format - canonical, timezone-safe
   due_time?: string | null; // HH:mm format for specific time
   frequency?: string | null; // For habits: daily, weekly, monthly, custom
+  cadence?: 'daily' | 'weekly' | 'monthly' | null; // Canonical cadence for habits
+  target_per_period?: number | null; // Target count per period for habits
   tags?: string[];
   optimisticKind?: 'note' | 'todo' | 'habit';
   drop_id?: string | null; // For deduplication: prefer canonical items over unsorted notes
@@ -1536,11 +1539,14 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
     return 'no deadline yet';
   }
   if (kind === 'habit') {
-    if (item.frequency && item.frequency !== 'custom') {
-      // Capitalize first letter: 'daily' → 'Daily'
-      return item.frequency.charAt(0).toUpperCase() + item.frequency.slice(1);
-    }
-    return 'Daily'; // Default for custom or missing
+    // Use centralized frequency label helper that reads cadence/target_per_period
+    // Create a minimal habit object to pass to getFrequencyLabel
+    const habitLike = {
+      cadence: item.cadence ?? null,
+      target_per_period: item.target_per_period ?? 1,
+      frequency: item.frequency ?? null,
+    } as any;
+    return getFrequencyLabel(habitLike);
   }
   // Notes/Logs - show the subtype
   const subtype = item.noteSubtype || item.canonical_type || 'log';
@@ -2220,6 +2226,8 @@ const RecentDrops: React.FC<{
             text: rawText,
             created_at: h.created_at,
             frequency: h.frequency ?? null,
+            cadence: (h as any)?.cadence ?? null,
+            target_per_period: (h as any)?.target_per_period ?? null,
             tags: toTagList((h as any)?.tags),
             drop_id: (h as any)?.drop_id ?? null,
             canonical_type: (h as any)?.canonical_type ?? null,
