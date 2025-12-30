@@ -1102,8 +1102,9 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         let scheduledDate: string | undefined;
 
         if (decision.action === 'clear') {
-          // Todos = "Cleared", Notes = "Archived"
-          outcome = details.kind === 'note' ? 'archived' : 'cleared';
+          // Todos = "Cleared", Notes = "Archived", Habits = "Removed"
+          outcome =
+            details.kind === 'note' ? 'archived' : details.kind === 'habit' ? 'removed' : 'cleared';
         } else if (decision.action === 'keep') {
           if (decision.resurfaceDate) {
             outcome = 'remind';
@@ -1801,6 +1802,8 @@ function SweepSummaryStep({ keptCount, clearedCount, items, streak, onDone }: Su
         return '→ Cleared';
       case 'archived':
         return '→ Archived';
+      case 'removed':
+        return '→ Removed';
       case 'logged':
         return '→ Done ✓';
       case 'skipped':

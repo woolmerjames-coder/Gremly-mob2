@@ -119,7 +119,8 @@ export interface SweepSummaryItem {
     | 'archived'
     | 'logged'
     | 'skipped'
-    | 'remind';
+    | 'remind'
+    | 'removed';
   /** For scheduled items, the date it was scheduled to */
   scheduledDate?: string;
 }
