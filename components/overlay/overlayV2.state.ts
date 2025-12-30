@@ -54,6 +54,8 @@ export type TodoState = {
   due_time?: string | null;
   /** AI-estimated or user-set duration in minutes */
   time_estimate_minutes?: number | null;
+  /** Preferred time of day for scheduling (from AI or user) */
+  time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 };
 
 /**
@@ -71,6 +73,8 @@ export type HabitState = {
   start_date?: string | null;
   /** Optional end date for time-bound habits */
   end_date?: string | null;
+  /** Preferred time of day for scheduling (from AI or user) */
+  time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 };
 
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
@@ -166,6 +170,7 @@ export const initialV2State: V2State = {
     due_day: null,
     due_time: null,
     time_estimate_minutes: null,
+    time_window: null,
   },
   habit: {
     title: '',
@@ -174,6 +179,7 @@ export const initialV2State: V2State = {
     subtype: 'start_habit',
     start_date: null,
     end_date: null,
+    time_window: null,
   },
   undoStack: [],
   logSubtypeOverride: null, // Phase L8: Manual log subtype override
@@ -198,6 +204,8 @@ type Action =
   | { type: 'SET_HABIT_START_DATE'; date: string | null }
   | { type: 'SET_HABIT_END_DATE'; date: string | null }
   | { type: 'SET_TODO_TIME_ESTIMATE'; minutes: number | null }
+  | { type: 'SET_TODO_TIME_WINDOW'; window: 'any' | 'morning' | 'day' | 'evening' | null }
+  | { type: 'SET_HABIT_TIME_WINDOW'; window: 'any' | 'morning' | 'day' | 'evening' | null }
   | { type: 'TOGGLE_COMMITMENT' }
   | { type: 'SET_COMMITMENT_NOTE'; note: string }
   | { type: 'SET_TAGS'; tags: TagKey[] }
@@ -405,6 +413,10 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, habit: { ...state.habit, end_date: action.date } };
     case 'SET_TODO_TIME_ESTIMATE':
       return { ...state, todo: { ...state.todo, time_estimate_minutes: action.minutes } };
+    case 'SET_TODO_TIME_WINDOW':
+      return { ...state, todo: { ...state.todo, time_window: action.window } };
+    case 'SET_HABIT_TIME_WINDOW':
+      return { ...state, habit: { ...state.habit, time_window: action.window } };
     case 'TOGGLE_COMMITMENT': {
       const turningOn = !state.commitment;
       // If turning on and no prior startedAt, stamp a start time. If turning off, keep history.

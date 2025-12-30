@@ -1023,6 +1023,11 @@ export class SupabaseRepo implements IRepo {
           (normalizedPatch as any).time_estimate_minutes ?? null;
       }
 
+      // Time window preference (morning/day/evening)
+      if ('time_window' in normalizedPatch) {
+        updatePayload.time_window = (normalizedPatch as any).time_window ?? null;
+      }
+
       // Development logging for todo updates
       if (__DEV__) {
         console.log('[TodoEdit] patch', normalizedPatch);
@@ -1090,6 +1095,11 @@ export class SupabaseRepo implements IRepo {
       // End date (optional, for time-bound habits)
       if ('end_date' in normalizedPatch) {
         updatePayload.end_date = (normalizedPatch as any).end_date ?? null;
+      }
+
+      // Time window preference (morning/day/evening)
+      if ('time_window' in normalizedPatch) {
+        updatePayload.time_window = (normalizedPatch as any).time_window ?? null;
       }
 
       // Development logging for habit updates

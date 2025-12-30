@@ -552,6 +552,9 @@ export async function runPhase2Streaming(
               if (result.time_estimate_minutes) {
                 updatePayload.time_estimate_minutes = result.time_estimate_minutes;
               }
+              if (result.time_window) {
+                updatePayload.time_window = result.time_window;
+              }
               if (result.extracted_date) {
                 updatePayload.due_date = result.extracted_date;
                 // Extract YYYY-MM-DD portion for due_day
@@ -569,6 +572,9 @@ export async function runPhase2Streaming(
               if (result.extracted_frequency) {
                 updatePayload.frequency = result.extracted_frequency;
               }
+              if (result.time_window) {
+                updatePayload.time_window = result.time_window;
+              }
             }
 
             await repo.update({ id: entityId, patch: updatePayload });
@@ -582,6 +588,7 @@ export async function runPhase2Streaming(
               confirmationMessage: result.confirmation_message,
               tags: result.tags ?? [],
               timeEstimate: result.time_estimate_minutes,
+              time_window: result.time_window,
               dueDate: result.extracted_date,
               startDate: result.extracted_start_date,
               frequency: result.extracted_frequency,

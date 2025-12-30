@@ -39,6 +39,7 @@ export interface Phase2EnrichmentResult {
   confirmation_message?: string;
   tags?: string[];
   time_estimate_minutes?: number | null;
+  time_window?: 'morning' | 'day' | 'evening' | null;
   extracted_date?: string | null;
   extracted_start_date?: string | null;
   extracted_frequency?: string | null;

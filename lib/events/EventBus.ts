@@ -56,6 +56,7 @@ export type EventMap = {
     frequency?: string | null;
     hasPhotos?: boolean;
     startDate?: string | null;
+    time_window?: 'morning' | 'day' | 'evening' | null;
   };
   // Phase 2 streaming field update event
   'entity:field_updated': {

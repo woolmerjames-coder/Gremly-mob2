@@ -46,7 +46,7 @@ import Animated, {
 import { BRAND } from '../../../design/brand';
 import { useMorningBrief } from '../../../lib/today/hooks/useMorningBrief';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
-import { useLockedItems } from '../../../lib/store/selectors';
+import { useLockedItems, useTodayHabits } from '../../../lib/store/selectors';
 import { Clock, Sunrise, Sun, Moon } from 'lucide-react-native';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { useNowQuickAdd } from '../../../lib/now/useNowQuickAdd';
@@ -64,6 +64,8 @@ interface TaskItem {
   id: string;
   type: 'todo' | 'habit';
   name: string;
+  timeEstimate?: number | null;
+  timeWindow?: 'any' | 'morning' | 'day' | 'evening' | null;
 }
 
 interface MorningBriefSheetProps {
@@ -286,7 +288,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
   // Candidates: active todos due today + daily habits
   const todos = useGremlyStore((s) => s.todos);
-  const habits = useGremlyStore((s) => s.habits);
+  const todayHabitsFromSelector = useTodayHabits();
   const candidates = useMemo(() => {
     const todayDate = getTodayDateString();
 
@@ -301,22 +303,19 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         type: 'todo' as const,
         name: t.name || t.title || 'Untitled',
         timeEstimate: t.time_estimate_minutes,
+        timeWindow: t.time_window,
       }));
 
-    const todayHabits = habits
-      .filter((h) => {
-        if (h.archived) return false;
-        return h.cadence === 'daily' || !h.cadence;
-      })
-      .map((h) => ({
-        id: h.id,
-        type: 'habit' as const,
-        name: h.name || 'Untitled',
-        timeEstimate: null,
-      }));
+    const todayHabits = todayHabitsFromSelector.map((h) => ({
+      id: h.id,
+      type: 'habit' as const,
+      name: h.name || 'Untitled',
+      timeEstimate: null,
+      timeWindow: h.time_window,
+    }));
 
     return [...todayTodos, ...todayHabits];
-  }, [todos, habits]);
+  }, [todos, todayHabitsFromSelector]);
 
   // Assignment state: maps task ID to bucket
   const [assignments, setAssignments] = useState<Map<string, Bucket>>(new Map());
@@ -501,6 +500,25 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         initial.set(item.id, 'evening');
         orders.get('evening')!.push(item.id);
       }
+    });
+
+    // Auto-place remaining items based on time_window preference
+    candidates.forEach((item) => {
+      // Skip if already assigned (from locked items or sequences)
+      if (initial.has(item.id)) return;
+
+      // Auto-place based on time_window
+      if (item.timeWindow === 'morning') {
+        initial.set(item.id, 'morning');
+        orders.get('morning')!.push(item.id);
+      } else if (item.timeWindow === 'day') {
+        initial.set(item.id, 'day');
+        orders.get('day')!.push(item.id);
+      } else if (item.timeWindow === 'evening') {
+        initial.set(item.id, 'evening');
+        orders.get('evening')!.push(item.id);
+      }
+      // Items with time_window = 'any' or null stay unassigned
     });
 
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: reset state when modal opens
