@@ -24,13 +24,14 @@ import {
   Image,
   Modal,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
 import { Icon } from '../../design-system/Icon';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
+import { triggerLight } from '../../lib/haptics';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useIsLoading, useSweepCandidatesUnified } from '../../lib/store/selectors';
@@ -875,6 +876,8 @@ function SweepHabitsStep({ onContinue }: StepProps) {
 interface DecisionStepProps {
   onFinished: (summary: SweepSummary) => void;
   onClose?: () => void;
+  /** DEV ONLY: Jump to specific card index for testing */
+  initialCardIndex?: number;
 }
 
 /**
@@ -904,7 +907,7 @@ function useSweepSnapshot(
   };
 }
 
-function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
+function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionStepProps) {
   // Get candidates from unified store selector (single source of truth)
   const allCandidates = useSweepCandidatesUnified();
   const storeIsLoading = useIsLoading();
@@ -925,8 +928,10 @@ function SweepDecisionStep({ onFinished, onClose }: DecisionStepProps) {
   const notes = useGremlyStore((state) => state.notes);
   const overlayController = useOverlayController();
 
-  // Local state for navigation
-  const [currentIndex, setCurrentIndex] = useState(0);
+  // Local state for navigation - use initialCardIndex in DEV mode only
+  const [currentIndex, setCurrentIndex] = useState(
+    __DEV__ && initialCardIndex !== undefined ? initialCardIndex : 0,
+  );
 
   // Track summary stats for the sweep completion screen
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
@@ -1659,12 +1664,47 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const navigationHook = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const navigation = navProp || navigationHook;
 
+  // Get route params for DEV mode step jumping
+  const route = useRoute<RouteProp<RootStackParamList, 'Sweep'>>();
+  const initialStep = __DEV__ ? (route.params?.initialStep ?? 0) : 0;
+  const initialCardIndex = __DEV__ ? route.params?.initialCardIndex : undefined;
+
+  // Debug logging for DEV mode step jumping
+  if (__DEV__) {
+    console.log('[SweepFlowScreen] Route params:', route.params);
+    console.log(
+      '[SweepFlowScreen] initialStep:',
+      initialStep,
+      'initialCardIndex:',
+      initialCardIndex,
+    );
+  }
+
   const { user } = useAuth();
-  const [step, setStep] = useState<number>(0);
+  const [step, setStep] = useState<number>(initialStep);
 
   // Track sweep stats across the session
-  const [keptCount, setKeptCount] = useState(0);
-  const [clearedCount, setClearedCount] = useState(0);
+  const [keptCount, setKeptCount] = useState(() => {
+    // Initialize mock data if jumping directly to summary in DEV mode
+    if (__DEV__ && initialStep === 4) {
+      return 5;
+    }
+    return 0;
+  });
+  const [clearedCount, setClearedCount] = useState(() => {
+    // Initialize mock data if jumping directly to summary in DEV mode
+    if (__DEV__ && initialStep === 4) {
+      return 3;
+    }
+    return 0;
+  });
+
+  // Debug: log step changes
+  useEffect(() => {
+    if (__DEV__) {
+      console.log('[SweepFlowScreen] Step changed to:', step);
+    }
+  }, [step]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Global Overlay State - render overlay ON TOP of Sweep modal
@@ -1785,13 +1825,23 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               <Icon name="ChevronLeft" size="md" color={BRAND.colors.charcoalInk} strokeWidth={2} />
             </TouchableOpacity>
 
-            {/* Center - subtle title */}
-            <View style={styles.headerCenter}>
+            {/* Center - subtle title (long-press for test mode in DEV) */}
+            <Pressable
+              style={styles.headerCenter}
+              onLongPress={() => {
+                if (__DEV__) {
+                  triggerLight();
+                  navigation.navigate('SweepTest');
+                }
+              }}
+              delayLongPress={500}
+            >
               <View style={styles.headerModeIndicator}>
                 <Icon name="Sparkles" size="xs" color="rgba(46, 85, 64, 0.50)" strokeWidth={1.5} />
                 <Text style={styles.headerModeLabel}>Sweep</Text>
+                {__DEV__ && <Text style={styles.devIndicator}>•</Text>}
               </View>
-            </View>
+            </Pressable>
 
             {/* Right close button */}
             <TouchableOpacity
@@ -1808,19 +1858,33 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
         {/* Step Content - Full-bleed for decision step */}
         <View style={step === 1 ? styles.contentDecision : styles.content}>
-          {step === 0 && <SweepIntroStep onStart={handleIntroStart} />}
+          {step === 0 &&
+            (__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep'),
+            (<SweepIntroStep onStart={handleIntroStart} />))}
           {step === 1 && (
-            <SweepDecisionStep onFinished={handleDecisionFinished} onClose={handleClose} />
+            <SweepDecisionStep
+              onFinished={handleDecisionFinished}
+              onClose={handleClose}
+              initialCardIndex={initialCardIndex}
+            />
           )}
           {step === 2 && <SweepHabitsStep onContinue={handleWrapUpContinue} />}
           {step === 3 && <SweepMoodStep onContinue={handleMoodContinue} />}
-          {step === 4 && (
-            <SweepSummaryStep
-              keptCount={keptCount}
-              clearedCount={clearedCount}
-              onDone={handleSummaryDone}
-            />
-          )}
+          {step === 4 &&
+            (__DEV__ &&
+              console.log(
+                '[SweepFlowScreen] Rendering SweepSummaryStep with kept:',
+                keptCount,
+                'cleared:',
+                clearedCount,
+              ),
+            (
+              <SweepSummaryStep
+                keptCount={keptCount}
+                clearedCount={clearedCount}
+                onDone={handleSummaryDone}
+              />
+            ))}
         </View>
       </Screen>
 
@@ -1893,6 +1957,11 @@ const styles = StyleSheet.create({
     fontWeight: '400', // Regular, not bold
     color: 'rgba(34, 34, 34, 0.75)', // Charcoal at 75% opacity
     letterSpacing: 0.2,
+  },
+  devIndicator: {
+    fontSize: 10,
+    color: 'rgba(46, 85, 64, 0.10)', // Very subtle mossGreen at 10% opacity
+    marginLeft: 2,
   },
   headerCenter: {
     flex: 1,
