@@ -78,12 +78,12 @@ describe('getGremlySpeech', () => {
         const ctx: SpeechContext = {
           kind: 'todo',
           confidence: 0.9,
-          dueDate: '2025-12-27',
+          dueDate: '2025-06-15T12:00:00', // Use noon to avoid timezone edge cases
           mode: 'auto',
         };
 
         const speech = getGremlySpeech(ctx);
-        expect(speech).toContain('Dec 27');
+        expect(speech).toContain('Jun 15');
         expect(speech).toContain('On it');
       });
 

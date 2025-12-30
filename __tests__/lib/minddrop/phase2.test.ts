@@ -335,6 +335,127 @@ describe('runPhase2', () => {
       const updateCall = mockRepo.update.mock.calls[0][0];
       expect(updateCall.patch.start_date).toBeUndefined();
     });
+
+    test('writes time_window to todo when extracted', async () => {
+      const mockRepo = createMockRepo({
+        id: 'entity-123',
+        views: { minddrop_stage: 'classified' },
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            smart_title: 'Morning standup',
+            tags: ['work'],
+            time_estimate_minutes: 15,
+            extracted_date: null,
+            extracted_start_date: null,
+            extracted_frequency: null,
+            time_window: 'morning',
+            people: [],
+          }),
+      });
+
+      await runPhase2('entity-123', 'morning standup meeting', 'todo', null, mockRepo);
+
+      expect(mockRepo.update).toHaveBeenCalledWith({
+        id: 'entity-123',
+        patch: expect.objectContaining({
+          time_window: 'morning',
+        }),
+      });
+    });
+
+    test('writes time_window to habit when extracted', async () => {
+      const mockRepo = createMockRepo({
+        id: 'entity-123',
+        views: { minddrop_stage: 'classified' },
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            smart_title: 'Evening meditation',
+            tags: ['mindfulness'],
+            time_estimate_minutes: 10,
+            extracted_date: null,
+            extracted_start_date: null,
+            extracted_frequency: 'daily',
+            time_window: 'evening',
+            people: [],
+          }),
+      });
+
+      await runPhase2('entity-123', 'meditate every evening', 'habit', null, mockRepo);
+
+      expect(mockRepo.update).toHaveBeenCalledWith({
+        id: 'entity-123',
+        patch: expect.objectContaining({
+          time_window: 'evening',
+        }),
+      });
+    });
+
+    test('does not write time_window when not provided', async () => {
+      const mockRepo = createMockRepo({
+        id: 'entity-123',
+        views: { minddrop_stage: 'classified' },
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            smart_title: 'Buy groceries',
+            tags: ['shopping'],
+            time_estimate_minutes: 30,
+            extracted_date: null,
+            extracted_start_date: null,
+            extracted_frequency: null,
+            people: [],
+            // time_window not provided
+          }),
+      });
+
+      await runPhase2('entity-123', 'buy groceries', 'todo', null, mockRepo);
+
+      const updateCall = mockRepo.update.mock.calls[0][0];
+      expect(updateCall.patch.time_window).toBeUndefined();
+    });
+
+    test('returns time_window in result', async () => {
+      const mockRepo = createMockRepo({
+        id: 'entity-123',
+        views: { minddrop_stage: 'classified' },
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            smart_title: 'Morning workout',
+            tags: ['fitness'],
+            time_estimate_minutes: 45,
+            extracted_date: null,
+            extracted_start_date: null,
+            extracted_frequency: null,
+            time_window: 'morning',
+            people: [],
+          }),
+      });
+
+      const result = await runPhase2('entity-123', 'morning workout', 'todo', null, mockRepo);
+
+      expect(result).not.toBeNull();
+      expect(result?.smartTitle).toBe('Morning workout');
+      expect(result?.timeWindow).toBe('morning');
+    });
   });
 
   describe('failure handling', () => {

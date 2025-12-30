@@ -19,6 +19,7 @@ export interface Phase2Result {
   smartTitle: string;
   tags: string[];
   timeEstimateMinutes: number | null;
+  timeWindow: 'morning' | 'day' | 'evening' | null;
   extractedDate: string | null;
   extractedStartDate: string | null;
   extractedFrequency: string | null;
@@ -130,6 +131,7 @@ async function callEnrichAPI(
       smartTitle: json.smart_title || generateFallbackTitle(text),
       tags: Array.isArray(json.tags) ? json.tags : [],
       timeEstimateMinutes: json.time_estimate_minutes ?? null,
+      timeWindow: json.time_window ?? null,
       extractedDate: json.extracted_date ?? null,
       extractedStartDate: json.extracted_start_date ?? null,
       extractedFrequency: json.extracted_frequency ?? null,
@@ -296,6 +298,9 @@ export async function runPhase2(
         if (result.timeEstimateMinutes !== null) {
           updatePayload.time_estimate_minutes = result.timeEstimateMinutes;
         }
+        if (result.timeWindow) {
+          updatePayload.time_window = result.timeWindow;
+        }
         if (result.extractedDate) {
           updatePayload.due_date = result.extractedDate;
           // CRITICAL: due_day is the canonical field for Today page visibility
@@ -314,6 +319,9 @@ export async function runPhase2(
         }
         if (result.extractedFrequency) {
           updatePayload.frequency = result.extractedFrequency;
+        }
+        if (result.timeWindow) {
+          updatePayload.time_window = result.timeWindow;
         }
         // Set start_date if extracted (only if not already set)
         if (result.extractedStartDate && !entity.start_date) {
@@ -347,6 +355,7 @@ export async function runPhase2(
         smartTitle: result.smartTitle,
         tags: result.tags,
         timeEstimate: result.timeEstimateMinutes,
+        time_window: result.timeWindow,
         dueDate: result.extractedDate,
         confirmationMessage: result.confirmationMessage,
         frequency: result.extractedFrequency ?? null,
