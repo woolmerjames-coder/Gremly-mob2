@@ -1209,7 +1209,7 @@ export function SweepCard({
                     {/* Habit hint text */}
                     <Text style={styles.actionHintText}>When do you want to start?</Text>
 
-                    {/* Habit buttons: Ask Tomorrow, Start Tomorrow, Start Monday, Pick Date */}
+                    {/* Habit buttons: Next Sweep, Start Tomorrow, Start Monday, Pick Date */}
                     <View style={styles.buttonGrid}>
                       <TouchableOpacity
                         style={[
@@ -1222,7 +1222,7 @@ export function SweepCard({
                           setSelectedHabitAction('asktomorrow');
                           setHasUserSelected(true);
                         }}
-                        accessibilityLabel="Ask me tomorrow"
+                        accessibilityLabel="Ask me in next sweep"
                         activeOpacity={0.7}
                       >
                         <RotateCcw size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
@@ -1232,7 +1232,7 @@ export function SweepCard({
                             selectedHabitAction === 'asktomorrow' && styles.gridButtonLabelPrimary,
                           ]}
                         >
-                          Ask Tomorrow
+                          Next Sweep
                         </Text>
                       </TouchableOpacity>
 
