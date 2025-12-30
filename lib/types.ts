@@ -97,6 +97,9 @@ export interface Habit {
   // Morning Brief: locked-in items
   locked_in?: boolean;
   locked_in_at?: string | null;
+
+  // Preferred time of day for scheduling
+  time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 }
 
 /**
@@ -163,6 +166,9 @@ export interface Todo {
   // Morning Brief: locked-in items
   locked_in?: boolean;
   locked_in_at?: string | null;
+
+  // Preferred time of day for scheduling
+  time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 }
 
 /**

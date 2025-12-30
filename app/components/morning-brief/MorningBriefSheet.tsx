@@ -22,6 +22,7 @@ import {
   Image,
   ScrollView,
   LayoutRectangle,
+  InteractionManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -53,6 +54,8 @@ import { triggerMedium, triggerSuccess } from '../../../lib/haptics';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires -- React Native image import
 const GREMLY_FACE = require('../../../assets/buttonforHP.png');
+// eslint-disable-next-line @typescript-eslint/no-var-requires -- React Native image import
+const MORNING_BRIEF_GREMLY = require('../../../assets/mascot/morningbriefgremly.png');
 
 // Bucket types for task organization
 type Bucket = 'lock-in' | 'morning' | 'day' | 'evening';
@@ -560,13 +563,18 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   }, [visible, lockInScale, morningScale, dayScale, eveningScale]);
 
   // Re-measure bucket positions when summary expands/collapses
+  // Uses InteractionManager to avoid conflicting with in-progress animations
   useEffect(() => {
     if (visible) {
-      // Force re-layout measurement by updating a counter after layout settles
-      const timer = setTimeout(() => {
-        setBucketMeasureKey((k) => k + 1);
-      }, 100);
-      return () => clearTimeout(timer);
+      // Wait for any animations to complete before triggering re-measure
+      const interactionHandle = InteractionManager.runAfterInteractions(() => {
+        // Additional small delay to ensure layout has settled
+        setTimeout(() => {
+          setBucketMeasureKey((k) => k + 1);
+        }, 50);
+      });
+
+      return () => interactionHandle.cancel();
     }
   }, [visible, summaryExpanded]);
 
@@ -936,19 +944,30 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Plan Your Day</Text>
+            <Text style={styles.headerTitle}>What you have on Today, LFG!</Text>
           </View>
 
           {/* Content */}
           <View style={styles.content}>
-            <Text style={styles.subtext}>
-              Long-press and drag tasks to schedule, or tap to assign.
-            </Text>
+            {/* Gremly Instructions */}
+            <View style={styles.gremlyRow}>
+              <Image
+                source={MORNING_BRIEF_GREMLY}
+                style={styles.gremlyMascot}
+                resizeMode="contain"
+              />
+              <Text style={styles.gremlyText}>
+                Lock in up to 3 priorities and drag/click the rest into time blocks. Totally
+                optional!
+              </Text>
+            </View>
 
-            {/* Add to Today button */}
-            <Pressable style={styles.addToTodayButton} onPress={handleAddPress}>
-              <Text style={styles.addToTodayButtonText}>+ Add to Today</Text>
-            </Pressable>
+            {/* Action row with add button */}
+            <View style={styles.actionRow}>
+              <Pressable style={styles.addToTodayButton} onPress={handleAddPress}>
+                <Text style={styles.addToTodayButtonText}>+ Add Something to Today</Text>
+              </Pressable>
+            </View>
 
             {/* Scrollable task list - takes available space */}
             <ScrollView
@@ -1560,5 +1579,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: BRAND.colors.mossGreen,
     fontWeight: '500',
+  },
+  // Gremly Instructions
+  gremlyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  gremlyMascot: {
+    width: 54,
+    height: 54,
+    marginRight: 12,
+  },
+  gremlyText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: BRAND.colors.inkSubtle,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 16,
   },
 });

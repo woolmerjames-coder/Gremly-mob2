@@ -128,6 +128,7 @@ export type Database = {
           stack_with_id: string | null;
           start_date: string | null;
           taper_plan: Json | null;
+          time_window: string | null;
           triggers_json: Json | null;
           updated_at: string | null;
         };
@@ -152,6 +153,7 @@ export type Database = {
           stack_with_id?: string | null;
           start_date?: string | null;
           taper_plan?: Json | null;
+          time_window?: string | null;
           triggers_json?: Json | null;
           updated_at?: string | null;
         };
@@ -176,6 +178,7 @@ export type Database = {
           stack_with_id?: string | null;
           start_date?: string | null;
           taper_plan?: Json | null;
+          time_window?: string | null;
           triggers_json?: Json | null;
           updated_at?: string | null;
         };
@@ -545,6 +548,7 @@ export type Database = {
           subtype: string | null;
           sweep_reschedule_count: number | null;
           tags: Json | null;
+          time_window: string | null;
           title: string | null;
           undefined_due: boolean | null;
           updated_at: string | null;
@@ -564,6 +568,7 @@ export type Database = {
           subtype?: string | null;
           sweep_reschedule_count?: number | null;
           tags?: Json | null;
+          time_window?: string | null;
           title?: string | null;
           undefined_due?: boolean | null;
           updated_at?: string | null;
@@ -583,6 +588,7 @@ export type Database = {
           subtype?: string | null;
           sweep_reschedule_count?: number | null;
           tags?: Json | null;
+          time_window?: string | null;
           title?: string | null;
           undefined_due?: boolean | null;
           updated_at?: string | null;
