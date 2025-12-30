@@ -31,14 +31,19 @@ import { Screen, Text, Button } from '../../ui';
 import { Icon } from '../../design-system/Icon';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
-import { triggerLight } from '../../lib/haptics';
+import { triggerLight, triggerSuccess } from '../../lib/haptics';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useIsLoading, useSweepCandidatesUnified } from '../../lib/store/selectors';
 import type { Habit } from '../../lib/types';
 import { supabase } from '../../lib/supabase/client';
 import { markSweepCompleted } from '../../lib/sweep/engine';
-import type { SweepCandidate, SweepCardMeta, SweepSummary } from '../../lib/sweep/types';
+import type {
+  SweepCandidate,
+  SweepCardMeta,
+  SweepSummary,
+  SweepSummaryItem,
+} from '../../lib/sweep/types';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -947,17 +952,41 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const [decisions, setDecisions] = useState<Map<string, SweepDecision>>(new Map());
   const decisionsRef = useRef<Map<string, SweepDecision>>(new Map());
 
+  // Track item details for summary display
+  const itemDetailsRef = useRef<Map<string, { name: string; kind: 'todo' | 'habit' | 'note' }>>(
+    new Map(),
+  );
+
   // Helper to record a decision (doesn't commit, just stores)
-  const recordDecision = useCallback((decision: SweepDecision) => {
-    // Update ref immediately (synchronous)
-    decisionsRef.current.set(decision.candidateId, decision);
-    // Update state for UI (triggers re-render)
-    setDecisions((prev) => {
-      const next = new Map(prev);
-      next.set(decision.candidateId, decision);
-      return next;
-    });
-  }, []);
+  const recordDecision = useCallback(
+    (decision: SweepDecision) => {
+      // Update ref immediately (synchronous)
+      decisionsRef.current.set(decision.candidateId, decision);
+      // Update state for UI (triggers re-render)
+      setDecisions((prev) => {
+        const next = new Map(prev);
+        next.set(decision.candidateId, decision);
+        return next;
+      });
+
+      // Also store item name for summary display
+      const candidate = candidatesWithMeta.find((c) => c.candidate.id === decision.candidateId);
+      if (candidate) {
+        const name =
+          candidate.candidate.kind === 'todo'
+            ? (candidate.candidate.raw as any).name
+            : candidate.candidate.kind === 'habit'
+              ? (candidate.candidate.raw as any).name
+              : (candidate.candidate.raw as any).title ||
+                (candidate.candidate.raw as any).body?.slice(0, 30);
+        itemDetailsRef.current.set(decision.candidateId, {
+          name: name || 'Untitled',
+          kind: decision.candidateKind,
+        });
+      }
+    },
+    [candidatesWithMeta],
+  );
 
   // Get existing decision for current card
   const currentDecision = useMemo(() => {
@@ -1035,7 +1064,64 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const handleAllCardsComplete = useCallback(
     async (summary: SweepSummary) => {
       await commitAllDecisions();
-      onFinished(summary);
+
+      // Build detailed items breakdown for summary
+      const todos: SweepSummaryItem[] = [];
+      const thoughts: SweepSummaryItem[] = [];
+      const habits: SweepSummaryItem[] = [];
+
+      decisionsRef.current.forEach((decision, id) => {
+        const details = itemDetailsRef.current.get(id);
+        if (!details) return;
+
+        let outcome: SweepSummaryItem['outcome'];
+        let scheduledDate: string | undefined;
+
+        if (decision.action === 'clear') {
+          // Todos = "Cleared", Notes = "Archived"
+          outcome = details.kind === 'note' ? 'archived' : 'cleared';
+        } else if (decision.action === 'keep') {
+          if (decision.dueDate) {
+            outcome = 'scheduled';
+            scheduledDate = decision.dueDate.toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+            });
+          } else if (details.kind === 'habit' && decision.startDate) {
+            outcome = 'scheduled';
+            scheduledDate = decision.startDate.toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+            });
+          } else if (details.kind === 'note') {
+            outcome = 'saved';
+          } else if (details.kind === 'habit') {
+            outcome = 'logged';
+          } else {
+            outcome = 'kept';
+          }
+        } else {
+          // skip or other
+          outcome = 'kept';
+        }
+
+        const item: SweepSummaryItem = { id, name: details.name, outcome, scheduledDate };
+
+        if (details.kind === 'todo') {
+          todos.push(item);
+        } else if (details.kind === 'note') {
+          thoughts.push(item);
+        } else if (details.kind === 'habit') {
+          habits.push(item);
+        }
+      });
+
+      onFinished({
+        ...summary,
+        items: { todos, thoughts, habits },
+      });
     },
     [commitAllDecisions, onFinished],
   );
@@ -1580,11 +1666,125 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 interface SummaryStepProps {
   keptCount: number;
   clearedCount: number;
+  items?: {
+    todos: SweepSummaryItem[];
+    thoughts: SweepSummaryItem[];
+    habits: SweepSummaryItem[];
+  };
+  streak: number;
   onDone: () => void;
 }
 
-function SweepSummaryStep({ keptCount, clearedCount, onDone }: SummaryStepProps) {
+function SweepSummaryStep({ keptCount, clearedCount, items, streak, onDone }: SummaryStepProps) {
   const totalProcessed = keptCount + clearedCount;
+
+  // Track which sections are expanded
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+
+  // Animated streak count-up
+  const [displayedStreak, setDisplayedStreak] = useState(0);
+
+  useEffect(() => {
+    if (streak <= 0) return;
+
+    // Trigger success haptic on mount
+    triggerSuccess();
+
+    // Animate count-up
+    let current = 0;
+    const increment = Math.max(1, Math.floor(streak / 10));
+    const intervalMs = Math.max(50, 500 / streak);
+
+    const interval = setInterval(() => {
+      current += increment;
+      if (current >= streak) {
+        setDisplayedStreak(streak);
+        clearInterval(interval);
+        // Final haptic on completion
+        triggerLight();
+      } else {
+        setDisplayedStreak(current);
+        triggerLight();
+      }
+    }, intervalMs);
+
+    return () => clearInterval(interval);
+  }, [streak]);
+
+  const toggleSection = (section: string) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(section)) {
+        next.delete(section);
+      } else {
+        next.add(section);
+      }
+      return next;
+    });
+  };
+
+  // Format outcome for display
+  const formatOutcome = (item: SweepSummaryItem): string => {
+    switch (item.outcome) {
+      case 'scheduled':
+        return `→ ${item.scheduledDate}`;
+      case 'saved':
+        return '→ Saved';
+      case 'cleared':
+        return '→ Cleared';
+      case 'archived':
+        return '→ Archived';
+      case 'logged':
+        return '→ Done ✓';
+      case 'skipped':
+        return '→ Skipped';
+      default:
+        return '→ Kept';
+    }
+  };
+
+  // Render a summary section (todos, thoughts, or habits)
+  const renderSection = (
+    title: string,
+    sectionKey: string,
+    sectionItems: SweepSummaryItem[] | undefined,
+  ) => {
+    if (!sectionItems || sectionItems.length === 0) return null;
+
+    const isExpanded = expandedSections.has(sectionKey);
+
+    return (
+      <View style={styles.summarySection} key={sectionKey}>
+        <TouchableOpacity
+          style={styles.summarySectionHeader}
+          onPress={() => toggleSection(sectionKey)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.summarySectionTitle}>
+            {sectionItems.length} {title}
+          </Text>
+          <Icon
+            name={isExpanded ? 'ChevronUp' : 'ChevronDown'}
+            size="sm"
+            color={BRAND.colors.inkMuted}
+          />
+        </TouchableOpacity>
+
+        {isExpanded && (
+          <View style={styles.summarySectionContent}>
+            {sectionItems.map((item) => (
+              <View key={item.id} style={styles.summaryItemRow}>
+                <Text style={styles.summaryItemName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={styles.summaryItemOutcome}>{formatOutcome(item)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
     <View style={styles.stepContainer}>
@@ -1593,29 +1793,42 @@ function SweepSummaryStep({ keptCount, clearedCount, onDone }: SummaryStepProps)
         contentContainerStyle={styles.summaryScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Gremly mascot - friendly anchor at top */}
+        {/* Gremly mascot */}
         <View style={styles.summaryMascotContainer}>
           <Image
-            source={GREMLY_MASCOT}
+            source={GREMLY_MASCOT_CELEBRATE}
             style={styles.summaryMascotImage}
             resizeMode="contain"
             testID="sweep-summary-mascot"
-            accessibilityLabel="Gremly mascot"
+            accessibilityLabel="Gremly mascot celebrating"
           />
         </View>
+
+        {/* Streak display */}
+        {streak > 0 && (
+          <View style={styles.streakContainer}>
+            <Text style={styles.streakEmoji}>🔥</Text>
+            <Text style={styles.streakCount}>{displayedStreak}</Text>
+            <Text style={styles.streakLabel}>{streak === 1 ? 'day streak' : 'day streak'}</Text>
+          </View>
+        )}
 
         {/* Title */}
         <Text variant="title" style={styles.stepTitle}>
           Sweep complete
         </Text>
 
-        {/* Subtitle */}
-        <Text variant="subtle" style={styles.stepDescription}>
-          You made clear choices about your day. Here's what you just did.
-        </Text>
+        {/* Expandable Summary */}
+        {totalProcessed > 0 && items ? (
+          <View style={styles.expandableSummaryContainer}>
+            <Text style={styles.summarySubheading}>Here's what you swept:</Text>
 
-        {/* Stats Summary */}
-        {totalProcessed > 0 ? (
+            {renderSection('to-dos', 'todos', items.todos)}
+            {renderSection('thoughts', 'thoughts', items.thoughts)}
+            {renderSection('habits', 'habits', items.habits)}
+          </View>
+        ) : totalProcessed > 0 ? (
+          // Fallback if no detailed items (shouldn't happen)
           <View style={styles.summaryStatsContainer}>
             <View style={styles.summaryStatRow}>
               <Text variant="body" style={styles.summaryStatLabel}>
@@ -1705,6 +1918,51 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     return 0;
   });
 
+  // Track detailed item breakdown for summary display
+  const [summaryItems, setSummaryItems] = useState<SweepSummary['items']>(undefined);
+
+  // Track sweep streak for summary display
+  const [sweepStreak, setSweepStreak] = useState(0);
+
+  // DEV MODE: Sync step from route params when they change (for test mode jumping)
+  // Using requestAnimationFrame to defer state updates and avoid cascading render warning
+  useEffect(() => {
+    if (__DEV__ && route.params?.initialStep !== undefined) {
+      console.log('[SweepFlowScreen] useEffect: Setting step to', route.params.initialStep);
+      const initialStepValue = route.params.initialStep;
+
+      // Defer state updates to next frame to avoid cascading render warning
+      const frameId = requestAnimationFrame(() => {
+        setStep(initialStepValue);
+
+        // Set mock summary data when jumping to summary step
+        if (initialStepValue === 4) {
+          console.log('[SweepFlowScreen] Setting mock summary data for step 4');
+          setKeptCount(5);
+          setClearedCount(3);
+          setSweepStreak(7);
+          setSummaryItems({
+            todos: [
+              { id: '1', name: 'Call Mom', outcome: 'scheduled', scheduledDate: 'Tomorrow' },
+              { id: '2', name: 'Buy groceries', outcome: 'scheduled', scheduledDate: 'Next Week' },
+              { id: '3', name: 'Old project idea', outcome: 'archived' },
+            ],
+            thoughts: [
+              { id: '4', name: 'Book recommendation from Sarah', outcome: 'kept' },
+              { id: '5', name: 'Random note about plants', outcome: 'archived' },
+            ],
+            habits: [
+              { id: '6', name: 'Morning meditation', outcome: 'logged' },
+              { id: '7', name: 'Exercise', outcome: 'skipped' },
+            ],
+          });
+        }
+      });
+
+      return () => cancelAnimationFrame(frameId);
+    }
+  }, [route.params?.initialStep]);
+
   // Debug: log step changes
   useEffect(() => {
     if (__DEV__) {
@@ -1775,21 +2033,33 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     setStep(3); // Habits → Mood
   };
 
-  const handleDecisionFinished = (summary: SweepSummary) => {
-    // Update local state for Summary step display
-    setKeptCount(summary.kept);
-    setClearedCount(summary.cleared);
+  const handleDecisionFinished = useCallback(
+    async (summary: SweepSummary) => {
+      setKeptCount(summary.kept);
+      setClearedCount(summary.cleared);
+      if (summary.items) {
+        setSummaryItems(summary.items);
+      }
 
-    // Record completion in DB (best-effort, non-blocking)
-    if (user?.id) {
-      markSweepCompleted(user.id, supabase, summary).catch((err) => {
-        console.error('Failed to mark sweep as completed', err);
-      });
-    }
+      // Record completion in DB and get streak
+      if (user?.id) {
+        try {
+          const result = await markSweepCompleted(user.id, supabase, {
+            kept: summary.kept,
+            cleared: summary.cleared,
+          });
+          console.log('[SweepFlowScreen] Sweep completed, streak:', result.streak);
+          setSweepStreak(result.streak);
+        } catch (err) {
+          console.error('[SweepFlowScreen] Failed to mark sweep as completed:', err);
+        }
+      }
 
-    // Advance to Habits step
-    setStep(2); // Decision → Habits
-  };
+      // Advance to Habits step
+      setStep(2); // Decision → Habits
+    },
+    [user],
+  );
 
   const handleSummaryDone = () => {
     navigation.goBack();
@@ -1863,6 +2133,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         ) : null}
 
         {/* Step Content - Full-bleed for decision step */}
+        {__DEV__ &&
+          (() => {
+            console.log('[SweepFlowScreen] Rendering step:', step);
+            return null;
+          })()}
         <View style={step === 1 ? styles.contentDecision : styles.content}>
           {step === 0 &&
             (__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep'),
@@ -1888,6 +2163,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               <SweepSummaryStep
                 keptCount={keptCount}
                 clearedCount={clearedCount}
+                items={summaryItems}
+                streak={sweepStreak}
                 onDone={handleSummaryDone}
               />
             ))}
@@ -2719,6 +2996,25 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
   },
+  streakContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  streakEmoji: {
+    fontSize: 28,
+  },
+  streakCount: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+  },
+  streakLabel: {
+    fontSize: 18,
+    color: BRAND.colors.inkMuted,
+  },
   summaryStatsContainer: {
     backgroundColor: BRAND.colors.surface,
     borderRadius: BRAND.radius.md,
@@ -2753,6 +3049,59 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkSubtle,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  // Expandable summary styles
+  expandableSummaryContainer: {
+    marginTop: 16,
+    gap: 12,
+  },
+  summarySubheading: {
+    fontSize: 15,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  summarySection: {
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: BRAND.radius.md,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+    overflow: 'hidden',
+  },
+  summarySectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  summarySectionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+  },
+  summarySectionContent: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: BRAND.colors.borderSubtle,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  summaryItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  summaryItemName: {
+    fontSize: 14,
+    color: BRAND.colors.charcoalInk,
+    flex: 1,
+    marginRight: 12,
+  },
+  summaryItemOutcome: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    fontStyle: 'italic',
   },
   // Overlay styles (rendered locally to appear above modal)
   overlayContainer: {

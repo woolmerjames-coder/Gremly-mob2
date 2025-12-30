@@ -105,12 +105,30 @@ export type SweepCandidate = SweepCandidateTodo | SweepCandidateNote | SweepCand
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Individual item detail for the sweep summary screen.
+ */
+export interface SweepSummaryItem {
+  id: string;
+  name: string;
+  /** What happened to this item */
+  outcome: 'scheduled' | 'saved' | 'kept' | 'cleared' | 'archived' | 'logged' | 'skipped';
+  /** For scheduled items, the date it was scheduled to */
+  scheduledDate?: string;
+}
+
+/**
  * Summary of actions taken during a Sweep session.
- * Note: 'skipped' was removed - we no longer track skipped items in the summary.
+ * Note: 'skipped' was removed from counts - we no longer track skipped items in the summary.
  */
 export interface SweepSummary {
   kept: number;
   cleared: number;
+  /** Detailed breakdown by item type for the expandable summary */
+  items?: {
+    todos: SweepSummaryItem[];
+    thoughts: SweepSummaryItem[]; // notes/logs
+    habits: SweepSummaryItem[];
+  };
 }
 
 /**
