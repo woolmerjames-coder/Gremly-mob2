@@ -1807,9 +1807,11 @@ function SweepSummaryStep({ keptCount, clearedCount, items, streak, onDone }: Su
         {/* Streak display */}
         {streak > 0 && (
           <View style={styles.streakContainer}>
-            <Text style={styles.streakEmoji}>🔥</Text>
+            <View style={styles.flameIcon}>
+              <Icon name="Flame" size={22} color="#FFF" />
+            </View>
             <Text style={styles.streakCount}>{displayedStreak}</Text>
-            <Text style={styles.streakLabel}>{streak === 1 ? 'day streak' : 'day streak'}</Text>
+            <Text style={styles.streakLabel}>day streak</Text>
           </View>
         )}
 
@@ -3000,20 +3002,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: 8,
+    paddingHorizontal: 16,
+    height: 44,
   },
-  streakEmoji: {
-    fontSize: 28,
+  flameIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#E5A03A',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   streakCount: {
-    fontSize: 32,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
+    color: BRAND.colors.ink,
+    marginHorizontal: 8,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   streakLabel: {
-    fontSize: 18,
+    fontSize: 17,
+    lineHeight: 22,
     color: BRAND.colors.inkMuted,
+    includeFontPadding: false,
   },
   summaryStatsContainer: {
     backgroundColor: BRAND.colors.surface,
