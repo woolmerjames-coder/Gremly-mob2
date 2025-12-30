@@ -19,11 +19,9 @@ import {
   StyleSheet,
   Modal,
   Pressable,
-  KeyboardAvoidingView,
-  Platform,
-  LayoutRectangle,
   Image,
   ScrollView,
+  LayoutRectangle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -42,11 +40,8 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withSequence,
+  cancelAnimation,
 } from 'react-native-reanimated';
-import DraggableFlatList, {
-  RenderItemParams,
-  ScaleDecorator,
-} from 'react-native-draggable-flatlist';
 import { BRAND } from '../../../design/brand';
 import { useMorningBrief } from '../../../lib/today/hooks/useMorningBrief';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
@@ -55,6 +50,9 @@ import { Clock, Sunrise, Sun, Moon } from 'lucide-react-native';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { useNowQuickAdd } from '../../../lib/now/useNowQuickAdd';
 import { triggerMedium, triggerSuccess } from '../../../lib/haptics';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires -- React Native image import
+const GREMLY_FACE = require('../../../assets/buttonforHP.png');
 
 // Bucket types for task organization
 type Bucket = 'lock-in' | 'morning' | 'day' | 'evening';
@@ -103,7 +101,7 @@ function formatTimeEstimate(minutes: number | null | undefined): string | null {
 
 // Draggable task card component
 interface DraggableTaskCardProps {
-  task: TaskItem;
+  task: TaskItem & { timeEstimate?: number | null };
   onDragStart: (task: TaskItem, x: number, y: number) => void;
   onDragMove: (x: number, y: number) => void;
   onDragEnd: (x: number, y: number) => void;
@@ -149,6 +147,7 @@ function DraggableTaskCard({
     (event: { nativeEvent: { state: number; absoluteX: number; absoluteY: number } }) => {
       if (event.nativeEvent.state === State.ACTIVE) {
         isActiveDrag.current = true;
+        triggerMedium();
         onDragStart(task, event.nativeEvent.absoluteX, event.nativeEvent.absoluteY);
       }
     },
@@ -158,7 +157,6 @@ function DraggableTaskCard({
   const handleTapStateChange = useCallback(
     (event: TapGestureHandlerStateChangeEvent) => {
       if (event.nativeEvent.state === State.END) {
-        // Only trigger tap if we're not in a drag
         if (!isActiveDrag.current) {
           onTap(task.id);
         }
@@ -177,7 +175,7 @@ function DraggableTaskCard({
         <LongPressGestureHandler
           ref={longPressRef}
           onHandlerStateChange={handleLongPressStateChange}
-          minDurationMs={150}
+          minDurationMs={200}
           simultaneousHandlers={panRef}
         >
           <Animated.View>
@@ -186,13 +184,11 @@ function DraggableTaskCard({
               onGestureEvent={handlePanGesture}
               onHandlerStateChange={handlePanStateChange}
               simultaneousHandlers={longPressRef}
-              minDist={0}
+              activeOffsetX={[-15, 15]}
+              activeOffsetY={[-15, 15]}
             >
               <Animated.View style={[styles.taskCard, isDragging && styles.taskCardDragging]}>
-                <Image
-                  source={require('../../../assets/buttonforHP.png')}
-                  style={styles.gremlyHandle}
-                />
+                <Image source={GREMLY_FACE} style={styles.gremlyHandle} />
                 <View style={styles.taskInfo}>
                   <Text style={styles.taskName} numberOfLines={1}>
                     {task.name}
@@ -213,6 +209,62 @@ function DraggableTaskCard({
         </LongPressGestureHandler>
       </Animated.View>
     </TapGestureHandler>
+  );
+}
+
+// Summary bucket section component - uses plain Views for proper ScrollView height calculation
+interface SummaryBucketSectionProps {
+  bucket: Bucket;
+  items: TaskItem[];
+  bucketColor: string;
+  bucketIcon: string;
+  onRemove: (id: string) => void;
+}
+
+function SummaryBucketSection({
+  bucket,
+  items,
+  bucketColor,
+  bucketIcon,
+  onRemove,
+}: SummaryBucketSectionProps) {
+  if (items.length === 0) return null;
+
+  return (
+    <View>
+      {items.map((item) => (
+        <View key={item.id} style={styles.summaryRow}>
+          <View style={styles.summaryRowContent}>
+            {bucket === 'lock-in' && (
+              <Text style={[styles.summaryBucketIcon, { color: bucketColor }]}>{bucketIcon}</Text>
+            )}
+            {bucket === 'morning' && (
+              <Sunrise size={14} color={BRAND.colors.goldenPear} style={styles.summaryIconLucide} />
+            )}
+            {bucket === 'day' && (
+              <Sun size={14} color={BRAND.colors.sageMist} style={styles.summaryIconLucide} />
+            )}
+            {bucket === 'evening' && (
+              <Moon
+                size={14}
+                color={BRAND.colors.periwinkleSmoke}
+                style={styles.summaryIconLucide}
+              />
+            )}
+            <Text style={styles.summaryItemName} numberOfLines={1}>
+              {item.name}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => onRemove(item.id)}
+            style={styles.summaryRemoveButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={styles.summaryRemove}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -275,14 +327,23 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   // Flag to prevent re-initialization during modal close
   const isClosingRef = useRef(false);
 
-  // Bucket layout refs for drop detection
-  const bucketLayouts = useRef<Map<Bucket, LayoutRectangle>>(new Map());
-  const bucketRefs = useRef<Map<Bucket, View | null>>(new Map());
-
   // Drag state
   const [draggingTask, setDraggingTask] = useState<TaskItem | null>(null);
   const [highlightedBucket, setHighlightedBucket] = useState<Bucket | null>(null);
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
+
+  // Use shared value for drag position to avoid React re-renders during gesture
+  const dragPosShared = useSharedValue({ x: 0, y: 0 });
+
+  // Throttle ref for bucket detection
+  const lastBucketCheckTime = useRef(0);
+  const BUCKET_CHECK_THROTTLE_MS = 50; // Check bucket every 50ms max
+
+  // Bucket layout refs for drop detection
+  const bucketLayouts = useRef<Map<Bucket, LayoutRectangle>>(new Map());
+
+  // Force remeasurement when layout changes
+  const [bucketMeasureKey, setBucketMeasureKey] = useState(0);
 
   // Quick add modal state
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
@@ -330,18 +391,22 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     transform: [{ scale: eveningScale.value }],
   }));
 
-  const bucketAnimatedStyles = useMemo<Record<Bucket, ReturnType<typeof useAnimatedStyle>>>(
-    () => ({
-      'lock-in': lockInAnimatedStyle,
-      morning: morningAnimatedStyle,
-      day: dayAnimatedStyle,
-      evening: eveningAnimatedStyle,
-    }),
-    [lockInAnimatedStyle, morningAnimatedStyle, dayAnimatedStyle, eveningAnimatedStyle],
-  );
+  // Refs to track if animation is in progress (prevents pile-up)
+  const animationInProgress = useRef<Record<Bucket, boolean>>({
+    'lock-in': false,
+    morning: false,
+    day: false,
+    evening: false,
+  });
 
   const triggerBucketPulse = useCallback(
     (bucket: Bucket) => {
+      // Prevent animation pile-up
+      if (animationInProgress.current[bucket]) {
+        return;
+      }
+      animationInProgress.current[bucket] = true;
+
       // Haptic feedback
       if (bucket === 'lock-in') {
         triggerSuccess(); // Stronger feedback for Lock In
@@ -349,26 +414,38 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         triggerMedium();
       }
 
-      // Pulse animation: scale up then back
-      const pulseSequence = withSequence(
-        withTiming(1.15, { duration: 100 }),
-        withTiming(1, { duration: 150 }),
-      );
+      // Get the appropriate scale shared value
+      const getScaleValue = () => {
+        switch (bucket) {
+          case 'lock-in':
+            return lockInScale;
+          case 'morning':
+            return morningScale;
+          case 'day':
+            return dayScale;
+          case 'evening':
+            return eveningScale;
+        }
+      };
 
-      // Apply animation to the appropriate bucket
-      if (bucket === 'lock-in') {
-        // eslint-disable-next-line react-hooks/immutability
-        lockInScale.value = pulseSequence;
-      } else if (bucket === 'morning') {
-        // eslint-disable-next-line react-hooks/immutability
-        morningScale.value = pulseSequence;
-      } else if (bucket === 'day') {
-        // eslint-disable-next-line react-hooks/immutability
-        dayScale.value = pulseSequence;
-      } else if (bucket === 'evening') {
-        // eslint-disable-next-line react-hooks/immutability
-        eveningScale.value = pulseSequence;
-      }
+      const scaleValue = getScaleValue();
+
+      // Cancel any existing animation first
+      cancelAnimation(scaleValue);
+
+      // Reset to 1 before starting new animation
+      scaleValue.value = 1;
+
+      // Start the pulse animation with completion callback
+      scaleValue.value = withSequence(
+        withTiming(1.15, { duration: 100 }),
+        withTiming(1, { duration: 150 }, (finished) => {
+          // Mark animation as complete
+          if (finished) {
+            animationInProgress.current[bucket] = false;
+          }
+        }),
+      );
     },
     [lockInScale, morningScale, dayScale, eveningScale],
   );
@@ -433,6 +510,65 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     setSelectedTaskId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentional: only re-run when modal visibility changes
   }, [visible]);
+
+  // Cleanup animations when component unmounts
+  useEffect(() => {
+    return () => {
+      // Cancel all bucket scale animations on cleanup
+      cancelAnimation(lockInScale);
+      cancelAnimation(morningScale);
+      cancelAnimation(dayScale);
+      cancelAnimation(eveningScale);
+
+      // Reset to default values
+      lockInScale.value = 1;
+      morningScale.value = 1;
+      dayScale.value = 1;
+      eveningScale.value = 1;
+
+      // Reset animation progress tracking
+      animationInProgress.current = {
+        'lock-in': false,
+        morning: false,
+        day: false,
+        evening: false,
+      };
+    };
+  }, [lockInScale, morningScale, dayScale, eveningScale]);
+
+  // Cancel animations when modal is closing to prevent orphaned animations
+  useEffect(() => {
+    if (!visible) {
+      cancelAnimation(lockInScale);
+      cancelAnimation(morningScale);
+      cancelAnimation(dayScale);
+      cancelAnimation(eveningScale);
+
+      lockInScale.value = 1;
+      morningScale.value = 1;
+      dayScale.value = 1;
+      eveningScale.value = 1;
+
+      // Reset animation progress tracking
+      animationInProgress.current = {
+        'lock-in': false,
+        morning: false,
+        day: false,
+        evening: false,
+      };
+    }
+  }, [visible, lockInScale, morningScale, dayScale, eveningScale]);
+
+  // Re-measure bucket positions when summary expands/collapses
+  useEffect(() => {
+    if (visible) {
+      // Force re-layout measurement by updating a counter after layout settles
+      const timer = setTimeout(() => {
+        setBucketMeasureKey((k) => k + 1);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [visible, summaryExpanded]);
 
   // Derived bucket contents (ordered)
   const unorganizedTasks = useMemo(
@@ -608,16 +744,8 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     [rawLockedItems, removeCommitment],
   );
 
-  // Reorder within a bucket
-  const handleReorder = useCallback((bucket: Bucket, newOrder: TaskItem[]) => {
-    setBucketOrders((prev) => {
-      const next = new Map(prev);
-      next.set(
-        bucket,
-        newOrder.map((item) => item.id),
-      );
-      return next;
-    });
+  const handleTap = useCallback((taskId: string) => {
+    setSelectedTaskId(taskId);
   }, []);
 
   // Detect which bucket the drag position is over
@@ -635,39 +763,30 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     return null;
   }, []);
 
-  // Drag handlers
-  const remeasureBuckets = useCallback(() => {
-    // Small delay to let layout settle
-    setTimeout(() => {
-      for (const [bucket, ref] of bucketRefs.current) {
-        if (ref) {
-          ref.measureInWindow((x, y, width, height) => {
-            if (width > 0 && height > 0) {
-              bucketLayouts.current.set(bucket, { x, y, width, height });
-            }
-          });
-        }
-      }
-    }, 100);
+  const handleDragStart = useCallback((task: TaskItem, x: number, y: number) => {
+    setDraggingTask(task);
+    setDragPos({ x, y });
   }, []);
-
-  const handleDragStart = useCallback(
-    (task: TaskItem, x: number, y: number) => {
-      // Re-measure buckets at drag start in case layout changed
-      remeasureBuckets();
-      setDraggingTask(task);
-      setDragPos({ x, y });
-    },
-    [remeasureBuckets],
-  );
 
   const handleDragMove = useCallback(
     (x: number, y: number) => {
+      // Update shared value (no React re-render)
+      dragPosShared.value = { x, y };
+
+      // Also update state for the overlay (but this is read less frequently)
       setDragPos({ x, y });
-      const bucket = detectBucketAtPosition(x, y);
-      setHighlightedBucket(bucket);
+
+      // Throttle bucket detection to reduce computation
+      const now = Date.now();
+      if (now - lastBucketCheckTime.current >= BUCKET_CHECK_THROTTLE_MS) {
+        lastBucketCheckTime.current = now;
+        const bucket = detectBucketAtPosition(x, y);
+        if (bucket !== highlightedBucket) {
+          setHighlightedBucket(bucket);
+        }
+      }
     },
-    [detectBucketAtPosition],
+    [detectBucketAtPosition, highlightedBucket, dragPosShared],
   );
 
   const handleDragEnd = useCallback(
@@ -676,6 +795,11 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         const bucket = detectBucketAtPosition(x, y);
         if (bucket) {
           handleAssignToBucket(draggingTask.id, bucket);
+          if (bucket === 'lock-in') {
+            triggerSuccess();
+          } else {
+            triggerMedium();
+          }
         }
       }
       setDraggingTask(null);
@@ -683,10 +807,6 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     },
     [draggingTask, detectBucketAtPosition, handleAssignToBucket],
   );
-
-  const handleTap = useCallback((taskId: string) => {
-    setSelectedTaskId(taskId);
-  }, []);
 
   const handleAddPress = useCallback(() => {
     setQuickAddVisible(true);
@@ -704,98 +824,105 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     // Could open full overlay here if needed
   }, []);
 
+  // Measure bucket position using requestAnimationFrame for timing accuracy
+  const measureBucket = useCallback(
+    (
+      bucketKey: Bucket,
+      target: {
+        measureInWindow: (
+          callback: (x: number, y: number, width: number, height: number) => void,
+        ) => void;
+      },
+    ) => {
+      // Use requestAnimationFrame to ensure we measure after paint
+      requestAnimationFrame(() => {
+        target.measureInWindow((x: number, y: number, width: number, height: number) => {
+          if (width > 0 && height > 0) {
+            bucketLayouts.current.set(bucketKey, { x, y, width, height });
+          }
+        });
+      });
+    },
+    [],
+  );
+
   // Render a bucket drop zone
+  // Outer View handles measurement, inner Animated.View handles visual effects
+  // This separation prevents shadow tree corruption when animations run during layout
   const renderBucket = useCallback(
     (bucket: (typeof BUCKETS)[0], itemCount: number) => {
       const isHighlighted = highlightedBucket === bucket.key;
       const isMaxed = bucket.key === 'lock-in' && itemCount >= 3 && !isHighlighted;
 
+      // Get the animated style for this bucket
+      const animatedStyle = (() => {
+        switch (bucket.key) {
+          case 'lock-in':
+            return lockInAnimatedStyle;
+          case 'morning':
+            return morningAnimatedStyle;
+          case 'day':
+            return dayAnimatedStyle;
+          case 'evening':
+            return eveningAnimatedStyle;
+        }
+      })();
+
       return (
-        <Animated.View
-          key={bucket.key}
-          ref={(ref) => {
-            bucketRefs.current.set(bucket.key, ref);
-          }}
-          style={[
-            styles.bucket,
-            bucket.key === 'lock-in' && styles.bucketLockIn,
-            isHighlighted && styles.bucketHighlighted,
-            { borderColor: isHighlighted ? bucket.color : BRAND.colors.borderSubtle },
-            bucketAnimatedStyles[bucket.key],
-          ]}
+        // Outer View for measurement ONLY - no animated styles
+        <View
+          key={`${bucket.key}-${bucketMeasureKey}`}
           onLayout={(e) => {
-            e.target.measureInWindow((x, y, width, height) => {
-              bucketLayouts.current.set(bucket.key, { x, y, width, height });
-            });
+            measureBucket(bucket.key, e.target);
           }}
         >
-          {bucket.key === 'lock-in' && (
-            <Text style={[styles.bucketIcon, styles.bucketIconLockIn]}>{bucket.icon}</Text>
-          )}
-          {bucket.key === 'morning' && (
-            <Sunrise size={22} color={BRAND.colors.goldenPear} style={styles.bucketIconLucide} />
-          )}
-          {bucket.key === 'day' && (
-            <Sun size={22} color={BRAND.colors.sageMist} style={styles.bucketIconLucide} />
-          )}
-          {bucket.key === 'evening' && (
-            <Moon size={22} color={BRAND.colors.periwinkleSmoke} style={styles.bucketIconLucide} />
-          )}
-          <Text style={styles.bucketLabel}>{bucket.label}</Text>
-          {itemCount > 0 && (
-            <View style={[styles.bucketBadge, { backgroundColor: bucket.color }]}>
-              <Text style={styles.bucketBadgeText}>{itemCount}</Text>
-            </View>
-          )}
-          {isMaxed && <Text style={styles.bucketMaxText}>max</Text>}
-        </Animated.View>
+          {/* Inner Animated.View for visual effects ONLY */}
+          <Animated.View
+            style={[
+              styles.bucket,
+              bucket.key === 'lock-in' && styles.bucketLockIn,
+              bucket.key === 'lock-in' && itemCount > 0 && styles.bucketLockInActive,
+              isHighlighted && styles.bucketHighlighted,
+              isHighlighted && { borderColor: bucket.color },
+              animatedStyle,
+            ]}
+          >
+            {bucket.key === 'lock-in' && (
+              <Text style={[styles.bucketIcon, styles.bucketIconLockIn]}>{bucket.icon}</Text>
+            )}
+            {bucket.key === 'morning' && (
+              <Sunrise size={22} color={BRAND.colors.goldenPear} style={styles.bucketIconLucide} />
+            )}
+            {bucket.key === 'day' && (
+              <Sun size={22} color={BRAND.colors.sageMist} style={styles.bucketIconLucide} />
+            )}
+            {bucket.key === 'evening' && (
+              <Moon
+                size={22}
+                color={BRAND.colors.periwinkleSmoke}
+                style={styles.bucketIconLucide}
+              />
+            )}
+            <Text style={styles.bucketLabel}>{bucket.label}</Text>
+            {itemCount > 0 && (
+              <View style={[styles.bucketBadge, { backgroundColor: bucket.color }]}>
+                <Text style={styles.bucketBadgeText}>{itemCount}</Text>
+              </View>
+            )}
+            {isMaxed && <Text style={styles.bucketMaxText}>max</Text>}
+          </Animated.View>
+        </View>
       );
     },
-    [highlightedBucket, bucketAnimatedStyles],
-  );
-
-  // Render item for DraggableFlatList (within-bucket reordering)
-  const renderBucketItem = useCallback(
-    (bucket: Bucket, bucketColor: string, bucketIcon: string) =>
-      ({ item, drag, isActive }: RenderItemParams<TaskItem>) => (
-        <ScaleDecorator>
-          <View style={[styles.summaryRow, isActive && styles.summaryRowActive]}>
-            <Pressable style={styles.summaryRowContent} onLongPress={drag} disabled={isActive}>
-              {bucket === 'lock-in' && (
-                <Text style={[styles.summaryBucketIcon, { color: bucketColor }]}>{bucketIcon}</Text>
-              )}
-              {bucket === 'morning' && (
-                <Sunrise
-                  size={14}
-                  color={BRAND.colors.goldenPear}
-                  style={styles.summaryIconLucide}
-                />
-              )}
-              {bucket === 'day' && (
-                <Sun size={14} color={BRAND.colors.sageMist} style={styles.summaryIconLucide} />
-              )}
-              {bucket === 'evening' && (
-                <Moon
-                  size={14}
-                  color={BRAND.colors.periwinkleSmoke}
-                  style={styles.summaryIconLucide}
-                />
-              )}
-              <Text style={styles.summaryItemName} numberOfLines={1}>
-                {item.name}
-              </Text>
-            </Pressable>
-            <TouchableOpacity
-              onPress={() => handleRemoveFromBucket(item.id)}
-              style={styles.summaryRemoveButton}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Text style={styles.summaryRemove}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        </ScaleDecorator>
-      ),
-    [handleRemoveFromBucket],
+    [
+      highlightedBucket,
+      bucketMeasureKey,
+      lockInAnimatedStyle,
+      morningAnimatedStyle,
+      dayAnimatedStyle,
+      eveningAnimatedStyle,
+      measureBucket,
+    ],
   );
 
   return (
@@ -806,10 +933,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
       onRequestClose={handleSkip}
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+        <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Plan Your Day</Text>
@@ -835,11 +959,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
               {/* Optimistic quick-add card */}
               {optimisticQuickAdd && (
                 <View style={[styles.taskCard, styles.taskCardOptimistic]}>
-                  <Image
-                    source={require('../../../assets/buttonforHP.png')}
-                    style={styles.gremlyHandle}
-                    resizeMode="contain"
-                  />
+                  <Image source={GREMLY_FACE} style={styles.gremlyHandle} resizeMode="contain" />
                   <View style={styles.taskInfo}>
                     <Text style={styles.taskName} numberOfLines={1}>
                       {optimisticQuickAdd.title}
@@ -849,7 +969,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                 </View>
               )}
 
-              {unorganizedTasks.length === 0 ? (
+              {unorganizedTasks.length === 0 && !optimisticQuickAdd ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyStateText}>All tasks scheduled!</Text>
                 </View>
@@ -888,13 +1008,11 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
             {/* Expandable summary with reorderable lists */}
             {scheduledCount > 0 && (
-              <View style={styles.summaryContainer} pointerEvents={draggingTask ? 'none' : 'auto'}>
+              <View style={styles.summaryContainer}>
                 <Pressable
                   style={styles.summaryHeader}
                   onPress={() => {
                     setSummaryExpanded(!summaryExpanded);
-                    // Re-measure buckets after summary toggle
-                    remeasureBuckets();
                   }}
                 >
                   <Text style={styles.summaryText}>
@@ -904,47 +1022,40 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                 </Pressable>
 
                 {summaryExpanded && (
-                  <View style={styles.summaryContent}>
-                    {lockInItems.length > 0 && (
-                      <DraggableFlatList
-                        data={lockInItems}
-                        keyExtractor={(item) => item.id}
-                        renderItem={renderBucketItem('lock-in', BRAND.colors.mossGreen, '◇')}
-                        onDragEnd={({ data }) => handleReorder('lock-in', data)}
-                        scrollEnabled={false}
-                      />
-                    )}
-
-                    {morningItems.length > 0 && (
-                      <DraggableFlatList
-                        data={morningItems}
-                        keyExtractor={(item) => item.id}
-                        renderItem={renderBucketItem('morning', BRAND.colors.goldenPear, '☀')}
-                        onDragEnd={({ data }) => handleReorder('morning', data)}
-                        scrollEnabled={false}
-                      />
-                    )}
-
-                    {dayItems.length > 0 && (
-                      <DraggableFlatList
-                        data={dayItems}
-                        keyExtractor={(item) => item.id}
-                        renderItem={renderBucketItem('day', BRAND.colors.mossGreen, '◐')}
-                        onDragEnd={({ data }) => handleReorder('day', data)}
-                        scrollEnabled={false}
-                      />
-                    )}
-
-                    {eveningItems.length > 0 && (
-                      <DraggableFlatList
-                        data={eveningItems}
-                        keyExtractor={(item) => item.id}
-                        renderItem={renderBucketItem('evening', BRAND.colors.periwinkleSmoke, '☽')}
-                        onDragEnd={({ data }) => handleReorder('evening', data)}
-                        scrollEnabled={false}
-                      />
-                    )}
-                  </View>
+                  <ScrollView
+                    style={styles.summaryScrollView}
+                    contentContainerStyle={styles.summaryContent}
+                    showsVerticalScrollIndicator={true}
+                  >
+                    <SummaryBucketSection
+                      bucket="lock-in"
+                      items={lockInItems}
+                      bucketColor={BRAND.colors.mossGreen}
+                      bucketIcon="◇"
+                      onRemove={handleRemoveFromBucket}
+                    />
+                    <SummaryBucketSection
+                      bucket="morning"
+                      items={morningItems}
+                      bucketColor={BRAND.colors.goldenPear}
+                      bucketIcon="☀"
+                      onRemove={handleRemoveFromBucket}
+                    />
+                    <SummaryBucketSection
+                      bucket="day"
+                      items={dayItems}
+                      bucketColor={BRAND.colors.mossGreen}
+                      bucketIcon="◐"
+                      onRemove={handleRemoveFromBucket}
+                    />
+                    <SummaryBucketSection
+                      bucket="evening"
+                      items={eveningItems}
+                      bucketColor={BRAND.colors.periwinkleSmoke}
+                      bucketIcon="☽"
+                      onRemove={handleRemoveFromBucket}
+                    />
+                  </ScrollView>
                 )}
               </View>
             )}
@@ -961,20 +1072,6 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
               </Pressable>
             </View>
           </View>
-
-          {/* Drag overlay */}
-          {draggingTask && (
-            <View
-              style={[styles.dragOverlay, { top: dragPos.y - 30, left: dragPos.x - 100 }]}
-              pointerEvents="none"
-            >
-              <View style={styles.dragOverlayCard}>
-                <Text style={styles.dragOverlayText} numberOfLines={1}>
-                  {draggingTask.name}
-                </Text>
-              </View>
-            </View>
-          )}
 
           {/* Bucket picker modal (tap fallback) */}
           {selectedTaskId && (
@@ -1046,7 +1143,21 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             onSubmit={handleQuickAddSubmit}
             onPressManualAdd={handleQuickAddManual}
           />
-        </KeyboardAvoidingView>
+
+          {/* Drag overlay */}
+          {draggingTask && (
+            <View
+              style={[styles.dragOverlay, { top: dragPos.y - 30, left: dragPos.x - 100 }]}
+              pointerEvents="none"
+            >
+              <View style={styles.dragOverlayCard}>
+                <Text style={styles.dragOverlayText} numberOfLines={1}>
+                  {draggingTask.name}
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
       </GestureHandlerRootView>
     </Modal>
   );
@@ -1109,7 +1220,8 @@ const styles = StyleSheet.create({
     ...BRAND.elevation.one,
   },
   taskCardDragging: {
-    opacity: 0.3,
+    opacity: 0.4,
+    backgroundColor: BRAND.colors.sageMist,
   },
   taskCardOptimistic: {
     opacity: 0.6,
@@ -1205,11 +1317,21 @@ const styles = StyleSheet.create({
     borderStyle: 'solid',
     transform: [{ scale: 1.05 }],
   },
-  bucketLockIn: {
-    backgroundColor: 'rgba(46, 85, 64, 0.08)',
-    borderColor: BRAND.colors.mossGreen,
+  bucketReceiving: {
     borderStyle: 'solid',
+    borderColor: BRAND.colors.mossGreen,
+    transform: [{ scale: 1.08 }],
+    backgroundColor: 'rgba(46, 85, 64, 0.15)',
+  },
+  bucketLockIn: {
+    backgroundColor: 'rgba(46, 85, 64, 0.05)',
+    borderColor: 'rgba(46, 85, 64, 0.35)',
+    // Keep dashed border from parent - only solid when active
     ...BRAND.elevation.two,
+  },
+  bucketLockInActive: {
+    borderStyle: 'solid',
+    borderColor: BRAND.colors.mossGreen,
   },
   bucketIcon: {
     fontSize: 20,
@@ -1273,9 +1395,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: BRAND.colors.inkMuted,
   },
-  summaryContent: {
+  summaryScrollView: {
+    maxHeight: 180,
     borderTopWidth: 1,
     borderTopColor: BRAND.colors.borderSubtle,
+  },
+  summaryContent: {
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
