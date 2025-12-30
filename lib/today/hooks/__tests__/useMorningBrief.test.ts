@@ -26,18 +26,20 @@ describe('useMorningBrief', () => {
   const mockFetchTodayBrief = jest.fn();
 
   const mockSequencedItem: SequencedItem = {
-    item_id: 'test-item-1',
-    item_type: 'todo',
-    position: 1,
+    id: 'test-item-1',
+    type: 'todo',
   };
 
   const mockBrief: DailyBrief = {
     id: 'brief-1',
-    user_id: 'user-1',
+    owner_id: 'user-1',
     date: getTodayDateString(),
+    one_thing_id: null,
+    one_thing_type: null,
     morning_sequence: [mockSequencedItem],
     day_sequence: [],
     evening_sequence: [],
+    completed_at: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -145,8 +147,8 @@ describe('useMorningBrief', () => {
       const briefWithMorning: DailyBrief = {
         ...mockBrief,
         morning_sequence: [
-          { item_id: 'item-1', item_type: 'todo', position: 1 },
-          { item_id: 'item-2', item_type: 'habit', position: 2 },
+          { id: 'item-1', type: 'todo' },
+          { id: 'item-2', type: 'habit' },
         ],
       };
 
@@ -164,13 +166,13 @@ describe('useMorningBrief', () => {
       const { result } = renderHook(() => useMorningBrief());
 
       expect(result.current.morningSequence).toHaveLength(2);
-      expect(result.current.morningSequence[0].item_id).toBe('item-1');
+      expect(result.current.morningSequence[0].id).toBe('item-1');
     });
 
     it('returns day sequence from brief', () => {
       const briefWithDay: DailyBrief = {
         ...mockBrief,
-        day_sequence: [{ item_id: 'day-item', item_type: 'todo', position: 1 }],
+        day_sequence: [{ id: 'day-item', type: 'todo' }],
       };
 
       mockUseGremlyStore.mockImplementation((selector: any) => {
@@ -187,13 +189,13 @@ describe('useMorningBrief', () => {
       const { result } = renderHook(() => useMorningBrief());
 
       expect(result.current.daySequence).toHaveLength(1);
-      expect(result.current.daySequence[0].item_id).toBe('day-item');
+      expect(result.current.daySequence[0].id).toBe('day-item');
     });
 
     it('returns evening sequence from brief', () => {
       const briefWithEvening: DailyBrief = {
         ...mockBrief,
-        evening_sequence: [{ item_id: 'evening-item', item_type: 'habit', position: 1 }],
+        evening_sequence: [{ id: 'evening-item', type: 'habit' }],
       };
 
       mockUseGremlyStore.mockImplementation((selector: any) => {
@@ -210,7 +212,7 @@ describe('useMorningBrief', () => {
       const { result } = renderHook(() => useMorningBrief());
 
       expect(result.current.eveningSequence).toHaveLength(1);
-      expect(result.current.eveningSequence[0].item_id).toBe('evening-item');
+      expect(result.current.eveningSequence[0].id).toBe('evening-item');
     });
   });
 

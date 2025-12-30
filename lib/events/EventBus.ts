@@ -70,6 +70,9 @@ export type EventMap = {
       | 'minddrop_stage';
     value: any;
   };
+  // Daily Brief events
+  DailyBriefSaved: { date: string };
+  DailyBriefCleared: { date: string };
 };
 
 type Handler<T> = (payload: T) => void;

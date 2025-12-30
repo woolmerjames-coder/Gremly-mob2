@@ -208,8 +208,8 @@ describe('MorningBriefSheet', () => {
     it('handles existing sequences', () => {
       mockUseMorningBrief.mockReturnValue({
         ...defaultMockBrief,
-        morningSequence: [{ item_id: 'item-1', item_type: 'todo', position: 1 }],
-        daySequence: [{ item_id: 'item-2', item_type: 'habit', position: 1 }],
+        morningSequence: [{ id: 'item-1', type: 'todo' }],
+        daySequence: [{ id: 'item-2', type: 'habit' }],
         eveningSequence: [],
       });
 

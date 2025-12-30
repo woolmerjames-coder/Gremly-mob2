@@ -24,18 +24,16 @@ describe('NowFocusRow', () => {
     id: 'todo-1',
     type: 'todo',
     name: 'Review project proposal',
-    source: 'locked',
-    sortKey: 0,
+    locked: true,
   };
 
   const mockActiveItem: NowActiveItem = {
     id: 'habit-1',
     type: 'habit',
     name: 'Morning meditation',
-    source: 'active',
-    sortKey: 1,
+    locked: false,
     cadence: 'daily',
-    target_per_period: 1,
+    targetPerPeriod: 1,
   };
 
   beforeEach(() => {
@@ -143,10 +141,9 @@ describe('NowFocusRow', () => {
         id: 'habit-2',
         type: 'habit',
         name: 'Exercise',
-        source: 'active',
-        sortKey: 0,
+        locked: false,
         cadence: 'weekly',
-        target_per_period: 3,
+        targetPerPeriod: 3,
       };
 
       render(<NowFocusRow item={habitItem} />);

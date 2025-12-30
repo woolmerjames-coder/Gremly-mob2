@@ -450,9 +450,7 @@ export function NowFocusRow({
     <Animated.View
       style={[
         styles.rowWrapper,
-        animationPhase === 'collapsing' || animationPhase === 'done'
-          ? { height: rowHeight.value, overflow: 'hidden' }
-          : {},
+        animationPhase === 'collapsing' ? { height: rowHeight.value, overflow: 'hidden' } : {},
       ]}
       onLayout={handleLayout}
     >
