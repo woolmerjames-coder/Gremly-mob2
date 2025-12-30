@@ -24,6 +24,7 @@ import {
   Image,
   Modal,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -1793,6 +1794,11 @@ function SweepSummaryStep({ keptCount, clearedCount, items, streak, onDone }: Su
         contentContainerStyle={styles.summaryScrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Title - moved to top */}
+        <Text variant="title" style={styles.summaryTitle}>
+          Sweep complete
+        </Text>
+
         {/* Gremly mascot */}
         <View style={styles.summaryMascotContainer}>
           <Image
@@ -1804,7 +1810,7 @@ function SweepSummaryStep({ keptCount, clearedCount, items, streak, onDone }: Su
           />
         </View>
 
-        {/* Streak display */}
+        {/* Streak display - tighter to mascot */}
         {streak > 0 && (
           <View style={styles.streakContainer}>
             <View style={styles.flameIcon}>
@@ -1815,10 +1821,8 @@ function SweepSummaryStep({ keptCount, clearedCount, items, streak, onDone }: Su
           </View>
         )}
 
-        {/* Title */}
-        <Text variant="title" style={styles.stepTitle}>
-          Sweep complete
-        </Text>
+        {/* Divider */}
+        <View style={styles.summaryDivider} />
 
         {/* Expandable Summary */}
         {totalProcessed > 0 && items ? (
@@ -2989,10 +2993,15 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 24,
   },
+  summaryTitle: {
+    textAlign: 'center',
+    marginTop: 24,
+    marginBottom: 8,
+  },
   summaryMascotContainer: {
     alignItems: 'center',
-    marginTop: 32,
-    marginBottom: 24,
+    marginTop: 8,
+    marginBottom: 8,
   },
   summaryMascotImage: {
     width: 112,
@@ -3002,9 +3011,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: 16,
     paddingHorizontal: 16,
     height: 44,
+  },
+  summaryDivider: {
+    width: 80,
+    height: 1,
+    backgroundColor: BRAND.colors.borderSubtle,
+    alignSelf: 'center',
+    marginVertical: 16,
   },
   flameIcon: {
     width: 32,
