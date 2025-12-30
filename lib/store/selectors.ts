@@ -610,7 +610,19 @@ export const selectSweepCandidatesUnified = createSelector(
       const isCreatedToday = todo.created_at?.startsWith(today) ?? false;
       const wasSkipped = !!todo.skipped_in_sweep_at;
 
-      if (isOverdue || isDueToday || isUndated || wasSkipped) {
+      // Check if todo should resurface today (remind me later)
+      const resurfaceAt = (todo as any).resurface_at;
+      const shouldResurface = resurfaceAt && resurfaceAt <= today;
+
+      if (shouldResurface) {
+        console.log('[SweepSelector] Including resurfacing todo:', {
+          id: todo.id.slice(0, 8),
+          name: todo.name,
+          resurface_at: resurfaceAt,
+        });
+      }
+
+      if (isOverdue || isDueToday || isUndated || wasSkipped || shouldResurface) {
         candidates.push({
           id: todo.id,
           kind: 'todo',

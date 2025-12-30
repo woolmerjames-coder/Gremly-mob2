@@ -132,6 +132,8 @@ type SweepDecision = {
   dueDate?: Date;
   // For habits with start dates:
   startDate?: Date;
+  // For "Remind Me Later" - resurfaces in sweep on this date:
+  resurfaceDate?: Date;
   habitAction?: 'asktomorrow' | 'starttomorrow' | 'startmonday';
 };
 
@@ -1019,7 +1021,28 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         }
       } else if (decision.action === 'keep') {
         keptCount++;
-        if (decision.candidateKind === 'todo' && decision.dueDate) {
+        if (decision.candidateKind === 'todo' && decision.resurfaceDate) {
+          // Handle resurface date (remind me later)
+          const resurfaceDateStr = decision.resurfaceDate.toISOString().split('T')[0];
+          console.log('[SweepFlowScreen] Setting resurface_at:', resurfaceDateStr);
+
+          updates.push(
+            (async () => {
+              const { error } = await supabase
+                .from('todos')
+                .update({
+                  resurface_at: resurfaceDateStr,
+                  due_day: null,
+                  due_date: null,
+                })
+                .eq('id', decision.candidateId);
+
+              if (error) {
+                console.error('[SweepFlowScreen] Failed to update resurface_at:', error);
+              }
+            })(),
+          );
+        } else if (decision.candidateKind === 'todo' && decision.dueDate) {
           updates.push(
             updateTodo(decision.candidateId, {
               due_day: toDayString(decision.dueDate),
@@ -1082,7 +1105,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           // Todos = "Cleared", Notes = "Archived"
           outcome = details.kind === 'note' ? 'archived' : 'cleared';
         } else if (decision.action === 'keep') {
-          if (decision.dueDate) {
+          if (decision.resurfaceDate) {
+            outcome = 'remind';
+            scheduledDate = decision.resurfaceDate.toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+            });
+          } else if (decision.dueDate) {
             outcome = 'scheduled';
             scheduledDate = decision.dueDate.toLocaleDateString('en-US', {
               weekday: 'short',
@@ -1371,7 +1401,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    * Records decision with calculated date - actual save happens in batch commit
    */
   const handleConfirmQuickDate = useCallback(
-    (option: 'tomorrow' | '2days' | 'nextweek') => {
+    (option: 'tomorrow' | 'nextweek') => {
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
       const { candidate } = candidateWithMeta;
@@ -1383,9 +1413,6 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         case 'tomorrow':
           targetDate = addDays(today, 1);
           break;
-        case '2days':
-          targetDate = addDays(today, 2);
-          break;
         case 'nextweek':
           targetDate = nextMonday(today);
           break;
@@ -1396,6 +1423,42 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         candidateKind: candidate.kind,
         action: 'keep',
         dueDate: targetDate,
+      });
+
+      // Update stats and move to next card
+      const newStats = { ...stats, kept: stats.kept + 1 };
+      setStats(newStats);
+
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        handleAllCardsComplete(newStats);
+      }
+    },
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
+  );
+
+  /**
+   * Handle confirmed remind later (user picked resurface date + swiped right)
+   * Records decision with resurface date - item will reappear in sweep on that date
+   */
+  const handleConfirmRemindLater = useCallback(
+    (resurfaceDate: Date) => {
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      const { candidate } = candidateWithMeta;
+
+      console.log('[SweepFlowScreen] Recording remind later decision:', {
+        id: candidate.id,
+        resurfaceDate: resurfaceDate.toISOString(),
+      });
+
+      // Record decision with resurface date (not due date)
+      recordDecision({
+        candidateId: candidate.id,
+        candidateKind: 'todo',
+        action: 'keep',
+        resurfaceDate,
       });
 
       // Update stats and move to next card
@@ -1619,6 +1682,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           onOpenEdit={handleOpenEdit}
           onConvertToTodo={handleConvertToTodo}
           onConfirmQuickDate={handleConfirmQuickDate}
+          onConfirmRemindLater={handleConfirmRemindLater}
           onConfirmCustomDate={handleConfirmCustomDate}
           onAddToSpace={handleAddToSpace}
           onConfirmHabitStart={handleConfirmHabitStart}
@@ -1728,7 +1792,9 @@ function SweepSummaryStep({ keptCount, clearedCount, items, streak, onDone }: Su
   const formatOutcome = (item: SweepSummaryItem): string => {
     switch (item.outcome) {
       case 'scheduled':
-        return `→ ${item.scheduledDate}`;
+        return `→ Due ${item.scheduledDate}`;
+      case 'remind':
+        return `→ Remind ${item.scheduledDate}`;
       case 'saved':
         return '→ Saved';
       case 'cleared':

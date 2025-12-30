@@ -53,6 +53,7 @@ import {
   RotateCcw,
   Plus,
   ChevronLeft,
+  Bell,
 } from 'lucide-react-native';
 import { format, addDays, setHours, setMinutes, isSameDay, nextMonday } from 'date-fns';
 import * as Haptics from 'expo-haptics';
@@ -123,7 +124,9 @@ export interface SweepCardProps {
   /** Called when user wants to convert log to todo (opens overlay in convert mode) */
   onConvertToTodo?: () => void;
   /** Called when user swipes right with a quick date selected */
-  onConfirmQuickDate?: (option: 'tomorrow' | '2days' | 'nextweek') => void;
+  onConfirmQuickDate?: (option: 'tomorrow' | 'nextweek') => void;
+  /** Called when user swipes right with a remind later date selected */
+  onConfirmRemindLater?: (date: Date) => void;
   /** Called when user swipes right with a custom date picked */
   onConfirmCustomDate?: (date: Date) => void;
   /** Called when user taps "Add to Space" for logs */
@@ -167,6 +170,8 @@ function getTodoStatusLabel(status: SweepCardMeta['todoStatus']): string | null 
       return 'Due tomorrow';
     case 'overdue':
       return 'Overdue';
+    case 'reminder':
+      return 'Reminder';
     default:
       return null;
   }
@@ -264,6 +269,7 @@ export function SweepCard({
   onOpenEdit,
   onConvertToTodo,
   onConfirmQuickDate,
+  onConfirmRemindLater,
   onConfirmCustomDate,
   onAddToSpace,
   onConfirmHabitStart,
@@ -343,11 +349,17 @@ export function SweepCard({
   }, [candidate.kind]);
 
   const [selectedQuickAction, setSelectedQuickAction] = useState<
-    'tomorrow' | '2days' | 'nextweek' | 'pickdate' | 'nextsweep' | null
+    'tomorrow' | 'nextweek' | 'pickdate' | 'remindlater' | 'nextsweep' | null
   >(() => (candidate.kind === 'todo' ? 'tomorrow' : 'nextsweep'));
 
   // Track if user has manually changed selection (not just default)
   const [hasUserSelected, setHasUserSelected] = useState(false);
+
+  // Track confirmed remind date for "Remind Me Later"
+  const [confirmedRemindDate, setConfirmedRemindDate] = useState<Date | null>(null);
+
+  // Track if date picker is in "remind mode" vs "due date mode"
+  const [isDatePickerForRemind, setIsDatePickerForRemind] = useState(false);
 
   // Check if this is an unconfirmed habit
   // Cast to access start_date_confirmed which may not be in Supabase generated types yet
@@ -401,6 +413,8 @@ export function SweepCard({
     setHasUserSelected(false);
     setSelectedHabitAction('asktomorrow');
     setConfirmedCustomDate(null);
+    setConfirmedRemindDate(null);
+    setIsDatePickerForRemind(false);
 
     // If there's a previous decision, restore it
     if (previousDecision) {
@@ -409,13 +423,10 @@ export function SweepCard({
       if (previousDecision.dueDate) {
         // Check if it matches a quick action or is custom
         const tomorrow = addDays(new Date(), 1);
-        const twoDays = addDays(new Date(), 2);
         const monday = nextMonday(new Date());
 
         if (isSameDay(previousDecision.dueDate, tomorrow)) {
           setSelectedQuickAction('tomorrow');
-        } else if (isSameDay(previousDecision.dueDate, twoDays)) {
-          setSelectedQuickAction('2days');
         } else if (isSameDay(previousDecision.dueDate, monday)) {
           setSelectedQuickAction('nextweek');
         } else {
@@ -471,9 +482,11 @@ export function SweepCard({
     setHasUserSelected(true);
   }, []);
 
-  const handleIn2Days = useCallback(() => {
-    console.log('[SweepCard] 2 Days tapped, setting selection');
-    setSelectedQuickAction('2days');
+  const handleRemindLater = useCallback(() => {
+    console.log('[SweepCard] Remind Me Later tapped, opening date picker');
+    setSelectedQuickAction('remindlater');
+    setIsDatePickerForRemind(true);
+    setShowDatePicker(true);
     setHasUserSelected(true);
   }, []);
 
@@ -484,6 +497,7 @@ export function SweepCard({
   }, []);
 
   const handlePickDate = useCallback(() => {
+    setIsDatePickerForRemind(false);
     setSelectedQuickAction('pickdate');
     setHasUserSelected(true);
     setShowDatePicker(true);
@@ -529,6 +543,16 @@ export function SweepCard({
     setShowTimePicker(false);
     setSelectedTimePreset(null);
     setKeepAfterDatePick(false);
+  }, [selectedDate]);
+
+  /**
+   * Called when user confirms a remind later date in the date picker modal.
+   */
+  const handleRemindDateConfirm = useCallback(() => {
+    setConfirmedRemindDate(selectedDate);
+    setSelectedQuickAction('remindlater');
+    setHasUserSelected(true);
+    setShowDatePicker(false);
   }, [selectedDate]);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -611,33 +635,29 @@ export function SweepCard({
     }
 
     // Handle todos and notes
-    if (selectedQuickAction && onConfirmQuickDate) {
-      // User selected a quick date, confirm it
-      if (
-        selectedQuickAction === 'tomorrow' ||
-        selectedQuickAction === '2days' ||
-        selectedQuickAction === 'nextweek'
-      ) {
-        onConfirmQuickDate(selectedQuickAction);
-      } else if (selectedQuickAction === 'pickdate' && confirmedCustomDate && onConfirmCustomDate) {
-        // Custom date selected from picker
-        onConfirmCustomDate(confirmedCustomDate);
-      } else {
-        // nextsweep or other - just skip
-        onSkip();
-      }
+    if (selectedQuickAction === 'remindlater' && confirmedRemindDate) {
+      console.log('[SweepCard] Confirming remind later:', confirmedRemindDate);
+      onConfirmRemindLater?.(confirmedRemindDate);
+    } else if (selectedQuickAction === 'tomorrow' || selectedQuickAction === 'nextweek') {
+      console.log('[SweepCard] Confirming quick date:', selectedQuickAction);
+      onConfirmQuickDate?.(selectedQuickAction);
+    } else if (selectedQuickAction === 'pickdate' && confirmedCustomDate && onConfirmCustomDate) {
+      // Custom date selected from picker
+      onConfirmCustomDate(confirmedCustomDate);
     } else {
-      // No selection, just keep/skip
+      // nextsweep or other - just skip
       onSkip();
     }
   }, [
     isUnconfirmedHabit,
     selectedHabitAction,
     confirmedCustomDate,
+    confirmedRemindDate,
     selectedDate,
     onConfirmHabitStart,
     selectedQuickAction,
     onConfirmQuickDate,
+    onConfirmRemindLater,
     onConfirmCustomDate,
     onSkip,
   ]);
@@ -1103,32 +1123,6 @@ export function SweepCard({
                       <TouchableOpacity
                         style={[
                           styles.gridButton,
-                          selectedQuickAction === '2days'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={handleIn2Days}
-                        accessibilityLabel="Set due in 2 days"
-                        activeOpacity={0.7}
-                      >
-                        <ArrowRightCircle
-                          size={16}
-                          color={BRAND.colors.mossGreen}
-                          strokeWidth={2}
-                        />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedQuickAction === '2days' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          2 Days
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
                           selectedQuickAction === 'nextweek'
                             ? styles.gridButtonPrimary
                             : styles.gridButtonSecondary,
@@ -1167,6 +1161,28 @@ export function SweepCard({
                           ]}
                         >
                           {confirmedCustomDate ? format(confirmedCustomDate, 'MMM d') : 'Pick Date'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.gridButton,
+                          selectedQuickAction === 'remindlater'
+                            ? styles.gridButtonPrimary
+                            : styles.gridButtonSecondary,
+                        ]}
+                        onPress={handleRemindLater}
+                        accessibilityLabel="Remind me later"
+                        activeOpacity={0.7}
+                      >
+                        <Bell size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                        <Text
+                          style={[
+                            styles.gridButtonLabel,
+                            selectedQuickAction === 'remindlater' && styles.gridButtonLabelPrimary,
+                          ]}
+                        >
+                          {confirmedRemindDate ? format(confirmedRemindDate, 'MMM d') : 'Remind Me'}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -1428,6 +1444,7 @@ export function SweepCard({
             setClearDateFlag(false);
             setShowTimePicker(false);
             setSelectedTimePreset(null);
+            setIsDatePickerForRemind(false);
           }}
         >
           <Pressable onPress={(e) => e.stopPropagation()} style={styles.dateModalContent}>
@@ -1437,58 +1454,107 @@ export function SweepCard({
               contentContainerStyle={styles.dateModalScroll}
             >
               <Text style={styles.dateModalTitle}>
-                {candidate.kind === 'todo' ? 'Set due date' : 'Set start date'}
+                {isDatePickerForRemind
+                  ? 'Reminder date'
+                  : candidate.kind === 'todo'
+                    ? 'Set due date'
+                    : 'Set start date'}
               </Text>
 
               {/* Quick date chips */}
               <Box mt={1}>
                 <Box row gap={2} style={{ flexWrap: 'wrap' }}>
-                  <Pressable
-                    onPress={() => {
-                      const today = new Date();
-                      setSelectedDate(today);
-                      setClearDateFlag(false);
-                    }}
-                    style={({ pressed }) => [
-                      styles.dateChip,
-                      pressed && styles.dateChipPressed,
-                      !clearDateFlag &&
-                        selectedDate.toDateString() === new Date().toDateString() &&
-                        styles.dateChipSelected,
-                    ]}
-                  >
-                    <Text style={styles.dateChipText}>Today</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      const tomorrow = addDays(new Date(), 1);
-                      setSelectedDate(tomorrow);
-                      setClearDateFlag(false);
-                    }}
-                    style={({ pressed }) => [
-                      styles.dateChip,
-                      pressed && styles.dateChipPressed,
-                      !clearDateFlag &&
-                        selectedDate.toDateString() === addDays(new Date(), 1).toDateString() &&
-                        styles.dateChipSelected,
-                    ]}
-                  >
-                    <Text style={styles.dateChipText}>Tomorrow</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      setClearDateFlag(true);
-                      setShowTimePicker(false);
-                      setSelectedTimePreset(null);
-                    }}
-                    style={({ pressed }) => [
-                      styles.dateChip,
-                      pressed && styles.dateChipPressed,
-                      clearDateFlag && styles.dateChipSelected,
-                    ]}
-                  >
-                    <Text style={styles.dateChipText}>Clear</Text>
-                  </Pressable>
+                  {isDatePickerForRemind ? (
+                    // Remind mode buttons
+                    <>
+                      <Pressable
+                        onPress={() => {
+                          setSelectedDate(addDays(new Date(), 7));
+                          setClearDateFlag(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.dateChip,
+                          pressed && styles.dateChipPressed,
+                        ]}
+                      >
+                        <Text style={styles.dateChipText}>Next Week</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setSelectedDate(addDays(new Date(), 14));
+                          setClearDateFlag(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.dateChip,
+                          pressed && styles.dateChipPressed,
+                        ]}
+                      >
+                        <Text style={styles.dateChipText}>2 Weeks</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setSelectedDate(addDays(new Date(), 30));
+                          setClearDateFlag(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.dateChip,
+                          pressed && styles.dateChipPressed,
+                        ]}
+                      >
+                        <Text style={styles.dateChipText}>Next Month</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    // Due date mode buttons
+                    <>
+                      <Pressable
+                        onPress={() => {
+                          const today = new Date();
+                          setSelectedDate(today);
+                          setClearDateFlag(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.dateChip,
+                          pressed && styles.dateChipPressed,
+                          !clearDateFlag &&
+                            selectedDate.toDateString() === new Date().toDateString() &&
+                            styles.dateChipSelected,
+                        ]}
+                      >
+                        <Text style={styles.dateChipText}>Today</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          const tomorrow = addDays(new Date(), 1);
+                          setSelectedDate(tomorrow);
+                          setClearDateFlag(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.dateChip,
+                          pressed && styles.dateChipPressed,
+                          !clearDateFlag &&
+                            selectedDate.toDateString() === addDays(new Date(), 1).toDateString() &&
+                            styles.dateChipSelected,
+                        ]}
+                      >
+                        <Text style={styles.dateChipText}>Tomorrow</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setClearDateFlag(true);
+                          setShowTimePicker(false);
+                          setSelectedTimePreset(null);
+                        }}
+                        style={({ pressed }) => [
+                          styles.dateChip,
+                          pressed && styles.dateChipPressed,
+                          clearDateFlag && styles.dateChipSelected,
+                        ]}
+                      >
+                        <Text style={styles.dateChipText}>Clear</Text>
+                      </Pressable>
+                    </>
+                  )}
                 </Box>
               </Box>
 
@@ -1511,8 +1577,8 @@ export function SweepCard({
                 </Box>
               )}
 
-              {/* Time toggle - only for todos */}
-              {!clearDateFlag && candidate.kind === 'todo' && (
+              {/* Time toggle - only for todos, not in remind mode */}
+              {!clearDateFlag && candidate.kind === 'todo' && !isDatePickerForRemind && (
                 <Box mt={3} mb={4}>
                   <Box row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
                     <Text style={styles.timeToggleLabel}>Add time?</Text>
@@ -1577,7 +1643,16 @@ export function SweepCard({
                 >
                   <Text style={styles.dateModalCancelText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.dateModalConfirmButton} onPress={handleDateConfirm}>
+                <Pressable
+                  style={styles.dateModalConfirmButton}
+                  onPress={() => {
+                    if (selectedQuickAction === 'remindlater') {
+                      handleRemindDateConfirm();
+                    } else {
+                      handleDateConfirm();
+                    }
+                  }}
+                >
                   <Text style={styles.dateModalConfirmText}>{clearDateFlag ? 'Clear' : 'Set'}</Text>
                 </Pressable>
               </View>

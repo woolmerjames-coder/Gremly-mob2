@@ -37,7 +37,11 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
   // ─────────────────────────────────────────────────────────────────────────
   let todoStatus: SweepCardMeta['todoStatus'] = null;
   if (candidate.kind === 'todo') {
-    if (candidate.isOverdue) {
+    // Check for reminder first (resurfacing from "remind me later")
+    const resurfaceAt = candidate.raw.resurface_at;
+    if (resurfaceAt) {
+      todoStatus = 'reminder';
+    } else if (candidate.isOverdue) {
       todoStatus = 'overdue';
     } else if (candidate.isDueToday) {
       todoStatus = 'due_today';

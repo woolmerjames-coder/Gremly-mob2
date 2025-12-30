@@ -111,7 +111,15 @@ export interface SweepSummaryItem {
   id: string;
   name: string;
   /** What happened to this item */
-  outcome: 'scheduled' | 'saved' | 'kept' | 'cleared' | 'archived' | 'logged' | 'skipped';
+  outcome:
+    | 'scheduled'
+    | 'saved'
+    | 'kept'
+    | 'cleared'
+    | 'archived'
+    | 'logged'
+    | 'skipped'
+    | 'remind';
   /** For scheduled items, the date it was scheduled to */
   scheduledDate?: string;
 }
@@ -140,7 +148,7 @@ export interface SweepCardMeta {
   typeChip: 'Todo' | 'Log' | 'Habit';
 
   /** Status chip for todos: scheduling state */
-  todoStatus: 'unscheduled' | 'due_today' | 'due_tomorrow' | 'overdue' | null;
+  todoStatus: 'unscheduled' | 'due_today' | 'due_tomorrow' | 'overdue' | 'reminder' | null;
 
   /** Status chip for logs: subtype */
   logSubtype: 'idea' | 'general' | 'journal' | null;
