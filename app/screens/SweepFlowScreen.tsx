@@ -699,6 +699,45 @@ function SweepHabitsStep({ onContinue }: StepProps) {
     [sessionCompletions, sessionUncompletions],
   );
 
+  // Computed sections that react to session state
+  // Habits from "completed" that were toggled OFF move to their cadence section
+  // Habits from active sections that were toggled ON move to completed
+  const displaySections = useMemo(() => {
+    // Start with items that were uncompleted from the completed section
+    const uncompletedFromDone = groupedHabits.completed.filter((item) =>
+      sessionUncompletions.has(item.habit.id),
+    );
+
+    // Filter each section: remove items toggled ON, add items toggled OFF from completed
+    const filterSection = (items: HabitWithMeta[], cadence: 'daily' | 'weekly' | 'monthly') => {
+      // Keep items that aren't visually completed
+      const remaining = items.filter(
+        (item) => !isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday),
+      );
+      // Add back any uncompleted items from the completed section that belong to this cadence
+      const restored = uncompletedFromDone.filter((item) => item.cadence === cadence);
+      return [...remaining, ...restored];
+    };
+
+    // Get items that are now visually completed (either originally or newly toggled ON)
+    const allItems = [
+      ...groupedHabits.daily,
+      ...groupedHabits.weekly,
+      ...groupedHabits.monthly,
+      ...groupedHabits.completed,
+    ];
+    const visuallyCompleted = allItems.filter((item) =>
+      isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday),
+    );
+
+    return {
+      daily: filterSection(groupedHabits.daily, 'daily'),
+      weekly: filterSection(groupedHabits.weekly, 'weekly'),
+      monthly: filterSection(groupedHabits.monthly, 'monthly'),
+      completed: visuallyCompleted,
+    };
+  }, [groupedHabits, sessionUncompletions, isHabitVisuallyCompleted]);
+
   // Commit all session changes to Zustand and continue
   const handleContinue = useCallback(async () => {
     // Batch complete all newly completed habits
@@ -805,29 +844,32 @@ function SweepHabitsStep({ onContinue }: StepProps) {
         ) : (
           <View style={styles.habitsContainer}>
             {/* Daily Habits */}
-            {renderSection('Daily', groupedHabits.daily)}
+            {renderSection('Daily', displaySections.daily)}
 
             {/* Weekly Habits */}
-            {renderSection('Weekly', groupedHabits.weekly)}
+            {renderSection('Weekly', displaySections.weekly)}
 
             {/* Monthly Habits */}
-            {renderSection('Monthly', groupedHabits.monthly)}
+            {renderSection('Monthly', displaySections.monthly)}
 
             {/* Completed Section */}
-            {groupedHabits.completed.length > 0 && (
+            {displaySections.completed.length > 0 && (
               <View style={styles.habitsCompletedSection}>
                 <View style={styles.habitsSectionHeader}>
                   <View style={styles.habitsSectionLine} />
                   <Text style={styles.habitsCompletedTitle}>Already done</Text>
                   <View style={styles.habitsSectionLine} />
                 </View>
-                {groupedHabits.completed.map((item, index) => (
-                  <View
+                {displaySections.completed.map((item, index) => (
+                  <TouchableOpacity
                     key={item.habit.id}
                     style={[
                       styles.completedHabitRow,
-                      index < groupedHabits.completed.length - 1 && styles.completedHabitRowBorder,
+                      index < displaySections.completed.length - 1 &&
+                        styles.completedHabitRowBorder,
                     ]}
+                    onPress={() => handleToggle(item.habit.id, false)}
+                    activeOpacity={0.7}
                   >
                     <Icon name="Check" size="xs" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
                     <Text style={styles.completedHabitName} numberOfLines={1}>
@@ -838,7 +880,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
                         ? 'today'
                         : `${item.completedThisPeriod}/${item.targetPerPeriod} ${item.cadence === 'weekly' ? 'wk' : 'mo'}`}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             )}
