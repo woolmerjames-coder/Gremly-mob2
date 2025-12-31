@@ -1849,7 +1849,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       try {
         // Update the item with the space_id
         if (candidate.kind === 'note') {
-          await updateNote(candidate.id, { space_id: spaceId });
+          await updateNote(candidate.id, {
+            space_id: spaceId,
+            swept_at: new Date().toISOString(),
+            skipped_in_sweep_at: null,
+          } as any);
         } else if (candidate.kind === 'todo') {
           await updateTodo(candidate.id, { space_id: spaceId });
         }

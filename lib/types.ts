@@ -160,6 +160,7 @@ export interface Todo {
 
   // Sweep tracking
   skipped_in_sweep_at?: string | null;
+  resurface_at?: string | null; // ISO date for "remind me later" resurface
   // Sweep reschedule tracking - counts how many times rescheduled via quick date buttons
   sweep_reschedule_count?: number;
 
