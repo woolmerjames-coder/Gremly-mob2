@@ -23,6 +23,8 @@ import {
   TouchableOpacity,
   Image,
   Modal,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -608,6 +610,12 @@ function SweepMoodStep({ onContinue }: StepProps) {
  *
  * REDESIGNED: Uses SweepHabitRow with swipe gesture instead of checkboxes.
  */
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 function SweepHabitsStep({ onContinue }: StepProps) {
   // Get raw data from Zustand store
   const habits = useGremlyStore((state) => state.habits);
@@ -623,6 +631,10 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   const [sessionCompletions, setSessionCompletions] = useState<Set<string>>(new Set());
   // Habits that WERE completed before but user toggled OFF
   const [sessionUncompletions, setSessionUncompletions] = useState<Set<string>>(new Set());
+  // Habits that are "pending" move - showing completion animation before moving to Already Done
+  const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set());
+  // Ref to track pending timeouts for cleanup
+  const pendingTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   // Group habits by cadence and compute metadata
   const groupedHabits = useMemo(() => {
@@ -656,33 +668,94 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   }, [groupedHabits, sessionCompletions, sessionUncompletions]);
   const isEmpty = useMemo(() => isHabitsEmpty(groupedHabits), [groupedHabits]);
 
-  // Handle toggle from SweepHabitRow - only updates local session state
-  const handleToggle = useCallback((habitId: string, completed: boolean) => {
-    if (completed) {
-      // User toggled ON
-      setSessionCompletions((prev) => {
-        const next = new Set(prev);
-        next.add(habitId);
-        return next;
-      });
-      setSessionUncompletions((prev) => {
-        const next = new Set(prev);
-        next.delete(habitId);
-        return next;
-      });
-    } else {
-      // User toggled OFF
-      setSessionUncompletions((prev) => {
-        const next = new Set(prev);
-        next.add(habitId);
-        return next;
-      });
-      setSessionCompletions((prev) => {
-        const next = new Set(prev);
-        next.delete(habitId);
-        return next;
-      });
-    }
+  // Configure LayoutAnimation for smooth section transitions
+  const animateLayout = useCallback(() => {
+    LayoutAnimation.configureNext({
+      duration: 300,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+    });
+  }, []);
+
+  // Handle toggle from SweepHabitRow - adds delay before moving to Already Done
+  const handleToggle = useCallback(
+    (habitId: string, completed: boolean) => {
+      // Clear any existing timeout for this habit
+      const existingTimeout = pendingTimeoutsRef.current.get(habitId);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+        pendingTimeoutsRef.current.delete(habitId);
+      }
+
+      if (completed) {
+        // User toggled ON - immediately update completion state but delay the move
+        setSessionCompletions((prev) => {
+          const next = new Set(prev);
+          next.add(habitId);
+          return next;
+        });
+        setSessionUncompletions((prev) => {
+          const next = new Set(prev);
+          next.delete(habitId);
+          return next;
+        });
+
+        // Add to pending moves (habit stays in place during animation)
+        setPendingMoves((prev) => {
+          const next = new Set(prev);
+          next.add(habitId);
+          return next;
+        });
+
+        // After delay, remove from pending and animate the move
+        const timeout = setTimeout(() => {
+          animateLayout();
+          setPendingMoves((prev) => {
+            const next = new Set(prev);
+            next.delete(habitId);
+            return next;
+          });
+          pendingTimeoutsRef.current.delete(habitId);
+        }, 1500); // 1.5 second delay to show completion animation
+
+        pendingTimeoutsRef.current.set(habitId, timeout);
+      } else {
+        // User toggled OFF - animate immediately
+        animateLayout();
+        setSessionUncompletions((prev) => {
+          const next = new Set(prev);
+          next.add(habitId);
+          return next;
+        });
+        setSessionCompletions((prev) => {
+          const next = new Set(prev);
+          next.delete(habitId);
+          return next;
+        });
+        // Remove from pending if it was there
+        setPendingMoves((prev) => {
+          const next = new Set(prev);
+          next.delete(habitId);
+          return next;
+        });
+      }
+    },
+    [animateLayout],
+  );
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      pendingTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      pendingTimeoutsRef.current.clear();
+    };
   }, []);
 
   // Determine if a habit should visually appear completed
@@ -701,7 +774,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
 
   // Computed sections that react to session state
   // Habits from "completed" that were toggled OFF move to their cadence section
-  // Habits from active sections that were toggled ON move to completed
+  // Habits from active sections that were toggled ON move to completed (after delay)
   const displaySections = useMemo(() => {
     // Helper to adjust completedThisPeriod based on session state
     const adjustProgress = (item: HabitWithMeta): HabitWithMeta => {
@@ -724,18 +797,21 @@ function SweepHabitsStep({ onContinue }: StepProps) {
       .filter((item) => sessionUncompletions.has(item.habit.id))
       .map(adjustProgress);
 
-    // Filter each section: remove items toggled ON, add items toggled OFF from completed
+    // Filter each section: remove items toggled ON (unless pending), add items toggled OFF from completed
     const filterSection = (items: HabitWithMeta[], cadence: 'daily' | 'weekly' | 'monthly') => {
-      // Keep items that aren't visually completed
+      // Keep items that aren't visually completed OR are pending move (still showing animation)
       const remaining = items.filter(
-        (item) => !isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday),
+        (item) =>
+          !isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday) ||
+          pendingMoves.has(item.habit.id),
       );
       // Add back any uncompleted items from the completed section that belong to this cadence
       const restored = uncompletedFromDone.filter((item) => item.cadence === cadence);
-      return [...remaining, ...restored];
+      return [...remaining.map(adjustProgress), ...restored];
     };
 
     // Get items that are now visually completed (either originally or newly toggled ON)
+    // BUT exclude items that are still pending (waiting for animation delay)
     const allItems = [
       ...groupedHabits.daily,
       ...groupedHabits.weekly,
@@ -743,7 +819,11 @@ function SweepHabitsStep({ onContinue }: StepProps) {
       ...groupedHabits.completed,
     ];
     const visuallyCompleted = allItems
-      .filter((item) => isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday))
+      .filter(
+        (item) =>
+          isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday) &&
+          !pendingMoves.has(item.habit.id),
+      )
       .map(adjustProgress);
 
     return {
@@ -752,7 +832,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
       monthly: filterSection(groupedHabits.monthly, 'monthly'),
       completed: visuallyCompleted,
     };
-  }, [groupedHabits, sessionUncompletions, isHabitVisuallyCompleted]);
+  }, [groupedHabits, sessionUncompletions, isHabitVisuallyCompleted, pendingMoves]);
 
   // Commit all session changes to Zustand and continue
   const handleContinue = useCallback(async () => {
