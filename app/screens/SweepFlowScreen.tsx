@@ -1971,6 +1971,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       {/* Full-screen Card Area */}
       <View style={styles.decisionCardArea}>
         <SweepCard
+          key={`${currentCandidate.id}-${currentIndex}`}
           candidate={currentCandidate}
           meta={currentCandidateWithMeta.meta}
           index={currentIndex}
