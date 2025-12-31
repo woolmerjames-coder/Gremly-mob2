@@ -1648,8 +1648,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const handleConfirmQuickDate = useCallback(
     (option: 'tomorrow' | 'nextweek') => {
       const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      if (!candidateWithMeta) return;
       const { candidate } = candidateWithMeta;
+
+      // Only works for todos and notes (not habits)
+      if (candidate.kind === 'habit') return;
 
       // Calculate the target date
       const today = new Date();
@@ -1690,18 +1693,22 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const handleConfirmRemindLater = useCallback(
     (resurfaceDate: Date) => {
       const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      if (!candidateWithMeta) return;
       const { candidate } = candidateWithMeta;
+
+      // Only works for todos and notes (not habits)
+      if (candidate.kind === 'habit') return;
 
       console.log('[SweepFlowScreen] Recording remind later decision:', {
         id: candidate.id,
+        kind: candidate.kind,
         resurfaceDate: resurfaceDate.toISOString(),
       });
 
       // Record decision with resurface date (not due date)
       recordDecision({
         candidateId: candidate.id,
-        candidateKind: 'todo',
+        candidateKind: candidate.kind,
         action: 'keep',
         resurfaceDate,
       });
@@ -1726,12 +1733,15 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const handleConfirmCustomDate = useCallback(
     (date: Date) => {
       const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      if (!candidateWithMeta) return;
       const { candidate } = candidateWithMeta;
+
+      // Only works for todos and notes (not habits)
+      if (candidate.kind === 'habit') return;
 
       recordDecision({
         candidateId: candidate.id,
-        candidateKind: 'todo',
+        candidateKind: candidate.kind,
         action: 'keep',
         dueDate: date,
       });
