@@ -23,9 +23,14 @@ import {
   TouchableOpacity,
   Image,
   Modal,
-  LayoutAnimation,
-  UIManager,
 } from 'react-native';
+import Reanimated, {
+  FadeIn,
+  FadeInUp,
+  FadeOutDown,
+  Layout,
+  Easing as ReanimatedEasing,
+} from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -609,12 +614,12 @@ function SweepMoodStep({ onContinue }: StepProps) {
  * Completed habits shown in muted section at bottom.
  *
  * REDESIGNED: Uses SweepHabitRow with swipe gesture instead of checkboxes.
+ * Uses Reanimated Layout animations for smooth card transitions between sections.
  */
 
-// Enable LayoutAnimation on Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+// Animation config for habit row transitions - calm, intentional feel
+const HABIT_ANIM_DURATION = 450;
+const HABIT_ANIM_EASING = ReanimatedEasing.bezier(0.4, 0, 0.2, 1); // Material Design standard
 
 function SweepHabitsStep({ onContinue }: StepProps) {
   // Get raw data from Zustand store
@@ -668,87 +673,66 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   }, [groupedHabits, sessionCompletions, sessionUncompletions]);
   const isEmpty = useMemo(() => isHabitsEmpty(groupedHabits), [groupedHabits]);
 
-  // Configure LayoutAnimation for smooth section transitions
-  const animateLayout = useCallback(() => {
-    LayoutAnimation.configureNext({
-      duration: 300,
-      create: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-      },
-      update: { type: LayoutAnimation.Types.easeInEaseOut },
-      delete: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-      },
-    });
-  }, []);
-
   // Handle toggle from SweepHabitRow - adds delay before moving to Already Done
-  const handleToggle = useCallback(
-    (habitId: string, completed: boolean) => {
-      // Clear any existing timeout for this habit
-      const existingTimeout = pendingTimeoutsRef.current.get(habitId);
-      if (existingTimeout) {
-        clearTimeout(existingTimeout);
+  const handleToggle = useCallback((habitId: string, completed: boolean) => {
+    // Clear any existing timeout for this habit
+    const existingTimeout = pendingTimeoutsRef.current.get(habitId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      pendingTimeoutsRef.current.delete(habitId);
+    }
+
+    if (completed) {
+      // User toggled ON - immediately update completion state but delay the move
+      setSessionCompletions((prev) => {
+        const next = new Set(prev);
+        next.add(habitId);
+        return next;
+      });
+      setSessionUncompletions((prev) => {
+        const next = new Set(prev);
+        next.delete(habitId);
+        return next;
+      });
+
+      // Add to pending moves (habit stays in place during animation)
+      setPendingMoves((prev) => {
+        const next = new Set(prev);
+        next.add(habitId);
+        return next;
+      });
+
+      // After delay, remove from pending - Reanimated Layout handles the animation
+      const timeout = setTimeout(() => {
+        setPendingMoves((prev) => {
+          const next = new Set(prev);
+          next.delete(habitId);
+          return next;
+        });
         pendingTimeoutsRef.current.delete(habitId);
-      }
+      }, 1500); // 1.5 second delay to show completion animation
 
-      if (completed) {
-        // User toggled ON - immediately update completion state but delay the move
-        setSessionCompletions((prev) => {
-          const next = new Set(prev);
-          next.add(habitId);
-          return next;
-        });
-        setSessionUncompletions((prev) => {
-          const next = new Set(prev);
-          next.delete(habitId);
-          return next;
-        });
-
-        // Add to pending moves (habit stays in place during animation)
-        setPendingMoves((prev) => {
-          const next = new Set(prev);
-          next.add(habitId);
-          return next;
-        });
-
-        // After delay, remove from pending and animate the move
-        const timeout = setTimeout(() => {
-          animateLayout();
-          setPendingMoves((prev) => {
-            const next = new Set(prev);
-            next.delete(habitId);
-            return next;
-          });
-          pendingTimeoutsRef.current.delete(habitId);
-        }, 1500); // 1.5 second delay to show completion animation
-
-        pendingTimeoutsRef.current.set(habitId, timeout);
-      } else {
-        // User toggled OFF - animate immediately
-        animateLayout();
-        setSessionUncompletions((prev) => {
-          const next = new Set(prev);
-          next.add(habitId);
-          return next;
-        });
-        setSessionCompletions((prev) => {
-          const next = new Set(prev);
-          next.delete(habitId);
-          return next;
-        });
-        // Remove from pending if it was there
-        setPendingMoves((prev) => {
-          const next = new Set(prev);
-          next.delete(habitId);
-          return next;
-        });
-      }
-    },
-    [animateLayout],
-  );
+      pendingTimeoutsRef.current.set(habitId, timeout);
+    } else {
+      // User toggled OFF - Reanimated handles the animation automatically
+      setSessionUncompletions((prev) => {
+        const next = new Set(prev);
+        next.add(habitId);
+        return next;
+      });
+      setSessionCompletions((prev) => {
+        const next = new Set(prev);
+        next.delete(habitId);
+        return next;
+      });
+      // Remove from pending if it was there
+      setPendingMoves((prev) => {
+        const next = new Set(prev);
+        next.delete(habitId);
+        return next;
+      });
+    }
+  }, []);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -861,22 +845,28 @@ function SweepHabitsStep({ onContinue }: StepProps) {
     onContinue();
   }, [sessionCompletions, sessionUncompletions, completeHabit, uncompleteHabit, onContinue]);
 
-  // Render a single habit row
+  // Render a single habit row with layout animations
   const renderHabitRow = useCallback(
     (item: HabitWithMeta, index: number, array: HabitWithMeta[]) => (
-      <SweepHabitRow
+      <Reanimated.View
         key={item.habit.id}
-        id={item.habit.id}
-        name={item.habit.name}
-        cadence={item.cadence}
-        streakDays={item.streakDays}
-        completedThisPeriod={item.completedThisPeriod}
-        targetPerPeriod={item.targetPerPeriod}
-        frequencyLabel={item.frequencyLabel}
-        isCompleted={isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday)}
-        onToggle={handleToggle}
-        showDivider={index < array.length - 1}
-      />
+        entering={FadeInUp.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
+        exiting={FadeOutDown.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
+        layout={Layout.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
+      >
+        <SweepHabitRow
+          id={item.habit.id}
+          name={item.habit.name}
+          cadence={item.cadence}
+          streakDays={item.streakDays}
+          completedThisPeriod={item.completedThisPeriod}
+          targetPerPeriod={item.targetPerPeriod}
+          frequencyLabel={item.frequencyLabel}
+          isCompleted={isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday)}
+          onToggle={handleToggle}
+          showDivider={index < array.length - 1}
+        />
+      </Reanimated.View>
     ),
     [handleToggle, isHabitVisuallyCompleted],
   );
@@ -957,26 +947,45 @@ function SweepHabitsStep({ onContinue }: StepProps) {
                   <View style={styles.habitsSectionLine} />
                 </View>
                 {displaySections.completed.map((item, index) => (
-                  <TouchableOpacity
+                  <Reanimated.View
                     key={item.habit.id}
-                    style={[
-                      styles.completedHabitRow,
-                      index < displaySections.completed.length - 1 &&
-                        styles.completedHabitRowBorder,
-                    ]}
-                    onPress={() => handleToggle(item.habit.id, false)}
-                    activeOpacity={0.7}
+                    entering={FadeIn.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
+                    exiting={FadeOutDown.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
+                    layout={Layout.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
                   >
-                    <Icon name="Check" size="xs" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-                    <Text style={styles.completedHabitName} numberOfLines={1}>
-                      {item.habit.name}
-                    </Text>
-                    <Text style={styles.completedHabitMeta}>
-                      {item.cadence === 'daily'
-                        ? 'today'
-                        : `${item.completedThisPeriod}/${item.targetPerPeriod} ${item.cadence === 'weekly' ? 'wk' : 'mo'}`}
-                    </Text>
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.completedHabitRow,
+                        index < displaySections.completed.length - 1 &&
+                          styles.completedHabitRowBorder,
+                      ]}
+                      onPress={() => handleToggle(item.habit.id, false)}
+                      activeOpacity={0.7}
+                    >
+                      <Icon
+                        name="Check"
+                        size="xs"
+                        color={BRAND.colors.mossGreen}
+                        strokeWidth={2.5}
+                      />
+                      <Text style={styles.completedHabitName} numberOfLines={1}>
+                        {item.habit.name}
+                      </Text>
+                      <View style={styles.completedHabitRight}>
+                        <Text style={styles.completedHabitMeta}>
+                          {item.cadence === 'daily'
+                            ? 'today'
+                            : `${item.completedThisPeriod}/${item.targetPerPeriod} ${item.cadence === 'weekly' ? 'wk' : 'mo'}`}
+                        </Text>
+                        <Icon
+                          name="RotateCcw"
+                          size="xs"
+                          color={BRAND.colors.inkMuted}
+                          strokeWidth={2}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  </Reanimated.View>
                 ))}
               </View>
             )}
@@ -3040,6 +3049,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: BRAND.colors.inkSubtle,
     textDecorationLine: 'line-through',
+  },
+  completedHabitRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   completedHabitMeta: {
     fontSize: 12,
