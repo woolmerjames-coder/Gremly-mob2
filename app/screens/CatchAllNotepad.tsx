@@ -1002,11 +1002,7 @@ const TypewriterText: React.FC<{
     };
   }, [duration, delay]); // Only depend on timing values, not text/callback
 
-  return (
-    <Text style={style} numberOfLines={1}>
-      {displayedText}
-    </Text>
-  );
+  return <Text style={style}>{displayedText}</Text>;
 };
 
 /**
@@ -3222,6 +3218,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpeechRef = useRef<string | null>(null);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
@@ -3241,6 +3238,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       if (gremlySpeechTimeoutRef.current) {
         clearTimeout(gremlySpeechTimeoutRef.current);
       }
+    };
+  }, []);
+
+  // Track keyboard visibility to adjust bottom padding
+  useEffect(() => {
+    const showListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true),
+    );
+    const hideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false),
+    );
+    return () => {
+      showListener.remove();
+      hideListener.remove();
     };
   }, []);
 
@@ -6059,8 +6072,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           >
             <LogOut size={20} color="#6A6F76" />
           </Pressable>
+        </View>
 
-          {/* Gremly speech - absolutely positioned to overlay without affecting layout */}
+        {/* Gremly speech slot - fixed height container, always present to prevent layout shift */}
+        <View style={styles.gremlySpeechSlot}>
           {gremlySpeech && (
             <Reanimated.View
               style={styles.gremlySpeechContainer}
@@ -6090,7 +6105,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         </Animated.View>
 
         {/* Fixed bottom section: input + chips + button + stats */}
-        <View style={styles.fixedTopSection}>
+        <View style={[styles.fixedTopSection, keyboardVisible && { paddingBottom: 12 }]}>
           <View style={styles.inputBlock}>
             <MindDropInput
               value={note}
@@ -6280,6 +6295,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleInfoOpen,
     recentDropsOpacity,
     isInputFocused,
+    keyboardVisible,
   ]);
 
   const content = MIND_DROP_V2 ? (
@@ -6447,18 +6463,23 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Medium',
       color: '#2E5540',
     },
+    gremlySpeechSlot: {
+      height: 20, // Exactly one line of text (matches lineHeight)
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginTop: -9,
+      marginBottom: -9,
+    },
     gremlySpeechContainer: {
-      position: 'absolute',
-      top: 130,
-      left: 36,
-      right: 80, // Leave room for the arrow icon on the right
-      zIndex: 100,
+      paddingHorizontal: 24,
+      alignItems: 'center',
     },
     gremlySpeechText: {
       fontFamily: 'Inter-Medium',
       fontSize: 14,
       color: '#2E5540',
       lineHeight: 20,
+      textAlign: 'center',
     },
 
     contextPrompt: {
