@@ -1277,6 +1277,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               updateNote(decision.candidateId, {
                 swept_at: new Date().toISOString(),
                 skipped_in_sweep_at: null,
+                resurface_at: null, // Clear old resurface date
               } as any),
             );
           }
@@ -1853,6 +1854,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             space_id: spaceId,
             swept_at: new Date().toISOString(),
             skipped_in_sweep_at: null,
+            resurface_at: null, // Clear any old resurface date
           } as any);
         } else if (candidate.kind === 'todo') {
           await updateTodo(candidate.id, { space_id: spaceId });
