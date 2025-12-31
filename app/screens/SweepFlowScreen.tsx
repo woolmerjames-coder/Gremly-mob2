@@ -1256,8 +1256,32 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               start_date_confirmed: true,
             }),
           );
+        } else if (decision.candidateKind === 'note') {
+          // Note kept without special action = "Just Save"
+          // Mark as swept so it doesn't reappear in sweep
+          if (decision.resurfaceDate) {
+            // "Remind Me" - set resurface date
+            const resurfaceDateStr = decision.resurfaceDate.toISOString().split('T')[0];
+            console.log('[SweepFlowScreen] Setting note resurface_at:', resurfaceDateStr);
+            updates.push(
+              updateNote(decision.candidateId, {
+                resurface_at: resurfaceDateStr,
+                swept_at: new Date().toISOString(),
+                skipped_in_sweep_at: null,
+              } as any),
+            );
+          } else {
+            // "Just Save" - mark as swept
+            console.log('[SweepFlowScreen] Marking note as swept:', decision.candidateId);
+            updates.push(
+              updateNote(decision.candidateId, {
+                swept_at: new Date().toISOString(),
+                skipped_in_sweep_at: null,
+              } as any),
+            );
+          }
         }
-        // For 'keep' without date changes (notes, habits with 'asktomorrow'), no update needed
+        // For habits with 'asktomorrow', no update needed
       }
       // 'skip' action = no changes to persist
     });

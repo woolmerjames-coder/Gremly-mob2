@@ -225,6 +225,8 @@ export interface Note {
 
   // Sweep tracking
   skipped_in_sweep_at?: string | null;
+  swept_at?: string | null; // ISO timestamp when note was reviewed in sweep ("Just Save")
+  resurface_at?: string | null; // ISO date when note should reappear in sweep ("Remind Me")
 }
 
 /**

@@ -620,6 +620,18 @@ export const selectSweepCandidatesUnified = createSelector(
         continue;
       }
 
+      // Check resurface date first - if set for the future, skip entirely
+      const resurfaceAt = (todo as any).resurface_at;
+      const hasFutureResurface = resurfaceAt && resurfaceAt > today;
+      if (hasFutureResurface) {
+        console.log('[SweepSelector] Filtered out todo with future resurface:', {
+          id: todo.id.slice(0, 8),
+          name: todo.name?.slice(0, 20),
+          resurface_at: resurfaceAt,
+        });
+        continue;
+      }
+
       const dueDay = todo.due_day;
       const isOverdue = dueDay ? dueDay < today : false;
       const isDueToday = dueDay === today;
@@ -628,7 +640,6 @@ export const selectSweepCandidatesUnified = createSelector(
       const wasSkipped = !!todo.skipped_in_sweep_at;
 
       // Check if todo should resurface today (remind me later)
-      const resurfaceAt = (todo as any).resurface_at;
       const shouldResurface = resurfaceAt && resurfaceAt <= today;
 
       if (shouldResurface) {
@@ -659,18 +670,45 @@ export const selectSweepCandidatesUnified = createSelector(
       if (note.archived) continue;
       if (note.subtype === 'journal') continue;
 
+      // Skip notes that were already swept/reviewed (unless skipped)
+      const sweptAt = (note as any).swept_at;
+      if (sweptAt && !note.skipped_in_sweep_at) {
+        console.log('[SweepSelector] Filtered out swept note:', {
+          id: note.id.slice(0, 8),
+          title: note.title?.slice(0, 20),
+          swept_at: sweptAt,
+        });
+        continue;
+      }
+
+      // Skip notes with future resurface date
+      const resurfaceAt = (note as any).resurface_at;
+      if (resurfaceAt && resurfaceAt > today) {
+        console.log('[SweepSelector] Filtered out note with future resurface:', {
+          id: note.id.slice(0, 8),
+          title: note.title?.slice(0, 20),
+          resurface_at: resurfaceAt,
+        });
+        continue;
+      }
+
       const createdDay = note.created_at?.split('T')[0];
       const isCreatedToday = createdDay === today;
       const wasSkipped = !!note.skipped_in_sweep_at;
 
+      // Check if note should resurface today (remind me later)
+      const shouldResurface = resurfaceAt && resurfaceAt <= today;
+
       const isIdea = note.subtype === 'idea';
       const isRecentIdea = isIdea && createdDay && createdDay >= sevenDaysAgo;
 
+      // Include catchall, list, reference subtypes created today
+      // Note: 'general' LogSubtype maps to 'catchall' in the database
       const isOtherSubtype =
         note.subtype === 'catchall' || note.subtype === 'list' || note.subtype === 'reference';
       const isTodayOther = isOtherSubtype && isCreatedToday;
 
-      if (isRecentIdea || isTodayOther || wasSkipped) {
+      if (isRecentIdea || isTodayOther || wasSkipped || shouldResurface) {
         candidates.push({
           id: note.id,
           kind: 'note',
