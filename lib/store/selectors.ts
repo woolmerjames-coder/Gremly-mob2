@@ -670,19 +670,10 @@ export const selectSweepCandidatesUnified = createSelector(
       if (note.archived) continue;
       if (note.subtype === 'journal') continue;
 
-      // Skip notes that were already swept/reviewed (unless skipped)
-      const sweptAt = (note as any).swept_at;
-      if (sweptAt && !note.skipped_in_sweep_at) {
-        console.log('[SweepSelector] Filtered out swept note:', {
-          id: note.id.slice(0, 8),
-          title: note.title?.slice(0, 20),
-          swept_at: sweptAt,
-        });
-        continue;
-      }
-
-      // Skip notes with future resurface date
       const resurfaceAt = (note as any).resurface_at;
+      const sweptAt = (note as any).swept_at;
+
+      // Skip notes with FUTURE resurface date (not time yet)
       if (resurfaceAt && resurfaceAt > today) {
         console.log('[SweepSelector] Filtered out note with future resurface:', {
           id: note.id.slice(0, 8),
@@ -692,12 +683,22 @@ export const selectSweepCandidatesUnified = createSelector(
         continue;
       }
 
+      // Check if note should resurface TODAY (remind me later)
+      const shouldResurface = resurfaceAt && resurfaceAt <= today;
+
+      // Skip notes that were swept, UNLESS they should resurface or were skipped
+      if (sweptAt && !shouldResurface && !note.skipped_in_sweep_at) {
+        console.log('[SweepSelector] Filtered out swept note:', {
+          id: note.id.slice(0, 8),
+          title: note.title?.slice(0, 20),
+          swept_at: sweptAt,
+        });
+        continue;
+      }
+
       const createdDay = note.created_at?.split('T')[0];
       const isCreatedToday = createdDay === today;
       const wasSkipped = !!note.skipped_in_sweep_at;
-
-      // Check if note should resurface today (remind me later)
-      const shouldResurface = resurfaceAt && resurfaceAt <= today;
 
       const isIdea = note.subtype === 'idea';
       const isRecentIdea = isIdea && createdDay && createdDay >= sevenDaysAgo;
