@@ -703,10 +703,26 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   // Habits from "completed" that were toggled OFF move to their cadence section
   // Habits from active sections that were toggled ON move to completed
   const displaySections = useMemo(() => {
+    // Helper to adjust completedThisPeriod based on session state
+    const adjustProgress = (item: HabitWithMeta): HabitWithMeta => {
+      const wasCompletedBefore = item.isCompletedToday;
+      const isNowCompleted = isHabitVisuallyCompleted(item.habit.id, wasCompletedBefore);
+
+      // If completion state changed, adjust the count
+      if (isNowCompleted && !wasCompletedBefore) {
+        // Newly completed this session - increment count
+        return { ...item, completedThisPeriod: item.completedThisPeriod + 1 };
+      } else if (!isNowCompleted && wasCompletedBefore) {
+        // Uncompleted this session - decrement count
+        return { ...item, completedThisPeriod: Math.max(0, item.completedThisPeriod - 1) };
+      }
+      return item;
+    };
+
     // Start with items that were uncompleted from the completed section
-    const uncompletedFromDone = groupedHabits.completed.filter((item) =>
-      sessionUncompletions.has(item.habit.id),
-    );
+    const uncompletedFromDone = groupedHabits.completed
+      .filter((item) => sessionUncompletions.has(item.habit.id))
+      .map(adjustProgress);
 
     // Filter each section: remove items toggled ON, add items toggled OFF from completed
     const filterSection = (items: HabitWithMeta[], cadence: 'daily' | 'weekly' | 'monthly') => {
@@ -726,9 +742,9 @@ function SweepHabitsStep({ onContinue }: StepProps) {
       ...groupedHabits.monthly,
       ...groupedHabits.completed,
     ];
-    const visuallyCompleted = allItems.filter((item) =>
-      isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday),
-    );
+    const visuallyCompleted = allItems
+      .filter((item) => isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday))
+      .map(adjustProgress);
 
     return {
       daily: filterSection(groupedHabits.daily, 'daily'),
