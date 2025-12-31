@@ -1550,7 +1550,7 @@ export function SweepCard({
                           ]}
                           numberOfLines={1}
                         >
-                          {selectedSpace ? selectedSpace.name : 'Add to Space'}
+                          {selectedSpace ? selectedSpace.name : 'To Space'}
                         </Text>
                       </TouchableOpacity>
 
