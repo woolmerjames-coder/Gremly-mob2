@@ -37,21 +37,28 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
 import { Icon } from '../../design-system/Icon';
+import { Flame, Sparkles, Sprout } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useIsLoading, useSweepCandidatesUnified } from '../../lib/store/selectors';
+import {
+  useActiveSpaces,
+  useIsLoading,
+  useSweepCandidatesUnified,
+} from '../../lib/store/selectors';
 import type { Habit } from '../../lib/types';
 import { supabase } from '../../lib/supabase/client';
 import { markSweepCompleted } from '../../lib/sweep/engine';
 import type {
   SweepCandidate,
+  SweepCandidateTodo,
   SweepCardMeta,
   SweepSummary,
   SweepSummaryItem,
 } from '../../lib/sweep/types';
+import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -86,6 +93,10 @@ const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/fistbumpgremly.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_JOURNAL = require('../../assets/mascot/JournalGremly.png');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_HABIT = require('../../assets/mascot/habitgremly.png');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_SWEEP_INTRO = require('../../assets/mascot/sweepintrogremly.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -183,6 +194,7 @@ const SWEEP_MOOD_OPTIONS: Array<{ value: MoodValue; label: string; icon: string 
  *
  * Welcome screen that introduces the Sweep ritual.
  * Shows the Gremly mascot and explains what the user will do.
+ * Personalized copy based on sweep count and streak.
  */
 function SweepIntroStep({ onStart }: { onStart: () => void }) {
   const { stats, isLoading } = useSweepIntroStats();
@@ -195,34 +207,71 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
       stats.dropped.habits.length > 0 ||
       stats.dropped.notes.length > 0);
 
-  // Calculate total completed and captured
-  const totalCompleted =
-    (stats?.completed.todos.length ?? 0) + (stats?.completed.habits.length ?? 0);
+  // Get sweep count and streak from stats
+  const totalSweepCount = stats?.totalSweepCount ?? 0;
+  const sweepStreak = stats?.sweepStreak ?? 0;
+
+  // Calculate total items to process
   const totalCaptured =
     (stats?.dropped.todos.length ?? 0) +
     (stats?.dropped.habits.length ?? 0) +
     (stats?.dropped.notes.length ?? 0);
 
-  // Determine headline based on activity level
-  // Activity-based headlines take priority over "first sweep"
-  let headline = 'Time to Sweep your day';
-  let subcopy = 'Quick swipes to decide what stays and what goes.';
+  // Dynamic title based on sweep count (streak shown in badge instead)
+  const getTitle = (): string => {
+    const options = ['Time for a quick tidy', "Let's close those tabs", "Let's clear the clutter"];
+    return options[totalSweepCount % options.length];
+  };
 
-  if (totalCompleted >= 5) {
-    headline = 'Look at you go';
-    subcopy = "You've been productive. Let's tidy up what's left.";
-  } else if (totalCompleted >= 1) {
-    headline = "You've been busy";
-    subcopy = 'Swipe left to clear, right to keep. Takes about a minute.';
-  } else if (totalCaptured >= 5) {
-    headline = 'Lots on your mind';
-    subcopy = 'Quick swipes to decide what stays and what goes.';
-  } else if (stats?.isFirstSweep && totalCaptured === 0) {
-    // Only show "first sweep" if there's truly nothing to show
-    headline = 'Your first Sweep';
-    subcopy =
-      "Your ritual to close those open tabs. Swipe left to archive, right to keep. Let's do it.";
-  }
+  // Dynamic subtitle based on sweep count and items
+  const getSubtitle = (): string => {
+    if (totalSweepCount === 0) {
+      return "I'll show you your open todos, habits, and recent captures. Tap a button to choose what happens, then swipe right to confirm, or swipe left to let go.";
+    } else if (totalSweepCount < 5) {
+      return "Tap a button, swipe right to confirm. Swipe left to let go. You've got this!";
+    } else {
+      return 'Ready for a quick tidy? Swipe right to keep, left to let go.';
+    }
+  };
+
+  const headline = getTitle();
+  const subcopy = getSubtitle();
+
+  // Render the streak/welcome badge with dividers
+  const renderStreakBadge = () => {
+    let content;
+
+    if (totalSweepCount === 0) {
+      content = (
+        <>
+          <Sparkles size={24} color={BRAND.colors.goldenPear} />
+          <Text style={styles.streakBadgeText}>Your first Sweep!</Text>
+        </>
+      );
+    } else if (sweepStreak >= 2) {
+      content = (
+        <>
+          <Flame size={24} color={BRAND.colors.goldenPear} />
+          <Text style={styles.streakBadgeText}>{sweepStreak} day streak!</Text>
+        </>
+      );
+    } else {
+      content = (
+        <>
+          <Sprout size={24} color={BRAND.colors.mossGreen} />
+          <Text style={styles.streakBadgeTextWelcome}>Welcome back!</Text>
+        </>
+      );
+    }
+
+    return (
+      <View style={styles.streakBadgeContainer}>
+        <View style={styles.streakDivider} />
+        <View style={styles.streakBadge}>{content}</View>
+        <View style={styles.streakDivider} />
+      </View>
+    );
+  };
 
   return (
     <View style={styles.moodStepContainer}>
@@ -231,38 +280,36 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
         contentContainerStyle={styles.introScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* 1. Mascot */}
-        <View style={styles.introMascotContainer}>
-          <Image
-            source={GREMLY_MASCOT_CELEBRATE}
-            style={styles.introMascotImage}
-            resizeMode="contain"
-            testID="sweep-intro-mascot"
-            accessibilityLabel="Gremly mascot celebrating"
-          />
-        </View>
-
-        {/* 2. Section label above card */}
-        {(isLoading || hasActivity) && (
-          <Text style={styles.achievementLabel}>Achieved since your last Sweep</Text>
-        )}
-
-        {/* 3. Stats card - shows loading skeleton then real data */}
-        {(isLoading || hasActivity) && <SweepIntroStatsCard stats={stats} isLoading={isLoading} />}
-
-        {/* 4. Title - centered */}
-        <Text variant="title" style={styles.introTitle}>
+        {/* 1. Title - full width */}
+        <Text variant="title" style={styles.introWelcomeTitle}>
           {headline}
         </Text>
 
-        {/* 6. Underline divider */}
-        <View style={styles.introTitleUnderline} />
+        {/* 2. Stats section - FIRST (positive reinforcement) */}
+        {(isLoading || hasActivity) && (
+          <View style={styles.introStatsSection}>
+            <Text style={styles.achievementLabel}>Achieved since your last Sweep</Text>
+            <SweepIntroStatsCard stats={stats} isLoading={isLoading} />
+          </View>
+        )}
 
-        {/* 7. Subcopy - centered */}
-        <Text style={styles.introSubcopy}>{subcopy}</Text>
+        {/* 3. Streak/Welcome badge - centered with dividers */}
+        {renderStreakBadge()}
+
+        {/* 4. Mascot + Subtitle row - instructions right before action */}
+        <View style={styles.introWelcomeRow}>
+          <Image
+            source={GREMLY_SWEEP_INTRO}
+            style={styles.introWelcomeMascot}
+            resizeMode="contain"
+            testID="sweep-intro-mascot"
+            accessibilityLabel="Gremly mascot with broom"
+          />
+          <Text style={styles.introWelcomeSubcopy}>{subcopy}</Text>
+        </View>
       </ScrollView>
 
-      {/* 8. Button */}
+      {/* 3. Button */}
       <View style={styles.moodFooter}>
         <TouchableOpacity style={styles.continueButton} onPress={onStart} activeOpacity={0.8}>
           <View style={styles.continueButtonContent}>
@@ -915,10 +962,15 @@ function SweepHabitsStep({ onContinue }: StepProps) {
       >
         {/* Header Section */}
         <View style={styles.wrapUpHeaderSection}>
-          <Text variant="title" style={styles.wrapUpStepTitle}>
-            Habits today
-          </Text>
-          <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
+          <View style={styles.habitsHeaderRow}>
+            <View style={styles.habitsHeaderText}>
+              <Text variant="title" style={styles.wrapUpStepTitle}>
+                Habits today
+              </Text>
+              <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
+            </View>
+            <Image source={GREMLY_HABIT} style={styles.habitsMascot} />
+          </View>
         </View>
 
         {isEmpty ? (
@@ -998,7 +1050,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
         {/* Open habits reminder */}
         {openCount > 0 && (
           <Text style={styles.wrapUpOpenItemsReminder}>
-            {openCount} habit{openCount !== 1 ? 's' : ''} still open.
+            {openCount} habit{openCount !== 1 ? 's' : ''} open.
           </Text>
         )}
         {openCount === 0 && !isEmpty && (
@@ -1087,6 +1139,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
   const notes = useGremlyStore((state) => state.notes);
+  const spaces = useActiveSpaces();
   const overlayController = useOverlayController();
 
   // Local state for navigation - use initialCardIndex in DEV mode only
@@ -1308,6 +1361,15 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
 
+  // Track note-to-todo conversion (don't advance card, transform it instead)
+  const convertingNoteIdRef = useRef<string | null>(null);
+
+  // Store converted todo candidate to replace the note card
+  const [convertedTodoForIndex, setConvertedTodoForIndex] = useState<{
+    index: number;
+    todoId: string;
+  } | null>(null);
+
   // Log candidates for debugging (using snapshot)
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0) {
@@ -1416,6 +1478,18 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Listen for overlay save events to detect "changed" outcomes from edit/primary actions
   useEffect(() => {
     const unsubscribeSaved = addOverlaySavedListener((payload) => {
+      // Check if this is a note-to-todo conversion
+      const convertingNoteId = convertingNoteIdRef.current;
+      if (convertingNoteId && payload.type === 'todo') {
+        console.log('[SweepFlow] Note converted to todo:', convertingNoteId, '->', payload.id);
+        // Clear the conversion ref
+        convertingNoteIdRef.current = null;
+        // Store the new todo ID to transform the current card
+        setConvertedTodoForIndex({ index: currentIndex, todoId: payload.id });
+        // Don't advance - let the card transform to show todo buttons
+        return;
+      }
+
       // Check if the saved item matches the candidate we're currently editing
       const editingId = editingCandidateIdRef.current;
       if (editingId && payload.id === editingId) {
@@ -1445,13 +1519,25 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Card Action Handlers (record decisions, don't commit immediately)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
-    const candidateWithMeta = candidatesWithMeta[currentIndex];
-    if (!candidateWithMeta) return;
-    const { candidate } = candidateWithMeta;
+    // Check if we're dealing with a converted todo
+    let candidateId: string;
+    let candidateKind: 'todo' | 'note' | 'habit';
+
+    if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
+      // This is a converted todo
+      candidateId = convertedTodoForIndex.todoId;
+      candidateKind = 'todo';
+    } else {
+      // Use the original candidate
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta) return;
+      candidateId = candidateWithMeta.candidate.id;
+      candidateKind = candidateWithMeta.candidate.kind;
+    }
 
     recordDecision({
-      candidateId: candidate.id,
-      candidateKind: candidate.kind,
+      candidateId,
+      candidateKind,
       action: 'keep',
     });
 
@@ -1465,16 +1551,35 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     } else {
       handleAllCardsComplete(newStats);
     }
-  }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
+  }, [
+    candidatesWithMeta,
+    currentIndex,
+    convertedTodoForIndex,
+    recordDecision,
+    stats,
+    handleAllCardsComplete,
+  ]);
 
   const handleClear = useCallback(() => {
-    const candidateWithMeta = candidatesWithMeta[currentIndex];
-    if (!candidateWithMeta) return;
-    const { candidate } = candidateWithMeta;
+    // Check if we're dealing with a converted todo
+    let candidateId: string;
+    let candidateKind: 'todo' | 'note' | 'habit';
+
+    if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
+      // This is a converted todo
+      candidateId = convertedTodoForIndex.todoId;
+      candidateKind = 'todo';
+    } else {
+      // Use the original candidate
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta) return;
+      candidateId = candidateWithMeta.candidate.id;
+      candidateKind = candidateWithMeta.candidate.kind;
+    }
 
     recordDecision({
-      candidateId: candidate.id,
-      candidateKind: candidate.kind,
+      candidateId,
+      candidateKind,
       action: 'clear',
     });
 
@@ -1488,44 +1593,69 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     } else {
       handleAllCardsComplete(newStats);
     }
-  }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
+  }, [
+    candidatesWithMeta,
+    currentIndex,
+    convertedTodoForIndex,
+    recordDecision,
+    stats,
+    handleAllCardsComplete,
+  ]);
 
   const handleOpenEdit = useCallback(() => {
-    const candidateWithMeta = candidatesWithMeta[currentIndex];
-    if (!candidateWithMeta) return;
-    const candidate = candidateWithMeta.candidate;
+    // Check if we're dealing with a converted todo
+    let candidateId: string;
+    let candidateKind: 'todo' | 'note' | 'habit';
+    let candidateRaw: any;
+
+    if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
+      // This is a converted todo - edit the new todo
+      candidateId = convertedTodoForIndex.todoId;
+      candidateKind = 'todo';
+      candidateRaw = null; // Will be looked up from store
+    } else {
+      // Use the original candidate
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta) return;
+      candidateId = candidateWithMeta.candidate.id;
+      candidateKind = candidateWithMeta.candidate.kind;
+      candidateRaw = candidateWithMeta.candidate.raw;
+    }
 
     // Track which candidate is being edited so we can detect saves
-    editingCandidateIdRef.current = candidate.id;
+    editingCandidateIdRef.current = candidateId;
 
     // Look up full record from store (faster than DB fetch)
     let fullRecord: AppRecord | undefined;
-    if (candidate.kind === 'todo') {
-      const todo = todos.find((t) => t.id === candidate.id);
+    if (candidateKind === 'todo') {
+      const todo = todos.find((t) => t.id === candidateId);
       if (todo) fullRecord = { ...todo, type: 'todo' } as AppRecord;
-    } else if (candidate.kind === 'note') {
-      const note = notes.find((n) => n.id === candidate.id);
+    } else if (candidateKind === 'note') {
+      const note = notes.find((n) => n.id === candidateId);
       if (note) fullRecord = { ...note, type: 'note' } as AppRecord;
     }
 
     if (fullRecord) {
       // Open UnifiedOverlayV2 with the full record from store
       overlayController.openEdit({ record: fullRecord });
-    } else {
+    } else if (candidateRaw) {
       // Fallback: construct a minimal record from the raw data
       console.warn('[SweepDecisionStep] handleOpenEdit: record not found in store, using raw');
       const fallbackRecord = {
-        ...candidate.raw,
-        type: candidate.kind,
+        ...candidateRaw,
+        type: candidateKind,
       } as AppRecord;
       overlayController.openEdit({ record: fallbackRecord });
     }
-  }, [candidatesWithMeta, currentIndex, todos, notes, overlayController]);
+  }, [candidatesWithMeta, currentIndex, convertedTodoForIndex, todos, notes, overlayController]);
 
   const handleConvertToTodo = useCallback(() => {
     const candidateWithMeta = candidatesWithMeta[currentIndex];
     if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'note') return;
     const candidate = candidateWithMeta.candidate;
+
+    // Track that we're converting this note (so we don't advance on save)
+    convertingNoteIdRef.current = candidate.id;
 
     // Look up full record from store
     const note = notes.find((n) => n.id === candidate.id);
@@ -1550,9 +1680,21 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmQuickDate = useCallback(
     (option: 'tomorrow' | 'nextweek') => {
-      const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
-      const { candidate } = candidateWithMeta;
+      // Check if we're dealing with a converted todo
+      let candidateId: string;
+      let candidateKind: 'todo' | 'note' | 'habit';
+
+      if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
+        // This is a converted todo - use the converted todo's data
+        candidateId = convertedTodoForIndex.todoId;
+        candidateKind = 'todo';
+      } else {
+        // Use the original candidate
+        const candidateWithMeta = candidatesWithMeta[currentIndex];
+        if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+        candidateId = candidateWithMeta.candidate.id;
+        candidateKind = candidateWithMeta.candidate.kind;
+      }
 
       // Calculate the target date
       const today = new Date();
@@ -1567,8 +1709,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       }
 
       recordDecision({
-        candidateId: candidate.id,
-        candidateKind: candidate.kind,
+        candidateId,
+        candidateKind,
         action: 'keep',
         dueDate: targetDate,
       });
@@ -1583,7 +1725,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         handleAllCardsComplete(newStats);
       }
     },
-    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
+    [
+      candidatesWithMeta,
+      currentIndex,
+      convertedTodoForIndex,
+      recordDecision,
+      stats,
+      handleAllCardsComplete,
+    ],
   );
 
   /**
@@ -1592,18 +1741,27 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmRemindLater = useCallback(
     (resurfaceDate: Date) => {
-      const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
-      const { candidate } = candidateWithMeta;
+      // Check if we're dealing with a converted todo
+      let candidateId: string;
+
+      if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
+        // This is a converted todo - use the converted todo's data
+        candidateId = convertedTodoForIndex.todoId;
+      } else {
+        // Use the original candidate
+        const candidateWithMeta = candidatesWithMeta[currentIndex];
+        if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+        candidateId = candidateWithMeta.candidate.id;
+      }
 
       console.log('[SweepFlowScreen] Recording remind later decision:', {
-        id: candidate.id,
+        id: candidateId,
         resurfaceDate: resurfaceDate.toISOString(),
       });
 
       // Record decision with resurface date (not due date)
       recordDecision({
-        candidateId: candidate.id,
+        candidateId,
         candidateKind: 'todo',
         action: 'keep',
         resurfaceDate,
@@ -1619,7 +1777,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         handleAllCardsComplete(newStats);
       }
     },
-    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
+    [
+      candidatesWithMeta,
+      currentIndex,
+      convertedTodoForIndex,
+      recordDecision,
+      stats,
+      handleAllCardsComplete,
+    ],
   );
 
   /**
@@ -1628,13 +1793,25 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmCustomDate = useCallback(
     (date: Date) => {
-      const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
-      const { candidate } = candidateWithMeta;
+      // Check if we're dealing with a converted todo
+      let candidateId: string;
+      let candidateKind: 'todo' | 'note' | 'habit';
+
+      if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
+        // This is a converted todo - use the converted todo's data
+        candidateId = convertedTodoForIndex.todoId;
+        candidateKind = 'todo';
+      } else {
+        // Use the original candidate
+        const candidateWithMeta = candidatesWithMeta[currentIndex];
+        if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+        candidateId = candidateWithMeta.candidate.id;
+        candidateKind = candidateWithMeta.candidate.kind;
+      }
 
       recordDecision({
-        candidateId: candidate.id,
-        candidateKind: candidate.kind,
+        candidateId,
+        candidateKind,
         action: 'keep',
         dueDate: date,
       });
@@ -1649,7 +1826,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         handleAllCardsComplete(newStats);
       }
     },
-    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
+    [
+      candidatesWithMeta,
+      currentIndex,
+      convertedTodoForIndex,
+      recordDecision,
+      stats,
+      handleAllCardsComplete,
+    ],
   );
 
   /**
@@ -1704,30 +1888,56 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   );
 
   /**
-   * Add to Space Handler - Opens edit overlay for space assignment
+   * Add to Space Handler - Assigns item to selected space and moves to next card
    * Used for logs that user wants to organize into a Space
    */
-  const handleAddToSpace = useCallback(() => {
-    const candidateWithMeta = candidatesWithMeta[currentIndex];
-    if (!candidateWithMeta) return;
-    const candidate = candidateWithMeta.candidate;
+  const handleAddToSpace = useCallback(
+    async (spaceId: string) => {
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta) return;
+      const candidate = candidateWithMeta.candidate;
 
-    // Track that we're editing this candidate
-    editingCandidateIdRef.current = candidate.id;
+      console.log('[SweepFlow] Adding to space:', candidate.id, 'space:', spaceId);
 
-    // Look up full record from store
-    if (candidate.kind === 'note') {
-      const note = notes.find((n) => n.id === candidate.id);
-      if (note) {
-        overlayController.openEdit({ record: { ...note, type: 'note' } });
+      try {
+        // Update the item with the space_id
+        if (candidate.kind === 'note') {
+          await updateNote(candidate.id, { space_id: spaceId });
+        } else if (candidate.kind === 'todo') {
+          await updateTodo(candidate.id, { space_id: spaceId });
+        }
+
+        // Record decision
+        recordDecision({
+          candidateId: candidate.id,
+          candidateKind: candidate.kind,
+          action: 'keep',
+        });
+
+        // Update stats
+        const newStats = { ...stats, kept: stats.kept + 1 };
+        setStats(newStats);
+
+        // Move to next card (or finish if last)
+        if (currentIndex < candidatesWithMeta.length - 1) {
+          setCurrentIndex(currentIndex + 1);
+        } else {
+          handleAllCardsComplete(newStats);
+        }
+      } catch (error) {
+        console.error('[SweepFlow] Failed to add to space:', error);
       }
-    } else {
-      const todo = todos.find((t) => t.id === candidate.id);
-      if (todo) {
-        overlayController.openEdit({ record: { ...todo, type: 'todo' } });
-      }
-    }
-  }, [candidatesWithMeta, currentIndex, notes, todos, overlayController]);
+    },
+    [
+      candidatesWithMeta,
+      currentIndex,
+      updateNote,
+      updateTodo,
+      recordDecision,
+      stats,
+      handleAllCardsComplete,
+    ],
+  );
 
   /**
    * Go Back Handler - Navigate to previous card
@@ -1747,6 +1957,42 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       handleAllCardsComplete(stats);
     }
   }, [isLoading, candidatesWithMeta.length, currentIndex, stats, handleAllCardsComplete]);
+
+  // Build effective candidate - if this card was converted to a todo, use the todo data
+  // NOTE: This must be called unconditionally (before early returns) to satisfy React hooks rules
+  const effectiveCandidateWithMeta = useMemo(() => {
+    // Guard for empty/out-of-bounds state
+    if (candidatesWithMeta.length === 0 || currentIndex >= candidatesWithMeta.length) {
+      return null;
+    }
+
+    const originalCandidateWithMeta = candidatesWithMeta[currentIndex];
+
+    if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
+      // Find the newly created todo from the store
+      const convertedTodo = todos.find((t) => t.id === convertedTodoForIndex.todoId);
+      if (convertedTodo) {
+        console.log('[SweepFlow] Rendering converted todo:', convertedTodo.id);
+        // Build a todo candidate from the store data
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const todoCandidate: SweepCandidateTodo = {
+          id: convertedTodo.id,
+          kind: 'todo',
+          createdAt: convertedTodo.created_at,
+          dropId: convertedTodo.drop_id,
+          skippedInSweepAt: convertedTodo.skipped_in_sweep_at,
+          isOverdue: convertedTodo.due_day ? convertedTodo.due_day < todayStr : false,
+          isDueToday: convertedTodo.due_day === todayStr,
+          isCreatedToday: convertedTodo.created_at.startsWith(todayStr),
+          raw: convertedTodo as any,
+        };
+        // Build meta using the same function used elsewhere
+        const todoMeta = computeSweepCardMeta(todoCandidate, spaces);
+        return { candidate: todoCandidate, meta: todoMeta };
+      }
+    }
+    return originalCandidateWithMeta;
+  }, [convertedTodoForIndex, currentIndex, candidatesWithMeta, todos, spaces]);
 
   // Loading state
   if (isLoading) {
@@ -1796,8 +2042,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     );
   }
 
-  // Current candidate to display
-  const currentCandidateWithMeta = candidatesWithMeta[currentIndex];
+  // Get current candidate (effectiveCandidateWithMeta already handles conversion)
+  const currentCandidateWithMeta = effectiveCandidateWithMeta!;
   const currentCandidate = currentCandidateWithMeta.candidate;
 
   return (
@@ -2509,8 +2755,74 @@ const styles = StyleSheet.create({
   // ─────────────────────────────────────────────────────────────────────────
   introScrollContent: {
     flexGrow: 1,
-    paddingTop: 16,
+    paddingTop: 32,
+    paddingHorizontal: 24,
   },
+  introWelcomeTitle: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 16,
+  },
+  introWelcomeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+    marginTop: 8,
+  },
+  introWelcomeMascot: {
+    width: 130,
+    height: 130,
+  },
+  introWelcomeSubcopy: {
+    flex: 1,
+    fontSize: 16,
+    color: BRAND.colors.inkSubtle,
+    lineHeight: 23,
+  },
+  streakBadgeContainer: {
+    marginVertical: 16,
+  },
+  streakDivider: {
+    height: 1,
+    backgroundColor: BRAND.colors.inkSubtle,
+    opacity: 0.2,
+    marginHorizontal: 40,
+  },
+  streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 20,
+  },
+  streakBadgeText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: BRAND.colors.goldenPear,
+  },
+  streakBadgeTextWelcome: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+  },
+  introSpacer: {
+    flex: 0.4,
+    minHeight: 20,
+  },
+  introStatsSection: {
+    marginHorizontal: -24,
+    marginBottom: 0,
+  },
+  achievementLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.inkSubtle,
+    marginHorizontal: 24,
+    marginBottom: 8,
+    textAlign: 'left',
+  },
+  // Legacy intro styles (kept for reference)
   introMascotContainer: {
     alignItems: 'center',
     marginBottom: 0,
@@ -2518,15 +2830,6 @@ const styles = StyleSheet.create({
   introMascotImage: {
     width: 140,
     height: 140,
-  },
-  achievementLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: BRAND.colors.inkSubtle,
-    marginHorizontal: 24,
-    marginTop: 20,
-    marginBottom: 8,
-    textAlign: 'left',
   },
   introTitle: {
     fontSize: 20,
@@ -2830,6 +3133,20 @@ const styles = StyleSheet.create({
     marginBottom: 24, // Gap to first section header
     paddingHorizontal: 12,
   },
+  habitsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  habitsHeaderText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  habitsMascot: {
+    width: 80,
+    height: 80,
+    resizeMode: 'contain',
+  },
   wrapUpStepTitle: {
     fontSize: 20, // Match mood step header size
     fontWeight: '600', // Semibold to match mood step
@@ -2842,7 +3159,7 @@ const styles = StyleSheet.create({
     fontWeight: '400', // Regular
     color: 'rgba(34, 34, 34, 0.75)', // Charcoal at 75%
     lineHeight: 19,
-    marginBottom: 16, // Gap to progress summary
+    marginBottom: 8, // Gap to first section header
   },
   wrapUpProgressSummary: {
     fontSize: 12,
@@ -3005,7 +3322,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
-    marginTop: 16,
+    marginTop: 8,
     paddingHorizontal: 8,
   },
   habitsSectionLine: {

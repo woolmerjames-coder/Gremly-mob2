@@ -34,6 +34,10 @@ export interface SweepIntroStats {
   isFirstSweep: boolean;
   /** The cutoff timestamp used for queries */
   cutoffTimestamp: string;
+  /** Total number of sweeps completed (ever) */
+  totalSweepCount: number;
+  /** Current sweep streak (consecutive days) */
+  sweepStreak: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

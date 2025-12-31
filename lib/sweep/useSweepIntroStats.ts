@@ -28,6 +28,8 @@ export function useSweepIntroStats(): UseSweepIntroStatsResult {
   const { userId } = useAuth();
 
   const [lastSweepCompletedAt, setLastSweepCompletedAt] = useState<string | null>(null);
+  const [sweepStreak, setSweepStreak] = useState<number>(0);
+  const [totalSweepCount, setTotalSweepCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
@@ -74,8 +76,10 @@ export function useSweepIntroStats(): UseSweepIntroStatsResult {
       dropped: { todos: droppedTodos, habits: droppedHabits, notes: droppedNotes },
       isFirstSweep: !lastSweepCompletedAt,
       cutoffTimestamp,
+      totalSweepCount,
+      sweepStreak,
     };
-  }, [todos, habits, notes, habitProgress, lastSweepCompletedAt]);
+  }, [todos, habits, notes, habitProgress, lastSweepCompletedAt, totalSweepCount, sweepStreak]);
 
   const fetchLastSweepTime = useCallback(async () => {
     if (!userId) {
@@ -87,10 +91,10 @@ export function useSweepIntroStats(): UseSweepIntroStatsResult {
     setError(null);
 
     try {
-      // Only fetch last_sweep_completed_at from cortex_preferences
+      // Fetch last_sweep_completed_at, sweep_streak, and count sweep events
       const { data: prefs, error: prefsError } = await supabase
         .from('cortex_preferences')
-        .select('last_sweep_completed_at')
+        .select('last_sweep_completed_at, sweep_streak')
         .eq('owner_id', userId)
         .single();
 
@@ -99,7 +103,20 @@ export function useSweepIntroStats(): UseSweepIntroStatsResult {
         console.warn('[useSweepIntroStats] Failed to fetch cortex_preferences:', prefsError);
       }
 
+      // Count total sweep_completed events for this user
+      const { count, error: countError } = await supabase
+        .from('events')
+        .select('*', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .eq('kind', 'sweep_completed');
+
+      if (countError) {
+        console.warn('[useSweepIntroStats] Failed to count sweep events:', countError);
+      }
+
       setLastSweepCompletedAt(prefs?.last_sweep_completed_at || null);
+      setSweepStreak(((prefs as Record<string, unknown>)?.sweep_streak as number) || 0);
+      setTotalSweepCount(count || 0);
       setHasFetched(true);
     } catch (err) {
       console.error('[useSweepIntroStats] Failed to fetch last sweep time:', err);

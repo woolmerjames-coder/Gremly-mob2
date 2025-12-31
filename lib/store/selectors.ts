@@ -308,6 +308,11 @@ export const selectUrgentFrequencyHabits = createSelector(
  * - Scheduled habits: specific days_active array defines when it shows
  * - Flexible habits: show as available anytime they haven't hit weekly/monthly target
  * - No "overdue" shame - just "available to log"
+ *
+ * Requirements:
+ * - Must have start_date set (habits without start_date should only appear in Sweep)
+ * - start_date must be today or in the past
+ * - end_date (if set) must be today or in the future
  */
 function isHabitDueToday(
   habit: Habit,
@@ -320,6 +325,18 @@ function isHabitDueToday(
 
   // Archived habits don't show
   if (habit.archived) return false;
+
+  // Must have a start_date to appear on Today page
+  // Habits without start_date should only appear in Sweep to prompt user to set one
+  if (!habit.start_date) return false;
+
+  const today = getTodayDayString();
+
+  // start_date must be today or in the past
+  if (habit.start_date > today) return false;
+
+  // end_date (if set) must be today or in the future
+  if (habit.end_date && habit.end_date < today) return false;
 
   const cadence = habit.cadence ?? 'daily';
   const targetPerPeriod = habit.target_per_period ?? 1;

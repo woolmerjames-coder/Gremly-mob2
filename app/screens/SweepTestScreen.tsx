@@ -140,11 +140,13 @@ export default function SweepTestScreen() {
     try {
       // 2 with subtype 'idea'
       await createNote({
+        title: 'Test Idea 1',
         body: '[Test] Idea note 1 - App concept for tracking plants',
         subtype: 'idea',
         ai_placed: false,
       });
       await createNote({
+        title: 'Test Idea 2',
         body: '[Test] Idea note 2 - Business plan for coffee shop',
         subtype: 'idea',
         ai_placed: false,
@@ -152,11 +154,13 @@ export default function SweepTestScreen() {
 
       // 2 with subtype 'catchall' (general notes)
       await createNote({
+        title: 'Test Catchall 1',
         body: '[Test] Catchall note 1 - Meeting notes from standup',
         subtype: 'catchall',
         ai_placed: false,
       });
       await createNote({
+        title: 'Test Catchall 2',
         body: '[Test] Catchall note 2 - Shopping list for weekend',
         subtype: 'catchall',
         ai_placed: false,
@@ -164,6 +168,7 @@ export default function SweepTestScreen() {
 
       // 1 with subtype 'journal'
       await createNote({
+        title: 'Test Journal',
         body: '[Test] Journal entry - Today was a productive day...',
         subtype: 'journal',
         ai_placed: false,
