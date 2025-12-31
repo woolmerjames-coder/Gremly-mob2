@@ -65,7 +65,7 @@ function buildCadenceLabelForHabit(
   const baseLabel = getHabitFrequencyLabel(habit);
 
   // Add progress context for weekly/monthly habits
-  if (habit.cadence === 'weekly' || habit.cadence === 'week') {
+  if (habit.cadence === 'weekly') {
     const target = habit.target_per_period ?? 1;
     if (typeof progress.thisWeek === 'number') {
       const completed = Math.min(progress.thisWeek, target);
@@ -73,7 +73,7 @@ function buildCadenceLabelForHabit(
     }
   }
 
-  if (habit.cadence === 'monthly' || habit.cadence === 'month') {
+  if (habit.cadence === 'monthly') {
     const target = habit.target_per_period ?? 1;
     if (typeof progress.thisMonth === 'number') {
       const completed = Math.min(progress.thisMonth, target);

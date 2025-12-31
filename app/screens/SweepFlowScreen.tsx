@@ -2221,7 +2221,7 @@ function SweepSummaryStep({ keptCount, clearedCount, items, streak, onDone }: Su
         {streak > 0 && (
           <View style={styles.streakContainer}>
             <View style={styles.flameIcon}>
-              <Icon name="Flame" size={22} color="#FFF" />
+              <Icon name="Flame" size="md" color="#FFF" />
             </View>
             <Text style={styles.streakCount}>{displayedStreak}</Text>
             <Text style={styles.streakLabel}>day streak</Text>
@@ -3525,7 +3525,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 34,
     fontWeight: '700',
-    color: BRAND.colors.ink,
+    color: BRAND.colors.charcoalInk,
     marginHorizontal: 8,
     includeFontPadding: false,
     textAlignVertical: 'center',

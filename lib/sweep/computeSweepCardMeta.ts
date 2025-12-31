@@ -38,7 +38,8 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
   let todoStatus: SweepCardMeta['todoStatus'] = null;
   if (candidate.kind === 'todo') {
     // Check for reminder first (resurfacing from "remind me later")
-    const resurfaceAt = candidate.raw.resurface_at;
+    // Cast to access resurface_at which may not be in Supabase generated types yet
+    const resurfaceAt = (candidate.raw as { resurface_at?: string | null }).resurface_at;
     if (resurfaceAt) {
       todoStatus = 'reminder';
     } else if (candidate.isOverdue) {

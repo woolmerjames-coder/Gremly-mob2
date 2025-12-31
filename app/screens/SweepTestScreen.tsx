@@ -186,7 +186,6 @@ export default function SweepTestScreen() {
       // 2 with start_date_confirmed: true
       await createHabit({
         name: '[Test] Morning meditation',
-        title: '[Test] Morning meditation',
         subtype: 'start_habit',
         frequency: 'daily',
         start_date_confirmed: true,
@@ -194,7 +193,6 @@ export default function SweepTestScreen() {
       });
       await createHabit({
         name: '[Test] Read 30 minutes',
-        title: '[Test] Read 30 minutes',
         subtype: 'start_habit',
         frequency: 'daily',
         start_date_confirmed: true,
@@ -204,7 +202,6 @@ export default function SweepTestScreen() {
       // 1 with start_date_confirmed: false (will appear in cards)
       await createHabit({
         name: '[Test] Exercise routine',
-        title: '[Test] Exercise routine',
         subtype: 'start_habit',
         frequency: 'daily',
         start_date_confirmed: false,

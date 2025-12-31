@@ -37,7 +37,8 @@ export function getGremlyResponse(
   // ─────────────────────────────────────────────────────────────────────────
   if (kind === 'todo') {
     // Resurfacing from "remind me later" — show how long ago they asked to be reminded
-    const resurfaceAt = raw.resurface_at;
+    // Cast to access resurface_at which may not be in Supabase generated types yet
+    const resurfaceAt = (raw as { resurface_at?: string | null }).resurface_at;
     if (resurfaceAt) {
       const resurfaceDate = new Date(resurfaceAt);
       const now = new Date();
