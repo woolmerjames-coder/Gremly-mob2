@@ -1361,14 +1361,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
 
-  // Track note-to-todo conversion (don't advance card, transform it instead)
+  // Track note-to-todo conversion
   const convertingNoteIdRef = useRef<string | null>(null);
 
-  // Store converted todo candidate to replace the note card
-  const [convertedTodoForIndex, setConvertedTodoForIndex] = useState<{
-    index: number;
-    todoId: string;
-  } | null>(null);
+  // Track which notes have already been converted (prevent duplicate conversions)
+  const convertedNotesRef = useRef<Set<string>>(new Set());
 
   // Log candidates for debugging (using snapshot)
   useEffect(() => {
@@ -1481,12 +1478,23 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       // Check if this is a note-to-todo conversion
       const convertingNoteId = convertingNoteIdRef.current;
       if (convertingNoteId && payload.type === 'todo') {
+        // Check if this note was already converted (prevent duplicates)
+        if (convertedNotesRef.current.has(convertingNoteId)) {
+          console.log('[SweepFlow] Note already converted, ignoring duplicate:', convertingNoteId);
+          convertingNoteIdRef.current = null;
+          return;
+        }
+
         console.log('[SweepFlow] Note converted to todo:', convertingNoteId, '->', payload.id);
+        // Mark this note as converted
+        convertedNotesRef.current.add(convertingNoteId);
         // Clear the conversion ref
         convertingNoteIdRef.current = null;
-        // Store the new todo ID to transform the current card
-        setConvertedTodoForIndex({ index: currentIndex, todoId: payload.id });
-        // Don't advance - let the card transform to show todo buttons
+
+        // SIMPLE APPROACH: Just advance to next card
+        // The new todo will appear in sweep candidates on its own if unscheduled
+        // This is more robust than trying to transform the card in place
+        handleOutcomeRef.current('changed');
         return;
       }
 
@@ -1519,25 +1527,13 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Card Action Handlers (record decisions, don't commit immediately)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
-    // Check if we're dealing with a converted todo
-    let candidateId: string;
-    let candidateKind: 'todo' | 'note' | 'habit';
-
-    if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
-      // This is a converted todo
-      candidateId = convertedTodoForIndex.todoId;
-      candidateKind = 'todo';
-    } else {
-      // Use the original candidate
-      const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta) return;
-      candidateId = candidateWithMeta.candidate.id;
-      candidateKind = candidateWithMeta.candidate.kind;
-    }
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const { candidate } = candidateWithMeta;
 
     recordDecision({
-      candidateId,
-      candidateKind,
+      candidateId: candidate.id,
+      candidateKind: candidate.kind,
       action: 'keep',
     });
 
@@ -1551,35 +1547,16 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     } else {
       handleAllCardsComplete(newStats);
     }
-  }, [
-    candidatesWithMeta,
-    currentIndex,
-    convertedTodoForIndex,
-    recordDecision,
-    stats,
-    handleAllCardsComplete,
-  ]);
+  }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
 
   const handleClear = useCallback(() => {
-    // Check if we're dealing with a converted todo
-    let candidateId: string;
-    let candidateKind: 'todo' | 'note' | 'habit';
-
-    if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
-      // This is a converted todo
-      candidateId = convertedTodoForIndex.todoId;
-      candidateKind = 'todo';
-    } else {
-      // Use the original candidate
-      const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta) return;
-      candidateId = candidateWithMeta.candidate.id;
-      candidateKind = candidateWithMeta.candidate.kind;
-    }
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const { candidate } = candidateWithMeta;
 
     recordDecision({
-      candidateId,
-      candidateKind,
+      candidateId: candidate.id,
+      candidateKind: candidate.kind,
       action: 'clear',
     });
 
@@ -1593,66 +1570,56 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     } else {
       handleAllCardsComplete(newStats);
     }
-  }, [
-    candidatesWithMeta,
-    currentIndex,
-    convertedTodoForIndex,
-    recordDecision,
-    stats,
-    handleAllCardsComplete,
-  ]);
+  }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
 
   const handleOpenEdit = useCallback(() => {
-    // Check if we're dealing with a converted todo
-    let candidateId: string;
-    let candidateKind: 'todo' | 'note' | 'habit';
-    let candidateRaw: any;
-
-    if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
-      // This is a converted todo - edit the new todo
-      candidateId = convertedTodoForIndex.todoId;
-      candidateKind = 'todo';
-      candidateRaw = null; // Will be looked up from store
-    } else {
-      // Use the original candidate
-      const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta) return;
-      candidateId = candidateWithMeta.candidate.id;
-      candidateKind = candidateWithMeta.candidate.kind;
-      candidateRaw = candidateWithMeta.candidate.raw;
-    }
+    const candidateWithMeta = candidatesWithMeta[currentIndex];
+    if (!candidateWithMeta) return;
+    const { candidate } = candidateWithMeta;
 
     // Track which candidate is being edited so we can detect saves
-    editingCandidateIdRef.current = candidateId;
+    editingCandidateIdRef.current = candidate.id;
 
     // Look up full record from store (faster than DB fetch)
     let fullRecord: AppRecord | undefined;
-    if (candidateKind === 'todo') {
-      const todo = todos.find((t) => t.id === candidateId);
+    if (candidate.kind === 'todo') {
+      const todo = todos.find((t) => t.id === candidate.id);
       if (todo) fullRecord = { ...todo, type: 'todo' } as AppRecord;
-    } else if (candidateKind === 'note') {
-      const note = notes.find((n) => n.id === candidateId);
+    } else if (candidate.kind === 'note') {
+      const note = notes.find((n) => n.id === candidate.id);
       if (note) fullRecord = { ...note, type: 'note' } as AppRecord;
     }
 
     if (fullRecord) {
       // Open UnifiedOverlayV2 with the full record from store
       overlayController.openEdit({ record: fullRecord });
-    } else if (candidateRaw) {
+    } else {
       // Fallback: construct a minimal record from the raw data
       console.warn('[SweepDecisionStep] handleOpenEdit: record not found in store, using raw');
       const fallbackRecord = {
-        ...candidateRaw,
-        type: candidateKind,
+        ...candidate.raw,
+        type: candidate.kind,
       } as AppRecord;
       overlayController.openEdit({ record: fallbackRecord });
     }
-  }, [candidatesWithMeta, currentIndex, convertedTodoForIndex, todos, notes, overlayController]);
+  }, [candidatesWithMeta, currentIndex, todos, notes, overlayController]);
 
   const handleConvertToTodo = useCallback(() => {
     const candidateWithMeta = candidatesWithMeta[currentIndex];
     if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'note') return;
     const candidate = candidateWithMeta.candidate;
+
+    // Prevent duplicate conversions
+    if (convertedNotesRef.current.has(candidate.id)) {
+      console.log('[SweepFlow] Note already converted, ignoring:', candidate.id);
+      return;
+    }
+
+    // Prevent re-triggering while conversion is in progress
+    if (convertingNoteIdRef.current === candidate.id) {
+      console.log('[SweepFlow] Conversion already in progress for:', candidate.id);
+      return;
+    }
 
     // Track that we're converting this note (so we don't advance on save)
     convertingNoteIdRef.current = candidate.id;
@@ -1680,21 +1647,9 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmQuickDate = useCallback(
     (option: 'tomorrow' | 'nextweek') => {
-      // Check if we're dealing with a converted todo
-      let candidateId: string;
-      let candidateKind: 'todo' | 'note' | 'habit';
-
-      if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
-        // This is a converted todo - use the converted todo's data
-        candidateId = convertedTodoForIndex.todoId;
-        candidateKind = 'todo';
-      } else {
-        // Use the original candidate
-        const candidateWithMeta = candidatesWithMeta[currentIndex];
-        if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
-        candidateId = candidateWithMeta.candidate.id;
-        candidateKind = candidateWithMeta.candidate.kind;
-      }
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      const { candidate } = candidateWithMeta;
 
       // Calculate the target date
       const today = new Date();
@@ -1709,8 +1664,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       }
 
       recordDecision({
-        candidateId,
-        candidateKind,
+        candidateId: candidate.id,
+        candidateKind: candidate.kind,
         action: 'keep',
         dueDate: targetDate,
       });
@@ -1725,14 +1680,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         handleAllCardsComplete(newStats);
       }
     },
-    [
-      candidatesWithMeta,
-      currentIndex,
-      convertedTodoForIndex,
-      recordDecision,
-      stats,
-      handleAllCardsComplete,
-    ],
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
   );
 
   /**
@@ -1741,27 +1689,18 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmRemindLater = useCallback(
     (resurfaceDate: Date) => {
-      // Check if we're dealing with a converted todo
-      let candidateId: string;
-
-      if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
-        // This is a converted todo - use the converted todo's data
-        candidateId = convertedTodoForIndex.todoId;
-      } else {
-        // Use the original candidate
-        const candidateWithMeta = candidatesWithMeta[currentIndex];
-        if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
-        candidateId = candidateWithMeta.candidate.id;
-      }
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      const { candidate } = candidateWithMeta;
 
       console.log('[SweepFlowScreen] Recording remind later decision:', {
-        id: candidateId,
+        id: candidate.id,
         resurfaceDate: resurfaceDate.toISOString(),
       });
 
       // Record decision with resurface date (not due date)
       recordDecision({
-        candidateId,
+        candidateId: candidate.id,
         candidateKind: 'todo',
         action: 'keep',
         resurfaceDate,
@@ -1777,14 +1716,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         handleAllCardsComplete(newStats);
       }
     },
-    [
-      candidatesWithMeta,
-      currentIndex,
-      convertedTodoForIndex,
-      recordDecision,
-      stats,
-      handleAllCardsComplete,
-    ],
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
   );
 
   /**
@@ -1793,25 +1725,13 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmCustomDate = useCallback(
     (date: Date) => {
-      // Check if we're dealing with a converted todo
-      let candidateId: string;
-      let candidateKind: 'todo' | 'note' | 'habit';
-
-      if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
-        // This is a converted todo - use the converted todo's data
-        candidateId = convertedTodoForIndex.todoId;
-        candidateKind = 'todo';
-      } else {
-        // Use the original candidate
-        const candidateWithMeta = candidatesWithMeta[currentIndex];
-        if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
-        candidateId = candidateWithMeta.candidate.id;
-        candidateKind = candidateWithMeta.candidate.kind;
-      }
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'todo') return;
+      const { candidate } = candidateWithMeta;
 
       recordDecision({
-        candidateId,
-        candidateKind,
+        candidateId: candidate.id,
+        candidateKind: 'todo',
         action: 'keep',
         dueDate: date,
       });
@@ -1826,14 +1746,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         handleAllCardsComplete(newStats);
       }
     },
-    [
-      candidatesWithMeta,
-      currentIndex,
-      convertedTodoForIndex,
-      recordDecision,
-      stats,
-      handleAllCardsComplete,
-    ],
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
   );
 
   /**
@@ -1966,33 +1879,10 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       return null;
     }
 
-    const originalCandidateWithMeta = candidatesWithMeta[currentIndex];
-
-    if (convertedTodoForIndex && convertedTodoForIndex.index === currentIndex) {
-      // Find the newly created todo from the store
-      const convertedTodo = todos.find((t) => t.id === convertedTodoForIndex.todoId);
-      if (convertedTodo) {
-        console.log('[SweepFlow] Rendering converted todo:', convertedTodo.id);
-        // Build a todo candidate from the store data
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const todoCandidate: SweepCandidateTodo = {
-          id: convertedTodo.id,
-          kind: 'todo',
-          createdAt: convertedTodo.created_at,
-          dropId: convertedTodo.drop_id,
-          skippedInSweepAt: convertedTodo.skipped_in_sweep_at,
-          isOverdue: convertedTodo.due_day ? convertedTodo.due_day < todayStr : false,
-          isDueToday: convertedTodo.due_day === todayStr,
-          isCreatedToday: convertedTodo.created_at.startsWith(todayStr),
-          raw: convertedTodo as any,
-        };
-        // Build meta using the same function used elsewhere
-        const todoMeta = computeSweepCardMeta(todoCandidate, spaces);
-        return { candidate: todoCandidate, meta: todoMeta };
-      }
-    }
-    return originalCandidateWithMeta;
-  }, [convertedTodoForIndex, currentIndex, candidatesWithMeta, todos, spaces]);
+    // Simply return the current candidate - no card transformation needed
+    // After Make Todo conversion, we advance to next card instead
+    return candidatesWithMeta[currentIndex];
+  }, [currentIndex, candidatesWithMeta]);
 
   // Loading state
   if (isLoading) {
@@ -2042,8 +1932,22 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     );
   }
 
+  // Handle case where converted todo isn't in store yet (show loading)
+  if (!effectiveCandidateWithMeta) {
+    return (
+      <View style={styles.stepContainer}>
+        <View style={styles.decisionLoadingContainer}>
+          <ActivityIndicator size="large" color={BRAND.colors.mossGreen} />
+          <Text variant="subtle" style={styles.decisionLoadingText}>
+            Creating your todo…
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   // Get current candidate (effectiveCandidateWithMeta already handles conversion)
-  const currentCandidateWithMeta = effectiveCandidateWithMeta!;
+  const currentCandidateWithMeta = effectiveCandidateWithMeta;
   const currentCandidate = currentCandidateWithMeta.candidate;
 
   return (
