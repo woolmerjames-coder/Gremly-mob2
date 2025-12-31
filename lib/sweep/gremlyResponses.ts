@@ -36,6 +36,35 @@ export function getGremlyResponse(
   // Todos
   // ─────────────────────────────────────────────────────────────────────────
   if (kind === 'todo') {
+    // Resurfacing from "remind me later" — show how long ago they asked to be reminded
+    // Cast to access resurface_at which may not be in Supabase generated types yet
+    const resurfaceAt = (raw as { resurface_at?: string | null }).resurface_at;
+    if (resurfaceAt) {
+      const resurfaceDate = new Date(resurfaceAt);
+      const now = new Date();
+      const diffMs = now.getTime() - resurfaceDate.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      let timeAgo: string;
+      if (diffDays === 0) {
+        timeAgo = 'today';
+      } else if (diffDays === 1) {
+        timeAgo = 'yesterday';
+      } else if (diffDays < 7) {
+        timeAgo = `${diffDays} days ago`;
+      } else if (diffDays < 14) {
+        timeAgo = 'about a week ago';
+      } else if (diffDays < 30) {
+        const weeks = Math.floor(diffDays / 7);
+        timeAgo = `about ${weeks} weeks ago`;
+      } else {
+        const months = Math.floor(diffDays / 30);
+        timeAgo = months === 1 ? 'about a month ago' : `about ${months} months ago`;
+      }
+
+      return `You asked me to remind you about this ${timeAgo}.`;
+    }
+
     // Locked-in items get priority messaging
     if (isLockedIn) {
       return "You locked this one in. How's it coming along?";

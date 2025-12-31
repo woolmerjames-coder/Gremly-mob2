@@ -55,6 +55,8 @@ function makeHabit(overrides: Partial<Habit> = {}): Habit {
     archived: false,
     ai_placed: false,
     tags: [],
+    // Habits need start_date to appear on Today page (per isHabitDueToday requirements)
+    start_date: '2025-01-01',
     ...overrides,
   } as Habit;
 }
@@ -107,6 +109,10 @@ function makeState(
     spaces: Space[];
     habitProgress: HabitProgressRow[];
     milestones: Milestone[];
+    // Sweep preferences
+    lastSweepCompletedAt: string | null;
+    sweepStreak: number;
+    totalSweepCount: number;
   }> = {},
 ) {
   return {
@@ -123,6 +129,10 @@ function makeState(
     isInitialized: true,
     lastSyncedAt: new Date(),
     userId: 'user-1',
+    // Sweep preferences (needed for selectSweepIntroStats)
+    lastSweepCompletedAt: null,
+    sweepStreak: 0,
+    totalSweepCount: 0,
     ...overrides,
   };
 }
@@ -540,6 +550,131 @@ describe('selectSweepCandidatesUnified', () => {
     const result = selectSweepCandidatesUnified(state as any);
 
     expect(result.some((item) => item.candidate.id === 't1')).toBe(true);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // resurface_at filtering (Remind Me Later feature)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('excludes todos with future resurface_at date', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: '2025-12-10', resurface_at: '2025-12-20' } as any), // Future resurface
+        makeTodo({ id: 't2', due_day: '2025-12-10' }), // No resurface date
+      ],
+    });
+
+    const result = selectSweepCandidatesUnified(state as any);
+    const todoIds = result.map((item) => item.candidate.id);
+
+    expect(todoIds).not.toContain('t1'); // Future resurface - excluded
+    expect(todoIds).toContain('t2'); // No resurface - included (overdue)
+  });
+
+  it('includes todos when resurface_at is today or past', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: '2025-12-01', resurface_at: '2025-12-15' } as any), // Resurface today
+        makeTodo({ id: 't2', due_day: '2025-12-01', resurface_at: '2025-12-10' } as any), // Resurface in past
+      ],
+    });
+
+    const result = selectSweepCandidatesUnified(state as any);
+    const todoIds = result.map((item) => item.candidate.id);
+
+    expect(todoIds).toContain('t1'); // Resurface today - included
+    expect(todoIds).toContain('t2'); // Resurface past - included
+  });
+
+  it('excludes notes with future resurface_at date', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'n1', subtype: 'idea', resurface_at: '2025-12-20' } as any), // Future resurface
+        makeNote({ id: 'n2', subtype: 'idea', created_at: '2025-12-10T12:00:00Z' }), // Recent idea, no resurface
+      ],
+    });
+
+    const result = selectSweepCandidatesUnified(state as any);
+    const noteIds = result
+      .filter((i) => i.candidate.kind === 'note')
+      .map((item) => item.candidate.id);
+
+    expect(noteIds).not.toContain('n1'); // Future resurface - excluded
+    expect(noteIds).toContain('n2'); // No resurface - included
+  });
+
+  it('includes notes when resurface_at is today or past', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'n1',
+          subtype: 'idea',
+          swept_at: '2025-12-01T12:00:00Z',
+          resurface_at: '2025-12-15',
+        } as any), // Swept but resurfacing today
+        makeNote({
+          id: 'n2',
+          subtype: 'idea',
+          swept_at: '2025-12-01T12:00:00Z',
+          resurface_at: '2025-12-10',
+        } as any), // Swept but resurfacing past
+      ],
+    });
+
+    const result = selectSweepCandidatesUnified(state as any);
+    const noteIds = result
+      .filter((i) => i.candidate.kind === 'note')
+      .map((item) => item.candidate.id);
+
+    expect(noteIds).toContain('n1'); // Resurfacing today - included
+    expect(noteIds).toContain('n2'); // Resurfacing past - included
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // swept_at filtering (Just Save feature)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('excludes notes with swept_at set (unless resurfacing or skipped)', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'n1',
+          subtype: 'idea',
+          created_at: '2025-12-10T12:00:00Z',
+          swept_at: '2025-12-12T12:00:00Z',
+        } as any), // Swept - excluded
+        makeNote({ id: 'n2', subtype: 'idea', created_at: '2025-12-10T12:00:00Z' }), // Not swept - included
+      ],
+    });
+
+    const result = selectSweepCandidatesUnified(state as any);
+    const noteIds = result
+      .filter((i) => i.candidate.kind === 'note')
+      .map((item) => item.candidate.id);
+
+    expect(noteIds).not.toContain('n1'); // Swept - excluded
+    expect(noteIds).toContain('n2'); // Not swept - included
+  });
+
+  it('includes swept notes if skipped_in_sweep_at is set', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'n1',
+          subtype: 'idea',
+          created_at: '2025-12-10T12:00:00Z',
+          swept_at: '2025-12-12T12:00:00Z',
+          skipped_in_sweep_at: '2025-12-14T12:00:00Z',
+        } as any), // Swept but skipped - should reappear
+      ],
+    });
+
+    const result = selectSweepCandidatesUnified(state as any);
+    const noteIds = result
+      .filter((i) => i.candidate.kind === 'note')
+      .map((item) => item.candidate.id);
+
+    expect(noteIds).toContain('n1'); // Skipped overrides swept
   });
 });
 

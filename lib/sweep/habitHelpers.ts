@@ -9,6 +9,95 @@ import type { Habit, Cadence } from '../types';
 import type { HabitProgressRow } from '../store/useGremlyStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Frequency Parsing Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type HabitCadence = 'daily' | 'weekly' | 'monthly';
+
+export interface ParsedHabitFrequency {
+  cadence: HabitCadence;
+  target_per_period: number;
+  frequency: string;
+}
+
+/**
+ * Normalizes a cadence value from the database.
+ * Handles legacy 'day' values and ensures valid cadence.
+ */
+export function normalizeCadence(cadence?: string | null): HabitCadence {
+  const c = (cadence ?? 'daily').toLowerCase().trim();
+  if (c === 'day') return 'daily';
+  if (c === 'week') return 'weekly';
+  if (c === 'month') return 'monthly';
+  if (c === 'daily' || c === 'weekly' || c === 'monthly') return c as HabitCadence;
+  return 'daily';
+}
+
+/**
+ * Parses habit frequency into structured database fields.
+ */
+export function parseHabitFrequency(
+  frequency?: string | null,
+  frequencyValue?: number | null,
+): ParsedHabitFrequency {
+  const freq = (frequency ?? 'daily').toLowerCase().trim();
+
+  let cadence: HabitCadence = 'daily';
+  let target = 1;
+  let normalizedFrequency = 'daily';
+
+  // Parse "Nx/week" patterns
+  const nxWeekMatch = freq.match(/(\d+)\s*x?\s*(\/|per)?\s*week/i);
+  if (nxWeekMatch) {
+    cadence = 'weekly';
+    target = parseInt(nxWeekMatch[1], 10) || 1;
+    normalizedFrequency = `${target}x/week`;
+  }
+  // Parse "Nx/month" patterns
+  else if (freq.match(/(\d+)\s*x?\s*(\/|per)?\s*month/i)) {
+    const match = freq.match(/(\d+)/);
+    cadence = 'monthly';
+    target = match ? parseInt(match[1], 10) : 1;
+    normalizedFrequency = `${target}x/month`;
+  }
+  // Explicit cadence values
+  else if (freq === 'daily' || freq === 'day' || freq === 'every day') {
+    cadence = 'daily';
+    target = frequencyValue ?? 1;
+    normalizedFrequency = target > 1 ? `${target}x daily` : 'daily';
+  } else if (freq === 'weekly' || freq === 'week' || freq === 'every week') {
+    cadence = 'weekly';
+    target = frequencyValue ?? 1;
+    normalizedFrequency = target > 1 ? `${target}x/week` : 'weekly';
+  } else if (freq === 'monthly' || freq === 'month' || freq === 'every month') {
+    cadence = 'monthly';
+    target = frequencyValue ?? 1;
+    normalizedFrequency = target > 1 ? `${target}x/month` : 'monthly';
+  }
+  // Handle 'custom' - preserve the value (user will configure in overlay)
+  else if (freq === 'custom') {
+    if (frequencyValue && frequencyValue > 1) {
+      cadence = 'weekly';
+      target = frequencyValue;
+      normalizedFrequency = `${target}x/week`;
+    } else {
+      // Preserve 'custom' as-is - user needs to configure this later
+      cadence = 'daily';
+      target = 1;
+      normalizedFrequency = 'custom';
+    }
+  }
+  // Fallback with frequencyValue
+  else if (frequencyValue && frequencyValue > 1) {
+    cadence = 'weekly';
+    target = frequencyValue;
+    normalizedFrequency = `${target}x/week`;
+  }
+
+  return { cadence, target_per_period: target, frequency: normalizedFrequency };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -192,26 +281,49 @@ export function isHabitCompletedToday(habitId: string, habitProgress: HabitProgr
  * Generate human-readable frequency label.
  */
 export function getFrequencyLabel(habit: Habit): string {
-  const cadence = habit.cadence ?? 'daily';
+  // First, try to parse the frequency string (most accurate source of user intent)
+  if (habit.frequency) {
+    const freq = habit.frequency.toLowerCase();
+
+    // Check for "Xx/week" or "X times a week" pattern
+    const weekMatch = freq.match(/(\d+)\s*(?:x\s*\/\s*|times?\s*(?:a|per)\s*)?week/i);
+    if (weekMatch) {
+      const count = parseInt(weekMatch[1], 10);
+      return `${count}x/week`;
+    }
+
+    // Check for "Xx/month" or "X times a month" pattern
+    const monthMatch = freq.match(/(\d+)\s*(?:x\s*\/\s*|times?\s*(?:a|per)\s*)?month/i);
+    if (monthMatch) {
+      const count = parseInt(monthMatch[1], 10);
+      return `${count}x/month`;
+    }
+
+    // Check for "daily" or "every day"
+    if (freq === 'daily' || freq.includes('every day') || freq.includes('every night')) {
+      return 'Daily';
+    }
+  }
+
+  // Secondary: use cadence field
+  const cadence = normalizeCadence(habit.cadence);
   const target = habit.target_per_period ?? 1;
 
   if (cadence === 'daily') {
-    return 'Every day';
-  } else if (cadence === 'weekly') {
-    if (target === 1) return 'Once a week';
-    if (target === 7) return 'Every day';
-    return `${target}x per week`;
-  } else if (cadence === 'monthly') {
-    if (target === 1) return 'Once a month';
-    return `${target}x per month`;
+    if (target > 1) return `${target}x daily`;
+    return 'Daily';
+  }
+  if (cadence === 'weekly') {
+    if (target === 7) return 'Daily';
+    if (target === 1) return 'Weekly';
+    return `${target}x/week`;
+  }
+  if (cadence === 'monthly') {
+    if (target === 1) return 'Monthly';
+    return `${target}x/month`;
   }
 
-  // Fallback to frequency string if set
-  if (habit.frequency) {
-    return habit.frequency;
-  }
-
-  return 'Every day';
+  return 'Daily';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -237,7 +349,7 @@ export function groupHabitsForSweep(
     // Skip archived habits
     if (habit.archived) continue;
 
-    const cadence: Cadence = habit.cadence ?? 'daily';
+    const cadence: Cadence = normalizeCadence(habit.cadence);
     const targetPerPeriod = habit.target_per_period ?? 1;
 
     // Calculate progress based on cadence

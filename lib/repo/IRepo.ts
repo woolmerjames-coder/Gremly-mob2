@@ -52,6 +52,8 @@ export interface CreateRecordInput {
 
   // Extended habit fields (Phase 7+)
   frequency_value?: any; // FrequencyValue JSON
+  cadence?: 'daily' | 'weekly' | 'monthly' | null; // Habit cadence period
+  target_per_period?: number | null; // Times per cadence period (e.g., 3x/week)
   reminders?: any[]; // ReminderRow[] JSON
   notes?: string | null;
   buddy_id?: ID | null;

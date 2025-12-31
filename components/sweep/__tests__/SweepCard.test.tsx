@@ -715,16 +715,16 @@ describe('SweepCard', () => {
       const { getByText, getByLabelText } = render(
         <SweepCard candidate={mockTodoCandidate} meta={createMockMeta()} {...defaultProps} />,
       );
-      // Check button labels
+      // Check button labels - now: Tomorrow, Next Week, Pick Date, Remind Me
       expect(getByText('Tomorrow')).toBeTruthy();
-      expect(getByText('2 Days')).toBeTruthy();
       expect(getByText('Next Week')).toBeTruthy();
       expect(getByText('Pick Date')).toBeTruthy();
+      expect(getByText('Remind Me')).toBeTruthy();
       // Check accessibility labels
       expect(getByLabelText('Set due tomorrow')).toBeTruthy();
-      expect(getByLabelText('Set due in 2 days')).toBeTruthy();
       expect(getByLabelText('Set due next week')).toBeTruthy();
       expect(getByLabelText('Pick a date')).toBeTruthy();
+      expect(getByLabelText('Remind me later')).toBeTruthy();
     });
 
     it('shows same quick date buttons for todos with due_day set', () => {
@@ -736,9 +736,9 @@ describe('SweepCard', () => {
         />,
       );
       expect(getByText('Tomorrow')).toBeTruthy();
-      expect(getByText('2 Days')).toBeTruthy();
       expect(getByText('Next Week')).toBeTruthy();
       expect(getByText('Pick Date')).toBeTruthy();
+      expect(getByText('Remind Me')).toBeTruthy();
     });
   });
 
@@ -747,14 +747,14 @@ describe('SweepCard', () => {
       const { getByText, getByLabelText } = render(
         <SweepCard candidate={mockNoteCandidate} meta={createMockLogMeta()} {...defaultProps} />,
       );
-      // Check button labels
-      expect(getByText('Next Sweep')).toBeTruthy();
-      expect(getByText('Pick Date')).toBeTruthy();
-      expect(getByText('Add to Space')).toBeTruthy();
+      // Check button labels - now: Just Save, Remind Me, To Space, Make Todo
+      expect(getByText('Just Save')).toBeTruthy();
+      expect(getByText('Remind Me')).toBeTruthy();
+      expect(getByText('To Space')).toBeTruthy();
       expect(getByText('Make Todo')).toBeTruthy();
       // Check accessibility labels
-      expect(getByLabelText('Save for next sweep')).toBeTruthy();
-      expect(getByLabelText('Pick a date')).toBeTruthy();
+      expect(getByLabelText('Just save the note')).toBeTruthy();
+      expect(getByLabelText('Set a reminder')).toBeTruthy();
       expect(getByLabelText('Add to space')).toBeTruthy();
       expect(getByLabelText('Convert to todo')).toBeTruthy();
     });
@@ -767,9 +767,9 @@ describe('SweepCard', () => {
           {...defaultProps}
         />,
       );
-      expect(getByText('Next Sweep')).toBeTruthy();
-      expect(getByText('Pick Date')).toBeTruthy();
-      expect(getByText('Add to Space')).toBeTruthy();
+      expect(getByText('Just Save')).toBeTruthy();
+      expect(getByText('Remind Me')).toBeTruthy();
+      expect(getByText('To Space')).toBeTruthy();
       expect(getByText('Make Todo')).toBeTruthy();
     });
 
@@ -781,9 +781,9 @@ describe('SweepCard', () => {
           {...defaultProps}
         />,
       );
-      expect(getByText('Next Sweep')).toBeTruthy();
-      expect(getByText('Pick Date')).toBeTruthy();
-      expect(getByText('Add to Space')).toBeTruthy();
+      expect(getByText('Just Save')).toBeTruthy();
+      expect(getByText('Remind Me')).toBeTruthy();
+      expect(getByText('To Space')).toBeTruthy();
       expect(getByText('Make Todo')).toBeTruthy();
     });
 
@@ -799,7 +799,7 @@ describe('SweepCard', () => {
           {...defaultProps}
         />,
       );
-      expect(getByText('Next Sweep')).toBeTruthy();
+      expect(getByText('Just Save')).toBeTruthy();
       expect(getByText('Make Todo')).toBeTruthy();
     });
   });
@@ -828,13 +828,13 @@ describe('SweepCard', () => {
       // is called on swipe right, not on button press
     });
 
-    it('selects 2 Days when 2 Days button is pressed', () => {
+    it('selects Remind Me when Remind Me button is pressed', () => {
       const { getByLabelText } = render(
         <SweepCard candidate={mockTodoCandidate} meta={createMockMeta()} {...defaultProps} />,
       );
 
-      fireEvent.press(getByLabelText('Set due in 2 days'));
-      // Button selection is internal state - the actual callback (onConfirmQuickDate)
+      fireEvent.press(getByLabelText('Remind me later'));
+      // Button selection is internal state - the actual callback (onConfirmRemindLater)
       // is called on swipe right, not on button press
     });
 
@@ -860,7 +860,7 @@ describe('SweepCard', () => {
   });
 
   describe('Button Grid Interactions - Logs', () => {
-    it('selects Next Sweep when Next Sweep button is pressed for logs', () => {
+    it('selects Just Save when Just Save button is pressed for logs', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
@@ -869,23 +869,21 @@ describe('SweepCard', () => {
         />,
       );
 
-      fireEvent.press(getByLabelText('Save for next sweep'));
-      // Next Sweep button now selects the action (actual skip happens on swipe right)
+      fireEvent.press(getByLabelText('Just save the note'));
+      // Just Save button selects the action (actual save happens on swipe right)
     });
 
-    it('calls onAddToSpace when Add to Space button is pressed', () => {
-      const onAddToSpace = jest.fn();
+    it('selects Add to Space when To Space button is pressed', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
           meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
-          onAddToSpace={onAddToSpace}
         />,
       );
 
       fireEvent.press(getByLabelText('Add to space'));
-      expect(onAddToSpace).toHaveBeenCalledTimes(1);
+      // Button selection is internal state - opens space picker modal
     });
 
     it('calls onConvertToTodo when Make Todo button is pressed', () => {
@@ -903,7 +901,7 @@ describe('SweepCard', () => {
       expect(onConvertToTodo).toHaveBeenCalledTimes(1);
     });
 
-    it('opens date picker when Pick Date button is pressed for logs', () => {
+    it('opens remind modal when Remind Me button is pressed for logs', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockJournalCandidate}
@@ -912,8 +910,8 @@ describe('SweepCard', () => {
         />,
       );
 
-      fireEvent.press(getByLabelText('Pick a date'));
-      // Date picker modal should open
+      fireEvent.press(getByLabelText('Set a reminder'));
+      // Remind Me button is pressable - opens remind date modal
     });
   });
 
@@ -1098,7 +1096,7 @@ describe('SweepCard', () => {
 
       // Todo shows quick date buttons
       expect(getByText('Tomorrow')).toBeTruthy();
-      expect(queryByText('Next Sweep')).toBeNull();
+      expect(queryByText('Just Save')).toBeNull();
 
       // Re-render with a note
       rerender(
@@ -1110,7 +1108,7 @@ describe('SweepCard', () => {
       );
 
       // Log shows action buttons
-      expect(getByText('Next Sweep')).toBeTruthy();
+      expect(getByText('Just Save')).toBeTruthy();
       expect(queryByText('Tomorrow')).toBeNull();
     });
   });

@@ -2,14 +2,20 @@
  * useSweepIntroStats - Hook for fetching sweep intro stats
  *
  * Uses Zustand store data for instant stats computation.
- * Only fetches last_sweep_completed_at from Supabase (one small query).
+ * Sweep preferences are loaded into Zustand on app init - no separate fetch needed.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { SweepIntroStats, SweepIntroItem } from './introStats';
 import { useGremlyStore } from '../store/useGremlyStore';
-import { supabase } from '../supabase/client';
-import { useAuth } from '../../providers/AuthProvider';
+
+/**
+ * Compute fallback cutoff timestamp (48 hours ago).
+ * Extracted to a function to satisfy React purity rules.
+ */
+function computeFallbackCutoff(): string {
+  return new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+}
 
 interface UseSweepIntroStatsResult {
   stats: SweepIntroStats | null;
@@ -19,29 +25,29 @@ interface UseSweepIntroStatsResult {
 }
 
 /**
- * Hook to fetch sweep intro stats for the current user.
- * Uses store data for instant stats, only fetches last_sweep_completed_at from Supabase.
+ * Hook to get sweep intro stats for the current user.
+ * All data comes from Zustand store - no separate Supabase fetch.
  *
  * @returns Object with stats, loading state, error, and refetch function
  */
 export function useSweepIntroStats(): UseSweepIntroStatsResult {
-  const { userId } = useAuth();
-
-  const [lastSweepCompletedAt, setLastSweepCompletedAt] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const [hasFetched, setHasFetched] = useState(false);
-
-  // Get raw data from store (stable references)
+  // Read all data from Zustand - no separate fetch needed
   const todos = useGremlyStore((state) => state.todos);
   const habits = useGremlyStore((state) => state.habits);
   const notes = useGremlyStore((state) => state.notes);
   const habitProgress = useGremlyStore((state) => state.habitProgress);
+  const lastSweepCompletedAt = useGremlyStore((state) => state.lastSweepCompletedAt);
+  const sweepStreak = useGremlyStore((state) => state.sweepStreak);
+  const totalSweepCount = useGremlyStore((state) => state.totalSweepCount);
+  const isLoading = useGremlyStore((state) => state.isLoading);
+  const isInitialized = useGremlyStore((state) => state.isInitialized);
+
+  // Compute fallback cutoff once on mount (only used when lastSweepCompletedAt is null)
+  const [fallbackCutoff] = useState(computeFallbackCutoff);
 
   // Compute stats with useMemo to prevent infinite render loops
-  const storeStats = useMemo((): SweepIntroStats => {
-    const cutoffTimestamp =
-      lastSweepCompletedAt || new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const stats = useMemo((): SweepIntroStats => {
+    const cutoffTimestamp = lastSweepCompletedAt || fallbackCutoff;
 
     // Completed todos (has completed_at > cutoff)
     const completedTodos: SweepIntroItem[] = todos
@@ -74,51 +80,25 @@ export function useSweepIntroStats(): UseSweepIntroStatsResult {
       dropped: { todos: droppedTodos, habits: droppedHabits, notes: droppedNotes },
       isFirstSweep: !lastSweepCompletedAt,
       cutoffTimestamp,
+      totalSweepCount,
+      sweepStreak,
     };
-  }, [todos, habits, notes, habitProgress, lastSweepCompletedAt]);
-
-  const fetchLastSweepTime = useCallback(async () => {
-    if (!userId) {
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Only fetch last_sweep_completed_at from cortex_preferences
-      const { data: prefs, error: prefsError } = await supabase
-        .from('cortex_preferences')
-        .select('last_sweep_completed_at')
-        .eq('owner_id', userId)
-        .single();
-
-      if (prefsError && prefsError.code !== 'PGRST116') {
-        // PGRST116 = no rows found, which is fine for first-time users
-        console.warn('[useSweepIntroStats] Failed to fetch cortex_preferences:', prefsError);
-      }
-
-      setLastSweepCompletedAt(prefs?.last_sweep_completed_at || null);
-      setHasFetched(true);
-    } catch (err) {
-      console.error('[useSweepIntroStats] Failed to fetch last sweep time:', err);
-      setError(err instanceof Error ? err : new Error('Failed to fetch sweep intro stats'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [userId]);
-
-  // Fetch on mount and when userId changes
-  useEffect(() => {
-    void fetchLastSweepTime();
-  }, [fetchLastSweepTime]);
+  }, [
+    todos,
+    habits,
+    notes,
+    habitProgress,
+    lastSweepCompletedAt,
+    totalSweepCount,
+    sweepStreak,
+    fallbackCutoff,
+  ]);
 
   return {
-    // Only return stats after we've fetched the last sweep time
-    stats: hasFetched ? storeStats : null,
+    // Return stats once store is initialized
+    stats: isInitialized ? stats : null,
     isLoading,
-    error,
-    refetch: fetchLastSweepTime,
+    error: null,
+    refetch: async () => {}, // No-op - data comes from store, refreshed on app init
   };
 }

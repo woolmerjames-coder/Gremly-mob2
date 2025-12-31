@@ -492,19 +492,24 @@ export async function applySweepAction(
  * successfully even if analytics/preferences fail to update.
  *
  * This does two things:
+/**
+ * Mark the sweep as completed:
  * 1. Logs an event to the `events` table with the sweep summary (for analytics/history)
  * 2. Updates `last_sweep_completed_at` in `cortex_preferences` so future sweeps know the cutoff
+ * 3. Calculates and updates the sweep streak
  *
  * @param ownerId - The user's ID
  * @param client - Supabase client instance
  * @param summary - Counts of actions taken during the sweep
+ * @returns The updated streak count
  */
 export async function markSweepCompleted(
   ownerId: string,
   client: SupabaseClient<Database>,
   summary: { kept: number; cleared: number },
-): Promise<void> {
-  const now = new Date().toISOString();
+): Promise<{ streak: number }> {
+  const now = new Date();
+  const todayDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
 
   try {
     // 1. Insert event for analytics/history
@@ -513,7 +518,7 @@ export async function markSweepCompleted(
       kind: 'sweep_completed',
       payload_json: {
         ...summary,
-        completed_at: now,
+        completed_at: now.toISOString(),
       },
     });
 
@@ -521,18 +526,66 @@ export async function markSweepCompleted(
       console.error('[Sweep] Failed to log sweep_completed event:', eventError);
     }
 
-    // 2. Update cortex_preferences.last_sweep_completed_at
-    const { error: prefError } = await client
+    // 2. Get current streak data
+    // Note: sweep_streak and sweep_streak_last_date columns may not exist yet
+    const { data: prefs, error: fetchError } = await client
       .from('cortex_preferences')
-      .update({ last_sweep_completed_at: now })
-      .eq('owner_id', ownerId);
+      .select('*')
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('[Sweep] Failed to fetch streak data:', fetchError);
+    }
+
+    // 3. Calculate new streak
+    let newStreak = 1;
+    // Cast to any to handle columns that may not exist in TypeScript types yet
+    const prefsAny = prefs as Record<string, unknown> | null;
+    const lastDate = prefsAny?.sweep_streak_last_date as string | undefined;
+    const currentStreak = (prefsAny?.sweep_streak as number) || 0;
+
+    if (lastDate) {
+      const lastDateObj = new Date(lastDate + 'T00:00:00');
+      const todayObj = new Date(todayDate + 'T00:00:00');
+      const diffDays = Math.floor(
+        (todayObj.getTime() - lastDateObj.getTime()) / (1000 * 60 * 60 * 24),
+      );
+
+      if (diffDays === 0) {
+        // Already swept today, keep current streak
+        newStreak = currentStreak;
+      } else if (diffDays === 1) {
+        // Swept yesterday, increment streak
+        newStreak = currentStreak + 1;
+      } else {
+        // Streak broken, start fresh
+        newStreak = 1;
+      }
+    }
+
+    console.log('[Sweep] Streak calculation:', { lastDate, todayDate, currentStreak, newStreak });
+
+    // 4. Upsert cortex_preferences with new streak and timestamp
+    // Using upsert to handle first-time users who don't have a row yet
+    const { error: prefError } = await client.from('cortex_preferences').upsert(
+      {
+        owner_id: ownerId,
+        last_sweep_completed_at: now.toISOString(),
+        sweep_streak: newStreak,
+        sweep_streak_last_date: todayDate,
+      },
+      { onConflict: 'owner_id' },
+    );
 
     if (prefError) {
-      console.error('[Sweep] Failed to update last_sweep_completed_at:', prefError);
+      console.error('[Sweep] Failed to upsert cortex_preferences:', prefError);
     }
+
+    return { streak: newStreak };
   } catch (error) {
-    // Swallow any unexpected errors — this is best-effort logging
     console.error('[Sweep] Unexpected error in markSweepCompleted:', error);
+    return { streak: 0 };
   }
 }
 

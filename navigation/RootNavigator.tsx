@@ -22,6 +22,7 @@ import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
 import { ListsScreen } from '../app/screens/ListsScreen';
 import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
+import SweepTestScreen from '../app/screens/SweepTestScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -35,8 +36,9 @@ export type RootStackParamList = {
   SpaceHome: { spaceId: string };
   ChatThread: { spaceId: string; chatId?: string };
   Lists: undefined;
-  Sweep: undefined;
+  Sweep: { initialStep?: number; initialCardIndex?: number } | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;
+  SweepTest: undefined; // DEV only
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -128,6 +130,13 @@ export default function RootNavigator() {
               name="RecentItems"
               component={RecentItems}
               options={{ title: 'Recent Items', presentation: 'modal', headerShown: true }}
+            />
+          )}
+          {__DEV__ && (
+            <Stack.Screen
+              name="SweepTest"
+              component={SweepTestScreen}
+              options={{ title: 'Sweep Test Mode', presentation: 'modal', headerShown: false }}
             />
           )}
         </>

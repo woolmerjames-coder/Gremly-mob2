@@ -308,6 +308,11 @@ export const selectUrgentFrequencyHabits = createSelector(
  * - Scheduled habits: specific days_active array defines when it shows
  * - Flexible habits: show as available anytime they haven't hit weekly/monthly target
  * - No "overdue" shame - just "available to log"
+ *
+ * Requirements:
+ * - Must have start_date set (habits without start_date should only appear in Sweep)
+ * - start_date must be today or in the past
+ * - end_date (if set) must be today or in the future
  */
 function isHabitDueToday(
   habit: Habit,
@@ -320,6 +325,18 @@ function isHabitDueToday(
 
   // Archived habits don't show
   if (habit.archived) return false;
+
+  // Must have a start_date to appear on Today page
+  // Habits without start_date should only appear in Sweep to prompt user to set one
+  if (!habit.start_date) return false;
+
+  const today = getTodayDayString();
+
+  // start_date must be today or in the past
+  if (habit.start_date > today) return false;
+
+  // end_date (if set) must be today or in the future
+  if (habit.end_date && habit.end_date < today) return false;
 
   const cadence = habit.cadence ?? 'daily';
   const targetPerPeriod = habit.target_per_period ?? 1;
@@ -580,14 +597,40 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
  */
 export const selectSweepCandidatesUnified = createSelector(
   [selectTodos, selectNotes, selectUnconfirmedHabits, selectSpaces],
-  (todos, notes, unconfirmedHabits, spaces): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
+  (
+    todos,
+    notes,
+    unconfirmedHabits,
+    spaces,
+  ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
+    console.log('[SweepSelector] Running selectSweepCandidatesUnified');
     const today = getTodayDayString();
     const sevenDaysAgo = getDaysAgoDayString(7);
     const candidates: SweepCandidate[] = [];
 
     // Process todos
     for (const todo of todos) {
-      if (todo.archived || todo.completed_at) continue;
+      if (todo.archived || todo.completed_at) {
+        console.log('[SweepSelector] Filtered out todo:', {
+          id: todo.id.slice(0, 8),
+          name: todo.name?.slice(0, 20),
+          archived: todo.archived,
+          completed_at: !!todo.completed_at,
+        });
+        continue;
+      }
+
+      // Check resurface date first - if set for the future, skip entirely
+      const resurfaceAt = (todo as any).resurface_at;
+      const hasFutureResurface = resurfaceAt && resurfaceAt > today;
+      if (hasFutureResurface) {
+        console.log('[SweepSelector] Filtered out todo with future resurface:', {
+          id: todo.id.slice(0, 8),
+          name: todo.name?.slice(0, 20),
+          resurface_at: resurfaceAt,
+        });
+        continue;
+      }
 
       const dueDay = todo.due_day;
       const isOverdue = dueDay ? dueDay < today : false;
@@ -596,7 +639,18 @@ export const selectSweepCandidatesUnified = createSelector(
       const isCreatedToday = todo.created_at?.startsWith(today) ?? false;
       const wasSkipped = !!todo.skipped_in_sweep_at;
 
-      if (isOverdue || isDueToday || isUndated || wasSkipped) {
+      // Check if todo should resurface today (remind me later)
+      const shouldResurface = resurfaceAt && resurfaceAt <= today;
+
+      if (shouldResurface) {
+        console.log('[SweepSelector] Including resurfacing todo:', {
+          id: todo.id.slice(0, 8),
+          name: todo.name,
+          resurface_at: resurfaceAt,
+        });
+      }
+
+      if (isOverdue || isDueToday || isUndated || wasSkipped || shouldResurface) {
         candidates.push({
           id: todo.id,
           kind: 'todo',
@@ -616,6 +670,32 @@ export const selectSweepCandidatesUnified = createSelector(
       if (note.archived) continue;
       if (note.subtype === 'journal') continue;
 
+      const resurfaceAt = (note as any).resurface_at;
+      const sweptAt = (note as any).swept_at;
+
+      // Skip notes with FUTURE resurface date (not time yet)
+      if (resurfaceAt && resurfaceAt > today) {
+        console.log('[SweepSelector] Filtered out note with future resurface:', {
+          id: note.id.slice(0, 8),
+          title: note.title?.slice(0, 20),
+          resurface_at: resurfaceAt,
+        });
+        continue;
+      }
+
+      // Check if note should resurface TODAY (remind me later)
+      const shouldResurface = resurfaceAt && resurfaceAt <= today;
+
+      // Skip notes that were swept, UNLESS they should resurface or were skipped
+      if (sweptAt && !shouldResurface && !note.skipped_in_sweep_at) {
+        console.log('[SweepSelector] Filtered out swept note:', {
+          id: note.id.slice(0, 8),
+          title: note.title?.slice(0, 20),
+          swept_at: sweptAt,
+        });
+        continue;
+      }
+
       const createdDay = note.created_at?.split('T')[0];
       const isCreatedToday = createdDay === today;
       const wasSkipped = !!note.skipped_in_sweep_at;
@@ -623,11 +703,13 @@ export const selectSweepCandidatesUnified = createSelector(
       const isIdea = note.subtype === 'idea';
       const isRecentIdea = isIdea && createdDay && createdDay >= sevenDaysAgo;
 
+      // Include catchall, list, reference subtypes created today
+      // Note: 'general' LogSubtype maps to 'catchall' in the database
       const isOtherSubtype =
         note.subtype === 'catchall' || note.subtype === 'list' || note.subtype === 'reference';
       const isTodayOther = isOtherSubtype && isCreatedToday;
 
-      if (isRecentIdea || isTodayOther || wasSkipped) {
+      if (isRecentIdea || isTodayOther || wasSkipped || shouldResurface) {
         candidates.push({
           id: note.id,
           kind: 'note',
@@ -1707,6 +1789,8 @@ export const selectSweepIntroStats = (
     dropped: { todos: droppedTodos, habits: droppedHabits, notes: droppedNotes },
     isFirstSweep: !lastSweepCompletedAt,
     cutoffTimestamp,
+    totalSweepCount: state.totalSweepCount,
+    sweepStreak: state.sweepStreak,
   };
 };
 

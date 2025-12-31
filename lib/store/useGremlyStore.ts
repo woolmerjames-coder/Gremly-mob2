@@ -14,6 +14,7 @@ import type {
 } from '../types';
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
+import { parseHabitFrequency } from '../sweep/habitHelpers';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
@@ -138,6 +139,16 @@ interface GremlyState {
   // Calendar view state
   calendarFocusDate: string | null;
   setCalendarFocusDate: (date: string | null) => void;
+
+  // Sweep preferences (from cortex_preferences)
+  lastSweepCompletedAt: string | null;
+  sweepStreak: number;
+  totalSweepCount: number;
+  setSweepPreferences: (prefs: {
+    lastSweepCompletedAt: string | null;
+    sweepStreak: number;
+    totalSweepCount: number;
+  }) => void;
 
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -268,6 +279,10 @@ const initialState = {
   userId: null as string | null,
   userTimezone: null as string | null,
   calendarFocusDate: null as string | null,
+  // Sweep preferences
+  lastSweepCompletedAt: null as string | null,
+  sweepStreak: 0,
+  totalSweepCount: 0,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -307,6 +322,8 @@ export const useGremlyStore = create<GremlyState>()(
           chatsRes,
           milestonesRes,
           dailyBriefRes,
+          cortexPrefsRes,
+          sweepEventsCountRes,
         ] = await Promise.all([
           supabase.from('todos').select('*').eq('owner_id', userId),
           supabase.from('habits').select('*').eq('owner_id', userId),
@@ -326,6 +343,18 @@ export const useGremlyStore = create<GremlyState>()(
             .eq('owner_id', userId)
             .eq('date', new Date().toISOString().split('T')[0])
             .maybeSingle(),
+          // Sweep preferences from cortex_preferences
+          supabase
+            .from('cortex_preferences')
+            .select('last_sweep_completed_at, sweep_streak')
+            .eq('owner_id', userId)
+            .maybeSingle(),
+          // Count total sweep_completed events
+          supabase
+            .from('events')
+            .select('*', { count: 'exact', head: true })
+            .eq('owner_id', userId)
+            .eq('kind', 'sweep_completed'),
         ]);
 
         // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
@@ -335,12 +364,19 @@ export const useGremlyStore = create<GremlyState>()(
         if (spacesRes.error) throw spacesRes.error;
         if (tagsRes.error) throw tagsRes.error;
         if (progressRes.error) throw progressRes.error;
-        // Log but don't throw for chats/milestones/dailyBrief
+        // Log but don't throw for chats/milestones/dailyBrief/sweep prefs
         if (chatsRes.error) console.warn('[GremlyStore] space_chats fetch error:', chatsRes.error);
         if (milestonesRes.error)
           console.warn('[GremlyStore] milestones fetch error:', milestonesRes.error);
         if (dailyBriefRes.error)
           console.warn('[GremlyStore] daily_briefs fetch error:', dailyBriefRes.error);
+        if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116')
+          console.warn('[GremlyStore] cortex_preferences fetch error:', cortexPrefsRes.error);
+        if (sweepEventsCountRes.error)
+          console.warn('[GremlyStore] sweep events count error:', sweepEventsCountRes.error);
+
+        // Extract sweep preferences (handle columns that may not exist in TypeScript types)
+        const cortexPrefs = cortexPrefsRes.data as Record<string, unknown> | null;
 
         set({
           // Add type field since DB doesn't store it
@@ -354,6 +390,10 @@ export const useGremlyStore = create<GremlyState>()(
           milestones: milestonesRes.data ?? [],
           dailyBrief: dailyBriefRes.data ?? null,
           spaceChatMessages: [], // Messages are loaded on-demand per chat
+          // Sweep preferences
+          lastSweepCompletedAt: (cortexPrefs?.last_sweep_completed_at as string) ?? null,
+          sweepStreak: (cortexPrefs?.sweep_streak as number) ?? 0,
+          totalSweepCount: sweepEventsCountRes.count ?? 0,
           isLoading: false,
           isInitialized: true,
           lastSyncedAt: new Date(),
@@ -368,6 +408,8 @@ export const useGremlyStore = create<GremlyState>()(
           spaceChats: chatsRes.data?.length ?? 0,
           milestones: milestonesRes.data?.length ?? 0,
           dailyBrief: dailyBriefRes.data?.id ?? 'none',
+          sweepStreak: (cortexPrefs?.sweep_streak as number) ?? 0,
+          totalSweepCount: sweepEventsCountRes.count ?? 0,
         });
 
         // Auto-detect timezone on initialize
@@ -414,6 +456,9 @@ export const useGremlyStore = create<GremlyState>()(
         userId: null,
         userTimezone: null,
         calendarFocusDate: null,
+        lastSweepCompletedAt: null,
+        sweepStreak: 0,
+        totalSweepCount: 0,
       });
     },
 
@@ -423,6 +468,12 @@ export const useGremlyStore = create<GremlyState>()(
 
     setUserTimezone: (tz: string) => set({ userTimezone: tz }),
     setCalendarFocusDate: (date: string | null) => set({ calendarFocusDate: date }),
+    setSweepPreferences: (prefs) =>
+      set({
+        lastSweepCompletedAt: prefs.lastSweepCompletedAt,
+        sweepStreak: prefs.sweepStreak,
+        totalSweepCount: prefs.totalSweepCount,
+      }),
 
     // ═══════════════════════════════════════════════════════════════════
     // TODO MUTATIONS
@@ -585,6 +636,14 @@ export const useGremlyStore = create<GremlyState>()(
         ),
       }));
 
+      // Log after optimistic update
+      console.log('[GremlyStore] archiveTodo optimistic update:', {
+        id: id.slice(0, 8),
+        archived: true,
+        todosCount: get().todos.length,
+        archivedTodosCount: get().todos.filter((t) => t.archived).length,
+      });
+
       // 2. SYNC TO SUPABASE
       const { error } = await supabase
         .from('todos')
@@ -644,7 +703,19 @@ export const useGremlyStore = create<GremlyState>()(
       if (!userId) throw new Error('Not authenticated');
 
       const now = new Date().toISOString();
-      const sanitized = sanitizeForSupabase(habit as Record<string, unknown>, 'habit');
+
+      // Parse frequency into structured fields if not already set
+      let habitData = habit;
+      if (!habit.cadence || !habit.target_per_period) {
+        const parsed = parseHabitFrequency(habit.frequency, habit.frequency_value as number | null);
+        habitData = {
+          ...habit,
+          cadence: habit.cadence ?? parsed.cadence,
+          target_per_period: habit.target_per_period ?? parsed.target_per_period,
+        };
+      }
+
+      const sanitized = sanitizeForSupabase(habitData as Record<string, unknown>, 'habit');
       const payload = {
         ...sanitized,
         owner_id: userId,

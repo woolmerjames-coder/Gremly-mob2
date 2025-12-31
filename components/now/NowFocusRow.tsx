@@ -28,6 +28,7 @@ import { Flame, RotateCcw, RefreshCw, Calendar } from 'lucide-react-native';
 import { computeHabitMetadata } from '../../lib/today/hooks/useHabitMetadata';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { BRAND } from '../../design/brand';
+import { getFrequencyLabel } from '../../lib/sweep/habitHelpers';
 
 // Icon map for habit metadata
 const MetadataIconMap = {
@@ -106,35 +107,6 @@ interface NowFocusRowProps {
 }
 
 /**
- * Parse frequency string from Zustand to display label.
- * Handles: "3 times a week", "5 times a week", "2 times a month", "daily"
- */
-function parseFrequencyLabel(frequency: string | undefined | null): string {
-  if (!frequency) return 'Daily';
-
-  const freq = frequency.toLowerCase();
-
-  // Match "X times a week" pattern
-  const weekMatch = freq.match(/(\d+)\s*times?\s*(?:a|per)?\s*week/i);
-  if (weekMatch) {
-    return `${weekMatch[1]}x/week`;
-  }
-
-  // Match "X times a month" pattern
-  const monthMatch = freq.match(/(\d+)\s*times?\s*(?:a|per)?\s*month/i);
-  if (monthMatch) {
-    return `${monthMatch[1]}x/month`;
-  }
-
-  // Check for daily
-  if (freq === 'daily' || freq.includes('every day')) {
-    return 'Daily';
-  }
-
-  return 'Daily';
-}
-
-/**
  * Format time estimate in minutes to a human-readable string.
  * Examples: 15 -> "15 min", 60 -> "1 hr", 90 -> "1.5 hrs"
  */
@@ -192,10 +164,10 @@ export function NowFocusRow({
     return formatTimeEstimate(fullTodo.time_estimate_minutes);
   }, [item.type, fullTodo]);
 
-  // Compute frequency label directly from Zustand habit data
+  // Compute frequency label using centralized helper from habitHelpers
   const frequencyLabel = React.useMemo(() => {
     if (item.type !== 'habit' || !fullHabit) return null;
-    return parseFrequencyLabel(fullHabit.frequency);
+    return getFrequencyLabel(fullHabit);
   }, [item.type, fullHabit]);
 
   // Compute habit metadata for habits (streak/progress icons)

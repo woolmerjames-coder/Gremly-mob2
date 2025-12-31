@@ -26,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { Icon } from '../../design-system/Icon';
+import { Flame, RefreshCw, Calendar } from 'lucide-react-native';
 
 // Gremly avatar for the slider
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -254,11 +255,19 @@ export function SweepHabitRow({
   // Build metadata string
   const metadataDisplay = useMemo(() => {
     if (cadence === 'daily' && streakDays !== undefined && streakDays > 0) {
-      return { icon: 'Flame' as const, text: `${streakDays}`, isStreak: true };
+      return { iconType: 'flame' as const, text: `${streakDays}`, isStreak: true };
     } else if (cadence === 'weekly') {
-      return { icon: null, text: `${completedThisPeriod}/${targetPerPeriod} wk`, isStreak: false };
+      return {
+        iconType: 'refresh' as const,
+        text: `${completedThisPeriod}/${targetPerPeriod}`,
+        isStreak: false,
+      };
     } else if (cadence === 'monthly') {
-      return { icon: null, text: `${completedThisPeriod}/${targetPerPeriod} mo`, isStreak: false };
+      return {
+        iconType: 'calendar' as const,
+        text: `${completedThisPeriod}/${targetPerPeriod}`,
+        isStreak: false,
+      };
     }
     return null;
   }, [cadence, streakDays, completedThisPeriod, targetPerPeriod]);
@@ -304,8 +313,14 @@ export function SweepHabitRow({
         {/* Metadata (streak or progress) */}
         {metadataDisplay && (
           <View style={styles.metadataContainer}>
-            {metadataDisplay.icon && (
-              <Icon name={metadataDisplay.icon} size="xs" color={BRAND.colors.goldenPear} />
+            {metadataDisplay.iconType === 'flame' && (
+              <Flame size={12} color={BRAND.colors.goldenPear} strokeWidth={2.5} />
+            )}
+            {metadataDisplay.iconType === 'refresh' && (
+              <RefreshCw size={12} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+            )}
+            {metadataDisplay.iconType === 'calendar' && (
+              <Calendar size={12} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
             )}
             <Text style={[styles.metadataText, metadataDisplay.isStreak && styles.metadataStreak]}>
               {metadataDisplay.text}
