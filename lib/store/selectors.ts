@@ -1789,6 +1789,8 @@ export const selectSweepIntroStats = (
     dropped: { todos: droppedTodos, habits: droppedHabits, notes: droppedNotes },
     isFirstSweep: !lastSweepCompletedAt,
     cutoffTimestamp,
+    totalSweepCount: state.totalSweepCount,
+    sweepStreak: state.sweepStreak,
   };
 };
 

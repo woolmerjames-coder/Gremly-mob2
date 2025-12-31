@@ -121,6 +121,9 @@ jest.mock('@react-navigation/native', () => {
       setOptions: jest.fn(),
       goBack: jest.fn(),
     }),
+    useRoute: () => ({
+      params: {},
+    }),
   };
 });
 
@@ -136,7 +139,7 @@ async function renderAtHabitsStep() {
 
   // Step 0: Intro - tap "Start Sweeping" to go to Decision
   await waitFor(() => {
-    expect(result.getByText('Time to Sweep your day')).toBeTruthy();
+    expect(result.getByText('Time for a quick tidy')).toBeTruthy();
   });
   fireEvent.press(result.getByText('Start Sweeping'));
 

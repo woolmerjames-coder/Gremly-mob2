@@ -40,6 +40,7 @@ jest.mock('../../../lib/store/selectors', () => ({
     })),
   useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
   useIsLoading: () => false,
+  useActiveSpaces: () => [],
 }));
 
 // Mock useGremlyStore for mutations
@@ -149,6 +150,9 @@ jest.mock('@react-navigation/native', () => {
       setOptions: jest.fn(),
       goBack: mockGoBack,
     }),
+    useRoute: () => ({
+      params: {},
+    }),
   };
 });
 
@@ -215,8 +219,9 @@ async function renderAtDecisionStep() {
   const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
   // Step 0: Intro - tap "Start Sweeping" to go to Decision
+  // Copy rotates: "Time for a quick tidy", "Let's close those tabs", "Let's clear the clutter"
   await waitFor(() => {
-    result.getByText('Time to Sweep your day');
+    result.getByText('Time for a quick tidy');
   });
   fireEvent.press(result.getByText('Start Sweeping'));
 
@@ -237,7 +242,7 @@ describe('SweepFlowScreen - Decision Step', () => {
     it('renders the intro step first', () => {
       const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      expect(result.getByText('Time to Sweep your day')).toBeTruthy();
+      expect(result.getByText('Time for a quick tidy')).toBeTruthy();
       expect(result.getByText('Start Sweeping')).toBeTruthy();
     });
 
@@ -250,7 +255,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       // Should now be on decision step (shows loading or empty state)
       await waitFor(() => {
         expect(
-          result.queryByText('Time to Sweep your day') ||
+          result.queryByText('Time for a quick tidy') ||
             result.getByText("Nothing to Sweep right now — you're all clear."),
         ).toBeTruthy();
       });
@@ -482,7 +487,7 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText("Nothing to Sweep right now — you're all clear.");
       });
 
-      expect(result.queryByText('Time to Sweep your day')).toBeNull();
+      expect(result.queryByText('Time for a quick tidy')).toBeNull();
     });
   });
 

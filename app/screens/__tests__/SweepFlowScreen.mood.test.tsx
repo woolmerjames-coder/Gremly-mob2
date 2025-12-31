@@ -86,6 +86,9 @@ jest.mock('@react-navigation/native', () => {
       setOptions: jest.fn(),
       goBack: jest.fn(),
     }),
+    useRoute: () => ({
+      params: {},
+    }),
   };
 });
 
@@ -100,7 +103,7 @@ async function renderAtMoodStep() {
 
   // Step 0: Intro - tap "Start Sweeping" to go to Decision
   await waitFor(() => {
-    expect(result.getByText('Time to Sweep your day')).toBeTruthy();
+    expect(result.getByText('Time for a quick tidy')).toBeTruthy();
   });
   fireEvent.press(result.getByText('Start Sweeping'));
 
@@ -126,7 +129,7 @@ describe.skip('SweepFlowScreen - Mood Step', () => {
   it('renders the intro step first with Start Sweeping button', () => {
     const { getByText } = render(<SweepFlowScreen />);
 
-    expect(getByText('Time to Sweep your day')).toBeTruthy();
+    expect(getByText('Time for a quick tidy')).toBeTruthy();
     expect(getByText('Start Sweeping')).toBeTruthy();
   });
 

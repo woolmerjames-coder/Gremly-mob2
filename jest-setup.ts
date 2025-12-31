@@ -92,7 +92,9 @@ jest.mock('react-native-reanimated', () => {
     },
     // Animation entering/exiting helpers
     FadeIn: createMockAnimation(),
+    FadeInUp: createMockAnimation(),
     FadeOut: createMockAnimation(),
+    FadeOutDown: createMockAnimation(),
     SlideInLeft: createMockAnimation(),
     SlideInRight: createMockAnimation(),
     SlideInUp: createMockAnimation(),
@@ -139,6 +141,8 @@ jest.mock('react-native-reanimated', () => {
         ease: identity,
         quad: identity,
         cubic: identity,
+        // Bezier curve - returns identity function for tests
+        bezier: jest.fn(() => identity),
         // Transformers mirroring the public API surface
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         in: jest.fn((fn: any) => ensureFn(fn)),

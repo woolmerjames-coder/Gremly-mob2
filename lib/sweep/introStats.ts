@@ -60,6 +60,8 @@ export async function fetchSweepIntroStats(
     dropped: { todos: [], habits: [], notes: [] },
     isFirstSweep: true,
     cutoffTimestamp: new Date().toISOString(),
+    totalSweepCount: 0,
+    sweepStreak: 0,
   };
 
   try {
@@ -211,6 +213,8 @@ export async function fetchSweepIntroStats(
       },
       isFirstSweep,
       cutoffTimestamp,
+      totalSweepCount: 0, // NOTE: This function is deprecated - use useSweepIntroStats hook instead
+      sweepStreak: 0, // NOTE: This function is deprecated - use useSweepIntroStats hook instead
     };
   } catch (err) {
     console.error('[introStats] Unexpected error fetching sweep intro stats:', err);

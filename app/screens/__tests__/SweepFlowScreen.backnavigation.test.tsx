@@ -45,6 +45,7 @@ jest.mock('../../../lib/store/selectors', () => ({
     })),
   useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
   useIsLoading: () => false,
+  useActiveSpaces: () => [],
 }));
 
 // Mock useGremlyStore for mutations
@@ -167,6 +168,9 @@ jest.mock('@react-navigation/native', () => {
       setOptions: jest.fn(),
       goBack: mockGoBack,
     }),
+    useRoute: () => ({
+      params: {},
+    }),
   };
 });
 
@@ -249,7 +253,7 @@ async function renderAtDecisionStep() {
   const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
   await waitFor(() => {
-    result.getByText('Time to Sweep your day');
+    result.getByText('Time for a quick tidy');
   });
   fireEvent.press(result.getByText('Start Sweeping'));
 

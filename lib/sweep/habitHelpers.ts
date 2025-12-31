@@ -74,11 +74,18 @@ export function parseHabitFrequency(
     target = frequencyValue ?? 1;
     normalizedFrequency = target > 1 ? `${target}x/month` : 'monthly';
   }
-  // Handle 'custom' with frequencyValue
-  else if (freq === 'custom' && frequencyValue && frequencyValue > 1) {
-    cadence = 'weekly';
-    target = frequencyValue;
-    normalizedFrequency = `${target}x/week`;
+  // Handle 'custom' - preserve the value (user will configure in overlay)
+  else if (freq === 'custom') {
+    if (frequencyValue && frequencyValue > 1) {
+      cadence = 'weekly';
+      target = frequencyValue;
+      normalizedFrequency = `${target}x/week`;
+    } else {
+      // Preserve 'custom' as-is - user needs to configure this later
+      cadence = 'daily';
+      target = 1;
+      normalizedFrequency = 'custom';
+    }
   }
   // Fallback with frequencyValue
   else if (frequencyValue && frequencyValue > 1) {
@@ -274,6 +281,31 @@ export function isHabitCompletedToday(habitId: string, habitProgress: HabitProgr
  * Generate human-readable frequency label.
  */
 export function getFrequencyLabel(habit: Habit): string {
+  // First, try to parse the frequency string (most accurate source of user intent)
+  if (habit.frequency) {
+    const freq = habit.frequency.toLowerCase();
+
+    // Check for "Xx/week" or "X times a week" pattern
+    const weekMatch = freq.match(/(\d+)\s*(?:x\s*\/\s*|times?\s*(?:a|per)\s*)?week/i);
+    if (weekMatch) {
+      const count = parseInt(weekMatch[1], 10);
+      return `${count}x/week`;
+    }
+
+    // Check for "Xx/month" or "X times a month" pattern
+    const monthMatch = freq.match(/(\d+)\s*(?:x\s*\/\s*|times?\s*(?:a|per)\s*)?month/i);
+    if (monthMatch) {
+      const count = parseInt(monthMatch[1], 10);
+      return `${count}x/month`;
+    }
+
+    // Check for "daily" or "every day"
+    if (freq === 'daily' || freq.includes('every day') || freq.includes('every night')) {
+      return 'Daily';
+    }
+  }
+
+  // Secondary: use cadence field
   const cadence = normalizeCadence(habit.cadence);
   const target = habit.target_per_period ?? 1;
 
@@ -289,14 +321,6 @@ export function getFrequencyLabel(habit: Habit): string {
   if (cadence === 'monthly') {
     if (target === 1) return 'Monthly';
     return `${target}x/month`;
-  }
-
-  // Fallback to frequency string
-  if (habit.frequency) {
-    const f = habit.frequency.toLowerCase();
-    if (f === 'daily') return 'Daily';
-    if (f === 'weekly') return 'Weekly';
-    return habit.frequency;
   }
 
   return 'Daily';

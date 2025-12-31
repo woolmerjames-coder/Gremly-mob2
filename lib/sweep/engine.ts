@@ -566,18 +566,20 @@ export async function markSweepCompleted(
 
     console.log('[Sweep] Streak calculation:', { lastDate, todayDate, currentStreak, newStreak });
 
-    // 4. Update cortex_preferences with new streak and timestamp
-    const { error: prefError } = await client
-      .from('cortex_preferences')
-      .update({
+    // 4. Upsert cortex_preferences with new streak and timestamp
+    // Using upsert to handle first-time users who don't have a row yet
+    const { error: prefError } = await client.from('cortex_preferences').upsert(
+      {
+        owner_id: ownerId,
         last_sweep_completed_at: now.toISOString(),
         sweep_streak: newStreak,
         sweep_streak_last_date: todayDate,
-      })
-      .eq('owner_id', ownerId);
+      },
+      { onConflict: 'owner_id' },
+    );
 
     if (prefError) {
-      console.error('[Sweep] Failed to update streak:', prefError);
+      console.error('[Sweep] Failed to upsert cortex_preferences:', prefError);
     }
 
     return { streak: newStreak };

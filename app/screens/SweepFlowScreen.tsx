@@ -2463,6 +2463,14 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           });
           console.log('[SweepFlowScreen] Sweep completed, streak:', result.streak);
           setSweepStreak(result.streak);
+
+          // Update Zustand store with new sweep preferences
+          const { setSweepPreferences, totalSweepCount } = useGremlyStore.getState();
+          setSweepPreferences({
+            lastSweepCompletedAt: new Date().toISOString(),
+            sweepStreak: result.streak,
+            totalSweepCount: totalSweepCount + 1,
+          });
         } catch (err) {
           console.error('[SweepFlowScreen] Failed to mark sweep as completed:', err);
         }

@@ -80,8 +80,10 @@ export function computeHabitMetadata(
   habit: HabitForMetadata,
   habitProgress: HabitProgressRow[],
 ): HabitMetadata {
-  // Use centralized cadence normalization
-  const cadence = normalizeCadence(habit.cadence);
+  // ALWAYS infer cadence from frequency string first (most accurate source)
+  // Fall back to habit.cadence only if frequency doesn't indicate weekly/monthly
+  const inferredFromFreq = inferCadenceFromFrequency(habit.frequency);
+  const cadence = inferredFromFreq !== 'daily' ? inferredFromFreq : normalizeCadence(habit.cadence);
 
   // ALWAYS infer target from frequency string first
   // Fall back to habit.target_per_period only if frequency doesn't have a number

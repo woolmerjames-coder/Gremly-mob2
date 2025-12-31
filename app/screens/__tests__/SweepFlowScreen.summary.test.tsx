@@ -92,6 +92,9 @@ jest.mock('@react-navigation/native', () => {
       setOptions: jest.fn(),
       goBack: mockGoBack,
     }),
+    useRoute: () => ({
+      params: {},
+    }),
   };
 });
 
@@ -114,7 +117,7 @@ const mockNavigation = {
 async function navigateToDecisionStep(result: ReturnType<typeof render>) {
   // Step 0: Intro - tap "Start Sweeping" to go to Decision
   await waitFor(() => {
-    result.getByText('Time to Sweep your day');
+    result.getByText('Time for a quick tidy');
   });
   fireEvent.press(result.getByText('Start Sweeping'));
 }
