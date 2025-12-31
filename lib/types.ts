@@ -5,13 +5,27 @@
 
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
+
+/**
+ * NoteSubtype - Database values for note.subtype column
+ * - 'journal': personal reflections, diary entries
+ * - 'idea': captured ideas, brainstorms
+ * - 'catchall': general notes (maps to LogSubtype 'general' in UI)
+ * - 'list': checklist-style notes (legacy, rarely used)
+ * - 'reference': reference materials (legacy, rarely used)
+ */
 export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
+
 export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 export type LegacyCanonicalType = 'note' | 'journal';
-// Log subtypes for Mind Drop classification:
-// - journal: personal reflections, diary entries
-// - idea: captured ideas, brainstorms
-// - general: default for all other logs (reminders, notes, references, etc.)
+
+/**
+ * LogSubtype - UI-facing classification for Mind Drop
+ * Maps to NoteSubtype for database persistence:
+ * - 'journal' → 'journal'
+ * - 'idea' → 'idea'
+ * - 'general' → 'catchall'
+ */
 export type LogSubtype = 'journal' | 'idea' | 'general';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
