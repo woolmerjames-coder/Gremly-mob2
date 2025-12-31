@@ -446,6 +446,7 @@ export const OverlayHost = () => {
           not rely on Modal transparency. */}
       {visible && !shouldSkipRender ? (
         <View
+          key={`overlay-${(effectiveInitialEntity as any)?.id ?? 'create'}-${mode}`}
           pointerEvents="box-none"
           style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 1000 }}
         >
