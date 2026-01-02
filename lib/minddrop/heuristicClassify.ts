@@ -12,6 +12,7 @@
 
 import { MindDropBucket, LogSubtype } from './types';
 import type { HabitSubtype } from '../types';
+import { extractSpacePattern } from './spacePatterns';
 
 /**
  * Context passed to heuristic classifier for additional signals
@@ -37,6 +38,10 @@ export interface HeuristicResult {
   confidence: number;
   /** Debug signals showing which patterns matched */
   signals: string[];
+  /** Extracted space name hint from patterns like "add to Fitness:" or "@Work" */
+  spaceHint: string | null;
+  /** Text with space pattern removed (use for classification) */
+  cleanedText: string;
 }
 
 // =============================================================================
@@ -155,8 +160,17 @@ function detectHabitSubtype(text: string): HabitSubtype {
  * @returns Classification result with bucket, confidence, and debug signals
  */
 export function heuristicClassify(text: string, context: ClassifyContext = {}): HeuristicResult {
-  const lowerText = text.toLowerCase();
+  // Extract space pattern first ("add to Fitness:", "@Work", etc.)
+  const spaceResult = extractSpacePattern(text);
+  const textToClassify = spaceResult.hasSpacePattern ? spaceResult.cleanedText : text;
+
+  const lowerText = textToClassify.toLowerCase();
   const signals: string[] = [];
+
+  // Track space pattern in signals if detected
+  if (spaceResult.hasSpacePattern) {
+    signals.push(`spacePattern:${spaceResult.patternType}`);
+  }
 
   // ==========================================================================
   // EARLY EXIT: Phrasal verbs that are one-time TODO actions
@@ -170,13 +184,15 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.7,
       signals,
+      spaceHint: spaceResult.spaceName,
+      cleanedText: spaceResult.cleanedText,
     };
   }
 
   // ==========================================================================
   // EARLY EXIT: Self-talk/venting detection (LOG/journal)
   // ==========================================================================
-  if (selfTalkVenting.test(lowerText) || selfTalkExclamation.test(text)) {
+  if (selfTalkVenting.test(lowerText) || selfTalkExclamation.test(textToClassify)) {
     signals.push('selfTalkVenting');
     return {
       bucket: 'log',
@@ -184,6 +200,8 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.6,
       signals,
+      spaceHint: spaceResult.spaceName,
+      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -198,6 +216,8 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.5,
       signals,
+      spaceHint: spaceResult.spaceName,
+      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -212,6 +232,8 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.5,
       signals,
+      spaceHint: spaceResult.spaceName,
+      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -227,6 +249,8 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: 'start_habit', // Coping habits are positive behaviors to build
       confidence: 0.7,
       signals,
+      spaceHint: spaceResult.spaceName,
+      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -234,7 +258,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
   // EARLY EXIT: Explicit idea label at start (LOG/idea)
   // "Idea: subscription box for dog owners"
   // ==========================================================================
-  if (ideaLabel.test(text)) {
+  if (ideaLabel.test(textToClassify)) {
     signals.push('ideaLabel');
     return {
       bucket: 'log',
@@ -242,6 +266,8 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.7,
       signals,
+      spaceHint: spaceResult.spaceName,
+      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -256,6 +282,8 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.6,
       signals,
+      spaceHint: spaceResult.spaceName,
+      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -265,13 +293,15 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
   // ==========================================================================
   if (habitMoreLessPattern.test(lowerText)) {
     signals.push('habitMoreLess');
-    const habitSubtype = detectHabitSubtype(text);
+    const habitSubtype = detectHabitSubtype(textToClassify);
     return {
       bucket: 'habit',
       subtypeHint: null,
       habitSubtypeHint: habitSubtype,
       confidence: 0.6,
       signals,
+      spaceHint: spaceResult.spaceName,
+      cleanedText: spaceResult.cleanedText,
     };
   }
   // ==========================================================================
@@ -286,8 +316,8 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     todoScore += 0.3;
     signals.push('todoKeywords');
   }
-  if (imperativeStart.test(text)) {
-    // Use original text for start-of-string match
+  if (imperativeStart.test(textToClassify)) {
+    // Use cleaned text for start-of-string match
     todoScore += 0.3;
     signals.push('imperativeStart');
   }
@@ -331,6 +361,8 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
         habitSubtypeHint: null,
         confidence: 0.5,
         signals,
+        spaceHint: spaceResult.spaceName,
+        cleanedText: spaceResult.cleanedText,
       };
     } else {
       // Behavior change verb but unclear target - slight habit lean
@@ -392,7 +424,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     bucket = 'habit';
     confidence = habitScore;
     subtypeHint = null; // No subtype for habits
-    habitSubtypeHint = detectHabitSubtype(text); // Detect build vs break
+    habitSubtypeHint = detectHabitSubtype(textToClassify); // Detect build vs break
   } else {
     bucket = 'log';
     confidence = logScore;
@@ -405,5 +437,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     habitSubtypeHint,
     confidence,
     signals,
+    spaceHint: spaceResult.spaceName,
+    cleanedText: spaceResult.cleanedText,
   };
 }

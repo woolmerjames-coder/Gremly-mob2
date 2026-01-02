@@ -2315,6 +2315,7 @@ export const useGremlyStore = create<GremlyState>()(
         cadence?: string | null;
         target_per_period?: number | null;
         confirmationMessage?: string | null;
+        space_id?: string | null;
       }) => {
         const {
           entityId,
@@ -2328,6 +2329,7 @@ export const useGremlyStore = create<GremlyState>()(
           cadence,
           target_per_period,
           confirmationMessage,
+          space_id,
         } = payload;
 
         // Immediately apply known fields from event payload for responsive UI
@@ -2347,6 +2349,7 @@ export const useGremlyStore = create<GremlyState>()(
                 ...(timeEstimate !== undefined && { time_estimate_minutes: timeEstimate }),
                 ...(time_window !== undefined && { time_window }),
                 ...(dueDate !== undefined && { due_date: dueDate }),
+                ...(space_id !== undefined && { space_id }),
               };
             }),
           });
@@ -2364,6 +2367,7 @@ export const useGremlyStore = create<GremlyState>()(
                 ...(frequency !== undefined && { frequency }),
                 ...(cadence !== undefined && { cadence }),
                 ...(target_per_period !== undefined && { target_per_period }),
+                ...(space_id !== undefined && { space_id }),
               };
             }),
           });
@@ -2375,6 +2379,7 @@ export const useGremlyStore = create<GremlyState>()(
                 ...n,
                 ...(smartTitle !== undefined && { title: smartTitle }),
                 ...(tags !== undefined && { tags }),
+                ...(space_id !== undefined && { space_id }),
               };
             }),
           });
