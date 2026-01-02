@@ -34,6 +34,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import {
   X as CloseIcon,
+  Plus,
   Calendar,
   Pencil,
   RotateCw,
@@ -90,7 +91,6 @@ import {
   filterMindDropTodoTags,
 } from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
-import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
 import { getTodayISO } from '../../app/utils/recurrence';
 import { TagsRow, type TagsRowTag } from './fields/TagsRow';
@@ -129,6 +129,20 @@ import {
 } from '../../lib/lists';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
+
+// Mood options matching Sweep
+const MOOD_OPTIONS = [
+  'great',
+  'good',
+  'okay',
+  'low',
+  'tired',
+  'anxious',
+  'grateful',
+  'scattered',
+  'hopeful',
+  'rough',
+] as const;
 
 /**
  * Constructs frequency_json from DB columns for the overlay's FrequencyConfig format.
@@ -959,13 +973,6 @@ try {
   console.error('UnifiedOverlayV2 sanity check failed:', e && e.message ? e.message : e);
 }
 
-// Mood options for journal logs (Phase L2)
-const MOOD_OPTIONS = [
-  { value: 'pos' as const, emoji: '😊', label: 'Good' },
-  { value: 'neu' as const, emoji: '😐', label: 'Okay' },
-  { value: 'neg' as const, emoji: '😔', label: 'Low' },
-];
-
 // Helper to format log timestamp (Phase L2)
 function formatLogTimestamp(mode: 'create' | 'edit' | 'view', entity: any | null): string {
   try {
@@ -1225,7 +1232,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showTodoPreview, setShowTodoPreview] = useState(false);
   const [extractedItems, setExtractedItems] = useState<ExtractedListItem[]>([]);
   const [checklistItems, setChecklistItems] = useState<ListItem[] | null>(null);
+  const [userClearedChecklist, setUserClearedChecklist] = useState(false);
+
+  // Reset checklistItems when overlay opens - critical for reopening same entity
+  useEffect(() => {
+    if (!visible) return;
+
+    // Get the freshest has_list value from the entity passed via openEdit
+    const passedEntity = initialEntity as any;
+    const entityData = fullEntity || passedEntity;
+
+    if (entityData?.has_list === true && entityData?.list_items?.length > 0) {
+      setChecklistItems(entityData.list_items);
+    } else {
+      // Explicitly clear - this is the key fix
+      setChecklistItems(null);
+    }
+  }, [visible]); // Only run when visibility changes
+
   const [isFavorite, setIsFavorite] = useState(false);
+  const [moodPickerExpanded, setMoodPickerExpanded] = useState(false);
   const [sourceNote, setSourceNote] = useState<{ id: string; title: string } | null>(null);
   const [isCreatingTodos, setIsCreatingTodos] = useState(false);
 
@@ -1399,7 +1425,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [baseType, mode, initialLogPhotoUris]);
 
   // Mood selector for journal logs (Phase L4)
-  const [mood, setMood] = useState<'happy' | 'neutral' | 'sad'>('neutral');
+  const [mood, setMood] = useState<(typeof MOOD_OPTIONS)[number] | null>(null);
 
   // focus states for accessibility focus rings
   const [bodyFocused, setBodyFocused] = useState(false);
@@ -1492,7 +1518,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setPhotoUri(null);
       setLogPhotos([]);
       setSelectedPhotoIndex(null);
-      setMood('neutral');
+      setMood(null);
+      setMoodPickerExpanded(false);
 
       // Reset refs
       createPrefillAppliedRef.current = false;
@@ -1612,18 +1639,27 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Initialize Make Actionable state from entity
   useEffect(() => {
-    const entity = fullEntity || (initialEntity as any);
+    // Prefer the entity passed directly via openEdit (initialEntity) for has_list check
+    // because the store (fullEntity) may have stale data
+    const passedEntity = initialEntity as any;
+    const entity = fullEntity || passedEntity;
 
     if (entity) {
       // Initialize favorite state
       setIsFavorite(entity.is_favorite ?? false);
 
       // Initialize checklist state if note has list - only on first load
-      // Don't reset if we already have checklist items locally (user just converted)
-      if (entity.has_list && entity.list_items) {
-        setChecklistItems(entity.list_items);
+      // CRITICAL: Check has_list from the passed entity first (freshest source)
+      // The store may have stale list_items even after has_list was set to false
+      const hasListFlag = passedEntity?.has_list ?? entity?.has_list;
+      const listItems = passedEntity?.list_items ?? entity?.list_items;
+
+      if (hasListFlag === true && listItems && Array.isArray(listItems) && listItems.length > 0) {
+        setChecklistItems(listItems);
+      } else if (hasListFlag === false) {
+        // Explicitly clear if has_list is false (user reverted the checklist)
+        setChecklistItems(null);
       }
-      // Note: Don't set to null here - that would reset after user converts to checklist
     }
   }, [fullEntity, initialEntity]);
 
@@ -2028,6 +2064,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const handleTypeSelect = useCallback(
     (next: BaseType) => {
       if (state.baseType === next) return;
+      setMoodPickerExpanded(false); // Collapse mood picker on type change
       const prev = state.baseType;
       pushUndoEntry('type', {
         baseType: state.baseType,
@@ -2188,11 +2225,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [mode, viewModeOpacity, editModeOpacity, reduceMotion]);
 
-  const draftKey = useMemo(
-    () => `overlayV2:draft:${mode}:${baseType}:${initialSpaceId ?? 'none'}`,
-    [mode, baseType, initialSpaceId],
-  );
-
   // load existing draft once
   const currentText =
     baseType === 'log'
@@ -2232,20 +2264,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     state.habit.notes,
     state.habit.title,
   ]);
-
-  useEffect(() => {
-    let mounted = true;
-    readOverlayV2Draft(draftKey).then((v) => {
-      if (mounted && v && !currentText) dispatch({ type: 'SET_TEXT', text: v });
-    });
-    return () => {
-      mounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftKey]);
-
-  // autosave on change
-  useOverlayV2Draft(draftKey, currentText);
 
   function pushUndoEntry(kind: 'type' | 'tag' | 'commitment', prev: Partial<any>) {
     try {
@@ -3263,7 +3281,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     spaceId: string | null,
     existingEntity?: any,
     photoUri?: string | null, // Phase L3: Photo support
-    mood?: 'happy' | 'neutral' | 'sad', // Phase L4: Mood for journals
+    mood?: (typeof MOOD_OPTIONS)[number] | null, // Phase L4: Mood for journals
     effectiveLogSubtype?: 'journal' | 'idea' | 'general' | 'list', // Phase L8: Manual log subtype
   ) {
     const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
@@ -3618,6 +3636,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (__DEV__ && s.spaceId === null) {
         console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
       }
+      console.log('[DEBUG-CHECKLIST] Mind Drop save payload:', {
+        isChecklistMode,
+        checklistItems,
+        stateIsChecklistMode: s.isChecklistMode,
+        entityHasList: existingEntity?.has_list,
+      });
       return {
         type: 'note' as const,
         ...canonical, // Spread canonical fields (title, body, tags, tags_meta, canonicalType, labels)
@@ -3629,6 +3653,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ...fmtPatch,
         ...datePatch,
         ...photoPatch,
+        // Checklist persistence - use isChecklistMode as the source of truth
+        has_list: isChecklistMode,
+        list_items: checklistItems,
       };
     }
 
@@ -3694,6 +3721,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
         : viewsWithPrefillFlag;
 
+    console.log('[DEBUG-CHECKLIST] Base note save payload:', {
+      isChecklistMode,
+      checklistItems,
+      stateIsChecklistMode: s.isChecklistMode,
+      entityHasList: existingEntity?.has_list,
+    });
     return {
       ...base,
       views: viewsWithPrivate2, // Override with views containing private_journal
@@ -3701,6 +3734,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       ...fmtPatch,
       ...datePatch,
       ...photoPatch,
+      // Checklist persistence - use isChecklistMode as the source of truth
+      has_list: isChecklistMode,
+      list_items: checklistItems,
     };
   }
 
@@ -3897,9 +3933,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const savedType = (result as any)?.type ?? baseType;
       const savedId = result?.id;
 
-      // Clear saving state and draft
+      // Clear saving state
       setIsSaving(false);
-      void clearOverlayV2Draft(draftKey);
+      setUserClearedChecklist(false);
 
       // Notify parent and close
       try {
@@ -4198,7 +4234,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     initialEntity,
     fullEntity,
     repo,
-    draftKey,
     onClose,
     isOffline,
     reduceMotion,
@@ -4209,9 +4244,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   ]);
 
   const handleCancel = useCallback(async () => {
-    await clearOverlayV2Draft(draftKey);
     onClose?.();
-  }, [draftKey, onClose]);
+  }, [onClose]);
 
   // ============================================================================
   // VIEW MODE CONTENT RENDERER
@@ -4554,8 +4588,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             >
               Mood:
             </Text>
-            <Text style={{ fontSize: 20 }}>
-              {mood === 'happy' ? '😊' : mood === 'neutral' ? '😐' : '😔'}
+            <Text style={{ fontSize: 14, color: colorMode === 'dark' ? '#fff' : '#2E5540' }}>
+              {mood ? mood.charAt(0).toUpperCase() + mood.slice(1) : 'None'}
             </Text>
           </View>
         )}
@@ -4895,6 +4929,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       {!isViewMode && (
                         <ScrollView
                           keyboardShouldPersistTaps="handled"
+                          onScrollBeginDrag={() => setMoodPickerExpanded(false)}
                           contentContainerStyle={{
                             paddingHorizontal: 16,
                             paddingBottom: 8,
@@ -4980,9 +5015,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   effectiveLogSubtype === 'journal' ? new Date() : undefined
                                 }
                                 isChecklistMode={isChecklistMode}
-                                onToggleChecklistMode={() =>
-                                  dispatch({ type: 'TOGGLE_CHECKLIST_MODE' })
-                                }
+                                onToggleChecklistMode={() => {
+                                  console.log('[DEBUG-CHECKLIST] Before toggle:', {
+                                    stateIsChecklistMode: state.isChecklistMode,
+                                    checklistItems,
+                                  });
+                                  const newMode = !state.isChecklistMode;
+                                  dispatch({ type: 'TOGGLE_CHECKLIST_MODE' });
+                                  console.log(
+                                    '[DEBUG-CHECKLIST] After toggle dispatch, newMode:',
+                                    newMode,
+                                  );
+                                  if (!newMode && checklistItems && checklistItems.length > 0) {
+                                    console.log('[DEBUG-CHECKLIST] Clearing checklist items');
+                                    setUserClearedChecklist(true);
+                                    setChecklistItems(null);
+                                  }
+                                }}
                               />
                             ) : isPreviewMode ? (
                               /* Preview mode: Formatted read-only content */
@@ -5064,7 +5113,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   editable={!isViewMode}
                                   pointerEvents={isViewMode ? 'none' : 'auto'}
                                   accessibilityLabel="Overlay content input"
-                                  onFocus={() => setBodyFocused(true)}
+                                  onFocus={() => {
+                                    setBodyFocused(true);
+                                    setMoodPickerExpanded(false);
+                                  }}
                                   onBlur={() => setBodyFocused(false)}
                                   placeholder="Add notes..."
                                   placeholderTextColor={lightTokens.colors.subtle}
@@ -5254,47 +5306,132 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     )}
                                   </View>
                                 ) : null}
-                                <View style={styles.moodRow}>
-                                  <Pressable
-                                    onPress={() => setMood('happy')}
-                                    hitSlop={8}
-                                    style={[
-                                      styles.moodButton,
-                                      mood === 'happy' && styles.moodButtonActive,
-                                    ]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Set mood to happy"
-                                    disabled={isViewMode}
-                                  >
-                                    <Text style={{ fontSize: 20 }}>😊</Text>
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => setMood('neutral')}
-                                    hitSlop={8}
-                                    style={[
-                                      styles.moodButton,
-                                      mood === 'neutral' && styles.moodButtonActive,
-                                    ]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Set mood to neutral"
-                                    disabled={isViewMode}
-                                  >
-                                    <Text style={{ fontSize: 20 }}>😐</Text>
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => setMood('sad')}
-                                    hitSlop={8}
-                                    style={[
-                                      styles.moodButton,
-                                      mood === 'sad' && styles.moodButtonActive,
-                                    ]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Set mood to sad"
-                                    disabled={isViewMode}
-                                  >
-                                    <Text style={{ fontSize: 20 }}>😔</Text>
-                                  </Pressable>
-                                </View>
+                                {/* Mood picker - collapsed/expanded states */}
+                                {!moodPickerExpanded ? (
+                                  // Collapsed state
+                                  mood ? (
+                                    // Mood is set - show as chip with clear button
+                                    <Pressable
+                                      onPress={() => !isViewMode && setMoodPickerExpanded(true)}
+                                      style={[
+                                        styles.moodChip,
+                                        {
+                                          backgroundColor:
+                                            colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.1)'
+                                              : '#E8F0EB',
+                                        },
+                                      ]}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={`Mood: ${mood}. Tap to change`}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.moodChipText,
+                                          { color: colorMode === 'dark' ? '#fff' : '#2E5540' },
+                                        ]}
+                                      >
+                                        {mood.charAt(0).toUpperCase() + mood.slice(1)}
+                                      </Text>
+                                      {!isViewMode && (
+                                        <Pressable
+                                          onPress={(e) => {
+                                            e.stopPropagation();
+                                            setMood(null);
+                                            setMoodPickerExpanded(false);
+                                          }}
+                                          hitSlop={8}
+                                          accessibilityLabel="Clear mood"
+                                        >
+                                          <CloseIcon
+                                            size={14}
+                                            color={
+                                              colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.6)'
+                                                : '#666'
+                                            }
+                                          />
+                                        </Pressable>
+                                      )}
+                                    </Pressable>
+                                  ) : (
+                                    // No mood set - show "+ Mood" button
+                                    !isViewMode && (
+                                      <Pressable
+                                        onPress={() => setMoodPickerExpanded(true)}
+                                        style={[
+                                          styles.moodChip,
+                                          {
+                                            backgroundColor:
+                                              colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.05)'
+                                                : '#F5F5F5',
+                                          },
+                                        ]}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Add mood"
+                                      >
+                                        <Plus
+                                          size={14}
+                                          color={
+                                            colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#888'
+                                          }
+                                        />
+                                        <Text
+                                          style={[
+                                            styles.moodChipText,
+                                            {
+                                              color:
+                                                colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.5)'
+                                                  : '#888',
+                                            },
+                                          ]}
+                                        >
+                                          Mood
+                                        </Text>
+                                      </Pressable>
+                                    )
+                                  )
+                                ) : (
+                                  // Expanded state - show all mood options
+                                  <View style={styles.moodPickerExpanded}>
+                                    {MOOD_OPTIONS.map((moodOption) => (
+                                      <Pressable
+                                        key={moodOption}
+                                        onPress={() => {
+                                          setMood(moodOption as any);
+                                          setMoodPickerExpanded(false);
+                                        }}
+                                        style={[
+                                          styles.moodOptionChip,
+                                          mood === moodOption && styles.moodOptionChipActive,
+                                          {
+                                            backgroundColor:
+                                              mood === moodOption
+                                                ? colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.2)'
+                                                  : '#D4E8DA'
+                                                : colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.08)'
+                                                  : '#F0F4F2',
+                                          },
+                                        ]}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Set mood to ${moodOption}`}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.moodOptionText,
+                                            { color: colorMode === 'dark' ? '#fff' : '#2E5540' },
+                                          ]}
+                                        >
+                                          {moodOption.charAt(0).toUpperCase() + moodOption.slice(1)}
+                                        </Text>
+                                      </Pressable>
+                                    ))}
+                                  </View>
+                                )}
                               </View>
                             </Box>
                           ) : null}
@@ -5310,6 +5447,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       <Pressable
                                         style={styles.dueDatePill}
                                         onPress={() => {
+                                          setMoodPickerExpanded(false); // Collapse mood picker
                                           // Pre-fill date picker with current due_day if set
                                           if (state.todo.due_day) {
                                             const parsed = getDateService().fromDateString(
@@ -8607,10 +8745,12 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     spaceId: (entity as any)?.space_id ?? null,
     // Reminder support (for journals and todos)
     reminderAt: reminders?.[0]?.when ?? null, // Map first reminder to reminderAt for backwards compat
-    // Auto-enable checklist mode for comma-separated lists OR existing checklist markup
+    // Checklist mode: respect explicit has_list value from database, only auto-detect if not set
     isChecklistMode:
       baseType === 'log' &&
-      (looksLikeSimpleCommaList(logBody) || looksLikeChecklistMarkup(logBody)),
+      (entity?.has_list === true || // User explicitly saved as list
+        (entity?.has_list == null && // Not explicitly set yet - auto-detect
+          (looksLikeSimpleCommaList(logBody) || looksLikeChecklistMarkup(logBody)))),
   };
 
   return payload;
@@ -8993,6 +9133,38 @@ const styles = StyleSheet.create({
   },
   moodButtonActive: {
     backgroundColor: '#CDE8D0', // deeper sage when selected
+  },
+  // New mood picker styles
+  moodChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  moodChipText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+  },
+  moodPickerExpanded: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  moodOptionChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  moodOptionChipActive: {
+    // Active state handled inline
+  },
+  moodOptionText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
   },
   // Legacy mood pill styles (Phase L2, deprecated in L4)
   moodPill: {
