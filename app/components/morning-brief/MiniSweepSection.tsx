@@ -9,13 +9,34 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { BRAND } from '../../../design/brand';
 import type { Todo } from '../../../lib/types';
+import { MiniSweepRow } from './MiniSweepRow';
 
 // Decision types for mini-sweep
 type SweepAction = 'today' | 'done' | 'later';
 
+// Color definitions for button states
+const BUTTON_COLORS = {
+  today: {
+    default: { bg: '#E8F0EB', text: '#2E5540', border: '#2E5540' },
+    selected: { bg: '#BFD8C0', text: '#2E5540', border: 'transparent' },
+  },
+  done: {
+    default: { bg: '#F0F0F0', text: '#666666', border: '#9CA3AF' },
+    selected: { bg: '#9CA3AF', text: '#FFFFFF', border: 'transparent' },
+  },
+  later: {
+    default: { bg: '#FEF3E2', text: '#B45309', border: '#B45309' },
+    selected: { bg: '#9CA6E0', text: '#FFFFFF', border: 'transparent' },
+  },
+};
+
 interface MiniSweepSectionProps {
-  /** Section title (e.g., "Rolled Over (4)") */
+  /** Section title ("Rolled Over" or "Unscheduled") */
   title: string;
+  /** Section description */
+  description: string;
+  /** Count of items in section */
+  count: number;
   /** List of todos to display */
   todos: Todo[];
   /** Map of staged changes: todoId -> action */
@@ -27,109 +48,45 @@ interface MiniSweepSectionProps {
 }
 
 /**
- * MiniSweepRow - Individual todo row with action buttons
+ * BulkActionButton - Small pill button for bulk actions
  */
-interface MiniSweepRowProps {
-  todo: Todo;
-  stagedAction: SweepAction | undefined;
-  onAction: (action: SweepAction) => void;
+interface BulkActionButtonProps {
+  action: SweepAction;
+  onPress: () => void;
+  testID?: string;
 }
 
-function MiniSweepRow({ todo, stagedAction, onAction }: MiniSweepRowProps) {
+function BulkActionButton({ action, onPress, testID }: BulkActionButtonProps) {
+  const colors = BUTTON_COLORS[action].default;
+  const label = action === 'today' ? 'All Today' : action === 'done' ? 'All Done' : 'All Later';
+
   return (
-    <View style={rowStyles.container} testID={`mini-sweep-row-${todo.id}`}>
-      <Text style={rowStyles.name} numberOfLines={2}>
-        {todo.name}
-      </Text>
-      <View style={rowStyles.actions}>
-        <Pressable
-          style={[
-            rowStyles.actionButton,
-            stagedAction === 'today' && rowStyles.actionButtonActive,
-            stagedAction === 'today' && { backgroundColor: BRAND.colors.sageMist },
-          ]}
-          onPress={() => onAction('today')}
-          testID={`mini-sweep-today-${todo.id}`}
-        >
-          <Text
-            style={[rowStyles.actionText, stagedAction === 'today' && rowStyles.actionTextActive]}
-          >
-            Today
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[
-            rowStyles.actionButton,
-            stagedAction === 'done' && rowStyles.actionButtonActive,
-            stagedAction === 'done' && { backgroundColor: BRAND.colors.mossGreen },
-          ]}
-          onPress={() => onAction('done')}
-          testID={`mini-sweep-done-${todo.id}`}
-        >
-          <Text
-            style={[rowStyles.actionText, stagedAction === 'done' && rowStyles.actionTextActive]}
-          >
-            Done
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[
-            rowStyles.actionButton,
-            stagedAction === 'later' && rowStyles.actionButtonActive,
-            stagedAction === 'later' && { backgroundColor: BRAND.colors.periwinkleSmoke },
-          ]}
-          onPress={() => onAction('later')}
-          testID={`mini-sweep-later-${todo.id}`}
-        >
-          <Text
-            style={[rowStyles.actionText, stagedAction === 'later' && rowStyles.actionTextActive]}
-          >
-            Later
-          </Text>
-        </Pressable>
-      </View>
-    </View>
+    <Pressable
+      style={[
+        bulkStyles.button,
+        {
+          backgroundColor: colors.bg,
+          borderColor: colors.border,
+        },
+      ]}
+      onPress={onPress}
+      testID={testID}
+    >
+      <Text style={[bulkStyles.buttonText, { color: colors.text }]}>{label}</Text>
+    </Pressable>
   );
 }
 
-const rowStyles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.colors.borderSubtle,
-  },
-  name: {
-    flex: 1,
-    fontSize: 14,
-    color: BRAND.colors.charcoalInk,
-    marginRight: 12,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  actionButton: {
-    paddingVertical: 6,
+const bulkStyles = StyleSheet.create({
+  button: {
+    paddingVertical: 4,
     paddingHorizontal: 10,
-    borderRadius: BRAND.radius.sm,
-    backgroundColor: BRAND.colors.linenCream,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
   },
-  actionButtonActive: {
-    borderColor: 'transparent',
-  },
-  actionText: {
-    fontSize: 12,
+  buttonText: {
+    fontSize: 11,
     fontWeight: '500',
-    color: BRAND.colors.inkSubtle,
-  },
-  actionTextActive: {
-    color: BRAND.colors.charcoalInk,
-    fontWeight: '600',
   },
 });
 
@@ -138,6 +95,8 @@ const rowStyles = StyleSheet.create({
  */
 export function MiniSweepSection({
   title,
+  description,
+  count,
   todos,
   stagedChanges,
   onStageChange,
@@ -145,59 +104,48 @@ export function MiniSweepSection({
 }: MiniSweepSectionProps) {
   if (todos.length === 0) return null;
 
-  // Calculate max height for ~3-4 visible rows (each row ~52px)
-  const maxHeight = Math.min(todos.length, 4) * 52;
-
   return (
     <View
       style={styles.container}
       testID={`mini-sweep-section-${title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
     >
       {/* Section Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>{title}</Text>
+      <Text style={styles.headerTitle}>
+        {title} ({count})
+      </Text>
+
+      {/* Description */}
+      <Text style={styles.description}>{description}</Text>
+
+      {/* Bulk Action Buttons */}
+      <View style={styles.bulkActions}>
+        <BulkActionButton
+          action="today"
+          onPress={() => onBulkAction('today')}
+          testID={`mini-sweep-bulk-today-${title.toLowerCase()}`}
+        />
+        <BulkActionButton
+          action="done"
+          onPress={() => onBulkAction('done')}
+          testID={`mini-sweep-bulk-done-${title.toLowerCase()}`}
+        />
+        <BulkActionButton
+          action="later"
+          onPress={() => onBulkAction('later')}
+          testID={`mini-sweep-bulk-later-${title.toLowerCase()}`}
+        />
       </View>
 
-      {/* Scrollable Todo List */}
-      <ScrollView
-        style={[styles.listContainer, { maxHeight }]}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={true}
-        nestedScrollEnabled={true}
-      >
-        {todos.map((todo) => (
+      {/* Item List */}
+      <View style={styles.itemList}>
+        {todos.map((todo, index) => (
           <MiniSweepRow
             key={todo.id}
             todo={todo}
             stagedAction={stagedChanges.get(todo.id)}
-            onAction={(action) => onStageChange(todo.id, action)}
+            onStageChange={(action) => onStageChange(todo.id, action)}
           />
         ))}
-      </ScrollView>
-
-      {/* Bulk Action Buttons */}
-      <View style={styles.bulkActions}>
-        <Pressable
-          style={[styles.bulkButton, { backgroundColor: BRAND.colors.sageMist }]}
-          onPress={() => onBulkAction('today')}
-          testID="mini-sweep-bulk-today"
-        >
-          <Text style={styles.bulkButtonText}>All to Today</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.bulkButton, { backgroundColor: BRAND.colors.mossGreen }]}
-          onPress={() => onBulkAction('done')}
-          testID="mini-sweep-bulk-done"
-        >
-          <Text style={styles.bulkButtonText}>All Done</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.bulkButton, { backgroundColor: BRAND.colors.periwinkleSmoke }]}
-          onPress={() => onBulkAction('later')}
-          testID="mini-sweep-bulk-later"
-        >
-          <Text style={styles.bulkButtonText}>All Later</Text>
-        </Pressable>
       </View>
     </View>
   );
@@ -205,47 +153,35 @@ export function MiniSweepSection({
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 16,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    overflow: 'hidden',
-    ...BRAND.elevation.one,
-  },
-  header: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.colors.borderSubtle,
+    // Subtle shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   headerTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
+    color: '#0E1116',
   },
-  listContainer: {
-    // maxHeight is set dynamically
-  },
-  listContent: {
-    // Content container styles if needed
+  description: {
+    fontSize: 12,
+    color: '#666666',
+    marginTop: 2,
   },
   bulkActions: {
     flexDirection: 'row',
-    justifyContent: 'center',
     gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-    borderTopColor: BRAND.colors.borderSubtle,
+    marginTop: 8,
+    marginBottom: 12,
   },
-  bulkButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: BRAND.radius.pill,
-  },
-  bulkButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
+  itemList: {
+    // Items handle their own spacing
   },
 });
 
