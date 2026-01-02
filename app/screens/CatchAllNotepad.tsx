@@ -1038,27 +1038,29 @@ const PendingSkeleton: React.FC<{
     return () => clearInterval(interval);
   }, []);
 
-  // Shimmer animation for draft title - gentle pulse between 0.5 and 0.85 opacity
-  const titleOpacity = useSharedValue(0.6);
+  // Vanilla Animated shimmer (crash-safe) - gentle pulse between 0.5 and 0.85 opacity
+  const titleOpacity = React.useMemo(() => new Animated.Value(0.6), []);
 
   React.useEffect(() => {
-    titleOpacity.value = withRepeat(
-      withSequence(
-        withTiming(0.85, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
-        withTiming(0.5, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
-      ),
-      -1,
-      true,
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(titleOpacity, {
+          toValue: 0.85,
+          duration: 1200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(titleOpacity, {
+          toValue: 0.5,
+          duration: 1200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
     );
-
-    return () => {
-      cancelAnimation(titleOpacity);
-    };
-  }, []);
-
-  const titleAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: titleOpacity.value,
-  }));
+    animation.start();
+    return () => animation.stop();
+  }, [titleOpacity]);
 
   // Show raw text as title immediately (truncated to 50 chars)
   const displayTitle = truncateText(item.text || item.title || '', 50);
@@ -1083,12 +1085,12 @@ const PendingSkeleton: React.FC<{
     >
       {/* Row 1: Title (raw text with shimmer) + Kind badge */}
       <View style={styles.recentTopRow}>
-        <Reanimated.Text
+        <Animated.Text
           numberOfLines={1}
-          style={[styles.recentTitle, { fontStyle: 'italic' }, titleAnimatedStyle]}
+          style={[styles.recentTitle, { fontStyle: 'italic', opacity: titleOpacity }]}
         >
           {displayTitle || '—'}
-        </Reanimated.Text>
+        </Animated.Text>
         <View style={styles.recentTopRight}>
           <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
             {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Log'}
@@ -1142,7 +1144,7 @@ const EnrichingSkeleton: React.FC<{
   c: any;
   index?: number; // For stagger delay
 }> = ({ item, effectiveKind, badgeStyleKey, styles, c, index = 0 }) => {
-  // Breathing border animation
+  // Breathing border animation (vanilla Animated)
   const borderOpacity = React.useMemo(() => new Animated.Value(0.15), []);
 
   React.useEffect(() => {
@@ -1177,48 +1179,49 @@ const EnrichingSkeleton: React.FC<{
   const isAITitleReady =
     aiTitle && aiTitle !== rawText && !aiTitle.startsWith(rawText.substring(0, 20));
 
-  // Shimmer animation for draft title - pulse between 0.5 and 0.85
-  const titleOpacity = useSharedValue(isAITitleReady ? 1 : 0.6);
+  // Vanilla Animated shimmer (crash-safe) - pulse between 0.5 and 0.85
+  const titleOpacity = React.useMemo(() => new Animated.Value(isAITitleReady ? 1 : 0.6), []);
+  const animationRef = React.useRef<Animated.CompositeAnimation | null>(null);
 
   React.useEffect(() => {
     if (isAITitleReady) {
       // Crossfade to full opacity when AI title arrives
-      cancelAnimation(titleOpacity);
-      titleOpacity.value = withTiming(1, { duration: 300 });
+      animationRef.current?.stop();
+      Animated.timing(titleOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
     } else {
       // Gentle shimmer while waiting
-      titleOpacity.value = withRepeat(
-        withSequence(
-          withTiming(0.85, {
+      animationRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(titleOpacity, {
+            toValue: 0.85,
             duration: 1200,
-            easing: ReanimatedEasing.inOut(ReanimatedEasing.ease),
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
           }),
-          withTiming(0.5, {
+          Animated.timing(titleOpacity, {
+            toValue: 0.5,
             duration: 1200,
-            easing: ReanimatedEasing.inOut(ReanimatedEasing.ease),
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
           }),
-        ),
-        -1,
-        true,
+        ]),
       );
+      animationRef.current.start();
     }
 
-    return () => {
-      cancelAnimation(titleOpacity);
-    };
-  }, [isAITitleReady]);
-
-  const titleAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: titleOpacity.value,
-  }));
+    return () => animationRef.current?.stop();
+  }, [isAITitleReady, titleOpacity]);
 
   // Show AI title if ready, otherwise raw text (truncated)
   const displayTitle = truncateText(isAITitleReady ? aiTitle : rawText, 50);
 
   return (
-    <Reanimated.View
+    <Animated.View
       testID="minddrop-enriching-skeleton"
-      exiting={FadeOut.duration(100)}
       style={[
         styles.recentCard,
         {
@@ -1230,16 +1233,16 @@ const EnrichingSkeleton: React.FC<{
     >
       {/* Row 1: Title (raw or AI) with shimmer/crossfade + Category chip */}
       <View style={styles.recentTopRow}>
-        <Reanimated.Text
+        <Animated.Text
           numberOfLines={1}
           style={[
             styles.recentTitle,
             !isAITitleReady && { fontStyle: 'italic' },
-            titleAnimatedStyle,
+            { opacity: titleOpacity },
           ]}
         >
           {displayTitle || '—'}
-        </Reanimated.Text>
+        </Animated.Text>
         <View style={styles.recentTopRight}>
           <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
             {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Log'}
@@ -1257,7 +1260,7 @@ const EnrichingSkeleton: React.FC<{
         <ShimmerBar width={60} height={12} />
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
-    </Reanimated.View>
+    </Animated.View>
   );
 };
 
