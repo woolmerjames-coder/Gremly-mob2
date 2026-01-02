@@ -292,6 +292,7 @@ export function useMindDropSubmit(): {
             name: effectiveText,
             title: effectiveText, // DB requires title column
             frequency: 'daily', // Default frequency for habits
+            subtype: phase1Result.habitSubtype ?? 'start_habit', // build vs break habit
             space_id: context.spaceId ?? null,
             drop_id: dropId,
             origin: context.source === 'space' ? 'space_chat' : 'catchall',
