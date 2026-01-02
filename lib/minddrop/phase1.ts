@@ -2,10 +2,13 @@
  * Phase 1 Classification
  *
  * Runs heuristic classification immediately, then confirms/corrects with AI.
- * Uses a 2-second timeout to ensure fast UX.
+ * Uses a 4-second timeout to ensure fast UX.
+ *
+ * v2.1 (2026-01-02): Added habitSubtype for build/break habit detection
  */
 
 import type { MindDropBucket, LogSubtype } from './types';
+import type { HabitSubtype } from '../types';
 import { heuristicClassify } from './heuristicClassify';
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { env, getEnv } from '../env';
@@ -15,6 +18,8 @@ import { env, getEnv } from '../env';
 export interface Phase1Result {
   bucket: MindDropBucket;
   subtype: LogSubtype | null;
+  /** Habit subtype: 'start_habit' (build) or 'break_habit' (break) */
+  habitSubtype: HabitSubtype | null;
   confidence: number;
   source: 'heuristic' | 'api' | 'heuristic-confirmed' | 'heuristic-fallback';
 }
@@ -49,7 +54,7 @@ const readSupabaseAnonKey = (): string => {
  *
  * @param text - The text to classify
  * @param context - Additional context (hasAttachments, spaceId)
- * @returns Phase1Result with bucket, subtype, confidence, and source
+ * @returns Phase1Result with bucket, subtype, habitSubtype, confidence, and source
  */
 export async function runPhase1(
   text: string,
@@ -64,6 +69,7 @@ export async function runPhase1(
     console.log('[Phase1] Heuristic result', {
       bucket: heuristic.bucket,
       confidence: heuristic.confidence,
+      habitSubtypeHint: heuristic.habitSubtypeHint,
       hasAttachments,
     });
   }
@@ -77,6 +83,8 @@ export async function runPhase1(
     return {
       bucket: heuristic.bucket,
       subtype: heuristic.bucket === 'log' ? (heuristic.subtypeHint ?? 'general') : null,
+      habitSubtype:
+        heuristic.bucket === 'habit' ? (heuristic.habitSubtypeHint ?? 'start_habit') : null,
       confidence: heuristic.confidence,
       source: 'heuristic',
     };
@@ -104,6 +112,7 @@ export async function runPhase1(
             bucket: heuristic.bucket,
             confidence: heuristic.confidence,
             subtypeHint: heuristic.subtypeHint,
+            habitSubtypeHint: heuristic.habitSubtypeHint,
           },
         }),
       });
@@ -135,6 +144,8 @@ export async function runPhase1(
     return {
       bucket: heuristic.bucket,
       subtype: heuristic.bucket === 'log' ? (heuristic.subtypeHint ?? 'general') : null,
+      habitSubtype:
+        heuristic.bucket === 'habit' ? (heuristic.habitSubtypeHint ?? 'start_habit') : null,
       confidence: heuristic.confidence,
       source: 'heuristic-fallback',
     };
@@ -143,6 +154,7 @@ export async function runPhase1(
   // 5. API succeeded - compare buckets
   const apiBucket = apiResult.bucket as MindDropBucket;
   const apiSubtype = apiResult.subtype as LogSubtype | null;
+  const apiHabitSubtype = apiResult.habitSubtype as HabitSubtype | null;
   const apiConfidence = typeof apiResult.confidence === 'number' ? apiResult.confidence : 0.7;
 
   const sameAsBucket = heuristic.bucket === apiBucket;
@@ -151,8 +163,10 @@ export async function runPhase1(
     console.log('[Phase1] API result', {
       apiBucket,
       apiSubtype,
+      apiHabitSubtype,
       apiConfidence,
       heuristicBucket: heuristic.bucket,
+      heuristicHabitSubtype: heuristic.habitSubtypeHint,
       agreed: sameAsBucket,
       latency_ms: apiResult.latency_ms,
     });
@@ -161,11 +175,19 @@ export async function runPhase1(
   // 6. Determine final result
   const finalBucket = apiBucket;
   const finalSubtype = finalBucket === 'log' ? (apiSubtype ?? 'general') : null;
+
+  // For habits: use API habitSubtype if provided, fall back to heuristic, then default
+  let finalHabitSubtype: HabitSubtype | null = null;
+  if (finalBucket === 'habit') {
+    finalHabitSubtype = apiHabitSubtype ?? heuristic.habitSubtypeHint ?? 'start_habit';
+  }
+
   const source = sameAsBucket ? 'heuristic-confirmed' : 'api';
 
   console.log('[Phase1] Final classification', {
     bucket: finalBucket,
     subtype: finalSubtype,
+    habitSubtype: finalHabitSubtype,
     confidence: apiConfidence,
     source,
   });
@@ -173,6 +195,7 @@ export async function runPhase1(
   return {
     bucket: finalBucket,
     subtype: finalSubtype,
+    habitSubtype: finalHabitSubtype,
     confidence: apiConfidence,
     source,
   };

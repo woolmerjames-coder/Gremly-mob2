@@ -95,4 +95,57 @@ describe('heuristicClassify', () => {
     // Phase 1 API will handle the harder cases
     expect(passRate).toBeGreaterThan(60);
   });
+
+  // ==========================================================================
+  // HABIT SUBTYPE TESTS (build vs break)
+  // ==========================================================================
+  describe('habitSubtypeHint', () => {
+    describe('break_habit detection', () => {
+      it.each([
+        ['Stop smoking', 'break_habit'],
+        ['Quit checking Twitter', 'break_habit'],
+        ['Reduce caffeine intake', 'break_habit'],
+        ['No more eating after 9pm', 'break_habit'],
+        ['Less screen time before bed', 'break_habit'],
+        ['Stop biting my nails', 'break_habit'],
+        ['Avoid sugary snacks', 'break_habit'],
+        ['Cut back on coffee', 'break_habit'],
+        ['Limit social media to 30 min', 'break_habit'],
+      ])('"%s" → %s', (input, expectedSubtype) => {
+        const result = heuristicClassify(input);
+        expect(result.bucket).toBe('habit');
+        expect(result.habitSubtypeHint).toBe(expectedSubtype);
+      });
+    });
+
+    describe('start_habit detection', () => {
+      it.each([
+        ['Drink more water', 'start_habit'],
+        ['Exercise 3x per week', 'start_habit'],
+        ['Meditate every morning', 'start_habit'],
+        ['Work out more', 'start_habit'],
+        ['Read more books', 'start_habit'],
+        ['Take 3 deep breaths when anxious', 'start_habit'],
+        ['Go for a walk when stressed', 'start_habit'],
+        ['Write in my journal when upset', 'start_habit'],
+      ])('"%s" → %s', (input, expectedSubtype) => {
+        const result = heuristicClassify(input);
+        expect(result.bucket).toBe('habit');
+        expect(result.habitSubtypeHint).toBe(expectedSubtype);
+      });
+    });
+
+    describe('non-habit returns null habitSubtypeHint', () => {
+      it.each([
+        ['Buy groceries', 'todo'],
+        ['Call mom', 'todo'],
+        ['I feel grateful today', 'log'],
+        ['What if we added dark mode', 'log'],
+      ])('"%s" → bucket=%s, habitSubtypeHint=null', (input, expectedBucket) => {
+        const result = heuristicClassify(input);
+        expect(result.bucket).toBe(expectedBucket);
+        expect(result.habitSubtypeHint).toBeNull();
+      });
+    });
+  });
 });

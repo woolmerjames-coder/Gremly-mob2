@@ -9,6 +9,7 @@
  */
 
 import { MindDropBucket, LogSubtype } from './types';
+import type { HabitSubtype } from '../types';
 
 /**
  * Context passed to heuristic classifier for additional signals
@@ -28,6 +29,8 @@ export interface HeuristicResult {
   bucket: MindDropBucket;
   /** Predicted subtype hint for logs */
   subtypeHint: LogSubtype | null;
+  /** Predicted habit subtype: 'start_habit' (build) or 'break_habit' (break) */
+  habitSubtypeHint: HabitSubtype | null;
   /** Confidence score (0-1) */
   confidence: number;
   /** Debug signals showing which patterns matched */
@@ -65,7 +68,7 @@ const habitMoreLessPattern =
 
 // Concrete behaviors that can be tracked (used to validate habit detection)
 const concreteTrackableBehaviors =
-  /\b(smoking|smoke|cigarettes?|drinking|alcohol|coffee|caffeine|sugar|snacking|snack|eating|eat|screen time|phone|social media|twitter|instagram|facebook|tiktok|gaming|porn|masturbat|nail.?biting|biting.?nails|exercise|workout|work out|running|run|gym|water|meditat|journal|read|sleep|waking|wake up|nails)\b/i;
+  /\b(smoking|smoke|cigarettes?|drinking|alcohol|coffee|caffeine|sugar(y)?|snack(s|ing)?|eating|eat|screen time|phone|social media|twitter|instagram|facebook|tiktok|gaming|porn|masturbat|nail.?biting|biting.?nails|exercise|workout|work out|running|run|gym|water|meditat|journal|read|sleep|waking|wake up|nails)\b/i;
 
 // Abstract states that CANNOT be tracked (should be LOG, not HABIT)
 const abstractMentalStates =
@@ -123,6 +126,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     return {
       bucket: 'todo',
       subtypeHint: null,
+      habitSubtypeHint: null,
       confidence: 0.7,
       signals,
     };
@@ -136,6 +140,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     return {
       bucket: 'log',
       subtypeHint: 'journal',
+      habitSubtypeHint: null,
       confidence: 0.6,
       signals,
     };
@@ -149,6 +154,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     return {
       bucket: 'log',
       subtypeHint: 'journal',
+      habitSubtypeHint: null,
       confidence: 0.5,
       signals,
     };
@@ -162,6 +168,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     return {
       bucket: 'log',
       subtypeHint: 'journal',
+      habitSubtypeHint: null,
       confidence: 0.5,
       signals,
     };
@@ -176,6 +183,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     return {
       bucket: 'habit',
       subtypeHint: null,
+      habitSubtypeHint: 'start_habit', // Coping habits are positive behaviors to build
       confidence: 0.7,
       signals,
     };
@@ -190,6 +198,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     return {
       bucket: 'log',
       subtypeHint: 'idea',
+      habitSubtypeHint: null,
       confidence: 0.7,
       signals,
     };
@@ -203,6 +212,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     return {
       bucket: 'log',
       subtypeHint: 'idea',
+      habitSubtypeHint: null,
       confidence: 0.6,
       signals,
     };
@@ -217,6 +227,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     return {
       bucket: 'habit',
       subtypeHint: null,
+      habitSubtypeHint: 'start_habit', // "More X" patterns are building habits
       confidence: 0.6,
       signals,
     };
@@ -275,6 +286,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       return {
         bucket: 'log',
         subtypeHint: 'journal',
+        habitSubtypeHint: null,
         confidence: 0.5,
         signals,
       };
@@ -328,6 +340,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
   // ==========================================================================
   let bucket: MindDropBucket;
   let confidence: number;
+  let habitSubtypeHint: HabitSubtype | null = null;
 
   if (todoScore >= 0.3 && todoScore >= habitScore && todoScore >= logScore) {
     bucket = 'todo';
@@ -337,6 +350,8 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     bucket = 'habit';
     confidence = habitScore;
     subtypeHint = null; // No subtype for habits
+    // Determine habit subtype: break_habit if behavior change verb detected, else start_habit
+    habitSubtypeHint = hasBehaviorChangeVerb ? 'break_habit' : 'start_habit';
   } else {
     bucket = 'log';
     confidence = logScore;
@@ -346,6 +361,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
   return {
     bucket,
     subtypeHint,
+    habitSubtypeHint,
     confidence,
     signals,
   };
