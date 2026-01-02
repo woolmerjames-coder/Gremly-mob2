@@ -75,6 +75,8 @@ export type HabitState = {
   end_date?: string | null;
   /** Preferred time of day for scheduling (from AI or user) */
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
+  /** Estimated minutes per session */
+  time_estimate_minutes?: number | null;
 };
 
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
@@ -180,6 +182,7 @@ export const initialV2State: V2State = {
     start_date: null,
     end_date: null,
     time_window: null,
+    time_estimate_minutes: null,
   },
   undoStack: [],
   logSubtypeOverride: null, // Phase L8: Manual log subtype override
@@ -206,6 +209,7 @@ type Action =
   | { type: 'SET_TODO_TIME_ESTIMATE'; minutes: number | null }
   | { type: 'SET_TODO_TIME_WINDOW'; window: 'any' | 'morning' | 'day' | 'evening' | null }
   | { type: 'SET_HABIT_TIME_WINDOW'; window: 'any' | 'morning' | 'day' | 'evening' | null }
+  | { type: 'SET_HABIT_TIME_ESTIMATE'; minutes: number | null }
   | { type: 'TOGGLE_COMMITMENT' }
   | { type: 'SET_COMMITMENT_NOTE'; note: string }
   | { type: 'SET_TAGS'; tags: TagKey[] }
@@ -440,6 +444,8 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, todo: { ...state.todo, time_window: action.window } };
     case 'SET_HABIT_TIME_WINDOW':
       return { ...state, habit: { ...state.habit, time_window: action.window } };
+    case 'SET_HABIT_TIME_ESTIMATE':
+      return { ...state, habit: { ...state.habit, time_estimate_minutes: action.minutes } };
     case 'TOGGLE_COMMITMENT': {
       const turningOn = !state.commitment;
       // If turning on and no prior startedAt, stamp a start time. If turning off, keep history.

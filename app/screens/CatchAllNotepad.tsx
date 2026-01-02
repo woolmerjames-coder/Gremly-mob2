@@ -1735,31 +1735,34 @@ const AnimatedMindDropCard: React.FC<{
               </Text>
             ) : null;
           })()}
-          {/* Time estimate chip for todos - next to deadline */}
-          {effectiveKind === 'todo' && item.time_estimate_minutes && (
-            <Pressable
-              onPress={(e) => {
-                e.stopPropagation();
-                Alert.alert(
-                  '⏱️ Time Estimate',
-                  'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
-                  [{ text: 'Got it', style: 'default' }],
-                );
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <View style={styles.timeEstimateChip}>
-                <Clock size={10} color="#888" strokeWidth={2} />
-                <Text style={styles.timeEstimateText}>
-                  {formatTimeEstimate(item.time_estimate_minutes)}
-                </Text>
-              </View>
-            </Pressable>
-          )}
-          {/* Start date chip for habits */}
+          {/* Start date chip for habits - before time estimate */}
           {effectiveKind === 'habit' && (
             <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
           )}
+          {/* Time estimate chip for todos AND habits - comes LAST */}
+          {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
+            item.time_estimate_minutes && (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  Alert.alert(
+                    '⏱️ Time Estimate',
+                    effectiveKind === 'habit'
+                      ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
+                      : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                    [{ text: 'Got it', style: 'default' }],
+                  );
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <View style={styles.timeEstimateChip}>
+                  <Clock size={10} color="#888" strokeWidth={2} />
+                  <Text style={styles.timeEstimateText}>
+                    {formatTimeEstimate(item.time_estimate_minutes)}
+                  </Text>
+                </View>
+              </Pressable>
+            )}
         </View>
         {/* Right side: photo icon + timestamp */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

@@ -114,6 +114,9 @@ export interface Habit {
 
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
+
+  // Estimated minutes per session
+  time_estimate_minutes?: number | null;
 }
 
 /**

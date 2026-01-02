@@ -1102,6 +1102,12 @@ export class SupabaseRepo implements IRepo {
         updatePayload.time_window = (normalizedPatch as any).time_window ?? null;
       }
 
+      // Time estimate (Phase 2 enrichment) - also applies to habits
+      if ('time_estimate_minutes' in normalizedPatch) {
+        updatePayload.time_estimate_minutes =
+          (normalizedPatch as any).time_estimate_minutes ?? null;
+      }
+
       // Development logging for habit updates
       if (__DEV__) {
         console.log('[HabitEdit] patch', normalizedPatch);

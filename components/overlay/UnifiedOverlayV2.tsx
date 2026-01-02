@@ -3548,6 +3548,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           start_date: s.habit.start_date ?? null,
           end_date: s.habit.end_date ?? null,
           time_window: s.habit.time_window ?? null,
+          time_estimate_minutes: s.habit.time_estimate_minutes ?? null,
           // Commitment fields (only for todos/habits)
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
@@ -3574,6 +3575,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         start_date: s.habit.start_date ?? null,
         end_date: s.habit.end_date ?? null,
         time_window: s.habit.time_window ?? null,
+        time_estimate_minutes: s.habit.time_estimate_minutes ?? null,
         ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
@@ -5858,6 +5860,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     alignItems: 'center',
                                     marginTop: 8,
                                     paddingLeft: 12,
+                                    gap: 8,
                                   }}
                                 >
                                   <Pressable
@@ -5886,6 +5889,46 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             (o) => o.value === state.habit.time_window,
                                           )?.label || state.habit.time_window
                                         : 'Any time'}
+                                    </Text>
+                                  </Pressable>
+
+                                  {/* Time Estimate chip - compact view */}
+                                  <Pressable
+                                    style={styles.habitDatePill}
+                                    onPress={() => setShowTimeEstimateModal(true)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={
+                                      state.habit.time_estimate_minutes
+                                        ? `Time estimate: ${state.habit.time_estimate_minutes} minutes`
+                                        : 'Set time estimate'
+                                    }
+                                  >
+                                    <Clock
+                                      size={14}
+                                      color={
+                                        state.habit.time_estimate_minutes
+                                          ? colorMode === 'dark'
+                                            ? 'rgba(255,255,255,0.7)'
+                                            : '#666666'
+                                          : colorMode === 'dark'
+                                            ? 'rgba(255,255,255,0.5)'
+                                            : '#999999'
+                                      }
+                                    />
+                                    <Text
+                                      style={[
+                                        styles.habitDateText,
+                                        !state.habit.time_estimate_minutes && {
+                                          color:
+                                            colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.5)'
+                                              : '#999999',
+                                        },
+                                      ]}
+                                    >
+                                      {state.habit.time_estimate_minutes
+                                        ? `~${state.habit.time_estimate_minutes}m`
+                                        : 'Time'}
                                     </Text>
                                   </Pressable>
                                 </View>
@@ -6125,7 +6168,44 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         ) : null}
                                       </Pressable>
 
-                                      {/* 3) Delete Habit row (only in edit mode) */}
+                                      {/* 3) Time Estimate row for Habits */}
+                                      <Pressable
+                                        onPress={() => {
+                                          if (!isViewMode) setShowTimeEstimateModal(true);
+                                        }}
+                                        disabled={isViewMode}
+                                        style={({ pressed }) => [
+                                          styles.detailsRow,
+                                          { marginTop: 0 },
+                                          pressed && !isViewMode && styles.detailsRowPressed,
+                                        ]}
+                                      >
+                                        <View style={styles.detailsRowLeft}>
+                                          <View style={styles.detailsRowIcon}>
+                                            <Clock
+                                              size={18}
+                                              color={
+                                                colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.7)'
+                                                  : '#666'
+                                              }
+                                            />
+                                          </View>
+                                          <Text style={styles.detailsRowLabel}>
+                                            Time per session
+                                          </Text>
+                                        </View>
+                                        <Text style={styles.detailsRowValue}>
+                                          {state.habit.time_estimate_minutes
+                                            ? TIME_ESTIMATE_OPTIONS.find(
+                                                (o) =>
+                                                  o.value === state.habit.time_estimate_minutes,
+                                              )?.label || `${state.habit.time_estimate_minutes} min`
+                                            : 'Add'}
+                                        </Text>
+                                      </Pressable>
+
+                                      {/* 4) Delete Habit row (only in edit mode) */}
                                       {mode === 'edit' && (initialEntity as any)?.id ? (
                                         <Pressable
                                           onPress={() => {
@@ -7040,36 +7120,58 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           How long will this take?
                         </Text>
                         <View style={styles.timeEstimateGrid}>
-                          {TIME_ESTIMATE_OPTIONS.map((option) => (
-                            <Pressable
-                              key={option.value}
-                              style={[
-                                styles.timeEstimateOption,
-                                state.todo.time_estimate_minutes === option.value &&
-                                  styles.timeEstimateOptionSelected,
-                              ]}
-                              onPress={() => {
-                                dispatch({ type: 'SET_TODO_TIME_ESTIMATE', minutes: option.value });
-                                setShowTimeEstimateModal(false);
-                              }}
-                            >
-                              <Text
+                          {TIME_ESTIMATE_OPTIONS.map((option) => {
+                            const currentEstimate =
+                              baseType === 'habit'
+                                ? state.habit.time_estimate_minutes
+                                : state.todo.time_estimate_minutes;
+                            return (
+                              <Pressable
+                                key={option.value}
                                 style={[
-                                  styles.timeEstimateOptionText,
-                                  state.todo.time_estimate_minutes === option.value &&
-                                    styles.timeEstimateOptionTextSelected,
+                                  styles.timeEstimateOption,
+                                  currentEstimate === option.value &&
+                                    styles.timeEstimateOptionSelected,
                                 ]}
+                                onPress={() => {
+                                  if (baseType === 'habit') {
+                                    dispatch({
+                                      type: 'SET_HABIT_TIME_ESTIMATE',
+                                      minutes: option.value,
+                                    });
+                                  } else {
+                                    dispatch({
+                                      type: 'SET_TODO_TIME_ESTIMATE',
+                                      minutes: option.value,
+                                    });
+                                  }
+                                  setShowTimeEstimateModal(false);
+                                }}
                               >
-                                {option.label}
-                              </Text>
-                            </Pressable>
-                          ))}
+                                <Text
+                                  style={[
+                                    styles.timeEstimateOptionText,
+                                    currentEstimate === option.value &&
+                                      styles.timeEstimateOptionTextSelected,
+                                  ]}
+                                >
+                                  {option.label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
                         </View>
-                        {state.todo.time_estimate_minutes && (
+                        {(baseType === 'habit'
+                          ? state.habit.time_estimate_minutes
+                          : state.todo.time_estimate_minutes) && (
                           <Pressable
                             style={styles.timeEstimateClearButton}
                             onPress={() => {
-                              dispatch({ type: 'SET_TODO_TIME_ESTIMATE', minutes: null });
+                              if (baseType === 'habit') {
+                                dispatch({ type: 'SET_HABIT_TIME_ESTIMATE', minutes: null });
+                              } else {
+                                dispatch({ type: 'SET_TODO_TIME_ESTIMATE', minutes: null });
+                              }
                               setShowTimeEstimateModal(false);
                             }}
                           >
@@ -8612,6 +8714,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         start_date: (entity as any)?.start_date ?? null,
         end_date: (entity as any)?.end_date ?? null,
         time_window: (entity as any)?.time_window ?? null,
+        time_estimate_minutes: (entity as any)?.time_estimate_minutes ?? null,
       },
       todo: {
         title: compactTitle,

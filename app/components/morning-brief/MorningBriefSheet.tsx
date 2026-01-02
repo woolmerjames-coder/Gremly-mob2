@@ -310,7 +310,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
       id: h.id,
       type: 'habit' as const,
       name: h.name || 'Untitled',
-      timeEstimate: null,
+      timeEstimate: h.time_estimate_minutes,
       timeWindow: h.time_window,
     }));
 

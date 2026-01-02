@@ -323,6 +323,10 @@ export async function runPhase2(
         if (result.timeWindow) {
           updatePayload.time_window = result.timeWindow;
         }
+        // Time estimate - now works for both todos AND habits
+        if (result.timeEstimateMinutes !== null && result.timeEstimateMinutes !== undefined) {
+          updatePayload.time_estimate_minutes = result.timeEstimateMinutes;
+        }
         // Set start_date if extracted (only if not already set)
         if (result.extractedStartDate && !entity.start_date) {
           updatePayload.start_date = result.extractedStartDate;
@@ -617,6 +621,10 @@ export async function runPhase2Streaming(
               }
               if (result.time_window) {
                 updatePayload.time_window = result.time_window;
+              }
+              // Time estimate - also applies to habits
+              if (result.time_estimate_minutes) {
+                updatePayload.time_estimate_minutes = result.time_estimate_minutes;
               }
             }
 

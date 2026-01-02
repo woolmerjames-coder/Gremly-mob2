@@ -291,6 +291,7 @@ export function useMindDropSubmit(): {
           entity = await createHabit({
             name: effectiveText,
             title: effectiveText, // DB requires title column
+            notes: effectiveText, // Preserve original input in notes field
             frequency: 'daily', // Default frequency for habits
             subtype: phase1Result.habitSubtype ?? 'start_habit', // build vs break habit
             space_id: context.spaceId ?? null,
