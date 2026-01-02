@@ -12,6 +12,7 @@ import { getDateService } from '../date/DateService';
 import { validateEnrichmentResult } from './phase2Validation';
 import { eventBus } from '../events/EventBus';
 import { callEnrichPhase2Streaming, Phase2EnrichmentResult } from '../cortex/CortexClient';
+import { parseFrequencyString } from '../habits/frequencyUtils';
 
 // --- Types ---
 
@@ -365,6 +366,9 @@ export async function runPhase2(
         frequency: result.extractedFrequency ?? null,
         hasPhotos: entity.views?.has_photos === true,
         startDate: result.extractedStartDate ?? (entity as any).start_date ?? null,
+        // Canonical habit frequency fields
+        cadence: updatePayload.cadence,
+        target_per_period: updatePayload.target_per_period,
       });
       mark('event_emitted');
 
@@ -583,41 +587,13 @@ export async function runPhase2Streaming(
                 updatePayload.start_date = result.extracted_start_date;
               }
               if (result.extracted_frequency) {
-                // Update both frequency string AND canonical cadence/target_per_period fields
+                // Use centralized parser (SINGLE SOURCE OF TRUTH)
+                const { cadence, target_per_period } = parseFrequencyString(
+                  result.extracted_frequency,
+                );
                 updatePayload.frequency = result.extracted_frequency;
-
-                // Parse frequency to set cadence and target_per_period
-                const freq = result.extracted_frequency.toLowerCase();
-                if (freq === 'daily' || freq === 'day' || freq === 'every day') {
-                  updatePayload.cadence = 'daily';
-                  updatePayload.target_per_period = 1;
-                } else if (freq === 'weekly' || freq === 'week' || freq === 'once a week') {
-                  updatePayload.cadence = 'weekly';
-                  updatePayload.target_per_period = 1;
-                } else if (freq === 'monthly' || freq === 'month' || freq === 'once a month') {
-                  updatePayload.cadence = 'monthly';
-                  updatePayload.target_per_period = 1;
-                } else {
-                  // Parse "Nx/week" or "N times a week" patterns
-                  const nxWeekMatch = freq.match(/(\d+)\s*(?:x|times?)?\s*(?:\/|per|a)?\s*week/i);
-                  if (nxWeekMatch) {
-                    updatePayload.cadence = 'weekly';
-                    updatePayload.target_per_period = parseInt(nxWeekMatch[1], 10) || 1;
-                  } else {
-                    // Parse "Nx/month" or "N times a month" patterns
-                    const nxMonthMatch = freq.match(
-                      /(\d+)\s*(?:x|times?)?\s*(?:\/|per|a)?\s*month/i,
-                    );
-                    if (nxMonthMatch) {
-                      updatePayload.cadence = 'monthly';
-                      updatePayload.target_per_period = parseInt(nxMonthMatch[1], 10) || 1;
-                    } else {
-                      // Default to weekly for unknown frequencies
-                      updatePayload.cadence = 'weekly';
-                      updatePayload.target_per_period = 1;
-                    }
-                  }
-                }
+                updatePayload.cadence = cadence;
+                updatePayload.target_per_period = target_per_period;
               }
               if (result.time_window) {
                 updatePayload.time_window = result.time_window;
@@ -643,6 +619,9 @@ export async function runPhase2Streaming(
               dueDate: result.extracted_date,
               startDate: result.extracted_start_date,
               frequency: result.extracted_frequency,
+              // Canonical habit frequency fields
+              cadence: updatePayload.cadence,
+              target_per_period: updatePayload.target_per_period,
             });
 
             resolve(result);

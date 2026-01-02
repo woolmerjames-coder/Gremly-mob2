@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { jsonToFrequency, getFrequencyLabel } from '../../../components/overlay/frequencyHelpers';
+import { getFrequencyDisplayLabelLong } from '../../habits/frequencyUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -320,84 +320,15 @@ function computeSpecificDaysStats(
 
 /**
  * Derive human-readable frequency label from habit data.
- * Parses various formats:
- * - cadence field: 'daily', 'weekly', 'monthly', 'day', 'week', 'month'
- * - frequency string: "3 times a week", "5 times a week", "2 times a month", "daily"
- * - frequency_json: { type: 'custom', count: 3, unit: 'week' }
+ * Uses canonical fields (cadence, target_per_period) as source of truth.
  */
 function deriveFrequencyLabel(habit: RawHabit, fallback: string): string {
-  // Primary: parse the human-readable frequency string (most reliable based on logs)
-  // e.g., "3 times a week", "5 times a week", "2 times a month", "daily"
-  if (habit.frequency) {
-    const freq = habit.frequency.toLowerCase();
-
-    // Check for "X times a week" pattern
-    const weekMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?week/i);
-    if (weekMatch) {
-      const count = parseInt(weekMatch[1], 10);
-      return `${count}x per week`;
-    }
-
-    // Check for "X times a month" pattern
-    const monthMatch = freq.match(/(\d+)\s*(?:times?\s*(?:a|per)\s*)?month/i);
-    if (monthMatch) {
-      const count = parseInt(monthMatch[1], 10);
-      return `${count}x per month`;
-    }
-
-    // Check for "daily" or "every day"
-    if (freq === 'daily' || freq.includes('every day')) {
-      return 'Daily';
-    }
+  // Use canonical fields as single source of truth
+  if (habit.cadence || habit.target_per_period) {
+    return getFrequencyDisplayLabelLong(habit.cadence, habit.target_per_period);
   }
 
-  // Secondary: try cadence + target_per_period (handle both 'daily'/'day' formats)
-  if (habit.cadence) {
-    const cadence = habit.cadence.toLowerCase();
-    const target = habit.target_per_period ?? 1;
-
-    if (cadence === 'daily' || cadence === 'day') {
-      return 'Daily';
-    }
-    if (cadence === 'weekly' || cadence === 'week') {
-      return `${target}x per week`;
-    }
-    if (cadence === 'monthly' || cadence === 'month') {
-      return `${target}x per month`;
-    }
-  }
-
-  // Tertiary: try frequency_json with the actual structure from overlay
-  // Structure: { type: 'custom', count: 3, unit: 'week' }
-  if (habit.frequency_json && typeof habit.frequency_json === 'object') {
-    const json = habit.frequency_json;
-    if (json.count && json.unit) {
-      const count = json.count;
-      const unit = json.unit.toLowerCase();
-      if (unit === 'week') {
-        return `${count}x per week`;
-      }
-      if (unit === 'month') {
-        return `${count}x per month`;
-      }
-      if (unit === 'day') {
-        return count === 1 ? 'Daily' : `${count}x per day`;
-      }
-    }
-    // Also try the jsonToFrequency helper as last resort
-    try {
-      const config = jsonToFrequency(json);
-      if (config) {
-        const label = getFrequencyLabel(config);
-        if (label && label !== fallback) {
-          return label;
-        }
-      }
-    } catch {
-      // Fall through
-    }
-  }
-
+  // Fallback for habits without canonical fields (legacy data)
   return fallback;
 }
 

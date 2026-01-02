@@ -2302,19 +2302,89 @@ export const useGremlyStore = create<GremlyState>()(
       };
 
       // Handler for entity:enriched events (Phase 2 enrichment updates)
-      // This refetches the entity from DB since enrichment updates name, title, frequency, tags, etc.
-      const handleEntityEnriched = (payload: { entityId: string; smartTitle?: string }) => {
+      // First applies event payload for immediate UI update, then refetches for completeness
+      const handleEntityEnriched = (payload: {
+        entityId: string;
+        smartTitle?: string;
+        tags?: string[];
+        timeEstimate?: number | null;
+        time_window?: string | null;
+        dueDate?: string | null;
+        startDate?: string | null;
+        frequency?: string | null;
+        cadence?: string | null;
+        target_per_period?: number | null;
+        confirmationMessage?: string | null;
+      }) => {
+        const {
+          entityId,
+          smartTitle,
+          tags,
+          timeEstimate,
+          time_window,
+          dueDate,
+          startDate,
+          frequency,
+          cadence,
+          target_per_period,
+          confirmationMessage,
+        } = payload;
+
+        // Immediately apply known fields from event payload for responsive UI
+        const state = get();
+        const inTodos = state.todos.some((t) => t.id === entityId);
+        const inHabits = state.habits.some((h) => h.id === entityId);
+        const inNotes = state.notes.some((n) => n.id === entityId);
+
+        if (inTodos) {
+          set({
+            todos: state.todos.map((t) => {
+              if (t.id !== entityId) return t;
+              return {
+                ...t,
+                ...(smartTitle !== undefined && { name: smartTitle, title: smartTitle }),
+                ...(tags !== undefined && { tags }),
+                ...(timeEstimate !== undefined && { time_estimate_minutes: timeEstimate }),
+                ...(time_window !== undefined && { time_window }),
+                ...(dueDate !== undefined && { due_date: dueDate }),
+              };
+            }),
+          });
+        } else if (inHabits) {
+          set({
+            habits: state.habits.map((h) => {
+              if (h.id !== entityId) return h;
+              return {
+                ...h,
+                ...(smartTitle !== undefined && { name: smartTitle, title: smartTitle }),
+                ...(tags !== undefined && { tags }),
+                ...(timeEstimate !== undefined && { time_estimate_minutes: timeEstimate }),
+                ...(time_window !== undefined && { time_window }),
+                ...(startDate !== undefined && { start_date: startDate }),
+                ...(frequency !== undefined && { frequency }),
+                ...(cadence !== undefined && { cadence }),
+                ...(target_per_period !== undefined && { target_per_period }),
+              };
+            }),
+          });
+        } else if (inNotes) {
+          set({
+            notes: state.notes.map((n) => {
+              if (n.id !== entityId) return n;
+              return {
+                ...n,
+                ...(smartTitle !== undefined && { title: smartTitle }),
+                ...(tags !== undefined && { tags }),
+              };
+            }),
+          });
+        }
+
+        // Then refetch from DB for any fields not in the event payload
         const fetchAndUpdate = async () => {
           const state = get();
           const userId = state.userId;
           if (!userId) return;
-
-          const entityId = payload.entityId;
-
-          // Check which store array contains this entity
-          const inTodos = state.todos.some((t) => t.id === entityId);
-          const inHabits = state.habits.some((h) => h.id === entityId);
-          const inNotes = state.notes.some((n) => n.id === entityId);
 
           if (inTodos) {
             const { data } = await supabase.from('todos').select('*').eq('id', entityId).single();

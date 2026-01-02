@@ -54,6 +54,9 @@ export type EventMap = {
     dueDate?: string | null;
     confirmationMessage?: string | null;
     frequency?: string | null;
+    // Canonical frequency fields (SINGLE SOURCE OF TRUTH)
+    cadence?: 'daily' | 'weekly' | 'monthly' | null;
+    target_per_period?: number | null;
     hasPhotos?: boolean;
     startDate?: string | null;
     time_window?: 'morning' | 'day' | 'evening' | null;

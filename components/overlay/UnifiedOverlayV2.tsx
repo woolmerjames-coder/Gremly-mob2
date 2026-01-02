@@ -113,6 +113,11 @@ import {
   getFrequencyLabel,
   DAY_LABELS,
 } from './frequencyHelpers';
+import {
+  canonicalToFrequencyJson,
+  frequencyJsonToCanonical,
+  parseFrequencyString,
+} from '../../lib/habits/frequencyUtils';
 
 // Make Actionable feature
 import { MakeActionableButton } from './MakeActionableButton';
@@ -147,10 +152,7 @@ const MOOD_OPTIONS = [
 /**
  * Constructs frequency_json from DB columns for the overlay's FrequencyConfig format.
  *
- * Handles two DB schemas:
- * 1. New schema: cadence ('daily'|'weekly'|'monthly') + target_per_period (number)
- * 2. Legacy schema: frequency (string) + frequency_value (number)
- *
+ * Uses centralized frequencyUtils for canonical schema, with fallback for legacy schema.
  * Priority: cadence/target_per_period > frequency_value > parsed frequency string
  */
 function buildFrequencyJsonFromDb(
@@ -164,92 +166,24 @@ function buildFrequencyJsonFromDb(
     return frequencyValue;
   }
 
-  // NEW: Check cadence + target_per_period first (canonical schema)
+  // Use centralized utility for canonical schema (SINGLE SOURCE OF TRUTH)
   if (cadence) {
-    const normalizedCadence = cadence.toLowerCase();
-    const target = targetPerPeriod ?? 1;
-
-    // Map cadence to unit
-    let unit: 'day' | 'week' | 'month' = 'day';
-    if (normalizedCadence === 'weekly' || normalizedCadence === 'week') {
-      unit = 'week';
-    } else if (normalizedCadence === 'monthly' || normalizedCadence === 'month') {
-      unit = 'month';
-    }
-
-    // If target > 1 or not daily, use custom mode
-    if (target > 1 || unit !== 'day') {
-      if (target === 1) {
-        // "1 time per week" -> simple weekly, "1 time per month" -> simple monthly
-        if (unit === 'week') return { type: 'simple', value: 'weekly' };
-        if (unit === 'month') return { type: 'simple', value: 'monthly' };
-        return { type: 'simple', value: 'daily' };
-      }
-      return { type: 'custom', count: target, unit };
-    }
-
-    // Daily with target=1 -> simple daily
-    return { type: 'simple', value: 'daily' };
+    return canonicalToFrequencyJson(cadence, targetPerPeriod);
   }
 
-  const freq = (frequency || 'daily').toLowerCase();
-
-  // If there's a numeric frequency_value, it means "N times per <freq>"
-  if (typeof frequencyValue === 'number' && frequencyValue > 0) {
-    // Map frequency to custom unit
-    const unit = freq === 'weekly' ? 'week' : freq === 'monthly' ? 'month' : 'day';
-    return { type: 'custom', count: frequencyValue, unit };
+  // Legacy: parse frequency string if no canonical fields
+  if (frequency) {
+    const { cadence: parsedCadence, target_per_period } = parseFrequencyString(frequency);
+    return canonicalToFrequencyJson(parsedCadence, target_per_period);
   }
 
-  // Parse "Nx/week" or "Nx/month" format (common format from habit creation)
-  const nxMatch = freq.match(/(\d+)x\/(week|month|day)/i);
-  if (nxMatch) {
-    const count = parseInt(nxMatch[1], 10);
-    const unit = nxMatch[2].toLowerCase();
-    if (count === 1) {
-      if (unit === 'week') return { type: 'simple', value: 'weekly' };
-      if (unit === 'month') return { type: 'simple', value: 'monthly' };
-      return { type: 'simple', value: 'daily' };
-    }
-    return { type: 'custom', count, unit };
-  }
-
-  // Parse "N times a week/day/month" format from AI enrichment
-  const timesMatch = freq.match(/(\d+)\s*(?:times?\s+(?:a|per)\s*)(day|week|month)/i);
-  if (timesMatch) {
-    const count = parseInt(timesMatch[1], 10);
-    const unit = timesMatch[2].toLowerCase();
-    return { type: 'custom', count, unit };
-  }
-
-  // Parse "twice a week/day/month"
-  const twiceMatch = freq.match(/twice\s+(?:a|per)\s*(day|week|month)/i);
-  if (twiceMatch) {
-    const unit = twiceMatch[1].toLowerCase();
-    return { type: 'custom', count: 2, unit };
-  }
-
-  // Parse "once a week/day/month"
-  const onceMatch = freq.match(/once\s+(?:a|per)\s*(day|week|month)/i);
-  if (onceMatch) {
-    const unit = onceMatch[1].toLowerCase();
-    if (unit === 'day') return { type: 'simple', value: 'daily' };
-    if (unit === 'week') return { type: 'simple', value: 'weekly' };
-    if (unit === 'month') return { type: 'simple', value: 'monthly' };
-  }
-
-  // Simple frequency (daily, weekly, monthly)
-  if (freq === 'daily' || freq === 'weekly' || freq === 'monthly') {
-    return { type: 'simple', value: freq };
-  }
-
-  // Custom frequency without a value - default to simple daily
+  // Default to daily
   return { type: 'simple', value: 'daily' };
 }
 
 /**
  * Convert frequency_json back to canonical cadence/target_per_period fields.
- * This ensures the DB has the canonical fields set when saving a habit.
+ * Uses centralized frequencyUtils (SINGLE SOURCE OF TRUTH).
  *
  * @param frequencyJson - The frequency_json object from overlay state
  * @param schedule - The schedule string from overlay state (fallback)
@@ -259,21 +193,9 @@ function frequencyJsonToCadenceFields(
   frequencyJson: any,
   schedule?: string | null,
 ): { cadence: 'daily' | 'weekly' | 'monthly'; target_per_period: number } {
-  // Parse from frequency_json object
+  // Use centralized utility (SINGLE SOURCE OF TRUTH)
   if (frequencyJson && typeof frequencyJson === 'object') {
-    if (frequencyJson.type === 'simple') {
-      const value = frequencyJson.value?.toLowerCase();
-      if (value === 'weekly') return { cadence: 'weekly', target_per_period: 1 };
-      if (value === 'monthly') return { cadence: 'monthly', target_per_period: 1 };
-      return { cadence: 'daily', target_per_period: 1 };
-    }
-    if (frequencyJson.type === 'custom') {
-      const count = frequencyJson.count ?? 1;
-      const unit = frequencyJson.unit?.toLowerCase();
-      if (unit === 'week') return { cadence: 'weekly', target_per_period: count };
-      if (unit === 'month') return { cadence: 'monthly', target_per_period: count };
-      return { cadence: 'daily', target_per_period: count };
-    }
+    return frequencyJsonToCanonical(frequencyJson);
   }
 
   // Fallback to schedule string
@@ -6168,44 +6090,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         ) : null}
                                       </Pressable>
 
-                                      {/* 3) Time Estimate row for Habits */}
-                                      <Pressable
-                                        onPress={() => {
-                                          if (!isViewMode) setShowTimeEstimateModal(true);
-                                        }}
-                                        disabled={isViewMode}
-                                        style={({ pressed }) => [
-                                          styles.detailsRow,
-                                          { marginTop: 0 },
-                                          pressed && !isViewMode && styles.detailsRowPressed,
-                                        ]}
-                                      >
-                                        <View style={styles.detailsRowLeft}>
-                                          <View style={styles.detailsRowIcon}>
-                                            <Clock
-                                              size={18}
-                                              color={
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.7)'
-                                                  : '#666'
-                                              }
-                                            />
-                                          </View>
-                                          <Text style={styles.detailsRowLabel}>
-                                            Time per session
-                                          </Text>
-                                        </View>
-                                        <Text style={styles.detailsRowValue}>
-                                          {state.habit.time_estimate_minutes
-                                            ? TIME_ESTIMATE_OPTIONS.find(
-                                                (o) =>
-                                                  o.value === state.habit.time_estimate_minutes,
-                                              )?.label || `${state.habit.time_estimate_minutes} min`
-                                            : 'Add'}
-                                        </Text>
-                                      </Pressable>
-
-                                      {/* 4) Delete Habit row (only in edit mode) */}
+                                      {/* 3) Delete Habit row (only in edit mode) */}
                                       {mode === 'edit' && (initialEntity as any)?.id ? (
                                         <Pressable
                                           onPress={() => {

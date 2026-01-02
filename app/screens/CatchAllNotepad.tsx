@@ -97,7 +97,7 @@ import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/
 import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type { AppRecord, LogSubtype, NoteSubtype } from '../../lib/types';
-import { getFrequencyLabel } from '../../lib/sweep/habitHelpers';
+import { getFrequencyDisplayLabel } from '../../lib/habits/frequencyUtils';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -1540,14 +1540,8 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
     return 'no deadline yet';
   }
   if (kind === 'habit') {
-    // Use centralized frequency label helper that reads cadence/target_per_period
-    // Create a minimal habit object to pass to getFrequencyLabel
-    const habitLike = {
-      cadence: item.cadence ?? null,
-      target_per_period: item.target_per_period ?? 1,
-      frequency: item.frequency ?? null,
-    } as any;
-    return getFrequencyLabel(habitLike);
+    // Use centralized frequency display label (SINGLE SOURCE OF TRUTH)
+    return getFrequencyDisplayLabel(item.cadence, item.target_per_period, item.frequency);
   }
   // Notes/Logs - show the subtype
   const subtype = item.noteSubtype || item.canonical_type || 'log';
@@ -2626,6 +2620,11 @@ const RecentDrops: React.FC<{
             tags: payload.tags,
             due_date: payload.dueDate ?? item.due_date,
             frequency: payload.frequency ?? item.frequency,
+            // Canonical frequency fields (SINGLE SOURCE OF TRUTH for display)
+            ...(payload.cadence !== undefined && { cadence: payload.cadence }),
+            ...(payload.target_per_period !== undefined && {
+              target_per_period: payload.target_per_period,
+            }),
             hasPhotos: payload.hasPhotos ?? item.hasPhotos,
             time_estimate_minutes: payload.timeEstimate ?? item.time_estimate_minutes,
             start_date: payload.startDate ?? item.start_date,

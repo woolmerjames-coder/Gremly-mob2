@@ -7,6 +7,7 @@
 
 import type { Habit, Cadence } from '../types';
 import type { HabitProgressRow } from '../store/useGremlyStore';
+import { getFrequencyDisplayLabel } from '../habits/frequencyUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Frequency Parsing Utilities
@@ -279,51 +280,20 @@ export function isHabitCompletedToday(habitId: string, habitProgress: HabitProgr
 
 /**
  * Generate human-readable frequency label.
+ *
+ * @deprecated Use getFrequencyDisplayLabel from frequencyUtils.ts directly
+ * for new code. This function delegates to the centralized utility for
+ * backwards compatibility.
  */
-export function getFrequencyLabel(habit: Habit): string {
-  // First, try to parse the frequency string (most accurate source of user intent)
-  if (habit.frequency) {
-    const freq = habit.frequency.toLowerCase();
-
-    // Check for "Xx/week" or "X times a week" pattern
-    const weekMatch = freq.match(/(\d+)\s*(?:x\s*\/\s*|times?\s*(?:a|per)\s*)?week/i);
-    if (weekMatch) {
-      const count = parseInt(weekMatch[1], 10);
-      return `${count}x/week`;
-    }
-
-    // Check for "Xx/month" or "X times a month" pattern
-    const monthMatch = freq.match(/(\d+)\s*(?:x\s*\/\s*|times?\s*(?:a|per)\s*)?month/i);
-    if (monthMatch) {
-      const count = parseInt(monthMatch[1], 10);
-      return `${count}x/month`;
-    }
-
-    // Check for "daily" or "every day"
-    if (freq === 'daily' || freq.includes('every day') || freq.includes('every night')) {
-      return 'Daily';
-    }
-  }
-
-  // Secondary: use cadence field
-  const cadence = normalizeCadence(habit.cadence);
-  const target = habit.target_per_period ?? 1;
-
-  if (cadence === 'daily') {
-    if (target > 1) return `${target}x daily`;
-    return 'Daily';
-  }
-  if (cadence === 'weekly') {
-    if (target === 7) return 'Daily';
-    if (target === 1) return 'Weekly';
-    return `${target}x/week`;
-  }
-  if (cadence === 'monthly') {
-    if (target === 1) return 'Monthly';
-    return `${target}x/month`;
-  }
-
-  return 'Daily';
+export function getFrequencyLabel(habit: {
+  cadence?: string | null;
+  target_per_period?: number | null;
+  frequency?: string | null;
+}): string {
+  // Delegate to single source of truth
+  // Note: We use canonical fields (cadence, target_per_period) as the source of truth,
+  // NOT the frequency string. The string is only kept for debugging.
+  return getFrequencyDisplayLabel(habit.cadence, habit.target_per_period);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
