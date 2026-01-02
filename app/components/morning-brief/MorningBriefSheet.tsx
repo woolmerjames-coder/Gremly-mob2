@@ -1150,7 +1150,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                     onPress={() => handleAssignToBucket(selectedTaskId, 'day')}
                   >
                     <Sun size={18} color={BRAND.colors.sageMist} style={styles.pickerIconLucide} />
-                    <Text style={styles.pickerOptionText}>Day</Text>
+                    <Text style={styles.pickerOptionText}>Afternoon</Text>
                   </Pressable>
 
                   <Pressable

@@ -4750,12 +4750,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         <View
                           style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}
                         >
-                          {mode === 'edit' && overlaySubtitle ? (
+                          {mode === 'edit' && initialEntity?.id ? (
                             <TextInput
                               value={state.compactTitle}
                               onChangeText={(text) =>
                                 dispatch({ type: 'SET_COMPACT_TITLE', title: text })
                               }
+                              placeholder="Add title..."
+                              placeholderTextColor="#999999"
                               style={{
                                 color: '#222222',
                                 fontWeight: '500',
@@ -5879,7 +5881,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         },
                                       ]}
                                     >
-                                      {state.habit.time_window
+                                      {state.habit.time_window && state.habit.time_window !== 'any'
                                         ? TIME_WINDOW_OPTIONS.find(
                                             (o) => o.value === state.habit.time_window,
                                           )?.label || state.habit.time_window

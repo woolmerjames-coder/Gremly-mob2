@@ -264,6 +264,16 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       } else if (action.to === 'habit' && !next.habit.notes) {
         next = { ...next, habit: { ...next.habit, notes: currentText } };
       }
+      // Also copy the user-edited title to the new type
+      if (state.userEditedTitle && state.compactTitle) {
+        if (action.to === 'todo') {
+          next = { ...next, todo: { ...next.todo, title: state.compactTitle } };
+        } else if (action.to === 'habit') {
+          next = { ...next, habit: { ...next.habit, title: state.compactTitle } };
+        } else if (action.to === 'log') {
+          next = { ...next, log: { ...next.log, title: state.compactTitle } };
+        }
+      }
       return syncCompactTitle(next, []);
     }
     case 'SET_TAGS': {
@@ -382,11 +392,23 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       };
     }
     case 'SET_COMPACT_TITLE': {
-      return {
+      // Update compactTitle AND the underlying entity title so it persists on save
+      let next = {
         ...state,
         compactTitle: action.title,
-        userEditedTitle: true, // Mark as user-edited so AI/code won't overwrite
+        userEditedTitle: true,
       };
+
+      // Sync to the actual entity title field based on current baseType
+      if (state.baseType === 'todo') {
+        next = { ...next, todo: { ...next.todo, title: action.title } };
+      } else if (state.baseType === 'habit') {
+        next = { ...next, habit: { ...next.habit, title: action.title } };
+      } else if (state.baseType === 'log') {
+        next = { ...next, log: { ...next.log, title: action.title } };
+      }
+
+      return next;
     }
     case 'SET_TODO_DUE':
       // GREMLY TODO DATE MODEL:
