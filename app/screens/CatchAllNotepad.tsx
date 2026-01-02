@@ -1072,6 +1072,7 @@ const PendingSkeleton: React.FC<{
       entering={SlideInDown.duration(280)
         .delay(staggerDelay)
         .easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+      exiting={FadeOut.duration(100)}
       layout={Layout.duration(200)}
       style={[
         styles.recentCard,
@@ -1215,8 +1216,9 @@ const EnrichingSkeleton: React.FC<{
   const displayTitle = truncateText(isAITitleReady ? aiTitle : rawText, 50);
 
   return (
-    <Animated.View
+    <Reanimated.View
       testID="minddrop-enriching-skeleton"
+      exiting={FadeOut.duration(100)}
       style={[
         styles.recentCard,
         {
@@ -1255,7 +1257,7 @@ const EnrichingSkeleton: React.FC<{
         <ShimmerBar width={60} height={12} />
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
-    </Animated.View>
+    </Reanimated.View>
   );
 };
 
