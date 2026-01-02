@@ -45,8 +45,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { BRAND } from '../../../design/brand';
 import { useMorningBrief } from '../../../lib/today/hooks/useMorningBrief';
+import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useLockedItems, useTodayHabits } from '../../../lib/store/selectors';
+import { MiniSweepGate } from './MiniSweepGate';
 import { Clock, Sunrise, Sun, Moon } from 'lucide-react-native';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { useNowQuickAdd } from '../../../lib/now/useNowQuickAdd';
@@ -273,8 +275,20 @@ function SummaryBucketSection({
   );
 }
 
+// Duration for celebration screen
+const CELEBRATION_DURATION_MS = 1500;
+
 export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBriefSheetProps) {
   const insets = useSafeAreaInsets();
+
+  // Mini Sweep Gate hook
+  const { shouldShowMiniSweep, rolledOverTodos, unscheduledTodos, markMiniSweepCompleted } =
+    useMiniSweepGate();
+
+  // Mini Sweep state: tracks if user has completed/skipped mini sweep this session
+  const [miniSweepCompleted, setMiniSweepCompleted] = useState(false);
+  // Celebration interstitial state
+  const [showCelebration, setShowCelebration] = useState(false);
 
   // Morning brief hook
   const { saveBrief, morningSequence, daySequence, eveningSequence } = useMorningBrief();
@@ -451,6 +465,31 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     },
     [lockInScale, morningScale, dayScale, eveningScale],
   );
+
+  // Reset mini sweep state when modal closes
+  useEffect(() => {
+    if (!visible) {
+      setMiniSweepCompleted(false);
+      setShowCelebration(false);
+    }
+  }, [visible]);
+
+  // Handle mini sweep completion (with celebration)
+  const handleMiniSweepComplete = useCallback(async () => {
+    await markMiniSweepCompleted();
+    setShowCelebration(true);
+    // Show celebration briefly, then transition to main brief
+    setTimeout(() => {
+      setShowCelebration(false);
+      setMiniSweepCompleted(true);
+    }, CELEBRATION_DURATION_MS);
+  }, [markMiniSweepCompleted]);
+
+  // Handle mini sweep skip
+  const handleMiniSweepSkip = useCallback(async () => {
+    await markMiniSweepCompleted();
+    setMiniSweepCompleted(true);
+  }, [markMiniSweepCompleted]);
 
   // Re-initialize assignments when modal opens
   useEffect(() => {
@@ -951,6 +990,9 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     ],
   );
 
+  // Determine what to show: Mini Sweep Gate, Celebration, or Main Brief
+  const showMiniSweepGate = shouldShowMiniSweep && !miniSweepCompleted && !showCelebration;
+
   return (
     <Modal
       visible={visible}
@@ -959,242 +1001,272 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
       onRequestClose={handleSkip}
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <View style={styles.container}>
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>What you have on Today, LFG!</Text>
+        {/* Mini Sweep Gate */}
+        {showMiniSweepGate && (
+          <MiniSweepGate
+            rolledOverTodos={rolledOverTodos}
+            unscheduledTodos={unscheduledTodos}
+            onComplete={handleMiniSweepComplete}
+            onSkip={handleMiniSweepSkip}
+          />
+        )}
+
+        {/* Celebration Interstitial */}
+        {showCelebration && (
+          <View style={styles.celebrationContainer}>
+            <Image
+              source={MORNING_BRIEF_GREMLY}
+              style={styles.celebrationGremly}
+              resizeMode="contain"
+            />
+            <Text style={styles.celebrationTitle}>Fresh start!</Text>
+            <Text style={styles.celebrationSubtitle}>Let&apos;s plan your day.</Text>
           </View>
+        )}
 
-          {/* Content */}
-          <View style={styles.content}>
-            {/* Gremly Instructions */}
-            <View style={styles.gremlyRow}>
-              <Image
-                source={MORNING_BRIEF_GREMLY}
-                style={styles.gremlyMascot}
-                resizeMode="contain"
-              />
-              <Text style={styles.gremlyText}>
-                Lock in up to 3 priorities and drag/click the rest into time blocks. Totally
-                optional!
-              </Text>
+        {/* Main Morning Brief Content */}
+        {!showMiniSweepGate && !showCelebration && (
+          <View style={styles.container}>
+            {/* Header */}
+            <View style={styles.header}>
+              <Text style={styles.headerTitle}>What you have on Today, LFG!</Text>
             </View>
 
-            {/* Action row with add button */}
-            <View style={styles.actionRow}>
-              <Pressable style={styles.addToTodayButton} onPress={handleAddPress}>
-                <Text style={styles.addToTodayButtonText}>+ Add Something to Today</Text>
-              </Pressable>
-            </View>
+            {/* Content */}
+            <View style={styles.content}>
+              {/* Gremly Instructions */}
+              <View style={styles.gremlyRow}>
+                <Image
+                  source={MORNING_BRIEF_GREMLY}
+                  style={styles.gremlyMascot}
+                  resizeMode="contain"
+                />
+                <Text style={styles.gremlyText}>
+                  Lock in up to 3 priorities and drag/click the rest into time blocks. Totally
+                  optional!
+                </Text>
+              </View>
 
-            {/* Scrollable task list - takes available space */}
-            <ScrollView
-              style={styles.taskListScroll}
-              contentContainerStyle={styles.taskListContent}
-              showsVerticalScrollIndicator={true}
-            >
-              {/* Optimistic quick-add card */}
-              {optimisticQuickAdd && (
-                <View style={[styles.taskCard, styles.taskCardOptimistic]}>
-                  <Image source={GREMLY_FACE} style={styles.gremlyHandle} resizeMode="contain" />
-                  <View style={styles.taskInfo}>
-                    <Text style={styles.taskName} numberOfLines={1}>
-                      {optimisticQuickAdd.title}
-                    </Text>
-                    <Text style={styles.taskType}>Processing...</Text>
-                  </View>
-                </View>
-              )}
-
-              {unorganizedTasks.length === 0 && !optimisticQuickAdd ? (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyStateText}>All tasks scheduled!</Text>
-                </View>
-              ) : (
-                unorganizedTasks.map((task) => (
-                  <DraggableTaskCard
-                    key={task.id}
-                    task={task}
-                    onDragStart={handleDragStart}
-                    onDragMove={handleDragMove}
-                    onDragEnd={handleDragEnd}
-                    onTap={handleTap}
-                    isDragging={draggingTask?.id === task.id}
-                  />
-                ))
-              )}
-            </ScrollView>
-          </View>
-
-          {/* Bottom section - pinned above footer */}
-          <View style={styles.bottomSection}>
-            {/* Divider line */}
-            <View style={styles.dividerContainer}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>Drop here to schedule</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Drop zone buckets */}
-            <View style={styles.bucketsRow}>
-              {renderBucket(BUCKETS[0], lockInItems.length)}
-              {renderBucket(BUCKETS[1], morningItems.length)}
-              {renderBucket(BUCKETS[2], dayItems.length)}
-              {renderBucket(BUCKETS[3], eveningItems.length)}
-            </View>
-
-            {/* Expandable summary with reorderable lists */}
-            {scheduledCount > 0 && (
-              <View style={styles.summaryContainer}>
-                <Pressable
-                  style={styles.summaryHeader}
-                  onPress={() => {
-                    setSummaryExpanded(!summaryExpanded);
-                  }}
-                >
-                  <Text style={styles.summaryText}>
-                    {scheduledCount} item{scheduledCount !== 1 ? 's' : ''} scheduled
-                  </Text>
-                  <Text style={styles.summaryChevron}>{summaryExpanded ? '▲' : '▼'}</Text>
+              {/* Action row with add button */}
+              <View style={styles.actionRow}>
+                <Pressable style={styles.addToTodayButton} onPress={handleAddPress}>
+                  <Text style={styles.addToTodayButtonText}>+ Add Something to Today</Text>
                 </Pressable>
+              </View>
 
-                {summaryExpanded && (
-                  <ScrollView
-                    style={styles.summaryScrollView}
-                    contentContainerStyle={styles.summaryContent}
-                    showsVerticalScrollIndicator={true}
-                  >
-                    <SummaryBucketSection
-                      bucket="lock-in"
-                      items={lockInItems}
-                      bucketColor={BRAND.colors.mossGreen}
-                      bucketIcon="◇"
-                      onRemove={handleRemoveFromBucket}
-                    />
-                    <SummaryBucketSection
-                      bucket="morning"
-                      items={morningItems}
-                      bucketColor={BRAND.colors.goldenPear}
-                      bucketIcon="☀"
-                      onRemove={handleRemoveFromBucket}
-                    />
-                    <SummaryBucketSection
-                      bucket="day"
-                      items={dayItems}
-                      bucketColor={BRAND.colors.mossGreen}
-                      bucketIcon="◐"
-                      onRemove={handleRemoveFromBucket}
-                    />
-                    <SummaryBucketSection
-                      bucket="evening"
-                      items={eveningItems}
-                      bucketColor={BRAND.colors.periwinkleSmoke}
-                      bucketIcon="☽"
-                      onRemove={handleRemoveFromBucket}
-                    />
-                  </ScrollView>
+              {/* Scrollable task list - takes available space */}
+              <ScrollView
+                style={styles.taskListScroll}
+                contentContainerStyle={styles.taskListContent}
+                showsVerticalScrollIndicator={true}
+              >
+                {/* Optimistic quick-add card */}
+                {optimisticQuickAdd && (
+                  <View style={[styles.taskCard, styles.taskCardOptimistic]}>
+                    <Image source={GREMLY_FACE} style={styles.gremlyHandle} resizeMode="contain" />
+                    <View style={styles.taskInfo}>
+                      <Text style={styles.taskName} numberOfLines={1}>
+                        {optimisticQuickAdd.title}
+                      </Text>
+                      <Text style={styles.taskType}>Processing...</Text>
+                    </View>
+                  </View>
                 )}
+
+                {unorganizedTasks.length === 0 && !optimisticQuickAdd ? (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>All tasks scheduled!</Text>
+                  </View>
+                ) : (
+                  unorganizedTasks.map((task) => (
+                    <DraggableTaskCard
+                      key={task.id}
+                      task={task}
+                      onDragStart={handleDragStart}
+                      onDragMove={handleDragMove}
+                      onDragEnd={handleDragEnd}
+                      onTap={handleTap}
+                      isDragging={draggingTask?.id === task.id}
+                    />
+                  ))
+                )}
+              </ScrollView>
+            </View>
+
+            {/* Bottom section - pinned above footer */}
+            <View style={styles.bottomSection}>
+              {/* Divider line */}
+              <View style={styles.dividerContainer}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>Drop here to schedule</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              {/* Drop zone buckets */}
+              <View style={styles.bucketsRow}>
+                {renderBucket(BUCKETS[0], lockInItems.length)}
+                {renderBucket(BUCKETS[1], morningItems.length)}
+                {renderBucket(BUCKETS[2], dayItems.length)}
+                {renderBucket(BUCKETS[3], eveningItems.length)}
+              </View>
+
+              {/* Expandable summary with reorderable lists */}
+              {scheduledCount > 0 && (
+                <View style={styles.summaryContainer}>
+                  <Pressable
+                    style={styles.summaryHeader}
+                    onPress={() => {
+                      setSummaryExpanded(!summaryExpanded);
+                    }}
+                  >
+                    <Text style={styles.summaryText}>
+                      {scheduledCount} item{scheduledCount !== 1 ? 's' : ''} scheduled
+                    </Text>
+                    <Text style={styles.summaryChevron}>{summaryExpanded ? '▲' : '▼'}</Text>
+                  </Pressable>
+
+                  {summaryExpanded && (
+                    <ScrollView
+                      style={styles.summaryScrollView}
+                      contentContainerStyle={styles.summaryContent}
+                      showsVerticalScrollIndicator={true}
+                    >
+                      <SummaryBucketSection
+                        bucket="lock-in"
+                        items={lockInItems}
+                        bucketColor={BRAND.colors.mossGreen}
+                        bucketIcon="◇"
+                        onRemove={handleRemoveFromBucket}
+                      />
+                      <SummaryBucketSection
+                        bucket="morning"
+                        items={morningItems}
+                        bucketColor={BRAND.colors.goldenPear}
+                        bucketIcon="☀"
+                        onRemove={handleRemoveFromBucket}
+                      />
+                      <SummaryBucketSection
+                        bucket="day"
+                        items={dayItems}
+                        bucketColor={BRAND.colors.mossGreen}
+                        bucketIcon="◐"
+                        onRemove={handleRemoveFromBucket}
+                      />
+                      <SummaryBucketSection
+                        bucket="evening"
+                        items={eveningItems}
+                        bucketColor={BRAND.colors.periwinkleSmoke}
+                        bucketIcon="☽"
+                        onRemove={handleRemoveFromBucket}
+                      />
+                    </ScrollView>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Footer */}
+            <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+              <View style={styles.footerButtons}>
+                <Pressable style={styles.skipButton} onPress={handleSkip}>
+                  <Text style={styles.skipButtonText}>Skip</Text>
+                </Pressable>
+                <Pressable style={styles.doneButton} onPress={handleDone}>
+                  <Text style={styles.doneButtonText}>Done</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Bucket picker modal (tap fallback) */}
+            {selectedTaskId && (
+              <Modal
+                visible={true}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setSelectedTaskId(null)}
+              >
+                <Pressable style={styles.pickerOverlay} onPress={() => setSelectedTaskId(null)}>
+                  <View style={styles.pickerContainer}>
+                    <Text style={styles.pickerTitle}>Assign to:</Text>
+
+                    <Pressable
+                      style={styles.pickerOption}
+                      onPress={() => handleAssignToBucket(selectedTaskId, 'lock-in')}
+                    >
+                      <Text style={styles.pickerOptionIcon}>◇</Text>
+                      <Text style={styles.pickerOptionText}>Lock In</Text>
+                      {lockInItems.length >= 3 && (
+                        <Text style={styles.pickerOptionDisabled}>(max 3)</Text>
+                      )}
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.pickerOption}
+                      onPress={() => handleAssignToBucket(selectedTaskId, 'morning')}
+                    >
+                      <Sunrise
+                        size={18}
+                        color={BRAND.colors.goldenPear}
+                        style={styles.pickerIconLucide}
+                      />
+                      <Text style={styles.pickerOptionText}>Morning</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.pickerOption}
+                      onPress={() => handleAssignToBucket(selectedTaskId, 'day')}
+                    >
+                      <Sun
+                        size={18}
+                        color={BRAND.colors.sageMist}
+                        style={styles.pickerIconLucide}
+                      />
+                      <Text style={styles.pickerOptionText}>Afternoon</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.pickerOption}
+                      onPress={() => handleAssignToBucket(selectedTaskId, 'evening')}
+                    >
+                      <Moon
+                        size={18}
+                        color={BRAND.colors.periwinkleSmoke}
+                        style={styles.pickerIconLucide}
+                      />
+                      <Text style={styles.pickerOptionText}>Evening</Text>
+                    </Pressable>
+
+                    <Pressable style={styles.pickerCancel} onPress={() => setSelectedTaskId(null)}>
+                      <Text style={styles.pickerCancelText}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </Modal>
+            )}
+
+            {/* Quick Add Modal */}
+            <NowQuickAddModal
+              visible={isQuickAddVisible}
+              onClose={() => setQuickAddVisible(false)}
+              onSubmit={handleQuickAddSubmit}
+              onPressManualAdd={handleQuickAddManual}
+            />
+
+            {/* Drag overlay */}
+            {draggingTask && (
+              <View
+                style={[styles.dragOverlay, { top: dragPos.y - 30, left: dragPos.x - 100 }]}
+                pointerEvents="none"
+              >
+                <View style={styles.dragOverlayCard}>
+                  <Text style={styles.dragOverlayText} numberOfLines={1}>
+                    {draggingTask.name}
+                  </Text>
+                </View>
               </View>
             )}
           </View>
-
-          {/* Footer */}
-          <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-            <View style={styles.footerButtons}>
-              <Pressable style={styles.skipButton} onPress={handleSkip}>
-                <Text style={styles.skipButtonText}>Skip</Text>
-              </Pressable>
-              <Pressable style={styles.doneButton} onPress={handleDone}>
-                <Text style={styles.doneButtonText}>Done</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {/* Bucket picker modal (tap fallback) */}
-          {selectedTaskId && (
-            <Modal
-              visible={true}
-              transparent={true}
-              animationType="fade"
-              onRequestClose={() => setSelectedTaskId(null)}
-            >
-              <Pressable style={styles.pickerOverlay} onPress={() => setSelectedTaskId(null)}>
-                <View style={styles.pickerContainer}>
-                  <Text style={styles.pickerTitle}>Assign to:</Text>
-
-                  <Pressable
-                    style={styles.pickerOption}
-                    onPress={() => handleAssignToBucket(selectedTaskId, 'lock-in')}
-                  >
-                    <Text style={styles.pickerOptionIcon}>◇</Text>
-                    <Text style={styles.pickerOptionText}>Lock In</Text>
-                    {lockInItems.length >= 3 && (
-                      <Text style={styles.pickerOptionDisabled}>(max 3)</Text>
-                    )}
-                  </Pressable>
-
-                  <Pressable
-                    style={styles.pickerOption}
-                    onPress={() => handleAssignToBucket(selectedTaskId, 'morning')}
-                  >
-                    <Sunrise
-                      size={18}
-                      color={BRAND.colors.goldenPear}
-                      style={styles.pickerIconLucide}
-                    />
-                    <Text style={styles.pickerOptionText}>Morning</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={styles.pickerOption}
-                    onPress={() => handleAssignToBucket(selectedTaskId, 'day')}
-                  >
-                    <Sun size={18} color={BRAND.colors.sageMist} style={styles.pickerIconLucide} />
-                    <Text style={styles.pickerOptionText}>Afternoon</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={styles.pickerOption}
-                    onPress={() => handleAssignToBucket(selectedTaskId, 'evening')}
-                  >
-                    <Moon
-                      size={18}
-                      color={BRAND.colors.periwinkleSmoke}
-                      style={styles.pickerIconLucide}
-                    />
-                    <Text style={styles.pickerOptionText}>Evening</Text>
-                  </Pressable>
-
-                  <Pressable style={styles.pickerCancel} onPress={() => setSelectedTaskId(null)}>
-                    <Text style={styles.pickerCancelText}>Cancel</Text>
-                  </Pressable>
-                </View>
-              </Pressable>
-            </Modal>
-          )}
-
-          {/* Quick Add Modal */}
-          <NowQuickAddModal
-            visible={isQuickAddVisible}
-            onClose={() => setQuickAddVisible(false)}
-            onSubmit={handleQuickAddSubmit}
-            onPressManualAdd={handleQuickAddManual}
-          />
-
-          {/* Drag overlay */}
-          {draggingTask && (
-            <View
-              style={[styles.dragOverlay, { top: dragPos.y - 30, left: dragPos.x - 100 }]}
-              pointerEvents="none"
-            >
-              <View style={styles.dragOverlayCard}>
-                <Text style={styles.dragOverlayText} numberOfLines={1}>
-                  {draggingTask.name}
-                </Text>
-              </View>
-            </View>
-          )}
-        </View>
+        )}
       </GestureHandlerRootView>
     </Modal>
   );
@@ -1204,6 +1276,31 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
+  },
+  // Celebration interstitial styles
+  celebrationContainer: {
+    flex: 1,
+    backgroundColor: BRAND.colors.linenCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  celebrationGremly: {
+    width: 120,
+    height: 120,
+    marginBottom: 24,
+  },
+  celebrationTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: BRAND.colors.mossGreen,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  celebrationSubtitle: {
+    fontSize: 17,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
   },
   header: {
     flexDirection: 'row',

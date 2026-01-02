@@ -16,6 +16,6 @@ export { NowFocusRow } from './NowFocusRow';
 export { NowFutureDivider } from './NowFutureDivider';
 export { NowSweepBar } from './NowSweepBar';
 export { OverwhelmButton } from './OverwhelmButton';
-export { OverdueSection } from './OverdueSection';
+export { RolledOverSection } from './RolledOverSection';
 export { RecentDropsSection } from './RecentDropsSection';
 export { SweepPill } from './SweepPill';

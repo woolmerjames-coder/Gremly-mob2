@@ -1,10 +1,10 @@
 /**
- * Tests for OverdueSection Component
+ * Tests for RolledOverSection Component
  */
 
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
-import { OverdueSection } from '../../components/now/OverdueSection';
+import { RolledOverSection } from '../../components/now/RolledOverSection';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ function createMockSweepCandidate(overrides: Partial<SweepCandidate> = {}): Swee
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('OverdueSection', () => {
+describe('RolledOverSection', () => {
   const mockOnPressItem = jest.fn();
   const mockOnToggleComplete = jest.fn();
 
@@ -41,19 +41,19 @@ describe('OverdueSection', () => {
 
   describe('empty state', () => {
     it('renders null when items array is empty', () => {
-      const { toJSON } = render(<OverdueSection items={[]} onPressItem={mockOnPressItem} />);
+      const { toJSON } = render(<RolledOverSection items={[]} onPressItem={mockOnPressItem} />);
 
       expect(toJSON()).toBeNull();
     });
   });
 
   describe('with items', () => {
-    it('renders the header with "Overdue" label', () => {
+    it('renders the header with "Rolled Over" label', () => {
       const items = [createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' })];
 
-      render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+      render(<RolledOverSection items={items} onPressItem={mockOnPressItem} />);
 
-      expect(screen.getByText('Overdue')).toBeTruthy();
+      expect(screen.getByText('Rolled Over')).toBeTruthy();
     });
 
     it('renders the correct count in the header', () => {
@@ -63,7 +63,7 @@ describe('OverdueSection', () => {
         createMockSweepCandidate({ id: 'todo-3', name: 'Task 3' }),
       ];
 
-      render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+      render(<RolledOverSection items={items} onPressItem={mockOnPressItem} />);
 
       expect(screen.getByText('· 3')).toBeTruthy();
     });
@@ -74,7 +74,7 @@ describe('OverdueSection', () => {
         createMockSweepCandidate({ id: 'todo-2', name: 'Call dentist' }),
       ];
 
-      render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+      render(<RolledOverSection items={items} onPressItem={mockOnPressItem} />);
 
       expect(screen.getByText('Buy groceries')).toBeTruthy();
       expect(screen.getByText('Call dentist')).toBeTruthy();
@@ -85,7 +85,7 @@ describe('OverdueSection', () => {
       const item2 = createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' });
       const items = [item1, item2];
 
-      render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+      render(<RolledOverSection items={items} onPressItem={mockOnPressItem} />);
 
       // Press the first item
       fireEvent.press(screen.getByText('Task 1'));
@@ -105,7 +105,7 @@ describe('OverdueSection', () => {
         createMockSweepCandidate({ id: 'todo-3', name: 'Task 3' }),
       ];
 
-      render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+      render(<RolledOverSection items={items} onPressItem={mockOnPressItem} />);
 
       // Verify each row has a testID
       expect(screen.getByTestId('overdue-row-0')).toBeTruthy();
@@ -122,7 +122,7 @@ describe('OverdueSection', () => {
         createMockSweepCandidate({ id: 'todo-3', name: 'Third Task' }),
       ];
 
-      const { toJSON } = render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+      const { toJSON } = render(<RolledOverSection items={items} onPressItem={mockOnPressItem} />);
       const tree = toJSON();
 
       // The component should render: container > [header, list]
@@ -145,7 +145,7 @@ describe('OverdueSection', () => {
       ];
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -162,7 +162,7 @@ describe('OverdueSection', () => {
       const items = [item1, item2];
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -186,7 +186,7 @@ describe('OverdueSection', () => {
       const item = createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' });
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={[item]}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -204,7 +204,7 @@ describe('OverdueSection', () => {
       const items = [createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' })];
 
       // Should not throw when onToggleComplete is not provided
-      render(<OverdueSection items={items} onPressItem={mockOnPressItem} />);
+      render(<RolledOverSection items={items} onPressItem={mockOnPressItem} />);
 
       // Checkbox should still render
       expect(screen.getByTestId('overdue-checkbox-0')).toBeTruthy();
@@ -224,7 +224,7 @@ describe('OverdueSection', () => {
       ];
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -232,7 +232,7 @@ describe('OverdueSection', () => {
       );
 
       // Header text should be present
-      expect(screen.getByText('Overdue')).toBeTruthy();
+      expect(screen.getByText('Rolled Over')).toBeTruthy();
       // Expanded chevron should be visible
       expect(screen.getByText('v')).toBeTruthy();
       // Collapsed chevron should NOT be rendered
@@ -246,7 +246,7 @@ describe('OverdueSection', () => {
       ];
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -258,14 +258,14 @@ describe('OverdueSection', () => {
       expect(screen.queryByText('>')).toBeNull();
 
       // Press header to collapse
-      fireEvent.press(screen.getByTestId('overdue-section-header'));
+      fireEvent.press(screen.getByTestId('rolled-over-section-header'));
 
       // Collapsed chevron should be visible, expanded should not
       expect(screen.getByText('>')).toBeTruthy();
       expect(screen.queryByText('v')).toBeNull();
 
       // Press header to expand again
-      fireEvent.press(screen.getByTestId('overdue-section-header'));
+      fireEvent.press(screen.getByTestId('rolled-over-section-header'));
 
       // Back to expanded state
       expect(screen.getByText('v')).toBeTruthy();
@@ -281,7 +281,7 @@ describe('OverdueSection', () => {
       ];
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -293,7 +293,7 @@ describe('OverdueSection', () => {
       expect(screen.getByText('Task 2')).toBeTruthy();
 
       // Press the header to collapse
-      fireEvent.press(screen.getByTestId('overdue-section-header'));
+      fireEvent.press(screen.getByTestId('rolled-over-section-header'));
 
       // Assert the item titles are no longer in the tree
       expect(screen.queryByText('Task 1')).toBeNull();
@@ -307,7 +307,7 @@ describe('OverdueSection', () => {
       ];
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -315,12 +315,12 @@ describe('OverdueSection', () => {
       );
 
       // Collapse
-      fireEvent.press(screen.getByTestId('overdue-section-header'));
+      fireEvent.press(screen.getByTestId('rolled-over-section-header'));
       expect(screen.queryByText('Task 1')).toBeNull();
       expect(screen.queryByText('Task 2')).toBeNull();
 
       // Expand again
-      fireEvent.press(screen.getByTestId('overdue-section-header'));
+      fireEvent.press(screen.getByTestId('rolled-over-section-header'));
 
       // Assert item titles are visible again
       expect(screen.getByText('Task 1')).toBeTruthy();
@@ -337,7 +337,7 @@ describe('OverdueSection', () => {
       );
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -352,8 +352,8 @@ describe('OverdueSection', () => {
       expect(screen.queryByText(`Task ${MAX_VISIBLE + 1}`)).toBeNull();
       expect(screen.queryByText(`Task ${MAX_VISIBLE + 2}`)).toBeNull();
 
-      // "Show X more overdue" row should be visible with correct count
-      expect(screen.getByText('Show 2 more overdue')).toBeTruthy();
+      // "Show X more rolled over" row should be visible with correct count
+      expect(screen.getByText('Show 2 more rolled over')).toBeTruthy();
     });
 
     it('expands to show all items when "Show X more" is pressed', () => {
@@ -362,7 +362,7 @@ describe('OverdueSection', () => {
       );
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -375,7 +375,7 @@ describe('OverdueSection', () => {
       expect(screen.queryByText(`Task ${MAX_VISIBLE + 3}`)).toBeNull();
 
       // Press "Show X more"
-      fireEvent.press(screen.getByText('Show 3 more overdue'));
+      fireEvent.press(screen.getByText('Show 3 more rolled over'));
 
       // All item titles should now be rendered
       for (let i = 1; i <= MAX_VISIBLE + 3; i++) {
@@ -383,7 +383,7 @@ describe('OverdueSection', () => {
       }
 
       // "Show X more" row should no longer be present
-      expect(screen.queryByText(/Show \d+ more overdue/)).toBeNull();
+      expect(screen.queryByText(/Show \d+ more rolled over/)).toBeNull();
     });
 
     it('does not show "Show more" when items length <= MAX_VISIBLE', () => {
@@ -392,7 +392,7 @@ describe('OverdueSection', () => {
       );
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -414,7 +414,7 @@ describe('OverdueSection', () => {
       );
 
       render(
-        <OverdueSection
+        <RolledOverSection
           items={items}
           onPressItem={mockOnPressItem}
           onToggleComplete={mockOnToggleComplete}
@@ -422,13 +422,13 @@ describe('OverdueSection', () => {
       );
 
       // Show more should be visible when expanded
-      expect(screen.getByText('Show 3 more overdue')).toBeTruthy();
+      expect(screen.getByText('Show 3 more rolled over')).toBeTruthy();
 
       // Collapse
-      fireEvent.press(screen.getByTestId('overdue-section-header'));
+      fireEvent.press(screen.getByTestId('rolled-over-section-header'));
 
       // Show more should be hidden
-      expect(screen.queryByText('Show 3 more overdue')).toBeNull();
+      expect(screen.queryByText('Show 3 more rolled over')).toBeNull();
     });
   });
 });

@@ -440,6 +440,22 @@ export const selectOverdueTodos = createSelector([selectActiveTodos], (todos): T
   return todos.filter((t) => t.due_day && t.due_day < today);
 });
 
+/** Rolled over todos - alias for overdue (for Mini-Sweep clarity) */
+export const selectRolledOverTodos = selectOverdueTodos;
+
+/** Unscheduled todos for Mini-Sweep: no due_day, created in last 3 days */
+export const selectUnscheduledTodosForMiniSweep = createSelector(
+  [selectActiveTodos],
+  (todos): Todo[] => {
+    const threeDaysAgo = getDaysAgoDayString(3);
+    return todos.filter((t) => {
+      if (t.due_day) return false; // Must be unscheduled
+      const createdDay = t.created_at?.split('T')[0];
+      return createdDay && createdDay >= threeDaysAgo;
+    });
+  },
+);
+
 /** Todos completed today */
 export const selectTodosCompletedToday = createSelector([selectTodos], (todos): Todo[] => {
   const today = getTodayDayString();
@@ -1236,6 +1252,9 @@ export const usePopularTags = () => useGremlyStore(selectPopularTags);
 export const useArchivedItems = () => useGremlyStore(selectAllArchivedItems);
 
 export const useOverdueTodos = () => useGremlyStore(selectOverdueTodos);
+export const useRolledOverTodos = () => useGremlyStore(selectRolledOverTodos);
+export const useUnscheduledTodosForMiniSweep = () =>
+  useGremlyStore(selectUnscheduledTodosForMiniSweep);
 export const useTodayLogsCount = () => useGremlyStore(selectTodayLogsCount);
 export const useHabitsCompletedToday = () => useGremlyStore(selectHabitsCompletedToday);
 export const useWeeklyHabitSummaries = () => useGremlyStore(selectWeeklyHabitSummaries);

@@ -26,7 +26,7 @@ import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowFocusRow } from '../../components/now/NowFocusRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
-import { OverdueSection, RecentDropsSection, SweepPill } from '../../components/now';
+import { RolledOverSection, RecentDropsSection, SweepPill } from '../../components/now';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
@@ -1086,9 +1086,9 @@ function TodayFocusList({
         />
       )}
 
-      {/* Overdue section */}
+      {/* Rolled over section */}
       {overdueTodos.length > 0 && (
-        <OverdueSection
+        <RolledOverSection
           items={overdueTodos}
           onPressItem={(item) => onPressItem?.(item as unknown as NowActiveItem)}
           onToggleComplete={(item) => onToggleComplete?.(item as unknown as NowActiveItem)}

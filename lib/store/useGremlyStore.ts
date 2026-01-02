@@ -144,11 +144,13 @@ interface GremlyState {
   lastSweepCompletedAt: string | null;
   sweepStreak: number;
   totalSweepCount: number;
+  miniSweepLastCompletedAt: string | null;
   setSweepPreferences: (prefs: {
     lastSweepCompletedAt: string | null;
     sweepStreak: number;
     totalSweepCount: number;
   }) => void;
+  markMiniSweepCompleted: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -288,6 +290,7 @@ const initialState = {
   lastSweepCompletedAt: null as string | null,
   sweepStreak: 0,
   totalSweepCount: 0,
+  miniSweepLastCompletedAt: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -399,6 +402,7 @@ export const useGremlyStore = create<GremlyState>()(
           lastSweepCompletedAt: (cortexPrefs?.last_sweep_completed_at as string) ?? null,
           sweepStreak: (cortexPrefs?.sweep_streak as number) ?? 0,
           totalSweepCount: sweepEventsCountRes.count ?? 0,
+          miniSweepLastCompletedAt: (cortexPrefs?.mini_sweep_last_completed_at as string) ?? null,
           isLoading: false,
           isInitialized: true,
           lastSyncedAt: new Date(),
@@ -467,6 +471,7 @@ export const useGremlyStore = create<GremlyState>()(
         lastSweepCompletedAt: null,
         sweepStreak: 0,
         totalSweepCount: 0,
+        miniSweepLastCompletedAt: null,
       });
     },
 
@@ -482,6 +487,30 @@ export const useGremlyStore = create<GremlyState>()(
         sweepStreak: prefs.sweepStreak,
         totalSweepCount: prefs.totalSweepCount,
       }),
+
+    markMiniSweepCompleted: async () => {
+      const userId = get().userId;
+      if (!userId) return;
+
+      const now = new Date().toISOString();
+
+      // Update in Supabase
+      const { error } = await supabase
+        .from('cortex_preferences')
+        .upsert(
+          { owner_id: userId, mini_sweep_last_completed_at: now },
+          { onConflict: 'owner_id' },
+        );
+
+      if (error) {
+        console.error('[GremlyStore] Failed to mark mini sweep completed:', error);
+        return;
+      }
+
+      // Update local state
+      set({ miniSweepLastCompletedAt: now });
+      console.log('[GremlyStore] Mini sweep marked completed at', now);
+    },
 
     // ═══════════════════════════════════════════════════════════════════
     // TODO MUTATIONS

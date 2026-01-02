@@ -1,7 +1,7 @@
 /**
- * OverdueSection - Compressed overdue list for Today/Now page
+ * RolledOverSection - Compressed rolled over list for Today/Now page
  *
- * Displays overdue todos in a compact, lighter format than main Today cards.
+ * Displays rolled over (overdue) todos in a compact, lighter format than main Today cards.
  * Each row is tappable to open the item details.
  * Uses animated OverdueRow component for completion animation matching Today's Focus.
  */
@@ -37,8 +37,8 @@ const MAX_VISIBLE = 5;
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface OverdueSectionProps {
-  /** List of overdue sweep candidates */
+interface RolledOverSectionProps {
+  /** List of rolled over sweep candidates */
   items: SweepCandidate[];
   /** Callback when an item row is pressed */
   onPressItem: (item: SweepCandidate) => void;
@@ -52,12 +52,12 @@ interface OverdueSectionProps {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function OverdueSection({
+export function RolledOverSection({
   items,
   onPressItem,
   onToggleComplete,
   style,
-}: OverdueSectionProps) {
+}: RolledOverSectionProps) {
   const tokens = useTokens();
   const [collapsed, setCollapsed] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -87,7 +87,7 @@ export function OverdueSection({
       <Pressable
         style={({ pressed }) => [styles.header, pressed && styles.headerPressed]}
         onPress={toggleCollapsed}
-        testID="overdue-section-header"
+        testID="rolled-over-section-header"
       >
         <Text
           style={[
@@ -95,7 +95,7 @@ export function OverdueSection({
             { color: tokens.colors.text, fontFamily: tokens.typography.fontFamily.medium },
           ]}
         >
-          Overdue
+          Rolled Over
         </Text>
         <Text
           style={[
@@ -131,7 +131,7 @@ export function OverdueSection({
             <Pressable
               style={({ pressed }) => [styles.showMoreButton, pressed && styles.showMorePressed]}
               onPress={handleShowMore}
-              testID="overdue-show-more"
+              testID="rolled-over-show-more"
             >
               <Text
                 style={[
@@ -139,7 +139,7 @@ export function OverdueSection({
                   { color: tokens.colors.subtle, fontFamily: tokens.typography.fontFamily.regular },
                 ]}
               >
-                Show {hiddenCount} more overdue
+                Show {hiddenCount} more rolled over
               </Text>
             </Pressable>
           )}
@@ -200,4 +200,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default OverdueSection;
+export default RolledOverSection;
