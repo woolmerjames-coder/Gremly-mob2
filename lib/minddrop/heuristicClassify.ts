@@ -6,6 +6,8 @@
  *
  * Updated: Comprehensive patterns for habit detection, self-talk/venting,
  * phrasal verbs, and better subtype detection.
+ *
+ * v2.1 (2026-01-02): Added habitSubtypeHint for build/break habit detection
  */
 
 import { MindDropBucket, LogSubtype } from './types';
@@ -62,6 +64,14 @@ const habitBehaviorChange =
 const habitPatterns =
   /\b(\d+\s*(x|times)\s*(a|per)\s*(day|week|month)|every\s+(morning|evening|night|day|week|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
 
+// BREAK HABIT patterns - stopping/reducing/avoiding behaviors
+const breakHabitVerbs =
+  /\b(quit|stop|no more|avoid|limit|reduce|cut back|cut out|less|don't|dont|no\s+\w+\s+(during|after|before|at|in|while))\b/i;
+
+// BUILD HABIT patterns - starting/doing/increasing behaviors
+const buildHabitVerbs =
+  /\b(start|begin|do|practice|exercise|meditate|read|drink\s+more|eat\s+more|sleep\s+more|work\s+out|run|walk|journal|write|learn)\b/i;
+
 // "More" pattern for habits: "drink more water", "exercise more", "work out more"
 const habitMoreLessPattern =
   /\b(drink more|eat more|eat less|sleep more|exercise more|work out more|read more|walk more|run more)\b/i;
@@ -100,6 +110,37 @@ const pastTenseReflection =
 // "Take 3 deep breaths when I feel anxious" = HABIT (concrete action is trackable)
 const copingHabitPattern =
   /\b(take|do|go for|write|breathe|call|walk|run|meditate|read)\s+.{1,40}\s+when\s+(i\s+)?(feel\s+|am\s+|get\s+)?(anxious|stressed|overwhelmed|angry|upset|sad|frustrated)\b/i;
+
+// =============================================================================
+// HELPER: Determine habit subtype (build vs break)
+// =============================================================================
+
+/**
+ * Determine if a habit is "start_habit" (build) or "break_habit" (break)
+ * based on the text patterns.
+ */
+function detectHabitSubtype(text: string): HabitSubtype {
+  const lowerText = text.toLowerCase();
+
+  // Check for break patterns first (more specific)
+  // "stop X", "quit X", "no X", "avoid X", "reduce X", "less X", "cut back on X"
+  if (breakHabitVerbs.test(lowerText)) {
+    return 'break_habit';
+  }
+
+  // "No [noun] during/after/before" pattern: "No phone during meals"
+  if (/\bno\s+\w+\s+(during|after|before|at|in|while)\b/i.test(lowerText)) {
+    return 'break_habit';
+  }
+
+  // "Less [noun]" pattern: "Less coffee", "Less screen time"
+  if (/\bless\s+\w+/i.test(lowerText)) {
+    return 'break_habit';
+  }
+
+  // Default to start_habit (build)
+  return 'start_habit';
+}
 
 // =============================================================================
 // CLASSIFICATION FUNCTION
@@ -224,10 +265,11 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
   // ==========================================================================
   if (habitMoreLessPattern.test(lowerText)) {
     signals.push('habitMoreLess');
+    const habitSubtype = detectHabitSubtype(text);
     return {
       bucket: 'habit',
       subtypeHint: null,
-      habitSubtypeHint: 'start_habit', // "More X" patterns are building habits
+      habitSubtypeHint: habitSubtype,
       confidence: 0.6,
       signals,
     };
@@ -350,8 +392,7 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     bucket = 'habit';
     confidence = habitScore;
     subtypeHint = null; // No subtype for habits
-    // Determine habit subtype: break_habit if behavior change verb detected, else start_habit
-    habitSubtypeHint = hasBehaviorChangeVerb ? 'break_habit' : 'start_habit';
+    habitSubtypeHint = detectHabitSubtype(text); // Detect build vs break
   } else {
     bucket = 'log';
     confidence = logScore;
