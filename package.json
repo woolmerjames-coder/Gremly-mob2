@@ -93,6 +93,7 @@
     "babel-jest": "30.2.0",
     "babel-plugin-module-resolver": "^5.0.2",
     "babel-preset-expo": "^54.0.4",
+    "baseline-browser-mapping": "2.9.11",
     "eslint": "8.57.1",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-jest": "^27.9.0",

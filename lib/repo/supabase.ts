@@ -1067,6 +1067,13 @@ export class SupabaseRepo implements IRepo {
       if ('frequency_value' in normalizedPatch) {
         updatePayload.frequency_json = (normalizedPatch as any).frequency_value ?? null;
       }
+      // Canonical frequency fields (SINGLE SOURCE OF TRUTH for frequency display)
+      if ('cadence' in normalizedPatch) {
+        updatePayload.cadence = (normalizedPatch as any).cadence ?? null;
+      }
+      if ('target_per_period' in normalizedPatch) {
+        updatePayload.target_per_period = (normalizedPatch as any).target_per_period ?? null;
+      }
       if ('subtype' in normalizedPatch) updatePayload.subtype = normalizedPatch.subtype ?? null;
       if ('space_id' in normalizedPatch) updatePayload.space_id = normalizedPatch.space_id ?? null;
       if ('ai_placed' in normalizedPatch) updatePayload.ai_placed = !!normalizedPatch.ai_placed;
@@ -1100,6 +1107,12 @@ export class SupabaseRepo implements IRepo {
       // Time window preference (morning/day/evening)
       if ('time_window' in normalizedPatch) {
         updatePayload.time_window = (normalizedPatch as any).time_window ?? null;
+      }
+
+      // Time estimate (Phase 2 enrichment) - also applies to habits
+      if ('time_estimate_minutes' in normalizedPatch) {
+        updatePayload.time_estimate_minutes =
+          (normalizedPatch as any).time_estimate_minutes ?? null;
       }
 
       // Development logging for habit updates

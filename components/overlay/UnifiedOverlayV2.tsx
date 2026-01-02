@@ -34,6 +34,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import {
   X as CloseIcon,
+  Plus,
   Calendar,
   Pencil,
   RotateCw,
@@ -90,7 +91,6 @@ import {
   filterMindDropTodoTags,
 } from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
-import { useOverlayV2Draft, readOverlayV2Draft, clearOverlayV2Draft } from './useOverlayV2Draft';
 import { eventBus } from '../../lib/events/EventBus';
 import { getTodayISO } from '../../app/utils/recurrence';
 import { TagsRow, type TagsRowTag } from './fields/TagsRow';
@@ -113,6 +113,11 @@ import {
   getFrequencyLabel,
   DAY_LABELS,
 } from './frequencyHelpers';
+import {
+  canonicalToFrequencyJson,
+  frequencyJsonToCanonical,
+  parseFrequencyString,
+} from '../../lib/habits/frequencyUtils';
 
 // Make Actionable feature
 import { MakeActionableButton } from './MakeActionableButton';
@@ -130,13 +135,24 @@ import {
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
 
+// Mood options matching Sweep
+const MOOD_OPTIONS = [
+  'great',
+  'good',
+  'okay',
+  'low',
+  'tired',
+  'anxious',
+  'grateful',
+  'scattered',
+  'hopeful',
+  'rough',
+] as const;
+
 /**
  * Constructs frequency_json from DB columns for the overlay's FrequencyConfig format.
  *
- * Handles two DB schemas:
- * 1. New schema: cadence ('daily'|'weekly'|'monthly') + target_per_period (number)
- * 2. Legacy schema: frequency (string) + frequency_value (number)
- *
+ * Uses centralized frequencyUtils for canonical schema, with fallback for legacy schema.
  * Priority: cadence/target_per_period > frequency_value > parsed frequency string
  */
 function buildFrequencyJsonFromDb(
@@ -150,92 +166,24 @@ function buildFrequencyJsonFromDb(
     return frequencyValue;
   }
 
-  // NEW: Check cadence + target_per_period first (canonical schema)
+  // Use centralized utility for canonical schema (SINGLE SOURCE OF TRUTH)
   if (cadence) {
-    const normalizedCadence = cadence.toLowerCase();
-    const target = targetPerPeriod ?? 1;
-
-    // Map cadence to unit
-    let unit: 'day' | 'week' | 'month' = 'day';
-    if (normalizedCadence === 'weekly' || normalizedCadence === 'week') {
-      unit = 'week';
-    } else if (normalizedCadence === 'monthly' || normalizedCadence === 'month') {
-      unit = 'month';
-    }
-
-    // If target > 1 or not daily, use custom mode
-    if (target > 1 || unit !== 'day') {
-      if (target === 1) {
-        // "1 time per week" -> simple weekly, "1 time per month" -> simple monthly
-        if (unit === 'week') return { type: 'simple', value: 'weekly' };
-        if (unit === 'month') return { type: 'simple', value: 'monthly' };
-        return { type: 'simple', value: 'daily' };
-      }
-      return { type: 'custom', count: target, unit };
-    }
-
-    // Daily with target=1 -> simple daily
-    return { type: 'simple', value: 'daily' };
+    return canonicalToFrequencyJson(cadence, targetPerPeriod);
   }
 
-  const freq = (frequency || 'daily').toLowerCase();
-
-  // If there's a numeric frequency_value, it means "N times per <freq>"
-  if (typeof frequencyValue === 'number' && frequencyValue > 0) {
-    // Map frequency to custom unit
-    const unit = freq === 'weekly' ? 'week' : freq === 'monthly' ? 'month' : 'day';
-    return { type: 'custom', count: frequencyValue, unit };
+  // Legacy: parse frequency string if no canonical fields
+  if (frequency) {
+    const { cadence: parsedCadence, target_per_period } = parseFrequencyString(frequency);
+    return canonicalToFrequencyJson(parsedCadence, target_per_period);
   }
 
-  // Parse "Nx/week" or "Nx/month" format (common format from habit creation)
-  const nxMatch = freq.match(/(\d+)x\/(week|month|day)/i);
-  if (nxMatch) {
-    const count = parseInt(nxMatch[1], 10);
-    const unit = nxMatch[2].toLowerCase();
-    if (count === 1) {
-      if (unit === 'week') return { type: 'simple', value: 'weekly' };
-      if (unit === 'month') return { type: 'simple', value: 'monthly' };
-      return { type: 'simple', value: 'daily' };
-    }
-    return { type: 'custom', count, unit };
-  }
-
-  // Parse "N times a week/day/month" format from AI enrichment
-  const timesMatch = freq.match(/(\d+)\s*(?:times?\s+(?:a|per)\s*)(day|week|month)/i);
-  if (timesMatch) {
-    const count = parseInt(timesMatch[1], 10);
-    const unit = timesMatch[2].toLowerCase();
-    return { type: 'custom', count, unit };
-  }
-
-  // Parse "twice a week/day/month"
-  const twiceMatch = freq.match(/twice\s+(?:a|per)\s*(day|week|month)/i);
-  if (twiceMatch) {
-    const unit = twiceMatch[1].toLowerCase();
-    return { type: 'custom', count: 2, unit };
-  }
-
-  // Parse "once a week/day/month"
-  const onceMatch = freq.match(/once\s+(?:a|per)\s*(day|week|month)/i);
-  if (onceMatch) {
-    const unit = onceMatch[1].toLowerCase();
-    if (unit === 'day') return { type: 'simple', value: 'daily' };
-    if (unit === 'week') return { type: 'simple', value: 'weekly' };
-    if (unit === 'month') return { type: 'simple', value: 'monthly' };
-  }
-
-  // Simple frequency (daily, weekly, monthly)
-  if (freq === 'daily' || freq === 'weekly' || freq === 'monthly') {
-    return { type: 'simple', value: freq };
-  }
-
-  // Custom frequency without a value - default to simple daily
+  // Default to daily
   return { type: 'simple', value: 'daily' };
 }
 
 /**
  * Convert frequency_json back to canonical cadence/target_per_period fields.
- * This ensures the DB has the canonical fields set when saving a habit.
+ * Uses centralized frequencyUtils (SINGLE SOURCE OF TRUTH).
  *
  * @param frequencyJson - The frequency_json object from overlay state
  * @param schedule - The schedule string from overlay state (fallback)
@@ -245,21 +193,9 @@ function frequencyJsonToCadenceFields(
   frequencyJson: any,
   schedule?: string | null,
 ): { cadence: 'daily' | 'weekly' | 'monthly'; target_per_period: number } {
-  // Parse from frequency_json object
+  // Use centralized utility (SINGLE SOURCE OF TRUTH)
   if (frequencyJson && typeof frequencyJson === 'object') {
-    if (frequencyJson.type === 'simple') {
-      const value = frequencyJson.value?.toLowerCase();
-      if (value === 'weekly') return { cadence: 'weekly', target_per_period: 1 };
-      if (value === 'monthly') return { cadence: 'monthly', target_per_period: 1 };
-      return { cadence: 'daily', target_per_period: 1 };
-    }
-    if (frequencyJson.type === 'custom') {
-      const count = frequencyJson.count ?? 1;
-      const unit = frequencyJson.unit?.toLowerCase();
-      if (unit === 'week') return { cadence: 'weekly', target_per_period: count };
-      if (unit === 'month') return { cadence: 'monthly', target_per_period: count };
-      return { cadence: 'daily', target_per_period: count };
-    }
+    return frequencyJsonToCanonical(frequencyJson);
   }
 
   // Fallback to schedule string
@@ -315,7 +251,7 @@ const TIME_WINDOW_OPTIONS: {
 }[] = [
   { label: 'Any time', value: null },
   { label: 'Morning', value: 'morning' },
-  { label: 'Day', value: 'day' },
+  { label: 'Afternoon', value: 'day' }, // Display "Afternoon", store as 'day'
   { label: 'Evening', value: 'evening' },
 ];
 
@@ -959,13 +895,6 @@ try {
   console.error('UnifiedOverlayV2 sanity check failed:', e && e.message ? e.message : e);
 }
 
-// Mood options for journal logs (Phase L2)
-const MOOD_OPTIONS = [
-  { value: 'pos' as const, emoji: '😊', label: 'Good' },
-  { value: 'neu' as const, emoji: '😐', label: 'Okay' },
-  { value: 'neg' as const, emoji: '😔', label: 'Low' },
-];
-
 // Helper to format log timestamp (Phase L2)
 function formatLogTimestamp(mode: 'create' | 'edit' | 'view', entity: any | null): string {
   try {
@@ -1225,7 +1154,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showTodoPreview, setShowTodoPreview] = useState(false);
   const [extractedItems, setExtractedItems] = useState<ExtractedListItem[]>([]);
   const [checklistItems, setChecklistItems] = useState<ListItem[] | null>(null);
+  const [userClearedChecklist, setUserClearedChecklist] = useState(false);
+
+  // Reset checklistItems when overlay opens - critical for reopening same entity
+  useEffect(() => {
+    if (!visible) return;
+
+    // Get the freshest has_list value from the entity passed via openEdit
+    const passedEntity = initialEntity as any;
+    const entityData = fullEntity || passedEntity;
+
+    if (entityData?.has_list === true && entityData?.list_items?.length > 0) {
+      setChecklistItems(entityData.list_items);
+    } else {
+      // Explicitly clear - this is the key fix
+      setChecklistItems(null);
+    }
+  }, [visible]); // Only run when visibility changes
+
   const [isFavorite, setIsFavorite] = useState(false);
+  const [moodPickerExpanded, setMoodPickerExpanded] = useState(false);
   const [sourceNote, setSourceNote] = useState<{ id: string; title: string } | null>(null);
   const [isCreatingTodos, setIsCreatingTodos] = useState(false);
 
@@ -1399,7 +1347,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [baseType, mode, initialLogPhotoUris]);
 
   // Mood selector for journal logs (Phase L4)
-  const [mood, setMood] = useState<'happy' | 'neutral' | 'sad'>('neutral');
+  const [mood, setMood] = useState<(typeof MOOD_OPTIONS)[number] | null>(null);
 
   // focus states for accessibility focus rings
   const [bodyFocused, setBodyFocused] = useState(false);
@@ -1492,7 +1440,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setPhotoUri(null);
       setLogPhotos([]);
       setSelectedPhotoIndex(null);
-      setMood('neutral');
+      setMood(null);
+      setMoodPickerExpanded(false);
 
       // Reset refs
       createPrefillAppliedRef.current = false;
@@ -1612,18 +1561,27 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Initialize Make Actionable state from entity
   useEffect(() => {
-    const entity = fullEntity || (initialEntity as any);
+    // Prefer the entity passed directly via openEdit (initialEntity) for has_list check
+    // because the store (fullEntity) may have stale data
+    const passedEntity = initialEntity as any;
+    const entity = fullEntity || passedEntity;
 
     if (entity) {
       // Initialize favorite state
       setIsFavorite(entity.is_favorite ?? false);
 
       // Initialize checklist state if note has list - only on first load
-      // Don't reset if we already have checklist items locally (user just converted)
-      if (entity.has_list && entity.list_items) {
-        setChecklistItems(entity.list_items);
+      // CRITICAL: Check has_list from the passed entity first (freshest source)
+      // The store may have stale list_items even after has_list was set to false
+      const hasListFlag = passedEntity?.has_list ?? entity?.has_list;
+      const listItems = passedEntity?.list_items ?? entity?.list_items;
+
+      if (hasListFlag === true && listItems && Array.isArray(listItems) && listItems.length > 0) {
+        setChecklistItems(listItems);
+      } else if (hasListFlag === false) {
+        // Explicitly clear if has_list is false (user reverted the checklist)
+        setChecklistItems(null);
       }
-      // Note: Don't set to null here - that would reset after user converts to checklist
     }
   }, [fullEntity, initialEntity]);
 
@@ -2028,6 +1986,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const handleTypeSelect = useCallback(
     (next: BaseType) => {
       if (state.baseType === next) return;
+      setMoodPickerExpanded(false); // Collapse mood picker on type change
       const prev = state.baseType;
       pushUndoEntry('type', {
         baseType: state.baseType,
@@ -2188,11 +2147,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [mode, viewModeOpacity, editModeOpacity, reduceMotion]);
 
-  const draftKey = useMemo(
-    () => `overlayV2:draft:${mode}:${baseType}:${initialSpaceId ?? 'none'}`,
-    [mode, baseType, initialSpaceId],
-  );
-
   // load existing draft once
   const currentText =
     baseType === 'log'
@@ -2232,20 +2186,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     state.habit.notes,
     state.habit.title,
   ]);
-
-  useEffect(() => {
-    let mounted = true;
-    readOverlayV2Draft(draftKey).then((v) => {
-      if (mounted && v && !currentText) dispatch({ type: 'SET_TEXT', text: v });
-    });
-    return () => {
-      mounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftKey]);
-
-  // autosave on change
-  useOverlayV2Draft(draftKey, currentText);
 
   function pushUndoEntry(kind: 'type' | 'tag' | 'commitment', prev: Partial<any>) {
     try {
@@ -3263,7 +3203,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     spaceId: string | null,
     existingEntity?: any,
     photoUri?: string | null, // Phase L3: Photo support
-    mood?: 'happy' | 'neutral' | 'sad', // Phase L4: Mood for journals
+    mood?: (typeof MOOD_OPTIONS)[number] | null, // Phase L4: Mood for journals
     effectiveLogSubtype?: 'journal' | 'idea' | 'general' | 'list', // Phase L8: Manual log subtype
   ) {
     const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
@@ -3380,7 +3320,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Build views object - preserve existing views from entity
     const entity = fullEntity || initialEntity;
     const existingViews = entity?.views || {};
-    const viewsWithPrefillFlag = existingEntity?.views || existingViews;
+    const viewsWithPrefillFlag = {
+      ...(existingEntity?.views || existingViews || {}),
+      // Persist title_user_edited flag so we know not to overwrite user's title on future opens
+      title_user_edited:
+        state.userEditedTitle || (existingEntity?.views as any)?.title_user_edited || false,
+    };
 
     // Preserve existing tags_meta when available, only override if tags were modified
     const existingTagsMeta = existingEntity?.tags_meta ??
@@ -3525,6 +3470,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           start_date: s.habit.start_date ?? null,
           end_date: s.habit.end_date ?? null,
           time_window: s.habit.time_window ?? null,
+          time_estimate_minutes: s.habit.time_estimate_minutes ?? null,
           // Commitment fields (only for todos/habits)
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
@@ -3551,6 +3497,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         start_date: s.habit.start_date ?? null,
         end_date: s.habit.end_date ?? null,
         time_window: s.habit.time_window ?? null,
+        time_estimate_minutes: s.habit.time_estimate_minutes ?? null,
         ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
@@ -3618,6 +3565,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (__DEV__ && s.spaceId === null) {
         console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
       }
+      console.log('[DEBUG-CHECKLIST] Mind Drop save payload:', {
+        isChecklistMode,
+        checklistItems,
+        stateIsChecklistMode: s.isChecklistMode,
+        entityHasList: existingEntity?.has_list,
+      });
       return {
         type: 'note' as const,
         ...canonical, // Spread canonical fields (title, body, tags, tags_meta, canonicalType, labels)
@@ -3629,6 +3582,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ...fmtPatch,
         ...datePatch,
         ...photoPatch,
+        // Checklist persistence - use isChecklistMode as the source of truth
+        has_list: isChecklistMode,
+        list_items: checklistItems,
       };
     }
 
@@ -3694,6 +3650,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
         : viewsWithPrefillFlag;
 
+    console.log('[DEBUG-CHECKLIST] Base note save payload:', {
+      isChecklistMode,
+      checklistItems,
+      stateIsChecklistMode: s.isChecklistMode,
+      entityHasList: existingEntity?.has_list,
+    });
     return {
       ...base,
       views: viewsWithPrivate2, // Override with views containing private_journal
@@ -3701,6 +3663,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       ...fmtPatch,
       ...datePatch,
       ...photoPatch,
+      // Checklist persistence - use isChecklistMode as the source of truth
+      has_list: isChecklistMode,
+      list_items: checklistItems,
     };
   }
 
@@ -3897,9 +3862,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const savedType = (result as any)?.type ?? baseType;
       const savedId = result?.id;
 
-      // Clear saving state and draft
+      // Clear saving state
       setIsSaving(false);
-      void clearOverlayV2Draft(draftKey);
+      setUserClearedChecklist(false);
 
       // Notify parent and close
       try {
@@ -4198,7 +4163,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     initialEntity,
     fullEntity,
     repo,
-    draftKey,
     onClose,
     isOffline,
     reduceMotion,
@@ -4209,9 +4173,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   ]);
 
   const handleCancel = useCallback(async () => {
-    await clearOverlayV2Draft(draftKey);
     onClose?.();
-  }, [draftKey, onClose]);
+  }, [onClose]);
 
   // ============================================================================
   // VIEW MODE CONTENT RENDERER
@@ -4554,8 +4517,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             >
               Mood:
             </Text>
-            <Text style={{ fontSize: 20 }}>
-              {mood === 'happy' ? '😊' : mood === 'neutral' ? '😐' : '😔'}
+            <Text style={{ fontSize: 14, color: colorMode === 'dark' ? '#fff' : '#2E5540' }}>
+              {mood ? mood.charAt(0).toUpperCase() + mood.slice(1) : 'None'}
             </Text>
           </View>
         )}
@@ -4711,18 +4674,40 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         <View
                           style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}
                         >
-                          <Text
-                            variant="title"
-                            style={{
-                              color: '#222222',
-                              fontWeight: '500',
-                              fontSize: 18,
-                              flex: 1,
-                            }}
-                            numberOfLines={1}
-                          >
-                            {headerFor(baseType, mode, overlaySubtitle)}
-                          </Text>
+                          {mode === 'edit' && initialEntity?.id ? (
+                            <TextInput
+                              value={state.compactTitle}
+                              onChangeText={(text) =>
+                                dispatch({ type: 'SET_COMPACT_TITLE', title: text })
+                              }
+                              placeholder="Add title..."
+                              placeholderTextColor="#999999"
+                              style={{
+                                color: '#222222',
+                                fontWeight: '500',
+                                fontSize: 18,
+                                flex: 1,
+                                padding: 0,
+                                margin: 0,
+                              }}
+                              maxLength={100}
+                              selectTextOnFocus={false}
+                              autoCorrect={false}
+                            />
+                          ) : (
+                            <Text
+                              variant="title"
+                              style={{
+                                color: '#222222',
+                                fontWeight: '500',
+                                fontSize: 18,
+                                flex: 1,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {headerFor(baseType, mode, overlaySubtitle)}
+                            </Text>
+                          )}
                           {/* Lock In badge */}
                           {isLockedIn ? (
                             <View
@@ -4895,6 +4880,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       {!isViewMode && (
                         <ScrollView
                           keyboardShouldPersistTaps="handled"
+                          onScrollBeginDrag={() => setMoodPickerExpanded(false)}
                           contentContainerStyle={{
                             paddingHorizontal: 16,
                             paddingBottom: 8,
@@ -4980,9 +4966,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   effectiveLogSubtype === 'journal' ? new Date() : undefined
                                 }
                                 isChecklistMode={isChecklistMode}
-                                onToggleChecklistMode={() =>
-                                  dispatch({ type: 'TOGGLE_CHECKLIST_MODE' })
-                                }
+                                onToggleChecklistMode={() => {
+                                  console.log('[DEBUG-CHECKLIST] Before toggle:', {
+                                    stateIsChecklistMode: state.isChecklistMode,
+                                    checklistItems,
+                                  });
+                                  const newMode = !state.isChecklistMode;
+                                  dispatch({ type: 'TOGGLE_CHECKLIST_MODE' });
+                                  console.log(
+                                    '[DEBUG-CHECKLIST] After toggle dispatch, newMode:',
+                                    newMode,
+                                  );
+                                  if (!newMode && checklistItems && checklistItems.length > 0) {
+                                    console.log('[DEBUG-CHECKLIST] Clearing checklist items');
+                                    setUserClearedChecklist(true);
+                                    setChecklistItems(null);
+                                  }
+                                }}
                               />
                             ) : isPreviewMode ? (
                               /* Preview mode: Formatted read-only content */
@@ -5064,7 +5064,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   editable={!isViewMode}
                                   pointerEvents={isViewMode ? 'none' : 'auto'}
                                   accessibilityLabel="Overlay content input"
-                                  onFocus={() => setBodyFocused(true)}
+                                  onFocus={() => {
+                                    setBodyFocused(true);
+                                    setMoodPickerExpanded(false);
+                                  }}
                                   onBlur={() => setBodyFocused(false)}
                                   placeholder="Add notes..."
                                   placeholderTextColor={lightTokens.colors.subtle}
@@ -5254,47 +5257,132 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     )}
                                   </View>
                                 ) : null}
-                                <View style={styles.moodRow}>
-                                  <Pressable
-                                    onPress={() => setMood('happy')}
-                                    hitSlop={8}
-                                    style={[
-                                      styles.moodButton,
-                                      mood === 'happy' && styles.moodButtonActive,
-                                    ]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Set mood to happy"
-                                    disabled={isViewMode}
-                                  >
-                                    <Text style={{ fontSize: 20 }}>😊</Text>
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => setMood('neutral')}
-                                    hitSlop={8}
-                                    style={[
-                                      styles.moodButton,
-                                      mood === 'neutral' && styles.moodButtonActive,
-                                    ]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Set mood to neutral"
-                                    disabled={isViewMode}
-                                  >
-                                    <Text style={{ fontSize: 20 }}>😐</Text>
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => setMood('sad')}
-                                    hitSlop={8}
-                                    style={[
-                                      styles.moodButton,
-                                      mood === 'sad' && styles.moodButtonActive,
-                                    ]}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Set mood to sad"
-                                    disabled={isViewMode}
-                                  >
-                                    <Text style={{ fontSize: 20 }}>😔</Text>
-                                  </Pressable>
-                                </View>
+                                {/* Mood picker - collapsed/expanded states */}
+                                {!moodPickerExpanded ? (
+                                  // Collapsed state
+                                  mood ? (
+                                    // Mood is set - show as chip with clear button
+                                    <Pressable
+                                      onPress={() => !isViewMode && setMoodPickerExpanded(true)}
+                                      style={[
+                                        styles.moodChip,
+                                        {
+                                          backgroundColor:
+                                            colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.1)'
+                                              : '#E8F0EB',
+                                        },
+                                      ]}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={`Mood: ${mood}. Tap to change`}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.moodChipText,
+                                          { color: colorMode === 'dark' ? '#fff' : '#2E5540' },
+                                        ]}
+                                      >
+                                        {mood.charAt(0).toUpperCase() + mood.slice(1)}
+                                      </Text>
+                                      {!isViewMode && (
+                                        <Pressable
+                                          onPress={(e) => {
+                                            e.stopPropagation();
+                                            setMood(null);
+                                            setMoodPickerExpanded(false);
+                                          }}
+                                          hitSlop={8}
+                                          accessibilityLabel="Clear mood"
+                                        >
+                                          <CloseIcon
+                                            size={14}
+                                            color={
+                                              colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.6)'
+                                                : '#666'
+                                            }
+                                          />
+                                        </Pressable>
+                                      )}
+                                    </Pressable>
+                                  ) : (
+                                    // No mood set - show "+ Mood" button
+                                    !isViewMode && (
+                                      <Pressable
+                                        onPress={() => setMoodPickerExpanded(true)}
+                                        style={[
+                                          styles.moodChip,
+                                          {
+                                            backgroundColor:
+                                              colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.05)'
+                                                : '#F5F5F5',
+                                          },
+                                        ]}
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Add mood"
+                                      >
+                                        <Plus
+                                          size={14}
+                                          color={
+                                            colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#888'
+                                          }
+                                        />
+                                        <Text
+                                          style={[
+                                            styles.moodChipText,
+                                            {
+                                              color:
+                                                colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.5)'
+                                                  : '#888',
+                                            },
+                                          ]}
+                                        >
+                                          Mood
+                                        </Text>
+                                      </Pressable>
+                                    )
+                                  )
+                                ) : (
+                                  // Expanded state - show all mood options
+                                  <View style={styles.moodPickerExpanded}>
+                                    {MOOD_OPTIONS.map((moodOption) => (
+                                      <Pressable
+                                        key={moodOption}
+                                        onPress={() => {
+                                          setMood(moodOption as any);
+                                          setMoodPickerExpanded(false);
+                                        }}
+                                        style={[
+                                          styles.moodOptionChip,
+                                          mood === moodOption && styles.moodOptionChipActive,
+                                          {
+                                            backgroundColor:
+                                              mood === moodOption
+                                                ? colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.2)'
+                                                  : '#D4E8DA'
+                                                : colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.08)'
+                                                  : '#F0F4F2',
+                                          },
+                                        ]}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Set mood to ${moodOption}`}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.moodOptionText,
+                                            { color: colorMode === 'dark' ? '#fff' : '#2E5540' },
+                                          ]}
+                                        >
+                                          {moodOption.charAt(0).toUpperCase() + moodOption.slice(1)}
+                                        </Text>
+                                      </Pressable>
+                                    ))}
+                                  </View>
+                                )}
                               </View>
                             </Box>
                           ) : null}
@@ -5310,6 +5398,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       <Pressable
                                         style={styles.dueDatePill}
                                         onPress={() => {
+                                          setMoodPickerExpanded(false); // Collapse mood picker
                                           // Pre-fill date picker with current due_day if set
                                           if (state.todo.due_day) {
                                             const parsed = getDateService().fromDateString(
@@ -5684,8 +5773,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         : 'No end date'}
                                     </Text>
                                   </Pressable>
+                                </View>
 
-                                  {/* Time Window Picker */}
+                                {/* Time Window on its own row */}
+                                <View
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    marginTop: 8,
+                                    paddingLeft: 12,
+                                    gap: 8,
+                                  }}
+                                >
                                   <Pressable
                                     style={styles.habitDatePill}
                                     onPress={() => setShowTimeWindowModal(true)}
@@ -5707,11 +5806,51 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         },
                                       ]}
                                     >
-                                      {state.habit.time_window
+                                      {state.habit.time_window && state.habit.time_window !== 'any'
                                         ? TIME_WINDOW_OPTIONS.find(
                                             (o) => o.value === state.habit.time_window,
                                           )?.label || state.habit.time_window
                                         : 'Any time'}
+                                    </Text>
+                                  </Pressable>
+
+                                  {/* Time Estimate chip - compact view */}
+                                  <Pressable
+                                    style={styles.habitDatePill}
+                                    onPress={() => setShowTimeEstimateModal(true)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={
+                                      state.habit.time_estimate_minutes
+                                        ? `Time estimate: ${state.habit.time_estimate_minutes} minutes`
+                                        : 'Set time estimate'
+                                    }
+                                  >
+                                    <Clock
+                                      size={14}
+                                      color={
+                                        state.habit.time_estimate_minutes
+                                          ? colorMode === 'dark'
+                                            ? 'rgba(255,255,255,0.7)'
+                                            : '#666666'
+                                          : colorMode === 'dark'
+                                            ? 'rgba(255,255,255,0.5)'
+                                            : '#999999'
+                                      }
+                                    />
+                                    <Text
+                                      style={[
+                                        styles.habitDateText,
+                                        !state.habit.time_estimate_minutes && {
+                                          color:
+                                            colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.5)'
+                                              : '#999999',
+                                        },
+                                      ]}
+                                    >
+                                      {state.habit.time_estimate_minutes
+                                        ? `~${state.habit.time_estimate_minutes}m`
+                                        : 'Time'}
                                     </Text>
                                   </Pressable>
                                 </View>
@@ -6866,36 +7005,58 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           How long will this take?
                         </Text>
                         <View style={styles.timeEstimateGrid}>
-                          {TIME_ESTIMATE_OPTIONS.map((option) => (
-                            <Pressable
-                              key={option.value}
-                              style={[
-                                styles.timeEstimateOption,
-                                state.todo.time_estimate_minutes === option.value &&
-                                  styles.timeEstimateOptionSelected,
-                              ]}
-                              onPress={() => {
-                                dispatch({ type: 'SET_TODO_TIME_ESTIMATE', minutes: option.value });
-                                setShowTimeEstimateModal(false);
-                              }}
-                            >
-                              <Text
+                          {TIME_ESTIMATE_OPTIONS.map((option) => {
+                            const currentEstimate =
+                              baseType === 'habit'
+                                ? state.habit.time_estimate_minutes
+                                : state.todo.time_estimate_minutes;
+                            return (
+                              <Pressable
+                                key={option.value}
                                 style={[
-                                  styles.timeEstimateOptionText,
-                                  state.todo.time_estimate_minutes === option.value &&
-                                    styles.timeEstimateOptionTextSelected,
+                                  styles.timeEstimateOption,
+                                  currentEstimate === option.value &&
+                                    styles.timeEstimateOptionSelected,
                                 ]}
+                                onPress={() => {
+                                  if (baseType === 'habit') {
+                                    dispatch({
+                                      type: 'SET_HABIT_TIME_ESTIMATE',
+                                      minutes: option.value,
+                                    });
+                                  } else {
+                                    dispatch({
+                                      type: 'SET_TODO_TIME_ESTIMATE',
+                                      minutes: option.value,
+                                    });
+                                  }
+                                  setShowTimeEstimateModal(false);
+                                }}
                               >
-                                {option.label}
-                              </Text>
-                            </Pressable>
-                          ))}
+                                <Text
+                                  style={[
+                                    styles.timeEstimateOptionText,
+                                    currentEstimate === option.value &&
+                                      styles.timeEstimateOptionTextSelected,
+                                  ]}
+                                >
+                                  {option.label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
                         </View>
-                        {state.todo.time_estimate_minutes && (
+                        {(baseType === 'habit'
+                          ? state.habit.time_estimate_minutes
+                          : state.todo.time_estimate_minutes) && (
                           <Pressable
                             style={styles.timeEstimateClearButton}
                             onPress={() => {
-                              dispatch({ type: 'SET_TODO_TIME_ESTIMATE', minutes: null });
+                              if (baseType === 'habit') {
+                                dispatch({ type: 'SET_HABIT_TIME_ESTIMATE', minutes: null });
+                              } else {
+                                dispatch({ type: 'SET_TODO_TIME_ESTIMATE', minutes: null });
+                              }
                               setShowTimeEstimateModal(false);
                             }}
                           >
@@ -8438,6 +8599,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         start_date: (entity as any)?.start_date ?? null,
         end_date: (entity as any)?.end_date ?? null,
         time_window: (entity as any)?.time_window ?? null,
+        time_estimate_minutes: (entity as any)?.time_estimate_minutes ?? null,
       },
       todo: {
         title: compactTitle,
@@ -8563,6 +8725,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     baseType,
     compactTitle: title || '', // Preserve entity title as compactTitle
     compactTitleSource: title || '', // Track source of title
+    userEditedTitle: (entity?.views as any)?.title_user_edited ?? false, // Respect if user previously edited title
     log: {
       title: logTitle,
       body: logBody,
@@ -8607,10 +8770,12 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     spaceId: (entity as any)?.space_id ?? null,
     // Reminder support (for journals and todos)
     reminderAt: reminders?.[0]?.when ?? null, // Map first reminder to reminderAt for backwards compat
-    // Auto-enable checklist mode for comma-separated lists OR existing checklist markup
+    // Checklist mode: respect explicit has_list value from database, only auto-detect if not set
     isChecklistMode:
       baseType === 'log' &&
-      (looksLikeSimpleCommaList(logBody) || looksLikeChecklistMarkup(logBody)),
+      (entity?.has_list === true || // User explicitly saved as list
+        (entity?.has_list == null && // Not explicitly set yet - auto-detect
+          (looksLikeSimpleCommaList(logBody) || looksLikeChecklistMarkup(logBody)))),
   };
 
   return payload;
@@ -8993,6 +9158,38 @@ const styles = StyleSheet.create({
   },
   moodButtonActive: {
     backgroundColor: '#CDE8D0', // deeper sage when selected
+  },
+  // New mood picker styles
+  moodChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  moodChipText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+  },
+  moodPickerExpanded: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  moodOptionChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  moodOptionChipActive: {
+    // Active state handled inline
+  },
+  moodOptionText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
   },
   // Legacy mood pill styles (Phase L2, deprecated in L4)
   moodPill: {

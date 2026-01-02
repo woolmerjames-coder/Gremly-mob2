@@ -75,6 +75,8 @@ export type HabitState = {
   end_date?: string | null;
   /** Preferred time of day for scheduling (from AI or user) */
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
+  /** Estimated minutes per session */
+  time_estimate_minutes?: number | null;
 };
 
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
@@ -180,6 +182,7 @@ export const initialV2State: V2State = {
     start_date: null,
     end_date: null,
     time_window: null,
+    time_estimate_minutes: null,
   },
   undoStack: [],
   logSubtypeOverride: null, // Phase L8: Manual log subtype override
@@ -206,6 +209,7 @@ type Action =
   | { type: 'SET_TODO_TIME_ESTIMATE'; minutes: number | null }
   | { type: 'SET_TODO_TIME_WINDOW'; window: 'any' | 'morning' | 'day' | 'evening' | null }
   | { type: 'SET_HABIT_TIME_WINDOW'; window: 'any' | 'morning' | 'day' | 'evening' | null }
+  | { type: 'SET_HABIT_TIME_ESTIMATE'; minutes: number | null }
   | { type: 'TOGGLE_COMMITMENT' }
   | { type: 'SET_COMMITMENT_NOTE'; note: string }
   | { type: 'SET_TAGS'; tags: TagKey[] }
@@ -263,6 +267,16 @@ export function v2Reducer(state: V2State, action: Action): V2State {
         next = { ...next, todo: { ...next.todo, details: currentText } };
       } else if (action.to === 'habit' && !next.habit.notes) {
         next = { ...next, habit: { ...next.habit, notes: currentText } };
+      }
+      // Also copy the user-edited title to the new type
+      if (state.userEditedTitle && state.compactTitle) {
+        if (action.to === 'todo') {
+          next = { ...next, todo: { ...next.todo, title: state.compactTitle } };
+        } else if (action.to === 'habit') {
+          next = { ...next, habit: { ...next.habit, title: state.compactTitle } };
+        } else if (action.to === 'log') {
+          next = { ...next, log: { ...next.log, title: state.compactTitle } };
+        }
       }
       return syncCompactTitle(next, []);
     }
@@ -382,10 +396,23 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       };
     }
     case 'SET_COMPACT_TITLE': {
-      return {
+      // Update compactTitle AND the underlying entity title so it persists on save
+      let next = {
         ...state,
         compactTitle: action.title,
+        userEditedTitle: true,
       };
+
+      // Sync to the actual entity title field based on current baseType
+      if (state.baseType === 'todo') {
+        next = { ...next, todo: { ...next.todo, title: action.title } };
+      } else if (state.baseType === 'habit') {
+        next = { ...next, habit: { ...next.habit, title: action.title } };
+      } else if (state.baseType === 'log') {
+        next = { ...next, log: { ...next.log, title: action.title } };
+      }
+
+      return next;
     }
     case 'SET_TODO_DUE':
       // GREMLY TODO DATE MODEL:
@@ -417,6 +444,8 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, todo: { ...state.todo, time_window: action.window } };
     case 'SET_HABIT_TIME_WINDOW':
       return { ...state, habit: { ...state.habit, time_window: action.window } };
+    case 'SET_HABIT_TIME_ESTIMATE':
+      return { ...state, habit: { ...state.habit, time_estimate_minutes: action.minutes } };
     case 'TOGGLE_COMMITMENT': {
       const turningOn = !state.commitment;
       // If turning on and no prior startedAt, stamp a start time. If turning off, keep history.

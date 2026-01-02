@@ -3,10 +3,8 @@
 import { useMemo } from 'react';
 import { useGremlyStore } from '../../store/useGremlyStore';
 import type { Habit } from '../../types';
-import {
-  getFrequencyLabel as getHabitFrequencyLabel,
-  normalizeCadence,
-} from '../../sweep/habitHelpers';
+import { normalizeCadence } from '../../sweep/habitHelpers';
+import { getFrequencyDisplayLabel } from '../../habits/frequencyUtils';
 
 export interface HabitMetadata {
   type: 'streak' | 'days_since' | 'rolling_progress';
@@ -91,8 +89,9 @@ export function computeHabitMetadata(
   const targetPerPeriod = inferredTarget ?? habit.target_per_period ?? 1;
   const today = new Date();
 
-  // Use centralized frequency label from habitHelpers
-  const frequencyLabel = getHabitFrequencyLabel(habit as Habit);
+  // Use inferred cadence and target for the display label
+  // This ensures "5 times a week" shows as "5x/week" even if cadence field is wrong
+  const frequencyLabel = getFrequencyDisplayLabel(cadence, targetPerPeriod);
 
   // Helper to format date as local YYYY-MM-DD
   const toLocalDateString = (date: Date): string => {

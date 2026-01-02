@@ -255,6 +255,11 @@ interface GremlyState {
   // EVENT BUS SUBSCRIPTION
   // ═══════════════════════════════════════════════════════════════════
   subscribeToEvents: () => () => void; // Returns unsubscribe function
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MINDDROP CRASH RECOVERY
+  // ═══════════════════════════════════════════════════════════════════
+  recoverStuckMindDrops: () => Promise<void>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -423,6 +428,9 @@ export const useGremlyStore = create<GremlyState>()(
         }
         eventBusUnsubscribe = get().subscribeToEvents();
         console.log('[GremlyStore] ✅ Subscribed to EventBus');
+
+        // Recover any stuck MindDrop items from previous crashes
+        get().recoverStuckMindDrops();
       } catch (error) {
         console.error('[GremlyStore] ❌ Failed to initialize:', error);
         set({ isLoading: false });
@@ -2294,19 +2302,100 @@ export const useGremlyStore = create<GremlyState>()(
       };
 
       // Handler for entity:enriched events (Phase 2 enrichment updates)
-      // This refetches the entity from DB since enrichment updates name, title, frequency, tags, etc.
-      const handleEntityEnriched = (payload: { entityId: string; smartTitle?: string }) => {
+      // First applies event payload for immediate UI update, then refetches for completeness
+      const handleEntityEnriched = (payload: {
+        entityId: string;
+        smartTitle?: string;
+        tags?: string[];
+        timeEstimate?: number | null;
+        time_window?: string | null;
+        dueDate?: string | null;
+        startDate?: string | null;
+        frequency?: string | null;
+        cadence?: string | null;
+        target_per_period?: number | null;
+        confirmationMessage?: string | null;
+        space_id?: string | null;
+      }) => {
+        const {
+          entityId,
+          smartTitle,
+          tags,
+          timeEstimate,
+          time_window,
+          dueDate,
+          startDate,
+          frequency,
+          cadence,
+          target_per_period,
+          confirmationMessage,
+          space_id,
+        } = payload;
+
+        // Immediately apply known fields from event payload for responsive UI
+        const state = get();
+        const inTodos = state.todos.some((t) => t.id === entityId);
+        const inHabits = state.habits.some((h) => h.id === entityId);
+        const inNotes = state.notes.some((n) => n.id === entityId);
+
+        if (inTodos) {
+          set({
+            todos: state.todos.map((t) => {
+              if (t.id !== entityId) return t;
+              return {
+                ...t,
+                ...(smartTitle !== undefined && { name: smartTitle, title: smartTitle }),
+                ...(tags !== undefined && { tags }),
+                ...(timeEstimate !== undefined && { time_estimate_minutes: timeEstimate }),
+                ...(time_window !== undefined && {
+                  time_window: time_window as Todo['time_window'],
+                }),
+                ...(dueDate !== undefined && { due_date: dueDate }),
+                ...(space_id !== undefined && { space_id }),
+              };
+            }),
+          });
+        } else if (inHabits) {
+          set({
+            habits: state.habits.map((h) => {
+              if (h.id !== entityId) return h;
+              return {
+                ...h,
+                ...(smartTitle !== undefined && { name: smartTitle, title: smartTitle }),
+                ...(tags !== undefined && { tags }),
+                ...(timeEstimate !== undefined && { time_estimate_minutes: timeEstimate }),
+                ...(time_window !== undefined && {
+                  time_window: time_window as Habit['time_window'],
+                }),
+                ...(startDate !== undefined && { start_date: startDate }),
+                ...(frequency !== undefined && frequency !== null && { frequency }),
+                ...(cadence !== undefined &&
+                  cadence !== null && { cadence: cadence as Habit['cadence'] }),
+                ...(target_per_period !== undefined &&
+                  target_per_period !== null && { target_per_period }),
+                ...(space_id !== undefined && { space_id }),
+              };
+            }),
+          });
+        } else if (inNotes) {
+          set({
+            notes: state.notes.map((n) => {
+              if (n.id !== entityId) return n;
+              return {
+                ...n,
+                ...(smartTitle !== undefined && { title: smartTitle }),
+                ...(tags !== undefined && { tags }),
+                ...(space_id !== undefined && { space_id }),
+              };
+            }),
+          });
+        }
+
+        // Then refetch from DB for any fields not in the event payload
         const fetchAndUpdate = async () => {
           const state = get();
           const userId = state.userId;
           if (!userId) return;
-
-          const entityId = payload.entityId;
-
-          // Check which store array contains this entity
-          const inTodos = state.todos.some((t) => t.id === entityId);
-          const inHabits = state.habits.some((h) => h.id === entityId);
-          const inNotes = state.notes.some((n) => n.id === entityId);
 
           if (inTodos) {
             const { data } = await supabase.from('todos').select('*').eq('id', entityId).single();
@@ -2361,6 +2450,152 @@ export const useGremlyStore = create<GremlyState>()(
         unsub5();
         unsub6();
       };
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // MINDDROP CRASH RECOVERY
+    // Recovers items stuck in enrichment state from previous app crashes
+    // ═══════════════════════════════════════════════════════════════════
+
+    recoverStuckMindDrops: async () => {
+      const userId = get().userId;
+      if (!userId) return;
+
+      const STUCK_THRESHOLD_MS = 30000; // 30 seconds
+      const now = Date.now();
+      const cutoffTime = new Date(now - STUCK_THRESHOLD_MS).toISOString();
+
+      try {
+        // Find todos stuck in enrichment (views->minddrop_stage is streaming, enriching, or pending)
+        const { data: stuckTodos } = await supabase
+          .from('todos')
+          .select('id, views, updated_at')
+          .eq('owner_id', userId)
+          .or(
+            'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
+          )
+          .lt('updated_at', cutoffTime);
+
+        // Find habits stuck in enrichment
+        const { data: stuckHabits } = await supabase
+          .from('habits')
+          .select('id, views, updated_at')
+          .eq('owner_id', userId)
+          .or(
+            'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
+          )
+          .lt('updated_at', cutoffTime);
+
+        // Find notes stuck in enrichment
+        const { data: stuckNotes } = await supabase
+          .from('notes')
+          .select('id, views, updated_at')
+          .eq('owner_id', userId)
+          .or(
+            'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
+          )
+          .lt('updated_at', cutoffTime);
+
+        const totalStuck =
+          (stuckTodos?.length ?? 0) + (stuckHabits?.length ?? 0) + (stuckNotes?.length ?? 0);
+
+        if (totalStuck === 0) {
+          return; // Nothing stuck, no log needed
+        }
+
+        console.log(`[GremlyStore] 🔧 Found ${totalStuck} stuck MindDrop items, recovering...`, {
+          todos: stuckTodos?.length ?? 0,
+          habits: stuckHabits?.length ?? 0,
+          notes: stuckNotes?.length ?? 0,
+        });
+
+        // Reset stuck todos - mark as classified (ready for manual editing)
+        for (const todo of stuckTodos ?? []) {
+          const updatedViews = {
+            ...(todo.views as Record<string, unknown>),
+            ai_pending: false,
+            ai_failed: true,
+            minddrop_stage: 'classified',
+          };
+          await supabase.from('todos').update({ views: updatedViews }).eq('id', todo.id);
+        }
+
+        // Reset stuck habits
+        for (const habit of stuckHabits ?? []) {
+          const updatedViews = {
+            ...(habit.views as Record<string, unknown>),
+            ai_pending: false,
+            ai_failed: true,
+            minddrop_stage: 'classified',
+          };
+          await supabase.from('habits').update({ views: updatedViews }).eq('id', habit.id);
+        }
+
+        // Reset stuck notes
+        for (const note of stuckNotes ?? []) {
+          const updatedViews = {
+            ...(note.views as Record<string, unknown>),
+            ai_pending: false,
+            ai_failed: true,
+            minddrop_stage: 'classified',
+          };
+          await supabase.from('notes').update({ views: updatedViews }).eq('id', note.id);
+        }
+
+        // Update local store state
+        const state = get();
+        set({
+          todos: state.todos.map((t) => {
+            const stuck = stuckTodos?.find((s) => s.id === t.id);
+            if (stuck) {
+              return {
+                ...t,
+                views: {
+                  ...(t.views as Record<string, unknown>),
+                  ai_pending: false,
+                  ai_failed: true,
+                  minddrop_stage: 'classified',
+                },
+              };
+            }
+            return t;
+          }),
+          habits: state.habits.map((h) => {
+            const stuck = stuckHabits?.find((s) => s.id === h.id);
+            if (stuck) {
+              return {
+                ...h,
+                views: {
+                  ...(h.views as Record<string, unknown>),
+                  ai_pending: false,
+                  ai_failed: true,
+                  minddrop_stage: 'classified',
+                },
+              };
+            }
+            return h;
+          }),
+          notes: state.notes.map((n) => {
+            const stuck = stuckNotes?.find((s) => s.id === n.id);
+            if (stuck) {
+              return {
+                ...n,
+                views: {
+                  ...(n.views as Record<string, unknown>),
+                  ai_pending: false,
+                  ai_failed: true,
+                  minddrop_stage: 'classified',
+                },
+              };
+            }
+            return n;
+          }),
+        });
+
+        console.log(`[GremlyStore] ✅ Recovered ${totalStuck} stuck MindDrop items`);
+      } catch (error) {
+        console.error('[GremlyStore] ❌ Failed to recover stuck MindDrop items:', error);
+      }
     },
   })),
 );

@@ -90,7 +90,7 @@ function getTodayDateString(): string {
 const BUCKETS: { key: Bucket; icon: string; label: string; color: string }[] = [
   { key: 'lock-in', icon: '◇', label: 'Lock In', color: BRAND.colors.mossGreen },
   { key: 'morning', icon: '☀', label: 'Morning', color: BRAND.colors.goldenPear },
-  { key: 'day', icon: '◐', label: 'Day', color: BRAND.colors.mossGreen },
+  { key: 'day', icon: '◐', label: 'Afternoon', color: BRAND.colors.mossGreen }, // Display "Afternoon", key stays 'day'
   { key: 'evening', icon: '☽', label: 'Evening', color: BRAND.colors.periwinkleSmoke },
 ];
 
@@ -310,7 +310,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
       id: h.id,
       type: 'habit' as const,
       name: h.name || 'Untitled',
-      timeEstimate: null,
+      timeEstimate: h.time_estimate_minutes,
       timeWindow: h.time_window,
     }));
 
@@ -1150,7 +1150,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                     onPress={() => handleAssignToBucket(selectedTaskId, 'day')}
                   >
                     <Sun size={18} color={BRAND.colors.sageMist} style={styles.pickerIconLucide} />
-                    <Text style={styles.pickerOptionText}>Day</Text>
+                    <Text style={styles.pickerOptionText}>Afternoon</Text>
                   </Pressable>
 
                   <Pressable

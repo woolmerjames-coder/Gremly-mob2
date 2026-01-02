@@ -13,6 +13,7 @@ import { useMindDropStore } from '../lib/stores/mindDropStore';
 import { useRepo } from '../providers/RepoProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { heuristicClassify } from '../lib/minddrop/heuristicClassify';
+import { findSpaceByName } from '../lib/minddrop/spacePatterns';
 import {
   preparePhotoDropText,
   isPhotoOnlyDrop,
@@ -120,6 +121,7 @@ export function useMindDropSubmit(): {
   const createTodo = useGremlyStore((s) => s.createTodo);
   const createHabit = useGremlyStore((s) => s.createHabit);
   const createNote = useGremlyStore((s) => s.createNote);
+  const spaces = useGremlyStore((s) => s.spaces);
 
   const submitLockRef = useRef(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -185,6 +187,10 @@ export function useMindDropSubmit(): {
         let bucket: MindDropBucket;
         let subtypeHint: LogSubtype | null;
 
+        // Track space hint and cleaned text from heuristic
+        let spaceHint: string | null = null;
+        let cleanedText: string | null = null;
+
         if (isPhotoOnlyDrop({ text, photoUris })) {
           const defaults = getPhotoDropDefaults();
           bucket = defaults.bucket;
@@ -197,17 +203,36 @@ export function useMindDropSubmit(): {
           });
           bucket = heuristic.bucket;
           subtypeHint = heuristic.subtypeHint;
+          spaceHint = heuristic.spaceHint;
+          cleanedText = heuristic.cleanedText;
         }
+
+        // Resolve space hint to actual space_id
+        let resolvedSpaceId = context.spaceId ?? null;
+        if (!resolvedSpaceId && spaceHint && spaces.length > 0) {
+          const matchedSpace = findSpaceByName(spaceHint, spaces);
+          if (matchedSpace) {
+            resolvedSpaceId = matchedSpace.id;
+            console.log('[MindDrop:Submit] Resolved space from hint', {
+              hint: spaceHint,
+              spaceId: matchedSpace.id,
+              spaceName: matchedSpace.name,
+            });
+          }
+        }
+
+        // Use cleaned text (with space pattern removed) for entity name if available
+        const entityText = cleanedText || effectiveText;
 
         // Add to pending items (optimistic UI with heuristic prediction)
         const tempId = `local-${dropId}`;
         addPendingItem({
           dropId,
-          text: effectiveText,
+          text: entityText,
           predictedBucket: bucket,
           predictedSubtype: subtypeHint,
           createdAt: new Date().toISOString(),
-          spaceId: context.spaceId ?? null,
+          spaceId: resolvedSpaceId,
         });
 
         if (testEnabled) {
@@ -252,7 +277,7 @@ export function useMindDropSubmit(): {
         if (entityType === 'todo') {
           // Extract date from text using local parsing (fast, no AI needed)
           // This provides immediate due_day even before Phase 2 enrichment
-          const parsedFields = buildTodoFields(effectiveText);
+          const parsedFields = buildTodoFields(entityText);
 
           // Determine due_day: explicit from text > today source > null
           let initialDueDay: string | null = null;
@@ -272,9 +297,9 @@ export function useMindDropSubmit(): {
 
           // Use Zustand store method - single source of truth
           entity = await createTodo({
-            name: parsedFields.title || effectiveText, // Use cleaned title (without "tomorrow")
+            name: parsedFields.title || entityText, // Use cleaned title (without "tomorrow")
             body: effectiveText, // Preserve original text
-            space_id: context.spaceId ?? null,
+            space_id: resolvedSpaceId,
             drop_id: dropId,
             origin: context.source === 'space' ? 'space_chat' : 'catchall',
             due_day: initialDueDay,
@@ -289,10 +314,12 @@ export function useMindDropSubmit(): {
           // Use Zustand store method - single source of truth
           // Note: DB requires both 'name' and 'title' columns
           entity = await createHabit({
-            name: effectiveText,
-            title: effectiveText, // DB requires title column
+            name: entityText,
+            title: entityText, // DB requires title column
+            notes: effectiveText, // Preserve original input in notes field
             frequency: 'daily', // Default frequency for habits
-            space_id: context.spaceId ?? null,
+            subtype: phase1Result.habitSubtype ?? 'start_habit', // build vs break habit
+            space_id: resolvedSpaceId,
             drop_id: dropId,
             origin: context.source === 'space' ? 'space_chat' : 'catchall',
             start_date: context.source === 'today' ? today : null,
@@ -304,10 +331,10 @@ export function useMindDropSubmit(): {
         } else {
           // note (log) - Use Zustand store method - single source of truth
           entity = await createNote({
-            title: effectiveText,
+            title: entityText,
             body: effectiveText,
             subtype: logSubtypeToNoteSubtype(subtypeHint),
-            space_id: context.spaceId ?? null,
+            space_id: resolvedSpaceId,
             drop_id: dropId,
             origin: context.source === 'space' ? 'space_chat' : 'catchall',
             views: {
@@ -325,7 +352,7 @@ export function useMindDropSubmit(): {
         eventBus.emit('entity:created', {
           entity: { ...entity, drop_id: dropId },
           type: entityType,
-          spaceId: context.spaceId ?? null,
+          spaceId: resolvedSpaceId,
         });
 
         // Tap for QA runner (dev-only, no-op in prod)
@@ -466,7 +493,7 @@ export function useMindDropSubmit(): {
         };
       }
     },
-    [repo, addPendingItem, removePendingItem, createTodo, createHabit, createNote],
+    [repo, addPendingItem, removePendingItem, createTodo, createHabit, createNote, spaces],
   );
 
   return { submit, isSubmitting };
