@@ -218,10 +218,11 @@ describe('getHabitStreak', () => {
       {
         id: '1',
         habit_id: 'habit-1',
-        user_id: 'user-1',
+        owner_id: 'user-1',
         occurred_day: today,
-        completed: true,
-        created_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        count: 1,
+        occurrence_index: null,
       },
     ];
     const streak = getHabitStreak('habit-1', progress);
@@ -233,26 +234,29 @@ describe('getHabitStreak', () => {
       {
         id: '1',
         habit_id: 'habit-1',
-        user_id: 'user-1',
+        owner_id: 'user-1',
         occurred_day: today,
-        completed: true,
-        created_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        count: 1,
+        occurrence_index: null,
       },
       {
         id: '2',
         habit_id: 'habit-1',
-        user_id: 'user-1',
+        owner_id: 'user-1',
         occurred_day: getDateDaysAgo(1),
-        completed: true,
-        created_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        count: 1,
+        occurrence_index: null,
       },
       {
         id: '3',
         habit_id: 'habit-1',
-        user_id: 'user-1',
+        owner_id: 'user-1',
         occurred_day: getDateDaysAgo(2),
-        completed: true,
-        created_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        count: 1,
+        occurrence_index: null,
       },
     ];
     const streak = getHabitStreak('habit-1', progress);
@@ -264,18 +268,20 @@ describe('getHabitStreak', () => {
       {
         id: '1',
         habit_id: 'habit-1',
-        user_id: 'user-1',
+        owner_id: 'user-1',
         occurred_day: today,
-        completed: true,
-        created_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        count: 1,
+        occurrence_index: null,
       },
       {
         id: '2',
         habit_id: 'habit-2', // Different habit
-        user_id: 'user-1',
+        owner_id: 'user-1',
         occurred_day: getDateDaysAgo(1),
-        completed: true,
-        created_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        count: 1,
+        occurrence_index: null,
       },
     ];
     const streak = getHabitStreak('habit-1', progress);
@@ -350,10 +356,11 @@ describe('groupHabitsForSweep', () => {
       {
         id: '1',
         habit_id: '1',
-        user_id: 'user-1',
+        owner_id: 'user-1',
         occurred_day: today,
-        completed: true,
-        created_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
+        count: 1,
+        occurrence_index: null,
       },
     ];
 

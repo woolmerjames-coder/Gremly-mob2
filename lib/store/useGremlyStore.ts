@@ -2347,7 +2347,9 @@ export const useGremlyStore = create<GremlyState>()(
                 ...(smartTitle !== undefined && { name: smartTitle, title: smartTitle }),
                 ...(tags !== undefined && { tags }),
                 ...(timeEstimate !== undefined && { time_estimate_minutes: timeEstimate }),
-                ...(time_window !== undefined && { time_window }),
+                ...(time_window !== undefined && {
+                  time_window: time_window as Todo['time_window'],
+                }),
                 ...(dueDate !== undefined && { due_date: dueDate }),
                 ...(space_id !== undefined && { space_id }),
               };
@@ -2362,11 +2364,15 @@ export const useGremlyStore = create<GremlyState>()(
                 ...(smartTitle !== undefined && { name: smartTitle, title: smartTitle }),
                 ...(tags !== undefined && { tags }),
                 ...(timeEstimate !== undefined && { time_estimate_minutes: timeEstimate }),
-                ...(time_window !== undefined && { time_window }),
+                ...(time_window !== undefined && {
+                  time_window: time_window as Habit['time_window'],
+                }),
                 ...(startDate !== undefined && { start_date: startDate }),
-                ...(frequency !== undefined && { frequency }),
-                ...(cadence !== undefined && { cadence }),
-                ...(target_per_period !== undefined && { target_per_period }),
+                ...(frequency !== undefined && frequency !== null && { frequency }),
+                ...(cadence !== undefined &&
+                  cadence !== null && { cadence: cadence as Habit['cadence'] }),
+                ...(target_per_period !== undefined &&
+                  target_per_period !== null && { target_per_period }),
                 ...(space_id !== undefined && { space_id }),
               };
             }),
