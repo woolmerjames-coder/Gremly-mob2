@@ -309,7 +309,9 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     const todayTodos = todos
       .filter((t) => {
         if (t.archived || t.completed_at) return false;
-        if (t.due_day && t.due_day > todayDate) return false;
+        // Only include items due exactly today - not overdue, not unscheduled, not future
+        // Overdue and unscheduled items are handled by Mini Sweep
+        if (t.due_day !== todayDate) return false;
         return true;
       })
       .map((t) => ({

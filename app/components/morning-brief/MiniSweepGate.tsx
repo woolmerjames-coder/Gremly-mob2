@@ -327,16 +327,16 @@ export function MiniSweepGate({
       for (const [id, decision] of stagedDecisions.entries()) {
         switch (decision) {
           case 'today':
-            // Set due_day to today
+            // Set due_day to today - item flows to Morning Brief and Today's Focus
             updates.push(updateTodo(id, { due_day: today }));
             break;
           case 'done':
-            // Archive the todo as swept/completed
-            updates.push(archiveTodo(id, 'swept'));
+            // Archive the todo - disappears from all views
+            updates.push(archiveTodo(id, 'mini_sweep'));
             break;
           case 'later':
-            // Clear due_day (unschedule) - item goes back to unscheduled pool
-            updates.push(updateTodo(id, { due_day: null }));
+            // NO database action - item stays as-is (overdue/unscheduled)
+            // Will appear in Rolled Over section on Today page, resurfaces in next Mini Sweep
             break;
         }
       }
