@@ -90,7 +90,7 @@ function getTodayDateString(): string {
 const BUCKETS: { key: Bucket; icon: string; label: string; color: string }[] = [
   { key: 'lock-in', icon: '◇', label: 'Lock In', color: BRAND.colors.mossGreen },
   { key: 'morning', icon: '☀', label: 'Morning', color: BRAND.colors.goldenPear },
-  { key: 'day', icon: '◐', label: 'Day', color: BRAND.colors.mossGreen },
+  { key: 'day', icon: '◐', label: 'Afternoon', color: BRAND.colors.mossGreen }, // Display "Afternoon", key stays 'day'
   { key: 'evening', icon: '☽', label: 'Evening', color: BRAND.colors.periwinkleSmoke },
 ];
 

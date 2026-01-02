@@ -329,7 +329,7 @@ const TIME_WINDOW_OPTIONS: {
 }[] = [
   { label: 'Any time', value: null },
   { label: 'Morning', value: 'morning' },
-  { label: 'Day', value: 'day' },
+  { label: 'Afternoon', value: 'day' }, // Display "Afternoon", store as 'day'
   { label: 'Evening', value: 'evening' },
 ];
 
@@ -3398,7 +3398,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Build views object - preserve existing views from entity
     const entity = fullEntity || initialEntity;
     const existingViews = entity?.views || {};
-    const viewsWithPrefillFlag = existingEntity?.views || existingViews;
+    const viewsWithPrefillFlag = {
+      ...(existingEntity?.views || existingViews || {}),
+      // Persist title_user_edited flag so we know not to overwrite user's title on future opens
+      title_user_edited:
+        state.userEditedTitle || (existingEntity?.views as any)?.title_user_edited || false,
+    };
 
     // Preserve existing tags_meta when available, only override if tags were modified
     const existingTagsMeta = existingEntity?.tags_meta ??
@@ -4745,18 +4750,38 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         <View
                           style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}
                         >
-                          <Text
-                            variant="title"
-                            style={{
-                              color: '#222222',
-                              fontWeight: '500',
-                              fontSize: 18,
-                              flex: 1,
-                            }}
-                            numberOfLines={1}
-                          >
-                            {headerFor(baseType, mode, overlaySubtitle)}
-                          </Text>
+                          {mode === 'edit' && overlaySubtitle ? (
+                            <TextInput
+                              value={state.compactTitle}
+                              onChangeText={(text) =>
+                                dispatch({ type: 'SET_COMPACT_TITLE', title: text })
+                              }
+                              style={{
+                                color: '#222222',
+                                fontWeight: '500',
+                                fontSize: 18,
+                                flex: 1,
+                                padding: 0,
+                                margin: 0,
+                              }}
+                              maxLength={100}
+                              selectTextOnFocus={false}
+                              autoCorrect={false}
+                            />
+                          ) : (
+                            <Text
+                              variant="title"
+                              style={{
+                                color: '#222222',
+                                fontWeight: '500',
+                                fontSize: 18,
+                                flex: 1,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {headerFor(baseType, mode, overlaySubtitle)}
+                            </Text>
+                          )}
                           {/* Lock In badge */}
                           {isLockedIn ? (
                             <View
@@ -5822,8 +5847,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         : 'No end date'}
                                     </Text>
                                   </Pressable>
+                                </View>
 
-                                  {/* Time Window Picker */}
+                                {/* Time Window on its own row */}
+                                <View
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    marginTop: 8,
+                                    paddingLeft: 12,
+                                  }}
+                                >
                                   <Pressable
                                     style={styles.habitDatePill}
                                     onPress={() => setShowTimeWindowModal(true)}
@@ -8701,6 +8735,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     baseType,
     compactTitle: title || '', // Preserve entity title as compactTitle
     compactTitleSource: title || '', // Track source of title
+    userEditedTitle: (entity?.views as any)?.title_user_edited ?? false, // Respect if user previously edited title
     log: {
       title: logTitle,
       body: logBody,

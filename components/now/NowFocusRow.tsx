@@ -48,6 +48,13 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 // Brand green for lock-in elements and One Thing accent
 const BRAND_GREEN = '#2E5540';
 
+// Time block display labels - converts stored values to user-friendly labels
+const TIME_BLOCK_LABELS: Record<string, string> = {
+  morning: 'Morning',
+  day: 'Afternoon',
+  evening: 'Evening',
+};
+
 // Divider color
 const DIVIDER_COLOR = 'rgba(0, 0, 0, 0.08)';
 
@@ -495,7 +502,11 @@ export function NowFocusRow({
           {(isLocked || timeBlock) && (
             <View style={styles.statusContainer}>
               <Text style={[styles.statusText, isLocked && styles.statusTextLocked]}>
-                {isLocked ? 'Locked in' : timeBlock}
+                {isLocked
+                  ? 'Locked in'
+                  : timeBlock
+                    ? (TIME_BLOCK_LABELS[timeBlock] ?? timeBlock)
+                    : null}
               </Text>
               {isLocked && <Text style={styles.statusDiamond}>◇</Text>}
             </View>

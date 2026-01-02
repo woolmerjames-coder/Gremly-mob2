@@ -385,6 +385,7 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return {
         ...state,
         compactTitle: action.title,
+        userEditedTitle: true, // Mark as user-edited so AI/code won't overwrite
       };
     }
     case 'SET_TODO_DUE':
