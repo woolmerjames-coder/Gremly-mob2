@@ -55,6 +55,7 @@ import {
   useHabitsCompletedToday,
   useHubHabits,
   useWeeklyHabitSummaries,
+  useHabitsUpToDateCount,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
@@ -282,7 +283,8 @@ export default function NowScreenV1() {
   const habitsToday = useTodayHabits();
   const completedHabitsToday = useHabitsCompletedToday();
   const allActiveHabits = useHubHabits(); // All non-archived habits for NowWeekPopup
-  const weeklySummaries = useWeeklyHabitSummaries(); // Weekly habit summaries for header
+  const weeklySummaries = useWeeklyHabitSummaries(); // Weekly habit summaries for NowWeekPopup
+  const habitsUpToDate = useHabitsUpToDateCount(); // Habits up to date count for header
 
   // Spaces - for looking up space names
   const spaces = useGremlyStore((state) => state.spaces);
@@ -649,8 +651,9 @@ export default function NowScreenV1() {
         totalCompletedToday={totalCompletedToday}
         todayHabitCount={todayHabitCount}
         todayTodoCount={todayTodoCount}
-        weeklySummaries={nowData.weeklySummaries}
         capturesCount={recentLogsCount}
+        habitsUpToDate={habitsUpToDate.upToDate}
+        habitsTotal={habitsUpToDate.total}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
         onNotesPress={handleNotesPress}

@@ -386,18 +386,21 @@ function isHabitDueToday(
   }
 }
 
-/** All habits that are due/available today (not completed today, not archived) */
+/** All habits that are due/available today (not completed today, not archived, not breaking habits) */
 export const selectHabitsDueToday = createSelector(
   [selectHabits, selectCompletionsThisWeek, selectCompletionsThisMonth, selectHabitCompletedToday],
   (habits, weeklyCompletions, monthlyCompletions, completedTodaySet): Habit[] => {
-    return habits.filter((habit) =>
-      isHabitDueToday(
+    return habits.filter((habit) => {
+      // Exclude breaking habits - they don't belong in Today's Focus
+      if (habit.subtype === 'break_habit') return false;
+
+      return isHabitDueToday(
         habit,
         weeklyCompletions.get(habit.id) ?? 0,
         monthlyCompletions.get(habit.id) ?? 0,
         completedTodaySet.has(habit.id),
-      ),
-    );
+      );
+    });
   },
 );
 
@@ -1191,6 +1194,42 @@ export const selectWeeklyHabitSummaries = createSelector(
     });
   },
 );
+
+/** Count of habits that are "up to date" (checked in within their cadence window) */
+export const selectHabitsUpToDateCount = createSelector(
+  [selectHubHabits, selectCompletionsThisWeek],
+  (habits, completionsThisWeek): { upToDate: number; total: number } => {
+    const yesterday = getDaysAgoDayString(1);
+
+    // Exclude breaking habits - they need a different check-in model
+    const buildingHabits = habits.filter((h) => h.subtype !== 'break_habit');
+
+    const upToDate = buildingHabits.filter((habit) => {
+      const lastCompleted = habit.last_completed_at?.split('T')[0];
+      const cadence = habit.cadence ?? 'daily';
+
+      if (cadence === 'daily') {
+        // Daily: completed yesterday or today = up to date
+        return lastCompleted && lastCompleted >= yesterday;
+      } else if (cadence === 'weekly') {
+        // Weekly: any completion this week = up to date
+        const completionsThisWeekCount = completionsThisWeek.get(habit.id) ?? 0;
+        return completionsThisWeekCount > 0;
+      }
+
+      // Monthly or other: just check if completed recently
+      return lastCompleted && lastCompleted >= getDaysAgoDayString(7);
+    }).length;
+
+    return {
+      upToDate,
+      total: buildingHabits.length,
+    };
+  },
+);
+
+/** Hook for habits up to date count */
+export const useHabitsUpToDateCount = () => useGremlyStore(selectHabitsUpToDateCount);
 
 /** Hub journals - notes with subtype='journal', sorted by created_at desc */
 export const selectHubJournals = createSelector([selectActiveNotes], (notes) =>
