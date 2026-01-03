@@ -732,6 +732,14 @@ export default function NowScreenV1() {
         totalCompletedToday={totalCompletedToday}
         onClose={() => setProgressVisible(false)}
         onUndoItem={handleUndoCompletedItem}
+        onItemPress={(item) => {
+          setProgressVisible(false);
+          // Map journal type to note for overlay
+          const overlayType = item.type === 'journal' ? 'note' : item.type;
+          overlayController.openEdit({
+            record: { id: item.id, type: overlayType } as any,
+          });
+        }}
       />
 
       <NowWeekPopup
