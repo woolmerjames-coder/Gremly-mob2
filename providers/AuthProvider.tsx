@@ -107,6 +107,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(currentSession));
           if (__DEV__)
             console.log('[AuthProvider] Session restored, user.id:', currentSession.user.id);
+          // Register for push notifications on session restore
+          try {
+            const pushToken = await registerForPushNotifications();
+            if (pushToken) {
+              await savePushToken(currentSession.user.id, pushToken);
+              console.log(
+                '[AuthProvider] Push notification registration successful (session restore)',
+              );
+            }
+          } catch (pushError) {
+            console.log(
+              '[AuthProvider] Push notification registration failed (session restore):',
+              pushError,
+            );
+          }
         } else if (!currentSession && mounted) {
           if (__DEV__) console.log('[AuthProvider] No session found, awaiting Google sign-in');
         }
