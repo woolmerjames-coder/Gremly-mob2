@@ -302,6 +302,15 @@ export default function NowScreenV1() {
     percent: progressPercent,
   } = progress;
 
+  // Compute today's habit and todo counts for header
+  const todayHabitCount = habitsToday.length;
+  const todayTodoCount = useMemo(() => {
+    // Count todos in locked + active items (not habits)
+    const lockedTodoCount = rawLockedItems.filter((item) => !('cadence' in item)).length;
+    const activeTodoCount = activeItems.filter((item) => !('cadence' in item)).length;
+    return lockedTodoCount + activeTodoCount;
+  }, [rawLockedItems, activeItems]);
+
   // Sweep count (unified includes todos, notes, and unconfirmed habits)
   const sweepCandidateCount = useSweepCountUnified();
 
@@ -638,6 +647,8 @@ export default function NowScreenV1() {
         dateTimeLabel={nowData.dateTimeLabel}
         totalTasksToday={totalTasksToday}
         totalCompletedToday={totalCompletedToday}
+        todayHabitCount={todayHabitCount}
+        todayTodoCount={todayTodoCount}
         weeklySummaries={nowData.weeklySummaries}
         capturesCount={recentLogsCount}
         onPressProgress={() => setProgressVisible(true)}

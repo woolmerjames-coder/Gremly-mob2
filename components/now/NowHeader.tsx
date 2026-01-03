@@ -55,6 +55,10 @@ interface NowHeaderProps {
   totalTasksToday: number;
   /** Total completed tasks for today */
   totalCompletedToday: number;
+  /** Number of habits due today */
+  todayHabitCount: number;
+  /** Number of todos due today */
+  todayTodoCount: number;
   weeklySummaries: NowWeeklyHabitSummary[];
   capturesCount: number;
   onPressProgress?: () => void;
@@ -130,6 +134,8 @@ export function NowHeader({
   dateTimeLabel,
   totalTasksToday,
   totalCompletedToday,
+  todayHabitCount,
+  todayTodoCount,
   weeklySummaries,
   capturesCount,
   onPressProgress,
@@ -157,10 +163,6 @@ export function NowHeader({
 
   // Build notes count text
   const notesCountText = capturesCount === 0 ? '0' : `${capturesCount}`;
-
-  // Secondary meta for Today card
-  const habitCount = habitData.totalCount;
-  const todoCount = totalTasksToday - habitCount; // Approximate todos (tasks minus habits)
 
   return (
     <View style={styles.container}>
@@ -207,7 +209,7 @@ export function NowHeader({
                 )}
               </View>
               <Text style={styles.secondaryMeta}>
-                {habitCount} habits · {Math.max(0, todoCount)} todos
+                {todayHabitCount} habits · {todayTodoCount} todos
               </Text>
             </View>
           </TouchableOpacity>

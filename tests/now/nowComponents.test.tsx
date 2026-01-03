@@ -60,6 +60,8 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
+        todayHabitCount={3}
+        todayTodoCount={2}
         weeklySummaries={mockWeeklySummaries}
         capturesCount={0}
       />,
@@ -75,6 +77,8 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
+        todayHabitCount={3}
+        todayTodoCount={2}
         weeklySummaries={mockWeeklySummaries}
         capturesCount={0}
       />,
@@ -90,6 +94,8 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
+        todayHabitCount={3}
+        todayTodoCount={2}
         weeklySummaries={mockWeeklySummaries}
         capturesCount={0}
       />,
@@ -104,6 +110,8 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
+        todayHabitCount={3}
+        todayTodoCount={2}
         weeklySummaries={[
           {
             habitId: 'habit-1',
