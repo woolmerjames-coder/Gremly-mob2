@@ -25,9 +25,6 @@ const GREMLY_FACE = require('../../assets/buttonforHP.png');
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Overdue accent color - muted red/coral to indicate attention needed
-const OVERDUE_ACCENT = '#C45C4A';
-
 // Brand green for completion message
 const BRAND_GREEN = '#2E5540';
 
@@ -97,11 +94,6 @@ export function OverdueRow({ item, index, onPressItem, onToggleComplete }: Overd
           onPress={() => onPressItem(item)}
           testID={`overdue-row-${index}`}
         >
-          {/* Left accent bar */}
-          <View style={styles.accentContainer}>
-            <View style={[styles.accentBar, { backgroundColor: OVERDUE_ACCENT }]} />
-          </View>
-
           {/* Item title */}
           <Text
             numberOfLines={1}
@@ -124,8 +116,10 @@ export function OverdueRow({ item, index, onPressItem, onToggleComplete }: Overd
             <Animated.View
               style={[
                 styles.checkbox,
-                { borderColor: localChecked ? tokens.colors.mossGreen : tokens.colors.subtle },
-                localChecked && { backgroundColor: tokens.colors.mossGreen },
+                localChecked && {
+                  backgroundColor: tokens.colors.mossGreen,
+                  borderColor: tokens.colors.mossGreen,
+                },
                 checkboxAnimatedStyle,
               ]}
             >
@@ -184,21 +178,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: ROW_HEIGHT,
-    paddingRight: 16,
+    paddingLeft: 16,
+    paddingRight: 8,
   },
   rowPressed: {
     opacity: 0.7,
-  },
-  accentContainer: {
-    width: 20,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingLeft: 4,
-  },
-  accentBar: {
-    width: 3,
-    height: 24,
-    borderRadius: 2,
   },
   itemTitle: {
     flex: 1,
@@ -210,17 +194,17 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   checkboxContainer: {
-    marginLeft: 8,
-    minWidth: 44,
-    minHeight: 44,
+    width: 44,
+    height: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },
   checkbox: {
-    width: 20,
-    height: 20,
+    width: 22,
+    height: 22,
     borderRadius: 6,
     borderWidth: 2,
+    borderColor: '#ccc',
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',

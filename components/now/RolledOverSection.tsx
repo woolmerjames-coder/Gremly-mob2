@@ -59,7 +59,7 @@ export function RolledOverSection({
   style,
 }: RolledOverSectionProps) {
   const tokens = useTokens();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [showAll, setShowAll] = useState(false);
 
   const toggleCollapsed = useCallback(() => {
