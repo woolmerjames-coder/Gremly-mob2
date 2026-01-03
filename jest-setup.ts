@@ -28,6 +28,14 @@ process.env.JEST_TODAY_LIGHT = process.env.JEST_TODAY_LIGHT ?? '0';
 // Use real timers by default (tests can override with jest.useFakeTimers() if needed)
 jest.useRealTimers();
 
+// Mock expo-constants to avoid expo-modules-core EventEmitter issues
+jest.mock('expo-constants', () => ({
+  appOwnership: 'standalone', // Default to standalone for tests
+  manifest: null,
+  manifest2: null,
+  expoConfig: null,
+}));
+
 // Mock Supabase client globally to avoid channel subscription errors
 jest.mock('./lib/supabase/client', () => ({
   supabase: {

@@ -16,6 +16,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../lib/supabase/client';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { FLAGS } from '../config/flags';
+import { registerForPushNotifications, savePushToken } from '../src/utils/notifications';
 import type { Session, User } from '@supabase/supabase-js';
 
 // Configure Google Sign-In on module load
@@ -134,6 +135,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
       }
       switch (event) {
+        case 'SIGNED_IN':
+          // Register for push notifications after successful sign-in
+          if (newSession?.user?.id) {
+            try {
+              const pushToken = await registerForPushNotifications();
+              if (pushToken) {
+                await savePushToken(newSession.user.id, pushToken);
+                console.log('[AuthProvider] Push notification registration successful');
+              } else {
+                console.log('[AuthProvider] Push notification registration skipped (no token)');
+              }
+            } catch (pushError) {
+              console.log('[AuthProvider] Push notification registration failed:', pushError);
+              // Don't block sign-in on notification failure
+            }
+          }
+          break;
         case 'SIGNED_OUT':
           setUser(null);
           setSession(null);
