@@ -26,7 +26,7 @@ import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowFocusRow } from '../../components/now/NowFocusRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
-import { OverdueSection, RecentDropsSection, SweepPill } from '../../components/now';
+import { RolledOverSection, RecentDropsSection, SweepPill } from '../../components/now';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
 import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet';
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
@@ -55,6 +55,7 @@ import {
   useHabitsCompletedToday,
   useHubHabits,
   useWeeklyHabitSummaries,
+  useHabitsUpToDateCount,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
@@ -282,7 +283,8 @@ export default function NowScreenV1() {
   const habitsToday = useTodayHabits();
   const completedHabitsToday = useHabitsCompletedToday();
   const allActiveHabits = useHubHabits(); // All non-archived habits for NowWeekPopup
-  const weeklySummaries = useWeeklyHabitSummaries(); // Weekly habit summaries for header
+  const weeklySummaries = useWeeklyHabitSummaries(); // Weekly habit summaries for NowWeekPopup
+  const habitsUpToDate = useHabitsUpToDateCount(); // Habits up to date count for header
 
   // Spaces - for looking up space names
   const spaces = useGremlyStore((state) => state.spaces);
@@ -301,6 +303,15 @@ export default function NowScreenV1() {
     totalEligible: totalTasksToday,
     percent: progressPercent,
   } = progress;
+
+  // Compute today's habit and todo counts for header
+  const todayHabitCount = habitsToday.length;
+  const todayTodoCount = useMemo(() => {
+    // Count todos in locked + active items (not habits)
+    const lockedTodoCount = rawLockedItems.filter((item) => !('cadence' in item)).length;
+    const activeTodoCount = activeItems.filter((item) => !('cadence' in item)).length;
+    return lockedTodoCount + activeTodoCount;
+  }, [rawLockedItems, activeItems]);
 
   // Sweep count (unified includes todos, notes, and unconfirmed habits)
   const sweepCandidateCount = useSweepCountUnified();
@@ -638,8 +649,11 @@ export default function NowScreenV1() {
         dateTimeLabel={nowData.dateTimeLabel}
         totalTasksToday={totalTasksToday}
         totalCompletedToday={totalCompletedToday}
-        weeklySummaries={nowData.weeklySummaries}
+        todayHabitCount={todayHabitCount}
+        todayTodoCount={todayTodoCount}
         capturesCount={recentLogsCount}
+        habitsUpToDate={habitsUpToDate.upToDate}
+        habitsTotal={habitsUpToDate.total}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
         onNotesPress={handleNotesPress}
@@ -721,6 +735,14 @@ export default function NowScreenV1() {
         totalCompletedToday={totalCompletedToday}
         onClose={() => setProgressVisible(false)}
         onUndoItem={handleUndoCompletedItem}
+        onItemPress={(item) => {
+          setProgressVisible(false);
+          // Map journal type to note for overlay
+          const overlayType = item.type === 'journal' ? 'note' : item.type;
+          overlayController.openEdit({
+            record: { id: item.id, type: overlayType } as any,
+          });
+        }}
       />
 
       <NowWeekPopup
@@ -1086,9 +1108,9 @@ function TodayFocusList({
         />
       )}
 
-      {/* Overdue section */}
+      {/* Rolled over section */}
       {overdueTodos.length > 0 && (
-        <OverdueSection
+        <RolledOverSection
           items={overdueTodos}
           onPressItem={(item) => onPressItem?.(item as unknown as NowActiveItem)}
           onToggleComplete={(item) => onToggleComplete?.(item as unknown as NowActiveItem)}

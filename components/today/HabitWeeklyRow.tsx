@@ -13,6 +13,7 @@ import React, { useCallback, useState } from 'react';
 import { StyleSheet, Pressable, View } from 'react-native';
 import { Text } from '../../ui';
 import { GremlyDot } from '../ui/GremlyDot';
+import { Flame } from 'lucide-react-native';
 import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitStats';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -21,6 +22,7 @@ import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitSt
 
 const MOSS_GREEN = '#2E5540';
 const GOLDEN_PEAR = '#E0C47A';
+const SAGE_MIST = '#E8F0EA';
 const CHARCOAL_INK = '#222222';
 const INK_SUBTLE = 'rgba(34, 34, 34, 0.55)';
 const BORDER_SUBTLE = 'rgba(0, 0, 0, 0.08)';
@@ -51,6 +53,14 @@ export interface HabitWeeklyRowProps {
   onPressHeader?: () => void;
   /** Whether divider should be shown at bottom */
   showDivider?: boolean;
+  /** Whether this is a breaking habit (subtype === 'break_habit') */
+  isBreakingHabit?: boolean;
+  /** Current streak in days (for breaking habits) */
+  streakDays?: number;
+  /** Called when user taps check-in button */
+  onCheckIn?: (habitId: string) => void;
+  /** ISO date string when habit started (YYYY-MM-DD) */
+  startDate?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,12 +87,74 @@ function getStatusLabel(status: HabitStatus): { text: string; color: string } {
   switch (status) {
     case 'on_track':
     case 'done_for_week':
-      return { text: 'On track', color: MOSS_GREEN };
+      return { text: 'Up to date', color: MOSS_GREEN };
     case 'needs_attention':
-      return { text: 'Needs attention', color: GOLDEN_PEAR };
+      return { text: 'Needs update', color: GOLDEN_PEAR };
     default:
-      return { text: 'On track', color: MOSS_GREEN };
+      return { text: 'Up to date', color: MOSS_GREEN };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: Breaking habit checkmark dot
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BreakingDot({
+  isCompleted,
+  isToday,
+  isFuture,
+  onPress,
+  size = DOT_SIZE,
+}: {
+  isCompleted: boolean;
+  isToday: boolean;
+  isFuture: boolean;
+  onPress: () => void;
+  size?: number;
+}) {
+  // Use slightly smaller inner size to account for border (match GremlyDot visual size)
+  const innerSize = size - 4; // 2px border on each side
+
+  return (
+    <Pressable
+      onPress={isFuture ? undefined : onPress}
+      style={{
+        width: size,
+        height: size,
+        justifyContent: 'center',
+        alignItems: 'center',
+        opacity: isFuture ? 0.4 : 1,
+      }}
+      disabled={isFuture}
+    >
+      <View
+        style={{
+          width: innerSize,
+          height: innerSize,
+          borderRadius: innerSize / 2,
+          borderWidth: 2,
+          borderColor: isCompleted ? MOSS_GREEN : isToday ? MOSS_GREEN : '#D0D0D0',
+          backgroundColor: isCompleted ? MOSS_GREEN : 'transparent',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
+        {isCompleted && (
+          <Text
+            style={{
+              color: '#FFFFFF',
+              fontSize: innerSize * 0.5,
+              fontWeight: '700',
+              lineHeight: innerSize * 0.5,
+              textAlign: 'center',
+            }}
+          >
+            ✓
+          </Text>
+        )}
+      </View>
+    </Pressable>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,6 +174,10 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
   onToggleDay,
   onPressHeader,
   showDivider = true,
+  isBreakingHabit = false,
+  streakDays,
+  onCheckIn,
+  startDate,
 }: HabitWeeklyRowProps) {
   // Track optimistic state for each day
   const [optimisticDots, setOptimisticDots] = useState<Record<string, DayDot>>({});
@@ -150,10 +226,31 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
       <View style={styles.content}>
         {/* ─── TOP ROW: Name + Right Column ─── */}
         <Pressable onPress={onPressHeader} disabled={!onPressHeader} style={styles.topRow}>
-          {/* Left: Habit name */}
-          <Text style={styles.habitName} numberOfLines={1}>
-            {name}
-          </Text>
+          {/* Left: Habit name + started date */}
+          <View style={styles.leftColumn}>
+            <Text style={styles.habitName} numberOfLines={1}>
+              {name}
+            </Text>
+            <View style={styles.metaRow}>
+              {startDate && dayDates.includes(startDate) && (
+                <Text style={styles.startedLabel}>
+                  Started{' '}
+                  {new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', {
+                    month: 'numeric',
+                    day: 'numeric',
+                  })}
+                </Text>
+              )}
+              {streakDays !== undefined && streakDays > 0 && (
+                <View style={styles.streakContainer}>
+                  <Flame size={12} color={GOLDEN_PEAR} />
+                  <Text style={styles.streakText}>
+                    {isBreakingHabit ? `${streakDays} days strong` : `${streakDays} day streak`}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
 
           {/* Right: Frequency + Status stacked */}
           <View style={styles.rightColumn}>
@@ -173,6 +270,27 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
             const isToday = index === todayIndex;
             const isFuture = dotState === 'future';
 
+            // Check if this day is before habit started
+            const isBeforeStart = startDate && dateISO < startDate;
+
+            if (isBeforeStart) {
+              // Show empty placeholder to maintain spacing
+              return <View key={dateISO} style={{ width: DOT_SIZE, height: DOT_SIZE }} />;
+            }
+
+            if (isBreakingHabit) {
+              return (
+                <BreakingDot
+                  key={dateISO}
+                  isCompleted={isCompleted}
+                  isToday={isToday}
+                  isFuture={isFuture}
+                  onPress={() => handleDotPress(dateISO, !isCompleted)}
+                  size={DOT_SIZE}
+                />
+              );
+            }
+
             return (
               <GremlyDot
                 key={dateISO}
@@ -184,6 +302,11 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
               />
             );
           })}
+          {statusInfo.text === 'Needs update' && onCheckIn && (
+            <Pressable style={styles.confirmButton} onPress={() => onCheckIn(habitId)}>
+              <Text style={styles.confirmButtonText}>Confirm</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -222,13 +345,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start', // Align to top for stacked right column
   },
+  // Left column: name + started label
+  leftColumn: {
+    flex: 1,
+    marginRight: 8,
+  },
   // Habit name - left side
   habitName: {
     fontSize: 15,
     fontFamily: 'PlusJakartaSans-SemiBold',
     color: CHARCOAL_INK,
-    flex: 1,
-    marginRight: 8,
     lineHeight: 20,
   },
   // ─── RIGHT COLUMN: Frequency + Status stacked ───
@@ -255,8 +381,48 @@ const styles = StyleSheet.create({
   dotsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-start',
+    alignItems: 'center',
     gap: DOT_SPACING,
     marginTop: 8, // Gap between name and GremlyDot row
+  },
+  // Meta row for started label and streak
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    gap: 8,
+  },
+  // Streak container
+  streakContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  streakText: {
+    fontSize: 11,
+    fontFamily: 'Inter-SemiBold',
+    color: GOLDEN_PEAR,
+  },
+  // Confirm button (inline with dots)
+  confirmButton: {
+    marginLeft: 8,
+    paddingHorizontal: 12,
+    backgroundColor: SAGE_MIST,
+    borderRadius: 14,
+    height: DOT_SIZE,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    fontSize: 11,
+    fontFamily: 'Inter-SemiBold',
+    color: MOSS_GREEN,
+  },
+  // Started label for new habits
+  startedLabel: {
+    fontSize: 11,
+    fontFamily: 'Inter-Regular',
+    color: INK_SUBTLE,
   },
   // Bottom divider between rows
   divider: {

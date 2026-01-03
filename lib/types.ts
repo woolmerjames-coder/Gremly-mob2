@@ -73,6 +73,7 @@ export interface Habit {
   target_per_day?: number;
   days_active?: string[] | null;
   last_completed_at?: string | null;
+  last_checked_in_at?: string | null; // ISO 8601 - when user last reviewed this habit
   period_start_at?: string | null;
 
   commitment?: boolean;

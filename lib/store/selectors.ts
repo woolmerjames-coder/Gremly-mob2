@@ -386,18 +386,21 @@ function isHabitDueToday(
   }
 }
 
-/** All habits that are due/available today (not completed today, not archived) */
+/** All habits that are due/available today (not completed today, not archived, not breaking habits) */
 export const selectHabitsDueToday = createSelector(
   [selectHabits, selectCompletionsThisWeek, selectCompletionsThisMonth, selectHabitCompletedToday],
   (habits, weeklyCompletions, monthlyCompletions, completedTodaySet): Habit[] => {
-    return habits.filter((habit) =>
-      isHabitDueToday(
+    return habits.filter((habit) => {
+      // Exclude breaking habits - they don't belong in Today's Focus
+      if (habit.subtype === 'break_habit') return false;
+
+      return isHabitDueToday(
         habit,
         weeklyCompletions.get(habit.id) ?? 0,
         monthlyCompletions.get(habit.id) ?? 0,
         completedTodaySet.has(habit.id),
-      ),
-    );
+      );
+    });
   },
 );
 
@@ -437,8 +440,60 @@ export const selectTodosDueToday = createSelector([selectActiveTodos], (todos): 
 /** Overdue todos (due_day < today, not completed, not archived) */
 export const selectOverdueTodos = createSelector([selectActiveTodos], (todos): Todo[] => {
   const today = getTodayDayString();
-  return todos.filter((t) => t.due_day && t.due_day < today);
+  const result = todos.filter((t) => {
+    if (!t.due_day || t.due_day >= today) return false;
+    // Check if skipped today
+    const skippedDay = t.skipped_in_sweep_at?.split('T')[0];
+    if (skippedDay === today) {
+      console.log(
+        '[selectOverdueTodos] Excluding skipped item:',
+        t.name,
+        'skipped_in_sweep_at:',
+        t.skipped_in_sweep_at,
+      );
+      return false;
+    }
+    return true;
+  });
+  console.log('[selectOverdueTodos] Returning', result.length, 'items. Today:', today);
+  return result;
 });
+
+/** Rolled over todos - alias for overdue (for Mini-Sweep clarity) */
+export const selectRolledOverTodos = selectOverdueTodos;
+
+/** Unscheduled todos for Mini-Sweep: no due_day, created in last 3 days, not skipped today */
+export const selectUnscheduledTodosForMiniSweep = createSelector(
+  [selectActiveTodos],
+  (todos): Todo[] => {
+    const today = getTodayDayString();
+    const threeDaysAgo = getDaysAgoDayString(3);
+    const result = todos.filter((t) => {
+      if (t.due_day) return false; // Must be unscheduled
+      const createdDay = t.created_at?.split('T')[0];
+      if (!createdDay || createdDay < threeDaysAgo) return false;
+      // Check if skipped today
+      const skippedDay = t.skipped_in_sweep_at?.split('T')[0];
+      if (skippedDay === today) {
+        console.log(
+          '[selectUnscheduledTodosForMiniSweep] Excluding skipped item:',
+          t.name,
+          'skipped_in_sweep_at:',
+          t.skipped_in_sweep_at,
+        );
+        return false;
+      }
+      return true;
+    });
+    console.log(
+      '[selectUnscheduledTodosForMiniSweep] Returning',
+      result.length,
+      'items. Today:',
+      today,
+    );
+    return result;
+  },
+);
 
 /** Todos completed today */
 export const selectTodosCompletedToday = createSelector([selectTodos], (todos): Todo[] => {
@@ -458,10 +513,15 @@ export const selectUndatedTodos = createSelector([selectActiveTodos], (todos): T
 
 /** Recent drops: undated todos created in last 3 days */
 export const selectRecentDrops = createSelector([selectUndatedTodos], (todos): Todo[] => {
+  const today = getTodayDayString();
   const threeDaysAgo = getDaysAgoDayString(3);
   return todos.filter((t) => {
     const createdDay = t.created_at?.split('T')[0];
-    return createdDay && createdDay >= threeDaysAgo;
+    if (!createdDay || createdDay < threeDaysAgo) return false;
+    // Exclude if skipped today
+    const skippedDay = t.skipped_in_sweep_at?.split('T')[0];
+    if (skippedDay === today) return false;
+    return true;
   });
 });
 
@@ -817,18 +877,15 @@ export const selectForgottenIdeas = createSelector([selectIdeas], (ideas): Note[
   });
 });
 
-/** Your Notes for Today page - created today OR favorited, last 7 days */
+/** Your Notes for Today page - all notes from past 7 days except catchall */
 export const selectYourNotes = createSelector([selectActiveNotes], (notes): Note[] => {
-  const today = getTodayDayString();
   const sevenDaysAgo = getDaysAgoDayString(7);
 
   return notes.filter((n) => {
     const createdDay = n.created_at?.split('T')[0] ?? '';
-    const isCreatedToday = createdDay === today;
-    const isFavorite = n.is_favorite === true;
     const isRecent = createdDay >= sevenDaysAgo;
-
-    return (isCreatedToday || isFavorite) && isRecent;
+    const isNotCatchall = n.subtype !== 'catchall';
+    return isRecent && isNotCatchall;
   });
 });
 
@@ -1179,6 +1236,41 @@ export const selectWeeklyHabitSummaries = createSelector(
   },
 );
 
+/** Count of habits that are "up to date" (checked in within their cadence window) */
+export const selectHabitsUpToDateCount = createSelector(
+  [selectHubHabits],
+  (habits): { upToDate: number; total: number } => {
+    const yesterday = getDaysAgoDayString(1);
+    const sevenDaysAgo = getDaysAgoDayString(7);
+
+    const upToDate = habits.filter((habit) => {
+      const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
+      const cadence = habit.cadence ?? 'daily';
+
+      if (!lastCheckedIn) return false; // Never checked in
+
+      if (cadence === 'daily') {
+        // Daily: checked in yesterday or today = up to date
+        return lastCheckedIn >= yesterday;
+      } else if (cadence === 'weekly') {
+        // Weekly: checked in within last 7 days = up to date
+        return lastCheckedIn >= sevenDaysAgo;
+      } else {
+        // Monthly or other: checked in within last 7 days
+        return lastCheckedIn >= sevenDaysAgo;
+      }
+    }).length;
+
+    return {
+      upToDate,
+      total: habits.length,
+    };
+  },
+);
+
+/** Hook for habits up to date count */
+export const useHabitsUpToDateCount = () => useGremlyStore(selectHabitsUpToDateCount);
+
 /** Hub journals - notes with subtype='journal', sorted by created_at desc */
 export const selectHubJournals = createSelector([selectActiveNotes], (notes) =>
   notes
@@ -1236,6 +1328,9 @@ export const usePopularTags = () => useGremlyStore(selectPopularTags);
 export const useArchivedItems = () => useGremlyStore(selectAllArchivedItems);
 
 export const useOverdueTodos = () => useGremlyStore(selectOverdueTodos);
+export const useRolledOverTodos = () => useGremlyStore(selectRolledOverTodos);
+export const useUnscheduledTodosForMiniSweep = () =>
+  useGremlyStore(selectUnscheduledTodosForMiniSweep);
 export const useTodayLogsCount = () => useGremlyStore(selectTodayLogsCount);
 export const useHabitsCompletedToday = () => useGremlyStore(selectHabitsCompletedToday);
 export const useWeeklyHabitSummaries = () => useGremlyStore(selectWeeklyHabitSummaries);

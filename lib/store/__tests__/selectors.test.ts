@@ -16,6 +16,10 @@ import {
   selectTodosDueToday,
   selectTodayCompletedItems,
   selectSweepCandidatesUnified,
+  selectOverdueTodos,
+  selectUnscheduledTodosForMiniSweep,
+  selectRecentDrops,
+  selectHabitsUpToDateCount,
 } from '../selectors';
 import type { Todo, Habit, Note, Space } from '../../types';
 import type { Milestone } from '../../schemas';
@@ -1105,5 +1109,287 @@ describe('selectTodayActiveItems', () => {
     // Only non-locked items
     expect(result).toHaveLength(2);
     expect(result.map((i) => i.id).sort()).toEqual(['h2', 't2']);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MINI SWEEP SELECTORS (today-page-tweaks-jan-2 branch)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('selectOverdueTodos', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T10:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns todos with due_day before today', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: '2025-12-14' }), // Yesterday - overdue
+        makeTodo({ id: 't2', due_day: '2025-12-15' }), // Today - not overdue
+        makeTodo({ id: 't3', due_day: '2025-12-16' }), // Tomorrow - not overdue
+        makeTodo({ id: 't4', due_day: '2025-12-10' }), // 5 days ago - overdue
+      ],
+    });
+
+    const result = selectOverdueTodos(state as any);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((t) => t.id).sort()).toEqual(['t1', 't4']);
+  });
+
+  it('excludes archived and completed todos', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: '2025-12-14' }), // Overdue
+        makeTodo({ id: 't2', due_day: '2025-12-14', archived: true }), // Archived
+        makeTodo({ id: 't3', due_day: '2025-12-14', completed_at: '2025-12-15T09:00:00Z' }), // Completed
+      ],
+    });
+
+    const result = selectOverdueTodos(state as any);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('t1');
+  });
+
+  it('excludes todos skipped today via skipped_in_sweep_at', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: '2025-12-14' }), // Overdue, not skipped
+        makeTodo({ id: 't2', due_day: '2025-12-14', skipped_in_sweep_at: '2025-12-15T00:00:00' }), // Skipped today
+        makeTodo({ id: 't3', due_day: '2025-12-13', skipped_in_sweep_at: '2025-12-14T00:00:00' }), // Skipped yesterday - should reappear
+      ],
+    });
+
+    const result = selectOverdueTodos(state as any);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((t) => t.id).sort()).toEqual(['t1', 't3']);
+  });
+
+  it('returns empty array when no overdue todos', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: '2025-12-15' }), // Today
+        makeTodo({ id: 't2', due_day: '2025-12-16' }), // Tomorrow
+        makeTodo({ id: 't3' }), // No due_day
+      ],
+    });
+
+    const result = selectOverdueTodos(state as any);
+
+    expect(result).toHaveLength(0);
+  });
+});
+
+describe('selectUnscheduledTodosForMiniSweep', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T10:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns unscheduled todos created in last 3 days', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: null, created_at: '2025-12-14T10:00:00Z' }), // Yesterday
+        makeTodo({ id: 't2', due_day: null, created_at: '2025-12-13T10:00:00Z' }), // 2 days ago
+        makeTodo({ id: 't3', due_day: null, created_at: '2025-12-12T10:00:00Z' }), // 3 days ago
+        makeTodo({ id: 't4', due_day: null, created_at: '2025-12-11T10:00:00Z' }), // 4 days ago - too old
+        makeTodo({ id: 't5', due_day: null, created_at: '2025-12-15T08:00:00Z' }), // Today
+      ],
+    });
+
+    const result = selectUnscheduledTodosForMiniSweep(state as any);
+
+    expect(result).toHaveLength(4);
+    expect(result.map((t) => t.id).sort()).toEqual(['t1', 't2', 't3', 't5']);
+  });
+
+  it('excludes todos that have a due_day', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: null, created_at: '2025-12-14T10:00:00Z' }), // Unscheduled
+        makeTodo({ id: 't2', due_day: '2025-12-20', created_at: '2025-12-14T10:00:00Z' }), // Scheduled
+      ],
+    });
+
+    const result = selectUnscheduledTodosForMiniSweep(state as any);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('t1');
+  });
+
+  it('excludes todos skipped today via skipped_in_sweep_at', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: null, created_at: '2025-12-14T10:00:00Z' }), // Not skipped
+        makeTodo({
+          id: 't2',
+          due_day: null,
+          created_at: '2025-12-14T10:00:00Z',
+          skipped_in_sweep_at: '2025-12-15T00:00:00',
+        }), // Skipped today
+        makeTodo({
+          id: 't3',
+          due_day: null,
+          created_at: '2025-12-14T10:00:00Z',
+          skipped_in_sweep_at: '2025-12-14T00:00:00',
+        }), // Skipped yesterday - should reappear
+      ],
+    });
+
+    const result = selectUnscheduledTodosForMiniSweep(state as any);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((t) => t.id).sort()).toEqual(['t1', 't3']);
+  });
+
+  it('excludes archived and completed todos', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: null, created_at: '2025-12-14T10:00:00Z' }), // Active
+        makeTodo({ id: 't2', due_day: null, created_at: '2025-12-14T10:00:00Z', archived: true }), // Archived
+        makeTodo({
+          id: 't3',
+          due_day: null,
+          created_at: '2025-12-14T10:00:00Z',
+          completed_at: '2025-12-15T09:00:00Z',
+        }), // Completed
+      ],
+    });
+
+    const result = selectUnscheduledTodosForMiniSweep(state as any);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('t1');
+  });
+});
+
+describe('selectRecentDrops', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T10:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns undated todos created in last 3 days', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: null, created_at: '2025-12-14T10:00:00Z' }), // 1 day ago
+        makeTodo({ id: 't2', due_day: null, created_at: '2025-12-10T10:00:00Z' }), // 5 days ago - too old
+      ],
+    });
+
+    const result = selectRecentDrops(state as any);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('t1');
+  });
+
+  it('excludes todos skipped today', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({ id: 't1', due_day: null, created_at: '2025-12-14T10:00:00Z' }), // Not skipped
+        makeTodo({
+          id: 't2',
+          due_day: null,
+          created_at: '2025-12-14T10:00:00Z',
+          skipped_in_sweep_at: '2025-12-15T00:00:00',
+        }), // Skipped today
+      ],
+    });
+
+    const result = selectRecentDrops(state as any);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('t1');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HABITS UP TO DATE COUNT (today-page-tweaks-jan-2 branch)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('selectHabitsUpToDateCount', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T10:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('counts daily habits checked in today or yesterday as up to date', () => {
+    const state = makeState({
+      habits: [
+        makeHabit({ id: 'h1', cadence: 'daily', last_checked_in_at: '2025-12-15T08:00:00Z' }), // Today - up to date
+        makeHabit({ id: 'h2', cadence: 'daily', last_checked_in_at: '2025-12-14T20:00:00Z' }), // Yesterday - up to date
+        makeHabit({ id: 'h3', cadence: 'daily', last_checked_in_at: '2025-12-13T08:00:00Z' }), // 2 days ago - not up to date
+        makeHabit({ id: 'h4', cadence: 'daily', last_checked_in_at: null }), // Never checked in - not up to date
+      ],
+    });
+
+    const result = selectHabitsUpToDateCount(state as any);
+
+    expect(result.upToDate).toBe(2);
+    expect(result.total).toBe(4);
+  });
+
+  it('counts weekly habits checked in within last 7 days as up to date', () => {
+    const state = makeState({
+      habits: [
+        makeHabit({ id: 'h1', cadence: 'weekly', last_checked_in_at: '2025-12-10T08:00:00Z' }), // 5 days ago - up to date
+        makeHabit({ id: 'h2', cadence: 'weekly', last_checked_in_at: '2025-12-07T08:00:00Z' }), // 8 days ago - not up to date
+        makeHabit({ id: 'h3', cadence: 'weekly', last_checked_in_at: '2025-12-15T08:00:00Z' }), // Today - up to date
+      ],
+    });
+
+    const result = selectHabitsUpToDateCount(state as any);
+
+    expect(result.upToDate).toBe(2);
+    expect(result.total).toBe(3);
+  });
+
+  it('excludes archived habits from count', () => {
+    const state = makeState({
+      habits: [
+        makeHabit({ id: 'h1', cadence: 'daily', last_checked_in_at: '2025-12-15T08:00:00Z' }), // Active, up to date
+        makeHabit({
+          id: 'h2',
+          cadence: 'daily',
+          last_checked_in_at: '2025-12-15T08:00:00Z',
+          archived: true,
+        }), // Archived
+      ],
+    });
+
+    const result = selectHabitsUpToDateCount(state as any);
+
+    expect(result.upToDate).toBe(1);
+    expect(result.total).toBe(1);
+  });
+
+  it('returns zero counts when no habits', () => {
+    const state = makeState({
+      habits: [],
+    });
+
+    const result = selectHabitsUpToDateCount(state as any);
+
+    expect(result.upToDate).toBe(0);
+    expect(result.total).toBe(0);
   });
 });

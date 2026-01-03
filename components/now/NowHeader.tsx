@@ -12,13 +12,12 @@
  * The parent screen (NowScreenV1) is responsible for safe area padding.
  */
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import { TouchableOpacity, Image, View } from 'react-native';
 import { Text } from '../../ui';
 import { makeStyles } from '../../design/makeStyles';
 import { Icon } from '../../design-system/Icon';
 import { BRAND } from '../../design/brand';
-import type { NowWeeklyHabitSummary } from '../../lib/now/nowTypes';
 import GREMLY_CLIPBOARD from '../../assets/mascot/clipboardgremly.png';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,19 +43,21 @@ const PROGRESS_COLOR_COMPLETE = '#E0C47A'; // 100% (golden pear)
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Segment for habits progress bar */
-type HabitSegment = {
-  isOnTrack: boolean;
-};
-
 interface NowHeaderProps {
   dateTimeLabel: string;
   /** Total tasks for today (including habits + todos) */
   totalTasksToday: number;
   /** Total completed tasks for today */
   totalCompletedToday: number;
-  weeklySummaries: NowWeeklyHabitSummary[];
+  /** Number of habits due today */
+  todayHabitCount: number;
+  /** Number of todos due today */
+  todayTodoCount: number;
   capturesCount: number;
+  /** Number of habits that are up to date (checked in within cadence window) */
+  habitsUpToDate: number;
+  /** Total number of building habits */
+  habitsTotal: number;
   onPressProgress?: () => void;
   onPressWeek?: () => void;
   /** Handler for Your Notes card press - opens YourNotesPopup */
@@ -93,45 +94,15 @@ function getProgressFillColor(percent: number): string {
   return PROGRESS_COLOR_LOW;
 }
 
-/**
- * Compute habit segments from weekly summaries
- * Each habit becomes a segment that's either on-track or off-track
- */
-function computeHabitSegments(weeklySummaries: NowWeeklyHabitSummary[]): {
-  segments: HabitSegment[];
-  onTrackCount: number;
-  totalCount: number;
-} {
-  if (!weeklySummaries || weeklySummaries.length === 0) {
-    // Empty state: no habits, no segments
-    return {
-      segments: [],
-      onTrackCount: 0,
-      totalCount: 0,
-    };
-  }
-
-  const segments: HabitSegment[] = weeklySummaries.map((summary) => ({
-    // Consider "on_track_today", "week_complete", and "flexible" as on-track
-    // "last_chance" means behind/needs attention
-    isOnTrack: summary.status !== 'last_chance',
-  }));
-
-  const onTrackCount = segments.filter((s) => s.isOnTrack).length;
-
-  return {
-    segments,
-    onTrackCount,
-    totalCount: segments.length,
-  };
-}
-
 export function NowHeader({
   dateTimeLabel,
   totalTasksToday,
   totalCompletedToday,
-  weeklySummaries,
+  todayHabitCount: _todayHabitCount,
+  todayTodoCount: _todayTodoCount,
   capturesCount,
+  habitsUpToDate,
+  habitsTotal,
   onPressProgress,
   onPressWeek,
   onNotesPress,
@@ -149,18 +120,11 @@ export function NowHeader({
   // Build today label (e.g., "2/4")
   const todayLabel = `${totalCompletedToday}/${totalTasksToday}`;
 
-  // Compute habit segments for the segmented bar
-  const habitData = useMemo(() => computeHabitSegments(weeklySummaries), [weeklySummaries]);
-
-  // Build habits label (e.g., "3/5 this week")
-  const habitsLabel = `${habitData.onTrackCount}/${habitData.totalCount} this week`;
+  // Build habits label (e.g., "3/5 up to date")
+  const habitsLabel = `${habitsUpToDate}/${habitsTotal} up to date`;
 
   // Build notes count text
   const notesCountText = capturesCount === 0 ? '0' : `${capturesCount}`;
-
-  // Secondary meta for Today card
-  const habitCount = habitData.totalCount;
-  const todoCount = totalTasksToday - habitCount; // Approximate todos (tasks minus habits)
 
   return (
     <View style={styles.container}>
@@ -182,33 +146,34 @@ export function NowHeader({
         {/* Left Column: Today Card */}
         <View style={styles.leftColumn}>
           <TouchableOpacity style={styles.todayCard} onPress={onPressProgress} activeOpacity={0.8}>
+            {/* Top row: Calendar + chevron */}
             <View style={styles.cardHeader}>
               <View style={styles.cardTitleRow}>
                 <Icon name="Calendar" size="sm" color={MOSS_GREEN} />
-                <Text style={styles.todayCardTitle}>Today</Text>
+                <Text style={styles.todayCardTitle}>Calendar</Text>
               </View>
-              <View style={styles.cardValueRow}>
-                <Text style={styles.todayCardValue}>{todayLabel}</Text>
-                <Icon name="ChevronRight" size="sm" color={INK_SUBTLE} />
-              </View>
+              <Icon name="ChevronRight" size="sm" color={INK_SUBTLE} />
             </View>
-            <View style={styles.todayCardContent}>
-              <View style={styles.progressBarTrack}>
-                {todayProgress > 0 && (
-                  <View
-                    style={[
-                      styles.progressBarFill,
-                      { flex: todayProgress, backgroundColor: progressFillColor },
-                    ]}
-                  />
-                )}
-                {todayProgress < 1 && (
-                  <View style={[styles.progressBarRemainder, { flex: 1 - todayProgress }]} />
-                )}
-              </View>
-              <Text style={styles.secondaryMeta}>
-                {habitCount} habits · {Math.max(0, todoCount)} todos
-              </Text>
+
+            {/* Middle row: Today's Progress + fraction */}
+            <View style={styles.progressLabelRow}>
+              <Text style={styles.progressLabel}>Today's Progress</Text>
+              <Text style={styles.progressFraction}>{todayLabel}</Text>
+            </View>
+
+            {/* Bottom: Progress bar */}
+            <View style={styles.progressBarTrack}>
+              {todayProgress > 0 && (
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    { flex: todayProgress, backgroundColor: progressFillColor },
+                  ]}
+                />
+              )}
+              {todayProgress < 1 && (
+                <View style={[styles.progressBarRemainder, { flex: 1 - todayProgress }]} />
+              )}
             </View>
           </TouchableOpacity>
         </View>
@@ -225,22 +190,6 @@ export function NowHeader({
               <Icon name="ChevronRight" size="sm" color={INK_SUBTLE} />
             </View>
             <Text style={styles.habitsWeekValue}>{habitsLabel}</Text>
-            {habitData.segments.length > 0 ? (
-              <View style={styles.habitsSegmentsRow}>
-                {habitData.segments.map((segment, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.habitSegment,
-                      segment.isOnTrack ? styles.habitSegmentOn : styles.habitSegmentOff,
-                    ]}
-                  />
-                ))}
-              </View>
-            ) : (
-              // Empty state: show single grey track when no habits
-              <View style={styles.habitsEmptyTrack} />
-            )}
           </TouchableOpacity>
 
           {/* Your Notes Card */}
@@ -347,13 +296,13 @@ const useStyles = makeStyles((t) => ({
   },
   // Today card - matches combined height of right column cards
   todayCard: {
-    height: 130,
+    height: 110,
     backgroundColor: CARD_BG_TODAY,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingTop: 6, // Reduced top padding for better vertical centering
     paddingBottom: 12,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     // Soft shadow: 0 2px 8px rgba(0,0,0,0.06)
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -371,12 +320,26 @@ const useStyles = makeStyles((t) => ({
     fontFamily: t.typography.fontFamily.medium,
     color: MOSS_GREEN,
   },
-  todayCardContent: {
-    gap: 6,
+  progressLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 'auto',
+    marginBottom: 4,
+  },
+  progressLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#757575',
+  },
+  progressFraction: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#212121',
   },
   // Habits card (top of right column)
   habitsCard: {
-    height: 77,
+    height: 55,
     backgroundColor: CARD_BG_HABITS,
     borderRadius: 16,
     paddingHorizontal: 14,
@@ -451,21 +414,10 @@ const useStyles = makeStyles((t) => ({
     gap: 6,
     flex: 1,
   },
-  cardValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
   cardTitle: {
     fontSize: 14,
     fontFamily: t.typography.fontFamily.medium,
     color: INK_CHARCOAL,
-  },
-  secondaryMeta: {
-    fontSize: 12,
-    fontFamily: t.typography.fontFamily.regular,
-    color: 'rgba(34, 34, 34, 0.7)',
-    marginTop: 2,
   },
   cardValue: {
     fontSize: 13,
@@ -480,7 +432,7 @@ const useStyles = makeStyles((t) => ({
   // Today's pill progress bar
   progressBarTrack: {
     flexDirection: 'row',
-    height: 18, // Increased from 16px for more visual presence
+    height: 14,
     backgroundColor: TRACK_GREY,
     borderRadius: 999, // Soft pill shape
     overflow: 'hidden',

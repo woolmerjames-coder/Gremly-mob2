@@ -144,11 +144,13 @@ interface GremlyState {
   lastSweepCompletedAt: string | null;
   sweepStreak: number;
   totalSweepCount: number;
+  miniSweepLastCompletedAt: string | null;
   setSweepPreferences: (prefs: {
     lastSweepCompletedAt: string | null;
     sweepStreak: number;
     totalSweepCount: number;
   }) => void;
+  markMiniSweepCompleted: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -179,6 +181,8 @@ interface GremlyState {
   logHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
   /** Remove habit completion for a specific date (for Habits This Week) */
   removeHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
+  /** Update last_checked_in_at for a habit (user reviewed it) */
+  checkInHabit: (habitId: string) => Promise<void>;
   archiveHabit: (id: string, reason?: string) => Promise<void>;
   restoreHabit: (id: string) => Promise<void>;
 
@@ -288,6 +292,7 @@ const initialState = {
   lastSweepCompletedAt: null as string | null,
   sweepStreak: 0,
   totalSweepCount: 0,
+  miniSweepLastCompletedAt: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -399,6 +404,7 @@ export const useGremlyStore = create<GremlyState>()(
           lastSweepCompletedAt: (cortexPrefs?.last_sweep_completed_at as string) ?? null,
           sweepStreak: (cortexPrefs?.sweep_streak as number) ?? 0,
           totalSweepCount: sweepEventsCountRes.count ?? 0,
+          miniSweepLastCompletedAt: (cortexPrefs?.mini_sweep_last_completed_at as string) ?? null,
           isLoading: false,
           isInitialized: true,
           lastSyncedAt: new Date(),
@@ -467,6 +473,7 @@ export const useGremlyStore = create<GremlyState>()(
         lastSweepCompletedAt: null,
         sweepStreak: 0,
         totalSweepCount: 0,
+        miniSweepLastCompletedAt: null,
       });
     },
 
@@ -482,6 +489,30 @@ export const useGremlyStore = create<GremlyState>()(
         sweepStreak: prefs.sweepStreak,
         totalSweepCount: prefs.totalSweepCount,
       }),
+
+    markMiniSweepCompleted: async () => {
+      const userId = get().userId;
+      if (!userId) return;
+
+      const now = new Date().toISOString();
+
+      // Update in Supabase
+      const { error } = await supabase
+        .from('cortex_preferences')
+        .upsert(
+          { owner_id: userId, mini_sweep_last_completed_at: now },
+          { onConflict: 'owner_id' },
+        );
+
+      if (error) {
+        console.error('[GremlyStore] Failed to mark mini sweep completed:', error);
+        return;
+      }
+
+      // Update local state
+      set({ miniSweepLastCompletedAt: now });
+      console.log('[GremlyStore] Mini sweep marked completed at', now);
+    },
 
     // ═══════════════════════════════════════════════════════════════════
     // TODO MUTATIONS
@@ -1006,6 +1037,8 @@ export const useGremlyStore = create<GremlyState>()(
       };
       set((state) => ({
         habitProgress: [...state.habitProgress, newProgressRow],
+        // Also update last_checked_in_at on the habit
+        habits: state.habits.map((h) => (h.id === habitId ? { ...h, last_checked_in_at: now } : h)),
       }));
 
       // 2. PERSIST TO SUPABASE (don't await, fire-and-forget with error handling)
@@ -1081,6 +1114,33 @@ export const useGremlyStore = create<GremlyState>()(
             console.log('[GremlyStore] ✅ Habit completion removed:', { habitId, occurredDay });
           }
         });
+    },
+
+    /**
+     * Update last_checked_in_at for a habit (user reviewed/checked in on it).
+     * Used when opening habit details or manually checking in.
+     */
+    checkInHabit: async (habitId: string) => {
+      const now = new Date().toISOString();
+
+      // Update local state immediately
+      set((state) => ({
+        habits: state.habits.map((h) => (h.id === habitId ? { ...h, last_checked_in_at: now } : h)),
+      }));
+
+      // Persist to Supabase
+      try {
+        const { error } = await supabase
+          .from('habits')
+          .update({ last_checked_in_at: now })
+          .eq('id', habitId);
+
+        if (error) {
+          console.error('[checkInHabit] Supabase error:', error);
+        }
+      } catch (err) {
+        console.error('[checkInHabit] Failed:', err);
+      }
     },
 
     archiveHabit: async (id: string, reason?: string) => {

@@ -1,30 +1,35 @@
 /**
- * NowProgressPopup - Shows today's completed items with undo capability
+ * NowProgressPopup - Mini calendar popup with date navigation
  *
- * Updated to match divider-style Today list layout:
- * - Left accent bar (green for habits, blue for todos)
- * - Clean divider lines between items
- * - Two-line layout: title + timestamp, then meta + undo link
- * - Green check icon in header
+ * Features:
+ * - Navigate between days with chevron arrows
+ * - Today: shows completed items with undo capability
+ * - Other dates: shows all scheduled items (todos, habits)
+ * - Tap item to open edit overlay
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Modal, StyleSheet, TouchableOpacity, ScrollView, View } from 'react-native';
-import { Box, Text } from '../../ui';
-import { CompletionCheckIcon } from '../today/CompletionCheckIcon';
+import { Text } from '../../ui';
+import { ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { useCalendarItemsForDate, type CalendarItem } from '../../lib/store/calendarSelectors';
 import type { NowCompletedItem } from '../../lib/now/nowTypes';
 
 // Accent colors - same as NowFocusRow
 const ACCENT_COLORS = {
   habit: '#2E5540', // Moss Green
   todo: '#4A7FBF', // Soft blue
+  journal: '#8B7355', // Warm brown for journals
 } as const;
 
 // Divider color - same as NowFocusRow
 const DIVIDER_COLOR = 'rgba(0, 0, 0, 0.08)';
 
-// Moss Green for undo link
+// Moss Green for links and navigation
 const MOSS_GREEN = '#2E5540';
+
+// Sage Mist for completed items
+const SAGE_MIST = '#BFD8C0';
 
 interface NowProgressPopupProps {
   visible: boolean;
@@ -35,18 +40,83 @@ interface NowProgressPopupProps {
   totalCompletedToday: number;
   onClose: () => void;
   onUndoItem?: (item: NowCompletedItem) => void;
+  onItemPress?: (item: CalendarItem) => void;
 }
 
 export function NowProgressPopup({
   visible,
   completed,
-  totalTasksToday,
-  totalCompletedToday,
+  totalTasksToday: _totalTasksToday,
+  totalCompletedToday: _totalCompletedToday,
   onClose,
   onUndoItem,
+  onItemPress,
 }: NowProgressPopupProps) {
+  // Get today's date string
+  const getTodayStr = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+
+  // Date state for navigation - always start at today when visible
+  // The key prop on the inner content resets state when visibility changes
+  const [selectedDate, setSelectedDate] = useState(getTodayStr);
+
+  const todayStr = getTodayStr();
+  const isToday = selectedDate === todayStr;
+
+  // Get items for selected date using calendar selector
+  const calendarItems = useCalendarItemsForDate(selectedDate);
+
+  // Navigation handlers
+  const goToPreviousDay = () => {
+    const current = new Date(selectedDate + 'T12:00:00');
+    current.setDate(current.getDate() - 1);
+    setSelectedDate(
+      `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`,
+    );
+  };
+
+  const goToNextDay = () => {
+    const current = new Date(selectedDate + 'T12:00:00');
+    current.setDate(current.getDate() + 1);
+    setSelectedDate(
+      `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`,
+    );
+  };
+
+  const goToToday = () => {
+    setSelectedDate(todayStr);
+  };
+
+  // Format date for header display
+  const formatHeaderDate = (dateStr: string) => {
+    const date = new Date(dateStr + 'T12:00:00');
+    if (dateStr === todayStr) return 'Today';
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    if (dateStr === yesterdayStr) return 'Yesterday';
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+    if (dateStr === tomorrowStr) return 'Tomorrow';
+
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
+
   // Format time as "3:19pm" (lowercase am/pm)
-  const formatTime = (isoString: string) => {
+  const formatTime = (timeStr: string) => {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    const period = hours >= 12 ? 'pm' : 'am';
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${String(minutes).padStart(2, '0')}${period}`;
+  };
+
+  // Format completed_at timestamp
+  const formatCompletedTime = (isoString: string) => {
     const date = new Date(isoString);
     return date
       .toLocaleTimeString('en-US', {
@@ -59,16 +129,31 @@ export function NowProgressPopup({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+      onShow={() => setSelectedDate(getTodayStr())}
+    >
       <View style={styles.overlay}>
         <TouchableOpacity style={styles.dismissArea} activeOpacity={1} onPress={onClose} />
         <View style={styles.sheet}>
-          {/* Header */}
+          {/* Header with date navigation */}
           <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <CompletionCheckIcon completed={completed.length > 0} size={16} />
-              <Text style={styles.title}>Completed</Text>
-            </View>
+            <TouchableOpacity onPress={goToPreviousDay} style={styles.navButton}>
+              <ChevronLeft size={24} color={MOSS_GREEN} />
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={goToToday} style={styles.headerCenter}>
+              <Text style={styles.title}>{formatHeaderDate(selectedDate)}</Text>
+              {!isToday && <Text style={styles.todayHint}>Tap for today</Text>}
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={goToNextDay} style={styles.navButton}>
+              <ChevronRight size={24} color={MOSS_GREEN} />
+            </TouchableOpacity>
+
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeText}>Close</Text>
             </TouchableOpacity>
@@ -81,49 +166,105 @@ export function NowProgressPopup({
             showsVerticalScrollIndicator={true}
             bounces={true}
           >
-            {completed.length === 0 ? (
-              <Text style={styles.emptyText}>No items completed yet today</Text>
-            ) : (
-              completed.map((item, index) => {
-                const accentColor = ACCENT_COLORS[item.type];
-                const metaLabel = item.type === 'habit' ? 'Habit · Daily' : 'Todo';
-                const timeLabel = formatTime(item.completedAt);
-                const isFirst = index === 0;
+            {isToday ? (
+              // TODAY: Show completed items with undo
+              completed.length === 0 ? (
+                <Text style={styles.emptyText}>No items completed yet today</Text>
+              ) : (
+                completed.map((item, index) => {
+                  const accentColor = ACCENT_COLORS[item.type];
+                  const metaLabel = item.type === 'habit' ? 'Habit · Daily' : 'Todo';
+                  const timeLabel = formatCompletedTime(item.completedAt);
+                  const isFirst = index === 0;
 
-                return (
-                  <View key={item.id || index}>
-                    {/* Divider - only between items, not above first */}
-                    {!isFirst && <View style={styles.divider} />}
+                  return (
+                    <View key={item.id || index}>
+                      {!isFirst && <View style={styles.divider} />}
 
-                    <View style={styles.row}>
-                      {/* Left accent bar */}
-                      <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
-
-                      {/* Content */}
-                      <View style={styles.content}>
-                        {/* Line 1: Title + Timestamp */}
-                        <View style={styles.line1}>
-                          <Text style={styles.itemTitle} numberOfLines={1}>
-                            {item.name}
-                          </Text>
-                          <Text style={styles.timestamp}>{timeLabel}</Text>
-                        </View>
-
-                        {/* Line 2: Meta + Undo */}
-                        <View style={styles.line2}>
-                          <Text style={styles.metaLabel}>{metaLabel}</Text>
-                          {onUndoItem && (
-                            <TouchableOpacity
-                              onPress={() => onUndoItem(item)}
-                              style={styles.undoButton}
-                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                            >
-                              <Text style={styles.undoText}>Undo</Text>
-                            </TouchableOpacity>
-                          )}
+                      <View style={styles.row}>
+                        <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+                        <View style={styles.content}>
+                          <View style={styles.line1}>
+                            <Text style={styles.itemTitle} numberOfLines={1}>
+                              {item.name}
+                            </Text>
+                            <Text style={styles.timestamp}>{timeLabel}</Text>
+                          </View>
+                          <View style={styles.line2}>
+                            <Text style={styles.metaLabel}>{metaLabel}</Text>
+                            {onUndoItem && (
+                              <TouchableOpacity
+                                onPress={() => onUndoItem(item)}
+                                style={styles.undoButton}
+                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                              >
+                                <Text style={styles.undoText}>Undo</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         </View>
                       </View>
                     </View>
+                  );
+                })
+              )
+            ) : // OTHER DATES: Show all items for that date
+            calendarItems.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>Nothing scheduled</Text>
+                <Text style={styles.emptyHint}>Your day is wide open</Text>
+              </View>
+            ) : (
+              calendarItems.map((item, index) => {
+                const accentColor =
+                  item.type === 'journal'
+                    ? ACCENT_COLORS.journal
+                    : item.type === 'habit'
+                      ? ACCENT_COLORS.habit
+                      : ACCENT_COLORS.todo;
+                const isFirst = index === 0;
+                const subtitle =
+                  item.type === 'journal'
+                    ? 'Journal'
+                    : item.type === 'habit'
+                      ? 'Habit · Daily'
+                      : item.time
+                        ? `Todo · ${formatTime(item.time)}`
+                        : 'Todo';
+
+                return (
+                  <View key={item.id}>
+                    {!isFirst && <View style={styles.divider} />}
+                    <TouchableOpacity
+                      style={styles.row}
+                      onPress={() => onItemPress?.(item)}
+                      activeOpacity={0.7}
+                    >
+                      <View
+                        style={[
+                          styles.accentBar,
+                          { backgroundColor: accentColor },
+                          item.isCompleted && styles.accentBarCompleted,
+                        ]}
+                      />
+                      <View style={styles.content}>
+                        <View style={styles.line1}>
+                          <Text
+                            style={[
+                              styles.itemTitle,
+                              item.isCompleted && styles.itemTitleCompleted,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {item.title}
+                          </Text>
+                        </View>
+                        <View style={styles.line2}>
+                          <Text style={styles.metaLabel}>{subtitle}</Text>
+                          {item.isCompleted && <Text style={styles.completedBadge}>Done</Text>}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
                   </View>
                 );
               })
@@ -152,22 +293,28 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: DIVIDER_COLOR,
   },
-  headerLeft: {
-    flexDirection: 'row',
+  navButton: {
+    padding: 8,
+  },
+  headerCenter: {
+    flex: 1,
     alignItems: 'center',
-    gap: 8,
   },
   title: {
     fontSize: 18,
     fontWeight: '700',
     color: '#212121',
+  },
+  todayHint: {
+    fontSize: 11,
+    color: MOSS_GREEN,
+    marginTop: 2,
   },
   closeButton: {
     paddingVertical: 4,
@@ -190,7 +337,7 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: DIVIDER_COLOR,
-    marginLeft: 13, // Align with title text (accent bar 3px + marginRight 10px)
+    marginLeft: 13,
   },
   row: {
     flexDirection: 'row',
@@ -204,6 +351,9 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginRight: 10,
     marginVertical: 2,
+  },
+  accentBarCompleted: {
+    backgroundColor: SAGE_MIST,
   },
   content: {
     flex: 1,
@@ -221,6 +371,10 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 8,
   },
+  itemTitleCompleted: {
+    textDecorationLine: 'line-through',
+    color: '#9E9E9E',
+  },
   timestamp: {
     fontSize: 13,
     color: '#9E9E9E',
@@ -234,6 +388,11 @@ const styles = StyleSheet.create({
   metaLabel: {
     fontSize: 12,
     color: '#757575',
+  },
+  completedBadge: {
+    fontSize: 11,
+    color: MOSS_GREEN,
+    fontWeight: '600',
   },
   undoButton: {
     paddingVertical: 4,
@@ -249,5 +408,14 @@ const styles = StyleSheet.create({
     color: '#757575',
     textAlign: 'center',
     paddingVertical: 32,
+  },
+  emptyState: {
+    paddingVertical: 48,
+    alignItems: 'center',
+  },
+  emptyHint: {
+    fontSize: 13,
+    color: '#9E9E9E',
+    marginTop: 4,
   },
 });

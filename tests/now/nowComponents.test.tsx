@@ -43,16 +43,6 @@ const mockActiveItem = {
   weeklyStatus: 'on_track_today' as const,
 };
 
-const mockWeeklySummaries = [
-  {
-    habitId: 'habit-1',
-    name: 'Morning Meditation',
-    targetPerWeek: 7,
-    completionsThisWeek: 5,
-    status: 'on_track_today' as const,
-  },
-];
-
 describe('NowHeader', () => {
   it('mounts successfully', () => {
     render(
@@ -60,7 +50,10 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
-        weeklySummaries={mockWeeklySummaries}
+        todayHabitCount={3}
+        todayTodoCount={2}
+        habitsUpToDate={5}
+        habitsTotal={7}
         capturesCount={0}
       />,
     );
@@ -75,7 +68,10 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
-        weeklySummaries={mockWeeklySummaries}
+        todayHabitCount={3}
+        todayTodoCount={2}
+        habitsUpToDate={5}
+        habitsTotal={7}
         capturesCount={0}
       />,
     );
@@ -90,7 +86,10 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
-        weeklySummaries={mockWeeklySummaries}
+        todayHabitCount={3}
+        todayTodoCount={2}
+        habitsUpToDate={5}
+        habitsTotal={7}
         capturesCount={0}
       />,
     );
@@ -104,20 +103,15 @@ describe('NowHeader', () => {
         dateTimeLabel="Monday, November 25 • 10:30 AM"
         totalTasksToday={5}
         totalCompletedToday={2}
-        weeklySummaries={[
-          {
-            habitId: 'habit-1',
-            name: 'Meditation',
-            targetPerWeek: 7,
-            completionsThisWeek: 2,
-            status: 'last_chance',
-          },
-        ]}
+        todayHabitCount={3}
+        todayTodoCount={2}
+        habitsUpToDate={2}
+        habitsTotal={7}
         capturesCount={3}
       />,
     );
     // Check for card titles
-    expect(screen.getByText('Today')).toBeTruthy();
+    expect(screen.getByText("Today's Progress")).toBeTruthy();
     expect(screen.getByText('Habits')).toBeTruthy();
     expect(screen.getByText('Your Notes')).toBeTruthy();
   });

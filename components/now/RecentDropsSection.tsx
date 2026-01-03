@@ -64,7 +64,7 @@ export function RecentDropsSection({
 }: RecentDropsSectionProps) {
   const tokens = useTokens();
   const [showAll, setShowAll] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   const toggleCollapsed = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);

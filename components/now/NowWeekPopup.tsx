@@ -21,6 +21,7 @@ import { HabitWeeklyRow } from '../today/HabitWeeklyRow';
 import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useWeeklyHabitStats, type RawHabit } from '../../lib/today/hooks/useWeeklyHabitStats';
+import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitStats';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type {
   NowWeeklyHabitSummary,
@@ -85,6 +86,43 @@ function toDateString(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Compute streak from dayDots - count consecutive 'done' days from the end
+ */
+function computeStreak(dayDots: DayDot[]): number {
+  let streak = 0;
+  for (let i = dayDots.length - 1; i >= 0; i--) {
+    if (dayDots[i] === 'done') {
+      streak++;
+    } else if (dayDots[i] !== 'future') {
+      break; // Stop at first non-done, non-future day
+    }
+  }
+  return streak;
+}
+
+/**
+ * Determine check-in status based on last_checked_in_at instead of completions.
+ * For daily habits: up to date if checked in today or yesterday.
+ * For weekly habits: up to date if checked in within last 7 days.
+ */
+function getCheckInStatus(habit: Habit | undefined): HabitStatus {
+  if (!habit) return 'needs_attention';
+
+  const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const cadence = habit.cadence ?? 'daily';
+
+  if (!lastCheckedIn) return 'needs_attention';
+
+  if (cadence === 'daily') {
+    return lastCheckedIn >= yesterday ? 'on_track' : 'needs_attention';
+  } else {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+    return lastCheckedIn >= sevenDaysAgo ? 'on_track' : 'needs_attention';
+  }
+}
+
 export function NowWeekPopup({
   visible,
   habitsToday: _habitsToday,
@@ -101,6 +139,7 @@ export function NowWeekPopup({
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
+  const checkInHabit = useGremlyStore((s) => s.checkInHabit);
   const [isLoading, setIsLoading] = useState(false);
   // Store the initial sort order to prevent rows from jumping when toggled
   const [sortOrder, setSortOrder] = useState<string[] | null>(null);
@@ -123,6 +162,14 @@ export function NowWeekPopup({
       }
     },
     [repo, overlayController, onClose],
+  );
+
+  // Handle check-in button press
+  const handleCheckIn = useCallback(
+    async (habitId: string) => {
+      await checkInHabit(habitId);
+    },
+    [checkInHabit],
   );
 
   // Week date range - rolling 7 days ending today (matches useWeeklyHabitStats)
@@ -166,6 +213,7 @@ export function NowWeekPopup({
         target_per_period: (habit as any).target_per_period as number | undefined,
         labels: habit.labels,
         type: habit.type,
+        subtype: habit.subtype, // For breaking habit detection
         habit_progress: progressDates.map((d: string) => ({ occurred_day: d })),
         schedule_days: (habit as any).days_active?.map((d: string) => {
           const dayMap: Record<string, number> = {
@@ -226,22 +274,27 @@ export function NowWeekPopup({
   }, [rawWeeklyStats, sortOrder]);
 
   // Apply stable sort order to prevent row jumping on toggle
+  // Breaking habits are always sorted to the top
   const weeklyStats = useMemo(() => {
     if (rawWeeklyStats.length === 0) return rawWeeklyStats;
 
-    // If no stored sort order yet, return unsorted
-    if (sortOrder == null) {
-      return rawWeeklyStats;
-    }
-
-    // Re-order based on stored sort order
-    const orderMap = new Map(sortOrder.map((id, idx) => [id, idx]));
     return [...rawWeeklyStats].sort((a, b) => {
-      const aIdx = orderMap.get(a.id) ?? 999;
-      const bIdx = orderMap.get(b.id) ?? 999;
+      // First: breaking habits at top
+      const aIsBreaking = allHabits?.find((h) => h.id === a.id)?.subtype === 'break_habit';
+      const bIsBreaking = allHabits?.find((h) => h.id === b.id)?.subtype === 'break_habit';
+      if (aIsBreaking && !bIsBreaking) return -1;
+      if (!aIsBreaking && bIsBreaking) return 1;
+
+      // Then: maintain original sort order
+      if (sortOrder == null) return 0;
+      const aIdx = sortOrder.indexOf(a.id);
+      const bIdx = sortOrder.indexOf(b.id);
+      if (aIdx === -1 && bIdx === -1) return 0;
+      if (aIdx === -1) return 1;
+      if (bIdx === -1) return -1;
       return aIdx - bIdx;
     });
-  }, [rawWeeklyStats, sortOrder]);
+  }, [rawWeeklyStats, sortOrder, allHabits]);
 
   console.log(
     '[NowWeekPopup] enrichedHabits:',
@@ -251,14 +304,37 @@ export function NowWeekPopup({
   );
   console.log('[HabitsSheet] layout tightened');
 
-  // Compute summary stats: habits on track vs total
-  const summaryStats = useMemo(() => {
-    const total = weeklyStats.length;
-    const onTrack = weeklyStats.filter(
-      (s) => s.status === 'on_track' || s.status === 'done_for_week',
-    ).length;
-    return { onTrack, total };
-  }, [weeklyStats]);
+  // Compute summary stats: habits up to date vs total (based on check-in dates)
+  // Use a function to compute this to avoid Date.now() purity issues
+  const computeSummaryStats = useCallback(() => {
+    if (!allHabits) return { upToDate: 0, total: 0 };
+
+    const now = Date.now();
+    const yesterday = new Date(now - 86400000).toISOString().split('T')[0];
+    const sevenDaysAgo = new Date(now - 7 * 86400000).toISOString().split('T')[0];
+
+    const total = allHabits.filter((h) => !h.archived).length;
+
+    const upToDate = allHabits.filter((habit) => {
+      if (habit.archived) return false;
+
+      const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
+      const cadence = habit.cadence ?? 'daily';
+
+      if (!lastCheckedIn) return false;
+
+      if (cadence === 'daily') {
+        return lastCheckedIn >= yesterday;
+      } else {
+        return lastCheckedIn >= sevenDaysAgo;
+      }
+    }).length;
+
+    return { upToDate, total };
+  }, [allHabits]);
+
+  // Compute stats when visible
+  const summaryStats = visible ? computeSummaryStats() : { upToDate: 0, total: 0 };
 
   // Get dynamic day labels from first habit's stats (rolling 7 days)
   // dayLabels is an array of short day names like ['Th', 'Fr', 'Sa', 'Su', 'Mo', 'Tu', 'We']
@@ -320,7 +396,7 @@ export function NowWeekPopup({
               {/* Summary line: "{onTrack}/{total} on track" */}
               {weeklyStats.length > 0 && (
                 <Text style={styles.summaryText}>
-                  {summaryStats.onTrack}/{summaryStats.total} on track
+                  {summaryStats.upToDate}/{summaryStats.total} up to date
                 </Text>
               )}
             </View>
@@ -328,6 +404,9 @@ export function NowWeekPopup({
               <Text style={styles.closeText}>Close</Text>
             </TouchableOpacity>
           </Box>
+
+          {/* Helper text */}
+          <Text style={styles.helperText}>Tap circles to log · Confirm to mark reviewed</Text>
 
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
             {/* ─── SHARED DAY HEADER ROW ─── */}
@@ -355,23 +434,31 @@ export function NowWeekPopup({
               </Box>
             ) : weeklyStats.length > 0 ? (
               <>
-                {weeklyStats.map((stat, index) => (
-                  <HabitWeeklyRow
-                    key={stat.id}
-                    habitId={stat.id}
-                    name={stat.name}
-                    weeklyCompleted={stat.weeklyCompleted}
-                    weeklyTarget={stat.weeklyTarget}
-                    status={stat.status}
-                    dayDots={stat.dayDots}
-                    dayDates={stat.dayDates}
-                    todayIndex={todayIndex}
-                    frequencyLabel={stat.frequencyLabel}
-                    onToggleDay={handleToggleDay}
-                    onPressHeader={() => openHabitDetail(stat.id, stat.name)}
-                    showDivider={index < weeklyStats.length - 1}
-                  />
-                ))}
+                {weeklyStats.map((stat, index) => {
+                  const habit = allHabits?.find((h) => h.id === stat.id);
+                  const checkInStatus = getCheckInStatus(habit);
+                  return (
+                    <HabitWeeklyRow
+                      key={stat.id}
+                      habitId={stat.id}
+                      name={stat.name}
+                      weeklyCompleted={stat.weeklyCompleted}
+                      weeklyTarget={stat.weeklyTarget}
+                      status={checkInStatus}
+                      dayDots={stat.dayDots}
+                      dayDates={stat.dayDates}
+                      todayIndex={todayIndex}
+                      frequencyLabel={stat.frequencyLabel}
+                      onToggleDay={handleToggleDay}
+                      onPressHeader={() => openHabitDetail(stat.id, stat.name)}
+                      showDivider={index < weeklyStats.length - 1}
+                      isBreakingHabit={habit?.subtype === 'break_habit'}
+                      streakDays={computeStreak(stat.dayDots)}
+                      onCheckIn={handleCheckIn}
+                      startDate={habit?.start_date}
+                    />
+                  );
+                })}
               </>
             ) : (
               <Text style={styles.emptyText}>
@@ -468,5 +555,13 @@ const styles = StyleSheet.create({
     color: INK_SUBTLE,
     textAlign: 'center',
     paddingVertical: 24,
+  },
+  helperText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: INK_SUBTLE,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
   },
 });

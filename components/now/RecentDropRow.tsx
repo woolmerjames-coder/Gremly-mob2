@@ -20,9 +20,6 @@ import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Recent drops accent color - neutral/subtle to indicate needs sorting
-const DROPS_ACCENT = '#8B8B8B';
-
 // Row height for compact list items
 const ROW_HEIGHT = 44;
 
@@ -87,11 +84,6 @@ export function RecentDropRow({ item, index, onPressItem, onAddToToday }: Recent
           testID={`recent-drops-row-${index}`}
           disabled={isAnimating}
         >
-          {/* Left accent bar */}
-          <View style={styles.accentContainer}>
-            <View style={[styles.accentBar, { backgroundColor: DROPS_ACCENT }]} />
-          </View>
-
           {/* Item title */}
           <Text
             numberOfLines={1}
@@ -155,21 +147,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: ROW_HEIGHT,
+    paddingLeft: 16,
     paddingRight: 16,
   },
   rowPressed: {
     opacity: 0.7,
-  },
-  accentContainer: {
-    width: 20,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingLeft: 4,
-  },
-  accentBar: {
-    width: 3,
-    height: 24,
-    borderRadius: 2,
   },
   itemTitle: {
     flex: 1,
