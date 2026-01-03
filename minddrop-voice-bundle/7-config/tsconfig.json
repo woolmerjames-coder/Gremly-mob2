@@ -1,0 +1,22 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+  "types": ["jest", "react", "node"]
+  },
+  "include": ["**/*.ts", "**/*.tsx", "types", "__tests__/**/*"],
+  "exclude": [
+    "node_modules",
+    "_archive/**/*",
+    "gremly-chat-system-review/**/*",
+    "app/(dev)/**/*",
+    "__tests__/pending/**/*",
+    "supabase/functions/**/*",
+    // Exclude generated bundles - they contain copied code with broken imports
+    // relative to their location. These are distribution artifacts, not source.
+    "artifacts/**/*",
+    "scripts/**/*",
+    // Exclude minddrop-reference - documentation/snippet files not meant to compile
+    "minddrop-reference/**/*"
+  ]
+}

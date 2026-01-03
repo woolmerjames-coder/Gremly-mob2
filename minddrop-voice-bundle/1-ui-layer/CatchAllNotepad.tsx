@@ -105,7 +105,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock, Camera, Clock, LogOut, User } from 'lucide-react-native';
+import { Lock, Camera, Clock, LogOut } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -1757,16 +1757,6 @@ const AnimatedMindDropCard: React.FC<{
                 </View>
               </Pressable>
             )}
-          {item.views?.people &&
-            Array.isArray(item.views.people) &&
-            item.views.people.length > 0 && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                <User size={10} color="#6B8E6B" strokeWidth={2.5} />
-                <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
-                  {item.views.people[0]}
-                </Text>
-              </View>
-            )}
         </View>
         {/* Right side: photo icon + timestamp */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -2643,7 +2633,6 @@ const RecentDrops: React.FC<{
               minddrop_stage: 'enriched',
               ai_pending: false,
               confirmation_message: payload.confirmationMessage ?? item.views?.confirmation_message,
-              people: payload.people ?? item.views?.people,
             },
           };
         }),
