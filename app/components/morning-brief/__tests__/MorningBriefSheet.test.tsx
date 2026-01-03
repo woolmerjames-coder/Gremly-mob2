@@ -26,6 +26,16 @@ jest.mock('../../../../lib/haptics', () => ({
   triggerSuccess: jest.fn(),
 }));
 
+// Mock useMiniSweepGate hook
+jest.mock('../../../../lib/today/hooks/useMiniSweepGate', () => ({
+  useMiniSweepGate: () => ({
+    shouldShowMiniSweep: false,
+    overdueCount: 0,
+    unscheduledCount: 0,
+    markMiniSweepCompleted: jest.fn(),
+  }),
+}));
+
 // Mock useNowQuickAdd (the hook using useRepo)
 jest.mock('../../../../lib/now/useNowQuickAdd', () => ({
   useNowQuickAdd: () => ({

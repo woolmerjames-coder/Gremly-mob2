@@ -86,7 +86,7 @@ describe('RecentDropsSection', () => {
       expect(screen.getByText('(3)')).toBeTruthy();
     });
 
-    it('renders one row per item with the item title visible', () => {
+    it('renders one row per item with the item title visible when expanded', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Buy groceries' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Call dentist' }),
@@ -100,11 +100,14 @@ describe('RecentDropsSection', () => {
         />,
       );
 
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
       expect(screen.getByText('Buy groceries')).toBeTruthy();
       expect(screen.getByText('Call dentist')).toBeTruthy();
     });
 
-    it('renders dividers before every row for consistent alignment', () => {
+    it('renders dividers before every row for consistent alignment when expanded', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
@@ -118,6 +121,9 @@ describe('RecentDropsSection', () => {
           onAddToToday={mockOnAddToToday}
         />,
       );
+
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
       // Every row should have a divider before it (including the first row)
       expect(screen.getByTestId('recent-drops-divider-0')).toBeTruthy();
@@ -143,6 +149,9 @@ describe('RecentDropsSection', () => {
         />,
       );
 
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
       // Press the first item's title
       fireEvent.press(screen.getByText('Task 1'));
       expect(mockOnPressItem).toHaveBeenCalledTimes(1);
@@ -156,7 +165,7 @@ describe('RecentDropsSection', () => {
   });
 
   describe('Add to Today action', () => {
-    it('renders "+ Today" button for each item', () => {
+    it('renders "+ Today" button for each item when expanded', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
@@ -169,6 +178,9 @@ describe('RecentDropsSection', () => {
           onAddToToday={mockOnAddToToday}
         />,
       );
+
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
       // Should have two "+ Today" buttons
       const addButtons = screen.getAllByText('+ Today');
@@ -187,6 +199,9 @@ describe('RecentDropsSection', () => {
           onAddToToday={mockOnAddToToday}
         />,
       );
+
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
       // Press the first "+ Today" button
       const addButtons = screen.getAllByText('+ Today');
@@ -211,6 +226,9 @@ describe('RecentDropsSection', () => {
         />,
       );
 
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
       // Press the "+ Today" button
       const addButton = screen.getByText('+ Today');
       fireEvent.press(addButton);
@@ -221,7 +239,7 @@ describe('RecentDropsSection', () => {
   });
 
   describe('maxVisible and Show more', () => {
-    it('shows only maxVisible items by default (default 5)', () => {
+    it('shows only maxVisible items when expanded (default 5)', () => {
       const items = Array.from({ length: 8 }, (_, i) =>
         createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
       );
@@ -233,6 +251,9 @@ describe('RecentDropsSection', () => {
           onAddToToday={mockOnAddToToday}
         />,
       );
+
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
       // First 5 should be visible
       expect(screen.getByText('Task 1')).toBeTruthy();
@@ -261,6 +282,9 @@ describe('RecentDropsSection', () => {
         />,
       );
 
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
       // First 3 should be visible
       expect(screen.getByText('Task 1')).toBeTruthy();
       expect(screen.getByText('Task 2')).toBeTruthy();
@@ -271,7 +295,7 @@ describe('RecentDropsSection', () => {
       expect(screen.queryByText('Task 5')).toBeNull();
     });
 
-    it('shows "Show X more" button when there are more items than maxVisible', () => {
+    it('shows "Show X more" button when expanded and there are more items than maxVisible', () => {
       const items = Array.from({ length: 8 }, (_, i) =>
         createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
       );
@@ -284,11 +308,14 @@ describe('RecentDropsSection', () => {
         />,
       );
 
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
       // Should show "Show 3 more" (8 - 5 = 3)
       expect(screen.getByText('Show 3 more')).toBeTruthy();
     });
 
-    it('does not show "Show more" button when items <= maxVisible', () => {
+    it('does not show "Show more" button when expanded and items <= maxVisible', () => {
       const items = Array.from({ length: 3 }, (_, i) =>
         createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
       );
@@ -300,6 +327,9 @@ describe('RecentDropsSection', () => {
           onAddToToday={mockOnAddToToday}
         />,
       );
+
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
       expect(screen.queryByText(/Show .* more/)).toBeNull();
     });
@@ -316,6 +346,9 @@ describe('RecentDropsSection', () => {
           onAddToToday={mockOnAddToToday}
         />,
       );
+
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
       // Initially, items 6-8 are hidden
       expect(screen.queryByText('Task 6')).toBeNull();
@@ -334,7 +367,7 @@ describe('RecentDropsSection', () => {
   });
 
   describe('chevron behavior', () => {
-    it('shows chevron in expanded state by default', () => {
+    it('shows collapsed chevron by default', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
@@ -350,13 +383,13 @@ describe('RecentDropsSection', () => {
 
       // Header text should be present
       expect(screen.getByText('Recent Drops')).toBeTruthy();
-      // Expanded chevron should be visible
-      expect(screen.getByText('v')).toBeTruthy();
-      // Collapsed chevron should NOT be rendered
-      expect(screen.queryByText('>')).toBeNull();
+      // Collapsed chevron should be visible (default state is collapsed)
+      expect(screen.getByText('>')).toBeTruthy();
+      // Expanded chevron should NOT be rendered
+      expect(screen.queryByText('v')).toBeNull();
     });
 
-    it('toggles chevron icon when collapsing', () => {
+    it('toggles chevron icon when expanding', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
@@ -370,28 +403,28 @@ describe('RecentDropsSection', () => {
         />,
       );
 
-      // Initially expanded
-      expect(screen.getByText('v')).toBeTruthy();
-      expect(screen.queryByText('>')).toBeNull();
-
-      // Press header to collapse
-      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
-
-      // Collapsed chevron should be visible, expanded should not
+      // Initially collapsed
       expect(screen.getByText('>')).toBeTruthy();
       expect(screen.queryByText('v')).toBeNull();
 
-      // Press header to expand again
+      // Press header to expand
       fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
-      // Back to expanded state
+      // Expanded chevron should be visible, collapsed should not
       expect(screen.getByText('v')).toBeTruthy();
       expect(screen.queryByText('>')).toBeNull();
+
+      // Press header to collapse again
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
+      // Back to collapsed state
+      expect(screen.getByText('>')).toBeTruthy();
+      expect(screen.queryByText('v')).toBeNull();
     });
   });
 
   describe('collapse/expand rows', () => {
-    it('rows are hidden when collapsed', () => {
+    it('rows are hidden when collapsed (default state)', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
@@ -405,19 +438,12 @@ describe('RecentDropsSection', () => {
         />,
       );
 
-      // Confirm item titles are visible initially
-      expect(screen.getByText('Task 1')).toBeTruthy();
-      expect(screen.getByText('Task 2')).toBeTruthy();
-
-      // Press the header to collapse
-      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
-
-      // Assert the item titles are no longer in the tree
+      // Component starts collapsed, so items should NOT be visible
       expect(screen.queryByText('Task 1')).toBeNull();
       expect(screen.queryByText('Task 2')).toBeNull();
     });
 
-    it('rows become visible again when expanded', () => {
+    it('rows become visible when expanded', () => {
       const items = [
         createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
         createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
@@ -431,24 +457,50 @@ describe('RecentDropsSection', () => {
         />,
       );
 
-      // Collapse
-      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+      // Initially collapsed
       expect(screen.queryByText('Task 1')).toBeNull();
       expect(screen.queryByText('Task 2')).toBeNull();
 
-      // Expand again
+      // Expand
       fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
-      // Assert item titles are visible again
+      // Assert item titles are visible
       expect(screen.getByText('Task 1')).toBeTruthy();
       expect(screen.getByText('Task 2')).toBeTruthy();
+    });
+
+    it('rows are hidden again after collapsing', () => {
+      const items = [
+        createMockSweepCandidate({ id: 'todo-1', name: 'Task 1' }),
+        createMockSweepCandidate({ id: 'todo-2', name: 'Task 2' }),
+      ];
+
+      render(
+        <RecentDropsSection
+          items={items}
+          onPressItem={mockOnPressItem}
+          onAddToToday={mockOnAddToToday}
+        />,
+      );
+
+      // Expand first
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+      expect(screen.getByText('Task 1')).toBeTruthy();
+      expect(screen.getByText('Task 2')).toBeTruthy();
+
+      // Collapse
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
+      // Assert items are hidden again
+      expect(screen.queryByText('Task 1')).toBeNull();
+      expect(screen.queryByText('Task 2')).toBeNull();
     });
   });
 
   describe('Show X more behavior', () => {
     const MAX_VISIBLE = 5;
 
-    it('shows "Show X more" when more than MAX_VISIBLE items', () => {
+    it('shows "Show X more" when expanded and more than MAX_VISIBLE items', () => {
       const items = Array.from({ length: MAX_VISIBLE + 2 }, (_, i) =>
         createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
       );
@@ -460,6 +512,9 @@ describe('RecentDropsSection', () => {
           onAddToToday={mockOnAddToToday}
         />,
       );
+
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
       // Exactly MAX_VISIBLE item titles should be visible
       for (let i = 1; i <= MAX_VISIBLE; i++) {
@@ -486,6 +541,9 @@ describe('RecentDropsSection', () => {
         />,
       );
 
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
       // Initially hidden items
       expect(screen.queryByText(`Task ${MAX_VISIBLE + 1}`)).toBeNull();
       expect(screen.queryByText(`Task ${MAX_VISIBLE + 2}`)).toBeNull();
@@ -503,7 +561,7 @@ describe('RecentDropsSection', () => {
       expect(screen.queryByText(/Show \d+ more/)).toBeNull();
     });
 
-    it('does not show "Show more" when items length <= MAX_VISIBLE', () => {
+    it('does not show "Show more" when expanded and items length <= MAX_VISIBLE', () => {
       const items = Array.from({ length: MAX_VISIBLE }, (_, i) =>
         createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
       );
@@ -516,6 +574,9 @@ describe('RecentDropsSection', () => {
         />,
       );
 
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
+
       // All items should be shown
       for (let i = 1; i <= MAX_VISIBLE; i++) {
         expect(screen.getByText(`Task ${i}`)).toBeTruthy();
@@ -525,7 +586,7 @@ describe('RecentDropsSection', () => {
       expect(screen.queryByText(/Show \d+ more/)).toBeNull();
     });
 
-    it('respects custom maxVisible prop', () => {
+    it('respects custom maxVisible prop when expanded', () => {
       const items = Array.from({ length: 5 }, (_, i) =>
         createMockSweepCandidate({ id: `todo-${i}`, name: `Task ${i + 1}` }),
       );
@@ -538,6 +599,9 @@ describe('RecentDropsSection', () => {
           maxVisible={3}
         />,
       );
+
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
       // First 3 should be visible
       expect(screen.getByText('Task 1')).toBeTruthy();
@@ -564,6 +628,9 @@ describe('RecentDropsSection', () => {
           onAddToToday={mockOnAddToToday}
         />,
       );
+
+      // Expand first (component starts collapsed)
+      fireEvent.press(screen.getByTestId('recent-drops-section-header'));
 
       // Show more should be visible when expanded
       expect(screen.getByText('Show 3 more')).toBeTruthy();
