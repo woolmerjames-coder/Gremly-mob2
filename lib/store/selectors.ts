@@ -1197,33 +1197,32 @@ export const selectWeeklyHabitSummaries = createSelector(
 
 /** Count of habits that are "up to date" (checked in within their cadence window) */
 export const selectHabitsUpToDateCount = createSelector(
-  [selectHubHabits, selectCompletionsThisWeek],
-  (habits, completionsThisWeek): { upToDate: number; total: number } => {
+  [selectHubHabits],
+  (habits): { upToDate: number; total: number } => {
     const yesterday = getDaysAgoDayString(1);
+    const sevenDaysAgo = getDaysAgoDayString(7);
 
-    // Exclude breaking habits - they need a different check-in model
-    const buildingHabits = habits.filter((h) => h.subtype !== 'break_habit');
-
-    const upToDate = buildingHabits.filter((habit) => {
-      const lastCompleted = habit.last_completed_at?.split('T')[0];
+    const upToDate = habits.filter((habit) => {
+      const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
       const cadence = habit.cadence ?? 'daily';
 
-      if (cadence === 'daily') {
-        // Daily: completed yesterday or today = up to date
-        return lastCompleted && lastCompleted >= yesterday;
-      } else if (cadence === 'weekly') {
-        // Weekly: any completion this week = up to date
-        const completionsThisWeekCount = completionsThisWeek.get(habit.id) ?? 0;
-        return completionsThisWeekCount > 0;
-      }
+      if (!lastCheckedIn) return false; // Never checked in
 
-      // Monthly or other: just check if completed recently
-      return lastCompleted && lastCompleted >= getDaysAgoDayString(7);
+      if (cadence === 'daily') {
+        // Daily: checked in yesterday or today = up to date
+        return lastCheckedIn >= yesterday;
+      } else if (cadence === 'weekly') {
+        // Weekly: checked in within last 7 days = up to date
+        return lastCheckedIn >= sevenDaysAgo;
+      } else {
+        // Monthly or other: checked in within last 7 days
+        return lastCheckedIn >= sevenDaysAgo;
+      }
     }).length;
 
     return {
       upToDate,
-      total: buildingHabits.length,
+      total: habits.length,
     };
   },
 );
