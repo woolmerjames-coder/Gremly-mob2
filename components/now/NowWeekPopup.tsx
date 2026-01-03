@@ -304,7 +304,37 @@ export function NowWeekPopup({
   );
   console.log('[HabitsSheet] layout tightened');
 
-  // Compute summary stats: habits up to date vs total (based on check-in dates)\n  // Use a function to compute this to avoid Date.now() purity issues\n  const computeSummaryStats = useCallback(() => {\n    if (!allHabits) return { upToDate: 0, total: 0 };\n\n    const now = Date.now();\n    const yesterday = new Date(now - 86400000).toISOString().split('T')[0];\n    const sevenDaysAgo = new Date(now - 7 * 86400000).toISOString().split('T')[0];\n\n    const total = allHabits.filter((h) => !h.archived).length;\n\n    const upToDate = allHabits.filter((habit) => {\n      if (habit.archived) return false;\n\n      const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];\n      const cadence = habit.cadence ?? 'daily';\n\n      if (!lastCheckedIn) return false;\n\n      if (cadence === 'daily') {\n        return lastCheckedIn >= yesterday;\n      } else {\n        return lastCheckedIn >= sevenDaysAgo;\n      }\n    }).length;\n\n    return { upToDate, total };\n  }, [allHabits]);\n\n  // Compute stats when visible\n  const summaryStats = visible ? computeSummaryStats() : { upToDate: 0, total: 0 };
+  // Compute summary stats: habits up to date vs total (based on check-in dates)
+  // Use a function to compute this to avoid Date.now() purity issues
+  const computeSummaryStats = useCallback(() => {
+    if (!allHabits) return { upToDate: 0, total: 0 };
+
+    const now = Date.now();
+    const yesterday = new Date(now - 86400000).toISOString().split('T')[0];
+    const sevenDaysAgo = new Date(now - 7 * 86400000).toISOString().split('T')[0];
+
+    const total = allHabits.filter((h) => !h.archived).length;
+
+    const upToDate = allHabits.filter((habit) => {
+      if (habit.archived) return false;
+
+      const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
+      const cadence = habit.cadence ?? 'daily';
+
+      if (!lastCheckedIn) return false;
+
+      if (cadence === 'daily') {
+        return lastCheckedIn >= yesterday;
+      } else {
+        return lastCheckedIn >= sevenDaysAgo;
+      }
+    }).length;
+
+    return { upToDate, total };
+  }, [allHabits]);
+
+  // Compute stats when visible
+  const summaryStats = visible ? computeSummaryStats() : { upToDate: 0, total: 0 };
 
   // Get dynamic day labels from first habit's stats (rolling 7 days)
   // dayLabels is an array of short day names like ['Th', 'Fr', 'Sa', 'Su', 'Mo', 'Tu', 'We']

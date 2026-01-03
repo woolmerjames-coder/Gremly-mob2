@@ -320,11 +320,13 @@ export function MiniSweepGate({
     setIsSaving(true);
 
     const today = getTodayDateString();
+    console.log('[MiniSweepGate] handleSave called. Staged decisions:', stagedDecisions.size);
 
     try {
       const updates: Promise<void>[] = [];
 
       for (const [id, decision] of stagedDecisions.entries()) {
+        console.log('[MiniSweepGate] Processing decision:', { id, decision });
         switch (decision) {
           case 'today':
             // Set due_day to today - item flows to Morning Brief and Today's Focus
@@ -334,14 +336,18 @@ export function MiniSweepGate({
             // Archive the todo - disappears from all views
             updates.push(archiveTodo(id, 'mini_sweep'));
             break;
-          case 'later':
-            // NO database action - item stays as-is (overdue/unscheduled)
-            // Will appear in Rolled Over section on Today page, resurfaces in next Mini Sweep
+          case 'later': {
+            // Use local date string to match getTodayDayString() in selectors
+            const localDate = getTodayDateString() + 'T00:00:00';
+            console.log('[MiniSweepGate] Setting skipped_in_sweep_at:', { id, localDate });
+            updates.push(updateTodo(id, { skipped_in_sweep_at: localDate }));
             break;
+          }
         }
       }
 
       await Promise.all(updates);
+      console.log('[MiniSweepGate] All updates completed');
       onComplete();
     } catch (error) {
       console.error('[MiniSweepGate] Error saving decisions:', error);

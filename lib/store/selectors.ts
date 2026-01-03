@@ -440,22 +440,58 @@ export const selectTodosDueToday = createSelector([selectActiveTodos], (todos): 
 /** Overdue todos (due_day < today, not completed, not archived) */
 export const selectOverdueTodos = createSelector([selectActiveTodos], (todos): Todo[] => {
   const today = getTodayDayString();
-  return todos.filter((t) => t.due_day && t.due_day < today);
+  const result = todos.filter((t) => {
+    if (!t.due_day || t.due_day >= today) return false;
+    // Check if skipped today
+    const skippedDay = t.skipped_in_sweep_at?.split('T')[0];
+    if (skippedDay === today) {
+      console.log(
+        '[selectOverdueTodos] Excluding skipped item:',
+        t.name,
+        'skipped_in_sweep_at:',
+        t.skipped_in_sweep_at,
+      );
+      return false;
+    }
+    return true;
+  });
+  console.log('[selectOverdueTodos] Returning', result.length, 'items. Today:', today);
+  return result;
 });
 
 /** Rolled over todos - alias for overdue (for Mini-Sweep clarity) */
 export const selectRolledOverTodos = selectOverdueTodos;
 
-/** Unscheduled todos for Mini-Sweep: no due_day, created in last 3 days */
+/** Unscheduled todos for Mini-Sweep: no due_day, created in last 3 days, not skipped today */
 export const selectUnscheduledTodosForMiniSweep = createSelector(
   [selectActiveTodos],
   (todos): Todo[] => {
+    const today = getTodayDayString();
     const threeDaysAgo = getDaysAgoDayString(3);
-    return todos.filter((t) => {
+    const result = todos.filter((t) => {
       if (t.due_day) return false; // Must be unscheduled
       const createdDay = t.created_at?.split('T')[0];
-      return createdDay && createdDay >= threeDaysAgo;
+      if (!createdDay || createdDay < threeDaysAgo) return false;
+      // Check if skipped today
+      const skippedDay = t.skipped_in_sweep_at?.split('T')[0];
+      if (skippedDay === today) {
+        console.log(
+          '[selectUnscheduledTodosForMiniSweep] Excluding skipped item:',
+          t.name,
+          'skipped_in_sweep_at:',
+          t.skipped_in_sweep_at,
+        );
+        return false;
+      }
+      return true;
     });
+    console.log(
+      '[selectUnscheduledTodosForMiniSweep] Returning',
+      result.length,
+      'items. Today:',
+      today,
+    );
+    return result;
   },
 );
 
@@ -477,10 +513,15 @@ export const selectUndatedTodos = createSelector([selectActiveTodos], (todos): T
 
 /** Recent drops: undated todos created in last 3 days */
 export const selectRecentDrops = createSelector([selectUndatedTodos], (todos): Todo[] => {
+  const today = getTodayDayString();
   const threeDaysAgo = getDaysAgoDayString(3);
   return todos.filter((t) => {
     const createdDay = t.created_at?.split('T')[0];
-    return createdDay && createdDay >= threeDaysAgo;
+    if (!createdDay || createdDay < threeDaysAgo) return false;
+    // Exclude if skipped today
+    const skippedDay = t.skipped_in_sweep_at?.split('T')[0];
+    if (skippedDay === today) return false;
+    return true;
   });
 });
 
