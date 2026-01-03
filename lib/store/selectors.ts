@@ -833,18 +833,15 @@ export const selectForgottenIdeas = createSelector([selectIdeas], (ideas): Note[
   });
 });
 
-/** Your Notes for Today page - created today OR favorited, last 7 days */
+/** Your Notes for Today page - all notes from past 7 days except catchall */
 export const selectYourNotes = createSelector([selectActiveNotes], (notes): Note[] => {
-  const today = getTodayDayString();
   const sevenDaysAgo = getDaysAgoDayString(7);
 
   return notes.filter((n) => {
     const createdDay = n.created_at?.split('T')[0] ?? '';
-    const isCreatedToday = createdDay === today;
-    const isFavorite = n.is_favorite === true;
     const isRecent = createdDay >= sevenDaysAgo;
-
-    return (isCreatedToday || isFavorite) && isRecent;
+    const isNotCatchall = n.subtype !== 'catchall';
+    return isRecent && isNotCatchall;
   });
 });
 
