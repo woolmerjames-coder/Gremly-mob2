@@ -134,8 +134,8 @@ export function NowHeader({
   dateTimeLabel,
   totalTasksToday,
   totalCompletedToday,
-  todayHabitCount,
-  todayTodoCount,
+  todayHabitCount: _todayHabitCount,
+  todayTodoCount: _todayTodoCount,
   weeklySummaries,
   capturesCount,
   onPressProgress,
@@ -184,33 +184,34 @@ export function NowHeader({
         {/* Left Column: Today Card */}
         <View style={styles.leftColumn}>
           <TouchableOpacity style={styles.todayCard} onPress={onPressProgress} activeOpacity={0.8}>
+            {/* Top row: Calendar + chevron */}
             <View style={styles.cardHeader}>
               <View style={styles.cardTitleRow}>
                 <Icon name="Calendar" size="sm" color={MOSS_GREEN} />
-                <Text style={styles.todayCardTitle}>Today</Text>
+                <Text style={styles.todayCardTitle}>Calendar</Text>
               </View>
-              <View style={styles.cardValueRow}>
-                <Text style={styles.todayCardValue}>{todayLabel}</Text>
-                <Icon name="ChevronRight" size="sm" color={INK_SUBTLE} />
-              </View>
+              <Icon name="ChevronRight" size="sm" color={INK_SUBTLE} />
             </View>
-            <View style={styles.todayCardContent}>
-              <View style={styles.progressBarTrack}>
-                {todayProgress > 0 && (
-                  <View
-                    style={[
-                      styles.progressBarFill,
-                      { flex: todayProgress, backgroundColor: progressFillColor },
-                    ]}
-                  />
-                )}
-                {todayProgress < 1 && (
-                  <View style={[styles.progressBarRemainder, { flex: 1 - todayProgress }]} />
-                )}
-              </View>
-              <Text style={styles.secondaryMeta}>
-                {todayHabitCount} habits · {todayTodoCount} todos
-              </Text>
+
+            {/* Middle row: Today's Progress + fraction */}
+            <View style={styles.progressLabelRow}>
+              <Text style={styles.progressLabel}>Today's Progress</Text>
+              <Text style={styles.progressFraction}>{todayLabel}</Text>
+            </View>
+
+            {/* Bottom: Progress bar */}
+            <View style={styles.progressBarTrack}>
+              {todayProgress > 0 && (
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    { flex: todayProgress, backgroundColor: progressFillColor },
+                  ]}
+                />
+              )}
+              {todayProgress < 1 && (
+                <View style={[styles.progressBarRemainder, { flex: 1 - todayProgress }]} />
+              )}
             </View>
           </TouchableOpacity>
         </View>
@@ -227,22 +228,6 @@ export function NowHeader({
               <Icon name="ChevronRight" size="sm" color={INK_SUBTLE} />
             </View>
             <Text style={styles.habitsWeekValue}>{habitsLabel}</Text>
-            {habitData.segments.length > 0 ? (
-              <View style={styles.habitsSegmentsRow}>
-                {habitData.segments.map((segment, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.habitSegment,
-                      segment.isOnTrack ? styles.habitSegmentOn : styles.habitSegmentOff,
-                    ]}
-                  />
-                ))}
-              </View>
-            ) : (
-              // Empty state: show single grey track when no habits
-              <View style={styles.habitsEmptyTrack} />
-            )}
           </TouchableOpacity>
 
           {/* Your Notes Card */}
@@ -349,13 +334,13 @@ const useStyles = makeStyles((t) => ({
   },
   // Today card - matches combined height of right column cards
   todayCard: {
-    height: 130,
+    height: 110,
     backgroundColor: CARD_BG_TODAY,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingTop: 6, // Reduced top padding for better vertical centering
     paddingBottom: 12,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     // Soft shadow: 0 2px 8px rgba(0,0,0,0.06)
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -373,12 +358,26 @@ const useStyles = makeStyles((t) => ({
     fontFamily: t.typography.fontFamily.medium,
     color: MOSS_GREEN,
   },
-  todayCardContent: {
-    gap: 6,
+  progressLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 'auto',
+    marginBottom: 4,
+  },
+  progressLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#757575',
+  },
+  progressFraction: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#212121',
   },
   // Habits card (top of right column)
   habitsCard: {
-    height: 77,
+    height: 55,
     backgroundColor: CARD_BG_HABITS,
     borderRadius: 16,
     paddingHorizontal: 14,
@@ -453,21 +452,10 @@ const useStyles = makeStyles((t) => ({
     gap: 6,
     flex: 1,
   },
-  cardValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
   cardTitle: {
     fontSize: 14,
     fontFamily: t.typography.fontFamily.medium,
     color: INK_CHARCOAL,
-  },
-  secondaryMeta: {
-    fontSize: 12,
-    fontFamily: t.typography.fontFamily.regular,
-    color: 'rgba(34, 34, 34, 0.7)',
-    marginTop: 2,
   },
   cardValue: {
     fontSize: 13,
@@ -482,7 +470,7 @@ const useStyles = makeStyles((t) => ({
   // Today's pill progress bar
   progressBarTrack: {
     flexDirection: 'row',
-    height: 18, // Increased from 16px for more visual presence
+    height: 14,
     backgroundColor: TRACK_GREY,
     borderRadius: 999, // Soft pill shape
     overflow: 'hidden',
