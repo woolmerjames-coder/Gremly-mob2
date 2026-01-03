@@ -33,7 +33,8 @@
         ],
         "NSCameraUsageDescription": "Gremly uses your camera to capture photos of notes, receipts, and moments you want to remember.",
         "NSPhotoLibraryUsageDescription": "Gremly accesses your photo library to add images to your notes and logs.",
-        "NSMicrophoneUsageDescription": "Gremly uses your microphone for voice notes and audio capture."
+        "NSMicrophoneUsageDescription": "Gremly uses your microphone for voice notes and audio capture.",
+        "NSUserNotificationsUsageDescription": "Gremly sends reminders for your Morning Brief, Evening Sweep, and habit check-ins."
       }
     },
     "android": {
@@ -49,7 +50,14 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/mascot/ios_gremly_icon.png",
+          "color": "#BFD8C0"
+        }
+      ]
     ],
     "extra": {
       "EXPO_PUBLIC_MIND_DROP_V2": "process.env.EXPO_PUBLIC_MIND_DROP_V2",
