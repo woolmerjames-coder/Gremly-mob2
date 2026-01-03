@@ -8,7 +8,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { HabitWeeklyRow } from '../HabitWeeklyRow';
-import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitStats';
+import type { DayDot, HabitStatus } from '../../../lib/today/hooks/useWeeklyHabitStats';
 
 // Mock GremlyDot component
 jest.mock('../../ui/GremlyDot', () => ({
