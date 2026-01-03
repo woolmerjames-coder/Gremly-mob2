@@ -17,7 +17,7 @@
       "icon": "./assets/mascot/ios_gremly_icon.png",
       "supportsTablet": false,
       "bundleIdentifier": "com.gremly.mob2",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
