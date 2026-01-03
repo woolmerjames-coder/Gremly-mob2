@@ -5,7 +5,7 @@
  * Uses fire-and-forget pattern: closes immediately on submit, pipeline runs in background.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Modal,
   TouchableOpacity,
@@ -15,6 +15,8 @@ import {
   Keyboard,
   View,
   Image,
+  PanResponder,
+  Animated,
 } from 'react-native';
 import { Box, Text } from '../../ui';
 import { makeStyles } from '../../design/makeStyles';
@@ -47,8 +49,7 @@ const useStyles = makeStyles((t) => ({
     borderTopRightRadius: t.radius[4],
     paddingTop: t.spacing[4],
     paddingHorizontal: t.spacing[5],
-    paddingBottom: t.spacing[7],
-    minHeight: 420,
+    paddingBottom: t.spacing[4],
     ...t.elevation.lg,
   },
   headerRow: {
@@ -126,6 +127,55 @@ export function SpaceQuickAddModal({
   const wasVisible = useRef(visible);
   const isSubmittingRef = useRef(false);
 
+  // Animated value for swipe-to-dismiss
+  const translateY = useMemo(() => new Animated.Value(0), []);
+
+  // PanResponder for swipe-down-to-dismiss
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          // Only respond to downward swipes
+          return gestureState.dy > 10;
+        },
+        onPanResponderMove: (_, gestureState) => {
+          // Only allow downward movement
+          if (gestureState.dy > 0) {
+            translateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 100) {
+            // Swiped down enough - dismiss
+            Animated.timing(translateY, {
+              toValue: 500,
+              duration: 200,
+              useNativeDriver: true,
+            }).start(() => {
+              onClose();
+            });
+          } else {
+            // Snap back
+            Animated.spring(translateY, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 100,
+              friction: 10,
+            }).start();
+          }
+        },
+      }),
+    [onClose, translateY],
+  );
+
+  // Reset translateY when modal becomes visible
+  useEffect(() => {
+    if (visible) {
+      translateY.setValue(0);
+    }
+  }, [visible, translateY]);
+
   // Focus input when modal opens
   useEffect(() => {
     if (visible && !wasVisible.current) {
@@ -185,58 +235,59 @@ export function SpaceQuickAddModal({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
-          <TouchableOpacity
-            style={styles.sheet}
-            activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
+          <Animated.View
+            style={[styles.sheet, { transform: [{ translateY }] }]}
+            {...panResponder.panHandlers}
           >
-            <View style={styles.headerRow}>
-              <Image source={MINDDROP_HEADER} style={styles.mindDropLogo} resizeMode="contain" />
-              <Text style={styles.headerSubtitle} numberOfLines={1} ellipsizeMode="tail">
-                Adding to {spaceName}
-              </Text>
-            </View>
+            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.headerRow}>
+                <Image source={MINDDROP_HEADER} style={styles.mindDropLogo} resizeMode="contain" />
+                <Text style={styles.headerSubtitle} numberOfLines={1} ellipsizeMode="tail">
+                  Adding to {spaceName}
+                </Text>
+              </View>
 
-            <Box style={styles.inputContainer}>
-              <TextInput
-                ref={inputRef}
-                style={styles.input}
-                placeholder="What do you want to capture?"
-                placeholderTextColor="#999999"
-                value={text}
-                onChangeText={setText}
-                multiline
-                maxLength={500}
-              />
-            </Box>
+              <Box style={styles.inputContainer}>
+                <TextInput
+                  ref={inputRef}
+                  style={styles.input}
+                  placeholder="What do you want to capture?"
+                  placeholderTextColor="#999999"
+                  value={text}
+                  onChangeText={setText}
+                  multiline
+                  maxLength={500}
+                />
+              </Box>
 
-            <TouchableOpacity
-              style={[styles.submitButton, isDisabled && styles.submitButtonDisabled]}
-              onPress={handleSubmit}
-              disabled={isDisabled}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.submitButtonText}>Drop to Gremly →</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.submitButton, isDisabled && styles.submitButtonDisabled]}
+                onPress={handleSubmit}
+                disabled={isDisabled}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.submitButtonText}>Drop to Gremly →</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.manualAddLink}
-              onPress={handleManualAdd}
-              testID="quick-add-manual-link"
-            >
-              <Text style={styles.manualAddText}>Prefer to add it manually?</Text>
-            </TouchableOpacity>
-
-            {onPressAttachExisting && (
               <TouchableOpacity
                 style={styles.manualAddLink}
-                onPress={handleAttachExisting}
-                testID="quick-add-attach-existing"
+                onPress={handleManualAdd}
+                testID="quick-add-manual-link"
               >
-                <Text style={styles.manualAddText}>Or attach an existing item</Text>
+                <Text style={styles.manualAddText}>Prefer to add it manually?</Text>
               </TouchableOpacity>
-            )}
-          </TouchableOpacity>
+
+              {onPressAttachExisting && (
+                <TouchableOpacity
+                  style={styles.manualAddLink}
+                  onPress={handleAttachExisting}
+                  testID="quick-add-attach-existing"
+                >
+                  <Text style={styles.manualAddText}>Or attach an existing item</Text>
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </Modal>
