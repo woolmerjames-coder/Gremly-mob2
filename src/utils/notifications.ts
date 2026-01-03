@@ -1,112 +1,62 @@
-/**
- * Push Notifications Utility
- *
- * Handles Expo push notification registration, permissions, and token management.
- */
-
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { supabase } from '../../lib/supabase/client';
 
-// Configure notification handler to show alerts when app is in foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+const isExpoGo = Constants.appOwnership === 'expo';
 
-/**
- * Register for push notifications and get the Expo push token.
- *
- * @returns The Expo push token string, or null if registration fails
- */
 export async function registerForPushNotifications(): Promise<string | null> {
-  console.log('[Notifications] Starting push notification registration...');
+  if (isExpoGo) {
+    console.log('[Notifications] Skipping - running in Expo Go');
+    return null;
+  }
 
-  // Check if physical device (required for push notifications)
+  // Dynamic imports only when NOT in Expo Go
+  const Notifications = await import('expo-notifications');
+  const Device = await import('expo-device');
+
   if (!Device.isDevice) {
-    console.log('[Notifications] Push notifications require a physical device');
+    console.log('[Notifications] Must use physical device');
     return null;
   }
 
-  try {
-    // Check existing permission status
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    console.log('[Notifications] Existing permission status:', existingStatus);
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
 
-    let finalStatus = existingStatus;
+  if (existingStatus !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
 
-    // Request permission if not already granted
-    if (existingStatus !== 'granted') {
-      console.log('[Notifications] Requesting permission...');
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-      console.log('[Notifications] Permission request result:', status);
-    }
-
-    if (finalStatus !== 'granted') {
-      console.log('[Notifications] Permission not granted');
-      return null;
-    }
-
-    // Get Expo push token
-    console.log('[Notifications] Getting Expo push token...');
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: '4c82fb8d-fdff-41a8-8fec-ce46ee3e6183',
-    });
-
-    const token = tokenData.data;
-    console.log('[Notifications] Push token obtained:', token);
-
-    // Configure Android notification channel
-    if (Platform.OS === 'android') {
-      console.log('[Notifications] Configuring Android notification channel...');
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF231F7C',
-      });
-    }
-
-    return token;
-  } catch (error) {
-    console.log('[Notifications] Error during registration:', error);
+  if (finalStatus !== 'granted') {
+    console.log('[Notifications] Permission not granted');
     return null;
   }
+
+  const tokenData = await Notifications.getExpoPushTokenAsync({
+    projectId: '4c82fb8d-fdff-41a8-8fec-ce46ee3e6183',
+  });
+
+  console.log('[Notifications] Push token:', tokenData.data);
+  return tokenData.data;
 }
 
-/**
- * Save the push token to Supabase for the given user.
- *
- * @param userId - The user's ID
- * @param token - The Expo push token
- */
-export async function savePushToken(userId: string, token: string): Promise<void> {
-  console.log('[Notifications] Saving push token for user:', userId);
+export async function savePushToken(userId: string, token: string) {
+  if (isExpoGo) return;
 
-  try {
-    const { error } = await supabase.from('push_tokens').upsert(
-      {
-        user_id: userId,
-        token,
-        platform: Platform.OS,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    );
+  const { supabase } = await import('../../lib/supabase/client');
 
-    if (error) {
-      console.log('[Notifications] Error saving push token:', error.message);
-      throw error;
-    }
+  const { error } = await supabase.from('push_tokens').upsert(
+    {
+      user_id: userId,
+      token: token,
+      platform: Platform.OS,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' },
+  );
 
-    console.log('[Notifications] Push token saved successfully');
-  } catch (error) {
-    console.log('[Notifications] Failed to save push token:', error);
-    throw error;
+  if (error) {
+    console.error('[Notifications] Failed to save token:', error);
+  } else {
+    console.log('[Notifications] Token saved');
   }
 }

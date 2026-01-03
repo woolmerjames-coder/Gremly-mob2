@@ -31,6 +31,7 @@ import {
   Lightbulb,
   Archive,
   Search,
+  Settings,
 } from 'lucide-react-native';
 
 import { useAuth } from '../../providers/AuthProvider';
@@ -82,6 +83,8 @@ import {
   filterUnsortedForReview,
 } from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useNotificationPreferences } from '../../hooks/useNotificationPreferences';
+import '../../components/NotificationSettingsSheet'; // Register the sheet
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
@@ -215,6 +218,34 @@ export default function HubScreen() {
   const [analyzeModalVisible, setAnalyzeModalVisible] = useState(false);
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [analyzeJournalCount, setAnalyzeJournalCount] = useState(0);
+
+  // Notification preferences
+  const { preferences: notificationPrefs, savePreferences: saveNotificationPrefs } =
+    useNotificationPreferences();
+
+  // Handler to open notification settings sheet
+  const handleOpenNotificationSettings = useCallback(() => {
+    if (!notificationPrefs) return;
+    SheetManager.show('notification-settings-sheet', {
+      payload: {
+        morningEnabled: notificationPrefs.morningEnabled,
+        morningTime: notificationPrefs.morningTime,
+        eveningEnabled: notificationPrefs.eveningEnabled,
+        eveningTime: notificationPrefs.eveningTime,
+        onSave: async (settings: {
+          morningEnabled: boolean;
+          morningTime: Date;
+          eveningEnabled: boolean;
+          eveningTime: Date;
+        }) => {
+          await saveNotificationPrefs({
+            ...settings,
+            timezone: notificationPrefs.timezone,
+          });
+        },
+      },
+    } as never);
+  }, [notificationPrefs, saveNotificationPrefs]);
 
   // ═══════════════════════════════════════════════════════════════════
   // DERIVED DATA FROM STORE
@@ -811,7 +842,19 @@ export default function HubScreen() {
           keyboardShouldPersistTaps="handled"
         >
           {/* Header */}
-          <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
+          <View style={hubV1Styles.headerRow}>
+            <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
+            <TouchableOpacity
+              onPress={handleOpenNotificationSettings}
+              style={hubV1Styles.settingsButton}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              testID="hub-settings-button"
+              accessibilityLabel="Notification Settings"
+              accessibilityRole="button"
+            >
+              <Settings size={24} color={colors.gray600} />
+            </TouchableOpacity>
+          </View>
 
           {/* Search Input */}
           <View style={styles.searchWrap}>
@@ -1862,6 +1905,16 @@ const styles = StyleSheet.create({
 
 // Hub V1 specific styles
 const hubV1Styles = StyleSheet.create({
+  // Header row with settings button
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  settingsButton: {
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+  },
   // View Toggle (All Items | Journal View)
   viewToggleContainer: {
     flexDirection: 'row',

@@ -12,7 +12,7 @@ import {
   Pressable,
   StyleSheet,
 } from 'react-native';
-import { LayoutGrid, BookOpen } from 'lucide-react-native';
+import { LayoutGrid, BookOpen, Settings } from 'lucide-react-native';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
 
@@ -45,6 +45,7 @@ export interface HubHeaderProps {
   onTimeRangeChange: (range: HubV1TimeRange) => void;
   status: HubV1StatusFilter;
   onStatusChange: (status: HubV1StatusFilter) => void;
+  onSettingsPress?: () => void;
 }
 
 export default function HubHeader({
@@ -58,13 +59,28 @@ export default function HubHeader({
   onTimeRangeChange,
   status,
   onStatusChange,
+  onSettingsPress,
 }: HubHeaderProps) {
   const isJournalView = hubView === 'journals';
 
   return (
     <>
       {/* Header */}
-      <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
+      <View style={styles.headerRow}>
+        <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
+        {onSettingsPress && (
+          <TouchableOpacity
+            onPress={onSettingsPress}
+            style={styles.settingsButton}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            testID="hub-settings-button"
+            accessibilityLabel="Settings"
+            accessibilityRole="button"
+          >
+            <Settings size={24} color={colors.gray600} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* Search Input */}
       <View style={styles.searchWrap}>
@@ -341,5 +357,13 @@ const styles = StyleSheet.create({
   dropdownArrow: {
     fontSize: 10,
     color: colors.gray400,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  settingsButton: {
+    padding: spacing.sm,
   },
 });
