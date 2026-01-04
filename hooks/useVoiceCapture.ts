@@ -2,14 +2,29 @@
  * useVoiceCapture Hook
  *
  * Handles microphone recording and transcription via OpenAI Whisper.
+ * Note: expo-av is loaded lazily to avoid errors in Expo Go (native module not available).
  */
 
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system/legacy';
+import type { Audio as AudioType } from 'expo-av';
 import { triggerMedium, triggerLight } from '../lib/haptics';
 import { shouldUseHaptics } from '../config/featureFlags';
 import { callTranscribe } from '../lib/cortex/CortexClient';
+
+// Lazy load expo-av and expo-file-system to avoid "Cannot find native module" errors in Expo Go
+let Audio: typeof AudioType | null = null;
+let FileSystem: typeof import('expo-file-system/legacy') | null = null;
+
+const loadNativeModules = async () => {
+  if (!Audio) {
+    const expoAv = await import('expo-av');
+    Audio = expoAv.Audio;
+  }
+  if (!FileSystem) {
+    FileSystem = await import('expo-file-system/legacy');
+  }
+  return { Audio, FileSystem };
+};
 
 export type VoiceCaptureState = 'idle' | 'recording' | 'transcribing' | 'error';
 
@@ -42,20 +57,17 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recordingRef = useRef<any>(null);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
 
-  useEffect(() => {
-    checkPermission();
-    return () => {
-      cleanup();
-    };
-  }, []);
+  // Don't auto-check permission on mount - wait until user tries to use voice
+  // This prevents loading native modules until needed
 
   const checkPermission = async () => {
     try {
-      const { status } = await Audio.getPermissionsAsync();
+      const { Audio: AudioModule } = await loadNativeModules();
+      const { status } = await AudioModule.getPermissionsAsync();
       setHasPermission(status === 'granted');
     } catch (e) {
       console.warn('[VoiceCapture] Permission check failed:', e);
@@ -65,7 +77,8 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
     try {
-      const { status } = await Audio.requestPermissionsAsync();
+      const { Audio: AudioModule } = await loadNativeModules();
+      const { status } = await AudioModule.requestPermissionsAsync();
       const granted = status === 'granted';
       setHasPermission(granted);
       return granted;
@@ -94,6 +107,8 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
 
   const startRecording = useCallback(async () => {
     try {
+      const { Audio: AudioModule } = await loadNativeModules();
+
       // Request permission if needed
       if (!hasPermission) {
         const granted = await requestPermission();
@@ -105,14 +120,14 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
       }
 
       // Set audio mode FIRST
-      await Audio.setAudioModeAsync({
+      await AudioModule.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
       });
 
       // Use the HIGH_QUALITY preset - most reliable
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      const { recording } = await AudioModule.Recording.createAsync(
+        AudioModule.RecordingOptionsPresets.HIGH_QUALITY,
       );
 
       recordingRef.current = recording;
@@ -172,14 +187,16 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
 
       console.log('[VoiceCapture] Recording stopped, URI:', uri);
 
+      const { Audio: AudioModule, FileSystem: FS } = await loadNativeModules();
+
       // Reset audio mode
-      await Audio.setAudioModeAsync({
+      await AudioModule.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
       });
 
       // File size check not needed - 60s max duration keeps files reasonable
-      const base64Audio = await FileSystem.readAsStringAsync(uri, {
+      const base64Audio = await FS!.readAsStringAsync(uri, {
         encoding: 'base64',
       });
 
@@ -209,7 +226,7 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
       onTranscribe?.({ text: transcribedText, duration: finalDuration });
 
       try {
-        await FileSystem.deleteAsync(uri);
+        await FS!.deleteAsync(uri);
       } catch (e) {
         // Ignore
       }
@@ -247,7 +264,8 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
           await recordingRef.current.stopAndUnloadAsync();
           const uri = recordingRef.current.getURI();
           if (uri) {
-            await FileSystem.deleteAsync(uri);
+            const { FileSystem: FS } = await loadNativeModules();
+            await FS!.deleteAsync(uri);
           }
         } catch (e) {
           // Ignore
@@ -255,10 +273,15 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
         recordingRef.current = null;
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-      });
+      try {
+        const { Audio: AudioModule } = await loadNativeModules();
+        await AudioModule.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+      } catch (e) {
+        // Ignore
+      }
 
       setState('idle');
       setDuration(0);
