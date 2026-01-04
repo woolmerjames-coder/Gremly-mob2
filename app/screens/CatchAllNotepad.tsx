@@ -142,6 +142,8 @@ import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFro
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { hashString } from '../../lib/telemetry/catchallLogger';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
+import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
+import { VoicePulse } from '../../components/VoicePulse';
 import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
 
 export const THINKING_DURATION = 1200;
@@ -325,6 +327,9 @@ type MindDropInputProps = {
   inputDynHeight: number;
   onCameraPress?: () => void;
   photoHintText?: string;
+  // Voice capture
+  onMicPress?: () => void;
+  voiceState?: VoiceCaptureState;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -356,6 +361,8 @@ const MindDropInput = React.memo<MindDropInputProps>(
     inputDynHeight,
     onCameraPress,
     photoHintText,
+    onMicPress,
+    voiceState = 'idle',
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -438,15 +445,33 @@ const MindDropInput = React.memo<MindDropInputProps>(
         </View>
         <View style={iconContainerStyle} pointerEvents="box-none">
           <Pressable
-            disabled
-            style={[iconButtonStyle, iconMicStyle]}
+            disabled={voiceState === 'transcribing'}
+            style={[
+              iconButtonStyle,
+              iconMicStyle,
+              voiceState === 'transcribing' && { opacity: 0.5 },
+            ]}
             accessibilityRole="button"
-            accessibilityLabel="Record a voice note (coming soon)"
-            accessibilityState={{ disabled: true }}
+            accessibilityLabel={
+              voiceState === 'recording'
+                ? 'Stop recording'
+                : voiceState === 'transcribing'
+                  ? 'Transcribing...'
+                  : 'Record a voice note'
+            }
+            accessibilityState={{ disabled: voiceState === 'transcribing' }}
+            onPress={onMicPress}
           >
-            <View style={iconWrapperStyle}>
-              <Icon name="Mic" size="sm" color={iconColor} strokeWidth={1.4} />
-            </View>
+            <VoicePulse state={voiceState} size={32}>
+              <View style={iconWrapperStyle}>
+                <Icon
+                  name={voiceState === 'recording' ? 'MicOff' : 'Mic'}
+                  size="sm"
+                  color={voiceState === 'recording' ? '#E74C3C' : iconColor}
+                  strokeWidth={1.4}
+                />
+              </View>
+            </VoicePulse>
           </Pressable>
           <Pressable
             disabled={!onCameraPress}
@@ -3207,6 +3232,35 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, [signOut]);
 
   const { submit: mindDropSubmit, isSubmitting: isMindDropSubmitting } = useMindDropSubmit();
+
+  // Voice capture
+  const {
+    state: voiceState,
+    toggle: toggleVoice,
+    duration: voiceDuration,
+    errorMessage: voiceError,
+  } = useVoiceCapture({
+    onTranscribe: (result) => {
+      // Append transcribed text to input
+      setNote((prev) => {
+        const trimmed = prev.trim();
+        return trimmed ? `${trimmed} ${result.text}` : result.text;
+      });
+    },
+    onError: (error) => {
+      // Use existing toast system
+      showActionToast?.({ type: 'todo', content: error, metadata: { summaryOverride: error } });
+    },
+    maxDuration: 60,
+  });
+
+  // Handle mic press
+  const handleMicPress = useCallback(() => {
+    if (voiceState !== 'transcribing') {
+      toggleVoice();
+    }
+  }, [voiceState, toggleVoice]);
+
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
@@ -6148,6 +6202,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               inputDynHeight={inputDynHeight}
               onCameraPress={handleMindDropPhotoAction}
               photoHintText={photoHintText}
+              onMicPress={handleMicPress}
+              voiceState={voiceState}
             />
           </View>
 

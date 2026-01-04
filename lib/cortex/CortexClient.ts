@@ -753,6 +753,95 @@ export async function callEnrichPhase2(params: {
 }
 
 /**
+ * Result type for transcription requests
+ */
+export type TranscribeResult =
+  | { ok: true; text: string; duration?: number; language?: string }
+  | { ok: false; error: string };
+
+/**
+ * Call the Cortex proxy for audio transcription via OpenAI Whisper.
+ * Sends base64-encoded audio to the proxy for transcription.
+ *
+ * @param audioBase64 - Base64-encoded audio data
+ * @param format - Audio format (default: 'm4a')
+ * @returns Transcription result with text, optional duration and language
+ */
+export async function callTranscribe(
+  audioBase64: string,
+  format: string = 'm4a',
+): Promise<TranscribeResult> {
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    log('CONFIG_MISSING', 'Missing EXPO_PUBLIC_CORTEX_URL');
+    return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  }
+
+  if (isAiDisabled()) {
+    if (!warnedAiDisabled) {
+      console.warn('[CORTEX] Disabled via EXPO_PUBLIC_DISABLE_AI; skipping transcription.');
+      warnedAiDisabled = true;
+    }
+    return { ok: false, error: '[cortex] disabled via EXPO_PUBLIC_DISABLE_AI' };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  try {
+    log('POST', baseUrl, { type: 'transcribe', format, audioLength: audioBase64.length });
+
+    const response = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'transcribe',
+        audio: audioBase64,
+        format,
+      }),
+    });
+
+    log('STATUS', response.status);
+
+    if (!response.ok) {
+      const txt = await response.text().catch(() => '');
+      log('ERROR_RESPONSE', response.status, txt);
+      return { ok: false, error: `[cortex] ${response.status} ${txt || 'Unknown error'}` };
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      log('ERROR', data.error);
+      return { ok: false, error: data.error };
+    }
+
+    log('OK', 'transcribe', {
+      textLength: data.text?.length || 0,
+      duration: data.duration,
+      language: data.language,
+    });
+
+    return {
+      ok: true,
+      text: data.text || '',
+      duration: data.duration,
+      language: data.language,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    log('EXCEPTION', message);
+    return { ok: false, error: message };
+  }
+}
+
+/**
  * Streaming version of callEnrichPhase2 - fields arrive as they're generated.
  * Returns a close() function to cancel the stream.
  *
@@ -888,4 +977,5 @@ export const CortexClient = {
   callSpaceChatStreaming,
   callEnrichPhase2,
   callEnrichPhase2Streaming,
+  callTranscribe,
 };
