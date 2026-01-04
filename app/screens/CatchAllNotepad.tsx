@@ -47,6 +47,7 @@ import {
   PanResponder,
   PanResponderGestureState,
 } from 'react-native';
+import { AppScrollView } from '../../components/common/AppScrollView';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -2829,11 +2830,9 @@ const RecentDrops: React.FC<{
               {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
             </Text>
           ) : (
-            <ScrollView
+            <AppScrollView
               contentContainerStyle={styles.recentScrollContent}
               showsVerticalScrollIndicator
-              onScrollBeginDrag={Keyboard.dismiss}
-              keyboardShouldPersistTaps="handled"
             >
               {/* Pending items (optimistic UI) */}
               {pendingItems.map((item, index) => {
@@ -2900,7 +2899,7 @@ const RecentDrops: React.FC<{
                   />
                 );
               })}
-            </ScrollView>
+            </AppScrollView>
           )}
         </View>
       ) : null}

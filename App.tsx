@@ -3,7 +3,7 @@ import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
 import React, { useEffect, useRef, useCallback } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useColorScheme, Linking, View } from 'react-native';
+import { useColorScheme, Linking, View, Keyboard } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
@@ -115,7 +115,10 @@ export default function App() {
                     <CortexProvider>
                       <CelebrationProvider>
                         <OverlayProvider>
-                          <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+                          <NavigationContainer
+                            theme={scheme === 'dark' ? DarkTheme : DefaultTheme}
+                            onStateChange={() => Keyboard.dismiss()}
+                          >
                             <RootNavigator />
                             <OverlayHost />
                           </NavigationContainer>

@@ -13,7 +13,6 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
@@ -24,6 +23,7 @@ import {
   LayoutAnimation,
   UIManager,
 } from 'react-native';
+import { AppFlatList } from '../../components/common/AppFlatList';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { ChevronLeft } from 'lucide-react-native';
@@ -132,7 +132,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const insets = useSafeAreaInsets();
 
   // Scroll ref for auto-scrolling to the latest message
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<any>(null);
 
   const { spaceId, chatId } = route.params;
   const auth = useAuth();
@@ -1227,7 +1227,7 @@ export default function ChatThreadScreen({ route }: Props) {
           </View>
 
           {/* Messages FlatList */}
-          <FlatList
+          <AppFlatList
             ref={flatListRef}
             data={messages}
             keyExtractor={keyExtractor}
