@@ -3248,8 +3248,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       });
     },
     onError: (error) => {
-      // Use existing toast system
-      showActionToast?.({ type: 'todo', content: error, metadata: { summaryOverride: error } });
+      console.warn('[VoiceCapture] Error:', error);
+      // Don't show toast - too disruptive
     },
     maxDuration: 60,
   });
