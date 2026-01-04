@@ -7,6 +7,7 @@ module.exports = {
     '/node_modules/',
     '<rootDir>/__tests__/pending/',
     '<rootDir>/artifacts/',
+    '<rootDir>/minddrop-voice-bundle/',
   ],
   transform: {
     '^.+\\.(js|jsx|ts|tsx)$': 'babel-jest',
