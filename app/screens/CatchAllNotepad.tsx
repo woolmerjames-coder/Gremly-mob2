@@ -444,35 +444,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
           />
         </View>
         <View style={iconContainerStyle} pointerEvents="box-none">
-          <Pressable
-            disabled={voiceState === 'transcribing'}
-            style={[
-              iconButtonStyle,
-              iconMicStyle,
-              voiceState === 'transcribing' && { opacity: 0.5 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={
-              voiceState === 'recording'
-                ? 'Stop recording'
-                : voiceState === 'transcribing'
-                  ? 'Transcribing...'
-                  : 'Record a voice note'
-            }
-            accessibilityState={{ disabled: voiceState === 'transcribing' }}
-            onPress={onMicPress}
-          >
-            <VoicePulse state={voiceState} size={32}>
-              <View style={iconWrapperStyle}>
-                <Icon
-                  name={voiceState === 'recording' ? 'MicOff' : 'Mic'}
-                  size="sm"
-                  color={voiceState === 'recording' ? '#E74C3C' : iconColor}
-                  strokeWidth={1.4}
-                />
-              </View>
-            </VoicePulse>
-          </Pressable>
+          {/* Mic button hidden for now - voice capture code kept in place */}
           <Pressable
             disabled={!onCameraPress}
             style={[iconButtonStyle, iconCameraStyle]}
