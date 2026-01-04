@@ -287,6 +287,7 @@ export async function runPhase2(
           minddrop_stage: 'enriched',
           ai_pending: false,
           confirmation_message: result.confirmationMessage, // AI-generated Gremly voice
+          people: result.people?.length > 0 ? result.people : undefined,
         },
         tags: allTags.length > 0 ? allTags : undefined,
       };
@@ -366,6 +367,7 @@ export async function runPhase2(
         dueDate: result.extractedDate,
         confirmationMessage: result.confirmationMessage,
         frequency: result.extractedFrequency ?? null,
+        people: result.people ?? [],
         hasPhotos: entity.views?.has_photos === true,
         startDate: result.extractedStartDate ?? (entity as any).start_date ?? null,
         // Canonical habit frequency fields
@@ -564,6 +566,7 @@ export async function runPhase2Streaming(
                 confirmation_message: result.confirmation_message,
                 ai_pending: false,
                 minddrop_stage: 'enriched',
+                people: result.people && result.people.length > 0 ? result.people : undefined,
               },
             };
 
@@ -647,6 +650,7 @@ export async function runPhase2Streaming(
               dueDate: result.extracted_date,
               startDate: result.extracted_start_date,
               frequency: result.extracted_frequency,
+              people: result.people ?? [],
               // Canonical habit frequency fields
               cadence: updatePayload.cadence,
               target_per_period: updatePayload.target_per_period,

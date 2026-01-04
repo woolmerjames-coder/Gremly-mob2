@@ -4555,11 +4555,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         behavior={Platform.select({ ios: 'padding', android: undefined })}
         keyboardVerticalOffset={0}
       >
-        <View
+        <Pressable
           style={{
             flex: 1,
             justifyContent: 'flex-end',
             alignSelf: 'stretch',
+          }}
+          onPress={() => {
+            // First tap: dismiss keyboard if open
+            // Second tap: close overlay
+            if (keyboardHeight > 0) {
+              Keyboard.dismiss();
+              return;
+            }
+            onClose?.();
           }}
         >
           {/* Bottom-anchored sheet: max 90% of viewport (or less when keyboard open), rounded top corners */}
@@ -4880,7 +4889,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       {!isViewMode && (
                         <ScrollView
                           keyboardShouldPersistTaps="handled"
-                          onScrollBeginDrag={() => setMoodPickerExpanded(false)}
+                          keyboardDismissMode="on-drag"
+                          onScrollBeginDrag={() => {
+                            Keyboard.dismiss();
+                            setMoodPickerExpanded(false);
+                          }}
                           contentContainerStyle={{
                             paddingHorizontal: 16,
                             paddingBottom: 8,
@@ -8434,7 +8447,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               );
             })()}
           </RNAnimated.View>
-        </View>
+        </Pressable>
 
         {/* Fullscreen image modal (Phase L5 - multi-photo support) */}
         <Modal visible={selectedPhotoIndex !== null} transparent animationType="fade">

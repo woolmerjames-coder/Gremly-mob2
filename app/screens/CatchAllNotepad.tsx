@@ -47,6 +47,7 @@ import {
   PanResponder,
   PanResponderGestureState,
 } from 'react-native';
+import { AppScrollView } from '../../components/common/AppScrollView';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -105,7 +106,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock, Camera, Clock, LogOut } from 'lucide-react-native';
+import { Lock, Camera, Clock, LogOut, User } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -142,6 +143,8 @@ import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFro
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { hashString } from '../../lib/telemetry/catchallLogger';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
+import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
+import { VoicePulse } from '../../components/VoicePulse';
 import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
 
 export const THINKING_DURATION = 1200;
@@ -325,6 +328,9 @@ type MindDropInputProps = {
   inputDynHeight: number;
   onCameraPress?: () => void;
   photoHintText?: string;
+  // Voice capture
+  onMicPress?: () => void;
+  voiceState?: VoiceCaptureState;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -356,6 +362,8 @@ const MindDropInput = React.memo<MindDropInputProps>(
     inputDynHeight,
     onCameraPress,
     photoHintText,
+    onMicPress,
+    voiceState = 'idle',
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     const [focused, setFocused] = React.useState(false);
@@ -437,17 +445,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
           />
         </View>
         <View style={iconContainerStyle} pointerEvents="box-none">
-          <Pressable
-            disabled
-            style={[iconButtonStyle, iconMicStyle]}
-            accessibilityRole="button"
-            accessibilityLabel="Record a voice note (coming soon)"
-            accessibilityState={{ disabled: true }}
-          >
-            <View style={iconWrapperStyle}>
-              <Icon name="Mic" size="sm" color={iconColor} strokeWidth={1.4} />
-            </View>
-          </Pressable>
+          {/* Mic button hidden for now - voice capture code kept in place */}
           <Pressable
             disabled={!onCameraPress}
             style={[iconButtonStyle, iconCameraStyle]}
@@ -1757,6 +1755,16 @@ const AnimatedMindDropCard: React.FC<{
                 </View>
               </Pressable>
             )}
+          {item.views?.people &&
+            Array.isArray(item.views.people) &&
+            item.views.people.length > 0 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <User size={10} color="#6B8E6B" strokeWidth={2.5} />
+                <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
+                  {item.views.people[0]}
+                </Text>
+              </View>
+            )}
         </View>
         {/* Right side: photo icon + timestamp */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -2633,6 +2641,7 @@ const RecentDrops: React.FC<{
               minddrop_stage: 'enriched',
               ai_pending: false,
               confirmation_message: payload.confirmationMessage ?? item.views?.confirmation_message,
+              people: payload.people ?? item.views?.people,
             },
           };
         }),
@@ -2821,11 +2830,9 @@ const RecentDrops: React.FC<{
               {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
             </Text>
           ) : (
-            <ScrollView
+            <AppScrollView
               contentContainerStyle={styles.recentScrollContent}
               showsVerticalScrollIndicator
-              onScrollBeginDrag={Keyboard.dismiss}
-              keyboardShouldPersistTaps="handled"
             >
               {/* Pending items (optimistic UI) */}
               {pendingItems.map((item, index) => {
@@ -2892,7 +2899,7 @@ const RecentDrops: React.FC<{
                   />
                 );
               })}
-            </ScrollView>
+            </AppScrollView>
           )}
         </View>
       ) : null}
@@ -3196,6 +3203,35 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, [signOut]);
 
   const { submit: mindDropSubmit, isSubmitting: isMindDropSubmitting } = useMindDropSubmit();
+
+  // Voice capture
+  const {
+    state: voiceState,
+    toggle: toggleVoice,
+    duration: voiceDuration,
+    errorMessage: voiceError,
+  } = useVoiceCapture({
+    onTranscribe: (result) => {
+      // Append transcribed text to input
+      setNote((prev) => {
+        const trimmed = prev.trim();
+        return trimmed ? `${trimmed} ${result.text}` : result.text;
+      });
+    },
+    onError: (error) => {
+      console.warn('[VoiceCapture] Error:', error);
+      // Don't show toast - too disruptive
+    },
+    maxDuration: 60,
+  });
+
+  // Handle mic press
+  const handleMicPress = useCallback(() => {
+    if (voiceState !== 'transcribing') {
+      toggleVoice();
+    }
+  }, [voiceState, toggleVoice]);
+
   const { showToast: showActionToast, Toast: ActionToast } = useActionToast({
     bottomOffset: Platform.select({ ios: 112, android: 112, default: 112 }) ?? 112,
   });
@@ -6137,6 +6173,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               inputDynHeight={inputDynHeight}
               onCameraPress={handleMindDropPhotoAction}
               photoHintText={photoHintText}
+              onMicPress={handleMicPress}
+              voiceState={voiceState}
             />
           </View>
 

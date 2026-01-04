@@ -167,6 +167,56 @@ jest.mock('react-native-reanimated', () => {
 
 // Note: design/animations mock is set up via moduleNameMapper in jest.config.js
 
+// Mock expo-av for audio recording
+jest.mock('expo-av', () => ({
+  Audio: {
+    Recording: {
+      createAsync: jest.fn(() =>
+        Promise.resolve({
+          recording: {
+            stopAndUnloadAsync: jest.fn(() => Promise.resolve()),
+            getURI: jest.fn(() => 'file://mock-recording.m4a'),
+            getStatusAsync: jest.fn(() =>
+              Promise.resolve({
+                durationMillis: 2500,
+                isRecording: false,
+              }),
+            ),
+          },
+          status: { isRecording: true, durationMillis: 0 },
+        }),
+      ),
+    },
+    RecordingOptionsPresets: {
+      HIGH_QUALITY: {
+        isMeteringEnabled: true,
+        android: {},
+        ios: {},
+        web: {},
+      },
+    },
+    setAudioModeAsync: jest.fn(() => Promise.resolve()),
+    requestPermissionsAsync: jest.fn(() =>
+      Promise.resolve({ status: 'granted', granted: true, canAskAgain: true, expires: 'never' }),
+    ),
+    getPermissionsAsync: jest.fn(() =>
+      Promise.resolve({ status: 'granted', granted: true, canAskAgain: true, expires: 'never' }),
+    ),
+  },
+}));
+
+// Mock expo-file-system/legacy
+jest.mock('expo-file-system/legacy', () => ({
+  readAsStringAsync: jest.fn(() => Promise.resolve('base64-mock-audio-data')),
+  deleteAsync: jest.fn(() => Promise.resolve()),
+  documentDirectory: 'file:///mock/documents/',
+  cacheDirectory: 'file:///mock/cache/',
+  EncodingType: {
+    UTF8: 'utf8',
+    Base64: 'base64',
+  },
+}));
+
 // Mock expo-haptics
 jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(() => Promise.resolve()),

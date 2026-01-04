@@ -7,7 +7,7 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useMindDropStore } from '../../lib/stores/mindDropStore';
-import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useGremlyStore as _useGremlyStore } from '../../lib/store/useGremlyStore';
 import { eventBus } from '../../lib/events/EventBus';
 
 // Mock Zustand store methods

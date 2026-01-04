@@ -3,7 +3,7 @@
  */
 
 import {
-  CooldownState,
+  CooldownState as _CooldownState,
   createEmptyCooldownState,
   isInCooldown,
   getCooldownReason,
