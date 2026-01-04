@@ -61,6 +61,7 @@ export type EventMap = {
     startDate?: string | null;
     time_window?: 'morning' | 'day' | 'evening' | null;
     space_id?: string | null;
+    people?: string[];
   };
   // Phase 2 streaming field update event
   'entity:field_updated': {

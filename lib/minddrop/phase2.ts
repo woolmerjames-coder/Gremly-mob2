@@ -566,7 +566,7 @@ export async function runPhase2Streaming(
                 confirmation_message: result.confirmation_message,
                 ai_pending: false,
                 minddrop_stage: 'enriched',
-                people: result.people?.length > 0 ? result.people : undefined,
+                people: result.people && result.people.length > 0 ? result.people : undefined,
               },
             };
 

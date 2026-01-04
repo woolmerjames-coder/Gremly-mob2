@@ -17,6 +17,8 @@
     "artifacts/**/*",
     "scripts/**/*",
     // Exclude minddrop-reference - documentation/snippet files not meant to compile
-    "minddrop-reference/**/*"
+    "minddrop-reference/**/*",
+    // Exclude minddrop-voice-bundle - copied code with broken relative imports
+    "minddrop-voice-bundle/**/*"
   ]
 }

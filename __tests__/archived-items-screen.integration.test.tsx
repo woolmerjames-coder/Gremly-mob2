@@ -233,7 +233,7 @@ describe('ArchivedItemsScreen', () => {
         return [];
       });
 
-      const { getByTestId, queryByTestId } = render(
+      const { getByTestId, queryByTestId: _queryByTestId } = render(
         <TestWrapper>
           <ArchivedItemsScreen />
         </TestWrapper>,
@@ -490,7 +490,7 @@ describe('ArchivedItemsScreen', () => {
         return [];
       });
 
-      const { getByTestId, queryByTestId } = render(
+      const { getByTestId, queryByTestId: _queryByTestId2 } = render(
         <TestWrapper>
           <ArchivedItemsScreen />
         </TestWrapper>,

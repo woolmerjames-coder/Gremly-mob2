@@ -1,6 +1,6 @@
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
-import { SheetManager } from 'react-native-actions-sheet';
+import { render as _render, fireEvent, waitFor } from '@testing-library/react-native';
+import { SheetManager as _SheetManager } from 'react-native-actions-sheet';
 
 // Mock the Zustand store and RepoProvider BEFORE importing the component
 const mockCreateSpace = jest.fn();
@@ -251,7 +251,11 @@ describe('CreateSpaceModal', () => {
       const callback = jest.fn();
       setCreateSpaceCallback(callback);
 
-      const { getByTestId, getByText, rerender } = renderWithProviders(<CreateSpaceModal />);
+      const {
+        getByTestId,
+        getByText,
+        rerender: _rerender,
+      } = renderWithProviders(<CreateSpaceModal />);
 
       // First creation
       fireEvent.changeText(getByTestId('space-name-input'), 'Test Space');

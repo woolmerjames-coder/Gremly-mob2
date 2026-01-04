@@ -8,8 +8,8 @@ import {
   extractInlineContent,
   mightBeMetaIntent,
   explicitTypeToSaveableType,
-  SaveThisIntent,
-  ExplicitSaveType,
+  SaveThisIntent as _SaveThisIntent,
+  ExplicitSaveType as _ExplicitSaveType,
 } from '../../lib/chat/metaIntents';
 
 describe('metaIntents', () => {

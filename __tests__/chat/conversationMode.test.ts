@@ -6,7 +6,7 @@ import {
   detectConversationMode,
   hasEmotionalContent,
   hasExplicitActionRequest,
-  ConversationMode,
+  ConversationMode as _ConversationMode,
 } from '../../lib/chat/conversationMode';
 
 describe('detectConversationMode', () => {
