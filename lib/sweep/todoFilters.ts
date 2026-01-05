@@ -28,8 +28,6 @@
  * SWEEP-SPECIFIC RULES (only for Sweep engine)
  * ─────────────────────────────────────────────────────────────────────────────
  *
-
-import { getDateService } from '../date';
  * In addition to the core filters, the Sweep engine also includes:
  * - New items: `created_at > lastSweepTimestamp`
  * - Skipped items: `skipped_in_sweep_at IS NOT NULL`
@@ -50,6 +48,8 @@ import { getDateService } from '../date';
  * const needsSweep = needsSweepAttention(todo, todayDay);
  * ```
  */
+
+import { getDateService } from '../date';
 
 /**
  * Minimal todo interface for filter functions.

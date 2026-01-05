@@ -680,6 +680,185 @@ describe('selectSweepCandidatesUnified', () => {
 
     expect(noteIds).toContain('n1'); // Skipped overrides swept
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // commitment (lock-in) filtering - NEW TESTS FOR SWEEP BRANCH
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  describe('commitment (lock-in) filtering', () => {
+    it('excludes todos with commitment=true from sweep candidates', () => {
+      const state = makeState({
+        todos: [
+          makeTodo({ id: 't1', due_day: '2025-12-10', commitment: true }), // Locked-in - excluded
+          makeTodo({ id: 't2', due_day: '2025-12-10', commitment: false }), // Not locked - included
+        ],
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const todoIds = result
+        .filter((i) => i.candidate.kind === 'todo')
+        .map((item) => item.candidate.id);
+
+      expect(todoIds).not.toContain('t1'); // Locked - excluded
+      expect(todoIds).toContain('t2'); // Not locked - included
+    });
+
+    it('excludes habits with commitment=true from sweep candidates', () => {
+      const state = makeState({
+        habits: [
+          makeHabit({ id: 'h1', commitment: true, start_date_confirmed: false }), // Locked-in - excluded
+          makeHabit({ id: 'h2', commitment: false, start_date_confirmed: false }), // Not locked - included
+        ],
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const habitIds = result
+        .filter((i) => i.candidate.kind === 'habit')
+        .map((item) => item.candidate.id);
+
+      expect(habitIds).not.toContain('h1'); // Locked - excluded
+      expect(habitIds).toContain('h2'); // Not locked - included
+    });
+
+    it('includes todos with commitment=false', () => {
+      const state = makeState({
+        todos: [makeTodo({ id: 't1', due_day: '2025-12-10', commitment: false })],
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const todoIds = result.map((item) => item.candidate.id);
+
+      expect(todoIds).toContain('t1');
+    });
+
+    it('includes todos with commitment=undefined', () => {
+      const state = makeState({
+        todos: [makeTodo({ id: 't1', due_day: '2025-12-10' })], // No commitment field
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const todoIds = result.map((item) => item.candidate.id);
+
+      expect(todoIds).toContain('t1');
+    });
+
+    it('includes habits with commitment=undefined', () => {
+      const state = makeState({
+        habits: [makeHabit({ id: 'h1', start_date_confirmed: false })], // No commitment field
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const habitIds = result.map((item) => item.candidate.id);
+
+      expect(habitIds).toContain('h1');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // note attachments from log_photos - NEW TESTS FOR SWEEP BRANCH
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  describe('note attachments from log_photos', () => {
+    it('extracts attachments array from log_photos for notes', () => {
+      const state = makeState({
+        notes: [
+          makeNote({
+            id: 'n1',
+            subtype: 'catchall',
+            created_at: '2025-12-15T10:00:00Z',
+            log_photos: [
+              { id: 'p1', url: 'https://example.com/photo1.jpg', position: 0 },
+              { id: 'p2', url: 'https://example.com/photo2.jpg', position: 1 },
+            ],
+          } as any),
+        ],
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const noteCandidate = result.find((i) => i.candidate.id === 'n1');
+
+      expect(noteCandidate?.candidate.attachments).toHaveLength(2);
+      expect(noteCandidate?.candidate.attachments[0]).toEqual({
+        id: 'p1',
+        url: 'https://example.com/photo1.jpg',
+        position: 0,
+      });
+    });
+
+    it('includes id, url, and position for each attachment', () => {
+      const state = makeState({
+        notes: [
+          makeNote({
+            id: 'n1',
+            subtype: 'catchall',
+            created_at: '2025-12-15T10:00:00Z',
+            log_photos: [{ id: 'p1', url: 'https://example.com/photo.jpg', position: 2 }],
+          } as any),
+        ],
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const noteCandidate = result.find((i) => i.candidate.id === 'n1');
+      const attachment = noteCandidate?.candidate.attachments[0];
+
+      expect(attachment).toHaveProperty('id', 'p1');
+      expect(attachment).toHaveProperty('url', 'https://example.com/photo.jpg');
+      expect(attachment).toHaveProperty('position', 2);
+    });
+
+    it('returns empty attachments array when log_photos is undefined', () => {
+      const state = makeState({
+        notes: [
+          makeNote({
+            id: 'n1',
+            subtype: 'catchall',
+            created_at: '2025-12-15T10:00:00Z',
+          }),
+        ],
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const noteCandidate = result.find((i) => i.candidate.id === 'n1');
+
+      expect(noteCandidate?.candidate.attachments).toEqual([]);
+    });
+
+    it('returns empty attachments array when log_photos is null', () => {
+      const state = makeState({
+        notes: [
+          makeNote({
+            id: 'n1',
+            subtype: 'catchall',
+            created_at: '2025-12-15T10:00:00Z',
+            log_photos: null,
+          } as any),
+        ],
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const noteCandidate = result.find((i) => i.candidate.id === 'n1');
+
+      expect(noteCandidate?.candidate.attachments).toEqual([]);
+    });
+
+    it('returns empty attachments array when log_photos is empty array', () => {
+      const state = makeState({
+        notes: [
+          makeNote({
+            id: 'n1',
+            subtype: 'catchall',
+            created_at: '2025-12-15T10:00:00Z',
+            log_photos: [],
+          } as any),
+        ],
+      });
+
+      const result = selectSweepCandidatesUnified(state as any);
+      const noteCandidate = result.find((i) => i.candidate.id === 'n1');
+
+      expect(noteCandidate?.candidate.attachments).toEqual([]);
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

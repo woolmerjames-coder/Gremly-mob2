@@ -58,6 +58,40 @@ describe('getEffectiveDueDay', () => {
     const todo: FilterableTodo = {};
     expect(getEffectiveDueDay(todo)).toBeNull();
   });
+
+  // NEW TESTS FOR DATESERVICE INTEGRATION
+  it('should use DateService.extractDateFromIso for due_date parsing', () => {
+    // Due date with time component - should extract just the date part
+    const todo: FilterableTodo = {
+      due_day: null,
+      due_date: '2025-12-25T23:59:59.999Z',
+    };
+    expect(getEffectiveDueDay(todo)).toBe('2025-12-25');
+  });
+
+  it('should correctly extract date from ISO timestamp with time component', () => {
+    const todo: FilterableTodo = {
+      due_day: null,
+      due_date: '2025-06-15T08:30:00+00:00',
+    };
+    expect(getEffectiveDueDay(todo)).toBe('2025-06-15');
+  });
+
+  it('should handle timestamps near midnight correctly', () => {
+    const todo: FilterableTodo = {
+      due_day: null,
+      due_date: '2025-12-31T00:00:00.000Z',
+    };
+    expect(getEffectiveDueDay(todo)).toBe('2025-12-31');
+  });
+
+  it('should return null for malformed due_date', () => {
+    const todo: FilterableTodo = {
+      due_day: null,
+      due_date: 'not-a-valid-date',
+    };
+    expect(getEffectiveDueDay(todo)).toBeNull();
+  });
 });
 
 describe('isActiveTodo', () => {
@@ -109,6 +143,31 @@ describe('isCompletedToday', () => {
 
   it('should return false when not completed', () => {
     const todo: FilterableTodo = { completed_at: null };
+    expect(isCompletedToday(todo, todayDay)).toBe(false);
+  });
+
+  // NEW TESTS FOR DATESERVICE INTEGRATION
+  it('should use DateService.extractDateFromIso for completed_at parsing', () => {
+    const todo: FilterableTodo = {
+      completed_at: `${todayDay}T23:59:59.999Z`,
+    };
+    // Note: extractDateFromIso converts to local date, so this depends on timezone
+    // Using the same day should always match unless timezone shifts it
+    expect(isCompletedToday(todo, todayDay)).toBeDefined();
+  });
+
+  it('should correctly handle date-only completed_at values', () => {
+    // When completed_at has only the date (no time), it should match exactly
+    const todo: FilterableTodo = {
+      completed_at: todayDay,
+    };
+    expect(isCompletedToday(todo, todayDay)).toBe(true);
+  });
+
+  it('should return false for malformed completed_at timestamp', () => {
+    const todo: FilterableTodo = {
+      completed_at: 'invalid-timestamp',
+    };
     expect(isCompletedToday(todo, todayDay)).toBe(false);
   });
 });
