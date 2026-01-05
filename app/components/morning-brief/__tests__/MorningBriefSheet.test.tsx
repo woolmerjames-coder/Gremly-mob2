@@ -52,6 +52,11 @@ jest.mock('../../../../components/now/NowQuickAddModal', () => ({
   NowQuickAddModal: () => null,
 }));
 
+// Mock OverlayHost to avoid navigation context requirement
+jest.mock('../../../../components/OverlayHost', () => ({
+  OverlayHost: () => null,
+}));
+
 // Mock react-native-gesture-handler
 jest.mock('react-native-gesture-handler', () => {
   const View = require('react-native').View;
