@@ -72,16 +72,16 @@ const COMPLETION_MESSAGES = [
   'Progress!',
 ];
 
-// Animation timing constants (in ms) - SLOWER for calm, rewarding feel
+// Animation timing constants (in ms) - snappy but satisfying
 const TIMING = {
-  CHECKBOX_FILL: 150, // Step 1: Checkbox fills
-  PAUSE_AFTER_CHECK: 200, // Step 2: Brief pause
-  STRIKETHROUGH: 400, // Step 3: Strikethrough animates
-  UNDO_WINDOW: 1500, // Step 4: Undo window
-  SWIPE_OUT: 500, // Step 5: Card swipes right
-  MESSAGE_VISIBLE: 1200, // Step 6: Message holds
-  MESSAGE_FADE: 300, // Step 7: Message fades
-  COLLAPSE: 400, // Step 8: Cards slide up
+  CHECKBOX_FILL: 120, // Step 1: Checkbox fills
+  PAUSE_AFTER_CHECK: 150, // Step 2: Brief pause
+  STRIKETHROUGH: 300, // Step 3: Strikethrough animates
+  UNDO_WINDOW: 1200, // Step 4: Undo window
+  SWIPE_OUT: 400, // Step 5: Card swipes right
+  MESSAGE_VISIBLE: 900, // Step 6: Message holds
+  MESSAGE_FADE: 250, // Step 7: Message fades
+  COLLAPSE: 300, // Step 8: Cards slide up
 };
 
 // Row height including padding
@@ -674,6 +674,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
+    lineHeight: 14,
+    textAlign: 'center',
+    includeFontPadding: false, // Android fix
+    textAlignVertical: 'center', // Android fix
   },
 });
 
