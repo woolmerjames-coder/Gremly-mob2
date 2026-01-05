@@ -113,12 +113,13 @@ function getBucketTimeEstimate(items: TaskItem[]): number {
 }
 
 // Format bucket time estimate for display
-function formatBucketTime(minutes: number): string | null {
-  if (minutes <= 0) return null;
+function formatBucketTime(minutes: number): string {
+  if (minutes <= 0) return '';
   if (minutes < 60) return `~${minutes}m`;
-  const hours = minutes / 60;
-  if (Number.isInteger(hours)) return `~${hours}h`;
-  return `~${hours.toFixed(1)}h`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (mins === 0) return `~${hours}h`;
+  return `~${hours}h ${mins}m`;
 }
 
 // Draggable task card component
@@ -935,7 +936,6 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     (bucket: (typeof BUCKETS)[0], items: TaskItem[]) => {
       const itemCount = items.length;
       const timeEstimate = getBucketTimeEstimate(items);
-      const timeDisplay = formatBucketTime(timeEstimate);
       const isHighlighted = highlightedBucket === bucket.key;
       const isMaxed = bucket.key === 'lock-in' && itemCount >= 3 && !isHighlighted;
 
@@ -957,6 +957,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         // Outer View for measurement ONLY - no animated styles
         <View
           key={`${bucket.key}-${bucketMeasureKey}`}
+          style={styles.bucketContainer}
           onLayout={(e) => {
             measureBucket(bucket.key, e.target);
           }}
@@ -964,7 +965,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
           {/* Inner Animated.View for visual effects ONLY */}
           <Animated.View
             style={[
-              styles.bucket,
+              styles.bucketBox,
               bucket.key === 'lock-in' && styles.bucketLockIn,
               bucket.key === 'lock-in' && itemCount > 0 && styles.bucketLockInActive,
               isHighlighted && styles.bucketHighlighted,
@@ -992,11 +993,16 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             {itemCount > 0 && (
               <View style={[styles.bucketBadge, { backgroundColor: bucket.color }]}>
                 <Text style={styles.bucketBadgeText}>{itemCount}</Text>
-                {timeDisplay && <Text style={styles.bucketTimeEstimate}>{timeDisplay}</Text>}
               </View>
             )}
             {isMaxed && <Text style={styles.bucketMaxText}>max</Text>}
           </Animated.View>
+          {timeEstimate > 0 && (
+            <View style={styles.bucketTimeContainer}>
+              <Clock size={10} color={BRAND.colors.inkMuted} />
+              <Text style={styles.bucketTimeText}>{formatBucketTime(timeEstimate)}</Text>
+            </View>
+          )}
         </View>
       );
     },
@@ -1051,6 +1057,10 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             {/* Header */}
             <View style={styles.header}>
               <Text style={styles.headerTitle}>What you have on Today, LFG!</Text>
+              <View style={styles.headerTimeEstimate}>
+                <Clock size={14} color={BRAND.colors.inkMuted} />
+                <Text style={styles.headerTimeText}>~1 min</Text>
+              </View>
             </View>
 
             {/* Content */}
@@ -1070,10 +1080,15 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                     resizeMode="contain"
                   />
                 </Pressable>
-                <Text style={styles.gremlyText}>
-                  Lock in up to 3 priorities and drag/click the rest into time blocks. Totally
-                  optional!
-                </Text>
+                <View style={styles.gremlyTextContainer}>
+                  <Text style={styles.gremlyTextMain}>
+                    Drag or tap items into time blocks, or leave for whenever.
+                  </Text>
+                  <Text style={styles.gremlyTextSecondary}>
+                    <Text style={styles.highlightLockIn}>Lock in</Text> up to 3 priorities.{' '}
+                    <Text style={styles.gremlyTextOptional}>Totally optional!</Text>
+                  </Text>
+                </View>
               </View>
 
               {/* Action row with add button */}
@@ -1337,9 +1352,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 24,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: BRAND.colors.borderSubtle,
@@ -1348,6 +1363,15 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
+  },
+  headerTimeEstimate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  headerTimeText: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
   },
   content: {
     flex: 1,
@@ -1466,7 +1490,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  bucket: {
+  bucketContainer: {
+    alignItems: 'center',
+  },
+  bucketBox: {
     width: 72,
     height: 72,
     borderRadius: BRAND.radius.lg,
@@ -1478,6 +1505,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
     ...BRAND.elevation.one,
+  },
+  bucketTimeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 2,
+  },
+  bucketTimeText: {
+    fontSize: 10,
+    color: BRAND.colors.inkMuted,
   },
   bucketHighlighted: {
     borderStyle: 'solid',
@@ -1531,11 +1568,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: BRAND.colors.surface,
-  },
-  bucketTimeEstimate: {
-    fontSize: 9,
-    color: BRAND.colors.inkMuted,
-    marginTop: 2,
   },
   bucketMaxText: {
     position: 'absolute',
@@ -1743,11 +1775,27 @@ const styles = StyleSheet.create({
     height: 54,
     marginRight: 12,
   },
-  gremlyText: {
+  gremlyTextContainer: {
     flex: 1,
+  },
+  gremlyTextMain: {
     fontSize: 14,
+    color: BRAND.colors.charcoalInk,
     lineHeight: 20,
-    color: BRAND.colors.inkSubtle,
+  },
+  gremlyTextSecondary: {
+    fontSize: 14,
+    color: BRAND.colors.charcoalInk,
+    lineHeight: 20,
+    marginTop: 2,
+  },
+  highlightLockIn: {
+    fontWeight: '700',
+    color: BRAND.colors.mossGreen,
+  },
+  gremlyTextOptional: {
+    fontStyle: 'italic',
+    color: BRAND.colors.inkMuted,
   },
   actionRow: {
     flexDirection: 'row',

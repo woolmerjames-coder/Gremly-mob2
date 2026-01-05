@@ -254,43 +254,44 @@ export function MiniSweepGate({
   }, []);
 
   // Commit all staged changes
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(() => {
     if (isSaving) return;
     setIsSaving(true);
 
     const today = getTodayDateString();
     console.log('[MiniSweepGate] handleSave called. Decisions:', decisions.size);
 
-    try {
-      const updates: Promise<void>[] = [];
+    // Start all updates but don't wait for them
+    const updates: Promise<void>[] = [];
 
-      for (const [id, decision] of decisions.entries()) {
-        console.log('[MiniSweepGate] Processing decision:', { id, decision });
-        switch (decision) {
-          case 'today':
-            // Set due_day to today - item flows to Morning Brief and Today's Focus
-            updates.push(updateTodo(id, { due_day: today }));
-            break;
-          case 'archive':
-            // Archive the todo - disappears from all views
-            updates.push(archiveTodo(id, 'mini_sweep'));
-            break;
-          case 'defer':
-            // Do nothing - item stays as-is for Evening Sweep
-            break;
-        }
+    for (const [id, decision] of decisions.entries()) {
+      console.log('[MiniSweepGate] Processing decision:', { id, decision });
+      switch (decision) {
+        case 'today':
+          // Set due_day to today - item flows to Morning Brief and Today's Focus
+          updates.push(updateTodo(id, { due_day: today }));
+          break;
+        case 'archive':
+          // Archive the todo - disappears from all views
+          updates.push(archiveTodo(id, 'mini_sweep'));
+          break;
+        case 'defer':
+          // Do nothing - item stays as-is for Evening Sweep
+          break;
       }
-
-      await Promise.all(updates);
-      console.log('[MiniSweepGate] All updates completed');
-      onComplete();
-    } catch (error) {
-      console.error('[MiniSweepGate] Error saving decisions:', error);
-      // Still call onComplete to not block the user
-      onComplete();
-    } finally {
-      setIsSaving(false);
     }
+
+    // Fire and forget - let updates happen in background
+    Promise.all(updates)
+      .then(() => {
+        console.log('[MiniSweepGate] All updates completed');
+      })
+      .catch((error) => {
+        console.error('[MiniSweepGate] Error saving decisions:', error);
+      });
+
+    // Immediately transition - don't wait for updates to avoid flash
+    onComplete();
   }, [decisions, updateTodo, archiveTodo, onComplete, isSaving]);
 
   // Count of items NOT deferred (actual changes)
@@ -390,7 +391,7 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
   header: {
-    paddingTop: 4,
+    paddingTop: 12,
     paddingHorizontal: 16,
     marginBottom: 12,
   },
@@ -417,7 +418,7 @@ const styles = StyleSheet.create({
   gremlyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
   },
   gremlyImage: {
     width: 48,
