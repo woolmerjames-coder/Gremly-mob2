@@ -2,7 +2,7 @@
  * Tests for MiniSweepGate Component
  *
  * Tests the mini sweep gate UI that appears before Morning Brief
- * to help users quick-sort rolled over and unscheduled items.
+ * to help users quick-sort rolled over and unscheduled items using a 3-position toggle.
  */
 
 import React from 'react';
@@ -26,6 +26,20 @@ jest.mock('../../../../lib/store/useGremlyStore', () => ({
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 44, bottom: 34, left: 0, right: 0 }),
 }));
+
+// Mock OverlayContext
+jest.mock('../../../../contexts/OverlayContext', () => ({
+  useGlobalOverlay: () => ({
+    openEdit: jest.fn(),
+  }),
+}));
+
+// Mock Reanimated
+jest.mock('react-native-reanimated', () => {
+  const Reanimated = require('react-native-reanimated/mock');
+  Reanimated.default.call = () => {};
+  return Reanimated;
+});
 
 function makeTodo(overrides: Partial<Todo> = {}): Todo {
   return {
@@ -81,7 +95,38 @@ describe('MiniSweepGate', () => {
         />,
       );
 
-      expect(screen.getByText('A few things rolled over...')).toBeTruthy();
+      expect(screen.getByText('A few loose ends')).toBeTruthy();
+    });
+
+    it('renders time estimate based on item count', () => {
+      // With 7 items, should show ~1 min (7/6.5 = 1.07 → 1)
+      const todos = Array(7)
+        .fill(null)
+        .map((_, i) => makeTodo({ id: `t${i}`, name: `Task ${i}` }));
+
+      render(
+        <MiniSweepGate
+          rolledOverTodos={todos}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      expect(screen.getByText('~1 min')).toBeTruthy();
+    });
+
+    it('renders Gremly instructions text', () => {
+      render(
+        <MiniSweepGate
+          rolledOverTodos={[makeTodo({ id: 't1', name: 'Task 1' })]}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      expect(screen.getByText('Quick sort, then we plan the day!')).toBeTruthy();
     });
 
     it('renders rolled over section when items exist', () => {
@@ -161,83 +206,36 @@ describe('MiniSweepGate', () => {
 
       expect(screen.getByTestId('mini-sweep-gate')).toBeTruthy();
     });
+
+    it('renders section control hints (Archive, Defer, Today)', () => {
+      render(
+        <MiniSweepGate
+          rolledOverTodos={[makeTodo({ id: 't1', name: 'Task 1' })]}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      expect(screen.getByText('← Archive')).toBeTruthy();
+      expect(screen.getByText('Defer')).toBeTruthy();
+      expect(screen.getByText('Today →')).toBeTruthy();
+    });
   });
 
-  describe('decision buttons', () => {
-    it('renders Today, Done, Later buttons for each item', () => {
-      const todo = makeTodo({ id: 'test-todo', name: 'Test task' });
-
+  describe('item rows with toggle', () => {
+    it('renders items with default defer status', () => {
       render(
         <MiniSweepGate
-          rolledOverTodos={[todo]}
+          rolledOverTodos={[makeTodo({ id: 't1', name: 'Test task' })]}
           unscheduledTodos={[]}
           onComplete={mockOnComplete}
           onSkip={mockOnSkip}
         />,
       );
 
-      expect(screen.getByTestId('mini-sweep-today-test-todo')).toBeTruthy();
-      expect(screen.getByTestId('mini-sweep-done-test-todo')).toBeTruthy();
-      expect(screen.getByTestId('mini-sweep-later-test-todo')).toBeTruthy();
-    });
-
-    it('toggles decision when button is pressed', () => {
-      const todo = makeTodo({ id: 'test-todo', name: 'Test task' });
-
-      render(
-        <MiniSweepGate
-          rolledOverTodos={[todo]}
-          unscheduledTodos={[]}
-          onComplete={mockOnComplete}
-          onSkip={mockOnSkip}
-        />,
-      );
-
-      // Press Today button
-      fireEvent.press(screen.getByTestId('mini-sweep-today-test-todo'));
-
-      // Save button should show count
-      expect(screen.getByText('Save (1)')).toBeTruthy();
-    });
-
-    it('clears decision when same button is pressed again', () => {
-      const todo = makeTodo({ id: 'test-todo', name: 'Test task' });
-
-      render(
-        <MiniSweepGate
-          rolledOverTodos={[todo]}
-          unscheduledTodos={[]}
-          onComplete={mockOnComplete}
-          onSkip={mockOnSkip}
-        />,
-      );
-
-      // Press Today button twice
-      fireEvent.press(screen.getByTestId('mini-sweep-today-test-todo'));
-      expect(screen.getByText('Save (1)')).toBeTruthy();
-
-      fireEvent.press(screen.getByTestId('mini-sweep-today-test-todo'));
-      expect(screen.getByText('Save')).toBeTruthy(); // No count - decision cleared
-    });
-
-    it('switches decision when different button is pressed', () => {
-      const todo = makeTodo({ id: 'test-todo', name: 'Test task' });
-
-      render(
-        <MiniSweepGate
-          rolledOverTodos={[todo]}
-          unscheduledTodos={[]}
-          onComplete={mockOnComplete}
-          onSkip={mockOnSkip}
-        />,
-      );
-
-      // Press Today, then Done
-      fireEvent.press(screen.getByTestId('mini-sweep-today-test-todo'));
-      fireEvent.press(screen.getByTestId('mini-sweep-done-test-todo'));
-
-      // Should still show 1 decision (switched from Today to Done)
-      expect(screen.getByText('Save (1)')).toBeTruthy();
+      // Default state is defer - should show "see you soon"
+      expect(screen.getByText('see you soon')).toBeTruthy();
     });
   });
 
@@ -259,7 +257,20 @@ describe('MiniSweepGate', () => {
   });
 
   describe('save button', () => {
-    it('calls onComplete even when no decisions made', async () => {
+    it('shows "Save" with no changes (all defer)', () => {
+      render(
+        <MiniSweepGate
+          rolledOverTodos={[makeTodo({ id: 't1', name: 'Task 1' })]}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      expect(screen.getByText('Save')).toBeTruthy();
+    });
+
+    it('calls onComplete when Save pressed', async () => {
       render(
         <MiniSweepGate
           rolledOverTodos={[makeTodo({ id: 't1', name: 'Task 1' })]}
@@ -276,109 +287,58 @@ describe('MiniSweepGate', () => {
       expect(mockOnComplete).toHaveBeenCalled();
     });
 
-    it('calls updateTodo with due_day for Today decision', async () => {
-      const todo = makeTodo({ id: 'test-todo', name: 'Test task' });
-
+    it('does not call updateTodo or archiveTodo for defer decisions', async () => {
       render(
         <MiniSweepGate
-          rolledOverTodos={[todo]}
+          rolledOverTodos={[makeTodo({ id: 't1', name: 'Task 1' })]}
           unscheduledTodos={[]}
           onComplete={mockOnComplete}
           onSkip={mockOnSkip}
         />,
       );
 
-      // Select Today
-      fireEvent.press(screen.getByTestId('mini-sweep-today-test-todo'));
-
       await act(async () => {
         fireEvent.press(screen.getByTestId('mini-sweep-save'));
       });
 
-      expect(mockUpdateTodo).toHaveBeenCalledWith('test-todo', { due_day: '2025-12-15' });
-    });
-
-    it('calls archiveTodo for Done decision', async () => {
-      const todo = makeTodo({ id: 'test-todo', name: 'Test task' });
-
-      render(
-        <MiniSweepGate
-          rolledOverTodos={[todo]}
-          unscheduledTodos={[]}
-          onComplete={mockOnComplete}
-          onSkip={mockOnSkip}
-        />,
-      );
-
-      // Select Done
-      fireEvent.press(screen.getByTestId('mini-sweep-done-test-todo'));
-
-      await act(async () => {
-        fireEvent.press(screen.getByTestId('mini-sweep-save'));
-      });
-
-      expect(mockArchiveTodo).toHaveBeenCalledWith('test-todo', 'mini_sweep');
-    });
-
-    it('calls updateTodo with skipped_in_sweep_at for Later decision', async () => {
-      const todo = makeTodo({ id: 'test-todo', name: 'Test task' });
-
-      render(
-        <MiniSweepGate
-          rolledOverTodos={[todo]}
-          unscheduledTodos={[]}
-          onComplete={mockOnComplete}
-          onSkip={mockOnSkip}
-        />,
-      );
-
-      // Select Later
-      fireEvent.press(screen.getByTestId('mini-sweep-later-test-todo'));
-
-      await act(async () => {
-        fireEvent.press(screen.getByTestId('mini-sweep-save'));
-      });
-
-      expect(mockUpdateTodo).toHaveBeenCalledWith('test-todo', {
-        skipped_in_sweep_at: '2025-12-15T00:00:00',
-      });
-    });
-
-    it('processes multiple decisions in parallel', async () => {
-      const todos = [
-        makeTodo({ id: 't1', name: 'Task 1' }),
-        makeTodo({ id: 't2', name: 'Task 2' }),
-        makeTodo({ id: 't3', name: 'Task 3' }),
-      ];
-
-      render(
-        <MiniSweepGate
-          rolledOverTodos={todos}
-          unscheduledTodos={[]}
-          onComplete={mockOnComplete}
-          onSkip={mockOnSkip}
-        />,
-      );
-
-      // Make different decisions for each
-      fireEvent.press(screen.getByTestId('mini-sweep-today-t1'));
-      fireEvent.press(screen.getByTestId('mini-sweep-done-t2'));
-      fireEvent.press(screen.getByTestId('mini-sweep-later-t3'));
-
-      expect(screen.getByText('Save (3)')).toBeTruthy();
-
-      await act(async () => {
-        fireEvent.press(screen.getByTestId('mini-sweep-save'));
-      });
-
-      expect(mockUpdateTodo).toHaveBeenCalledTimes(2); // Today and Later
-      expect(mockArchiveTodo).toHaveBeenCalledTimes(1); // Done
-      expect(mockOnComplete).toHaveBeenCalled();
+      // Defer = no action
+      expect(mockUpdateTodo).not.toHaveBeenCalled();
+      expect(mockArchiveTodo).not.toHaveBeenCalled();
     });
   });
 
   describe('bulk actions', () => {
-    it('applies bulk Today action to all items in section', () => {
+    it('renders bulk action buttons for rolled over section', () => {
+      render(
+        <MiniSweepGate
+          rolledOverTodos={[makeTodo({ id: 't1', name: 'Task 1' })]}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      expect(screen.getByTestId('mini-sweep-bulk-archive-rolled over')).toBeTruthy();
+      expect(screen.getByTestId('mini-sweep-bulk-defer-rolled over')).toBeTruthy();
+      expect(screen.getByTestId('mini-sweep-bulk-today-rolled over')).toBeTruthy();
+    });
+
+    it('renders bulk action buttons for unscheduled section', () => {
+      render(
+        <MiniSweepGate
+          rolledOverTodos={[]}
+          unscheduledTodos={[makeTodo({ id: 't1', name: 'Task 1' })]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      expect(screen.getByTestId('mini-sweep-bulk-archive-unscheduled')).toBeTruthy();
+      expect(screen.getByTestId('mini-sweep-bulk-defer-unscheduled')).toBeTruthy();
+      expect(screen.getByTestId('mini-sweep-bulk-today-unscheduled')).toBeTruthy();
+    });
+
+    it('applies bulk today action and updates Save button count', async () => {
       const todos = [
         makeTodo({ id: 't1', name: 'Task 1' }),
         makeTodo({ id: 't2', name: 'Task 2' }),
@@ -393,11 +353,168 @@ describe('MiniSweepGate', () => {
         />,
       );
 
-      // Press bulk Today button
       fireEvent.press(screen.getByTestId('mini-sweep-bulk-today-rolled over'));
 
-      // Both items should have Today selected
+      // Both items moved to "today" - should show Save (2)
       expect(screen.getByText('Save (2)')).toBeTruthy();
+    });
+
+    it('applies bulk archive and calls archiveTodo on save', async () => {
+      const todos = [
+        makeTodo({ id: 't1', name: 'Task 1' }),
+        makeTodo({ id: 't2', name: 'Task 2' }),
+      ];
+
+      render(
+        <MiniSweepGate
+          rolledOverTodos={todos}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      fireEvent.press(screen.getByTestId('mini-sweep-bulk-archive-rolled over'));
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('mini-sweep-save'));
+      });
+
+      expect(mockArchiveTodo).toHaveBeenCalledWith('t1', 'mini_sweep');
+      expect(mockArchiveTodo).toHaveBeenCalledWith('t2', 'mini_sweep');
+    });
+
+    it('applies bulk today and calls updateTodo with due_day on save', async () => {
+      const todos = [
+        makeTodo({ id: 't1', name: 'Task 1' }),
+        makeTodo({ id: 't2', name: 'Task 2' }),
+      ];
+
+      render(
+        <MiniSweepGate
+          rolledOverTodos={todos}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      fireEvent.press(screen.getByTestId('mini-sweep-bulk-today-rolled over'));
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('mini-sweep-save'));
+      });
+
+      expect(mockUpdateTodo).toHaveBeenCalledWith('t1', { due_day: '2025-12-15' });
+      expect(mockUpdateTodo).toHaveBeenCalledWith('t2', { due_day: '2025-12-15' });
+    });
+
+    it('applies bulk defer (no store calls on save)', async () => {
+      const todos = [makeTodo({ id: 't1', name: 'Task 1' })];
+
+      render(
+        <MiniSweepGate
+          rolledOverTodos={todos}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      // First set to today
+      fireEvent.press(screen.getByTestId('mini-sweep-bulk-today-rolled over'));
+      expect(screen.getByText('Save (1)')).toBeTruthy();
+
+      // Then bulk defer
+      fireEvent.press(screen.getByTestId('mini-sweep-bulk-defer-rolled over'));
+      expect(screen.getByText('Save')).toBeTruthy(); // No count
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('mini-sweep-save'));
+      });
+
+      expect(mockUpdateTodo).not.toHaveBeenCalled();
+      expect(mockArchiveTodo).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('saving state', () => {
+    it('shows "Saving..." while save is in progress', async () => {
+      // Make updateTodo hang to simulate pending state
+      mockUpdateTodo.mockImplementation(() => new Promise(() => {}));
+
+      render(
+        <MiniSweepGate
+          rolledOverTodos={[makeTodo({ id: 't1', name: 'Task 1' })]}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      fireEvent.press(screen.getByTestId('mini-sweep-bulk-today-rolled over'));
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('mini-sweep-save'));
+      });
+
+      expect(screen.getByText('Saving...')).toBeTruthy();
+    });
+
+    it('disables save button while saving', async () => {
+      mockUpdateTodo.mockImplementation(() => new Promise(() => {}));
+
+      render(
+        <MiniSweepGate
+          rolledOverTodos={[makeTodo({ id: 't1', name: 'Task 1' })]}
+          unscheduledTodos={[]}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      fireEvent.press(screen.getByTestId('mini-sweep-bulk-today-rolled over'));
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('mini-sweep-save'));
+      });
+
+      // Try to press again - should not trigger onComplete twice
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('mini-sweep-save'));
+      });
+
+      // onComplete is called immediately on first save
+      expect(mockOnComplete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('mixed decisions', () => {
+    it('handles mixed decisions across sections', async () => {
+      const rolledOver = [makeTodo({ id: 't1', name: 'Rolled 1' })];
+      const unscheduled = [makeTodo({ id: 't2', name: 'Unsched 1' })];
+
+      render(
+        <MiniSweepGate
+          rolledOverTodos={rolledOver}
+          unscheduledTodos={unscheduled}
+          onComplete={mockOnComplete}
+          onSkip={mockOnSkip}
+        />,
+      );
+
+      // Archive rolled over, set unscheduled to today
+      fireEvent.press(screen.getByTestId('mini-sweep-bulk-archive-rolled over'));
+      fireEvent.press(screen.getByTestId('mini-sweep-bulk-today-unscheduled'));
+
+      expect(screen.getByText('Save (2)')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('mini-sweep-save'));
+      });
+
+      expect(mockArchiveTodo).toHaveBeenCalledWith('t1', 'mini_sweep');
+      expect(mockUpdateTodo).toHaveBeenCalledWith('t2', { due_day: '2025-12-15' });
     });
   });
 });

@@ -61,6 +61,8 @@ const useStyles = makeStyles((t) => ({
     fontWeight: '700',
     lineHeight: 12,
     textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   textContainer: {
     flex: 1,

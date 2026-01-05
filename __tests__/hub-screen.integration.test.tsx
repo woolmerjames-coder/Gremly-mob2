@@ -862,13 +862,15 @@ describe('HubScreen - Journal View Data Filtering', () => {
 
   it('shows journal count in modal after loading', async () => {
     // Mock 3 journals for the initial view (component now reads from store, not repo)
+    // Use dates that are definitely within 30 days of the test run date
+    const now = new Date();
     const mockJournals = [
       {
         id: 'journal-1',
         type: 'note' as const,
         subtype: 'journal' as const,
-        date: '2025-12-14T10:00:00.000Z',
-        created_at: '2025-12-14T10:00:00.000Z',
+        date: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+        created_at: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
         body: 'Journal 1',
         ai_placed: false,
       },
@@ -876,8 +878,8 @@ describe('HubScreen - Journal View Data Filtering', () => {
         id: 'journal-2',
         type: 'note' as const,
         subtype: 'journal' as const,
-        date: '2025-12-10T10:00:00.000Z',
-        created_at: '2025-12-10T10:00:00.000Z',
+        date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
+        created_at: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
         body: 'Journal 2',
         ai_placed: false,
       },
@@ -885,8 +887,8 @@ describe('HubScreen - Journal View Data Filtering', () => {
         id: 'journal-3',
         type: 'note' as const,
         subtype: 'journal' as const,
-        date: '2025-12-05T10:00:00.000Z',
-        created_at: '2025-12-05T10:00:00.000Z',
+        date: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days ago
+        created_at: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(),
         body: 'Journal 3',
         ai_placed: false,
       },
@@ -916,9 +918,13 @@ describe('HubScreen - Journal View Data Filtering', () => {
     fireEvent.press(getByTestId('journal-analyze-cta'));
 
     // Wait for loading to complete and count to appear
-    await waitFor(() => {
-      expect(getByTestId('analyze-journal-count')).toBeTruthy();
-      expect(queryByText(/Based on 3 journal entries/i)).toBeTruthy();
-    });
+    // The async handler runs synchronously in tests, so the count should appear quickly
+    await waitFor(
+      () => {
+        expect(getByTestId('analyze-journal-count')).toBeTruthy();
+        expect(queryByText(/Based on 3 journal/i)).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
   });
 });

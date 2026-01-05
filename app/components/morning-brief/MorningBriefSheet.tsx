@@ -52,6 +52,7 @@ import { MiniSweepGate } from './MiniSweepGate';
 import { Clock, Sunrise, Sun, Moon } from 'lucide-react-native';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { useNowQuickAdd } from '../../../lib/now/useNowQuickAdd';
+import { OverlayHost } from '../../../components/OverlayHost';
 import { triggerMedium, triggerSuccess } from '../../../lib/haptics';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires -- React Native image import
@@ -104,6 +105,21 @@ function formatTimeEstimate(minutes: number | null | undefined): string | null {
   if (hours === 1) return '1h';
   if (Number.isInteger(hours)) return `${hours}h`;
   return `${hours.toFixed(1)}h`;
+}
+
+// Calculate total time for a bucket
+function getBucketTimeEstimate(items: TaskItem[]): number {
+  return items.reduce((sum, item) => sum + (item.timeEstimate || 0), 0);
+}
+
+// Format bucket time estimate for display
+function formatBucketTime(minutes: number): string {
+  if (minutes <= 0) return '';
+  if (minutes < 60) return `~${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (mins === 0) return `~${hours}h`;
+  return `~${hours}h ${mins}m`;
 }
 
 // Draggable task card component
@@ -917,7 +933,9 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   // Outer View handles measurement, inner Animated.View handles visual effects
   // This separation prevents shadow tree corruption when animations run during layout
   const renderBucket = useCallback(
-    (bucket: (typeof BUCKETS)[0], itemCount: number) => {
+    (bucket: (typeof BUCKETS)[0], items: TaskItem[]) => {
+      const itemCount = items.length;
+      const timeEstimate = getBucketTimeEstimate(items);
       const isHighlighted = highlightedBucket === bucket.key;
       const isMaxed = bucket.key === 'lock-in' && itemCount >= 3 && !isHighlighted;
 
@@ -939,6 +957,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         // Outer View for measurement ONLY - no animated styles
         <View
           key={`${bucket.key}-${bucketMeasureKey}`}
+          style={styles.bucketContainer}
           onLayout={(e) => {
             measureBucket(bucket.key, e.target);
           }}
@@ -946,7 +965,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
           {/* Inner Animated.View for visual effects ONLY */}
           <Animated.View
             style={[
-              styles.bucket,
+              styles.bucketBox,
               bucket.key === 'lock-in' && styles.bucketLockIn,
               bucket.key === 'lock-in' && itemCount > 0 && styles.bucketLockInActive,
               isHighlighted && styles.bucketHighlighted,
@@ -978,6 +997,12 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             )}
             {isMaxed && <Text style={styles.bucketMaxText}>max</Text>}
           </Animated.View>
+          {timeEstimate > 0 && (
+            <View style={styles.bucketTimeContainer}>
+              <Clock size={10} color={BRAND.colors.inkMuted} />
+              <Text style={styles.bucketTimeText}>{formatBucketTime(timeEstimate)}</Text>
+            </View>
+          )}
         </View>
       );
     },
@@ -1032,21 +1057,38 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             {/* Header */}
             <View style={styles.header}>
               <Text style={styles.headerTitle}>What you have on Today, LFG!</Text>
+              <View style={styles.headerTimeEstimate}>
+                <Clock size={14} color={BRAND.colors.inkMuted} />
+                <Text style={styles.headerTimeText}>~1 min</Text>
+              </View>
             </View>
 
             {/* Content */}
             <View style={styles.content}>
               {/* Gremly Instructions */}
               <View style={styles.gremlyRow}>
-                <Image
-                  source={MORNING_BRIEF_GREMLY}
-                  style={styles.gremlyMascot}
-                  resizeMode="contain"
-                />
-                <Text style={styles.gremlyText}>
-                  Lock in up to 3 priorities and drag/click the rest into time blocks. Totally
-                  optional!
-                </Text>
+                <Pressable
+                  onLongPress={() => {
+                    setMiniSweepCompleted(false);
+                    console.log('[MorningBriefSheet] Long-press: forcing Mini-Sweep to show');
+                  }}
+                  delayLongPress={800}
+                >
+                  <Image
+                    source={MORNING_BRIEF_GREMLY}
+                    style={styles.gremlyMascot}
+                    resizeMode="contain"
+                  />
+                </Pressable>
+                <View style={styles.gremlyTextContainer}>
+                  <Text style={styles.gremlyTextMain}>
+                    Drag or tap items into time blocks, or leave for whenever.
+                  </Text>
+                  <Text style={styles.gremlyTextSecondary}>
+                    <Text style={styles.highlightLockIn}>Lock in</Text> up to 3 priorities.{' '}
+                    <Text style={styles.gremlyTextOptional}>Totally optional!</Text>
+                  </Text>
+                </View>
               </View>
 
               {/* Action row with add button */}
@@ -1106,10 +1148,10 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
               {/* Drop zone buckets */}
               <View style={styles.bucketsRow}>
-                {renderBucket(BUCKETS[0], lockInItems.length)}
-                {renderBucket(BUCKETS[1], morningItems.length)}
-                {renderBucket(BUCKETS[2], dayItems.length)}
-                {renderBucket(BUCKETS[3], eveningItems.length)}
+                {renderBucket(BUCKETS[0], lockInItems)}
+                {renderBucket(BUCKETS[1], morningItems)}
+                {renderBucket(BUCKETS[2], dayItems)}
+                {renderBucket(BUCKETS[3], eveningItems)}
               </View>
 
               {/* Expandable summary with reorderable lists */}
@@ -1269,6 +1311,9 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             )}
           </View>
         )}
+
+        {/* Overlay Host for item detail overlay - must be inside Modal */}
+        <OverlayHost />
       </GestureHandlerRootView>
     </Modal>
   );
@@ -1307,9 +1352,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 24,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: BRAND.colors.borderSubtle,
@@ -1318,6 +1363,15 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
+  },
+  headerTimeEstimate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  headerTimeText: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
   },
   content: {
     flex: 1,
@@ -1436,7 +1490,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  bucket: {
+  bucketContainer: {
+    alignItems: 'center',
+  },
+  bucketBox: {
     width: 72,
     height: 72,
     borderRadius: BRAND.radius.lg,
@@ -1448,6 +1505,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
     ...BRAND.elevation.one,
+  },
+  bucketTimeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 2,
+  },
+  bucketTimeText: {
+    fontSize: 10,
+    color: BRAND.colors.inkMuted,
   },
   bucketHighlighted: {
     borderStyle: 'solid',
@@ -1708,11 +1775,27 @@ const styles = StyleSheet.create({
     height: 54,
     marginRight: 12,
   },
-  gremlyText: {
+  gremlyTextContainer: {
     flex: 1,
+  },
+  gremlyTextMain: {
     fontSize: 14,
+    color: BRAND.colors.charcoalInk,
     lineHeight: 20,
-    color: BRAND.colors.inkSubtle,
+  },
+  gremlyTextSecondary: {
+    fontSize: 14,
+    color: BRAND.colors.charcoalInk,
+    lineHeight: 20,
+    marginTop: 2,
+  },
+  highlightLockIn: {
+    fontWeight: '700',
+    color: BRAND.colors.mossGreen,
+  },
+  gremlyTextOptional: {
+    fontStyle: 'italic',
+    color: BRAND.colors.inkMuted,
   },
   actionRow: {
     flexDirection: 'row',

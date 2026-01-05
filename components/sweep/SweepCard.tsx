@@ -43,6 +43,7 @@ import Animated, {
   interpolateColor,
 } from 'react-native-reanimated';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { SwipeHintText } from '../../app/components/sweep/SwipeHintText';
 import {
   Pencil,
   Archive,
@@ -442,34 +443,6 @@ export function SweepCard({
   const [selectedHabitAction, setSelectedHabitAction] = useState<
     'asktomorrow' | 'starttomorrow' | 'startmonday' | 'pickdate'
   >('asktomorrow');
-
-  // Animated hint arrow
-  const hintArrowAnim = React.useRef(new RNAnimated.Value(0)).current;
-
-  // Start animation when selection exists
-  React.useEffect(() => {
-    if (selectedQuickAction && selectedQuickAction !== 'pickdate') {
-      // Subtle repeating animation
-      const animation = RNAnimated.loop(
-        RNAnimated.sequence([
-          RNAnimated.timing(hintArrowAnim, {
-            toValue: 8,
-            duration: 800,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          RNAnimated.timing(hintArrowAnim, {
-            toValue: 0,
-            duration: 800,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ]),
-      );
-      animation.start();
-      return () => animation.stop();
-    }
-  }, [selectedQuickAction, hintArrowAnim]);
 
   // Reset date picker state when candidate changes, or restore previous decision
   React.useEffect(() => {
@@ -1230,9 +1203,6 @@ export function SweepCard({
               <View style={styles.actionButtonsSection}>
                 {candidate.kind === 'todo' ? (
                   <>
-                    {/* Todo hint text */}
-                    <Text style={styles.actionHintText}>Set a due date, then swipe right</Text>
-
                     {/* Todo buttons: Tomorrow, 2 Days, Next Week, Pick Date */}
                     <View style={styles.buttonGrid}>
                       <TouchableOpacity
@@ -1328,28 +1298,16 @@ export function SweepCard({
                       </TouchableOpacity>
                     </View>
 
-                    {/* Confirmation hint - shows after selection (including custom date) */}
-                    {hasUserSelected &&
-                      selectedQuickAction &&
-                      (selectedQuickAction !== 'pickdate' || confirmedCustomDate) && (
-                        <View style={styles.confirmationHint}>
-                          <Text style={styles.confirmationHintText}>Swipe right to save</Text>
-                          <RNAnimated.Text
-                            style={[
-                              styles.confirmationHintArrow,
-                              { transform: [{ translateX: hintArrowAnim }] },
-                            ]}
-                          >
-                            →
-                          </RNAnimated.Text>
-                        </View>
-                      )}
+                    {/* Swipe hint text */}
+                    <SwipeHintText
+                      candidateKind="todo"
+                      selectedQuickAction={selectedQuickAction}
+                      confirmedCustomDate={confirmedCustomDate}
+                      confirmedRemindDate={confirmedRemindDate}
+                    />
                   </>
                 ) : isUnconfirmedHabit ? (
                   <>
-                    {/* Habit hint text */}
-                    <Text style={styles.actionHintText}>When do you want to start?</Text>
-
                     {/* Habit buttons: Next Sweep, Start Tomorrow, Start Monday, Pick Date */}
                     <View style={styles.buttonGrid}>
                       <TouchableOpacity
@@ -1459,22 +1417,12 @@ export function SweepCard({
                       </TouchableOpacity>
                     </View>
 
-                    {/* Confirmation hint - shows after selection */}
-                    {hasUserSelected &&
-                      selectedHabitAction &&
-                      selectedHabitAction !== 'pickdate' && (
-                        <View style={styles.confirmationHint}>
-                          <Text style={styles.confirmationHintText}>Swipe right to confirm</Text>
-                          <RNAnimated.Text
-                            style={[
-                              styles.confirmationHintArrow,
-                              { transform: [{ translateX: hintArrowAnim }] },
-                            ]}
-                          >
-                            →
-                          </RNAnimated.Text>
-                        </View>
-                      )}
+                    {/* Swipe hint text */}
+                    <SwipeHintText
+                      candidateKind="habit"
+                      selectedHabitAction={selectedHabitAction}
+                      confirmedCustomDate={confirmedCustomDate}
+                    />
                   </>
                 ) : (
                   <>
@@ -1577,52 +1525,12 @@ export function SweepCard({
                       </TouchableOpacity>
                     </View>
 
-                    {/* Confirmation hint based on selection */}
-                    {selectedQuickAction === 'justsave' && (
-                      <Animated.View style={styles.confirmationHint}>
-                        <Text style={styles.confirmationHintText}>Swipe right to save →</Text>
-                      </Animated.View>
-                    )}
-                    {selectedQuickAction === 'remindlater' && !confirmedRemindDate && (
-                      <Animated.View style={styles.confirmationHint}>
-                        <Text style={styles.confirmationHintText}>
-                          Pick a date, then swipe to save →
-                        </Text>
-                      </Animated.View>
-                    )}
-                    {selectedQuickAction === 'remindlater' && confirmedRemindDate && (
-                      <Animated.View style={styles.confirmationHint}>
-                        <Text style={styles.confirmationHintText}>
-                          Swipe right to save with reminder →
-                        </Text>
-                      </Animated.View>
-                    )}
-                    {selectedQuickAction === 'nextsweep' && (
-                      <Animated.View style={styles.confirmationHint}>
-                        <Text style={styles.confirmationHintText}>
-                          Swipe right to see next sweep →
-                        </Text>
-                      </Animated.View>
-                    )}
-                    {selectedQuickAction === 'addtospace' && !selectedSpace && (
-                      <Animated.View style={styles.confirmationHint}>
-                        <Text style={styles.confirmationHintText}>
-                          Pick a space, then swipe to save →
-                        </Text>
-                      </Animated.View>
-                    )}
-                    {selectedQuickAction === 'addtospace' && selectedSpace && (
-                      <Animated.View style={styles.confirmationHint}>
-                        <Text style={styles.confirmationHintText}>
-                          Swipe right to save to {selectedSpace.name} →
-                        </Text>
-                      </Animated.View>
-                    )}
-                    {selectedQuickAction === 'maketodo' && (
-                      <Animated.View style={styles.confirmationHint}>
-                        <Text style={styles.confirmationHintText}>Tap to convert to todo →</Text>
-                      </Animated.View>
-                    )}
+                    {/* Swipe hint text */}
+                    <SwipeHintText
+                      candidateKind="note"
+                      selectedQuickAction={selectedQuickAction}
+                      confirmedRemindDate={confirmedRemindDate}
+                    />
                   </>
                 )}
               </View>
@@ -2313,12 +2221,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     alignItems: 'center',
   },
-  actionHintText: {
-    fontSize: 12,
-    color: BRAND.colors.mossGreen,
-    opacity: 0.5,
-    marginBottom: 12,
-  },
   buttonGrid: {
     flexDirection: 'row',
     gap: 8,
@@ -2451,27 +2353,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: BRAND.colors.inkSubtle,
-  },
-
-  // Confirmation hint - appears after quick action selection
-  confirmationHint: {
-    marginTop: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  confirmationHintText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: BRAND.colors.mossGreen,
-    opacity: 0.7,
-  },
-  confirmationHintArrow: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-    opacity: 0.7,
   },
 
   // Swipe Cue Row - Above the card, aligned with card edges
