@@ -2,37 +2,21 @@
  * MiniSweepGate - Quick-sort gate for rolled over and unscheduled items
  *
  * Shown before Morning Brief when there are items that need attention.
- * Allows users to quickly decide: Today, Done, or Later for each item.
+ * Uses 3-position toggle: Archive | Defer | Today
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Clock } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { MiniSweepItemRow } from './MiniSweepItemRow';
+import type { MiniSweepPosition } from './MiniSweepToggle';
 import type { Todo } from '../../../lib/types';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires -- React Native image import
 const MORNING_BRIEF_GREMLY = require('../../../assets/mascot/morningbriefgremly.png');
-
-// Decision types for mini-sweep
-type SweepDecision = 'today' | 'done' | 'later';
-
-// Color definitions for button states
-const BUTTON_COLORS = {
-  today: {
-    default: { bg: '#E8F0EB', text: '#2E5540', border: '#2E5540' },
-    selected: { bg: '#BFD8C0', text: '#2E5540', border: 'transparent' },
-  },
-  done: {
-    default: { bg: '#F0F0F0', text: '#666666', border: '#9CA3AF' },
-    selected: { bg: '#9CA3AF', text: '#FFFFFF', border: 'transparent' },
-  },
-  later: {
-    default: { bg: '#FEF3E2', text: '#B45309', border: '#B45309' },
-    selected: { bg: '#9CA6E0', text: '#FFFFFF', border: 'transparent' },
-  },
-};
 
 interface MiniSweepGateProps {
   /** Rolled over todos (overdue items from previous days) */
@@ -57,80 +41,22 @@ function getTodayDateString(): string {
 }
 
 /**
- * ActionButton - Color-coded action button
- */
-interface ActionButtonProps {
-  action: SweepDecision;
-  isSelected: boolean;
-  onPress: () => void;
-  size?: 'normal' | 'small';
-  testID?: string;
-}
-
-function ActionButton({ action, isSelected, onPress, size = 'normal', testID }: ActionButtonProps) {
-  const colors = BUTTON_COLORS[action];
-  const state = isSelected ? colors.selected : colors.default;
-  const label = action === 'today' ? 'Today' : action === 'done' ? 'Done' : 'Later';
-
-  const buttonStyle = [
-    size === 'normal' ? buttonStyles.normal : buttonStyles.small,
-    {
-      backgroundColor: state.bg,
-      borderColor: state.border,
-      borderWidth: isSelected ? 0 : 1,
-    },
-  ];
-
-  const textStyle = [
-    size === 'normal' ? buttonStyles.normalText : buttonStyles.smallText,
-    { color: state.text },
-  ];
-
-  return (
-    <Pressable style={buttonStyle} onPress={onPress} testID={testID}>
-      <Text style={textStyle}>{size === 'small' ? `All ${label}` : label}</Text>
-    </Pressable>
-  );
-}
-
-const buttonStyles = StyleSheet.create({
-  normal: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-  },
-  normalText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  small: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-  },
-  smallText: {
-    fontSize: 11,
-    fontWeight: '500',
-  },
-});
-
-/**
  * MiniSweepSection - Section for a category of items with bulk actions
  */
 interface MiniSweepSectionProps {
   title: string;
-  description: string;
+  helperText: string;
   items: Todo[];
-  stagedDecisions: Map<string, SweepDecision>;
-  onDecision: (id: string, decision: SweepDecision) => void;
-  onBulkAction: (ids: string[], decision: SweepDecision) => void;
+  decisions: Map<string, MiniSweepPosition>;
+  onDecision: (id: string, decision: MiniSweepPosition) => void;
+  onBulkAction: (ids: string[], decision: MiniSweepPosition) => void;
 }
 
 function MiniSweepSection({
   title,
-  description,
+  helperText,
   items,
-  stagedDecisions,
+  decisions,
   onDecision,
   onBulkAction,
 }: MiniSweepSectionProps) {
@@ -139,132 +65,138 @@ function MiniSweepSection({
   const itemIds = items.map((item) => item.id);
 
   return (
-    <View style={sectionStyles.container}>
-      {/* Section Header */}
-      <View style={sectionStyles.header}>
-        <Text style={sectionStyles.headerTitle}>
-          {title} ({items.length})
-        </Text>
-        <Text style={sectionStyles.headerDescription}>{description}</Text>
-      </View>
-
-      {/* Bulk Action Row */}
-      <View style={sectionStyles.bulkActionRow}>
-        <ActionButton
-          action="today"
-          isSelected={false}
-          onPress={() => onBulkAction(itemIds, 'today')}
-          size="small"
-          testID={`mini-sweep-bulk-today-${title.toLowerCase()}`}
-        />
-        <ActionButton
-          action="done"
-          isSelected={false}
-          onPress={() => onBulkAction(itemIds, 'done')}
-          size="small"
-          testID={`mini-sweep-bulk-done-${title.toLowerCase()}`}
-        />
-        <ActionButton
-          action="later"
-          isSelected={false}
-          onPress={() => onBulkAction(itemIds, 'later')}
-          size="small"
-          testID={`mini-sweep-bulk-later-${title.toLowerCase()}`}
-        />
+    <View style={sectionStyles.sectionContainer}>
+      {/* Section Banner with controls explanation */}
+      <View style={sectionStyles.sectionBanner}>
+        <View style={sectionStyles.sectionTitleRow}>
+          <View style={sectionStyles.sectionAccent} />
+          <Text style={sectionStyles.sectionTitle}>
+            {title} ({items.length})
+          </Text>
+          <Text style={sectionStyles.sectionHelper} numberOfLines={1}>
+            {'  ·  '}
+            {helperText}
+          </Text>
+        </View>
+        <View style={sectionStyles.sectionControls}>
+          <Text style={sectionStyles.controlText}>← Archive</Text>
+          <Text style={sectionStyles.controlTextCenter}>Defer</Text>
+          <Text style={sectionStyles.controlText}>Today →</Text>
+        </View>
       </View>
 
       {/* Item List */}
       <View style={sectionStyles.itemList}>
         {items.map((item, index) => {
-          const decision = stagedDecisions.get(item.id);
+          const decision = decisions.get(item.id) ?? 'defer';
           const isLast = index === items.length - 1;
           return (
-            <View
+            <MiniSweepItemRow
               key={item.id}
-              style={[sectionStyles.itemRow, isLast && sectionStyles.itemRowLast]}
-            >
-              <Text style={sectionStyles.itemName} numberOfLines={2}>
-                {item.name}
-              </Text>
-              <View style={sectionStyles.decisionButtons}>
-                <ActionButton
-                  action="today"
-                  isSelected={decision === 'today'}
-                  onPress={() => onDecision(item.id, 'today')}
-                  testID={`mini-sweep-today-${item.id}`}
-                />
-                <ActionButton
-                  action="done"
-                  isSelected={decision === 'done'}
-                  onPress={() => onDecision(item.id, 'done')}
-                  testID={`mini-sweep-done-${item.id}`}
-                />
-                <ActionButton
-                  action="later"
-                  isSelected={decision === 'later'}
-                  onPress={() => onDecision(item.id, 'later')}
-                  testID={`mini-sweep-later-${item.id}`}
-                />
-              </View>
-            </View>
+              item={item}
+              value={decision}
+              onChange={(value) => onDecision(item.id, value)}
+              isLast={isLast}
+            />
           );
         })}
+      </View>
+
+      {/* Bulk actions at bottom */}
+      <View style={sectionStyles.bulkActions}>
+        <Pressable
+          style={sectionStyles.bulkButton}
+          onPress={() => onBulkAction(itemIds, 'archive')}
+          testID={`mini-sweep-bulk-archive-${title.toLowerCase()}`}
+        >
+          <Text style={sectionStyles.bulkButtonText}>All Archive</Text>
+        </Pressable>
+        <Pressable
+          style={sectionStyles.bulkButton}
+          onPress={() => onBulkAction(itemIds, 'defer')}
+          testID={`mini-sweep-bulk-defer-${title.toLowerCase()}`}
+        >
+          <Text style={sectionStyles.bulkButtonText}>All Defer</Text>
+        </Pressable>
+        <Pressable
+          style={sectionStyles.bulkButton}
+          onPress={() => onBulkAction(itemIds, 'today')}
+          testID={`mini-sweep-bulk-today-${title.toLowerCase()}`}
+        >
+          <Text style={sectionStyles.bulkButtonText}>All Today</Text>
+        </Pressable>
       </View>
     </View>
   );
 }
 
 const sectionStyles = StyleSheet.create({
-  container: {
+  sectionContainer: {
     marginBottom: 16,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    ...BRAND.elevation.one,
   },
-  header: {
-    paddingTop: 14,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
+  sectionBanner: {
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.colors.borderSubtle,
   },
-  headerTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 2,
-  },
-  headerDescription: {
-    fontSize: 12,
-    color: '#666666',
-  },
-  bulkActionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  itemList: {
-    // No padding - items handle their own
-  },
-  itemRow: {
+  sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E8E6E1',
+    marginBottom: 8,
   },
-  itemRowLast: {
-    borderBottomWidth: 0,
+  sectionAccent: {
+    width: 3,
+    height: 16,
+    backgroundColor: BRAND.colors.periwinkleSmoke,
+    borderRadius: 2,
+    marginRight: 8,
   },
-  itemName: {
-    flex: 1,
-    fontSize: 14,
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
     color: BRAND.colors.charcoalInk,
-    marginRight: 12,
   },
-  decisionButtons: {
+  sectionHelper: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+  },
+  sectionControls: {
     flexDirection: 'row',
-    gap: 6,
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+  },
+  controlText: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+  },
+  controlTextCenter: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+  },
+  itemList: {
+    // Items handle their own padding
+  },
+  bulkActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  bulkButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+    backgroundColor: BRAND.colors.surface,
+  },
+  bulkButtonText: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    fontWeight: '500',
   },
 });
 
@@ -283,29 +215,36 @@ export function MiniSweepGate({
   const updateTodo = useGremlyStore((s) => s.updateTodo);
   const archiveTodo = useGremlyStore((s) => s.archiveTodo);
 
+  // Initialize all items to 'defer' by default
+  const allItems = useMemo(
+    () => [...rolledOverTodos, ...unscheduledTodos],
+    [rolledOverTodos, unscheduledTodos],
+  );
+
+  const initialDecisions = useMemo(() => {
+    const map = new Map<string, MiniSweepPosition>();
+    allItems.forEach((item) => map.set(item.id, 'defer'));
+    return map;
+  }, [allItems]);
+
   // Local state for staged decisions
-  const [stagedDecisions, setStagedDecisions] = useState<Map<string, SweepDecision>>(new Map());
+  const [decisions, setDecisions] = useState<Map<string, MiniSweepPosition>>(initialDecisions);
 
   // Track if save is in progress
   const [isSaving, setIsSaving] = useState(false);
 
-  // Handle decision for an item (toggle behavior)
-  const handleDecision = useCallback((id: string, decision: SweepDecision) => {
-    setStagedDecisions((prev) => {
+  // Handle decision for an item
+  const handleDecision = useCallback((id: string, decision: MiniSweepPosition) => {
+    setDecisions((prev) => {
       const next = new Map(prev);
-      // Toggle off if same decision clicked again
-      if (prev.get(id) === decision) {
-        next.delete(id);
-      } else {
-        next.set(id, decision);
-      }
+      next.set(id, decision);
       return next;
     });
   }, []);
 
   // Handle bulk action for multiple items
-  const handleBulkAction = useCallback((ids: string[], decision: SweepDecision) => {
-    setStagedDecisions((prev) => {
+  const handleBulkAction = useCallback((ids: string[], decision: MiniSweepPosition) => {
+    setDecisions((prev) => {
       const next = new Map(prev);
       ids.forEach((id) => {
         next.set(id, decision);
@@ -320,29 +259,25 @@ export function MiniSweepGate({
     setIsSaving(true);
 
     const today = getTodayDateString();
-    console.log('[MiniSweepGate] handleSave called. Staged decisions:', stagedDecisions.size);
+    console.log('[MiniSweepGate] handleSave called. Decisions:', decisions.size);
 
     try {
       const updates: Promise<void>[] = [];
 
-      for (const [id, decision] of stagedDecisions.entries()) {
+      for (const [id, decision] of decisions.entries()) {
         console.log('[MiniSweepGate] Processing decision:', { id, decision });
         switch (decision) {
           case 'today':
             // Set due_day to today - item flows to Morning Brief and Today's Focus
             updates.push(updateTodo(id, { due_day: today }));
             break;
-          case 'done':
+          case 'archive':
             // Archive the todo - disappears from all views
             updates.push(archiveTodo(id, 'mini_sweep'));
             break;
-          case 'later': {
-            // Use local date string to match getTodayDayString() in selectors
-            const localDate = getTodayDateString() + 'T00:00:00';
-            console.log('[MiniSweepGate] Setting skipped_in_sweep_at:', { id, localDate });
-            updates.push(updateTodo(id, { skipped_in_sweep_at: localDate }));
+          case 'defer':
+            // Do nothing - item stays as-is for Evening Sweep
             break;
-          }
         }
       }
 
@@ -356,10 +291,10 @@ export function MiniSweepGate({
     } finally {
       setIsSaving(false);
     }
-  }, [stagedDecisions, updateTodo, archiveTodo, onComplete, isSaving]);
+  }, [decisions, updateTodo, archiveTodo, onComplete, isSaving]);
 
-  // Count of items with decisions
-  const decisionCount = stagedDecisions.size;
+  // Count of items NOT deferred (actual changes)
+  const changeCount = Array.from(decisions.values()).filter((d) => d !== 'defer').length;
   const totalItems = rolledOverTodos.length + unscheduledTodos.length;
 
   // If no items, don't render
@@ -371,19 +306,25 @@ export function MiniSweepGate({
     <View style={[styles.container, { paddingTop: insets.top }]} testID="mini-sweep-gate">
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>A few things rolled over...</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>A few loose ends</Text>
+          <View style={styles.timeEstimate}>
+            <Clock size={14} color={BRAND.colors.inkMuted} />
+            <Text style={styles.timeText}>~{Math.max(1, Math.floor(totalItems / 6.5))} min</Text>
+          </View>
+        </View>
+        <View style={styles.gremlyRow}>
+          <Image source={MORNING_BRIEF_GREMLY} style={styles.gremlyImage} resizeMode="contain" />
+          <View style={styles.gremlyTextContainer}>
+            <Text style={styles.gremlyTextIntro}>Quick sort, then we plan the day!</Text>
+            <Text style={styles.gremlyTextInstructions}>
+              Slide <Text style={styles.highlightRight}>right</Text> to add to today. Slide{' '}
+              <Text style={styles.highlightLeft}>left</Text> to archive. Leave in{' '}
+              <Text style={styles.highlightMiddle}>middle</Text> to revisit later.
+            </Text>
+          </View>
+        </View>
       </View>
-
-      {/* Gremly Instructions */}
-      <View style={styles.gremlyRow}>
-        <Image source={MORNING_BRIEF_GREMLY} style={styles.gremlyMascot} resizeMode="contain" />
-        <Text style={styles.gremlyText}>Let&apos;s quick-sort these before planning your day!</Text>
-      </View>
-
-      {/* Action Description */}
-      <Text style={styles.actionDescription}>
-        Today adds to your focus • Done archives it • Later saves for Evening Sweep
-      </Text>
 
       {/* Scrollable sections */}
       <ScrollView
@@ -395,21 +336,26 @@ export function MiniSweepGate({
         {rolledOverTodos.length > 0 && (
           <MiniSweepSection
             title="Rolled Over"
-            description="Tasks that were due before today"
+            helperText="from yesterday/earlier"
             items={rolledOverTodos}
-            stagedDecisions={stagedDecisions}
+            decisions={decisions}
             onDecision={handleDecision}
             onBulkAction={handleBulkAction}
           />
+        )}
+
+        {/* Section separator */}
+        {rolledOverTodos.length > 0 && unscheduledTodos.length > 0 && (
+          <View style={styles.sectionSeparator} />
         )}
 
         {/* Unscheduled Section */}
         {unscheduledTodos.length > 0 && (
           <MiniSweepSection
             title="Unscheduled"
-            description="Recent captures without a date"
+            helperText="recent captures"
             items={unscheduledTodos}
-            stagedDecisions={stagedDecisions}
+            decisions={decisions}
             onDecision={handleDecision}
             onBulkAction={handleBulkAction}
           />
@@ -429,7 +375,7 @@ export function MiniSweepGate({
             testID="mini-sweep-save"
           >
             <Text style={styles.saveButtonText}>
-              {isSaving ? 'Saving...' : decisionCount > 0 ? `Save (${decisionCount})` : 'Save'}
+              {isSaving ? 'Saving...' : changeCount > 0 ? `Save (${changeCount})` : 'Save'}
             </Text>
           </Pressable>
         </View>
@@ -444,47 +390,81 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingTop: 4,
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
-  headerTitle: {
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: {
     fontSize: 22,
     fontWeight: '700',
     color: BRAND.colors.charcoalInk,
   },
+  timeEstimate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  timeText: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+  },
   gremlyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    marginBottom: 8,
+    marginBottom: 20,
   },
-  gremlyMascot: {
-    width: 54,
-    height: 54,
+  gremlyImage: {
+    width: 48,
+    height: 48,
     marginRight: 12,
   },
-  gremlyText: {
+  gremlyTextContainer: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-    color: BRAND.colors.inkSubtle,
   },
-  actionDescription: {
-    fontSize: 12,
-    color: '#666666',
-    paddingHorizontal: 20,
-    marginBottom: 16,
+  gremlyTextIntro: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 4,
+  },
+  gremlyTextInstructions: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    lineHeight: 18,
+  },
+  highlightRight: {
+    fontWeight: '700',
+    color: BRAND.colors.mossGreen,
+  },
+  highlightLeft: {
+    fontWeight: '700',
+    color: BRAND.colors.inkMuted,
+  },
+  highlightMiddle: {
+    fontWeight: '600',
+    fontStyle: 'italic',
+    color: BRAND.colors.periwinkleSmoke,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingBottom: 20,
   },
+  sectionSeparator: {
+    height: 1,
+    backgroundColor: BRAND.colors.borderSubtle,
+    marginVertical: 8,
+  },
   footer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: BRAND.colors.borderSubtle,

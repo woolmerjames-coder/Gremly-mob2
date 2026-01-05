@@ -52,6 +52,7 @@ import { MiniSweepGate } from './MiniSweepGate';
 import { Clock, Sunrise, Sun, Moon } from 'lucide-react-native';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { useNowQuickAdd } from '../../../lib/now/useNowQuickAdd';
+import { OverlayHost } from '../../../components/OverlayHost';
 import { triggerMedium, triggerSuccess } from '../../../lib/haptics';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires -- React Native image import
@@ -104,6 +105,20 @@ function formatTimeEstimate(minutes: number | null | undefined): string | null {
   if (hours === 1) return '1h';
   if (Number.isInteger(hours)) return `${hours}h`;
   return `${hours.toFixed(1)}h`;
+}
+
+// Calculate total time for a bucket
+function getBucketTimeEstimate(items: TaskItem[]): number {
+  return items.reduce((sum, item) => sum + (item.timeEstimate || 0), 0);
+}
+
+// Format bucket time estimate for display
+function formatBucketTime(minutes: number): string | null {
+  if (minutes <= 0) return null;
+  if (minutes < 60) return `~${minutes}m`;
+  const hours = minutes / 60;
+  if (Number.isInteger(hours)) return `~${hours}h`;
+  return `~${hours.toFixed(1)}h`;
 }
 
 // Draggable task card component
@@ -917,7 +932,10 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   // Outer View handles measurement, inner Animated.View handles visual effects
   // This separation prevents shadow tree corruption when animations run during layout
   const renderBucket = useCallback(
-    (bucket: (typeof BUCKETS)[0], itemCount: number) => {
+    (bucket: (typeof BUCKETS)[0], items: TaskItem[]) => {
+      const itemCount = items.length;
+      const timeEstimate = getBucketTimeEstimate(items);
+      const timeDisplay = formatBucketTime(timeEstimate);
       const isHighlighted = highlightedBucket === bucket.key;
       const isMaxed = bucket.key === 'lock-in' && itemCount >= 3 && !isHighlighted;
 
@@ -974,6 +992,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             {itemCount > 0 && (
               <View style={[styles.bucketBadge, { backgroundColor: bucket.color }]}>
                 <Text style={styles.bucketBadgeText}>{itemCount}</Text>
+                {timeDisplay && <Text style={styles.bucketTimeEstimate}>{timeDisplay}</Text>}
               </View>
             )}
             {isMaxed && <Text style={styles.bucketMaxText}>max</Text>}
@@ -1038,11 +1057,19 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             <View style={styles.content}>
               {/* Gremly Instructions */}
               <View style={styles.gremlyRow}>
-                <Image
-                  source={MORNING_BRIEF_GREMLY}
-                  style={styles.gremlyMascot}
-                  resizeMode="contain"
-                />
+                <Pressable
+                  onLongPress={() => {
+                    setMiniSweepCompleted(false);
+                    console.log('[MorningBriefSheet] Long-press: forcing Mini-Sweep to show');
+                  }}
+                  delayLongPress={800}
+                >
+                  <Image
+                    source={MORNING_BRIEF_GREMLY}
+                    style={styles.gremlyMascot}
+                    resizeMode="contain"
+                  />
+                </Pressable>
                 <Text style={styles.gremlyText}>
                   Lock in up to 3 priorities and drag/click the rest into time blocks. Totally
                   optional!
@@ -1106,10 +1133,10 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
               {/* Drop zone buckets */}
               <View style={styles.bucketsRow}>
-                {renderBucket(BUCKETS[0], lockInItems.length)}
-                {renderBucket(BUCKETS[1], morningItems.length)}
-                {renderBucket(BUCKETS[2], dayItems.length)}
-                {renderBucket(BUCKETS[3], eveningItems.length)}
+                {renderBucket(BUCKETS[0], lockInItems)}
+                {renderBucket(BUCKETS[1], morningItems)}
+                {renderBucket(BUCKETS[2], dayItems)}
+                {renderBucket(BUCKETS[3], eveningItems)}
               </View>
 
               {/* Expandable summary with reorderable lists */}
@@ -1269,6 +1296,9 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             )}
           </View>
         )}
+
+        {/* Overlay Host for item detail overlay - must be inside Modal */}
+        <OverlayHost />
       </GestureHandlerRootView>
     </Modal>
   );
@@ -1501,6 +1531,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: BRAND.colors.surface,
+  },
+  bucketTimeEstimate: {
+    fontSize: 9,
+    color: BRAND.colors.inkMuted,
+    marginTop: 2,
   },
   bucketMaxText: {
     position: 'absolute',

@@ -71,6 +71,7 @@ import type {
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space } from '../../lib/types';
+import { eventBus } from '../../lib/events';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPE TRANSFORMERS - Convert raw store types to Now screen types
@@ -463,6 +464,25 @@ export default function NowScreenV1() {
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  // Handle notification tap to open Morning Brief or Evening Sweep
+  useEffect(() => {
+    const handleNotificationOpen = (payload: { type: 'morning' | 'evening' }) => {
+      if (payload.type === 'morning') {
+        console.log('[NowScreenV1] Opening Morning Brief from notification');
+        setBriefSheetVisible(true);
+      }
+      // Evening notifications navigate to Sweep screen
+      if (payload.type === 'evening') {
+        console.log('[NowScreenV1] Opening Evening Sweep from notification');
+        navigation.navigate('Sweep');
+      }
+    };
+
+    const unsubscribe = eventBus.on('notification:open_flow', handleNotificationOpen);
+    return () => unsubscribe();
+  }, [navigation]);
+
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isWeekVisible, setWeekVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);

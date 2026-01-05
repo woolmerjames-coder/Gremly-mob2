@@ -60,3 +60,51 @@ export async function savePushToken(userId: string, token: string) {
     console.log('[Notifications] Token saved');
   }
 }
+
+/**
+ * Set up a handler for notification taps/responses
+ * Returns an unsubscribe function
+ */
+export async function setupNotificationResponseHandler(
+  onMorningNotification: () => void,
+  onEveningNotification: () => void,
+): Promise<() => void> {
+  if (isExpoGo) {
+    console.log('[Notifications] Skipping response handler - running in Expo Go');
+    return () => {};
+  }
+
+  const Notifications = await import('expo-notifications');
+
+  // Handle notification taps
+  const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+    const data = response.notification.request.content.data;
+    console.log('[Notifications] Response received:', data);
+
+    if (data?.action === 'open_flow') {
+      if (data.type === 'morning') {
+        onMorningNotification();
+      } else if (data.type === 'evening') {
+        onEveningNotification();
+      }
+    }
+  });
+
+  return () => subscription.remove();
+}
+
+/**
+ * Check if app was opened from a notification (cold start)
+ * Returns the notification data if available
+ */
+export async function getInitialNotification(): Promise<{ type: string; action: string } | null> {
+  if (isExpoGo) return null;
+
+  const Notifications = await import('expo-notifications');
+  const response = await Notifications.getLastNotificationResponseAsync();
+
+  if (response?.notification.request.content.data) {
+    return response.notification.request.content.data as { type: string; action: string };
+  }
+  return null;
+}

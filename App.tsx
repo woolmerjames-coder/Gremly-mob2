@@ -22,6 +22,11 @@ import { runCortexProxyDiag } from './lib/cortex/diag';
 import { env } from './lib/env';
 import { useBrandFonts } from './app/theme/fonts';
 import { testLogger } from './src/utils/TestLogger';
+import {
+  setupNotificationResponseHandler,
+  getInitialNotification,
+} from './src/utils/notifications';
+import { eventBus } from './lib/events';
 
 // Prevent the splash screen from auto-hiding before app is ready
 SplashScreen.preventAutoHideAsync();
@@ -88,6 +93,36 @@ export default function App() {
 
     return () => {
       subscription.remove();
+    };
+  }, []);
+
+  // Handle notification responses (taps)
+  useEffect(() => {
+    let cleanup: (() => void) | null = null;
+
+    const setup = async () => {
+      // Check if app was opened from a notification
+      const initialNotification = await getInitialNotification();
+      if (initialNotification?.action === 'open_flow') {
+        // Emit event after a short delay to ensure navigation is ready
+        setTimeout(() => {
+          eventBus.emit('notification:open_flow', {
+            type: initialNotification.type as 'morning' | 'evening',
+          });
+        }, 1000);
+      }
+
+      // Set up listener for future notification taps
+      cleanup = await setupNotificationResponseHandler(
+        () => eventBus.emit('notification:open_flow', { type: 'morning' }),
+        () => eventBus.emit('notification:open_flow', { type: 'evening' }),
+      );
+    };
+
+    setup();
+
+    return () => {
+      if (cleanup) cleanup();
     };
   }, []);
 
