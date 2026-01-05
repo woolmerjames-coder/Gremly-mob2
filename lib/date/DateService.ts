@@ -629,6 +629,32 @@ export class DateService {
   }
 
   /**
+   * Check if a UTC ISO timestamp falls on today in local timezone.
+   * Use this for comparing database timestamps (stored in UTC) against today.
+   *
+   * @param isoTimestamp - UTC timestamp like "2026-01-05T05:00:00.000Z"
+   * @returns true if the timestamp is today in local time
+   */
+  isTimestampToday(isoTimestamp: string | null | undefined): boolean {
+    const localDay = this.extractDateFromIso(isoTimestamp);
+    return this.isToday(localDay);
+  }
+
+  /**
+   * Check if a UTC ISO timestamp is within the last N days (in local timezone).
+   *
+   * @param isoTimestamp - UTC timestamp from database
+   * @param days - Number of days to look back (inclusive of today)
+   * @returns true if timestamp is within the window
+   */
+  isTimestampWithinDays(isoTimestamp: string | null | undefined, days: number): boolean {
+    const localDay = this.extractDateFromIso(isoTimestamp);
+    if (!localDay) return false;
+    const cutoff = this.addDays(this.getCurrentDate(), -days);
+    return localDay >= cutoff;
+  }
+
+  /**
    * Calculate days between two dates (positive if date2 > date1)
    */
   daysBetween(date1: string, date2: string): number {
@@ -751,3 +777,9 @@ export const formatForChip = (dateStr: string | null | undefined) =>
   getDateService().formatForChip(dateStr);
 export const formatForOverlay = (dateStr: string | null | undefined) =>
   getDateService().formatForOverlay(dateStr);
+export const isTimestampToday = (iso: string | null | undefined) =>
+  getDateService().isTimestampToday(iso);
+export const isTimestampWithinDays = (iso: string | null | undefined, days: number) =>
+  getDateService().isTimestampWithinDays(iso, days);
+export const extractDateFromIso = (iso: string | null | undefined) =>
+  getDateService().extractDateFromIso(iso);

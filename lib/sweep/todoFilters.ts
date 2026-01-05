@@ -28,6 +28,8 @@
  * SWEEP-SPECIFIC RULES (only for Sweep engine)
  * ─────────────────────────────────────────────────────────────────────────────
  *
+
+import { getDateService } from '../date';
  * In addition to the core filters, the Sweep engine also includes:
  * - New items: `created_at > lastSweepTimestamp`
  * - Skipped items: `skipped_in_sweep_at IS NOT NULL`
@@ -77,7 +79,7 @@ export function getEffectiveDueDay(todo: FilterableTodo): string | null {
     return todo.due_day;
   }
   if (todo.due_date) {
-    return todo.due_date.split('T')[0];
+    return getDateService().extractDateFromIso(todo.due_date);
   }
   return null;
 }
@@ -117,7 +119,7 @@ export function isCompletedToday(todo: FilterableTodo, todayDay: string): boolea
   if (!todo.completed_at) {
     return false;
   }
-  const completedDay = todo.completed_at.split('T')[0];
+  const completedDay = getDateService().extractDateFromIso(todo.completed_at);
   return completedDay === todayDay;
 }
 

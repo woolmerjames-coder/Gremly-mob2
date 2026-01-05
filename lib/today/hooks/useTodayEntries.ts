@@ -5,6 +5,7 @@ import { useAuth } from '../../../providers/AuthProvider';
 import { eventBus } from '../../events';
 import { env } from '../../env';
 import { promptCommitmentReflection } from '../../commitments/reflection';
+import { getDateService } from '../../date';
 
 export type TodayMergedTodo = {
   type: 'todo';
@@ -147,7 +148,7 @@ export function useTodayEntries(): TodayEntriesState {
           if (entry.type === 'todo') {
             if (entry.status === 'completed') return true;
             if (entry.completed_at) {
-              const completedDay = entry.completed_at.split('T')[0];
+              const completedDay = getDateService().extractDateFromIso(entry.completed_at);
               return completedDay === dayIso;
             }
             return false;

@@ -39,6 +39,8 @@
  * ```
  */
 
+import { getDateService } from '../date';
+
 export interface SweepCandidate {
   id: string;
   type: 'todo';
@@ -102,14 +104,14 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
 
   // Must not be completed today
   if (todo.completed_at) {
-    const completedDay = todo.completed_at.split('T')[0];
+    const completedDay = getDateService().extractDateFromIso(todo.completed_at);
     if (completedDay === todayDay) {
       return false;
     }
   }
 
   // Must be due today, overdue, or carry-forward
-  const dueDay = todo.due_day ?? (todo.due_date ? todo.due_date.split('T')[0] : null);
+  const dueDay = todo.due_day ?? getDateService().extractDateFromIso(todo.due_date);
 
   if (todo.carry_forward === true) {
     return true;
@@ -149,7 +151,7 @@ export function selectSweepCandidates(
     .filter((todo) => isSweepEligible(todo, todayDay))
     .map((todo) => {
       // Compute isOverdue using same logic as useTodayStats.overdueTodos
-      const dueDay = todo.due_day ?? (todo.due_date ? todo.due_date.split('T')[0] : null);
+      const dueDay = todo.due_day ?? getDateService().extractDateFromIso(todo.due_date);
       const isOverdue = dueDay !== null && dueDay < todayDay;
 
       return {

@@ -102,6 +102,7 @@
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-jest": "^27.9.0",
     "eslint-plugin-react-hooks": "7.0.0",
+    "eslint-plugin-regex": "1.10.0",
     "globals": "16.4.0",
     "husky": "9.1.7",
     "identity-obj-proxy": "3.0.0",

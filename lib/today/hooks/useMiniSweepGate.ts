@@ -10,6 +10,7 @@
 import { useMemo } from 'react';
 import { useGremlyStore } from '../../store/useGremlyStore';
 import { useRolledOverTodos, useUnscheduledTodosForMiniSweep } from '../../store/selectors';
+import { getDateService } from '../../date';
 import type { Todo } from '../../types';
 
 export interface UseMiniSweepGateReturn {
@@ -51,7 +52,7 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
     if (!miniSweepLastCompletedAt) return false;
     const todayDate = getTodayDateString();
     // miniSweepLastCompletedAt is ISO timestamp, extract date portion
-    const completedDate = miniSweepLastCompletedAt.split('T')[0];
+    const completedDate = getDateService().extractDateFromIso(miniSweepLastCompletedAt);
     return completedDate === todayDate;
   }, [miniSweepLastCompletedAt]);
 
