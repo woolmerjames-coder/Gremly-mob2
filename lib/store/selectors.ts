@@ -661,6 +661,15 @@ export const selectSweepCandidatesUnified = createSelector(
 
     // Process todos
     for (const todo of todos) {
+      // Skip locked-in items - handled in Lock-In Checkpoint
+      if (todo.commitment === true) {
+        console.log('[SweepSelector] Filtered out locked-in todo:', {
+          id: todo.id.slice(0, 8),
+          name: todo.name?.slice(0, 20),
+        });
+        continue;
+      }
+
       if (todo.archived || todo.completed_at) {
         console.log('[SweepSelector] Filtered out todo:', {
           id: todo.id.slice(0, 8),
@@ -784,6 +793,15 @@ export const selectSweepCandidatesUnified = createSelector(
 
     // Process unconfirmed habits
     for (const habit of unconfirmedHabits) {
+      // Skip locked-in habits - handled in Lock-In Checkpoint
+      if (habit.commitment === true) {
+        console.log('[SweepSelector] Filtered out locked-in habit:', {
+          id: habit.id.slice(0, 8),
+          name: habit.name?.slice(0, 20),
+        });
+        continue;
+      }
+
       const isCreatedToday = ds().isTimestampToday(habit.created_at);
       candidates.push({
         id: habit.id,
