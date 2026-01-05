@@ -281,14 +281,28 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
 
   return (
     <View style={styles.container}>
-      {/* Close button */}
-      {onClose && (
-        <Animated.View style={[styles.closeButton, contentStyle]}>
-          <TouchableOpacity onPress={onClose} activeOpacity={0.7} accessibilityLabel="Close">
-            <Icon name="X" size="sm" color={BRAND.colors.charcoalInk} strokeWidth={2} />
-          </TouchableOpacity>
-        </Animated.View>
-      )}
+      {/* Header Row - Back chevron + X close (matches Sweep intro) */}
+      <Animated.View style={[styles.headerRow, contentStyle]}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={onClose}
+          activeOpacity={0.7}
+          accessibilityLabel="Go back"
+        >
+          <Icon name="ChevronLeft" size="md" color={BRAND.colors.charcoalInk} strokeWidth={2} />
+        </TouchableOpacity>
+
+        <View style={styles.headerSpacer} />
+
+        <TouchableOpacity
+          style={styles.closeButton}
+          onPress={onClose}
+          activeOpacity={0.7}
+          accessibilityLabel="Close"
+        >
+          <Icon name="X" size="sm" color={BRAND.colors.charcoalInk} strokeWidth={2} />
+        </TouchableOpacity>
+      </Animated.View>
 
       {/* Header - Diamond + Title (horizontal, starts centered, slides to top) */}
       <Animated.View style={[styles.header, headerAnimatedStyle]}>
@@ -335,6 +349,7 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
             onDecisionChange={(decision) => handleDecisionChange(item.id, decision)}
             isCelebrated={celebratedItems.has(item.id)}
             index={index}
+            isLast={index === items.length - 1}
           />
         ))}
       </Animated.ScrollView>
@@ -371,9 +386,10 @@ interface LockInItemRowProps {
   onDecisionChange: (decision: LockInDecision) => void;
   isCelebrated: boolean;
   index: number;
+  isLast: boolean;
 }
 
-function LockInItemRow({ item, decision, onDecisionChange, isCelebrated, index }: LockInItemRowProps) {
+function LockInItemRow({ item, decision, onDecisionChange, isCelebrated, index, isLast }: LockInItemRowProps) {
   // Diamond position animation (0 = Archive/left, 1 = Tomorrow/middle, 2 = Done/right)
   const diamondPosition = useSharedValue(1); // Default to middle (Tomorrow)
 
@@ -413,22 +429,15 @@ function LockInItemRow({ item, decision, onDecisionChange, isCelebrated, index }
     transform: [{ scale: celebrationScale.value }],
   }));
 
-  const glowStyle = useAnimatedStyle(() => ({
-    borderColor: rowGlow.value > 0.5 ? BRAND.colors.goldenPear : BRAND.colors.sageMist,
-    borderWidth: interpolate(rowGlow.value, [0, 1], [1, 3]),
-  }));
-
   return (
     <Animated.View
-      style={[styles.itemRow, rowAnimatedStyle, glowStyle]}
+      style={[styles.itemRow, rowAnimatedStyle]}
       entering={SlideInDown.delay(index * 80).duration(400)}
     >
-      {/* Item name - NO hint text */}
-      <View style={styles.itemHeader}>
-        <Text style={styles.itemName} numberOfLines={2}>
-          {item.name}
-        </Text>
-      </View>
+      {/* Item name */}
+      <Text style={styles.itemName} numberOfLines={2}>
+        {item.name}
+      </Text>
 
       {/* Slim Toggle Track with Dots */}
       <View style={styles.toggleTrackContainer}>
@@ -488,6 +497,9 @@ function LockInItemRow({ item, decision, onDecisionChange, isCelebrated, index }
         <Text style={[styles.toggleLabel, decision === 'tomorrow' && styles.toggleLabelActive]}>Tomorrow</Text>
         <Text style={[styles.toggleLabel, decision === 'done' && styles.toggleLabelActive]}>Done ✓</Text>
       </View>
+
+      {/* Divider line at bottom (hidden on last item) */}
+      {!isLast && <View style={styles.itemDivider} />}
     </Animated.View>
   );
 }
@@ -498,10 +510,29 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
 
+  // Header Row - Back + X
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerSpacer: {
+    flex: 1,
+  },
+
   // Header - Diamond + Title
   header: {
     position: 'absolute',
-    top: '40%',
+    top: '38%',
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -534,7 +565,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 120,
+    paddingTop: 110,
     paddingBottom: 8,
     gap: 12,
   },
@@ -588,20 +619,19 @@ const styles = StyleSheet.create({
   },
 
   itemRow: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: BRAND.colors.sageMist,
-    marginBottom: 12,
-  },
-  itemHeader: {
-    marginBottom: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 4,
   },
   itemName: {
     fontSize: 17,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
+    marginBottom: 12,
+  },
+  itemDivider: {
+    height: 1,
+    backgroundColor: BRAND.colors.borderSubtle,
+    marginTop: 16,
   },
 
   // Toggle track - slim line with dots
@@ -690,16 +720,12 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
   closeButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.05)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
   },
   defaultHint: {
     fontSize: 12,
