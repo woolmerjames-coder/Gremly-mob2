@@ -66,6 +66,9 @@ interface LockInCheckpointStepProps {
 }
 
 export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointStepProps) {
+  // Track if we've already skipped (to prevent infinite loop)
+  const hasSkipped = useRef(false);
+
   // Decisions for each item (default to 'tomorrow')
   const [decisions, setDecisions] = useState<Map<string, LockInDecision>>(new Map());
 
@@ -264,9 +267,10 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
   const doneCount = Array.from(decisions.values()).filter((d) => d === 'done').length;
   const totalCount = items.length;
 
-  // If no locked items, skip this step
+  // If no locked items, skip this step (only once)
   useEffect(() => {
-    if (items.length === 0) {
+    if (items.length === 0 && !hasSkipped.current) {
+      hasSkipped.current = true;
       onContinue(new Map());
     }
   }, [items.length, onContinue]);
