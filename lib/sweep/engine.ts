@@ -15,6 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
 import type { SweepCandidate, SweepEntityKind, SweepAttachment } from './types';
 import { buildSweepTodoOrClause, getEffectiveDueDay } from './todoFilters';
+import { getDateService } from '../date';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Action Types
@@ -182,7 +183,7 @@ export async function fetchSweepCandidatesForUser(
         const isDueToday = dueDay !== null && dueDay === todayDay;
 
         // Compute isCreatedToday: createdAt is on today's date
-        const createdDay = row.created_at ? row.created_at.split('T')[0] : null;
+        const createdDay = getDateService().extractDateFromIso(row.created_at);
         const isCreatedToday = createdDay === todayDay;
 
         candidates.push({
@@ -213,7 +214,7 @@ export async function fetchSweepCandidatesForUser(
     const processNoteRows = (rows: any[]) => {
       for (const row of rows) {
         // Compute isCreatedToday: createdAt is on today's date
-        const createdDay = row.created_at ? row.created_at.split('T')[0] : null;
+        const createdDay = getDateService().extractDateFromIso(row.created_at);
         const isCreatedToday = createdDay === todayDay;
 
         // Extract attachments from the joined log_photos
@@ -265,7 +266,7 @@ export async function fetchSweepCandidatesForUser(
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // GENERAL LOGS - today only (recent captures that need triage)
+    // CATCHALL LOGS - today only (recent captures that need triage)
     // ─────────────────────────────────────────────────────────────────────
     const generalOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
 
@@ -274,7 +275,7 @@ export async function fetchSweepCandidatesForUser(
       .select('*, log_photos(id, url, position)')
       .eq('owner_id', ownerId)
       .eq('archived', false)
-      .eq('subtype', 'general')
+      .eq('subtype', 'catchall')
       .or(generalOrClause);
 
     if (generalError) {

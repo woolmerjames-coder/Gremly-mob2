@@ -3,9 +3,10 @@
  *
  * Full-screen flow for the Evening Sweep ritual:
  * - Step 0: Intro ("Ready to Sweep?")
+ * - Step 0.5: Lock-In Checkpoint (if user has locked items)
  * - Step 1: Decision cards
- * - Step 2: Mood check-in
- * - Step 3: Wrap up / habits
+ * - Step 2: Habits check-in
+ * - Step 3: Mood check-in
  * - Step 4: Summary/celebration
  */
 
@@ -74,6 +75,8 @@ import { addDays, nextMonday } from 'date-fns';
 import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
+import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
+import { selectTodayLockedItems } from '../../lib/store/selectors';
 
 // Sweep habit components and helpers
 import { SweepHabitRow } from '../../components/sweep/SweepHabitRow';
@@ -2315,6 +2318,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const { user } = useAuth();
   const [step, setStep] = useState<number>(initialStep);
 
+  // Check if user has locked items for lock-in checkpoint
+  const lockedItems = useGremlyStore(selectTodayLockedItems);
+  const hasLockedItems = lockedItems.length > 0;
+
+  // Track if lock-in checkpoint was shown
+  const [lockInCheckpointComplete, setLockInCheckpointComplete] = useState(false);
+
   // Track sweep stats across the session
   const [keptCount, setKeptCount] = useState(() => {
     // Initialize mock data if jumping directly to summary in DEV mode
@@ -2435,8 +2445,55 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   );
 
   const handleIntroStart = () => {
-    setStep(1); // go to Decision cards
+    if (hasLockedItems && !lockInCheckpointComplete) {
+      setStep(0.5); // Go to lock-in checkpoint
+    } else {
+      setStep(1); // Go to decision cards
+    }
   };
+
+  // Handle lock-in checkpoint decisions
+  const handleLockInContinue = useCallback(
+    async (decisions: Map<string, 'done' | 'tomorrow' | 'archive'>) => {
+      const { updateTodo, archiveTodo, archiveHabit, completeHabit } =
+        useGremlyStore.getState();
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+      for (const [itemId, decision] of decisions) {
+        const item = lockedItems.find((i) => i.id === itemId);
+        if (!item) continue;
+
+        const isTodo = 'name' in item && !('frequency' in item);
+
+        switch (decision) {
+          case 'done':
+            if (isTodo) {
+              await updateTodo(itemId, { completed_at: new Date().toISOString() });
+            } else {
+              await completeHabit(itemId);
+            }
+            break;
+          case 'tomorrow':
+            if (isTodo) {
+              await updateTodo(itemId, { due_day: tomorrow, due_date: tomorrow });
+            }
+            // Habits automatically stay locked for tomorrow
+            break;
+          case 'archive':
+            if (isTodo) {
+              await archiveTodo(itemId);
+            } else {
+              await archiveHabit(itemId);
+            }
+            break;
+        }
+      }
+
+      setLockInCheckpointComplete(true);
+      setStep(1); // Proceed to decision cards
+    },
+    [lockedItems],
+  );
 
   const handleMoodContinue = () => {
     setStep(4); // Mood → Summary
@@ -2507,8 +2564,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         padded={false}
         style={step === 1 ? styles.screenBackgroundDecision : styles.screenBackground}
       >
-        {/* Conditional Header - Different for decision step */}
-        {step !== 1 ? (
+        {/* Conditional Header - Different for decision step and lock-in checkpoint */}
+        {step !== 1 && step !== 0.5 ? (
           /* Standard Header for Intro, Mood, Wrap-up, Summary steps */
           <View style={styles.header}>
             {/* Left - back chevron */}
@@ -2559,10 +2616,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             console.log('[SweepFlowScreen] Rendering step:', step);
             return null;
           })()}
-        <View style={step === 1 ? styles.contentDecision : styles.content}>
+        <View style={step === 1 ? styles.contentDecision : step === 0.5 ? styles.contentLockIn : styles.content}>
           {step === 0 &&
             (__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep'),
             (<SweepIntroStep onStart={handleIntroStart} />))}
+          {step === 0.5 && (
+            <LockInCheckpointStep onContinue={handleLockInContinue} onClose={handleClose} />
+          )}
           {step === 1 && (
             <SweepDecisionStep
               onFinished={handleDecisionFinished}
@@ -2691,6 +2751,11 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 0, // Full-bleed for decision step
     backgroundColor: BRAND.colors.sageMist, // Match screen background
+  },
+  contentLockIn: {
+    flex: 1,
+    paddingHorizontal: 0, // Full-bleed for lock-in checkpoint
+    backgroundColor: BRAND.colors.linenCream,
   },
   stepContainer: {
     flex: 1,

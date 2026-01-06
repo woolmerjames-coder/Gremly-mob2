@@ -14,6 +14,7 @@ import type {
 import { genId, nowIso } from '../types';
 import { recordZ, spaceInsertSchema, type SpaceInsert } from '../schemas';
 import { eventBus } from '../events';
+import { getDateService } from '../date';
 import type {
   IRepo,
   CreateRecordInput,
@@ -530,14 +531,16 @@ export class MemoryRepo implements IRepo {
   }
 
   async countPlannedToday(): Promise<number> {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getDateService().getCurrentDate();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo') return false;
       const dueDate = r.due_date;
       if (!dueDate) return false;
       try {
-        return dueDate.startsWith(today);
+        // due_date may be ISO timestamp or YYYY-MM-DD, extract date and compare
+        const dueDateDay = getDateService().extractDateFromIso(dueDate);
+        return dueDateDay === today;
       } catch {
         return false;
       }
@@ -545,14 +548,13 @@ export class MemoryRepo implements IRepo {
   }
 
   async countCompletedToday(): Promise<number> {
-    const today = new Date().toISOString().split('T')[0];
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo' && r.type !== 'habit') return false;
       const completedAt = (r as any).completed_at;
       if (!completedAt) return false;
       try {
-        return completedAt.startsWith(today);
+        return getDateService().isTimestampToday(completedAt);
       } catch {
         return false;
       }

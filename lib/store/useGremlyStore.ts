@@ -337,7 +337,7 @@ export const useGremlyStore = create<GremlyState>()(
         ] = await Promise.all([
           supabase.from('todos').select('*').eq('owner_id', userId),
           supabase.from('habits').select('*').eq('owner_id', userId),
-          supabase.from('notes').select('*').eq('owner_id', userId),
+          supabase.from('notes').select('*, log_photos(id, url, position)').eq('owner_id', userId),
           supabase.from('spaces').select('*').eq('owner_id', userId),
           supabase.from('tags').select('*').eq('owner_id', userId),
           supabase

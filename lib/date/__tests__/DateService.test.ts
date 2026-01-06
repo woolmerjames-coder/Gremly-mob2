@@ -4,6 +4,9 @@ import {
   getDateService,
   resetDateService,
   type ParsedDate,
+  isTimestampToday,
+  isTimestampWithinDays,
+  extractDateFromIso,
 } from '../DateService';
 
 describe('DateService', () => {
@@ -801,6 +804,160 @@ describe('DateService', () => {
       // This should trigger a warn log
       loggedService.parseAIDate('invalid-date');
       expect(warnCalls.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // isTimestampToday - NEW TESTS FOR SWEEP BRANCH
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe('isTimestampToday', () => {
+    it('returns true when UTC timestamp is today in local timezone', () => {
+      // Fixed date is 2025-12-22T10:00:00
+      const todayTimestamp = '2025-12-22T15:30:00.000Z';
+      expect(service.isTimestampToday(todayTimestamp)).toBe(true);
+    });
+
+    it('returns false when UTC timestamp is yesterday', () => {
+      const yesterdayTimestamp = '2025-12-21T15:30:00.000Z';
+      expect(service.isTimestampToday(yesterdayTimestamp)).toBe(false);
+    });
+
+    it('returns false when UTC timestamp is tomorrow', () => {
+      const tomorrowTimestamp = '2025-12-23T15:30:00.000Z';
+      expect(service.isTimestampToday(tomorrowTimestamp)).toBe(false);
+    });
+
+    it('returns false for null input', () => {
+      expect(service.isTimestampToday(null)).toBe(false);
+    });
+
+    it('returns false for undefined input', () => {
+      expect(service.isTimestampToday(undefined)).toBe(false);
+    });
+
+    it('returns false for empty string input', () => {
+      expect(service.isTimestampToday('')).toBe(false);
+    });
+
+    it('correctly handles timestamp at midnight UTC', () => {
+      const midnightTimestamp = '2025-12-22T00:00:00.000Z';
+      expect(service.isTimestampToday(midnightTimestamp)).toBe(true);
+    });
+
+    it('correctly handles timestamp at 11:59 PM UTC', () => {
+      const lateTimestamp = '2025-12-22T23:59:59.000Z';
+      expect(service.isTimestampToday(lateTimestamp)).toBe(true);
+    });
+
+    it('returns false for invalid ISO timestamp format', () => {
+      expect(service.isTimestampToday('not-a-date')).toBe(false);
+    });
+
+    it('handles timestamps without milliseconds', () => {
+      const timestamp = '2025-12-22T10:00:00Z';
+      expect(service.isTimestampToday(timestamp)).toBe(true);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // isTimestampWithinDays - NEW TESTS FOR SWEEP BRANCH
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe('isTimestampWithinDays', () => {
+    it('returns true for timestamp from today with days=1', () => {
+      const todayTimestamp = '2025-12-22T08:00:00.000Z';
+      expect(service.isTimestampWithinDays(todayTimestamp, 1)).toBe(true);
+    });
+
+    it('returns true for timestamp from yesterday with days=2', () => {
+      const yesterdayTimestamp = '2025-12-21T08:00:00.000Z';
+      expect(service.isTimestampWithinDays(yesterdayTimestamp, 2)).toBe(true);
+    });
+
+    it('returns true for timestamp from 3 days ago with days=4', () => {
+      const threeDaysAgo = '2025-12-19T08:00:00.000Z';
+      expect(service.isTimestampWithinDays(threeDaysAgo, 4)).toBe(true);
+    });
+
+    it('returns false for timestamp from 4 days ago with days=3', () => {
+      const fourDaysAgo = '2025-12-18T08:00:00.000Z';
+      expect(service.isTimestampWithinDays(fourDaysAgo, 3)).toBe(false);
+    });
+
+    it('returns false for timestamp older than window', () => {
+      const oldTimestamp = '2025-12-01T08:00:00.000Z';
+      expect(service.isTimestampWithinDays(oldTimestamp, 7)).toBe(false);
+    });
+
+    it('returns true for timestamp exactly at cutoff boundary', () => {
+      // 6 days ago with days=7 should be included
+      const sixDaysAgo = '2025-12-16T08:00:00.000Z';
+      expect(service.isTimestampWithinDays(sixDaysAgo, 7)).toBe(true);
+    });
+
+    it('returns false for null input', () => {
+      expect(service.isTimestampWithinDays(null, 7)).toBe(false);
+    });
+
+    it('returns false for undefined input', () => {
+      expect(service.isTimestampWithinDays(undefined, 7)).toBe(false);
+    });
+
+    it('handles days=0 (checks today only via cutoff)', () => {
+      const todayTimestamp = '2025-12-22T08:00:00.000Z';
+      // days=0 means cutoff is today, so only timestamps >= today should pass
+      expect(service.isTimestampWithinDays(todayTimestamp, 0)).toBe(true);
+    });
+
+    it('handles days=1 for yesterday check', () => {
+      const yesterdayTimestamp = '2025-12-21T08:00:00.000Z';
+      // days=1 means cutoff is yesterday
+      expect(service.isTimestampWithinDays(yesterdayTimestamp, 1)).toBe(true);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // STANDALONE FUNCTION EXPORTS - NEW TESTS FOR SWEEP BRANCH
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe('standalone function exports', () => {
+    beforeEach(() => {
+      resetDateService();
+      // Set up singleton with fixed clock
+      createDateService({
+        clock: () => new Date('2025-12-22T10:00:00'),
+      });
+    });
+
+    it('isTimestampToday delegates to singleton instance', () => {
+      const result = isTimestampToday('2025-12-22T15:00:00.000Z');
+      expect(result).toBe(true);
+    });
+
+    it('isTimestampWithinDays delegates to singleton instance', () => {
+      const result = isTimestampWithinDays('2025-12-20T15:00:00.000Z', 3);
+      expect(result).toBe(true);
+    });
+
+    it('extractDateFromIso delegates to singleton instance', () => {
+      const result = extractDateFromIso('2025-12-22T15:30:00.000Z');
+      expect(result).toBe('2025-12-22');
+    });
+
+    it('extractDateFromIso returns null for null input', () => {
+      const result = extractDateFromIso(null);
+      expect(result).toBeNull();
+    });
+
+    it('extractDateFromIso returns null for undefined input', () => {
+      const result = extractDateFromIso(undefined);
+      expect(result).toBeNull();
+    });
+
+    it('extractDateFromIso handles timestamps without Z suffix', () => {
+      const result = extractDateFromIso('2025-12-22T15:30:00');
+      expect(result).toBe('2025-12-22');
     });
   });
 });

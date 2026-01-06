@@ -49,6 +49,8 @@
  * ```
  */
 
+import { getDateService } from '../date';
+
 /**
  * Minimal todo interface for filter functions.
  * Accepts any object with at least these fields.
@@ -77,7 +79,7 @@ export function getEffectiveDueDay(todo: FilterableTodo): string | null {
     return todo.due_day;
   }
   if (todo.due_date) {
-    return todo.due_date.split('T')[0];
+    return getDateService().extractDateFromIso(todo.due_date);
   }
   return null;
 }
@@ -117,7 +119,7 @@ export function isCompletedToday(todo: FilterableTodo, todayDay: string): boolea
   if (!todo.completed_at) {
     return false;
   }
-  const completedDay = todo.completed_at.split('T')[0];
+  const completedDay = getDateService().extractDateFromIso(todo.completed_at);
   return completedDay === todayDay;
 }
 

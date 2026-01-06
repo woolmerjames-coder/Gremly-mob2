@@ -2,6 +2,7 @@ const js = require('@eslint/js');
 const globals = require('globals');
 const tseslint = require('typescript-eslint');
 const reactHooks = require('eslint-plugin-react-hooks');
+const regexPlugin = require('eslint-plugin-regex');
 
 module.exports = [
   {
@@ -41,11 +42,30 @@ module.exports = [
     },
     plugins: {
       'react-hooks': reactHooks,
+      regex: regexPlugin,
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
+      // Timezone-safe date handling: Prevent unsafe patterns on database timestamps
+      'regex/invalid': [
+        'warn',
+        [
+          {
+            regex:
+              '(?:created_at|completed_at|updated_at|occurred_at|swept_at|archived_at|skipped_in_sweep_at|resurface_at|last_checked_in_at).*\\.split\\([\'"]T[\'"]\\)\\[0\\]',
+            message:
+              "Unsafe timezone pattern: Don't use .split('T')[0] on database timestamps. Use getDateService().extractDateFromIso() instead.",
+          },
+          {
+            regex:
+              '(?:created_at|completed_at|updated_at|occurred_at|swept_at|archived_at|skipped_in_sweep_at|resurface_at|last_checked_in_at).*\\.startsWith\\(today',
+            message:
+              "Unsafe timezone pattern: Don't use .startsWith(today) on database timestamps. Use getDateService().isTimestampToday() instead.",
+          },
+        ],
+      ],
       // Phase F: Prevent className usage in JSX (use StyleSheet or DS primitives)
       'no-restricted-syntax': [
         'error',

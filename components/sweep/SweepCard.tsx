@@ -361,6 +361,14 @@ export function SweepCard({
   const firstAttachment = hasAttachments ? candidate.attachments![0] : null;
   const attachmentCount = hasAttachments ? candidate.attachments!.length : 0;
 
+  // DEBUG: Photo attachment debugging
+  console.log('[SweepCard] Photo debug:', {
+    kind: candidate.kind,
+    hasAttachments,
+    attachments: candidate.kind === 'note' ? candidate.attachments : 'n/a',
+    rawPhotos: candidate.kind === 'note' ? (candidate.raw as any).log_photos : 'n/a',
+  });
+
   // ─────────────────────────────────────────────────────────────────────────
   // Photo Preview State
   // ─────────────────────────────────────────────────────────────────────────
@@ -1101,7 +1109,7 @@ export function SweepCard({
               </TouchableOpacity>
 
               {/* CHIPS ROW - Lightweight metadata line */}
-              <View style={styles.chipsRow}>
+              <View style={[styles.chipsRow, hasAttachments && styles.chipsRowCompact]}>
                 <Text style={styles.chipText}>{meta.typeChip}</Text>
 
                 {meta.todoStatus && (
@@ -1143,10 +1151,10 @@ export function SweepCard({
                 )}
               </View>
 
-              {/* Photo Preview - Large image at top for note candidates with attachments */}
+              {/* Photo Hero - Large image at top for note candidates with attachments */}
               {hasAttachments && firstAttachment && (
                 <TouchableOpacity
-                  style={styles.photoContainer}
+                  style={styles.photoHero}
                   onPress={() => handleOpenPhotoPreview(firstAttachment.url)}
                   activeOpacity={0.9}
                   accessibilityLabel="Tap to view full photo"
@@ -1154,7 +1162,7 @@ export function SweepCard({
                 >
                   <Image
                     source={{ uri: firstAttachment.url }}
-                    style={styles.photoImage}
+                    style={styles.photoHeroImage}
                     resizeMode="cover"
                   />
                   {attachmentCount > 1 && (
@@ -1165,34 +1173,39 @@ export function SweepCard({
                 </TouchableOpacity>
               )}
 
-              {/* USER TEXT - Large, prominent */}
+              {/* USER TEXT - Large, prominent (shorter when photo present) */}
               <View style={styles.titleSection}>
-                <Text style={styles.titleText} numberOfLines={4}>
+                <Text
+                  style={[styles.titleText, hasAttachments && styles.titleTextWithPhoto]}
+                  numberOfLines={hasAttachments ? 2 : 4}
+                >
                   {title}
                 </Text>
-                {/* User original input preview - 1 line, muted */}
-                {showUserPreview && userOriginalText && (
+                {/* User original input preview - 1 line, muted (hide when photo present) */}
+                {!hasAttachments && showUserPreview && userOriginalText && (
                   <Text style={styles.userPreviewText} numberOfLines={1}>
                     {userOriginalText}
                   </Text>
                 )}
               </View>
 
-              {/* GREMLY RESPONSE - Avatar + speech bubble */}
-              <View style={styles.gremlyResponseSection}>
-                <Image
-                  source={GREMLY_AVATAR}
-                  style={styles.gremlyAvatar}
-                  accessibilityLabel="Gremly mascot"
-                />
-                <View style={styles.speechBubble}>
-                  <View style={styles.speechBubbleTail} />
-                  <Text style={styles.gremlyResponseText}>{meta.gremlyResponse}</Text>
+              {/* GREMLY RESPONSE - Avatar + speech bubble (hide for photo logs) */}
+              {!hasAttachments && (
+                <View style={styles.gremlyResponseSection}>
+                  <Image
+                    source={GREMLY_AVATAR}
+                    style={styles.gremlyAvatar}
+                    accessibilityLabel="Gremly mascot"
+                  />
+                  <View style={styles.speechBubble}>
+                    <View style={styles.speechBubbleTail} />
+                    <Text style={styles.gremlyResponseText}>{meta.gremlyResponse}</Text>
+                  </View>
                 </View>
-              </View>
+              )}
 
               {/* Spacer - Pushes action block to bottom of card */}
-              <View style={styles.actionSpacer} />
+              <View style={[styles.actionSpacer, hasAttachments && styles.actionSpacerCompact]} />
 
               {/* Divider above action row */}
               <View style={styles.actionDividerContainer}>
@@ -2037,7 +2050,20 @@ const styles = StyleSheet.create({
     height: 24,
   },
 
-  // Photo Preview Container - Large image at top of card
+  // Photo Hero Container - Large image at top of card (priority layout)
+  photoHero: {
+    width: '100%',
+    height: 200, // Slightly smaller
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12, // Reduced from 16
+    backgroundColor: 'rgba(191, 216, 192, 0.15)', // Sage Mist placeholder
+  },
+  photoHeroImage: {
+    width: '100%',
+    height: '100%',
+  },
+  // Legacy photo container (kept for compatibility)
   photoContainer: {
     width: '100%',
     height: 180,
@@ -2078,6 +2104,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 28,
     paddingRight: 40, // Space for edit icon
+  },
+  chipsRowCompact: {
+    marginBottom: 16, // Reduced from 28 when photo present
   },
   chip: {
     paddingHorizontal: 0,
@@ -2146,6 +2175,12 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     marginBottom: 8,
   },
+  // Slightly smaller title when photo is present
+  titleTextWithPhoto: {
+    fontSize: 22,
+    lineHeight: 28,
+    marginBottom: 0, // Remove bottom margin when photo present
+  },
   // User original input preview - muted, smaller, single line
   userPreviewText: {
     fontSize: 14,
@@ -2202,6 +2237,10 @@ const styles = StyleSheet.create({
   actionSpacer: {
     flex: 1,
     minHeight: 40, // More breathing room before actions
+  },
+  actionSpacerCompact: {
+    minHeight: 8, // Much less space when photo is present
+    flex: 0, // Don't flex grow
   },
 
   // Divider above action row

@@ -7,41 +7,27 @@ import type {
   SweepCandidateNote,
   SweepCandidateHabit,
   SweepCardMeta,
+  SweepAttachment,
 } from '../sweep/types';
 import type { SweepIntroItem, SweepIntroStats } from '../sweep/introStats';
 import { computeSweepCardMeta } from '../sweep/computeSweepCardMeta';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
+import { getDateService } from '../date';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Get today's date as YYYY-MM-DD in local timezone */
-function getTodayDayString(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
+// Get DateService singleton - use this for all date operations
+const ds = () => getDateService();
 
 /** Get start of current week (Sunday) as YYYY-MM-DD */
 function getWeekStartDayString(): string {
-  const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 = Sunday
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - dayOfWeek);
-  return `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
-}
-
-/** Get N days ago as YYYY-MM-DD */
-function getDaysAgoDayString(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-/** Check if a date string is today */
-function isToday(dateStr: string | null | undefined): boolean {
-  if (!dateStr) return false;
-  return dateStr.startsWith(getTodayDayString());
+  const today = ds().getCurrentDate();
+  const date = ds().fromDateString(today);
+  if (!date) return today;
+  const dayOfWeek = date.getDay(); // 0 = Sunday
+  return ds().addDays(today, -dayOfWeek);
 }
 
 /** Get day of week (0-6, Sunday = 0) from YYYY-MM-DD string */
@@ -49,6 +35,12 @@ function getDayOfWeek(dayString: string): number {
   const [year, month, day] = dayString.split('-').map(Number);
   return new Date(year, month - 1, day).getDay();
 }
+
+/** Alias for ds().getCurrentDate() - used throughout selectors */
+const getTodayDayString = () => ds().getCurrentDate();
+
+/** Get N days ago as YYYY-MM-DD - alias for backward compatibility */
+const getDaysAgoDayString = (days: number) => ds().addDays(ds().getCurrentDate(), -days);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // BASE SELECTORS (access raw store data)
@@ -128,7 +120,7 @@ export const selectCompletionDaysThisWeek = createSelector(
 export const selectHabitCompletedToday = createSelector(
   [selectHabitProgress],
   (progress): Set<string> => {
-    const today = getTodayDayString();
+    const today = ds().getCurrentDate();
     const set = new Set<string>();
 
     for (const row of progress) {
@@ -147,7 +139,7 @@ export const selectHabitCompletedToday = createSelector(
 export const selectCompletionsInRolling7Days = createSelector(
   [selectHabitProgress],
   (progress): Map<string, number> => {
-    const windowStartStr = getDaysAgoDayString(6); // 7 days including today
+    const windowStartStr = ds().addDays(ds().getCurrentDate(), -6); // 7 days including today
     const seenDays = new Map<string, Set<string>>(); // Track unique days per habit
 
     for (const row of progress) {
@@ -175,7 +167,7 @@ export const selectCompletionsInRolling7Days = createSelector(
 export const selectCompletionsInRolling30Days = createSelector(
   [selectHabitProgress],
   (progress): Map<string, number> => {
-    const windowStartStr = getDaysAgoDayString(29); // 30 days including today
+    const windowStartStr = ds().addDays(ds().getCurrentDate(), -29); // 30 days including today
     const seenDays = new Map<string, Set<string>>();
 
     for (const row of progress) {
@@ -443,7 +435,7 @@ export const selectOverdueTodos = createSelector([selectActiveTodos], (todos): T
   const result = todos.filter((t) => {
     if (!t.due_day || t.due_day >= today) return false;
     // Check if skipped today
-    const skippedDay = t.skipped_in_sweep_at?.split('T')[0];
+    const skippedDay = ds().extractDateFromIso(t.skipped_in_sweep_at);
     if (skippedDay === today) {
       console.log(
         '[selectOverdueTodos] Excluding skipped item:',
@@ -470,10 +462,10 @@ export const selectUnscheduledTodosForMiniSweep = createSelector(
     const threeDaysAgo = getDaysAgoDayString(3);
     const result = todos.filter((t) => {
       if (t.due_day) return false; // Must be unscheduled
-      const createdDay = t.created_at?.split('T')[0];
+      const createdDay = ds().extractDateFromIso(t.created_at);
       if (!createdDay || createdDay < threeDaysAgo) return false;
       // Check if skipped today
-      const skippedDay = t.skipped_in_sweep_at?.split('T')[0];
+      const skippedDay = ds().extractDateFromIso(t.skipped_in_sweep_at);
       if (skippedDay === today) {
         console.log(
           '[selectUnscheduledTodosForMiniSweep] Excluding skipped item:',
@@ -497,8 +489,7 @@ export const selectUnscheduledTodosForMiniSweep = createSelector(
 
 /** Todos completed today */
 export const selectTodosCompletedToday = createSelector([selectTodos], (todos): Todo[] => {
-  const today = getTodayDayString();
-  return todos.filter((t) => t.completed_at && t.completed_at.startsWith(today));
+  return todos.filter((t) => t.completed_at && ds().isTimestampToday(t.completed_at));
 });
 
 /** Todos with commitment = true (locked in) */
@@ -516,10 +507,10 @@ export const selectRecentDrops = createSelector([selectUndatedTodos], (todos): T
   const today = getTodayDayString();
   const threeDaysAgo = getDaysAgoDayString(3);
   return todos.filter((t) => {
-    const createdDay = t.created_at?.split('T')[0];
+    const createdDay = ds().extractDateFromIso(t.created_at);
     if (!createdDay || createdDay < threeDaysAgo) return false;
     // Exclude if skipped today
-    const skippedDay = t.skipped_in_sweep_at?.split('T')[0];
+    const skippedDay = ds().extractDateFromIso(t.skipped_in_sweep_at);
     if (skippedDay === today) return false;
     return true;
   });
@@ -529,7 +520,7 @@ export const selectRecentDrops = createSelector([selectUndatedTodos], (todos): T
 export const selectForgottenTodos = createSelector([selectUndatedTodos], (todos): Todo[] => {
   const fiveDaysAgo = getDaysAgoDayString(5);
   return todos.filter((t) => {
-    const createdDay = t.created_at?.split('T')[0];
+    const createdDay = ds().extractDateFromIso(t.created_at);
     return createdDay && createdDay < fiveDaysAgo;
   });
 });
@@ -630,16 +621,16 @@ export const selectSweepCandidateCount = createSelector(
 /** Ideas for sweep (notes with subtype='idea', created in last 7 days) */
 export const selectSweepIdeas = createSelector([selectNotes], (notes): Note[] => {
   const sevenDaysAgo = getDaysAgoDayString(7);
-  return notes.filter(
-    (n) => n.subtype === 'idea' && !n.archived && n.created_at?.split('T')[0] >= sevenDaysAgo,
-  );
+  return notes.filter((n) => {
+    const createdDay = ds().extractDateFromIso(n.created_at);
+    return n.subtype === 'idea' && !n.archived && createdDay && createdDay >= sevenDaysAgo;
+  });
 });
 
 /** General logs for sweep (notes with subtype='catchall', created today) */
 export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Note[] => {
-  const today = getTodayDayString();
   return notes.filter(
-    (n) => n.subtype === 'catchall' && !n.archived && n.created_at?.startsWith(today),
+    (n) => n.subtype === 'catchall' && !n.archived && ds().isTimestampToday(n.created_at),
   );
 });
 
@@ -670,6 +661,15 @@ export const selectSweepCandidatesUnified = createSelector(
 
     // Process todos
     for (const todo of todos) {
+      // Skip locked-in items - handled in Lock-In Checkpoint
+      if (todo.commitment === true) {
+        console.log('[SweepSelector] Filtered out locked-in todo:', {
+          id: todo.id.slice(0, 8),
+          name: todo.name?.slice(0, 20),
+        });
+        continue;
+      }
+
       if (todo.archived || todo.completed_at) {
         console.log('[SweepSelector] Filtered out todo:', {
           id: todo.id.slice(0, 8),
@@ -696,7 +696,7 @@ export const selectSweepCandidatesUnified = createSelector(
       const isOverdue = dueDay ? dueDay < today : false;
       const isDueToday = dueDay === today;
       const isUndated = !dueDay;
-      const isCreatedToday = todo.created_at?.startsWith(today) ?? false;
+      const isCreatedToday = ds().isTimestampToday(todo.created_at);
       const wasSkipped = !!todo.skipped_in_sweep_at;
 
       // Check if todo should resurface today (remind me later)
@@ -756,7 +756,7 @@ export const selectSweepCandidatesUnified = createSelector(
         continue;
       }
 
-      const createdDay = note.created_at?.split('T')[0];
+      const createdDay = ds().extractDateFromIso(note.created_at);
       const isCreatedToday = createdDay === today;
       const wasSkipped = !!note.skipped_in_sweep_at;
 
@@ -770,6 +770,12 @@ export const selectSweepCandidatesUnified = createSelector(
       const isTodayOther = isOtherSubtype && isCreatedToday;
 
       if (isRecentIdea || isTodayOther || wasSkipped || shouldResurface) {
+        // Extract log_photos from note (joined in useGremlyStore.initialize)
+        const logPhotos = (note as any).log_photos;
+        const attachments: SweepAttachment[] = Array.isArray(logPhotos)
+          ? logPhotos.map((p: any) => ({ id: p.id, url: p.url, position: p.position }))
+          : [];
+
         candidates.push({
           id: note.id,
           kind: 'note',
@@ -780,14 +786,23 @@ export const selectSweepCandidatesUnified = createSelector(
           isDueToday: false,
           isCreatedToday,
           raw: note as any,
-          attachments: [],
+          attachments,
         } satisfies SweepCandidateNote);
       }
     }
 
     // Process unconfirmed habits
     for (const habit of unconfirmedHabits) {
-      const isCreatedToday = habit.created_at?.startsWith(today) ?? false;
+      // Skip locked-in habits - handled in Lock-In Checkpoint
+      if (habit.commitment === true) {
+        console.log('[SweepSelector] Filtered out locked-in habit:', {
+          id: habit.id.slice(0, 8),
+          name: habit.name?.slice(0, 20),
+        });
+        continue;
+      }
+
+      const isCreatedToday = ds().isTimestampToday(habit.created_at);
       candidates.push({
         id: habit.id,
         kind: 'habit',
@@ -859,7 +874,10 @@ export const selectJournals = createSelector([selectActiveNotes], (notes): Note[
 export const selectRecentJournals = createSelector([selectJournals], (journals): Note[] => {
   const sevenDaysAgo = getDaysAgoDayString(7);
   return journals
-    .filter((j) => j.created_at?.split('T')[0] >= sevenDaysAgo)
+    .filter((j) => {
+      const createdDay = ds().extractDateFromIso(j.created_at);
+      return createdDay && createdDay >= sevenDaysAgo;
+    })
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 });
 
@@ -872,7 +890,7 @@ export const selectIdeas = createSelector([selectActiveNotes], (notes): Note[] =
 export const selectForgottenIdeas = createSelector([selectIdeas], (ideas): Note[] => {
   const sevenDaysAgo = getDaysAgoDayString(7);
   return ideas.filter((i) => {
-    const createdDay = i.created_at?.split('T')[0];
+    const createdDay = ds().extractDateFromIso(i.created_at);
     return createdDay && createdDay < sevenDaysAgo;
   });
 });
@@ -882,7 +900,7 @@ export const selectYourNotes = createSelector([selectActiveNotes], (notes): Note
   const sevenDaysAgo = getDaysAgoDayString(7);
 
   return notes.filter((n) => {
-    const createdDay = n.created_at?.split('T')[0] ?? '';
+    const createdDay = ds().extractDateFromIso(n.created_at) ?? '';
     const isRecent = createdDay >= sevenDaysAgo;
     const isNotCatchall = n.subtype !== 'catchall';
     return isRecent && isNotCatchall;
@@ -896,11 +914,10 @@ export const selectArchivedNotes = createSelector([selectNotes], (notes): Note[]
 
 /** Logs count for today (journals, ideas, general notes created today) */
 export const selectTodayLogsCount = createSelector([selectActiveNotes], (notes): number => {
-  const today = getTodayDayString();
   return notes.filter(
     (n) =>
       ['journal', 'idea', 'general', 'catchall'].includes(n.subtype) &&
-      n.created_at?.startsWith(today),
+      ds().isTimestampToday(n.created_at),
   ).length;
 });
 
@@ -1244,7 +1261,7 @@ export const selectHabitsUpToDateCount = createSelector(
     const sevenDaysAgo = getDaysAgoDayString(7);
 
     const upToDate = habits.filter((habit) => {
-      const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
+      const lastCheckedIn = ds().extractDateFromIso(habit.last_checked_in_at);
       const cadence = habit.cadence ?? 'daily';
 
       if (!lastCheckedIn) return false; // Never checked in

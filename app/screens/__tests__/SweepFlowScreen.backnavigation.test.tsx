@@ -46,6 +46,7 @@ jest.mock('../../../lib/store/selectors', () => ({
   useSweepIntroStats: () => ({ stats: { urgentCount: 0, pendingCount: 0 }, isLoading: false }),
   useIsLoading: () => false,
   useActiveSpaces: () => [],
+  selectTodayLockedItems: () => [], // No locked items in tests
 }));
 
 // Mock useGremlyStore for mutations
@@ -81,7 +82,16 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
       updateHabit: mockUpdateHabit,
       archiveHabit: mockArchiveHabit,
     };
-    return selector(state);
+    // Handle memoized selectors that may not be plain functions
+    if (typeof selector === 'function') {
+      try {
+        return selector(state);
+      } catch {
+        // If selector fails (e.g., memoized selector), return empty array
+        return [];
+      }
+    }
+    return [];
   },
 }));
 
