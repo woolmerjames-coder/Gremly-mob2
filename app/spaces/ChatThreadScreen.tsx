@@ -750,29 +750,31 @@ export default function ChatThreadScreen({ route }: Props) {
 
                 // Run saveable detection on completed message
                 if (finalizedMessage?.id) {
-                  spaceChatEnhanced
-                    .runSaveableDetection(finalText, trimmedText, finalizedMessage.id)
-                    .then((result) => {
-                      if (result?.isSaveable && result.suggestedType) {
-                        const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
-                          todo: 'todo',
-                          habit: 'habit',
-                          'log-general': 'note',
-                          'log-list': 'note',
-                          'log-idea': 'note',
-                        };
-                        updateMessage(finalizedMessage.id, {
-                          saveable: {
-                            type: typeMap[result.suggestedType] || 'note',
-                            title: result.prefill?.title || '',
-                          },
-                          saveableDismissed: false,
-                        });
-                      }
-                    })
-                    .catch((err) => {
-                      console.error('[ChatThread] Background saveable detection failed:', err);
-                    });
+                  try {
+                    const result = spaceChatEnhanced.runSaveableDetection(
+                      finalText,
+                      trimmedText,
+                      finalizedMessage.id,
+                    );
+                    if (result?.isSaveable && result.suggestedType) {
+                      const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
+                        todo: 'todo',
+                        habit: 'habit',
+                        'log-general': 'note',
+                        'log-idea': 'note',
+                        'log-journal': 'note',
+                      };
+                      updateMessage(finalizedMessage.id, {
+                        saveable: {
+                          type: typeMap[result.suggestedType] || 'note',
+                          title: result.prefill?.title || '',
+                        },
+                        saveableDismissed: false,
+                      });
+                    }
+                  } catch (err) {
+                    console.error('[ChatThread] Saveable detection failed:', err);
+                  }
                 }
 
                 // Space Chat: Update rolling context after turn completes

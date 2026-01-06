@@ -4,40 +4,45 @@
  * Only one Save button can be visible at a time. Tracks dismissed messages
  * to prevent re-showing buttons the user has already dismissed.
  *
+ * The button has three statuses:
+ * - 'ready': Initial state, shows "Save this" button
+ * - 'saving': In progress, shows "Saving..." with spinner
+ * - 'saved': Complete, shows "Saved as [Type] ✓" with Edit/X buttons
+ *
  * @example
  * ```tsx
  * const {
  *   activeButton,
  *   showSaveButton,
  *   dismissSaveButton,
- *   startSaving,
- *   finishSaving,
+ *   setSaving,
+ *   setSaved,
  *   getButtonStateForMessage,
  * } = useSaveButtonState();
  *
- * // Flow 1: Detection completes → show button
+ * // Flow 1: Detection completes → show button (status: 'ready')
  * useEffect(() => {
  *   if (detectionResult && detectionResult.shouldSave) {
  *     showSaveButton(messageId, detectionResult);
  *   }
  * }, [detectionResult]);
  *
- * // Flow 2: User taps Save → saving → success
+ * // Flow 2: User taps Save → saving → saved
  * const handleSave = async () => {
- *   startSaving();
- *   await openSaveOverlay();
- *   finishSaving(); // Button disappears
+ *   setSaving();
+ *   const result = await instantSave();
+ *   setSaved(result.id, result.type); // Shows confirmation state
  * };
  *
- * // Flow 3: User taps X → dismiss
+ * // Flow 3: User taps X in confirmed state → dismiss
  * const handleDismiss = () => {
  *   dismissSaveButton(); // Won't show again for this message
  * };
  *
- * // Render
+ * // Render based on status
  * const buttonState = getButtonStateForMessage(messageId);
  * if (buttonState?.isVisible) {
- *   return <SaveButton {...buttonState} />;
+ *   return <SaveButton state={buttonState.status} {...buttonState} />;
  * }
  * ```
  */
@@ -49,15 +54,27 @@ import type { SaveableResult } from '../lib/chat/saveableTypes';
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Save button status for the three-state flow */
+export type SaveButtonStatus = 'ready' | 'saving' | 'saved';
+
+/** Type of the saved item */
+export type SavedItemType = 'habit' | 'todo' | 'log';
+
 export interface SaveButtonState {
   /** The message this button is associated with */
   messageId: string;
   /** Whether the button is currently visible */
   isVisible: boolean;
-  /** Whether a save operation is in progress */
+  /** Current status: ready, saving, or saved */
+  status: SaveButtonStatus;
+  /** Whether a save operation is in progress (derived from status === 'saving') */
   isSaving: boolean;
   /** The saveable detection result */
   result: SaveableResult;
+  /** ID of the saved item (only set when status === 'saved') */
+  savedItemId?: string;
+  /** Type of the saved item (only set when status === 'saved') */
+  savedItemType?: SavedItemType;
 }
 
 export interface UseSaveButtonStateReturn {
@@ -69,9 +86,13 @@ export interface UseSaveButtonStateReturn {
   hideSaveButton: (messageId: string) => void;
   /** Dismiss the current save button (adds to dismissed set) */
   dismissSaveButton: () => void;
-  /** Start saving operation (sets isSaving: true) */
+  /** Set status to 'saving' (shows loading state) */
+  setSaving: () => void;
+  /** Set status to 'saved' with item details (shows confirmation state) */
+  setSaved: (savedItemId: string, savedItemType: SavedItemType) => void;
+  /** @deprecated Use setSaving() instead */
   startSaving: () => void;
-  /** Finish saving operation (hides button) */
+  /** @deprecated Use setSaved() or dismissSaveButton() instead */
   finishSaving: () => void;
   /** Check if button is visible for a specific message */
   isButtonVisibleForMessage: (messageId: string) => boolean;
@@ -94,6 +115,7 @@ export function useSaveButtonState(): UseSaveButtonStateReturn {
    * Show save button for a message.
    * Replaces any previously shown button (only one at a time).
    * Does nothing if user already dismissed this message's button.
+   * Initializes with status: 'ready'.
    */
   const showSaveButton = useCallback(
     (messageId: string, result: SaveableResult): void => {
@@ -105,6 +127,7 @@ export function useSaveButtonState(): UseSaveButtonStateReturn {
       setActiveButton({
         messageId,
         isVisible: true,
+        status: 'ready',
         isSaving: false,
         result,
       });
@@ -151,11 +174,12 @@ export function useSaveButtonState(): UseSaveButtonStateReturn {
 
   /**
    * Start saving operation - shows loading state on button.
+   * @deprecated Use setSaving() instead
    */
   const startSaving = useCallback((): void => {
     setActiveButton((current) => {
       if (current) {
-        return { ...current, isSaving: true };
+        return { ...current, status: 'saving', isSaving: true };
       }
       return current;
     });
@@ -164,9 +188,42 @@ export function useSaveButtonState(): UseSaveButtonStateReturn {
   /**
    * Finish saving operation - hides the button.
    * Called after successful save.
+   * @deprecated Use setSaved() or dismissSaveButton() instead
    */
   const finishSaving = useCallback((): void => {
     setActiveButton(null);
+  }, []);
+
+  /**
+   * Set status to 'saving' - shows loading state with spinner.
+   */
+  const setSaving = useCallback((): void => {
+    setActiveButton((current) => {
+      if (current) {
+        return { ...current, status: 'saving', isSaving: true };
+      }
+      return current;
+    });
+  }, []);
+
+  /**
+   * Set status to 'saved' - shows confirmation state with Edit/X buttons.
+   * @param savedItemId - The ID of the newly saved item
+   * @param savedItemType - The type of the saved item ('habit' | 'todo' | 'log')
+   */
+  const setSaved = useCallback((savedItemId: string, savedItemType: SavedItemType): void => {
+    setActiveButton((current) => {
+      if (current) {
+        return {
+          ...current,
+          status: 'saved',
+          isSaving: false,
+          savedItemId,
+          savedItemType,
+        };
+      }
+      return current;
+    });
   }, []);
 
   /**
@@ -200,6 +257,8 @@ export function useSaveButtonState(): UseSaveButtonStateReturn {
     showSaveButton,
     hideSaveButton,
     dismissSaveButton,
+    setSaving,
+    setSaved,
     startSaving,
     finishSaving,
     isButtonVisibleForMessage,

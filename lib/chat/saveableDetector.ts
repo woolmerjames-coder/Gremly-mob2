@@ -93,7 +93,8 @@ CONTENT RULES:
 
 DETERMINE TYPE:
 - "log-general": DEFAULT. Information, recommendations, notes. Use when unsure.
-- "log-list": Content that is clearly a list (steps, items, schedule)
+- "log-idea": Creative ideas, brainstorms, inspirations
+- "log-journal": Time-anchored reflections, daily entries
 - "todo": ONLY if there's a clear, specific, one-time action. Very high confidence required.
 - "habit": ONLY if there's recurring behavior AND explicit frequency. Very high confidence required.
 
@@ -101,7 +102,7 @@ RESPOND IN JSON:
 {
   "isSaveable": boolean,
   "confidence": number (0-1),
-  "suggestedType": "log-general" | "log-list" | "todo" | "habit",
+  "suggestedType": "log-general" | "log-idea" | "log-journal" | "todo" | "habit",
   "prefill": {
     "title": "SHORT action-focused title (3-7 words max). Must be a COMPLETE phrase, never truncated. Examples: 'Weekly alcohol check-in', 'January fitness plan', 'Call dentist tomorrow'. Do NOT include connecting words at the end like 'and', 'for', 'to'.",
     "content": "the relevant content to save",
