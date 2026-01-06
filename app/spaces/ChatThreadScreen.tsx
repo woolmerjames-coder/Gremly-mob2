@@ -79,6 +79,7 @@ import {
   useMilestoneCountdown,
   useSpaceById,
   selectItemById,
+  selectCompletionsInRolling7Days,
 } from '../../lib/store/selectors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
@@ -166,6 +167,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const notes = useSpaceNotesFromStore(spaceId);
   const milestone = useSpaceMilestoneFromStore(spaceId);
   const countdown = useMilestoneCountdown(spaceId);
+  const rolling7Completions = useGremlyStore(selectCompletionsInRolling7Days);
 
   // Build space context for AI
   const spaceContext = useMemo(() => {
@@ -199,18 +201,39 @@ export default function ChatThreadScreen({ route }: Props) {
           }
         : null;
 
+    // Map todos with richer data for AI context
+    const todosData = todos.map((t) => ({
+      name: t.name || t.title,
+      title: t.name || t.title,
+      completed_at: t.completed_at ?? null,
+      due_date: t.due_date || null,
+    }));
+
+    // Map habits with richer data for AI context
+    const habitsData = habits.map((h) => ({
+      name: h.name,
+      frequency: h.frequency,
+      completionSummary: `${rolling7Completions.get(h.id) ?? 0}/${h.target_per_period ?? 1} past 7d`,
+    }));
+
+    // Map notes/guides with title
+    const notesData = notes.map((n) => ({
+      name: n.title || '',
+      title: n.title || '',
+    }));
+
     return (
       buildSpaceContext({
         space,
         milestone: milestoneData,
         meta: metaData,
         countdown: countdownData,
-        todos: todos.map((t) => ({ completed_at: t.completed_at ?? null })),
-        habits,
-        notes,
+        todos: todosData,
+        habits: habitsData,
+        notes: notesData,
       }) ?? undefined
     );
-  }, [space, todos, habits, notes, milestone, countdown]);
+  }, [space, todos, habits, notes, milestone, countdown, rolling7Completions]);
 
   // Debug: Log space context for AI
   useEffect(() => {
