@@ -1676,6 +1676,7 @@ export const useGremlyStore = create<GremlyState>()(
         space_id: spaceId,
         owner_id: userId,
         name: data.name,
+        title: data.name, // DB requires title column (NOT NULL)
         date: data.date ?? null,
         completed: false,
         completed_at: null,
@@ -1719,16 +1720,19 @@ export const useGremlyStore = create<GremlyState>()(
 
       const now = new Date().toISOString();
 
+      // Sync title with name if name is being updated
+      const syncedPatch = patch.name ? { ...patch, title: patch.name } : patch;
+
       set((state) => ({
         milestones: state.milestones.map((m) =>
-          m.id === milestoneId ? { ...m, ...patch, updated_at: now } : m,
+          m.id === milestoneId ? { ...m, ...syncedPatch, updated_at: now } : m,
         ),
       }));
 
       try {
         const { error } = await supabase
           .from('space_milestones')
-          .update({ ...patch, updated_at: now })
+          .update({ ...syncedPatch, updated_at: now })
           .eq('id', milestoneId);
 
         if (error) throw error;

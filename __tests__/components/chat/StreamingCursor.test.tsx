@@ -1,5 +1,5 @@
 /**
- * Tests for StreamingCursor component
+ * Tests for StreamingCursor component - Premium "Breathing Orb"
  */
 
 import React from 'react';
@@ -14,44 +14,60 @@ describe('InlineStreamingCursor', () => {
     expect(toJSON()).toBeNull();
   });
 
-  it('renders a pulsing dot when visible', () => {
+  it('renders breathing orb with halo when visible', () => {
     const { toJSON } = render(<InlineStreamingCursor visible={true} />);
     expect(toJSON()).toMatchSnapshot();
   });
 
   it('respects custom size prop', () => {
-    const { toJSON } = render(<InlineStreamingCursor visible={true} size={10} />);
+    const { toJSON } = render(<InlineStreamingCursor visible={true} size={12} />);
     const tree = toJSON();
-    // Should have width/height of 10
+    // Container should be 2x the core size (halo size)
     expect(tree?.props?.style).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          width: 10,
-          height: 10,
-          borderRadius: 5, // half of size
+          width: 24, // 2x core size for halo
+          height: 24,
         }),
       ]),
     );
   });
 
-  it('uses default size of 6', () => {
+  it('uses default size of 10', () => {
     const { toJSON } = render(<InlineStreamingCursor visible={true} />);
     const tree = toJSON();
+    // Container should be 20 (2x default size of 10)
     expect(tree?.props?.style).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          width: 6,
-          height: 6,
-          borderRadius: 3,
+          width: 20,
+          height: 20,
         }),
       ]),
     );
   });
 
-  it('uses golden pear color', () => {
+  it('has two layers (halo and core)', () => {
     const { toJSON } = render(<InlineStreamingCursor visible={true} />);
     const tree = toJSON();
-    expect(tree?.props?.style).toEqual(
+    // Should have two children: halo and core
+    expect(tree?.children?.length).toBe(2);
+  });
+
+  it('uses golden pear color for core and halo', () => {
+    const { toJSON } = render(<InlineStreamingCursor visible={true} />);
+    const tree = toJSON();
+    // Both children should have golden pear background
+    const halo = tree?.children?.[0];
+    const core = tree?.children?.[1];
+    expect(halo?.props?.style).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          backgroundColor: '#E0C47A',
+        }),
+      ]),
+    );
+    expect(core?.props?.style).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           backgroundColor: '#E0C47A',

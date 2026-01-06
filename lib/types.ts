@@ -406,6 +406,9 @@ export interface SpaceChatMessage {
     title: string;
     content?: string;
     prefillData?: any;
+    isSaving?: boolean; // True while save is in progress
+    savedItemId?: string; // ID of the saved item (when status is 'saved')
+    savedItemType?: 'habit' | 'todo' | 'log'; // Type of the saved item
   } | null;
   saveableDismissed?: boolean;
 }

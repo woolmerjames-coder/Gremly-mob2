@@ -78,25 +78,31 @@ export interface SaveButtonState {
 }
 
 export interface UseSaveButtonStateReturn {
-  /** Currently active save button state (only one at a time) */
+  /** Currently active save button state (the most recently activated) */
   activeButton: SaveButtonState | null;
-  /** Show save button for a message (replaces any existing) */
+  /** All message save states (for persisting across scrolls) */
+  messageSaveStates: Record<string, SaveButtonState>;
+  /** Show save button for a message (replaces any existing as active) */
   showSaveButton: (messageId: string, result: SaveableResult) => void;
   /** Hide save button for a specific message */
   hideSaveButton: (messageId: string) => void;
   /** Dismiss the current save button (adds to dismissed set) */
   dismissSaveButton: () => void;
-  /** Set status to 'saving' (shows loading state) */
+  /** Set status to 'saving' for current active message */
   setSaving: () => void;
+  /** Set status to 'saving' for a specific message */
+  setMessageSaving: (messageId: string) => void;
   /** Set status to 'saved' with item details (shows confirmation state) */
   setSaved: (savedItemId: string, savedItemType: SavedItemType) => void;
+  /** Set status to 'saved' for a specific message */
+  setMessageSaved: (messageId: string, savedItemType: SavedItemType, savedItemId: string) => void;
   /** @deprecated Use setSaving() instead */
   startSaving: () => void;
   /** @deprecated Use setSaved() or dismissSaveButton() instead */
   finishSaving: () => void;
   /** Check if button is visible for a specific message */
   isButtonVisibleForMessage: (messageId: string) => boolean;
-  /** Get button state for a specific message */
+  /** Get button state for a specific message (checks both active and persisted states) */
   getButtonStateForMessage: (messageId: string) => SaveButtonState | null;
 }
 
@@ -105,32 +111,50 @@ export interface UseSaveButtonStateReturn {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function useSaveButtonState(): UseSaveButtonStateReturn {
-  // Only one save button visible at a time
+  // Currently active save button (the most recently shown/interacted with)
   const [activeButton, setActiveButton] = useState<SaveButtonState | null>(null);
+
+  // Track all message save states (persists across scrolls)
+  const [messageSaveStates, setMessageSaveStates] = useState<Record<string, SaveButtonState>>({});
 
   // Track messages the user has dismissed in this session
   const [recentlyDismissed, setRecentlyDismissed] = useState<Set<string>>(() => new Set());
 
   /**
    * Show save button for a message.
-   * Replaces any previously shown button (only one at a time).
+   * Replaces any previously shown button as active.
    * Does nothing if user already dismissed this message's button.
    * Initializes with status: 'ready'.
    */
   const showSaveButton = useCallback(
     (messageId: string, result: SaveableResult): void => {
+      console.log('[useSaveButtonState] showSaveButton called:', {
+        messageId,
+        isDismissed: recentlyDismissed.has(messageId),
+        result: { isSaveable: result.isSaveable, suggestedType: result.suggestedType },
+      });
+
       // Don't show if user already dismissed this one
       if (recentlyDismissed.has(messageId)) {
+        console.log('[useSaveButtonState] Skipping - message was dismissed:', messageId);
         return;
       }
 
-      setActiveButton({
+      const newState: SaveButtonState = {
         messageId,
         isVisible: true,
         status: 'ready',
         isSaving: false,
         result,
-      });
+      };
+
+      console.log('[useSaveButtonState] Setting active button and persisting state:', messageId);
+      setActiveButton(newState);
+      // Also persist to message states map
+      setMessageSaveStates((prev) => ({
+        ...prev,
+        [messageId]: newState,
+      }));
     },
     [recentlyDismissed],
   );
@@ -145,6 +169,13 @@ export function useSaveButtonState(): UseSaveButtonStateReturn {
         return null;
       }
       return current;
+    });
+
+    // Remove from persisted states
+    setMessageSaveStates((prev) => {
+      const next = { ...prev };
+      delete next[messageId];
+      return next;
     });
 
     setRecentlyDismissed((prev) => {
@@ -167,6 +198,12 @@ export function useSaveButtonState(): UseSaveButtonStateReturn {
           next.add(current.messageId);
           return next;
         });
+        // Remove from persisted states
+        setMessageSaveStates((prev) => {
+          const next = { ...prev };
+          delete next[current.messageId];
+          return next;
+        });
       }
       return null;
     });
@@ -179,7 +216,13 @@ export function useSaveButtonState(): UseSaveButtonStateReturn {
   const startSaving = useCallback((): void => {
     setActiveButton((current) => {
       if (current) {
-        return { ...current, status: 'saving', isSaving: true };
+        const newState = { ...current, status: 'saving' as const, isSaving: true };
+        // Also update persisted state
+        setMessageSaveStates((prev) => ({
+          ...prev,
+          [current.messageId]: newState,
+        }));
+        return newState;
       }
       return current;
     });
@@ -195,70 +238,162 @@ export function useSaveButtonState(): UseSaveButtonStateReturn {
   }, []);
 
   /**
-   * Set status to 'saving' - shows loading state with spinner.
+   * Set status to 'saving' for the current active message.
    */
   const setSaving = useCallback((): void => {
     setActiveButton((current) => {
       if (current) {
-        return { ...current, status: 'saving', isSaving: true };
+        const newState = { ...current, status: 'saving' as const, isSaving: true };
+        // Also update persisted state
+        setMessageSaveStates((prev) => ({
+          ...prev,
+          [current.messageId]: newState,
+        }));
+        return newState;
       }
       return current;
     });
   }, []);
 
   /**
-   * Set status to 'saved' - shows confirmation state with Edit/X buttons.
+   * Set status to 'saving' for a specific message.
+   */
+  const setMessageSaving = useCallback((messageId: string): void => {
+    setMessageSaveStates((prev) => {
+      const existing = prev[messageId];
+      if (existing) {
+        return {
+          ...prev,
+          [messageId]: { ...existing, status: 'saving' as const, isSaving: true },
+        };
+      }
+      return prev;
+    });
+    // Also update active button if it matches
+    setActiveButton((current) => {
+      if (current?.messageId === messageId) {
+        return { ...current, status: 'saving' as const, isSaving: true };
+      }
+      return current;
+    });
+  }, []);
+
+  /**
+   * Set status to 'saved' for the current active message.
    * @param savedItemId - The ID of the newly saved item
    * @param savedItemType - The type of the saved item ('habit' | 'todo' | 'log')
    */
   const setSaved = useCallback((savedItemId: string, savedItemType: SavedItemType): void => {
     setActiveButton((current) => {
       if (current) {
-        return {
+        const newState = {
           ...current,
-          status: 'saved',
+          status: 'saved' as const,
           isSaving: false,
           savedItemId,
           savedItemType,
         };
+        // Also update persisted state
+        setMessageSaveStates((prev) => ({
+          ...prev,
+          [current.messageId]: newState,
+        }));
+        return newState;
       }
       return current;
     });
   }, []);
 
   /**
+   * Set status to 'saved' for a specific message.
+   * @param messageId - The message ID to update
+   * @param savedItemType - The type of the saved item ('habit' | 'todo' | 'log')
+   * @param savedItemId - The ID of the newly saved item
+   */
+  const setMessageSaved = useCallback(
+    (messageId: string, savedItemType: SavedItemType, savedItemId: string): void => {
+      setMessageSaveStates((prev) => {
+        const existing = prev[messageId];
+        if (existing) {
+          return {
+            ...prev,
+            [messageId]: {
+              ...existing,
+              status: 'saved' as const,
+              isSaving: false,
+              savedItemId,
+              savedItemType,
+            },
+          };
+        }
+        return prev;
+      });
+      // Also update active button if it matches
+      setActiveButton((current) => {
+        if (current?.messageId === messageId) {
+          return {
+            ...current,
+            status: 'saved' as const,
+            isSaving: false,
+            savedItemId,
+            savedItemType,
+          };
+        }
+        return current;
+      });
+    },
+    [],
+  );
+
+  /**
    * Check if a save button is visible for a specific message.
+   * Checks both active button and persisted states.
    */
   const isButtonVisibleForMessage = useCallback(
     (messageId: string): boolean => {
+      // Check persisted states first (handles saved items)
+      const persistedState = messageSaveStates[messageId];
+      if (persistedState?.isVisible) {
+        return true;
+      }
+      // Fall back to active button check
       return (
         activeButton !== null && activeButton.messageId === messageId && activeButton.isVisible
       );
     },
-    [activeButton],
+    [activeButton, messageSaveStates],
   );
 
   /**
    * Get the button state for a specific message.
-   * Returns null if no button is active for this message.
+   * Returns persisted state if available, otherwise checks active button.
    */
   const getButtonStateForMessage = useCallback(
     (messageId: string): SaveButtonState | null => {
+      // Check persisted states first (handles saved items that may have scrolled away)
+      const persistedState = messageSaveStates[messageId];
+      if (persistedState) {
+        return persistedState;
+      }
+      // Fall back to active button
       if (activeButton?.messageId === messageId) {
         return activeButton;
       }
       return null;
     },
-    [activeButton],
+    [activeButton, messageSaveStates],
   );
 
   return {
     activeButton,
+    messageSaveStates,
     showSaveButton,
     hideSaveButton,
     dismissSaveButton,
     setSaving,
+    setMessageSaving,
     setSaved,
+    setMessageSaved,
     startSaving,
     finishSaving,
     isButtonVisibleForMessage,

@@ -80,6 +80,35 @@ describe('SaveButton', () => {
       expect(getByText(/saved as journal/i)).toBeTruthy();
     });
 
+    test('uses savedType prop over suggestedType when provided', () => {
+      const { getByText } = render(
+        <SaveButton
+          {...defaultProps}
+          suggestedType="log-general"
+          savedType="habit"
+          state="confirmed"
+        />,
+      );
+      expect(getByText(/saved as habit/i)).toBeTruthy();
+    });
+
+    test('shows correct labels for savedType prop values', () => {
+      const { getByText: getTodo } = render(
+        <SaveButton {...defaultProps} savedType="todo" state="confirmed" />,
+      );
+      expect(getTodo(/saved as to-do/i)).toBeTruthy();
+
+      const { getByText: getHabit } = render(
+        <SaveButton {...defaultProps} savedType="habit" state="confirmed" />,
+      );
+      expect(getHabit(/saved as habit/i)).toBeTruthy();
+
+      const { getByText: getLog } = render(
+        <SaveButton {...defaultProps} savedType="log" state="confirmed" />,
+      );
+      expect(getLog(/saved as note/i)).toBeTruthy();
+    });
+
     test('Edit and X buttons only appear in confirmed state', () => {
       const { queryByLabelText: queryInitial } = render(
         <SaveButton {...defaultProps} state="initial" />,

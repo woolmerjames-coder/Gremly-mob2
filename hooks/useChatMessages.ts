@@ -425,6 +425,13 @@ export function useChatMessages(
   }, []);
 
   const updateMessage = useCallback((messageId: string, updates: Partial<SpaceChatMessage>) => {
+    console.log('[useChatMessages] updateMessage called:', {
+      messageId,
+      hasSaveableUpdate: 'saveable' in updates,
+      saveable: updates.saveable,
+      saveableDismissed: updates.saveableDismissed,
+    });
+
     // If updating saveable or saveableDismissed, update the ref so refresh() preserves it
     if ('saveable' in updates || 'saveableDismissed' in updates) {
       const existing = saveableDataRef.current.get(messageId);
@@ -435,6 +442,7 @@ export function useChatMessages(
             ? updates.saveableDismissed!
             : (existing?.saveableDismissed ?? false),
       });
+      console.log('[useChatMessages] Saved to saveableDataRef:', messageId);
     }
 
     setMessages((prev) => prev.map((msg) => (msg.id === messageId ? { ...msg, ...updates } : msg)));

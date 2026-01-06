@@ -40,11 +40,18 @@ import type { SaveableType } from '../../lib/chat/saveableTypes';
 
 export type SaveButtonState = 'initial' | 'loading' | 'confirmed';
 
+/** Simplified type for saved items (maps to SaveableType internally) */
+export type SavedItemType = 'habit' | 'todo' | 'log';
+
 export interface SaveButtonProps {
-  /** What type of entity will be saved */
-  suggestedType: SaveableType;
+  /** What type of entity will be saved (used for confirmed state display) */
+  suggestedType?: SaveableType;
   /** Current visual state of the button */
   state?: SaveButtonState;
+  /** Simplified saved type for confirmed state (alternative to suggestedType) */
+  savedType?: SavedItemType;
+  /** The ID of the saved item (for Edit to open overlay) */
+  savedItemId?: string;
   /** Called when user taps Save (instant save) - only in initial state */
   onSave: () => void;
   /** Called when user taps Edit - only in confirmed state */
@@ -69,6 +76,13 @@ const CONFIRMED_LABELS: Record<SaveableType, string> = {
   'log-journal': 'Saved as Journal',
 };
 
+/** Mapping from simplified SavedItemType to display label */
+const SAVED_TYPE_LABELS: Record<SavedItemType, string> = {
+  todo: 'Saved as To-Do',
+  habit: 'Saved as Habit',
+  log: 'Saved as Note',
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,6 +90,8 @@ const CONFIRMED_LABELS: Record<SaveableType, string> = {
 export default function SaveButton({
   suggestedType,
   state = 'initial',
+  savedType,
+  savedItemId: _savedItemId,
   onSave,
   onEdit,
   onDismiss,
@@ -99,6 +115,19 @@ export default function SaveButton({
     return null;
   }
 
+  // Get the display label for confirmed state
+  const getConfirmedLabel = (): string => {
+    // Prefer savedType if provided
+    if (savedType) {
+      return SAVED_TYPE_LABELS[savedType] || 'Saved';
+    }
+    // Fall back to suggestedType
+    if (suggestedType) {
+      return CONFIRMED_LABELS[suggestedType] || 'Saved';
+    }
+    return 'Saved';
+  };
+
   // Render based on current state
   const renderContent = () => {
     switch (state) {
@@ -116,9 +145,7 @@ export default function SaveButton({
             {/* Row 1: Confirmed Label */}
             <View style={styles.confirmedRow}>
               <CheckCircle size={18} color="#2E5540" style={styles.checkIcon} />
-              <Text style={styles.confirmedText}>
-                {CONFIRMED_LABELS[suggestedType] || 'Saved'} ✓
-              </Text>
+              <Text style={styles.confirmedText}>{getConfirmedLabel()} ✓</Text>
             </View>
 
             {/* Row 2: Edit & Dismiss Buttons */}

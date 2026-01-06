@@ -105,21 +105,31 @@ export interface UseSpaceChatEnhancedReturn {
   ) => SaveableResult | null;
 
   // Save button state
-  /** Currently active save button (only one at a time) */
+  /** Currently active save button (the most recently activated) */
   activeButton: SaveButtonState | null;
+  /** All message save states (for persisting across scrolls) */
+  messageSaveStates: Record<string, SaveButtonState>;
   /** Show save button for a message */
   showSaveButton: (messageId: string, result: SaveableResult) => void;
   /** Dismiss the current save button */
   dismissSaveButton: () => void;
-  /** Set status to 'saving' (shows loading state) */
+  /** Set status to 'saving' for current active message */
   setSaving: () => void;
+  /** Set status to 'saving' for a specific message */
+  setMessageSaving: (messageId: string) => void;
   /** Set status to 'saved' with item details (shows confirmation state) */
   setSaved: (savedItemId: string, savedItemType: 'habit' | 'todo' | 'log') => void;
+  /** Set status to 'saved' for a specific message */
+  setMessageSaved: (
+    messageId: string,
+    savedItemType: 'habit' | 'todo' | 'log',
+    savedItemId: string,
+  ) => void;
   /** @deprecated Use setSaving() instead */
   startSaving: () => void;
   /** @deprecated Use setSaved() or dismissSaveButton() instead */
   finishSaving: () => void;
-  /** Get button state for a specific message */
+  /** Get button state for a specific message (checks both active and persisted states) */
   getButtonStateForMessage: (messageId: string) => SaveButtonState | null;
 
   // Cooldown
@@ -147,12 +157,25 @@ function shouldShowSaveButtonHeuristic(
   assistantMessage: string,
   conversationMode: ConversationMode,
 ): boolean {
+  console.log('[shouldShowSaveButtonHeuristic] Checking:', {
+    messageLength: assistantMessage?.length,
+    conversationMode,
+    threshold: 120,
+  });
+
   // Don't show for emotional support / venting responses
-  if (conversationMode === 'reflective') return false;
+  if (conversationMode === 'reflective') {
+    console.log('[shouldShowSaveButtonHeuristic] SKIP: reflective mode');
+    return false;
+  }
 
   // Don't show for very short responses (acknowledgments, follow-up questions)
-  if (assistantMessage.length < 120) return false;
+  if (assistantMessage.length < 120) {
+    console.log('[shouldShowSaveButtonHeuristic] SKIP: message too short', assistantMessage.length);
+    return false;
+  }
 
+  console.log('[shouldShowSaveButtonHeuristic] SHOW: passed all checks');
   // Show for everything else
   return true;
 }
@@ -374,10 +397,13 @@ export function useSpaceChatEnhanced({
 
     // Save button state
     activeButton: buttonState.activeButton,
+    messageSaveStates: buttonState.messageSaveStates,
     showSaveButton: buttonState.showSaveButton,
     dismissSaveButton: buttonState.dismissSaveButton,
     setSaving: buttonState.setSaving,
+    setMessageSaving: buttonState.setMessageSaving,
     setSaved: buttonState.setSaved,
+    setMessageSaved: buttonState.setMessageSaved,
     startSaving: buttonState.startSaving,
     finishSaving: buttonState.finishSaving,
     getButtonStateForMessage: buttonState.getButtonStateForMessage,
