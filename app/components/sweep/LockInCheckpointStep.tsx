@@ -73,7 +73,8 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
   const [decisions, setDecisions] = useState<Map<string, LockInDecision>>(new Map());
 
   // Track which items have been celebrated (for animation)
-  const [celebratedItems, setCelebratedItems] = useState<Set<string>>(new Set());
+  // Start with initially completed items already celebrated
+  const [celebratedItems, setCelebratedItems] = useState<Set<string>>(() => new Set());
 
   // Confetti celebration when all items are done
   const confettiRef = useRef<any>(null);
@@ -113,15 +114,21 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
   }, [lockedItems, completedTodoIds, completedHabitIds]);
 
   // Initialize decisions - already completed items default to 'done', others to 'tomorrow'
+  // Also initialize celebratedItems for already completed items
   useEffect(() => {
     const initial = new Map<string, LockInDecision>();
+    const initialCelebrated = new Set<string>();
     items.forEach((item) => {
       initial.set(item.id, item.isCompleted ? 'done' : 'tomorrow');
       if (item.isCompleted) {
-        setCelebratedItems((prev) => new Set(prev).add(item.id));
+        initialCelebrated.add(item.id);
       }
     });
-    setDecisions(initial);
+    // Batch state updates together to avoid cascading renders
+    queueMicrotask(() => {
+      setDecisions(initial);
+      setCelebratedItems(initialCelebrated);
+    });
   }, [items]);
 
   // Animation values
@@ -193,7 +200,10 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
     const userMarkedAllDone = allDone && celebratedItems.size === items.length;
 
     if (userMarkedAllDone && !showConfetti) {
-      setShowConfetti(true);
+      // Use queueMicrotask to avoid synchronous setState in effect
+      queueMicrotask(() => {
+        setShowConfetti(true);
+      });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setTimeout(() => {
         confettiRef.current?.start();
@@ -303,7 +313,8 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
         <Image source={GREMLY_MASCOT} style={styles.instructionsMascot} resizeMode="contain" />
         <Text style={styles.instructionsText}>
           Did you crush it? Tap <Text style={styles.instructionsBold}>Done</Text>, or slide to{' '}
-          <Text style={styles.instructionsBold}>tomorrow</Text>. <Text style={styles.instructionsItalic}>No stress!</Text>
+          <Text style={styles.instructionsBold}>tomorrow</Text>.{' '}
+          <Text style={styles.instructionsItalic}>No stress!</Text>
         </Text>
       </Animated.View>
 
@@ -342,7 +353,11 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
       {/* Continue button */}
       <Animated.View style={[styles.buttonContainer, contentStyle]}>
         <Text style={styles.defaultHint}>Items default to Tomorrow if unchanged</Text>
-        <TouchableOpacity style={styles.continueButton} onPress={handleContinue} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.continueButton}
+          onPress={handleContinue}
+          activeOpacity={0.8}
+        >
           <Text style={styles.continueButtonText}>Continue to Sweep →</Text>
         </TouchableOpacity>
       </Animated.View>
@@ -357,7 +372,12 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
           fadeOut={true}
           explosionSpeed={300}
           fallSpeed={2500}
-          colors={[BRAND.colors.mossGreen, BRAND.colors.sageMist, BRAND.colors.goldenPear, '#FFFFFF']}
+          colors={[
+            BRAND.colors.mossGreen,
+            BRAND.colors.sageMist,
+            BRAND.colors.goldenPear,
+            '#FFFFFF',
+          ]}
         />
       )}
     </View>
@@ -373,7 +393,13 @@ interface LockInItemRowProps {
   index: number;
 }
 
-function LockInItemRow({ item, decision, onDecisionChange, isCelebrated, index }: LockInItemRowProps) {
+function LockInItemRow({
+  item,
+  decision,
+  onDecisionChange,
+  isCelebrated,
+  index,
+}: LockInItemRowProps) {
   // Diamond position animation (0 = Archive/left, 1 = Tomorrow/middle, 2 = Done/right)
   const diamondPosition = useSharedValue(1); // Default to middle (Tomorrow)
 
@@ -393,7 +419,12 @@ function LockInItemRow({ item, decision, onDecisionChange, isCelebrated, index }
 
     return {
       transform: [
-        { translateX: withSpring(positions[diamondPosition.value] + 20, { damping: 15, stiffness: 150 }) },
+        {
+          translateX: withSpring(positions[diamondPosition.value] + 20, {
+            damping: 15,
+            stiffness: 150,
+          }),
+        },
       ],
     };
   });
@@ -404,8 +435,14 @@ function LockInItemRow({ item, decision, onDecisionChange, isCelebrated, index }
 
   useEffect(() => {
     if (isCelebrated && decision === 'done') {
-      celebrationScale.value = withSequence(withTiming(1.03, { duration: 150 }), withSpring(1, { damping: 10 }));
-      rowGlow.value = withSequence(withTiming(1, { duration: 200 }), withTiming(0, { duration: 600 }));
+      celebrationScale.value = withSequence(
+        withTiming(1.03, { duration: 150 }),
+        withSpring(1, { damping: 10 }),
+      );
+      rowGlow.value = withSequence(
+        withTiming(1, { duration: 200 }),
+        withTiming(0, { duration: 600 }),
+      );
     }
   }, [isCelebrated, decision]);
 
@@ -484,9 +521,15 @@ function LockInItemRow({ item, decision, onDecisionChange, isCelebrated, index }
 
       {/* Labels below track */}
       <View style={styles.toggleLabels}>
-        <Text style={[styles.toggleLabel, decision === 'archive' && styles.toggleLabelActive]}>Archive</Text>
-        <Text style={[styles.toggleLabel, decision === 'tomorrow' && styles.toggleLabelActive]}>Tomorrow</Text>
-        <Text style={[styles.toggleLabel, decision === 'done' && styles.toggleLabelActive]}>Done ✓</Text>
+        <Text style={[styles.toggleLabel, decision === 'archive' && styles.toggleLabelActive]}>
+          Archive
+        </Text>
+        <Text style={[styles.toggleLabel, decision === 'tomorrow' && styles.toggleLabelActive]}>
+          Tomorrow
+        </Text>
+        <Text style={[styles.toggleLabel, decision === 'done' && styles.toggleLabelActive]}>
+          Done ✓
+        </Text>
       </View>
     </Animated.View>
   );
