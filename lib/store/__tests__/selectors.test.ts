@@ -777,12 +777,16 @@ describe('selectSweepCandidatesUnified', () => {
       const result = selectSweepCandidatesUnified(state as any);
       const noteCandidate = result.find((i) => i.candidate.id === 'n1');
 
-      expect(noteCandidate?.candidate.attachments).toHaveLength(2);
-      expect(noteCandidate?.candidate.attachments[0]).toEqual({
-        id: 'p1',
-        url: 'https://example.com/photo1.jpg',
-        position: 0,
-      });
+      // Type narrow to note candidate to access attachments
+      expect(noteCandidate?.candidate.kind).toBe('note');
+      if (noteCandidate?.candidate.kind === 'note') {
+        expect(noteCandidate.candidate.attachments).toHaveLength(2);
+        expect(noteCandidate.candidate.attachments?.[0]).toEqual({
+          id: 'p1',
+          url: 'https://example.com/photo1.jpg',
+          position: 0,
+        });
+      }
     });
 
     it('includes id, url, and position for each attachment', () => {
@@ -799,11 +803,14 @@ describe('selectSweepCandidatesUnified', () => {
 
       const result = selectSweepCandidatesUnified(state as any);
       const noteCandidate = result.find((i) => i.candidate.id === 'n1');
-      const attachment = noteCandidate?.candidate.attachments[0];
 
-      expect(attachment).toHaveProperty('id', 'p1');
-      expect(attachment).toHaveProperty('url', 'https://example.com/photo.jpg');
-      expect(attachment).toHaveProperty('position', 2);
+      expect(noteCandidate?.candidate.kind).toBe('note');
+      if (noteCandidate?.candidate.kind === 'note') {
+        const attachment = noteCandidate.candidate.attachments?.[0];
+        expect(attachment).toHaveProperty('id', 'p1');
+        expect(attachment).toHaveProperty('url', 'https://example.com/photo.jpg');
+        expect(attachment).toHaveProperty('position', 2);
+      }
     });
 
     it('returns empty attachments array when log_photos is undefined', () => {
@@ -820,7 +827,10 @@ describe('selectSweepCandidatesUnified', () => {
       const result = selectSweepCandidatesUnified(state as any);
       const noteCandidate = result.find((i) => i.candidate.id === 'n1');
 
-      expect(noteCandidate?.candidate.attachments).toEqual([]);
+      expect(noteCandidate?.candidate.kind).toBe('note');
+      if (noteCandidate?.candidate.kind === 'note') {
+        expect(noteCandidate.candidate.attachments).toEqual([]);
+      }
     });
 
     it('returns empty attachments array when log_photos is null', () => {
@@ -838,7 +848,10 @@ describe('selectSweepCandidatesUnified', () => {
       const result = selectSweepCandidatesUnified(state as any);
       const noteCandidate = result.find((i) => i.candidate.id === 'n1');
 
-      expect(noteCandidate?.candidate.attachments).toEqual([]);
+      expect(noteCandidate?.candidate.kind).toBe('note');
+      if (noteCandidate?.candidate.kind === 'note') {
+        expect(noteCandidate.candidate.attachments).toEqual([]);
+      }
     });
 
     it('returns empty attachments array when log_photos is empty array', () => {
@@ -856,7 +869,10 @@ describe('selectSweepCandidatesUnified', () => {
       const result = selectSweepCandidatesUnified(state as any);
       const noteCandidate = result.find((i) => i.candidate.id === 'n1');
 
-      expect(noteCandidate?.candidate.attachments).toEqual([]);
+      expect(noteCandidate?.candidate.kind).toBe('note');
+      if (noteCandidate?.candidate.kind === 'note') {
+        expect(noteCandidate.candidate.attachments).toEqual([]);
+      }
     });
   });
 });
