@@ -519,9 +519,14 @@ export const selectTodosCompletedToday = createSelector([selectTodos], (todos): 
   return todos.filter((t) => t.completed_at && ds().isTimestampToday(t.completed_at));
 });
 
-/** Todos with commitment = true (locked in) */
+/** Todos with commitment = true (locked in) - excludes completed */
 export const selectLockedTodos = createSelector([selectActiveTodos], (todos): Todo[] =>
   todos.filter((t) => t.commitment === true),
+);
+
+/** Todos with commitment = true (locked in) - includes completed for sweep celebration */
+export const selectLockedTodosIncludingCompleted = createSelector([selectTodos], (todos): Todo[] =>
+  todos.filter((t) => t.commitment === true && !t.archived),
 );
 
 /** Undated todos (no due_day, for triage) */
@@ -561,11 +566,21 @@ export const selectArchivedTodos = createSelector([selectTodos], (todos): Todo[]
 // TODAY PAGE COMBINED SELECTORS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Locked items for Today (todos + habits with commitment = true) */
+/** Locked items for Today (todos + habits with commitment = true) - excludes completed */
 export const selectTodayLockedItems = createSelector(
   [selectLockedTodos, selectHabitsDueToday],
   (lockedTodos, habitsDueToday): (Todo | Habit)[] => {
     const lockedHabits = habitsDueToday.filter((h) => h.commitment === true);
+    return [...lockedTodos, ...lockedHabits];
+  },
+);
+
+/** Locked items including completed - for Sweep celebration (todos + habits with commitment = true) */
+export const selectTodayLockedItemsIncludingCompleted = createSelector(
+  [selectLockedTodosIncludingCompleted, selectHabits],
+  (lockedTodos, habits): (Todo | Habit)[] => {
+    // Include locked habits that are active (not archived), even if completed today
+    const lockedHabits = habits.filter((h) => h.commitment === true && !h.archived);
     return [...lockedTodos, ...lockedHabits];
   },
 );

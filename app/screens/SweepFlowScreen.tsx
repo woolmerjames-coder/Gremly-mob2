@@ -76,7 +76,10 @@ import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
 import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
-import { selectTodayLockedItems } from '../../lib/store/selectors';
+import {
+  selectTodayLockedItems,
+  selectTodayLockedItemsIncludingCompleted,
+} from '../../lib/store/selectors';
 
 // Sweep habit components and helpers
 import { SweepHabitRow } from '../../components/sweep/SweepHabitRow';
@@ -2318,9 +2321,10 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const { user } = useAuth();
   const [step, setStep] = useState<number>(initialStep);
 
-  // Check if user has locked items for lock-in checkpoint
+  // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
   const lockedItems = useGremlyStore(selectTodayLockedItems);
-  const hasLockedItems = lockedItems.length > 0;
+  const allLockedItems = useGremlyStore(selectTodayLockedItemsIncludingCompleted);
+  const hasLockedItems = allLockedItems.length > 0;
 
   // Track if lock-in checkpoint was shown
   const [lockInCheckpointComplete, setLockInCheckpointComplete] = useState(false);
@@ -2455,8 +2459,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Handle lock-in checkpoint decisions
   const handleLockInContinue = useCallback(
     async (decisions: Map<string, 'done' | 'tomorrow' | 'archive'>) => {
-      const { updateTodo, archiveTodo, archiveHabit, completeHabit } =
-        useGremlyStore.getState();
+      const { updateTodo, archiveTodo, archiveHabit, completeHabit } = useGremlyStore.getState();
       const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
       for (const [itemId, decision] of decisions) {
@@ -2616,7 +2619,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             console.log('[SweepFlowScreen] Rendering step:', step);
             return null;
           })()}
-        <View style={step === 1 ? styles.contentDecision : step === 0.5 ? styles.contentLockIn : styles.content}>
+        <View
+          style={
+            step === 1
+              ? styles.contentDecision
+              : step === 0.5
+                ? styles.contentLockIn
+                : styles.content
+          }
+        >
           {step === 0 &&
             (__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep'),
             (<SweepIntroStep onStart={handleIntroStart} />))}

@@ -38,7 +38,7 @@ import { Sparkles } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import * as Haptics from 'expo-haptics';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
-import { selectTodayLockedItems } from '../../../lib/store/selectors';
+import { selectTodayLockedItemsIncludingCompleted } from '../../../lib/store/selectors';
 
 // Lock-in diamond icon
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -80,8 +80,8 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
   const confettiRef = useRef<any>(null);
   const [showConfetti, setShowConfetti] = useState(false);
 
-  // Get locked items from store
-  const lockedItems = useGremlyStore((state) => selectTodayLockedItems(state));
+  // Get locked items from store (including completed ones for celebration)
+  const lockedItems = useGremlyStore((state) => selectTodayLockedItemsIncludingCompleted(state));
 
   // Get raw data from store (stable references)
   const todos = useGremlyStore((state) => state.todos);
