@@ -164,6 +164,7 @@ export default function CreateSpaceModal() {
     },
     title: {
       fontSize: 24,
+      lineHeight: 32,
       fontWeight: '600',
       color: tokens.colors.text,
       textAlign: 'center',
