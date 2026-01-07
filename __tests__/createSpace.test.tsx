@@ -93,15 +93,15 @@ describe('CreateSpaceModal', () => {
   });
 
   describe('Single-page form', () => {
-    it('renders all main inputs on single page', () => {
-      const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
+    it('renders name input and more details toggle', () => {
+      const { getByTestId, getByText, queryByTestId } = renderWithProviders(<CreateSpaceModal />);
 
       expect(getByTestId('space-name-input')).toBeTruthy();
-      expect(getByTestId('goal-name-input')).toBeTruthy();
-      expect(getByText('Target date')).toBeTruthy();
-      expect(getByText('More details')).toBeTruthy();
+      expect(getByText('Add more details')).toBeTruthy();
       expect(getByText('Cancel')).toBeTruthy();
       expect(getByText('Create Space')).toBeTruthy();
+      // Goal should be hidden initially
+      expect(queryByTestId('goal-name-input')).toBeNull();
     });
 
     it('creates Space with only name when no other fields filled', async () => {
@@ -123,6 +123,14 @@ describe('CreateSpaceModal', () => {
       const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
 
       fireEvent.changeText(getByTestId('space-name-input'), 'Fitness');
+
+      // Expand details to access goal input
+      fireEvent.press(getByText('Add more details'));
+
+      await waitFor(() => {
+        expect(getByTestId('goal-name-input')).toBeTruthy();
+      });
+
       fireEvent.changeText(getByTestId('goal-name-input'), 'Run a 5K');
       fireEvent.press(getByText('Create Space'));
 
@@ -141,15 +149,17 @@ describe('CreateSpaceModal', () => {
     it('expands more details section when toggled', async () => {
       const { getByTestId, getByText, queryByTestId } = renderWithProviders(<CreateSpaceModal />);
 
-      // Initially, success criteria input should not be visible
+      // Initially, all optional inputs should not be visible
+      expect(queryByTestId('goal-name-input')).toBeNull();
       expect(queryByTestId('success-criteria-input')).toBeNull();
       expect(queryByTestId('notes-input')).toBeNull();
 
-      // Tap "More details"
-      fireEvent.press(getByText('More details'));
+      // Tap "Add more details"
+      fireEvent.press(getByText('Add more details'));
 
       // Now should be visible
       await waitFor(() => {
+        expect(getByTestId('goal-name-input')).toBeTruthy();
         expect(getByTestId('success-criteria-input')).toBeTruthy();
         expect(getByTestId('notes-input')).toBeTruthy();
       });
@@ -159,19 +169,15 @@ describe('CreateSpaceModal', () => {
       const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
 
       fireEvent.changeText(getByTestId('space-name-input'), 'Fitness');
-      fireEvent.changeText(getByTestId('goal-name-input'), 'Run a 5K');
 
       // Expand details
-      fireEvent.press(getByText('More details'));
+      fireEvent.press(getByText('Add more details'));
 
       await waitFor(() => {
-        expect(getByTestId('success-criteria-input')).toBeTruthy();
+        expect(getByTestId('goal-name-input')).toBeTruthy();
       });
 
-      fireEvent.changeText(getByTestId('success-criteria-input'), 'Finish without walking');
-      fireEvent.changeText(getByTestId('notes-input'), 'Training with partner');
-      fireEvent.press(getByText('Create Space'));
-
+      fireEvent.changeText(getByTestId('goal-name-input'), 'Run a 5K');
       await waitFor(() => {
         expect(mockCreateSpace).toHaveBeenCalledWith({ name: 'Fitness' });
         expect(mockCreateMilestone).toHaveBeenCalledWith(

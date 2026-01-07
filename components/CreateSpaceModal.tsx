@@ -166,6 +166,7 @@ export default function CreateSpaceModal() {
       fontWeight: '600',
       color: tokens.colors.text,
       textAlign: 'center',
+      marginTop: tokens.spacing[2],
       marginBottom: tokens.spacing[4],
     },
     avatarContainer: {
@@ -240,6 +241,13 @@ export default function CreateSpaceModal() {
     moreDetailsContent: {
       marginTop: tokens.spacing[2],
     },
+    moreDetailsHint: {
+      fontSize: 13,
+      color: tokens.colors.subtle,
+      marginTop: -tokens.spacing[1],
+      marginBottom: tokens.spacing[2],
+      marginLeft: tokens.spacing[6],
+    },
     buttonRow: {
       flexDirection: 'row',
       gap: tokens.spacing[3],
@@ -296,83 +304,11 @@ export default function CreateSpaceModal() {
           <Input
             testID="space-name-input"
             label="Name"
-            placeholder="e.g., Fitness, Side Project"
             value={form.spaceName}
             onChangeText={(text) => updateField('spaceName', text)}
             autoFocus
           />
         </View>
-
-        {/* Goal (optional) */}
-        <View style={styles.section}>
-          <Input
-            testID="goal-name-input"
-            label="Goal"
-            placeholder="e.g., Run a 5K, Trip to Japan"
-            value={form.goalName}
-            onChangeText={(text) => updateField('goalName', text)}
-          />
-        </View>
-
-        {/* Target Date */}
-        <View style={styles.section}>
-          <Text style={styles.label}>Target date</Text>
-          <Pressable style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
-            <Calendar size={20} color={tokens.colors.subtle} />
-            <Text style={[styles.dateText, !form.targetDate && styles.datePlaceholder]}>
-              {form.targetDate
-                ? form.targetDate.toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })
-                : 'None set'}
-            </Text>
-            {form.targetDate && (
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  updateField('targetDate', null);
-                }}
-                hitSlop={8}
-              >
-                <X size={18} color={tokens.colors.subtle} />
-              </Pressable>
-            )}
-          </Pressable>
-        </View>
-
-        {/* Date Picker */}
-        {showDatePicker &&
-          (Platform.OS === 'ios' ? (
-            <View style={styles.datePickerContainer}>
-              <View style={styles.datePickerHeader}>
-                <Pressable onPress={() => setShowDatePicker(false)}>
-                  <Text style={{ color: tokens.colors.primary, fontWeight: '500' }}>Done</Text>
-                </Pressable>
-              </View>
-              <DateTimePicker
-                value={form.targetDate || new Date()}
-                mode="date"
-                display="spinner"
-                minimumDate={new Date()}
-                onChange={(event, date) => {
-                  if (date) updateField('targetDate', date);
-                }}
-              />
-            </View>
-          ) : (
-            <DateTimePicker
-              value={form.targetDate || new Date()}
-              mode="date"
-              display="default"
-              minimumDate={new Date()}
-              onChange={(event, date) => {
-                setShowDatePicker(false);
-                if (date) updateField('targetDate', date);
-              }}
-            />
-          ))}
 
         {/* More Details Toggle */}
         <Pressable style={styles.moreDetailsToggle} onPress={toggleMoreDetails}>
@@ -382,26 +318,103 @@ export default function CreateSpaceModal() {
             <ChevronDown size={20} color={tokens.colors.primary} />
           )}
           <Text style={styles.moreDetailsText}>
-            {showMoreDetails ? 'Less details' : 'More details'}
+            {showMoreDetails ? 'Less details' : 'Add more details'}
           </Text>
         </Pressable>
+
+        {/* Helper text - only show when collapsed */}
+        {!showMoreDetails && (
+          <Text style={styles.moreDetailsHint}>Help Gremly give better advice</Text>
+        )}
 
         {/* Collapsible Details Section */}
         {showMoreDetails && (
           <View style={styles.moreDetailsContent}>
+            {/* Goal */}
+            <Input
+              testID="goal-name-input"
+              label="Goal"
+              value={form.goalName}
+              onChangeText={(text) => updateField('goalName', text)}
+            />
+
+            <View style={{ height: tokens.spacing[3] }} />
+
+            {/* Target Date */}
+            <Text style={styles.label}>Target date</Text>
+            <Pressable style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
+              <Calendar size={20} color={tokens.colors.subtle} />
+              <Text style={[styles.dateText, !form.targetDate && styles.datePlaceholder]}>
+                {form.targetDate
+                  ? form.targetDate.toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })
+                  : 'None set'}
+              </Text>
+              {form.targetDate && (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    updateField('targetDate', null);
+                  }}
+                  hitSlop={8}
+                >
+                  <X size={18} color={tokens.colors.subtle} />
+                </Pressable>
+              )}
+            </Pressable>
+
+            {/* Date Picker */}
+            {showDatePicker &&
+              (Platform.OS === 'ios' ? (
+                <View style={styles.datePickerContainer}>
+                  <View style={styles.datePickerHeader}>
+                    <Pressable onPress={() => setShowDatePicker(false)}>
+                      <Text style={{ color: tokens.colors.primary, fontWeight: '500' }}>Done</Text>
+                    </Pressable>
+                  </View>
+                  <DateTimePicker
+                    value={form.targetDate || new Date()}
+                    mode="date"
+                    display="spinner"
+                    minimumDate={new Date()}
+                    onChange={(event, date) => {
+                      if (date) updateField('targetDate', date);
+                    }}
+                  />
+                </View>
+              ) : (
+                <DateTimePicker
+                  value={form.targetDate || new Date()}
+                  mode="date"
+                  display="default"
+                  minimumDate={new Date()}
+                  onChange={(event, date) => {
+                    setShowDatePicker(false);
+                    if (date) updateField('targetDate', date);
+                  }}
+                />
+              ))}
+
+            <View style={{ height: tokens.spacing[3] }} />
+
+            {/* Success Criteria */}
             <Input
               testID="success-criteria-input"
               label="What does success look like?"
-              placeholder="e.g., Finish race without walking"
               value={form.successCriteria}
               onChangeText={(text) => updateField('successCriteria', text)}
               multiline
             />
+
             <View style={{ height: tokens.spacing[3] }} />
+
+            {/* Notes */}
             <Input
               testID="notes-input"
               label="Notes"
-              placeholder="e.g., Training with my partner"
               value={form.notes}
               onChangeText={(text) => updateField('notes', text)}
               multiline
