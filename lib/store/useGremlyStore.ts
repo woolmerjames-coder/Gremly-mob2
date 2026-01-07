@@ -918,6 +918,27 @@ export const useGremlyStore = create<GremlyState>()(
         // 4. EMIT EVENT for backward compatibility (strangler fig pattern)
         eventBus.emit('ItemCompleted', { id, type: 'habit', source: STORE_EVENT_SOURCE });
 
+        // 5. Set start_date on FIRST completion if currently null
+        // This ensures habits get a start_date when the user actually begins doing them
+        const habit = get().habits.find((h) => h.id === id);
+        if (habit && !habit.start_date) {
+          console.log('[GremlyStore] First completion - setting start_date for habit:', id);
+
+          // Update Supabase (fire-and-forget, non-blocking)
+          supabase
+            .from('habits')
+            .update({ start_date: todayDate })
+            .eq('id', id)
+            .then(({ error }) => {
+              if (error) console.error('[GremlyStore] Failed to set start_date:', error);
+            });
+
+          // Update local store immediately for UI
+          set((state) => ({
+            habits: state.habits.map((h) => (h.id === id ? { ...h, start_date: todayDate } : h)),
+          }));
+        }
+
         console.log('[GremlyStore] ✅ Habit completed:', id);
       } catch (error) {
         // ROLLBACK optimistic update
