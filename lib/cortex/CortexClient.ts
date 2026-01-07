@@ -969,12 +969,133 @@ export function callEnrichPhase2Streaming(
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Space Chat Save - Classification for instant save
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SpaceChatSaveResponse {
+  type: 'habit' | 'todo' | 'log';
+  subtype: 'start_habit' | 'break_habit' | 'general' | 'idea' | 'journal' | null;
+  confidence: number;
+  title: string;
+  tags: string[];
+  frequency: string | null;
+  timeEstimateMinutes: number | null;
+  hasList: boolean;
+  latency_ms?: number;
+  error?: string;
+}
+
+/**
+ * Call the Cortex proxy for Space Chat Save classification.
+ * Determines the best type (habit/todo/log) and extracts metadata for instant save.
+ *
+ * @param params - The user message, assistant message, and space name
+ * @returns Classification result with type, subtype, title, and metadata
+ */
+export async function callSpaceChatSave(params: {
+  userMessage: string;
+  assistantMessage: string;
+  spaceName: string;
+}): Promise<SpaceChatSaveResponse> {
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    console.warn('[CortexClient] callSpaceChatSave: Missing CORTEX_URL, using defaults');
+    return getDefaultSaveResponse();
+  }
+
+  if (isAiDisabled()) {
+    console.warn('[CortexClient] callSpaceChatSave: AI disabled, using defaults');
+    return getDefaultSaveResponse();
+  }
+
+  const supabaseAnonKey = readSupabaseAnonKey();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  const timeoutMs = toMs(env.cortex.timeoutMs);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    log('POST', baseUrl, { type: 'space-chat-save', spaceName: params.spaceName });
+
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'space-chat-save',
+        userMessage: params.userMessage,
+        assistantMessage: params.assistantMessage,
+        spaceName: params.spaceName,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      console.warn('[CortexClient] callSpaceChatSave error response:', res.status, txt);
+      return getDefaultSaveResponse();
+    }
+
+    const data = await res.json();
+    log('SPACE_CHAT_SAVE_RESPONSE', data);
+
+    if (data.error) {
+      console.warn('[CortexClient] callSpaceChatSave error in response:', data.error);
+      return getDefaultSaveResponse();
+    }
+
+    return {
+      type: data.type || 'log',
+      subtype: data.subtype || 'general',
+      confidence: data.confidence ?? 0.5,
+      title: data.title || 'Saved from chat',
+      tags: Array.isArray(data.tags) ? data.tags : [],
+      frequency: data.frequency || null,
+      timeEstimateMinutes: data.timeEstimateMinutes ?? data.time_estimate_minutes ?? null,
+      hasList: data.hasList ?? data.has_list ?? false,
+      latency_ms: data.latency_ms,
+    };
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      console.warn('[CortexClient] callSpaceChatSave timeout');
+    } else {
+      console.warn('[CortexClient] callSpaceChatSave exception:', e?.message || e);
+    }
+    return getDefaultSaveResponse();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function getDefaultSaveResponse(): SpaceChatSaveResponse {
+  return {
+    type: 'log',
+    subtype: 'general',
+    confidence: 0.5,
+    title: 'Saved from chat',
+    tags: [],
+    frequency: null,
+    timeEstimateMinutes: null,
+    hasList: false,
+  };
+}
+
 export const CortexClient = {
   callChat,
   callComplete,
   callClassify,
   callSpaceChat,
   callSpaceChatStreaming,
+  callSpaceChatSave,
   callEnrichPhase2,
   callEnrichPhase2Streaming,
   callTranscribe,

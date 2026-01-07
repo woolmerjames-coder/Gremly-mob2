@@ -13,6 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Flag, Plus, Pin, MoreHorizontal, ChevronLeft, CheckCircle2 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import type { SpaceMilestone } from '../../lib/types';
+import type { ImageSourcePropType } from 'react-native';
+import { getMascotSource, DEFAULT_MASCOT_ID } from '../../lib/mascots/mascotConfig';
 
 interface MilestoneHeaderProps {
   spaceName: string;
@@ -24,6 +26,7 @@ interface MilestoneHeaderProps {
   };
   pinnedCount: number;
   completedCount?: number;
+  mascotSource?: ImageSourcePropType; // Custom mascot image source
   onGremlyPress: () => void;
   onPinnedPress: () => void;
   onCompletedPress?: () => void;
@@ -39,6 +42,7 @@ export function MilestoneHeader({
   countdown,
   pinnedCount,
   completedCount = 0,
+  mascotSource,
   onGremlyPress,
   onPinnedPress,
   onCompletedPress,
@@ -92,7 +96,7 @@ export function MilestoneHeader({
           testID="header-gremly-button"
         >
           <Image
-            source={require('../../assets/mascot/astrogremly.png')}
+            source={mascotSource || getMascotSource(DEFAULT_MASCOT_ID)}
             style={styles.gremlyImage}
             resizeMode="contain"
           />

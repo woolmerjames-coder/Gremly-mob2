@@ -1,4 +1,19 @@
 /**
+ * @deprecated This hook is no longer used.
+ *
+ * Saveable detection now uses a client-side heuristic in useSpaceChatEnhanced.ts
+ * instead of making API calls after every message.
+ *
+ * The new flow:
+ * 1. Assistant message > 120 chars AND not reflective mode → show Save button
+ * 2. User taps "Save this" → call spaceChatSave API to classify and create item
+ *
+ * This file is kept for reference but should not be imported.
+ *
+ * ---
+ *
+ * (Original documentation below)
+ *
  * React hook for managing saveable detection state.
  *
  * This hook wraps the saveable detection system in React state management,

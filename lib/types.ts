@@ -263,6 +263,7 @@ export interface Space {
   name: string;
   icon?: string | null;
   theme?: 'deepTeal' | 'mint' | 'cream' | 'periwinkle' | null;
+  mascot_id?: string | null; // Gremly mascot variant (e.g., 'astro', 'runner', 'journal')
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
 
@@ -398,14 +399,25 @@ export interface SpaceChatMessage {
     options?: any[];
     [key: string]: any;
   } | null;
+  // Persisted saveable detection data (survives app restart)
+  saveable_json?: {
+    type: 'todo' | 'habit' | 'note';
+    title: string;
+    dismissed?: boolean;
+    savedItemId?: string;
+    savedItemType?: string;
+  } | null;
   created_at: string; // ISO 8601
 
-  // Saveable card data (attached to assistant messages)
+  // Saveable card data (attached to assistant messages) - local UI state
   saveable?: {
     type: 'todo' | 'habit' | 'note';
     title: string;
     content?: string;
     prefillData?: any;
+    isSaving?: boolean; // True while save is in progress
+    savedItemId?: string; // ID of the saved item (when status is 'saved')
+    savedItemType?: 'habit' | 'todo' | 'log'; // Type of the saved item
   } | null;
   saveableDismissed?: boolean;
 }

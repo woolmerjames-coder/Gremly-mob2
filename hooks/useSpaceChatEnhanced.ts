@@ -31,7 +31,7 @@
  *     addMessage({ role: 'assistant', content: response });
  *
  *     // 3. Run saveable detection
- *     await runSaveableDetection(response, userMessage, messageId);
+ *     runSaveableDetection(response, userMessage, messageId);
  *
  *     // 4. Update context
  *     await onTurnComplete(userMessage, response);
@@ -43,7 +43,6 @@
 import { useCallback, useMemo } from 'react';
 import { useChatContext } from './useChatContext';
 import { useSaveableCooldown } from './useSaveableCooldown';
-import { useSaveableDetection } from './useSaveableDetection';
 import { useSaveButtonState, SaveButtonState } from './useSaveButtonState';
 import {
   useMetaIntentHandler,
@@ -51,11 +50,10 @@ import {
   SaveThisHandlerResult,
   SummaryHandlerResult,
 } from './useMetaIntentHandler';
-import { detectConversationMode } from '../lib/chat/conversationMode';
+import { detectConversationMode, ConversationMode } from '../lib/chat/conversationMode';
 import { buildSpaceChatSystemPrompt } from '../lib/chat/gremlyPersona';
 import { SpaceContext } from '../lib/chat/buildSpaceContext';
 import { incrementTurnCount, addKeyTopic, ChatContext } from '../lib/chat/rollingContext';
-import { shouldShowSaveButton, mightBeSaveable } from '../lib/chat/saveableDetector';
 import { SaveableResult } from '../lib/chat/saveableTypes';
 import { ChatMessageForResolution, ThisResolution } from '../lib/chat/thisResolver';
 import { SaveThisIntent } from '../lib/chat/metaIntents';
@@ -99,25 +97,39 @@ export interface UseSpaceChatEnhancedReturn {
   ) => Promise<SummaryHandlerResult>;
 
   // Saveable detection (call after assistant responds)
-  /** Run saveable detection for an assistant message */
+  /** Run saveable detection for an assistant message (sync - uses client-side heuristic) */
   runSaveableDetection: (
     assistantMessage: string,
     userMessage: string,
     messageId: string,
-  ) => Promise<SaveableResult | null>;
+  ) => SaveableResult | null;
 
   // Save button state
-  /** Currently active save button (only one at a time) */
+  /** Currently active save button (the most recently activated) */
   activeButton: SaveButtonState | null;
+  /** All message save states (for persisting across scrolls) */
+  messageSaveStates: Record<string, SaveButtonState>;
   /** Show save button for a message */
   showSaveButton: (messageId: string, result: SaveableResult) => void;
   /** Dismiss the current save button */
   dismissSaveButton: () => void;
-  /** Start saving operation */
+  /** Set status to 'saving' for current active message */
+  setSaving: () => void;
+  /** Set status to 'saving' for a specific message */
+  setMessageSaving: (messageId: string) => void;
+  /** Set status to 'saved' with item details (shows confirmation state) */
+  setSaved: (savedItemId: string, savedItemType: 'habit' | 'todo' | 'log') => void;
+  /** Set status to 'saved' for a specific message */
+  setMessageSaved: (
+    messageId: string,
+    savedItemType: 'habit' | 'todo' | 'log',
+    savedItemId: string,
+  ) => void;
+  /** @deprecated Use setSaving() instead */
   startSaving: () => void;
-  /** Finish saving operation */
+  /** @deprecated Use setSaved() or dismissSaveButton() instead */
   finishSaving: () => void;
-  /** Get button state for a specific message */
+  /** Get button state for a specific message (checks both active and persisted states) */
   getButtonStateForMessage: (messageId: string) => SaveButtonState | null;
 
   // Cooldown
@@ -131,15 +143,42 @@ export interface UseSpaceChatEnhancedReturn {
   // Context updates (call after each turn)
   /** Update context after conversation turn completes */
   onTurnComplete: (userMessage: string, assistantMessage: string) => Promise<void>;
-
-  // State
-  /** Whether saveable detection is currently running */
-  isDetecting: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper Functions
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Client-side heuristic to determine if we should show the save button.
+ * Replaces the API-based saveable detection with a simple check.
+ */
+function shouldShowSaveButtonHeuristic(
+  assistantMessage: string,
+  conversationMode: ConversationMode,
+): boolean {
+  console.log('[shouldShowSaveButtonHeuristic] Checking:', {
+    messageLength: assistantMessage?.length,
+    conversationMode,
+    threshold: 120,
+  });
+
+  // Don't show for emotional support / venting responses
+  if (conversationMode === 'reflective') {
+    console.log('[shouldShowSaveButtonHeuristic] SKIP: reflective mode');
+    return false;
+  }
+
+  // Don't show for very short responses (acknowledgments, follow-up questions)
+  if (assistantMessage.length < 120) {
+    console.log('[shouldShowSaveButtonHeuristic] SKIP: message too short', assistantMessage.length);
+    return false;
+  }
+
+  console.log('[shouldShowSaveButtonHeuristic] SHOW: passed all checks');
+  // Show for everything else
+  return true;
+}
 
 /**
  * Extract key topics from conversation messages.
@@ -193,7 +232,6 @@ export function useSpaceChatEnhanced({
   // Pass empty string to useChatContext when chatId is undefined (new chat)
   const { context, updateContext } = useChatContext(chatId ?? '');
   const cooldown = useSaveableCooldown();
-  const detection = useSaveableDetection();
   const buttonState = useSaveButtonState();
   const metaIntent = useMetaIntentHandler();
 
@@ -262,69 +300,53 @@ export function useSpaceChatEnhanced({
 
   /**
    * Run saveable detection after assistant responds.
-   * Respects conversation mode and cooldown state.
+   * Uses a simple client-side heuristic instead of an API call.
    */
   const runSaveableDetection = useCallback(
-    async (
-      assistantMessage: string,
-      userMessage: string,
-      messageId: string,
-    ): Promise<SaveableResult | null> => {
+    (assistantMessage: string, userMessage: string, messageId: string): SaveableResult | null => {
       console.log('[useSpaceChatEnhanced] runSaveableDetection called', {
         messageId,
         assistantLength: assistantMessage?.length,
         userMessage: userMessage?.slice(0, 50),
       });
 
-      // Quick filter - skip obvious non-saveable content
-      if (!mightBeSaveable(assistantMessage)) {
-        console.log('[useSpaceChatEnhanced] SKIP: mightBeSaveable returned false');
-        return null;
-      }
-
       // Detect conversation mode from user message
       const mode = detectConversationMode(userMessage);
       console.log('[useSpaceChatEnhanced] Conversation mode:', mode);
 
-      // Run detection (handles cooldown internally)
-      const result = await detection.runDetection(
-        {
-          assistantMessage,
-          userMessage,
-          conversationContext: context.runningSummary,
-        },
-        messageId,
-        mode,
-        cooldown.cooldownState,
-        cooldown.currentTurn,
-      );
+      // Use simple heuristic to decide if we should show save button
+      const shouldShow = shouldShowSaveButtonHeuristic(assistantMessage, mode);
 
-      console.log('[useSpaceChatEnhanced] detection.runDetection result', {
-        messageId,
-        hasResult: !!result,
-        isSaveable: result?.isSaveable,
-        type: result?.suggestedType,
-        cooldownState: cooldown.cooldownState,
-        currentTurn: cooldown.currentTurn,
-      });
-
-      // Show button if saveable and should show
-      if (result && shouldShowSaveButton(result, mode, cooldown.isInCooldown)) {
-        console.log('[useSpaceChatEnhanced] Showing save button for', messageId);
-        buttonState.showSaveButton(messageId, result);
-        cooldown.markSaveShown();
-      } else if (result) {
-        console.log('[useSpaceChatEnhanced] NOT showing save button', {
+      if (!shouldShow) {
+        console.log('[useSpaceChatEnhanced] Heuristic says no save button', {
           messageId,
-          isSaveable: result.isSaveable,
           mode,
-          isInCooldown: cooldown.isInCooldown,
+          messageLength: assistantMessage.length,
         });
+        return null;
       }
+
+      // Create a minimal SaveableResult for the button
+      const result: SaveableResult = {
+        isSaveable: true,
+        confidence: 1.0,
+        suggestedType: 'log-general',
+        prefill: {
+          title: '',
+          content: assistantMessage,
+          tags: [],
+        },
+        detectedAt: new Date().toISOString(),
+        messageId,
+      };
+
+      console.log('[useSpaceChatEnhanced] Showing save button for', messageId);
+      buttonState.showSaveButton(messageId, result);
+      cooldown.markSaveShown();
 
       return result;
     },
-    [detection, context.runningSummary, cooldown, buttonState],
+    [buttonState, cooldown],
   );
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -375,8 +397,13 @@ export function useSpaceChatEnhanced({
 
     // Save button state
     activeButton: buttonState.activeButton,
+    messageSaveStates: buttonState.messageSaveStates,
     showSaveButton: buttonState.showSaveButton,
     dismissSaveButton: buttonState.dismissSaveButton,
+    setSaving: buttonState.setSaving,
+    setMessageSaving: buttonState.setMessageSaving,
+    setSaved: buttonState.setSaved,
+    setMessageSaved: buttonState.setMessageSaved,
     startSaving: buttonState.startSaving,
     finishSaving: buttonState.finishSaving,
     getButtonStateForMessage: buttonState.getButtonStateForMessage,
@@ -388,9 +415,6 @@ export function useSpaceChatEnhanced({
 
     // Context updates
     onTurnComplete,
-
-    // State
-    isDetecting: detection.isDetecting,
   };
 }
 

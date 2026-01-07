@@ -42,6 +42,18 @@ function ChatBubbleInner({
   const isStreaming = (message as any).isStreaming === true;
   const streamingFailed = (message as any).streamingCancelled === true;
 
+  // Debug logging for save button visibility
+  if (isAssistant && __DEV__) {
+    console.log('[ChatBubble] Rendering assistant message:', {
+      messageId: message.id,
+      hasSaveable: !!message.saveable,
+      saveableDismissed: message.saveableDismissed,
+      isStreaming,
+      saveable: message.saveable,
+      willShowSaveButton: !!message.saveable && !message.saveableDismissed && !isStreaming,
+    });
+  }
+
   // Skip animations in test environment
   const isTestEnv = process.env.JEST_WORKAROUND === '1';
 
@@ -119,18 +131,54 @@ function ChatBubbleInner({
       </View>
 
       {/* Saveable card - render if exists, not dismissed, and not streaming */}
-      {isAssistant && message.saveable && !message.saveableDismissed && !isStreaming && (
-        <View style={styles.saveableCardContainer}>
-          <SaveButton
-            suggestedType={getSaveableType(message.saveable.type)}
-            onSave={() => onSavePress?.(message.saveable!)}
-            onEdit={() => onEditPress?.(message.saveable!)}
-            onDismiss={() => onDismissSaveable?.(message.id)}
-            visible={true}
-            disabled={false}
-          />
-        </View>
-      )}
+      {isAssistant &&
+        message.saveable &&
+        !message.saveableDismissed &&
+        !isStreaming &&
+        (() => {
+          const saveable = message.saveable!;
+          // Determine button state from saveable data
+          const isSaving = saveable.isSaving === true;
+          const isSaved = !!saveable.savedItemId;
+
+          // Derive button state
+          let buttonState: 'initial' | 'loading' | 'confirmed' = 'initial';
+          if (isSaved) {
+            buttonState = 'confirmed';
+          } else if (isSaving) {
+            buttonState = 'loading';
+          }
+
+          // Map savedItemType to SavedItemType for confirmed display
+          const savedType = saveable.savedItemType as 'habit' | 'todo' | 'log' | undefined;
+
+          if (__DEV__) {
+            console.log('[ChatBubble] SaveButton state:', {
+              messageId: message.id,
+              isSaving,
+              isSaved,
+              buttonState,
+              savedType,
+              savedItemId: saveable.savedItemId,
+            });
+          }
+
+          return (
+            <View style={styles.saveableCardContainer}>
+              <SaveButton
+                suggestedType={getSaveableType(saveable.type)}
+                state={buttonState}
+                savedType={savedType}
+                savedItemId={saveable.savedItemId}
+                onSave={() => onSavePress?.(saveable)}
+                onEdit={() => onEditPress?.(saveable)}
+                onDismiss={() => onDismissSaveable?.(message.id)}
+                visible={true}
+                disabled={isSaving}
+              />
+            </View>
+          );
+        })()}
     </ViewComponent>
   );
 }

@@ -1,19 +1,61 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`InlineStreamingCursor renders a pulsing dot when visible 1`] = `
+exports[`InlineStreamingCursor renders breathing orb with halo when visible 1`] = `
 <View
   style={
     [
       {
-        "backgroundColor": "#E0C47A",
-        "borderRadius": 3,
-        "height": 6,
+        "alignItems": "center",
+        "justifyContent": "center",
         "marginBottom": 2,
-        "marginLeft": 4,
-        "width": 6,
+        "marginLeft": 6,
       },
-      undefined,
+      {
+        "height": 20,
+        "width": 20,
+      },
     ]
   }
-/>
+>
+  <View
+    style={
+      [
+        {
+          "position": "absolute",
+        },
+        {
+          "backgroundColor": "#E0C47A",
+          "borderRadius": 10,
+          "height": 20,
+          "width": 20,
+        },
+        undefined,
+      ]
+    }
+  />
+  <View
+    style={
+      [
+        {
+          "elevation": 4,
+          "position": "absolute",
+          "shadowColor": "#E0C47A",
+          "shadowOffset": {
+            "height": 0,
+            "width": 0,
+          },
+          "shadowOpacity": 0.5,
+          "shadowRadius": 4,
+        },
+        {
+          "backgroundColor": "#E0C47A",
+          "borderRadius": 5,
+          "height": 10,
+          "width": 10,
+        },
+        undefined,
+      ]
+    }
+  />
+</View>
 `;

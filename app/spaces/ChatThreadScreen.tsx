@@ -36,7 +36,11 @@ import { MemorySpaceChatRepo } from '../../lib/repo/memory';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { useAuth } from '../../providers/AuthProvider';
-import { callSpaceChat, callSpaceChatStreaming } from '../../lib/cortex/CortexClient';
+import {
+  callSpaceChat,
+  callSpaceChatStreaming,
+  callSpaceChatSave,
+} from '../../lib/cortex/CortexClient';
 import { checkQuickResponse, getQuickResponseText } from '../../lib/chat/quickResponses';
 import { perfMonitor } from '../../lib/chat/performanceMonitor';
 import { getEnv } from '../../lib/env';
@@ -47,7 +51,6 @@ import { ChatComposer } from '../../components/chat/ChatComposer';
 import { EntryCard } from '../../components/chat/EntryCard';
 import { SavedItemCard } from '../../src/components/chat/SavedItemCard';
 // Removed PersistentActionBar and ChatActionBar to reduce clutter per UX polish
-import { ChatThinkingIndicator } from '../../src/components/ChatThinkingIndicator';
 
 // Phase 10.6: New mascot system
 import { MascotProvider } from '../features/mascot/useMascot';
@@ -79,6 +82,7 @@ import {
   useMilestoneCountdown,
   useSpaceById,
   selectItemById,
+  selectCompletionsInRolling7Days,
 } from '../../lib/store/selectors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
@@ -166,6 +170,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const notes = useSpaceNotesFromStore(spaceId);
   const milestone = useSpaceMilestoneFromStore(spaceId);
   const countdown = useMilestoneCountdown(spaceId);
+  const rolling7Completions = useGremlyStore(selectCompletionsInRolling7Days);
 
   // Build space context for AI
   const spaceContext = useMemo(() => {
@@ -199,18 +204,39 @@ export default function ChatThreadScreen({ route }: Props) {
           }
         : null;
 
+    // Map todos with richer data for AI context
+    const todosData = todos.map((t) => ({
+      name: t.name || t.title,
+      title: t.name || t.title,
+      completed_at: t.completed_at ?? null,
+      due_date: t.due_date || null,
+    }));
+
+    // Map habits with richer data for AI context
+    const habitsData = habits.map((h) => ({
+      name: h.name,
+      frequency: h.frequency,
+      completionSummary: `${rolling7Completions.get(h.id) ?? 0}/${h.target_per_period ?? 1} past 7d`,
+    }));
+
+    // Map notes/guides with title
+    const notesData = notes.map((n) => ({
+      name: n.title || '',
+      title: n.title || '',
+    }));
+
     return (
       buildSpaceContext({
         space,
         milestone: milestoneData,
         meta: metaData,
         countdown: countdownData,
-        todos: todos.map((t) => ({ completed_at: t.completed_at ?? null })),
-        habits,
-        notes,
+        todos: todosData,
+        habits: habitsData,
+        notes: notesData,
       }) ?? undefined
     );
-  }, [space, todos, habits, notes, milestone, countdown]);
+  }, [space, todos, habits, notes, milestone, countdown, rolling7Completions]);
 
   // Debug: Log space context for AI
   useEffect(() => {
@@ -727,29 +753,44 @@ export default function ChatThreadScreen({ route }: Props) {
 
                 // Run saveable detection on completed message
                 if (finalizedMessage?.id) {
-                  spaceChatEnhanced
-                    .runSaveableDetection(finalText, trimmedText, finalizedMessage.id)
-                    .then((result) => {
-                      if (result?.isSaveable && result.suggestedType) {
-                        const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
-                          todo: 'todo',
-                          habit: 'habit',
-                          'log-general': 'note',
-                          'log-list': 'note',
-                          'log-idea': 'note',
-                        };
-                        updateMessage(finalizedMessage.id, {
-                          saveable: {
-                            type: typeMap[result.suggestedType] || 'note',
-                            title: result.prefill?.title || '',
-                          },
-                          saveableDismissed: false,
-                        });
-                      }
-                    })
-                    .catch((err) => {
-                      console.error('[ChatThread] Background saveable detection failed:', err);
+                  try {
+                    console.log(
+                      '[ChatThread] Running saveable detection for:',
+                      finalizedMessage.id,
+                    );
+                    const result = spaceChatEnhanced.runSaveableDetection(
+                      finalText,
+                      trimmedText,
+                      finalizedMessage.id,
+                    );
+                    console.log('[ChatThread] Saveable detection result:', {
+                      messageId: finalizedMessage.id,
+                      isSaveable: result?.isSaveable,
+                      suggestedType: result?.suggestedType,
                     });
+                    if (result?.isSaveable && result.suggestedType) {
+                      const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
+                        todo: 'todo',
+                        habit: 'habit',
+                        'log-general': 'note',
+                        'log-idea': 'note',
+                        'log-journal': 'note',
+                      };
+                      console.log('[ChatThread] Updating message with saveable:', {
+                        messageId: finalizedMessage.id,
+                        type: typeMap[result.suggestedType] || 'note',
+                      });
+                      updateMessage(finalizedMessage.id, {
+                        saveable: {
+                          type: typeMap[result.suggestedType] || 'note',
+                          title: result.prefill?.title || '',
+                        },
+                        saveableDismissed: false,
+                      });
+                    }
+                  } catch (err) {
+                    console.error('[ChatThread] Saveable detection failed:', err);
+                  }
                 }
 
                 // Space Chat: Update rolling context after turn completes
@@ -911,6 +952,8 @@ export default function ChatThreadScreen({ route }: Props) {
   );
 
   // Handle edit from ChatBubble's embedded edit button (opens overlay)
+  // If the item is already saved, open the overlay in edit mode with the existing item
+  // Otherwise, open create mode with prefill data
   const handleBubbleEdit = useCallback(
     (message: SpaceChatMessage) => {
       const saveable = message.saveable;
@@ -920,6 +963,35 @@ export default function ChatThreadScreen({ route }: Props) {
         console.log('[Chat] Edit pressed for saveable:', { messageId: message.id, saveable });
       }
 
+      // Check if item is already saved - if so, open in edit mode
+      const savedItemId = saveable.savedItemId;
+      const savedItemType = saveable.savedItemType;
+
+      if (savedItemId && savedItemType) {
+        // Item already exists - fetch from store and open in edit mode
+        const existingItem = getItemById(savedItemId);
+
+        if (existingItem) {
+          if (__DEV__) {
+            console.log('[Chat] Opening edit overlay for existing item:', {
+              itemId: savedItemId,
+              itemType: savedItemType,
+              item: existingItem,
+            });
+          }
+
+          overlayController.openEdit({
+            record: existingItem,
+            spaceId: spaceId || undefined,
+          });
+          return;
+        } else {
+          // Item not found in store (rare edge case - deleted externally?)
+          console.warn('[Chat] Saved item not found in store:', savedItemId);
+        }
+      }
+
+      // Item not saved yet - open create overlay with prefill
       // Track which message is being saved - set BOTH state and ref
       setActiveMessageWithSaveable(message.id);
       activeMessageWithSaveableRef.current = message.id;
@@ -953,102 +1025,162 @@ export default function ChatThreadScreen({ route }: Props) {
       spaceChatEnhanced.finishSaving();
       spaceChatEnhanced.markSaveTapped();
     },
-    [spaceChatEnhanced, spaceId, overlayController],
+    [spaceChatEnhanced, spaceId, overlayController, getItemById],
   );
 
-  // Handle instant save from ChatBubble's embedded save button (no overlay)
+  // Handle instant save from ChatBubble's embedded save button (new on-tap flow)
   const handleBubbleSave = useCallback(
     async (message: SpaceChatMessage) => {
-      const saveable = message.saveable;
-      if (!saveable) return;
-
       if (__DEV__) {
-        console.log('[Chat] Instant save pressed:', {
+        console.log('[Chat] Save this pressed:', {
           messageId: message.id,
-          type: saveable.type,
-          title: saveable.title,
+          contentLength: message.content?.length,
         });
       }
 
-      const prefill = saveable.prefillData || {};
+      // 1. Set button state to 'saving' - update both hook state and message saveable
+      spaceChatEnhanced.setSaving();
+
+      // Update message saveable to show loading state in UI
+      const currentSaveable = message.saveable || { type: 'note' as const, title: '' };
+      updateMessage(message.id, {
+        saveable: {
+          ...currentSaveable,
+          isSaving: true,
+        },
+      });
+
+      // 2. Find the preceding user message that triggered this assistant response
+      const messageIndex = messages.findIndex((m) => m.id === message.id);
+      const precedingUserMessage = messages
+        .slice(0, messageIndex)
+        .reverse()
+        .find((m) => m.role === 'user');
+
+      const userMessageContent = precedingUserMessage?.content || '';
+      const assistantMessage = message.content || '';
 
       try {
+        // 3. Call spaceChatSave to classify and get metadata
+        const classification = await callSpaceChatSave({
+          userMessage: userMessageContent,
+          assistantMessage,
+          spaceName: spaceName || 'Space',
+        });
+
+        console.log('[Chat] spaceChatSave raw result:', JSON.stringify(classification, null, 2));
+        console.log(
+          '[Chat] classification.title =',
+          classification.title,
+          'type:',
+          typeof classification.title,
+        );
+
+        // 4. Create the item based on classification type
         let result: { id: string } | null = null;
         const basePayload = {
-          title: saveable.title || '',
           space_id: spaceId || null,
           origin: 'space_chat' as const,
-          tags: prefill.tags || [],
+          tags: classification.tags || [],
         };
 
-        if (saveable.type === 'todo') {
+        if (classification.type === 'habit') {
+          const habitPayload = {
+            ...basePayload,
+            name: classification.title,
+            notes: assistantMessage,
+            frequency: classification.frequency || 'daily',
+            subtype: (classification.subtype === 'break_habit' ? 'break_habit' : 'start_habit') as
+              | 'start_habit'
+              | 'break_habit',
+            time_estimate_minutes: classification.timeEstimateMinutes || undefined,
+          };
+          console.log('[Chat] Creating habit with:', {
+            title: classification.title,
+            name: classification.title,
+            frequency: classification.frequency,
+            subtype: classification.subtype,
+            fullPayload: habitPayload,
+          });
+          result = await createHabit(habitPayload);
+        } else if (classification.type === 'todo') {
           result = await createTodo({
             ...basePayload,
-            name: saveable.title || '',
-            body: prefill.content || '',
-            due_day: prefill.dueDate || null,
-          });
-        } else if (saveable.type === 'habit') {
-          result = await createHabit({
-            ...basePayload,
-            name: saveable.title || '',
-            notes: prefill.content || '',
-            frequency: prefill.frequency || 'daily',
-            frequency_value: prefill.frequencyValue
-              ? { type: 'simple', value: prefill.frequency || 'daily' }
-              : undefined,
+            name: classification.title,
+            body: assistantMessage,
+            time_estimate_minutes: classification.timeEstimateMinutes || undefined,
           });
         } else {
-          // note/log - use original message content to preserve markdown formatting
+          // log type - save as note
           result = await createNote({
             ...basePayload,
-            body: message.content, // Use original message, NOT prefill.content (which is flattened)
+            title: classification.title,
+            body: assistantMessage,
           });
         }
 
         if (result?.id) {
-          console.log('[Chat] Instant save successful:', result.id);
+          console.log('[Chat] Save successful:', result.id, classification.type);
 
-          // Add locked card to chat
-          const itemType =
-            saveable.type === 'todo' ? 'todo' : saveable.type === 'habit' ? 'habit' : 'note';
-          await appendAssistantMessage('', {
-            type: `${itemType}-locked`,
-            itemType,
-            [`${itemType}Id`]: result.id,
-            [`${itemType}Name`]: saveable.title,
-            ...(itemType === 'habit' && { frequency: prefill.frequency || 'daily' }),
-            ...(itemType === 'todo' && { dueDate: prefill.dueDate }),
-            ...(itemType === 'note' && { noteContent: saveable.title }),
-            locked: true,
+          // 5. Update button state to 'saved'
+          spaceChatEnhanced.setSaved(result.id, classification.type);
+
+          // 6. Update the message's saveable metadata for the saved card display
+          // savedItemId will be persisted to Supabase via saveable_json
+          updateMessage(message.id, {
+            saveable: {
+              type:
+                classification.type === 'todo'
+                  ? 'todo'
+                  : classification.type === 'habit'
+                    ? 'habit'
+                    : 'note',
+              title: classification.title,
+              isSaving: false,
+              savedItemId: result.id,
+              savedItemType: classification.type,
+            },
           });
-
-          // Dismiss the save button
-          handleDismissSaveable(message.id);
-
-          // Add follow-up message
-          const followUp =
-            itemType === 'habit'
-              ? `Great! Your ${saveable.title} habit is set.`
-              : itemType === 'todo'
-                ? `Task added to your list.`
-                : `Got it! Note saved.`;
-          await appendAssistantMessage(followUp);
+        } else {
+          throw new Error('No result ID returned from create action');
         }
       } catch (error) {
-        console.error('[Chat] Instant save failed:', error);
-        // Fallback to edit mode if instant save fails
-        handleBubbleEdit(message);
+        console.error('[Chat] Save failed:', error);
+
+        // Reset saveable to ready state (remove isSaving)
+        updateMessage(message.id, {
+          saveable: {
+            ...currentSaveable,
+            isSaving: false,
+          },
+        });
+
+        // Reset button state back to 'ready' on error
+        // We need to re-show the button for retry
+        spaceChatEnhanced.showSaveButton(message.id, {
+          isSaveable: true,
+          confidence: 1.0,
+          suggestedType: 'log-general',
+          prefill: { title: '', content: assistantMessage, tags: [] },
+          detectedAt: new Date().toISOString(),
+          messageId: message.id,
+        });
+
+        // Optionally show error toast
+        if (__DEV__) {
+          console.error('[Chat] Save error details:', error);
+        }
       }
     },
     [
+      messages,
       spaceId,
+      spaceName,
+      spaceChatEnhanced,
       createTodo,
       createHabit,
       createNote,
-      appendAssistantMessage,
-      handleDismissSaveable,
-      handleBubbleEdit,
+      updateMessage,
     ],
   );
 
@@ -1268,13 +1400,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 </View>
               </View>
             }
-            ListFooterComponent={
-              mascot.state === 'thinking' ? (
-                <View style={styles.typingContainer}>
-                  <ChatThinkingIndicator visible variant="both" />
-                </View>
-              ) : null
-            }
+            ListFooterComponent={null}
           />
 
           {/* Persistent Action Bar removed */}

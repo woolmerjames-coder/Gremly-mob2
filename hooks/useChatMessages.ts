@@ -7,10 +7,11 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { SpaceChatMessage, SpaceChatMessageInsert } from '../lib/types';
+import { SpaceChatMessage, SpaceChatMessageInsert, SpaceChat } from '../lib/types';
 import { SupabaseSpaceChatMessageRepo, SupabaseSpaceChatRepo } from '../lib/repo/supabase';
 import { formatFrequencyLabel, formatDueDateLabel } from '../src/lib/formatters/itemDisplayHelpers';
 import { useAuth } from '../providers/AuthProvider';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 
 /**
  * Generate a chat title from the first user message.
@@ -149,16 +150,39 @@ export function useChatMessages(
       setError(null);
       const fetchedMessages = await messageRepo.list(currentChatId);
 
-      // Restore saveable data that was preserved across refresh
+      // Restore saveable data: Priority 1 = session ref, Priority 2 = database column
       const messagesWithSaveable = fetchedMessages.map((msg) => {
-        const savedData = saveableDataRef.current.get(msg.id);
-        if (savedData) {
+        // Priority 1: Session ref (most recent, set this session)
+        const refData = saveableDataRef.current.get(msg.id);
+        if (refData) {
           return {
             ...msg,
-            saveable: savedData.saveable,
-            saveableDismissed: savedData.saveableDismissed,
+            saveable: refData.saveable,
+            saveableDismissed: refData.saveableDismissed,
           };
         }
+
+        // Priority 2: Database column (persisted from previous session)
+        if (msg.saveable_json) {
+          const dbSaveable = msg.saveable_json as {
+            type: string;
+            title: string;
+            dismissed?: boolean;
+            savedItemId?: string;
+            savedItemType?: string;
+          };
+          return {
+            ...msg,
+            saveable: {
+              type: dbSaveable.type as 'todo' | 'habit' | 'note',
+              title: dbSaveable.title,
+              savedItemId: dbSaveable.savedItemId,
+              savedItemType: dbSaveable.savedItemType as 'habit' | 'todo' | 'log' | undefined,
+            },
+            saveableDismissed: dbSaveable.dismissed ?? false,
+          };
+        }
+
         return msg;
       });
 
@@ -201,6 +225,20 @@ export function useChatMessages(
           setCurrentChatId(activeChatId);
           titleSetRef.current = true; // Title already set during creation
           console.log('[useChatMessages] Created new chat on first message:', activeChatId);
+
+          // Sync to Zustand store for immediate UI update in chat list
+          const syncSpaceChat = useGremlyStore.getState().syncSpaceChat;
+          syncSpaceChat({
+            ...newChat,
+            space_id: spaceId,
+            user_id: user.id,
+            title: generatedTitle,
+            last_message_snippet: text.trim().slice(0, 100),
+            is_archived: false,
+            pinned: false,
+            created_at: newChat.created_at || new Date().toISOString(),
+            updated_at: newChat.updated_at || new Date().toISOString(),
+          } as SpaceChat);
         }
 
         const input: SpaceChatMessageInsert = {
@@ -226,10 +264,21 @@ export function useChatMessages(
             title: generatedTitle,
             last_message_snippet: text.trim(),
           });
+          // Sync to Zustand store
+          const updateSpaceChat = useGremlyStore.getState().updateSpaceChat;
+          updateSpaceChat(activeChatId, {
+            title: generatedTitle,
+            last_message_snippet: text.trim().slice(0, 100),
+          });
         } else {
           // Just update last message snippet
           await chatRepo.update(activeChatId, {
             last_message_snippet: text.trim(),
+          });
+          // Sync to Zustand store
+          const updateSpaceChat = useGremlyStore.getState().updateSpaceChat;
+          updateSpaceChat(activeChatId, {
+            last_message_snippet: text.trim().slice(0, 100),
           });
         }
 
@@ -425,16 +474,42 @@ export function useChatMessages(
   }, []);
 
   const updateMessage = useCallback((messageId: string, updates: Partial<SpaceChatMessage>) => {
+    console.log('[useChatMessages] updateMessage called:', {
+      messageId,
+      hasSaveableUpdate: 'saveable' in updates,
+      saveable: updates.saveable,
+      saveableDismissed: updates.saveableDismissed,
+    });
+
     // If updating saveable or saveableDismissed, update the ref so refresh() preserves it
     if ('saveable' in updates || 'saveableDismissed' in updates) {
       const existing = saveableDataRef.current.get(messageId);
+      const newSaveable = 'saveable' in updates ? updates.saveable : existing?.saveable;
+      const newDismissed =
+        'saveableDismissed' in updates
+          ? updates.saveableDismissed!
+          : (existing?.saveableDismissed ?? false);
+
       saveableDataRef.current.set(messageId, {
-        saveable: 'saveable' in updates ? updates.saveable : existing?.saveable,
-        saveableDismissed:
-          'saveableDismissed' in updates
-            ? updates.saveableDismissed!
-            : (existing?.saveableDismissed ?? false),
+        saveable: newSaveable,
+        saveableDismissed: newDismissed,
       });
+      console.log('[useChatMessages] Saved to saveableDataRef:', messageId);
+
+      // Persist saveable data to Supabase (fire-and-forget for durability)
+      if (newSaveable) {
+        messageRepo
+          .update(messageId, {
+            saveable_json: {
+              type: newSaveable.type,
+              title: newSaveable.title || '',
+              dismissed: newDismissed,
+              savedItemId: newSaveable.savedItemId || null,
+              savedItemType: newSaveable.savedItemType || null,
+            },
+          })
+          .catch((err) => console.error('[useChatMessages] Failed to persist saveable:', err));
+      }
     }
 
     setMessages((prev) => prev.map((msg) => (msg.id === messageId ? { ...msg, ...updates } : msg)));

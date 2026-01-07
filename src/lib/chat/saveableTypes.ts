@@ -13,12 +13,27 @@
  * The types of entities that can be saved from a conversation.
  *
  * - 'log-general': General notes, thoughts, reflections
- * - 'log-list': List-specific notes (tied to a list context)
  * - 'log-idea': Creative ideas, brainstorms, inspirations
+ * - 'log-journal': Time-anchored journal entries, reflections
  * - 'todo': Actionable tasks with optional due dates
  * - 'habit': Recurring behaviors to track
  */
-export type SaveableType = 'log-general' | 'log-list' | 'log-idea' | 'todo' | 'habit';
+export type SaveableType = 'log-general' | 'log-idea' | 'log-journal' | 'todo' | 'habit';
+
+/**
+ * Subtype for habit entities.
+ * - 'start_habit': Building a new positive behavior
+ * - 'break_habit': Stopping an unwanted behavior
+ */
+export type HabitSubtype = 'start_habit' | 'break_habit';
+
+/**
+ * Subtype for log entities.
+ * - 'general': General notes, thoughts
+ * - 'idea': Creative ideas, brainstorms
+ * - 'journal': Time-anchored reflections
+ */
+export type LogSubtype = 'general' | 'idea' | 'journal';
 
 /**
  * Frequency options for habit tracking.
@@ -73,6 +88,18 @@ export interface SaveablePrefill {
    * Frequency for habits. Only populated when suggestedType is 'habit'.
    */
   frequency?: HabitFrequency;
+
+  /**
+   * Subtype for habits (start_habit vs break_habit).
+   * Only populated when suggestedType is 'habit'.
+   */
+  habitSubtype?: HabitSubtype;
+
+  /**
+   * Whether the content contains a list/checklist.
+   * When true, the overlay should render list UI.
+   */
+  hasList?: boolean;
 
   /**
    * Due date for todos. Only populated when suggestedType is 'todo'.
@@ -132,6 +159,60 @@ export interface SaveableResult {
    * Used to track which messages have been processed.
    */
   messageId: string;
+}
+
+// ============================================================================
+// Space Chat Save Result
+// ============================================================================
+
+/**
+ * Response from on-tap classification when user saves from Space Chat.
+ * This is the result of analyzing the conversation to determine
+ * what type of entity to create.
+ */
+export interface SpaceChatSaveResult {
+  /**
+   * The base entity type to create.
+   */
+  type: 'habit' | 'todo' | 'log';
+
+  /**
+   * Subtype for the entity.
+   * - For habits: 'start_habit' | 'break_habit'
+   * - For logs: 'general' | 'idea' | 'journal'
+   * - For todos: null
+   */
+  subtype: HabitSubtype | LogSubtype | null;
+
+  /**
+   * Confidence score from 0 to 1.
+   */
+  confidence: number;
+
+  /**
+   * Short title for the entity.
+   */
+  title: string;
+
+  /**
+   * Extracted tags for categorization.
+   */
+  tags: string[];
+
+  /**
+   * Frequency for habits. Only populated for habit type.
+   */
+  frequency?: string | null;
+
+  /**
+   * Estimated time in minutes for todos.
+   */
+  timeEstimateMinutes?: number | null;
+
+  /**
+   * Whether the content contains a list/checklist.
+   */
+  hasList?: boolean;
 }
 
 // ============================================================================
@@ -254,7 +335,21 @@ export const EXPLICIT_SAVE_THRESHOLDS = {
  * Check if a string is a valid SaveableType.
  */
 export function isSaveableType(value: string): value is SaveableType {
-  return ['log-general', 'log-list', 'log-idea', 'todo', 'habit'].includes(value);
+  return ['log-general', 'log-idea', 'log-journal', 'todo', 'habit'].includes(value);
+}
+
+/**
+ * Check if a string is a valid HabitSubtype.
+ */
+export function isHabitSubtype(value: string): value is HabitSubtype {
+  return ['start_habit', 'break_habit'].includes(value);
+}
+
+/**
+ * Check if a string is a valid LogSubtype.
+ */
+export function isLogSubtype(value: string): value is LogSubtype {
+  return ['general', 'idea', 'journal'].includes(value);
 }
 
 /**

@@ -133,6 +133,33 @@ export const selectHabitCompletedToday = createSelector(
 );
 
 /**
+ * Selector: Is this specific habit completed TODAY?
+ * Checks habitProgress array for an entry with today's date.
+ *
+ * This is the source of truth for checkbox state - ensures consistency
+ * across all views (SpaceHome, Today's Focus, Habits sheet, etc.)
+ *
+ * @param state - Store state (or partial state with habitProgress)
+ * @param habitId - The habit ID to check
+ * @returns true if habit has a completion logged for today
+ */
+export const selectIsHabitDoneToday = (
+  state: { habitProgress: Array<{ habit_id: string; occurred_day: string }> },
+  habitId: string,
+): boolean => {
+  const todayDate = getTodayDayString();
+  return state.habitProgress.some((p) => p.habit_id === habitId && p.occurred_day === todayDate);
+};
+
+/**
+ * Hook version for components that need reactive updates.
+ * Use this in components instead of calling selectIsHabitDoneToday directly.
+ */
+export const useIsHabitDoneToday = (habitId: string): boolean => {
+  return useGremlyStore((state) => selectIsHabitDoneToday(state, habitId));
+};
+
+/**
  * Rolling 7-day completion counts (not calendar week)
  * Counts unique days with completions per habit in the last 7 days including today
  */

@@ -177,6 +177,8 @@ interface GremlyState {
   deleteHabit: (id: string) => Promise<void>;
   completeHabit: (id: string) => Promise<void>;
   uncompleteHabit: (id: string) => Promise<void>;
+  /** Toggle habit completion for TODAY - complete if not done, uncomplete if done */
+  toggleHabitToday: (id: string) => Promise<void>;
   /** Log habit completion for a specific date (for Habits This Week) */
   logHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
   /** Remove habit completion for a specific date (for Habits This Week) */
@@ -207,6 +209,7 @@ interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   createSpaceChat: (spaceId: string, title: string) => Promise<SpaceChat | null>;
   updateSpaceChat: (chatId: string, patch: Partial<SpaceChat>) => Promise<void>;
+  syncSpaceChat: (chat: SpaceChat) => void; // Sync chat from external source (no Supabase write)
   archiveSpaceChat: (chatId: string) => Promise<void>;
   deleteSpaceChat: (chatId: string) => Promise<void>;
   addChatMessage: (
@@ -915,6 +918,27 @@ export const useGremlyStore = create<GremlyState>()(
         // 4. EMIT EVENT for backward compatibility (strangler fig pattern)
         eventBus.emit('ItemCompleted', { id, type: 'habit', source: STORE_EVENT_SOURCE });
 
+        // 5. Set start_date on FIRST completion if currently null
+        // This ensures habits get a start_date when the user actually begins doing them
+        const habit = get().habits.find((h) => h.id === id);
+        if (habit && !habit.start_date) {
+          console.log('[GremlyStore] First completion - setting start_date for habit:', id);
+
+          // Update Supabase (fire-and-forget, non-blocking)
+          supabase
+            .from('habits')
+            .update({ start_date: todayDate })
+            .eq('id', id)
+            .then(({ error }) => {
+              if (error) console.error('[GremlyStore] Failed to set start_date:', error);
+            });
+
+          // Update local store immediately for UI
+          set((state) => ({
+            habits: state.habits.map((h) => (h.id === id ? { ...h, start_date: todayDate } : h)),
+          }));
+        }
+
         console.log('[GremlyStore] ✅ Habit completed:', id);
       } catch (error) {
         // ROLLBACK optimistic update
@@ -1001,6 +1025,33 @@ export const useGremlyStore = create<GremlyState>()(
           }));
         }
         throw error;
+      }
+    },
+
+    /**
+     * Toggle a habit's completion status for TODAY.
+     * If done today → uncomplete (remove today's progress)
+     * If not done today → complete (add today's progress)
+     *
+     * This is the single action that should be called from UI toggle handlers.
+     */
+    toggleHabitToday: async (id: string) => {
+      // Use LOCAL date for occurred_day to match filtering logic
+      const now = new Date();
+      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      const isDoneToday = get().habitProgress.some(
+        (p) => p.habit_id === id && p.occurred_day === todayDate,
+      );
+
+      console.log('[GremlyStore] toggleHabitToday:', id, 'isDoneToday:', isDoneToday);
+
+      if (isDoneToday) {
+        // Currently done → uncomplete it
+        await get().uncompleteHabit(id);
+      } else {
+        // Not done → complete it
+        await get().completeHabit(id);
       }
     },
 
@@ -1519,6 +1570,19 @@ export const useGremlyStore = create<GremlyState>()(
       }
     },
 
+    // Sync a chat created externally (e.g., by useChatMessages) - no Supabase write
+    syncSpaceChat: (chat: SpaceChat) => {
+      set((state) => {
+        // Don't add if already exists
+        if (state.spaceChats.some((c) => c.id === chat.id)) {
+          return state;
+        }
+        return {
+          spaceChats: [chat, ...state.spaceChats],
+        };
+      });
+    },
+
     updateSpaceChat: async (chatId: string, patch: Partial<SpaceChat>) => {
       const prev = get().spaceChats.find((c) => c.id === chatId);
       if (!prev) return;
@@ -1676,6 +1740,7 @@ export const useGremlyStore = create<GremlyState>()(
         space_id: spaceId,
         owner_id: userId,
         name: data.name,
+        title: data.name, // DB requires title column (NOT NULL)
         date: data.date ?? null,
         completed: false,
         completed_at: null,
@@ -1719,16 +1784,19 @@ export const useGremlyStore = create<GremlyState>()(
 
       const now = new Date().toISOString();
 
+      // Sync title with name if name is being updated
+      const syncedPatch = patch.name ? { ...patch, title: patch.name } : patch;
+
       set((state) => ({
         milestones: state.milestones.map((m) =>
-          m.id === milestoneId ? { ...m, ...patch, updated_at: now } : m,
+          m.id === milestoneId ? { ...m, ...syncedPatch, updated_at: now } : m,
         ),
       }));
 
       try {
         const { error } = await supabase
           .from('space_milestones')
-          .update({ ...patch, updated_at: now })
+          .update({ ...syncedPatch, updated_at: now })
           .eq('id', milestoneId);
 
         if (error) throw error;

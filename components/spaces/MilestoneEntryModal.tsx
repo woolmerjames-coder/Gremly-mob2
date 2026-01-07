@@ -16,6 +16,8 @@ import {
   Platform,
   KeyboardAvoidingView,
   Alert,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { X, Calendar, Flag, Trash2 } from 'lucide-react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -135,111 +137,153 @@ export function MilestoneEntryModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}
-      >
-        <View style={[styles.content, { paddingTop: insets.top + 16 }]}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerIcon}>
-              <Flag size={20} color={BRAND.colors.mossGreen} />
-            </View>
-            <Text style={styles.title}>{isEditing ? 'Edit Goal' : 'Set a Goal'}</Text>
-            <Pressable
-              onPress={onClose}
-              style={styles.closeButton}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityLabel="Close"
-              accessibilityRole="button"
-            >
-              <X size={24} color={BRAND.colors.inkMuted} />
-            </Pressable>
-          </View>
-
-          {/* Form */}
-          <View style={styles.form}>
-            {/* Milestone Name */}
-            <View style={styles.field}>
-              <Text style={styles.label}>What's your goal?</Text>
-              <TextInput
-                style={styles.textInput}
-                value={name}
-                onChangeText={setName}
-                placeholder="e.g., Trip to Japan, Launch MVP, Run 5K"
-                placeholderTextColor={BRAND.colors.inkMuted}
-                autoFocus
-                returnKeyType="next"
-                maxLength={100}
-              />
-            </View>
-
-            {/* Target Date */}
-            <View style={styles.field}>
-              <Text style={styles.label}>Target date</Text>
-              <Pressable onPress={() => setShowDatePicker(true)} style={styles.dateButton}>
-                <Calendar size={18} color={BRAND.colors.mossGreen} />
-                <Text style={styles.dateText}>{formatDate(targetDate)}</Text>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.container}
+        >
+          <View style={[styles.content, { paddingTop: insets.top + 16 }]}>
+            {/* Header */}
+            <View style={styles.header}>
+              <View style={styles.headerIcon}>
+                <Flag size={20} color={BRAND.colors.mossGreen} />
+              </View>
+              <Text style={styles.title}>{isEditing ? 'Edit Goal' : 'Set a Goal'}</Text>
+              <Pressable
+                onPress={onClose}
+                style={styles.closeButton}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Close"
+                accessibilityRole="button"
+              >
+                <X size={24} color={BRAND.colors.inkMuted} />
               </Pressable>
             </View>
 
-            {/* Date Picker */}
-            {(showDatePicker || Platform.OS === 'ios') && (
-              <View style={styles.datePickerContainer}>
-                {Platform.OS === 'ios' && <Text style={styles.datePickerLabel}>Select date:</Text>}
+            {/* Form */}
+            <View style={styles.form}>
+              {/* Milestone Name */}
+              <View style={styles.field}>
+                <Text style={styles.label}>What's your goal?</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="e.g., Trip to Japan, Launch MVP, Run 5K"
+                  placeholderTextColor={BRAND.colors.inkMuted}
+                  autoFocus
+                  returnKeyType="done"
+                  blurOnSubmit={true}
+                  onSubmitEditing={Keyboard.dismiss}
+                  maxLength={100}
+                />
+              </View>
+
+              {/* Target Date */}
+              <View style={styles.field}>
+                <Text style={styles.label}>Target date</Text>
+                <Pressable
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setShowDatePicker(true);
+                  }}
+                  style={styles.dateButton}
+                >
+                  <Calendar size={18} color={BRAND.colors.mossGreen} />
+                  <Text style={styles.dateText}>{formatDate(targetDate)}</Text>
+                </Pressable>
+              </View>
+
+              {/* Date Picker - Android inline */}
+              {showDatePicker && Platform.OS === 'android' && (
                 <DateTimePicker
                   value={targetDate}
                   mode="date"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  display="default"
                   onChange={handleDateChange}
                   minimumDate={new Date()}
-                  style={styles.datePicker}
                 />
-              </View>
+              )}
+            </View>
+
+            {/* Remove option - only when editing */}
+            {isEditing && onRemove && (
+              <Pressable
+                onPress={handleRemove}
+                style={({ pressed }) => [styles.removeButton, pressed && styles.buttonPressed]}
+              >
+                <Trash2 size={16} color="#DC3545" />
+                <Text style={styles.removeButtonText}>Remove goal</Text>
+              </Pressable>
             )}
+
+            {/* Actions */}
+            <View style={[styles.actions, { paddingBottom: insets.bottom + 16 }]}>
+              <Pressable
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.button,
+                  styles.cancelButton,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleSave}
+                disabled={!canSave || saving}
+                style={({ pressed }) => [
+                  styles.button,
+                  styles.saveButton,
+                  !canSave && styles.saveButtonDisabled,
+                  pressed && canSave && styles.buttonPressed,
+                ]}
+              >
+                <Text style={[styles.saveButtonText, !canSave && styles.saveButtonTextDisabled]}>
+                  {saving ? 'Saving...' : isEditing ? 'Update' : 'Set Goal'}
+                </Text>
+              </Pressable>
+            </View>
           </View>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
 
-          {/* Remove option - only when editing */}
-          {isEditing && onRemove && (
-            <Pressable
-              onPress={handleRemove}
-              style={({ pressed }) => [styles.removeButton, pressed && styles.buttonPressed]}
-            >
-              <Trash2 size={16} color="#DC3545" />
-              <Text style={styles.removeButtonText}>Remove goal</Text>
-            </Pressable>
-          )}
-
-          {/* Actions */}
-          <View style={[styles.actions, { paddingBottom: insets.bottom + 16 }]}>
-            <Pressable
-              onPress={onClose}
-              style={({ pressed }) => [
-                styles.button,
-                styles.cancelButton,
-                pressed && styles.buttonPressed,
-              ]}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={handleSave}
-              disabled={!canSave || saving}
-              style={({ pressed }) => [
-                styles.button,
-                styles.saveButton,
-                !canSave && styles.saveButtonDisabled,
-                pressed && canSave && styles.buttonPressed,
-              ]}
-            >
-              <Text style={[styles.saveButtonText, !canSave && styles.saveButtonTextDisabled]}>
-                {saving ? 'Saving...' : isEditing ? 'Update' : 'Set Goal'}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
+      {/* iOS Date Picker Modal */}
+      {Platform.OS === 'ios' && showDatePicker && (
+        <Modal
+          visible={showDatePicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowDatePicker(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowDatePicker(false)}>
+            <View style={styles.datePickerOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={styles.datePickerModal}>
+                  <View style={styles.datePickerHeader}>
+                    <Text style={styles.datePickerTitle}>Select Date</Text>
+                    <Pressable
+                      onPress={() => setShowDatePicker(false)}
+                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    >
+                      <Text style={styles.datePickerDone}>Done</Text>
+                    </Pressable>
+                  </View>
+                  <DateTimePicker
+                    value={targetDate}
+                    mode="date"
+                    display="spinner"
+                    onChange={handleDateChange}
+                    minimumDate={new Date()}
+                    style={styles.datePicker}
+                  />
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      )}
     </Modal>
   );
 }
@@ -313,20 +357,38 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: BRAND.colors.charcoalInk,
   },
-  datePickerContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    marginTop: -8,
-    marginBottom: 16,
+  datePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
   },
-  datePickerLabel: {
-    fontSize: 13,
-    color: BRAND.colors.inkMuted,
-    paddingHorizontal: 14,
-    paddingTop: 12,
+  datePickerModal: {
+    backgroundColor: BRAND.colors.linenCream,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 34,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  datePickerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+  },
+  datePickerDone: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
   datePicker: {
-    height: 150,
+    height: 200,
   },
   actions: {
     flexDirection: 'row',
