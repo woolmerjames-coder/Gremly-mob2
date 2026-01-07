@@ -398,9 +398,15 @@ export interface SpaceChatMessage {
     options?: any[];
     [key: string]: any;
   } | null;
+  // Persisted saveable detection data (survives app restart)
+  saveable_json?: {
+    type: 'todo' | 'habit' | 'note';
+    title: string;
+    dismissed?: boolean;
+  } | null;
   created_at: string; // ISO 8601
 
-  // Saveable card data (attached to assistant messages)
+  // Saveable card data (attached to assistant messages) - local UI state
   saveable?: {
     type: 'todo' | 'habit' | 'note';
     title: string;

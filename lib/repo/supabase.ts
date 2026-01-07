@@ -4789,7 +4789,11 @@ export class SupabaseSpaceChatMessageRepo {
 
   async update(
     messageId: string,
-    updates: { content?: string; metadata_json?: Record<string, unknown> | null },
+    updates: {
+      content?: string;
+      metadata_json?: Record<string, unknown> | null;
+      saveable_json?: { type: string; title: string; dismissed?: boolean } | null;
+    },
   ): Promise<import('../types').SpaceChatMessage> {
     const userId = this.ensureUserId();
 
@@ -4798,6 +4802,7 @@ export class SupabaseSpaceChatMessageRepo {
       .update({
         ...(updates.content !== undefined && { content: updates.content }),
         ...(updates.metadata_json !== undefined && { metadata_json: updates.metadata_json }),
+        ...(updates.saveable_json !== undefined && { saveable_json: updates.saveable_json }),
       })
       .eq('id', messageId)
       .eq('user_id', userId)

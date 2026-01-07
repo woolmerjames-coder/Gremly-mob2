@@ -207,6 +207,7 @@ interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   createSpaceChat: (spaceId: string, title: string) => Promise<SpaceChat | null>;
   updateSpaceChat: (chatId: string, patch: Partial<SpaceChat>) => Promise<void>;
+  syncSpaceChat: (chat: SpaceChat) => void; // Sync chat from external source (no Supabase write)
   archiveSpaceChat: (chatId: string) => Promise<void>;
   deleteSpaceChat: (chatId: string) => Promise<void>;
   addChatMessage: (
@@ -1517,6 +1518,19 @@ export const useGremlyStore = create<GremlyState>()(
         console.error('[GremlyStore] createSpaceChat failed:', error);
         throw error;
       }
+    },
+
+    // Sync a chat created externally (e.g., by useChatMessages) - no Supabase write
+    syncSpaceChat: (chat: SpaceChat) => {
+      set((state) => {
+        // Don't add if already exists
+        if (state.spaceChats.some((c) => c.id === chat.id)) {
+          return state;
+        }
+        return {
+          spaceChats: [chat, ...state.spaceChats],
+        };
+      });
     },
 
     updateSpaceChat: async (chatId: string, patch: Partial<SpaceChat>) => {
