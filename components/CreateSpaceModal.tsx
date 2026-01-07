@@ -1,8 +1,18 @@
 import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
 import { useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Keyboard } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  Pressable,
+  Keyboard,
+  ScrollView,
+  LayoutAnimation,
+  Platform,
+  Image,
+} from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Flag } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, Calendar, X } from 'lucide-react-native';
 import { useRepo } from '../providers/RepoProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { useTokens } from '../design/makeStyles';
@@ -10,8 +20,7 @@ import { Input } from '../design-system/Input';
 import { Button } from '../design-system/Button';
 import { Text } from '../ui/Text';
 import { Box } from '../ui/Box';
-import { getSpaceIcon } from '../lib/utils/spaceIconMatcher';
-import type { Space, SpaceMilestone, SpaceMeta } from '../lib/types';
+import type { Space } from '../lib/types';
 
 // Module-scope callback for navigation after creation
 let onCreatedCallback: ((space: Space) => void) | null = null;
@@ -20,141 +29,131 @@ export function setCreateSpaceCallback(callback: ((space: Space) => void) | null
   onCreatedCallback = callback;
 }
 
-type Step = 'name-milestone' | 'enrichment';
-
 interface FormState {
-  // Step 1
   spaceName: string;
-  milestoneName: string;
-  // Step 2 (enrichment)
-  milestoneDate: string;
+  gremlyAvatar: string; // e.g., 'astro', 'chef', 'artist'
+  goalName: string;
+  targetDate: Date | null;
   successCriteria: string;
-  otherContext: string;
+  notes: string;
 }
 
 const initialFormState: FormState = {
   spaceName: '',
-  milestoneName: '',
-  milestoneDate: '',
+  gremlyAvatar: 'astro',
+  goalName: '',
+  targetDate: null,
   successCriteria: '',
-  otherContext: '',
+  notes: '',
+};
+
+// Placeholder until we build the full picker
+const getGremlyAvatarSource = (avatarId: string) => {
+  // TODO: Map avatarId to actual image sources when picker is built
+  switch (avatarId) {
+    case 'chef':
+      return require('../assets/mascot/clipboardgremly.png');
+    case 'runner':
+      return require('../assets/mascot/running-removebg.png');
+    case 'astro':
+    default:
+      return require('../assets/mascot/astrogremly.png');
+  }
 };
 
 /**
- * CreateSpaceModal - 2-step Space creation flow
+ * CreateSpaceModal - Single-page Space creation with progressive disclosure
  *
- * Step 1: Space name (required) + Milestone (optional)
- * Step 2: Enrichment data (only if milestone was entered)
- *
- * Per spec: "Skip for now" creates Space without milestone (shows nudge)
+ * Layout:
+ * - Gremly avatar (tappable, placeholder picker)
+ * - Name (required)
+ * - Goal (optional)
+ * - Target date (native picker)
+ * - More details toggle (success criteria, notes)
  */
 export default function CreateSpaceModal() {
   const insets = useSafeAreaInsets();
-  const repo = useRepo(); // Keep for upsertSpaceMeta until migrated
+  const repo = useRepo();
   const storeCreateSpace = useGremlyStore((s) => s.createSpace);
   const storeCreateMilestone = useGremlyStore((s) => s.createMilestone);
   const tokens = useTokens();
 
-  const [step, setStep] = useState<Step>('name-milestone');
   const [form, setForm] = useState<FormState>(initialFormState);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  // const [showGremlyPicker, setShowGremlyPicker] = useState(false); // For later
 
-  // Validation
-  const canContinue = form.spaceName.trim().length > 0 && !saving;
-  const hasMilestone = form.milestoneName.trim().length > 0;
+  const canCreate = form.spaceName.trim().length > 0 && !saving;
 
-  // Reset form to initial state
   const resetForm = useCallback(() => {
-    setStep('name-milestone');
     setForm(initialFormState);
     setError(null);
     setSaving(false);
+    setShowMoreDetails(false);
+    setShowDatePicker(false);
   }, []);
 
-  // Create Space (and optionally milestone + meta)
-  const createSpace = useCallback(
-    async (includeMilestone: boolean, includeEnrichment: boolean) => {
-      if (!canContinue) return;
-
-      setError(null);
-      setSaving(true);
-      Keyboard.dismiss();
-
-      try {
-        // 1. Create the Space using Zustand store
-        const space = await storeCreateSpace({
-          name: form.spaceName.trim(),
-        });
-
-        // 2. Create milestone if provided using Zustand store
-        if (includeMilestone && form.milestoneName.trim()) {
-          await storeCreateMilestone(space.id, {
-            name: form.milestoneName.trim(),
-            date: form.milestoneDate || null,
-          });
-        }
-
-        // 3. Create space_meta if enrichment provided (still uses repo)
-        if (includeEnrichment && (form.successCriteria.trim() || form.otherContext.trim())) {
-          await repo.upsertSpaceMeta(space.id, {
-            success_criteria: form.successCriteria.trim() || null,
-            other_context: form.otherContext.trim() || null,
-          });
-        }
-
-        // 4. Callback and cleanup
-        if (onCreatedCallback) {
-          onCreatedCallback(space);
-          onCreatedCallback = null;
-        }
-
-        resetForm();
-        await SheetManager.hide('new-space');
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : 'Something went wrong';
-        setError(errorMessage);
-      } finally {
-        setSaving(false);
-      }
-    },
-    [canContinue, form, repo, resetForm],
-  );
-
-  // Handle "Skip for now" - create Space without milestone
-  const handleSkip = useCallback(() => {
-    createSpace(false, false);
-  }, [createSpace]);
-
-  // Handle "Continue" from Step 1
-  const handleContinue = useCallback(() => {
-    if (hasMilestone) {
-      // Has milestone → go to Step 2 for enrichment
-      setStep('enrichment');
-    } else {
-      // No milestone → create Space directly (will show nudge)
-      createSpace(false, false);
-    }
-  }, [hasMilestone, createSpace]);
-
-  // Handle "Skip" from Step 2 - create with milestone but no enrichment
-  const handleSkipEnrichment = useCallback(() => {
-    createSpace(true, false);
-  }, [createSpace]);
-
-  // Handle "Save & Start" from Step 2 - create with everything
-  const handleSaveAndStart = useCallback(() => {
-    createSpace(true, true);
-  }, [createSpace]);
-
-  // Handle back from Step 2 to Step 1
-  const handleBack = useCallback(() => {
-    setStep('name-milestone');
-  }, []);
-
-  // Update form field
   const updateField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleCreate = useCallback(async () => {
+    if (!canCreate) return;
+
+    setError(null);
+    setSaving(true);
+    Keyboard.dismiss();
+
+    try {
+      // 1. Create Space
+      const space = await storeCreateSpace({
+        name: form.spaceName.trim(),
+        // TODO: Add gremlyAvatar when schema supports it
+        // gremly_avatar: form.gremlyAvatar,
+      });
+
+      // 2. Create milestone if goal provided
+      if (form.goalName.trim()) {
+        await storeCreateMilestone(space.id, {
+          name: form.goalName.trim(),
+          date: form.targetDate?.toISOString().split('T')[0] || null,
+        });
+      }
+
+      // 3. Create space_meta if details provided
+      if (form.successCriteria.trim() || form.notes.trim()) {
+        await repo.upsertSpaceMeta(space.id, {
+          success_criteria: form.successCriteria.trim() || null,
+          other_context: form.notes.trim() || null,
+        });
+      }
+
+      // 4. Callback and cleanup
+      if (onCreatedCallback) {
+        onCreatedCallback(space);
+        onCreatedCallback = null;
+      }
+
+      resetForm();
+      await SheetManager.hide('new-space');
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : 'Something went wrong';
+      setError(errorMessage);
+    } finally {
+      setSaving(false);
+    }
+  }, [canCreate, form, repo, resetForm, storeCreateSpace, storeCreateMilestone]);
+
+  const handleCancel = useCallback(() => {
+    resetForm();
+    SheetManager.hide('new-space');
+  }, [resetForm]);
+
+  const toggleMoreDetails = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowMoreDetails((prev) => !prev);
   }, []);
 
   const styles = StyleSheet.create({
@@ -162,29 +161,84 @@ export default function CreateSpaceModal() {
       padding: tokens.spacing[4],
       paddingBottom: (insets.bottom || 0) + tokens.spacing[4],
     },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginBottom: tokens.spacing[4],
-    },
     title: {
       fontSize: 24,
       fontWeight: '600',
       color: tokens.colors.text,
-      flex: 1,
+      textAlign: 'center',
+      marginBottom: tokens.spacing[4],
     },
-    stepIndicator: {
-      fontSize: 14,
+    avatarContainer: {
+      alignItems: 'center',
+      marginBottom: tokens.spacing[4],
+    },
+    avatarImage: {
+      width: 80,
+      height: 80,
+      borderRadius: 16,
+      backgroundColor: tokens.colors.surface,
+    },
+    avatarHint: {
+      fontSize: 13,
+      marginTop: tokens.spacing[1],
       color: tokens.colors.subtle,
     },
     section: {
       marginBottom: tokens.spacing[4],
     },
-    milestoneHint: {
+    label: {
+      fontSize: 15,
+      fontWeight: '500',
+      color: tokens.colors.text,
+      marginBottom: tokens.spacing[2],
+    },
+    dateButton: {
       flexDirection: 'row',
       alignItems: 'center',
+      backgroundColor: tokens.colors.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: tokens.colors.border,
+      paddingHorizontal: tokens.spacing[3],
+      paddingVertical: tokens.spacing[3],
       gap: tokens.spacing[2],
-      marginTop: tokens.spacing[1],
+    },
+    dateText: {
+      flex: 1,
+      fontSize: 16,
+      color: tokens.colors.text,
+    },
+    datePlaceholder: {
+      color: tokens.colors.subtle,
+    },
+    datePickerContainer: {
+      backgroundColor: tokens.colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: tokens.colors.border,
+      marginTop: tokens.spacing[2],
+      borderRadius: 12,
+      overflow: 'hidden',
+    },
+    datePickerHeader: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      padding: tokens.spacing[3],
+      borderBottomWidth: 1,
+      borderBottomColor: tokens.colors.border,
+    },
+    moreDetailsToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: tokens.spacing[2],
+      gap: tokens.spacing[1],
+    },
+    moreDetailsText: {
+      fontSize: 15,
+      color: tokens.colors.primary,
+      fontWeight: '500',
+    },
+    moreDetailsContent: {
+      marginTop: tokens.spacing[2],
     },
     buttonRow: {
       flexDirection: 'row',
@@ -198,182 +252,11 @@ export default function CreateSpaceModal() {
     },
   });
 
-  // Render Step 1: Name + Milestone
-  const renderStep1 = () => (
-    <>
-      <View style={styles.header}>
-        <Text style={styles.title}>Create a Space</Text>
-      </View>
-
-      {/* Space Name - Required */}
-      <View style={styles.section}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-          {/* Dynamic icon preview */}
-          <View
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 12,
-              backgroundColor: '#F3F4F6',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: 24,
-            }}
-          >
-            {(() => {
-              const SpaceIcon = getSpaceIcon(form.spaceName);
-              return <SpaceIcon size={24} color={tokens.colors.text} />;
-            })()}
-          </View>
-          <View style={{ flex: 1 }}>
-            <Input
-              testID="space-name-input"
-              label="What do you want to call this Space?"
-              placeholder="e.g., Honeymoon, Fitness, Side Project"
-              value={form.spaceName}
-              onChangeText={(text) => updateField('spaceName', text)}
-              autoFocus
-            />
-          </View>
-        </View>
-      </View>
-
-      {/* Milestone - Optional */}
-      <View style={styles.section}>
-        <Input
-          testID="milestone-name-input"
-          label="What are you working toward?"
-          placeholder="e.g., Trip to Japan, Run a 5K"
-          value={form.milestoneName}
-          onChangeText={(text) => updateField('milestoneName', text)}
-          helperText="Optional - you can add this later"
-        />
-        <View style={styles.milestoneHint}>
-          <Flag size={14} color={tokens.colors.subtle} />
-          <Text variant="subtle" style={{ fontSize: 13 }}>
-            Goals help you stay focused and celebrate wins
-          </Text>
-        </View>
-      </View>
-
-      {/* Error */}
-      {error && <Text style={styles.error}>{error}</Text>}
-
-      {/* Buttons */}
-      <View style={styles.buttonRow}>
-        <Box flex={1}>
-          <Button
-            testID="skip-button"
-            label="Skip for now"
-            variant="ghost"
-            onPress={handleSkip}
-            disabled={!canContinue}
-            fullWidth
-          />
-        </Box>
-        <Box flex={1}>
-          <Button
-            testID="continue-button"
-            label="Continue"
-            variant="primary"
-            onPress={handleContinue}
-            disabled={!canContinue}
-            isLoading={saving}
-            fullWidth
-          />
-        </Box>
-      </View>
-    </>
-  );
-
-  // Render Step 2: Enrichment
-  const renderStep2 = () => (
-    <>
-      <View style={styles.header}>
-        <Pressable onPress={handleBack} hitSlop={8}>
-          <Text style={{ color: tokens.colors.primary, marginRight: tokens.spacing[2] }}>
-            ← Back
-          </Text>
-        </Pressable>
-        <Text style={styles.title}>Help Gremly help you</Text>
-      </View>
-
-      <Text variant="subtle" style={{ marginBottom: tokens.spacing[4] }}>
-        Optional details that help Gremly give better advice. You can edit these anytime in
-        settings.
-      </Text>
-
-      {/* Milestone Date */}
-      <View style={styles.section}>
-        <Input
-          testID="milestone-date-input"
-          label="When is this happening?"
-          placeholder="YYYY-MM-DD (e.g., 2025-06-15)"
-          value={form.milestoneDate}
-          onChangeText={(text) => updateField('milestoneDate', text)}
-          helperText="Leave blank if there's no deadline"
-        />
-      </View>
-
-      {/* Success Criteria */}
-      <View style={styles.section}>
-        <Input
-          testID="success-criteria-input"
-          label="What does success look like?"
-          placeholder="e.g., Relaxed trip, no rushing around"
-          value={form.successCriteria}
-          onChangeText={(text) => updateField('successCriteria', text)}
-          multiline
-        />
-      </View>
-
-      {/* Other Context */}
-      <View style={styles.section}>
-        <Input
-          testID="other-context-input"
-          label="Anything else Gremly should know?"
-          placeholder="e.g., Wife prefers quiet spots, I want to see temples"
-          value={form.otherContext}
-          onChangeText={(text) => updateField('otherContext', text)}
-          multiline
-        />
-      </View>
-
-      {/* Error */}
-      {error && <Text style={styles.error}>{error}</Text>}
-
-      {/* Buttons */}
-      <View style={styles.buttonRow}>
-        <Box flex={1}>
-          <Button
-            testID="skip-enrichment-button"
-            label="Skip for now"
-            variant="ghost"
-            onPress={handleSkipEnrichment}
-            disabled={saving}
-            fullWidth
-          />
-        </Box>
-        <Box flex={1}>
-          <Button
-            testID="save-start-button"
-            label="Save & Start"
-            variant="primary"
-            onPress={handleSaveAndStart}
-            disabled={saving}
-            isLoading={saving}
-            fullWidth
-          />
-        </Box>
-      </View>
-    </>
-  );
-
   return (
     <ActionSheet
       id="new-space"
       testID="create-space-modal"
-      gestureEnabled={step === 'name-milestone'}
+      gestureEnabled
       backgroundInteractionEnabled={false}
       onClose={resetForm}
       containerStyle={{
@@ -388,9 +271,171 @@ export default function CreateSpaceModal() {
         borderRadius: 3,
       }}
     >
-      <View style={styles.container}>
-        {step === 'name-milestone' ? renderStep1() : renderStep2()}
-      </View>
+      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+        {/* Title */}
+        <Text style={styles.title}>Create a Space</Text>
+
+        {/* Gremly Avatar */}
+        <Pressable
+          style={styles.avatarContainer}
+          onPress={() => {
+            // TODO: setShowGremlyPicker(true);
+            console.log('[CreateSpace] Avatar tapped - picker coming soon');
+          }}
+        >
+          <Image
+            source={getGremlyAvatarSource(form.gremlyAvatar)}
+            style={styles.avatarImage}
+            resizeMode="contain"
+          />
+          <Text style={styles.avatarHint}>Tap to change</Text>
+        </Pressable>
+
+        {/* Name (required) */}
+        <View style={styles.section}>
+          <Input
+            testID="space-name-input"
+            label="Name"
+            placeholder="e.g., Fitness, Side Project"
+            value={form.spaceName}
+            onChangeText={(text) => updateField('spaceName', text)}
+            autoFocus
+          />
+        </View>
+
+        {/* Goal (optional) */}
+        <View style={styles.section}>
+          <Input
+            testID="goal-name-input"
+            label="Goal"
+            placeholder="e.g., Run a 5K, Trip to Japan"
+            value={form.goalName}
+            onChangeText={(text) => updateField('goalName', text)}
+          />
+        </View>
+
+        {/* Target Date */}
+        <View style={styles.section}>
+          <Text style={styles.label}>Target date</Text>
+          <Pressable style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
+            <Calendar size={20} color={tokens.colors.subtle} />
+            <Text style={[styles.dateText, !form.targetDate && styles.datePlaceholder]}>
+              {form.targetDate
+                ? form.targetDate.toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })
+                : 'None set'}
+            </Text>
+            {form.targetDate && (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  updateField('targetDate', null);
+                }}
+                hitSlop={8}
+              >
+                <X size={18} color={tokens.colors.subtle} />
+              </Pressable>
+            )}
+          </Pressable>
+        </View>
+
+        {/* Date Picker */}
+        {showDatePicker &&
+          (Platform.OS === 'ios' ? (
+            <View style={styles.datePickerContainer}>
+              <View style={styles.datePickerHeader}>
+                <Pressable onPress={() => setShowDatePicker(false)}>
+                  <Text style={{ color: tokens.colors.primary, fontWeight: '500' }}>Done</Text>
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={form.targetDate || new Date()}
+                mode="date"
+                display="spinner"
+                minimumDate={new Date()}
+                onChange={(event, date) => {
+                  if (date) updateField('targetDate', date);
+                }}
+              />
+            </View>
+          ) : (
+            <DateTimePicker
+              value={form.targetDate || new Date()}
+              mode="date"
+              display="default"
+              minimumDate={new Date()}
+              onChange={(event, date) => {
+                setShowDatePicker(false);
+                if (date) updateField('targetDate', date);
+              }}
+            />
+          ))}
+
+        {/* More Details Toggle */}
+        <Pressable style={styles.moreDetailsToggle} onPress={toggleMoreDetails}>
+          {showMoreDetails ? (
+            <ChevronUp size={20} color={tokens.colors.primary} />
+          ) : (
+            <ChevronDown size={20} color={tokens.colors.primary} />
+          )}
+          <Text style={styles.moreDetailsText}>
+            {showMoreDetails ? 'Less details' : 'More details'}
+          </Text>
+        </Pressable>
+
+        {/* Collapsible Details Section */}
+        {showMoreDetails && (
+          <View style={styles.moreDetailsContent}>
+            <Input
+              testID="success-criteria-input"
+              label="What does success look like?"
+              placeholder="e.g., Finish race without walking"
+              value={form.successCriteria}
+              onChangeText={(text) => updateField('successCriteria', text)}
+              multiline
+            />
+            <View style={{ height: tokens.spacing[3] }} />
+            <Input
+              testID="notes-input"
+              label="Notes"
+              placeholder="e.g., Training with my partner"
+              value={form.notes}
+              onChangeText={(text) => updateField('notes', text)}
+              multiline
+            />
+          </View>
+        )}
+
+        {/* Error */}
+        {error && <Text style={styles.error}>{error}</Text>}
+
+        {/* Buttons */}
+        <View style={styles.buttonRow}>
+          <Box flex={1}>
+            <Button
+              testID="cancel-button"
+              label="Cancel"
+              variant="ghost"
+              onPress={handleCancel}
+              fullWidth
+            />
+          </Box>
+          <Box flex={1}>
+            <Button
+              testID="create-button"
+              label="Create Space"
+              variant="primary"
+              onPress={handleCreate}
+              disabled={!canCreate}
+              isLoading={saving}
+              fullWidth
+            />
+          </Box>
+        </View>
+      </ScrollView>
     </ActionSheet>
   );
 }

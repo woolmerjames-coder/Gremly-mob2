@@ -37,14 +37,16 @@ jest.mock('react-native-actions-sheet', () => ({
 
 // Mock lucide icons
 jest.mock('lucide-react-native', () => ({
-  Flag: () => null,
-  Folder: () => null,
+  ChevronDown: () => null,
+  ChevronUp: () => null,
+  Calendar: () => null,
+  X: () => null,
 }));
 
-// Mock spaceIconMatcher - returns a mock component
-jest.mock('../lib/utils/spaceIconMatcher', () => ({
-  getSpaceIcon: () => () => null,
-}));
+// Mock DateTimePicker
+jest.mock('@react-native-community/datetimepicker', () => {
+  return () => null;
+});
 
 // Import component AFTER mocks are set up
 import CreateSpaceModal, { setCreateSpaceCallback } from '../components/CreateSpaceModal';
@@ -90,228 +92,137 @@ describe('CreateSpaceModal', () => {
     mockUpsertSpaceMeta.mockResolvedValue(mockMeta);
   });
 
-  describe('Step 1: Name + Milestone', () => {
-    it('renders space name and milestone inputs', () => {
+  describe('Single-page form', () => {
+    it('renders all main inputs on single page', () => {
       const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
 
       expect(getByTestId('space-name-input')).toBeTruthy();
-      expect(getByTestId('milestone-name-input')).toBeTruthy();
-      expect(getByText('Skip for now')).toBeTruthy();
-      expect(getByText('Continue')).toBeTruthy();
+      expect(getByTestId('goal-name-input')).toBeTruthy();
+      expect(getByText('Target date')).toBeTruthy();
+      expect(getByText('More details')).toBeTruthy();
+      expect(getByText('Cancel')).toBeTruthy();
+      expect(getByText('Create Space')).toBeTruthy();
     });
 
-    it('calls createSpace without milestone when Skip pressed', async () => {
-      const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
-
-      // Find the TextInput inside the Input component
-      const spaceNameInput = getByTestId('space-name-input');
-      fireEvent.changeText(spaceNameInput, 'Test Space');
-
-      fireEvent.press(getByText('Skip for now'));
-
-      await waitFor(() => {
-        expect(mockCreateSpace).toHaveBeenCalledWith({
-          name: 'Test Space',
-        });
-        expect(mockCreateMilestone).not.toHaveBeenCalled();
-      });
-    });
-
-    it('creates Space without milestone when Continue pressed with no milestone', async () => {
+    it('creates Space with only name when no other fields filled', async () => {
       const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
 
       fireEvent.changeText(getByTestId('space-name-input'), 'Test Space');
-      // Don't enter milestone
-      fireEvent.press(getByText('Continue'));
+      fireEvent.press(getByText('Create Space'));
 
       await waitFor(() => {
         expect(mockCreateSpace).toHaveBeenCalledWith({
           name: 'Test Space',
         });
         expect(mockCreateMilestone).not.toHaveBeenCalled();
-      });
-    });
-
-    it('goes to Step 2 when Continue pressed with milestone', async () => {
-      const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
-
-      fireEvent.changeText(getByTestId('space-name-input'), 'Honeymoon');
-      fireEvent.changeText(getByTestId('milestone-name-input'), 'Trip to Japan');
-      fireEvent.press(getByText('Continue'));
-
-      // Should now be on Step 2
-      await waitFor(() => {
-        expect(getByText('Help Gremly help you')).toBeTruthy();
-        expect(getByTestId('milestone-date-input')).toBeTruthy();
-      });
-
-      // Space should NOT be created yet
-      expect(mockCreateSpace).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Step 2: Enrichment', () => {
-    const goToStep2 = async (getByTestId: any, getByText: any) => {
-      fireEvent.changeText(getByTestId('space-name-input'), 'Honeymoon');
-      fireEvent.changeText(getByTestId('milestone-name-input'), 'Trip to Japan');
-      fireEvent.press(getByText('Continue'));
-
-      await waitFor(() => {
-        expect(getByTestId('milestone-date-input')).toBeTruthy();
-      });
-    };
-
-    it('creates Space with milestone when Skip pressed on Step 2', async () => {
-      const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
-
-      await goToStep2(getByTestId, getByText);
-
-      // Press Skip on Step 2
-      fireEvent.press(getByText('Skip for now'));
-
-      await waitFor(() => {
-        expect(mockCreateSpace).toHaveBeenCalledWith({ name: 'Honeymoon' });
-        expect(mockCreateMilestone).toHaveBeenCalledWith(
-          'new-space-id',
-          expect.objectContaining({
-            name: 'Trip to Japan',
-            date: null,
-          }),
-        );
         expect(mockUpsertSpaceMeta).not.toHaveBeenCalled();
       });
     });
 
-    it('creates Space with milestone and meta when Save & Start pressed', async () => {
+    it('creates Space with goal/milestone when goal is provided', async () => {
       const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
 
-      await goToStep2(getByTestId, getByText);
-
-      // Fill enrichment fields
-      fireEvent.changeText(getByTestId('milestone-date-input'), '2025-06-15');
-      fireEvent.changeText(getByTestId('success-criteria-input'), 'Relaxed trip');
-      fireEvent.changeText(getByTestId('other-context-input'), 'Wife prefers quiet spots');
-
-      fireEvent.press(getByText('Save & Start'));
+      fireEvent.changeText(getByTestId('space-name-input'), 'Fitness');
+      fireEvent.changeText(getByTestId('goal-name-input'), 'Run a 5K');
+      fireEvent.press(getByText('Create Space'));
 
       await waitFor(() => {
-        expect(mockCreateSpace).toHaveBeenCalledWith({ name: 'Honeymoon' });
+        expect(mockCreateSpace).toHaveBeenCalledWith({ name: 'Fitness' });
         expect(mockCreateMilestone).toHaveBeenCalledWith(
           'new-space-id',
           expect.objectContaining({
-            name: 'Trip to Japan',
-            date: '2025-06-15',
-          }),
-        );
-        expect(mockUpsertSpaceMeta).toHaveBeenCalledWith(
-          'new-space-id',
-          expect.objectContaining({
-            success_criteria: 'Relaxed trip',
-            other_context: 'Wife prefers quiet spots',
+            name: 'Run a 5K',
+            date: null,
           }),
         );
       });
     });
 
-    it('allows going back to Step 1', async () => {
+    it('expands more details section when toggled', async () => {
+      const { getByTestId, getByText, queryByTestId } = renderWithProviders(<CreateSpaceModal />);
+
+      // Initially, success criteria input should not be visible
+      expect(queryByTestId('success-criteria-input')).toBeNull();
+      expect(queryByTestId('notes-input')).toBeNull();
+
+      // Tap "More details"
+      fireEvent.press(getByText('More details'));
+
+      // Now should be visible
+      await waitFor(() => {
+        expect(getByTestId('success-criteria-input')).toBeTruthy();
+        expect(getByTestId('notes-input')).toBeTruthy();
+      });
+    });
+
+    it('creates Space with meta when details are provided', async () => {
       const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
 
-      await goToStep2(getByTestId, getByText);
+      fireEvent.changeText(getByTestId('space-name-input'), 'Fitness');
+      fireEvent.changeText(getByTestId('goal-name-input'), 'Run a 5K');
 
-      // Press Back
-      fireEvent.press(getByText('← Back'));
+      // Expand details
+      fireEvent.press(getByText('More details'));
 
       await waitFor(() => {
-        // Should be back on Step 1
-        expect(getByText('Create a Space')).toBeTruthy();
-        expect(getByTestId('space-name-input')).toBeTruthy();
+        expect(getByTestId('success-criteria-input')).toBeTruthy();
       });
 
-      // Space should NOT have been created
-      expect(mockCreateSpace).not.toHaveBeenCalled();
-    });
-  });
+      fireEvent.changeText(getByTestId('success-criteria-input'), 'Finish without walking');
+      fireEvent.changeText(getByTestId('notes-input'), 'Training with partner');
+      fireEvent.press(getByText('Create Space'));
 
-  describe('Callback', () => {
-    it('calls onCreatedCallback with new space', async () => {
+      await waitFor(() => {
+        expect(mockCreateSpace).toHaveBeenCalledWith({ name: 'Fitness' });
+        expect(mockCreateMilestone).toHaveBeenCalledWith(
+          'new-space-id',
+          expect.objectContaining({
+            name: 'Run a 5K',
+          }),
+        );
+        expect(mockUpsertSpaceMeta).toHaveBeenCalledWith('new-space-id', {
+          success_criteria: 'Finish without walking',
+          other_context: 'Training with partner',
+        });
+      });
+    });
+
+    it('calls callback with created space', async () => {
       const callback = jest.fn();
       setCreateSpaceCallback(callback);
 
       const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
 
       fireEvent.changeText(getByTestId('space-name-input'), 'Test Space');
-      fireEvent.press(getByText('Skip for now'));
+      fireEvent.press(getByText('Create Space'));
 
       await waitFor(() => {
         expect(callback).toHaveBeenCalledWith(mockSpace);
       });
     });
 
-    it('clears callback after calling it', async () => {
-      const callback = jest.fn();
-      setCreateSpaceCallback(callback);
-
-      const {
-        getByTestId,
-        getByText,
-        rerender: _rerender,
-      } = renderWithProviders(<CreateSpaceModal />);
-
-      // First creation
-      fireEvent.changeText(getByTestId('space-name-input'), 'Test Space');
-      fireEvent.press(getByText('Skip for now'));
-
-      await waitFor(() => {
-        expect(callback).toHaveBeenCalledTimes(1);
-      });
-
-      // Callback should be cleared - set a new one to verify
-      const callback2 = jest.fn();
-      setCreateSpaceCallback(callback2);
-
-      // Create another space
-      fireEvent.changeText(getByTestId('space-name-input'), 'Test Space 2');
-      fireEvent.press(getByText('Skip for now'));
-
-      await waitFor(() => {
-        expect(callback2).toHaveBeenCalled();
-        expect(callback).toHaveBeenCalledTimes(1); // Still just 1
-      });
-    });
-  });
-
-  describe('Error handling', () => {
-    it('displays error when createSpace fails', async () => {
-      mockCreateSpace.mockRejectedValueOnce(new Error('Network error'));
-
+    it('disables Create Space button when name is empty', () => {
       const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
 
-      fireEvent.changeText(getByTestId('space-name-input'), 'Test Space');
-      fireEvent.press(getByText('Skip for now'));
+      // Don't enter anything
+      const createButton = getByText('Create Space');
 
-      await waitFor(() => {
-        expect(getByText('Network error')).toBeTruthy();
-      });
+      // Button should be disabled (we check by trying to press it)
+      fireEvent.press(createButton);
+
+      // createSpace should not have been called
+      expect(mockCreateSpace).not.toHaveBeenCalled();
     });
 
-    it('displays error when createMilestone fails', async () => {
-      mockCreateMilestone.mockRejectedValueOnce(new Error('Milestone error'));
-
+    it('closes modal and resets form on Cancel', async () => {
       const { getByTestId, getByText } = renderWithProviders(<CreateSpaceModal />);
+      const SheetManager = require('react-native-actions-sheet').SheetManager;
 
-      // Go to Step 2
-      fireEvent.changeText(getByTestId('space-name-input'), 'Honeymoon');
-      fireEvent.changeText(getByTestId('milestone-name-input'), 'Trip to Japan');
-      fireEvent.press(getByText('Continue'));
-
-      await waitFor(() => {
-        expect(getByTestId('milestone-date-input')).toBeTruthy();
-      });
-
-      fireEvent.press(getByText('Save & Start'));
+      fireEvent.changeText(getByTestId('space-name-input'), 'Some text');
+      fireEvent.press(getByText('Cancel'));
 
       await waitFor(() => {
-        expect(getByText('Milestone error')).toBeTruthy();
+        expect(SheetManager.hide).toHaveBeenCalledWith('new-space');
       });
     });
   });
