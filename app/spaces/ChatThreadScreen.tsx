@@ -1125,6 +1125,7 @@ export default function ChatThreadScreen({ route }: Props) {
           spaceChatEnhanced.setSaved(result.id, classification.type);
 
           // 6. Update the message's saveable metadata for the saved card display
+          // savedItemId will be persisted to Supabase via saveable_json
           updateMessage(message.id, {
             saveable: {
               type:

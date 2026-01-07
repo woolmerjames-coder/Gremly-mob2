@@ -168,12 +168,16 @@ export function useChatMessages(
             type: string;
             title: string;
             dismissed?: boolean;
+            savedItemId?: string;
+            savedItemType?: string;
           };
           return {
             ...msg,
             saveable: {
               type: dbSaveable.type as 'todo' | 'habit' | 'note',
               title: dbSaveable.title,
+              savedItemId: dbSaveable.savedItemId,
+              savedItemType: dbSaveable.savedItemType as 'habit' | 'todo' | 'log' | undefined,
             },
             saveableDismissed: dbSaveable.dismissed ?? false,
           };
@@ -500,6 +504,8 @@ export function useChatMessages(
               type: newSaveable.type,
               title: newSaveable.title || '',
               dismissed: newDismissed,
+              savedItemId: newSaveable.savedItemId || null,
+              savedItemType: newSaveable.savedItemType || null,
             },
           })
           .catch((err) => console.error('[useChatMessages] Failed to persist saveable:', err));

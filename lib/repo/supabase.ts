@@ -4792,7 +4792,13 @@ export class SupabaseSpaceChatMessageRepo {
     updates: {
       content?: string;
       metadata_json?: Record<string, unknown> | null;
-      saveable_json?: { type: string; title: string; dismissed?: boolean } | null;
+      saveable_json?: {
+        type: string;
+        title: string;
+        dismissed?: boolean;
+        savedItemId?: string | null;
+        savedItemType?: string | null;
+      } | null;
     },
   ): Promise<import('../types').SpaceChatMessage> {
     const userId = this.ensureUserId();

@@ -403,6 +403,8 @@ export interface SpaceChatMessage {
     type: 'todo' | 'habit' | 'note';
     title: string;
     dismissed?: boolean;
+    savedItemId?: string;
+    savedItemType?: string;
   } | null;
   created_at: string; // ISO 8601
 
