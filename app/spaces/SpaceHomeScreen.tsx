@@ -80,6 +80,7 @@ import HeaderV33 from '../../components/spaces/v33/Header';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
 // Phase 12: MilestoneHeader (milestone data now from Zustand store)
 import { MilestoneHeader } from '../../components/spaces/MilestoneHeader';
+import { getMascotSource } from '../../lib/mascots/mascotConfig';
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
 import { SpaceChatListModal } from '../../components/chat/SpaceChatListModal';
@@ -1555,6 +1556,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               countdown={countdown}
               pinnedCount={pinnedCount}
               completedCount={reactiveCompletedCount}
+              mascotSource={getMascotSource(space?.mascot_id || 'astro')}
               onGremlyPress={handleGremlyPress}
               onPinnedPress={handlePinnedPress}
               onCompletedPress={() => setShowCompletedOverlay(true)}
