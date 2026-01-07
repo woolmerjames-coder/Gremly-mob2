@@ -20,6 +20,8 @@ import { Input } from '../design-system/Input';
 import { Button } from '../design-system/Button';
 import { Text } from '../ui/Text';
 import { Box } from '../ui/Box';
+import { GremlyPicker } from './spaces/GremlyPicker';
+import { getMascotSource } from '../lib/mascots/mascotConfig';
 import type { Space } from '../lib/types';
 
 // Module-scope callback for navigation after creation
@@ -47,20 +49,6 @@ const initialFormState: FormState = {
   notes: '',
 };
 
-// Placeholder until we build the full picker
-const getGremlyAvatarSource = (avatarId: string) => {
-  // TODO: Map avatarId to actual image sources when picker is built
-  switch (avatarId) {
-    case 'chef':
-      return require('../assets/mascot/clipboardgremly.png');
-    case 'runner':
-      return require('../assets/mascot/running-removebg.png');
-    case 'astro':
-    default:
-      return require('../assets/mascot/astrogremly.png');
-  }
-};
-
 /**
  * CreateSpaceModal - Single-page Space creation with progressive disclosure
  *
@@ -83,7 +71,7 @@ export default function CreateSpaceModal() {
   const [saving, setSaving] = useState(false);
   const [showMoreDetails, setShowMoreDetails] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  // const [showGremlyPicker, setShowGremlyPicker] = useState(false); // For later
+  const [showGremlyPicker, setShowGremlyPicker] = useState(false);
 
   const canCreate = form.spaceName.trim().length > 0 && !saving;
 
@@ -93,6 +81,7 @@ export default function CreateSpaceModal() {
     setSaving(false);
     setShowMoreDetails(false);
     setShowDatePicker(false);
+    setShowGremlyPicker(false);
   }, []);
 
   const updateField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -110,8 +99,7 @@ export default function CreateSpaceModal() {
       // 1. Create Space
       const space = await storeCreateSpace({
         name: form.spaceName.trim(),
-        // TODO: Add gremlyAvatar when schema supports it
-        // gremly_avatar: form.gremlyAvatar,
+        mascot_id: form.gremlyAvatar,
       });
 
       // 2. Create milestone if goal provided
@@ -287,20 +275,22 @@ export default function CreateSpaceModal() {
         <Text style={styles.title}>Create a Space</Text>
 
         {/* Gremly Avatar */}
-        <Pressable
-          style={styles.avatarContainer}
-          onPress={() => {
-            // TODO: setShowGremlyPicker(true);
-            console.log('[CreateSpace] Avatar tapped - picker coming soon');
-          }}
-        >
+        <Pressable style={styles.avatarContainer} onPress={() => setShowGremlyPicker(true)}>
           <Image
-            source={getGremlyAvatarSource(form.gremlyAvatar)}
+            source={getMascotSource(form.gremlyAvatar)}
             style={styles.avatarImage}
             resizeMode="contain"
           />
           <Text style={styles.avatarHint}>Tap to change</Text>
         </Pressable>
+
+        {/* Gremly Picker Modal */}
+        <GremlyPicker
+          visible={showGremlyPicker}
+          selectedId={form.gremlyAvatar}
+          onSelect={(mascotId) => updateField('gremlyAvatar', mascotId)}
+          onClose={() => setShowGremlyPicker(false)}
+        />
 
         {/* Name (required) */}
         <View style={styles.section}>

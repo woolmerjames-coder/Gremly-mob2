@@ -263,6 +263,7 @@ export interface Space {
   name: string;
   icon?: string | null;
   theme?: 'deepTeal' | 'mint' | 'cream' | 'periwinkle' | null;
+  mascot_id?: string | null; // Gremly mascot variant (e.g., 'astro', 'runner', 'journal')
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
 
