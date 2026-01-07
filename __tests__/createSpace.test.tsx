@@ -113,6 +113,7 @@ describe('CreateSpaceModal', () => {
       await waitFor(() => {
         expect(mockCreateSpace).toHaveBeenCalledWith({
           name: 'Test Space',
+          mascot_id: 'astro',
         });
         expect(mockCreateMilestone).not.toHaveBeenCalled();
         expect(mockUpsertSpaceMeta).not.toHaveBeenCalled();
@@ -135,7 +136,7 @@ describe('CreateSpaceModal', () => {
       fireEvent.press(getByText('Create Space'));
 
       await waitFor(() => {
-        expect(mockCreateSpace).toHaveBeenCalledWith({ name: 'Fitness' });
+        expect(mockCreateSpace).toHaveBeenCalledWith({ name: 'Fitness', mascot_id: 'astro' });
         expect(mockCreateMilestone).toHaveBeenCalledWith(
           'new-space-id',
           expect.objectContaining({
@@ -178,8 +179,12 @@ describe('CreateSpaceModal', () => {
       });
 
       fireEvent.changeText(getByTestId('goal-name-input'), 'Run a 5K');
+      fireEvent.changeText(getByTestId('success-criteria-input'), 'Finish without walking');
+      fireEvent.changeText(getByTestId('notes-input'), 'Training with partner');
+      fireEvent.press(getByText('Create Space'));
+
       await waitFor(() => {
-        expect(mockCreateSpace).toHaveBeenCalledWith({ name: 'Fitness' });
+        expect(mockCreateSpace).toHaveBeenCalledWith({ name: 'Fitness', mascot_id: 'astro' });
         expect(mockCreateMilestone).toHaveBeenCalledWith(
           'new-space-id',
           expect.objectContaining({

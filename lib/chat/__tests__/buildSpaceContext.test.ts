@@ -38,6 +38,9 @@ describe('buildSpaceContext', () => {
         spaceName: 'Traveling',
         milestone: undefined,
         meta: undefined,
+        todos: [],
+        habits: [],
+        guides: [],
         summary: {
           todoCount: 0,
           completedTodoCount: 0,
@@ -193,6 +196,9 @@ describe('formatSpaceContextForPrompt', () => {
   it('formats basic space context', () => {
     const context: SpaceContext = {
       spaceName: 'Traveling',
+      todos: [],
+      habits: [],
+      guides: [],
       summary: {
         todoCount: 0,
         completedTodoCount: 0,
@@ -203,7 +209,6 @@ describe('formatSpaceContextForPrompt', () => {
 
     const result = formatSpaceContextForPrompt(context);
     expect(result).toContain('Space: Traveling');
-    expect(result).toContain('Use this only for general awareness');
   });
 
   it('formats milestone with days remaining', () => {
@@ -215,6 +220,9 @@ describe('formatSpaceContextForPrompt', () => {
         daysRemaining: 53,
         isPast: false,
       },
+      todos: [],
+      habits: [],
+      guides: [],
       summary: {
         todoCount: 0,
         completedTodoCount: 0,
@@ -236,6 +244,9 @@ describe('formatSpaceContextForPrompt', () => {
         daysRemaining: 0,
         isPast: false,
       },
+      todos: [],
+      habits: [],
+      guides: [],
       summary: {
         todoCount: 0,
         completedTodoCount: 0,
@@ -257,6 +268,9 @@ describe('formatSpaceContextForPrompt', () => {
         daysRemaining: -10,
         isPast: true,
       },
+      todos: [],
+      habits: [],
+      guides: [],
       summary: {
         todoCount: 0,
         completedTodoCount: 0,
@@ -273,6 +287,9 @@ describe('formatSpaceContextForPrompt', () => {
     const context: SpaceContext = {
       spaceName: 'Traveling',
       meta: { why: 'To explore new cultures' },
+      todos: [],
+      habits: [],
+      guides: [],
       summary: {
         todoCount: 0,
         completedTodoCount: 0,
@@ -285,24 +302,38 @@ describe('formatSpaceContextForPrompt', () => {
     expect(result).toContain('Why: To explore new cultures');
   });
 
-  it('formats todo counts', () => {
+  it('formats open tasks', () => {
     const context: SpaceContext = {
       spaceName: 'Traveling',
+      todos: [
+        { title: 'Book flights', completed: false },
+        { title: 'Get passport', completed: false },
+        { title: 'Pack bags', completed: true },
+      ],
+      habits: [],
+      guides: [],
       summary: {
-        todoCount: 5,
-        completedTodoCount: 2,
+        todoCount: 3,
+        completedTodoCount: 1,
         habitCount: 0,
         noteCount: 0,
       },
     };
 
     const result = formatSpaceContextForPrompt(context);
-    expect(result).toContain('3 open todos, 2 completed');
+    expect(result).toContain('Open tasks:');
+    expect(result).toContain('- Book flights');
+    expect(result).toContain('- Get passport');
+    // Completed task should not appear
+    expect(result).not.toContain('Pack bags');
   });
 
-  it('formats habit count singular', () => {
+  it('formats habit with frequency', () => {
     const context: SpaceContext = {
       spaceName: 'Traveling',
+      todos: [],
+      habits: [{ name: 'Practice Spanish', frequency: 'daily' }],
+      guides: [],
       summary: {
         todoCount: 0,
         completedTodoCount: 0,
@@ -312,12 +343,20 @@ describe('formatSpaceContextForPrompt', () => {
     };
 
     const result = formatSpaceContextForPrompt(context);
-    expect(result).toContain('1 habit being tracked');
+    expect(result).toContain('Current habits:');
+    expect(result).toContain('- Practice Spanish (daily)');
   });
 
-  it('formats habit count plural', () => {
+  it('formats multiple habits', () => {
     const context: SpaceContext = {
       spaceName: 'Traveling',
+      todos: [],
+      habits: [
+        { name: 'Practice Spanish', frequency: 'daily' },
+        { name: 'Review budget', frequency: 'weekly' },
+        { name: 'Research destinations', frequency: 'daily', completionSummary: '3/7 this week' },
+      ],
+      guides: [],
       summary: {
         todoCount: 0,
         completedTodoCount: 0,
@@ -327,12 +366,18 @@ describe('formatSpaceContextForPrompt', () => {
     };
 
     const result = formatSpaceContextForPrompt(context);
-    expect(result).toContain('3 habits being tracked');
+    expect(result).toContain('Current habits:');
+    expect(result).toContain('- Practice Spanish (daily)');
+    expect(result).toContain('- Review budget (weekly)');
+    expect(result).toContain('- Research destinations (daily, 3/7 this week)');
   });
 
   it('omits sections when counts are zero', () => {
     const context: SpaceContext = {
       spaceName: 'Traveling',
+      todos: [],
+      habits: [],
+      guides: [],
       summary: {
         todoCount: 0,
         completedTodoCount: 0,
