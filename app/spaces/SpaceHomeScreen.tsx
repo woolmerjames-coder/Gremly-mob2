@@ -42,6 +42,7 @@ import {
   useSpaceTimelineFromStore,
   selectCompletedTodosCountBySpace,
   useSpaceCompletedTodos,
+  selectIsHabitDoneToday,
 } from '../../lib/store/selectors';
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
@@ -458,8 +459,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Phase 12: Optimistic completion tracking (useRef persists across aggregate refreshes)
   const localCompletedIdsRef = useRef<Set<string>>(new Set());
   const localPinnedIdsRef = useRef<Set<string>>(new Set()); // Track locally toggled pinned state
-  const localLoggedHabitIdsRef = useRef<Set<string>>(new Set()); // Track optimistically logged habits
-  const localUncheckedHabitIdsRef = useRef<Set<string>>(new Set()); // Track habits user unchecked this session
   const animatingTodoIdsRef = useRef<Set<string>>(new Set()); // Track todos currently animating out
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
@@ -649,32 +648,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     return map;
   }, [weekly]);
 
-  // Phase 4: Transform weeklyById to match HabitProgress interface with optimistic updates
+  // Phase 4: Transform weeklyById to match HabitProgress interface
+  // Note: isDoneToday is now determined by the store's habitProgress (selectIsHabitDoneToday)
   const habitProgressMap = useMemo(() => {
     const map = new Map<string, { done: number; target: number }>();
     weeklyById.forEach((progress, id) => {
-      const locallyLogged = localLoggedHabitIdsRef.current.has(id);
-      const locallyUnchecked = localUncheckedHabitIdsRef.current.has(id);
-      // If locally unchecked, show as 0 done (overrides server)
-      // If locally logged, add 1 to done count
-      // Otherwise use server value
-      let done = progress.doneCount;
-      if (locallyUnchecked) {
-        done = 0; // Override to unchecked
-      } else if (locallyLogged) {
-        done = progress.doneCount + 1;
-      }
-      map.set(id, { done, target: progress.target });
-    });
-    // For habits not in weeklyById but locally logged, add them with done=1, target=1
-    localLoggedHabitIdsRef.current.forEach((id) => {
-      if (!map.has(id)) {
-        map.set(id, { done: 1, target: 1 });
-      }
+      map.set(id, { done: progress.doneCount, target: progress.target });
     });
     console.log('[SpaceHome] habitProgressMap result:', [...map.entries()]);
     return map;
-  }, [weeklyById, optimisticVersion]); // optimisticVersion triggers recalc
+  }, [weeklyById]);
 
   // Helper to determine EntityCard type from record
   const getEntityType = useCallback((record: any): EntityType => {
@@ -782,56 +765,32 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [store],
   );
 
-  // Handler for habit progress logging with optimistic toggle (like todo completion)
+  // Handler for habit progress logging - uses store's toggleHabitToday for proper sync
   const handleHabitLogProgress = useCallback(
     async (item: AppRecord) => {
       const habitId = item.id;
-      const progress = habitProgressMap.get(habitId);
-      const isDoneToday = progress ? progress.done > 0 : false;
-      const wasLocallyUnchecked = localUncheckedHabitIdsRef.current.has(habitId);
 
       // Haptic feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      console.log(
-        '[SpaceHome] Habit toggle:',
-        habitId,
-        'isDoneToday:',
-        isDoneToday,
-        'wasLocallyUnchecked:',
-        wasLocallyUnchecked,
-      );
+      // Check current state BEFORE toggle to determine if we should show confetti
+      const wasDoneBeforeToggle = selectIsHabitDoneToday(useGremlyStore.getState(), habitId);
 
-      // Toggle behavior like todos:
-      // If currently shown as done → mark as unchecked (visual only)
-      // If currently shown as not done → log progress and show as done
-      if (isDoneToday) {
-        // Currently checked → uncheck it
-        localLoggedHabitIdsRef.current.delete(habitId); // Remove any local log
-        localUncheckedHabitIdsRef.current.add(habitId); // Mark as unchecked
-        forceUpdate();
-        // Note: We don't call the API to undo - just visual toggle for this session
-        return;
-      }
-
-      // Currently unchecked → check it
-      localUncheckedHabitIdsRef.current.delete(habitId); // Remove unchecked override
-      localLoggedHabitIdsRef.current.add(habitId); // Add optimistic log
-      forceUpdate();
+      console.log('[SpaceHome] Habit toggle:', habitId, 'wasDone:', wasDoneBeforeToggle);
 
       try {
-        await store.completeHabit(habitId);
-        setShowConfetti(true);
-        // Keep optimistic state - don't clear until user leaves
+        await store.toggleHabitToday(habitId);
+
+        // Show confetti only when completing (not when uncompleting)
+        if (!wasDoneBeforeToggle) {
+          setShowConfetti(true);
+        }
       } catch (e) {
-        console.warn('[SpaceHome] Failed to log habit progress:', e);
-        // Revert on error
-        localLoggedHabitIdsRef.current.delete(habitId);
-        forceUpdate();
-        Alert.alert('Error', 'Failed to log progress');
+        console.warn('[SpaceHome] Failed to toggle habit:', e);
+        Alert.alert('Error', 'Failed to update habit');
       }
     },
-    [store, habitProgressMap],
+    [store],
   );
 
   // Phase 6: Space quick add hook
