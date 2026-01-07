@@ -177,6 +177,8 @@ interface GremlyState {
   deleteHabit: (id: string) => Promise<void>;
   completeHabit: (id: string) => Promise<void>;
   uncompleteHabit: (id: string) => Promise<void>;
+  /** Toggle habit completion for TODAY - complete if not done, uncomplete if done */
+  toggleHabitToday: (id: string) => Promise<void>;
   /** Log habit completion for a specific date (for Habits This Week) */
   logHabitCompletionForDate: (habitId: string, dateIso: string) => Promise<void>;
   /** Remove habit completion for a specific date (for Habits This Week) */
@@ -1002,6 +1004,33 @@ export const useGremlyStore = create<GremlyState>()(
           }));
         }
         throw error;
+      }
+    },
+
+    /**
+     * Toggle a habit's completion status for TODAY.
+     * If done today → uncomplete (remove today's progress)
+     * If not done today → complete (add today's progress)
+     *
+     * This is the single action that should be called from UI toggle handlers.
+     */
+    toggleHabitToday: async (id: string) => {
+      // Use LOCAL date for occurred_day to match filtering logic
+      const now = new Date();
+      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      const isDoneToday = get().habitProgress.some(
+        (p) => p.habit_id === id && p.occurred_day === todayDate,
+      );
+
+      console.log('[GremlyStore] toggleHabitToday:', id, 'isDoneToday:', isDoneToday);
+
+      if (isDoneToday) {
+        // Currently done → uncomplete it
+        await get().uncompleteHabit(id);
+      } else {
+        // Not done → complete it
+        await get().completeHabit(id);
       }
     },
 
