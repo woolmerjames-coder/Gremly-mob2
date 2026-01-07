@@ -7,7 +7,7 @@
  * - Delete Space
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,10 +18,14 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { X, Edit3, Flag, Trash2, ChevronRight } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRAND } from '../../design/brand';
+import { GremlyPicker } from './GremlyPicker';
+import { getMascotById } from '../../lib/mascots/mascotConfig';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
 interface SpaceItemCounts {
   todos: number;
@@ -32,7 +36,7 @@ interface SpaceItemCounts {
 interface SpaceSettingsModalProps {
   visible: boolean;
   onClose: () => void;
-  space: { id: string; name: string } | null;
+  space: { id: string; name: string; mascot_id?: string | null } | null;
   hasMilestone: boolean;
   onEditMilestone: () => void;
   onSaveSpaceName: (name: string) => Promise<void>;
@@ -51,10 +55,15 @@ export function SpaceSettingsModal({
   getSpaceItemCounts,
 }: SpaceSettingsModalProps) {
   const insets = useSafeAreaInsets();
+  const updateSpace = useGremlyStore((s) => s.updateSpace);
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [spaceName, setSpaceName] = useState(space?.name || '');
   const [saving, setSaving] = useState(false);
+  const [showGremlyPicker, setShowGremlyPicker] = useState(false);
+
+  // Get current mascot info
+  const currentMascot = getMascotById(space?.mascot_id || 'astro');
 
   // Reset state when modal opens
   useEffect(() => {
@@ -62,6 +71,7 @@ export function SpaceSettingsModal({
       setSpaceName(space?.name || '');
       setIsEditingName(false);
       setSaving(false);
+      setShowGremlyPicker(false);
     }
   }, [visible, space?.name]);
 
@@ -82,6 +92,19 @@ export function SpaceSettingsModal({
       setSaving(false);
     }
   };
+
+  const handleMascotChange = useCallback(
+    async (mascotId: string) => {
+      if (!space?.id) return;
+      try {
+        await updateSpace(space.id, { mascot_id: mascotId });
+      } catch (error) {
+        console.error('[SpaceSettings] Failed to update mascot:', error);
+        Alert.alert('Error', 'Failed to update mascot. Please try again.');
+      }
+    },
+    [space?.id, updateSpace],
+  );
 
   const handleEditMilestone = () => {
     onClose();
@@ -214,6 +237,24 @@ export function SpaceSettingsModal({
               )}
             </View>
 
+            {/* Gremly Mascot */}
+            <Pressable onPress={() => setShowGremlyPicker(true)} style={styles.option}>
+              <View style={styles.optionHeader}>
+                <View style={styles.mascotIconContainer}>
+                  <Image
+                    source={currentMascot.source}
+                    style={styles.mascotPreview}
+                    resizeMode="contain"
+                  />
+                </View>
+                <Text style={styles.optionLabel}>Gremly</Text>
+              </View>
+              <View style={styles.optionValue}>
+                <Text style={styles.optionValueText}>{currentMascot.displayName}</Text>
+                <ChevronRight size={18} color={BRAND.colors.inkMuted} />
+              </View>
+            </Pressable>
+
             {/* Milestone */}
             <Pressable onPress={handleEditMilestone} style={styles.option}>
               <View style={styles.optionHeader}>
@@ -249,6 +290,14 @@ export function SpaceSettingsModal({
           <View style={{ height: insets.bottom + 16 }} />
         </View>
       </KeyboardAvoidingView>
+
+      {/* Gremly Picker Modal */}
+      <GremlyPicker
+        visible={showGremlyPicker}
+        selectedId={space?.mascot_id || 'astro'}
+        onSelect={handleMascotChange}
+        onClose={() => setShowGremlyPicker(false)}
+      />
     </Modal>
   );
 }
@@ -310,6 +359,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(191, 216, 192, 0.25)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  mascotIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(191, 216, 192, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  mascotPreview: {
+    width: 32,
+    height: 32,
   },
   iconContainerDanger: {
     backgroundColor: 'rgba(220, 53, 69, 0.1)',
