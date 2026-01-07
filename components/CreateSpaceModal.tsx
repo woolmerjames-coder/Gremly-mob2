@@ -157,9 +157,12 @@ export default function CreateSpaceModal() {
   }, []);
 
   const styles = StyleSheet.create({
+    scrollView: {
+      flex: 1,
+    },
     container: {
       paddingHorizontal: tokens.spacing[4],
-      paddingTop: tokens.spacing[3],
+      paddingTop: tokens.spacing[4],
       paddingBottom: (insets.bottom || 0) + tokens.spacing[4],
     },
     title: {
@@ -281,7 +284,11 @@ export default function CreateSpaceModal() {
         marginBottom: 4,
       }}
     >
-      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Title */}
         <Text style={styles.title}>Create a Space</Text>
 
