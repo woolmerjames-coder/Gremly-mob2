@@ -1088,10 +1088,11 @@ export default function ChatThreadScreen({ route }: Props) {
           const habitPayload = {
             ...basePayload,
             name: classification.title,
-            title: classification.title, // Some schemas expect both
             notes: assistantMessage,
             frequency: classification.frequency || 'daily',
-            subtype: classification.subtype === 'break_habit' ? 'break_habit' : 'start_habit',
+            subtype: (classification.subtype === 'break_habit' ? 'break_habit' : 'start_habit') as
+              | 'start_habit'
+              | 'break_habit',
             time_estimate_minutes: classification.timeEstimateMinutes || undefined,
           };
           console.log('[Chat] Creating habit with:', {

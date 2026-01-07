@@ -205,10 +205,10 @@ function getTypeLabel(type: SaveableType): string {
       return 'habit';
     case 'log-general':
       return 'note';
-    case 'log-list':
-      return 'list';
     case 'log-idea':
       return 'idea';
+    case 'log-journal':
+      return 'journal';
     default:
       return 'note';
   }

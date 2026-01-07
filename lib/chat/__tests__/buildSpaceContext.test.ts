@@ -182,7 +182,7 @@ describe('buildSpaceContext', () => {
         meta: null,
         countdown: null,
         todos: [],
-        habits: [{}, {}, {}],
+        habits: [{ name: 'h1' }, { name: 'h2' }, { name: 'h3' }],
         notes: [{}, {}],
       });
 
