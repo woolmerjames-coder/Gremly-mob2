@@ -11,6 +11,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { useIsHabitDoneToday } from '../../../lib/store/selectors';
 import {
   Circle,
   CheckCircle2,
@@ -90,11 +91,8 @@ function HabitRow({ habit, onPress, onLog, onLongPress }: HabitRowProps) {
   const metadata = useHabitMetadata(habit);
   const MetadataIcon = MetadataIconMap[metadata.icon];
 
-  // Done today = streak type with value > 0, OR days_since with value === 0, OR rolling_progress with value > 0
-  const isDoneToday =
-    (metadata.type === 'streak' && metadata.value > 0) ||
-    (metadata.type === 'days_since' && metadata.value === 0) ||
-    (metadata.type === 'rolling_progress' && metadata.value > 0);
+  // Source of truth: Zustand store's habitProgress array
+  const isDoneToday = useIsHabitDoneToday(habit.id);
 
   // Debug: log what HabitRow is rendering (compare with NowFocusRow)
   const habitProgressFromStore = useGremlyStore
