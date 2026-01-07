@@ -158,7 +158,8 @@ export default function CreateSpaceModal() {
 
   const styles = StyleSheet.create({
     container: {
-      padding: tokens.spacing[4],
+      paddingHorizontal: tokens.spacing[4],
+      paddingTop: tokens.spacing[3],
       paddingBottom: (insets.bottom || 0) + tokens.spacing[4],
     },
     title: {
@@ -166,7 +167,6 @@ export default function CreateSpaceModal() {
       fontWeight: '600',
       color: tokens.colors.text,
       textAlign: 'center',
-      marginTop: tokens.spacing[2],
       marginBottom: tokens.spacing[4],
     },
     avatarContainer: {
@@ -277,6 +277,8 @@ export default function CreateSpaceModal() {
         width: 72,
         height: 5,
         borderRadius: 3,
+        marginTop: 12,
+        marginBottom: 4,
       }}
     >
       <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
