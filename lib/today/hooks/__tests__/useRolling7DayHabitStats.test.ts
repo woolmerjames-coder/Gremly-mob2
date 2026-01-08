@@ -8,8 +8,16 @@ import * as useGremlyStoreModule from '../../../store/useGremlyStore';
 import type { Habit } from '../../../types';
 import type { HabitProgressRow } from '../../../store/useGremlyStore';
 
-// Helper to format date as YYYY-MM-DD
-const formatDate = (d: Date): string => d.toISOString().split('T')[0];
+/**
+ * Format date as YYYY-MM-DD in LOCAL timezone (matches DateService behavior).
+ * IMPORTANT: Do NOT use toISOString().split('T')[0] - that returns UTC date!
+ */
+const formatDate = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 // Get today and relative dates
 const getToday = () => new Date();
