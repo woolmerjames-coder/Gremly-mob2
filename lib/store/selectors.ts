@@ -273,8 +273,9 @@ export const selectAvailableFrequencyHabits = createSelector(
 export const selectUrgentFrequencyHabits = createSelector(
   [selectHabits, selectHabitProgress],
   (habits, progress): Habit[] => {
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const dateService = ds();
+    const todayStr = dateService.getCurrentDate();
+    const today = dateService.fromDateString(todayStr) ?? new Date(); // Date at noon local time
 
     return habits.filter((h) => {
       if (h.archived) return false;
@@ -287,7 +288,7 @@ export const selectUrgentFrequencyHabits = createSelector(
       // Get completions in current window
       const windowStart = new Date(today);
       windowStart.setDate(today.getDate() - windowDays + 1);
-      const windowStartStr = windowStart.toISOString().split('T')[0];
+      const windowStartStr = dateService.toDateString(windowStart);
 
       const completions = progress.filter(
         (p) =>
@@ -308,7 +309,7 @@ export const selectUrgentFrequencyHabits = createSelector(
       tomorrow.setDate(today.getDate() + 1);
       const tomorrowWindowStart = new Date(tomorrow);
       tomorrowWindowStart.setDate(tomorrow.getDate() - windowDays + 1);
-      const tomorrowWindowStartStr = tomorrowWindowStart.toISOString().split('T')[0];
+      const tomorrowWindowStartStr = dateService.toDateString(tomorrowWindowStart);
 
       // If oldest completion would be outside tomorrow's window, it's urgent
       return oldestCompletion < tomorrowWindowStartStr;
@@ -1834,10 +1835,11 @@ export const selectSpaceTimeline = createSelector(
     // Add todos with due dates in this week
     const spaceTodos = todos.filter((t) => t.space_id === spaceId && !t.archived);
     for (const t of spaceTodos) {
-      const dueDate = (t as any).due_date;
-      if (dueDate && dayMap.has(dueDate)) {
-        const dueAt = (t as any).due_time ? `${dueDate}T${(t as any).due_time}:00` : dueDate;
-        dayMap.get(dueDate)!.push({
+      // Use due_day as source of truth (timezone-safe YYYY-MM-DD)
+      const dueDay = (t as any).due_day;
+      if (dueDay && dayMap.has(dueDay)) {
+        const dueAt = (t as any).due_time ? `${dueDay}T${(t as any).due_time}:00` : dueDay;
+        dayMap.get(dueDay)!.push({
           id: t.id,
           type: 'todo',
           title: (t as any).name || (t as any).title || 'To-do',

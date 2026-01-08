@@ -137,7 +137,7 @@ export async function fetchSweepCandidatesForUser(
   // ─────────────────────────────────────────────────────────────────────────
   try {
     // Get today's date string for due date comparison
-    const todayDay = new Date().toISOString().split('T')[0];
+    const todayDay = getDateService().getCurrentDate();
 
     // Build the OR clause using shared filter logic
     // This aligns with lib/today/sweepSelectors.ts for consistency
@@ -208,7 +208,7 @@ export async function fetchSweepCandidatesForUser(
   // ─────────────────────────────────────────────────────────────────────────
   try {
     // Get today's date string for filtering
-    const todayDay = new Date().toISOString().split('T')[0];
+    const todayDay = getDateService().getCurrentDate();
 
     // Helper to process note rows into candidates
     const processNoteRows = (rows: any[]) => {
@@ -510,7 +510,7 @@ export async function markSweepCompleted(
   summary: { kept: number; cleared: number },
 ): Promise<{ streak: number }> {
   const now = new Date();
-  const todayDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
+  const todayDate = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
 
   try {
     // 1. Insert event for analytics/history

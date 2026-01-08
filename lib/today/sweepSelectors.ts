@@ -45,7 +45,9 @@ export interface SweepCandidate {
   id: string;
   type: 'todo';
   name: string;
+  /** Primary due date (YYYY-MM-DD, timezone-safe) */
   due_day?: string | null;
+  /** @deprecated Use due_day instead - kept for backwards compatibility */
   due_date?: string | null;
   status?: 'active' | 'completed' | 'archived';
   carry_forward?: boolean;
@@ -55,7 +57,7 @@ export interface SweepCandidate {
   tags?: string[];
   /** ISO 8601 timestamp when the item was created */
   created_at?: string | null;
-  /** True if due_day (or due_date) is strictly before today */
+  /** True if due_day is strictly before today */
   isOverdue: boolean;
 }
 
@@ -67,7 +69,9 @@ export interface SweepEligibleTodo {
   id: string;
   name: string;
   type?: string;
+  /** Primary due date (YYYY-MM-DD, timezone-safe) */
   due_day?: string | null;
+  /** @deprecated Use due_day instead - kept for backwards compatibility */
   due_date?: string | null;
   status?: 'active' | 'completed' | 'archived' | string;
   carry_forward?: boolean;

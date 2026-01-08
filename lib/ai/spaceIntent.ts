@@ -41,9 +41,18 @@ function includesAny(text: string, words: string[]): boolean {
   return words.some((w) => lower.includes(w));
 }
 
-function withinDays(iso: string | null | undefined, days: number): boolean {
-  if (!iso) return false;
-  const t = new Date(iso).getTime();
+function withinDays(dateStr: string | null | undefined, days: number): boolean {
+  if (!dateStr) return false;
+  // Handle both YYYY-MM-DD (due_day) and ISO timestamps (due_date)
+  // For YYYY-MM-DD, parse as local date at noon to avoid DST issues
+  let targetDate: Date;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    targetDate = new Date(year, month - 1, day, 12, 0, 0);
+  } else {
+    targetDate = new Date(dateStr);
+  }
+  const t = targetDate.getTime();
   if (Number.isNaN(t)) return false;
   const now = Date.now();
   const horizon = now + days * 24 * 60 * 60 * 1000;
@@ -64,8 +73,9 @@ export function inferSpaceIntent({ habits, todos, notes }: Input): SpaceIntent {
   const travelWordHits =
     (todos || []).reduce((acc, t) => acc + (includesAny(textOf(t), travelKeywords) ? 1 : 0), 0) +
     (notes || []).reduce((acc, n) => acc + (includesAny(textOf(n), travelKeywords) ? 1 : 0), 0);
+  // Use due_day as primary, fallback to due_date for backwards compatibility
   const soonDatedTodos = (todos || []).reduce(
-    (acc, t: any) => acc + (withinDays(t.due_date, 30) ? 1 : 0),
+    (acc, t: any) => acc + (withinDays(t.due_day ?? t.due_date, 30) ? 1 : 0),
     0,
   );
   const tripScore = travelWordHits * 2 + soonDatedTodos;

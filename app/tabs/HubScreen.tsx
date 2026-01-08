@@ -724,7 +724,7 @@ export default function HubScreen() {
     const notes = hubV1Items.filter(
       (item) => item.type === 'note',
     ) as import('../../lib/types').Note[];
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const today = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
     return selectNeedsAttentionItems(todos, notes, {
       nowIso: new Date().toISOString(),
       todayDate: today,

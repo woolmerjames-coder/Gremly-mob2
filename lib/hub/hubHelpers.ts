@@ -4,6 +4,8 @@
  * These are extracted from HubScreen for testability and reuse.
  */
 
+import { getDateService } from '../date';
+
 // =============================================================================
 // Time Range Computation
 // =============================================================================
@@ -263,7 +265,8 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
  * @param now - Optional reference date (for testing)
  */
 export function formatJournalDate(dateStr: string, now: Date = new Date()): string {
-  const date = new Date(dateStr);
+  // Use DateService for timezone-safe parsing of YYYY-MM-DD strings
+  const date = getDateService().fromDateString(dateStr) ?? new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 

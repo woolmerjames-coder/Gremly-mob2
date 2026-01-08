@@ -42,6 +42,7 @@ import { Flame, Sparkles, Sprout } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
+import { getDateService } from '../../lib/date';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import {
@@ -475,7 +476,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
         views: {
           sweep_origin: true,
           sweep_reflection: true,
-          sweep_date: new Date().toISOString().split('T')[0],
+          sweep_date: getDateService().getCurrentDate(),
           sweep_moods: moodArray, // Store all selected moods
         },
       });
@@ -2565,7 +2566,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const handleLockInContinue = useCallback(
     async (decisions: Map<string, 'done' | 'tomorrow' | 'archive'>) => {
       const { updateTodo, archiveTodo, archiveHabit, completeHabit } = useGremlyStore.getState();
-      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+      const ds = getDateService();
+      const tomorrow = ds.addDays(ds.getCurrentDate(), 1);
 
       for (const [itemId, decision] of decisions) {
         const item = lockedItems.find((i) => i.id === itemId);

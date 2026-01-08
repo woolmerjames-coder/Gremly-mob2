@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { eventBus } from '../events';
+import { getDateService } from '../date';
 import { probeMembership } from '../config/surfaceProbe';
 import type { Habit, Todo, Note } from '../types';
 import type {
@@ -230,8 +231,8 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       weekEnd.setDate(weekStart.getDate() + 6);
       weekEnd.setHours(23, 59, 59, 999);
 
-      const weekStartIso = weekStart.toISOString().split('T')[0];
-      const weekEndIso = weekEnd.toISOString().split('T')[0];
+      const weekStartIso = getDateService().toDateString(weekStart);
+      const weekEndIso = getDateService().toDateString(weekEnd);
 
       const completionHistory = new Map<string, number>();
       await Promise.all(

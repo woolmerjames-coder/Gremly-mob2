@@ -18,6 +18,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { View, StyleSheet, TouchableOpacity, Image, Dimensions } from 'react-native';
+import { getDateService } from '../../../lib/date';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -94,7 +95,7 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
   );
 
   const completedHabitIds = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getDateService().getCurrentDate();
     return new Set(habitProgress.filter((p) => p.occurred_day === today).map((p) => p.habit_id));
   }, [habitProgress]);
 

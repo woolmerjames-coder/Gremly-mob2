@@ -3,6 +3,7 @@ import { useRepo } from '../../../providers/RepoProvider';
 import { useAuth } from '../../../providers/AuthProvider';
 import { eventBus } from '../../events';
 import { env } from '../../env';
+import { getDateService } from '../../date';
 
 export type FocusEntryType = 'todo' | 'habit' | 'note' | null;
 export type FocusSource = 'auto' | 'user' | 'carry_forward';
@@ -40,7 +41,7 @@ export function useFocusCard(): UseFocusCard {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const todayDay = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const todayDay = useMemo(() => getDateService().getCurrentDate(), []);
   const endOfDayIso = useMemo(() => `${todayDay}T23:59:59.999Z`, [todayDay]);
 
   const load = useCallback(async () => {
