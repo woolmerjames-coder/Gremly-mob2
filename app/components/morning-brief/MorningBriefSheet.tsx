@@ -209,6 +209,7 @@ function DraggableTaskCard({
               simultaneousHandlers={longPressRef}
               activeOffsetX={[-15, 15]}
               activeOffsetY={[-15, 15]}
+              failOffsetY={[-25, 25]}
             >
               <Animated.View style={[styles.taskCard, isDragging && styles.taskCardDragging]}>
                 <Image source={GREMLY_FACE} style={styles.gremlyHandle} />
