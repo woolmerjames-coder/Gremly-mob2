@@ -8,6 +8,9 @@
 import type { Habit, Cadence } from '../types';
 import type { HabitProgressRow } from '../store/useGremlyStore';
 import { getFrequencyDisplayLabel } from '../habits/frequencyUtils';
+import { getDateService } from '../date';
+
+const ds = () => getDateService();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Frequency Parsing Utilities
@@ -128,37 +131,33 @@ export interface GroupedHabits {
  * Get today's date as YYYY-MM-DD in local timezone
  */
 export function getTodayDateString(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return ds().getCurrentDate();
 }
 
 /**
  * Get date string for N days ago
  */
 function getDateStringDaysAgo(daysAgo: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() - daysAgo);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return ds().addDays(ds().getCurrentDate(), -daysAgo);
 }
 
 /**
  * Get the start of the current week (Monday) as YYYY-MM-DD
  */
 function getWeekStartDateString(): string {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
+  const today = ds().getCurrentDate();
+  const date = ds().fromDateString(today);
+  const dayOfWeek = date?.getDay() ?? 0;
   const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - daysFromMonday);
-  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+  return ds().addDays(today, -daysFromMonday);
 }
 
 /**
  * Get the start of the current month as YYYY-MM-DD
  */
 function getMonthStartDateString(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const today = ds().getCurrentDate();
+  return today.slice(0, 8) + '01'; // YYYY-MM-01
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

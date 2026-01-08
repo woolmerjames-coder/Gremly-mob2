@@ -47,6 +47,7 @@ import {
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import { startOfWeek, formatISO, addDays } from 'date-fns';
+import { getDateService } from '../../lib/date';
 
 // Components
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
@@ -947,7 +948,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // v33: Compute daily witty line
   const v33WittyLine = React.useMemo(() => {
-    const dailySeed = new Date().toISOString().slice(0, 10);
+    const dailySeed = getDateService().getCurrentDate();
     return getWittyLine(space?.name ?? 'Space', v33Mood, dailySeed);
   }, [space?.name, v33Mood]);
 
@@ -2838,21 +2839,23 @@ function buildCalendarDays(items: AppRecord[]): Array<{
     a.getDate() === b.getDate();
 
   return days.map((d) => {
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const hasTodos = items.some((it: any) => {
       if (it.type !== 'todo') return false;
-      const due = it.due_date ? new Date(it.due_date) : null;
-      const created = it.created_at ? new Date(it.created_at) : null;
-      return (due && isSameDay(d, due)) || (created && isSameDay(d, created));
+      // Use due_day as source of truth (timezone-safe)
+      const dueDay = it.due_day;
+      const createdDay = it.created_at ? it.created_at.slice(0, 10) : null;
+      return dueDay === dateStr || createdDay === dateStr;
     });
     const hasNotes = items.some((it: any) => {
       if (it.type !== 'note') return false;
-      const created = it.created_at ? new Date(it.created_at) : null;
-      return created ? isSameDay(d, created) : false;
+      const createdDay = it.created_at ? it.created_at.slice(0, 10) : null;
+      return createdDay === dateStr;
     });
     const hasHabits = items.some((it: any) => {
       if (it.type !== 'habit') return false;
-      const created = it.created_at ? new Date(it.created_at) : null;
-      return created ? isSameDay(d, created) : false;
+      const createdDay = it.created_at ? it.created_at.slice(0, 10) : null;
+      return createdDay === dateStr;
     });
     return { date: d, hasTodos, hasNotes, hasHabits };
   });

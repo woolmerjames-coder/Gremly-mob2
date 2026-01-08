@@ -1533,7 +1533,7 @@ function formatStartDate(startDate: string | null | undefined): string {
 function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string | null {
   if (kind === 'todo') {
     if (item.due_date || item.due_day) {
-      return formatDue({ dueDay: item.due_day, dueIso: item.due_date });
+      return formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time });
     }
     return 'no deadline yet';
   }

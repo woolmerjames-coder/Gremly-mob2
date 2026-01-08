@@ -7,6 +7,7 @@
 
 import { useMemo } from 'react';
 import { useGremlyStore, type HabitProgressRow } from '../../store/useGremlyStore';
+import { getDateService } from '../../date';
 import type { Habit } from '../../types';
 
 export interface Rolling7DayHabitStats {
@@ -43,20 +44,19 @@ function calculateStreak(habitId: string, progress: HabitProgressRow[], todayStr
   );
 
   let streak = 0;
-  const today = new Date(todayStr);
-  const checkDate = new Date(today);
+  const ds = getDateService();
+  let checkStr = todayStr;
 
   // If not done today, start checking from yesterday
   if (!completionDays.has(todayStr)) {
-    checkDate.setDate(checkDate.getDate() - 1);
+    checkStr = ds.addDays(todayStr, -1);
   }
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const checkStr = checkDate.toISOString().split('T')[0];
     if (completionDays.has(checkStr)) {
       streak++;
-      checkDate.setDate(checkDate.getDate() - 1);
+      checkStr = ds.addDays(checkStr, -1);
     } else {
       break;
     }
@@ -81,18 +81,16 @@ function calculateDaysSince(
 
   if (completions.length === 0) return -1;
 
-  const lastDate = new Date(completions[0]);
-  const today = new Date(todayStr);
-  const diffTime = today.getTime() - lastDate.getTime();
-  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  // Use DateService.daysBetween for timezone-safe calculation
+  return getDateService().daysBetween(completions[0], todayStr);
 }
 
 export function useRolling7DayHabitStats(habits: Habit[]): Rolling7DayHabitStats[] {
   const habitProgress = useGremlyStore((s) => s.habitProgress);
 
   return useMemo(() => {
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const ds = getDateService();
+    const todayStr = ds.getCurrentDate();
 
     // Build rolling 7 days (today is rightmost)
     const rolling7Days: Array<{
@@ -102,9 +100,8 @@ export function useRolling7DayHabitStats(habits: Habit[]): Rolling7DayHabitStats
       isFuture: boolean;
     }> = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = ds.addDays(todayStr, -i);
+      const d = ds.fromDateString(dateStr) ?? new Date();
       const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
       rolling7Days.push({
         date: dateStr,
@@ -172,9 +169,7 @@ export function useRolling7DayHabitStats(habits: Habit[]): Rolling7DayHabitStats
           // For monthly, need to check 30-day window separately
           let completionsInPeriod = completionsIn7Days;
           if (cadence === 'monthly') {
-            const windowStart = new Date(today);
-            windowStart.setDate(today.getDate() - 29);
-            const windowStartStr = windowStart.toISOString().split('T')[0];
+            const windowStartStr = ds.addDays(todayStr, -29);
             // Count unique days in 30-day window
             const daysInWindow = new Set(
               habitProgress

@@ -648,11 +648,14 @@ export function useTodayData() {
           return {
             id: todo.id,
             title: todo.name,
-            dueTime: todo.due_date
-              ? new Date(todo.due_date).toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })
+            // Use due_time (HH:mm) if available, format for display
+            dueTime: todo.due_time
+              ? (() => {
+                  const [hours, minutes] = todo.due_time.split(':').map(Number);
+                  const period = hours >= 12 ? 'PM' : 'AM';
+                  const displayHour = hours % 12 || 12;
+                  return `${displayHour}:${String(minutes).padStart(2, '0')} ${period}`;
+                })()
               : undefined,
             tags: todo.tags?.slice(0, 2) || [],
             spaceName,

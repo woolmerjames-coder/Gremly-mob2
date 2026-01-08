@@ -154,6 +154,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Buy groceries',
       origin: 'catchall',
       created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_day: null,
+      due_time: null,
       due_date: null,
     });
 
@@ -171,6 +173,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Finish report',
       origin: 'catchall',
       created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_day: '2025-11-08',
+      due_time: null, // No explicit time
       due_date: new Date('2025-11-08T00:00:00').toISOString(),
     });
 
@@ -188,6 +192,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Fix urgent bug asap',
       origin: 'catchall',
       created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_day: '2025-11-08',
+      due_time: '17:00', // Explicit time
       due_date: new Date('2025-11-08T17:00:00').toISOString(),
     });
 
@@ -205,6 +211,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Call dentist',
       origin: 'catchall',
       created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_day: '2025-11-09',
+      due_time: '09:00', // Explicit time
       due_date: new Date('2025-11-09T09:00:00').toISOString(),
     });
 
@@ -222,6 +230,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Team meeting',
       origin: 'catchall',
       created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_day: '2025-11-10',
+      due_time: null, // No explicit time
       due_date: new Date('2025-11-10T00:00:00').toISOString(), // Monday
     });
 
@@ -239,6 +249,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Submit proposal',
       origin: 'catchall',
       created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_day: '2025-11-14',
+      due_time: '15:30', // Explicit time
       due_date: new Date('2025-11-14T15:30:00').toISOString(), // Friday
     });
 
@@ -256,6 +268,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Plan event',
       origin: 'catchall',
       created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_day: '2025-11-20',
+      due_time: null,
       due_date: new Date('2025-11-20T00:00:00').toISOString(),
     });
 
@@ -273,6 +287,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Holiday shopping',
       origin: 'catchall',
       created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_day: '2025-12-05',
+      due_time: null,
       due_date: new Date('2025-12-05T00:00:00').toISOString(),
     });
 
@@ -290,6 +306,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Todo 1',
       origin: 'catchall',
       created_at: new Date('2025-11-08T09:00:00').toISOString(),
+      due_day: null,
+      due_time: null,
       due_date: null,
     });
     mockTodos.push({
@@ -297,6 +315,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Todo 2',
       origin: 'catchall',
       created_at: new Date('2025-11-08T08:00:00').toISOString(),
+      due_day: '2025-11-08',
+      due_time: '17:00', // Explicit time
       due_date: new Date('2025-11-08T17:00:00').toISOString(),
     });
     mockTodos.push({
@@ -304,6 +324,8 @@ describe('RecentDrops - Todo Due Date Badges', () => {
       name: 'Todo 3',
       origin: 'catchall',
       created_at: new Date('2025-11-08T07:00:00').toISOString(),
+      due_day: '2025-11-12',
+      due_time: '10:00', // Explicit time
       due_date: new Date('2025-11-12T10:00:00').toISOString(),
     });
 

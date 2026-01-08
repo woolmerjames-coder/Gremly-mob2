@@ -36,11 +36,13 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
+  withSequence,
   runOnJS,
   runOnUI,
   interpolate,
   Extrapolation,
   interpolateColor,
+  Easing as ReanimatedEasing,
 } from 'react-native-reanimated';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SwipeHintText } from '../../app/components/sweep/SwipeHintText';
@@ -130,6 +132,8 @@ export interface SweepCardProps {
   index: number;
   /** Total number of candidates */
   total: number;
+  /** Flag indicating this card was just converted from note to todo */
+  isConverted?: boolean;
   /** Called when user wants to skip/defer the item to next sweep */
   onSkip: () => void;
   /** Called when user wants to clear/archive the item */
@@ -320,6 +324,7 @@ export function SweepCard({
   meta,
   index: _index,
   total: _total,
+  isConverted,
   onSkip,
   onClear,
   onOpenEdit,
@@ -337,6 +342,8 @@ export function SweepCard({
 }: SweepCardProps) {
   const repo = useRepo();
   const title = getCandidateTitle(candidate);
+
+  console.log('[SweepCard] isConverted:', isConverted, 'candidate.kind:', candidate.kind);
 
   // Get user's original input text for preview
   // For notes: body field contains user's original input
@@ -703,6 +710,60 @@ export function SweepCard({
   const borderOpacity = useSharedValue(0); // For smooth border fade
   const hasTriggeredHaptic = useSharedValue(false); // Track haptic at threshold
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Conversion Animation (note → todo transformation) - 360° Celebratory Spin
+  // ─────────────────────────────────────────────────────────────────────────
+  const flipRotation = useSharedValue(0);
+  const flipScale = useSharedValue(1);
+
+  React.useEffect(() => {
+    if (isConverted) {
+      // Full 360° spin
+      flipRotation.value = withTiming(360, {
+        duration: 800,
+        easing: ReanimatedEasing.inOut(ReanimatedEasing.cubic),
+      });
+      // Slight scale pop at the end for emphasis
+      flipScale.value = withSequence(
+        withTiming(0.95, { duration: 200 }),
+        withTiming(1.02, { duration: 300 }),
+        withTiming(1, { duration: 300 }),
+      );
+    }
+  }, [isConverted, flipRotation, flipScale]);
+
+  const convertAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { perspective: 1200 },
+        { rotateY: `${flipRotation.value}deg` },
+        { scale: flipScale.value },
+      ],
+    };
+  });
+
+  // Glow animation for type chip when converted
+  const convertedChipGlowOpacity = useSharedValue(0);
+
+  React.useEffect(() => {
+    if (isConverted) {
+      // Pulse glow twice then fade
+      convertedChipGlowOpacity.value = withSequence(
+        withTiming(1, { duration: 300 }),
+        withTiming(0.4, { duration: 300 }),
+        withTiming(1, { duration: 300 }),
+        withTiming(0.4, { duration: 300 }),
+        withTiming(0, { duration: 800 }),
+      );
+    }
+  }, [isConverted, convertedChipGlowOpacity]);
+
+  const convertedChipGlowStyle = useAnimatedStyle(() => ({
+    textShadowColor: BRAND.colors.mossGreen,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: convertedChipGlowOpacity.value * 10,
+  }));
+
   // Haptic feedback helper
   const triggerHaptic = useCallback((type: 'light' | 'medium' | 'success') => {
     if (type === 'success') {
@@ -1050,6 +1111,7 @@ export function SweepCard({
               styles.swipeCardContainer,
               animatedCardContainerStyle,
               animatedCardStyle,
+              convertAnimatedStyle,
               meta.isLockedIn && styles.cardLockedIn,
               meta.todoStatus === 'overdue' && styles.cardOverdue,
             ]}
@@ -1110,9 +1172,17 @@ export function SweepCard({
 
               {/* CHIPS ROW - Lightweight metadata line */}
               <View style={[styles.chipsRow, hasAttachments && styles.chipsRowCompact]}>
-                <Text style={styles.chipText}>{meta.typeChip}</Text>
+                {/* Type chip - read from candidate.kind (source of truth) */}
+                <Animated.Text style={[styles.chipText, isConverted && convertedChipGlowStyle]}>
+                  {candidate.kind === 'todo'
+                    ? 'Todo'
+                    : candidate.kind === 'habit'
+                      ? 'Habit'
+                      : 'Log'}
+                </Animated.Text>
 
-                {meta.todoStatus && (
+                {/* Status chip based on actual candidate type */}
+                {candidate.kind === 'todo' ? (
                   <>
                     <Text style={styles.chipSeparator}>·</Text>
                     <Text
@@ -1121,20 +1191,23 @@ export function SweepCard({
                         meta.todoStatus === 'overdue' && styles.chipTextOverdue,
                       ]}
                     >
-                      {getTodoStatusLabel(meta.todoStatus)}
+                      {meta.todoStatus ? getTodoStatusLabel(meta.todoStatus) : 'Unscheduled'}
                     </Text>
                   </>
-                )}
-                {meta.logSubtype && (
-                  <>
-                    <Text style={styles.chipSeparator}>·</Text>
-                    <Text style={styles.chipText}>{getLogSubtypeLabel(meta.logSubtype)}</Text>
-                  </>
+                ) : candidate.kind === 'habit' ? // Habits don't need a status chip here
+                null : (
+                  // Notes/Logs - show subtype if available
+                  meta.logSubtype && (
+                    <>
+                      <Text style={styles.chipSeparator}>·</Text>
+                      <Text style={styles.chipText}>{getLogSubtypeLabel(meta.logSubtype)}</Text>
+                    </>
+                  )
                 )}
 
                 <Text style={styles.chipSeparator}>·</Text>
                 <Text style={styles.chipText}>
-                  {meta.isNew ? 'New' : `Since ${meta.resurfacingDate}`}
+                  {isConverted ? 'Just now' : meta.isNew ? 'New' : `Since ${meta.resurfacingDate}`}
                 </Text>
 
                 {meta.spaceName && (

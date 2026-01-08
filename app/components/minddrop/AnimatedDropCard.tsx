@@ -26,6 +26,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Clock, Camera, Lock } from 'lucide-react-native';
 
+import { getDateService } from '../../../lib/date';
 import { ShimmerPlaceholder } from './ShimmerPlaceholder';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -344,22 +345,11 @@ AnimatedDropCard.displayName = 'AnimatedDropCard';
 
 function formatDueDate(dateStr?: string | null): string {
   if (!dateStr) return '';
-  try {
-    const date = new Date(dateStr);
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const isToday = date.toDateString() === today.toDateString();
-    const isTomorrow = date.toDateString() === tomorrow.toDateString();
-
-    if (isToday) return 'due Today';
-    if (isTomorrow) return 'due Tomorrow';
-
-    return `due ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-  } catch {
-    return '';
-  }
+  const ds = getDateService();
+  // Handle both YYYY-MM-DD (due_day) and ISO timestamps (due_date)
+  const dueDay = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : ds.extractDateFromIso(dateStr);
+  if (!dueDay) return '';
+  return `due ${ds.formatForChip(dueDay)}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

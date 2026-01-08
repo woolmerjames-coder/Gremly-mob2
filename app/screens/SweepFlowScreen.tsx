@@ -42,6 +42,7 @@ import { Flame, Sparkles, Sprout } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
+import { getDateService } from '../../lib/date';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import {
@@ -55,6 +56,7 @@ import { markSweepCompleted } from '../../lib/sweep/engine';
 import type {
   SweepCandidate,
   SweepCandidateTodo,
+  SweepCandidateHabit,
   SweepCardMeta,
   SweepSummary,
   SweepSummaryItem,
@@ -76,7 +78,10 @@ import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
 import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
-import { selectTodayLockedItems } from '../../lib/store/selectors';
+import {
+  selectTodayLockedItems,
+  selectTodayLockedItemsIncludingCompleted,
+} from '../../lib/store/selectors';
 
 // Sweep habit components and helpers
 import { SweepHabitRow } from '../../components/sweep/SweepHabitRow';
@@ -471,7 +476,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
         views: {
           sweep_origin: true,
           sweep_reflection: true,
-          sweep_date: new Date().toISOString().split('T')[0],
+          sweep_date: getDateService().getCurrentDate(),
           sweep_moods: moodArray, // Store all selected moods
         },
       });
@@ -1142,6 +1147,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
   const notes = useGremlyStore((state) => state.notes);
+  const habits = useGremlyStore((state) => state.habits);
   const spaces = useActiveSpaces();
   const overlayController = useOverlayController();
 
@@ -1389,11 +1395,34 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
 
-  // Track note-to-todo conversion
-  const convertingNoteIdRef = useRef<string | null>(null);
+  // Track type conversion in progress (source candidate -> target type)
+  const convertingCandidateRef = useRef<{
+    sourceId: string;
+    sourceKind: 'todo' | 'habit' | 'note';
+    targetType: 'todo' | 'habit' | 'note';
+  } | null>(null);
 
-  // Track which notes have already been converted (prevent duplicate conversions)
-  const convertedNotesRef = useRef<Set<string>>(new Set());
+  // Track which candidates have already been converted (prevent duplicate conversions)
+  const convertedCandidatesRef = useRef<Set<string>>(new Set());
+
+  // Track candidates that were converted in-place (source -> new entity)
+  const [convertedCandidate, setConvertedCandidate] = useState<{
+    originalId: string;
+    originalKind: 'todo' | 'habit' | 'note';
+    newId: string;
+    newKind: 'todo' | 'habit' | 'note';
+    animating: boolean;
+  } | null>(null);
+
+  // Clear conversion animation state after animation completes
+  useEffect(() => {
+    if (convertedCandidate?.animating) {
+      const timer = setTimeout(() => {
+        setConvertedCandidate((prev) => (prev ? { ...prev, animating: false } : null));
+      }, 400); // Match animation duration
+      return () => clearTimeout(timer);
+    }
+  }, [convertedCandidate?.animating]);
 
   // Log candidates for debugging (using snapshot)
   useEffect(() => {
@@ -1425,6 +1454,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
   const handleOutcome = useCallback(
     async (outcome: SweepOutcome) => {
+      // Clear conversion state if user is acting on converted card
+      if (convertedCandidate) {
+        setConvertedCandidate(null);
+      }
+
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta) return;
       const candidate = candidateWithMeta.candidate;
@@ -1503,26 +1537,38 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Listen for overlay save events to detect "changed" outcomes from edit/primary actions
   useEffect(() => {
     const unsubscribeSaved = addOverlaySavedListener((payload) => {
-      // Check if this is a note-to-todo conversion
-      const convertingNoteId = convertingNoteIdRef.current;
-      if (convertingNoteId && payload.type === 'todo') {
-        // Check if this note was already converted (prevent duplicates)
-        if (convertedNotesRef.current.has(convertingNoteId)) {
-          console.log('[SweepFlow] Note already converted, ignoring duplicate:', convertingNoteId);
-          convertingNoteIdRef.current = null;
+      // Check if this is a type conversion
+      const converting = convertingCandidateRef.current;
+      if (converting && payload.type === converting.targetType) {
+        // Check if this candidate was already converted (prevent duplicates)
+        if (convertedCandidatesRef.current.has(converting.sourceId)) {
+          console.log(
+            '[SweepFlow] Candidate already converted, ignoring duplicate:',
+            converting.sourceId,
+          );
+          convertingCandidateRef.current = null;
           return;
         }
 
-        console.log('[SweepFlow] Note converted to todo:', convertingNoteId, '->', payload.id);
-        // Mark this note as converted
-        convertedNotesRef.current.add(convertingNoteId);
+        console.log(
+          `[SweepFlow] ${converting.sourceKind} converted to ${converting.targetType} (in-place):`,
+          converting.sourceId,
+          '->',
+          payload.id,
+        );
+        // Mark this candidate as converted
+        convertedCandidatesRef.current.add(converting.sourceId);
         // Clear the conversion ref
-        convertingNoteIdRef.current = null;
+        convertingCandidateRef.current = null;
 
-        // SIMPLE APPROACH: Just advance to next card
-        // The new todo will appear in sweep candidates on its own if unscheduled
-        // This is more robust than trying to transform the card in place
-        handleOutcomeRef.current('changed');
+        // Instead of advancing, trigger in-place transformation
+        setConvertedCandidate({
+          originalId: converting.sourceId,
+          originalKind: converting.sourceKind,
+          newId: payload.id,
+          newKind: converting.targetType,
+          animating: true,
+        });
         return;
       }
 
@@ -1555,6 +1601,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Card Action Handlers (record decisions, don't commit immediately)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
+    // Clear conversion state if user is acting on converted card
+    if (convertedCandidate) {
+      setConvertedCandidate(null);
+    }
+
     const candidateWithMeta = candidatesWithMeta[currentIndex];
     if (!candidateWithMeta) return;
     const { candidate } = candidateWithMeta;
@@ -1578,6 +1629,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
 
   const handleClear = useCallback(() => {
+    // Clear conversion state if user is acting on converted card
+    if (convertedCandidate) {
+      setConvertedCandidate(null);
+    }
+
     const candidateWithMeta = candidatesWithMeta[currentIndex];
     if (!candidateWithMeta) return;
     const { candidate } = candidateWithMeta;
@@ -1638,19 +1694,23 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     const candidate = candidateWithMeta.candidate;
 
     // Prevent duplicate conversions
-    if (convertedNotesRef.current.has(candidate.id)) {
-      console.log('[SweepFlow] Note already converted, ignoring:', candidate.id);
+    if (convertedCandidatesRef.current.has(candidate.id)) {
+      console.log('[SweepFlow] Candidate already converted, ignoring:', candidate.id);
       return;
     }
 
     // Prevent re-triggering while conversion is in progress
-    if (convertingNoteIdRef.current === candidate.id) {
+    if (convertingCandidateRef.current?.sourceId === candidate.id) {
       console.log('[SweepFlow] Conversion already in progress for:', candidate.id);
       return;
     }
 
-    // Track that we're converting this note (so we don't advance on save)
-    convertingNoteIdRef.current = candidate.id;
+    // Track that we're converting this candidate (so we don't advance on save)
+    convertingCandidateRef.current = {
+      sourceId: candidate.id,
+      sourceKind: candidate.kind,
+      targetType: 'todo',
+    };
 
     // Look up full record from store
     const note = notes.find((n) => n.id === candidate.id);
@@ -1914,7 +1974,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     }
   }, [isLoading, candidatesWithMeta.length, currentIndex, stats, handleAllCardsComplete]);
 
-  // Build effective candidate - if this card was converted to a todo, use the todo data
+  // Build effective candidate - if this card was converted, use the new entity data
   // NOTE: This must be called unconditionally (before early returns) to satisfy React hooks rules
   const effectiveCandidateWithMeta = useMemo(() => {
     // Guard for empty/out-of-bounds state
@@ -1922,10 +1982,58 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       return null;
     }
 
-    // Simply return the current candidate - no card transformation needed
-    // After Make Todo conversion, we advance to next card instead
-    return candidatesWithMeta[currentIndex];
-  }, [currentIndex, candidatesWithMeta]);
+    const base = candidatesWithMeta[currentIndex];
+
+    // Check if this candidate was just converted (e.g., note -> todo, note -> habit)
+    if (convertedCandidate && base.candidate.id === convertedCandidate.originalId) {
+      // Look up the new entity from the store based on what it was converted to
+      if (convertedCandidate.newKind === 'todo') {
+        const newTodo = todos.find((t) => t.id === convertedCandidate.newId);
+        if (newTodo) {
+          // Return a transformed candidate with todo data
+          const convertedTodoCandidate: SweepCandidateTodo = {
+            id: newTodo.id,
+            kind: 'todo' as const,
+            createdAt: newTodo.created_at || base.candidate.createdAt,
+            dropId: (newTodo as any).drop_id ?? base.candidate.dropId,
+            skippedInSweepAt: null,
+            isOverdue: false,
+            isDueToday: false,
+            isCreatedToday: true,
+            raw: newTodo as any,
+          };
+          return {
+            ...base,
+            candidate: convertedTodoCandidate,
+            isConverted: true, // Flag for animation
+          };
+        }
+      } else if (convertedCandidate.newKind === 'habit') {
+        const newHabit = habits.find((h) => h.id === convertedCandidate.newId);
+        if (newHabit) {
+          // Return a transformed candidate with habit data
+          const convertedHabitCandidate: SweepCandidateHabit = {
+            id: newHabit.id,
+            kind: 'habit' as const,
+            createdAt: newHabit.created_at || base.candidate.createdAt,
+            dropId: (newHabit as any).drop_id ?? base.candidate.dropId,
+            skippedInSweepAt: null,
+            isOverdue: false,
+            isDueToday: false,
+            isCreatedToday: true,
+            raw: newHabit as any,
+          };
+          return {
+            ...base,
+            candidate: convertedHabitCandidate,
+            isConverted: true, // Flag for animation
+          };
+        }
+      }
+    }
+
+    return base;
+  }, [currentIndex, candidatesWithMeta, convertedCandidate, todos, habits]);
 
   // Loading state
   if (isLoading) {
@@ -2019,6 +2127,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           meta={currentCandidateWithMeta.meta}
           index={currentIndex}
           total={candidatesWithMeta.length}
+          isConverted={convertedCandidate?.animating ?? false}
           onSkip={handleSkip}
           onClear={handleClear}
           onOpenEdit={handleOpenEdit}
@@ -2318,9 +2427,10 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const { user } = useAuth();
   const [step, setStep] = useState<number>(initialStep);
 
-  // Check if user has locked items for lock-in checkpoint
+  // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
   const lockedItems = useGremlyStore(selectTodayLockedItems);
-  const hasLockedItems = lockedItems.length > 0;
+  const allLockedItems = useGremlyStore(selectTodayLockedItemsIncludingCompleted);
+  const hasLockedItems = allLockedItems.length > 0;
 
   // Track if lock-in checkpoint was shown
   const [lockInCheckpointComplete, setLockInCheckpointComplete] = useState(false);
@@ -2455,9 +2565,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Handle lock-in checkpoint decisions
   const handleLockInContinue = useCallback(
     async (decisions: Map<string, 'done' | 'tomorrow' | 'archive'>) => {
-      const { updateTodo, archiveTodo, archiveHabit, completeHabit } =
-        useGremlyStore.getState();
-      const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+      const { updateTodo, archiveTodo, archiveHabit, completeHabit } = useGremlyStore.getState();
+      const ds = getDateService();
+      const tomorrow = ds.addDays(ds.getCurrentDate(), 1);
 
       for (const [itemId, decision] of decisions) {
         const item = lockedItems.find((i) => i.id === itemId);
@@ -2616,7 +2726,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             console.log('[SweepFlowScreen] Rendering step:', step);
             return null;
           })()}
-        <View style={step === 1 ? styles.contentDecision : step === 0.5 ? styles.contentLockIn : styles.content}>
+        <View
+          style={
+            step === 1
+              ? styles.contentDecision
+              : step === 0.5
+                ? styles.contentLockIn
+                : styles.content
+          }
+        >
           {step === 0 &&
             (__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep'),
             (<SweepIntroStep onStart={handleIntroStart} />))}

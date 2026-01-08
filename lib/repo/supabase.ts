@@ -22,7 +22,7 @@ import type {
 } from './IRepo';
 import { supabase } from '../supabase/client';
 import { eventBus } from '../events';
-import { computeDueDay, computeDueTime } from '../date/computeDueDay';
+import { computeDueDay, computeDueTime, getDateService } from '../date';
 import {
   logSupabaseError,
   getUserFriendlyErrorMessage,
@@ -1904,15 +1904,14 @@ export class SupabaseRepo implements IRepo {
 
   async countPlannedToday(): Promise<number> {
     const userId = this.ensureUserId();
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = getDateService().getCurrentDate(); // YYYY-MM-DD
 
-    // Count todos with due_date = today
+    // Count todos with due_day = today (timezone-safe)
     const { count: todoCount, error: todoError } = await supabase
       .from('todos')
       .select('*', { count: 'exact', head: true })
       .eq('owner_id', userId)
-      .gte('due_date', `${today}T00:00:00`)
-      .lt('due_date', `${today}T23:59:59`);
+      .eq('due_day', today);
 
     if (todoError) throw new Error(`Failed to count planned todos: ${todoError.message}`);
 
@@ -1924,7 +1923,7 @@ export class SupabaseRepo implements IRepo {
   async countCompletedToday(): Promise<number> {
     try {
       const userId = this.ensureUserId();
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const today = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
 
       // Count todos completed today (completed_at = today)
       const { count: todoCount, error: todoError } = await supabase
@@ -2045,14 +2044,21 @@ export class SupabaseRepo implements IRepo {
     }
 
     const now = new Date();
+    const todayStr = getDateService().getCurrentDate();
     const mapTodo = (t: any) => {
       let overdue = false;
       let nearDue = false;
-      if (t.due_date) {
-        const due = new Date(t.due_date);
-        if (!Number.isNaN(due.getTime())) {
-          overdue = due < now;
-          nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
+      // Use due_day as source of truth for overdue calculation (timezone-safe)
+      const dueDay = t.due_day ?? getDateService().extractDateFromIso(t.due_date);
+      if (dueDay) {
+        overdue = dueDay < todayStr;
+        // nearDue requires due_time - only if due today and has time
+        if (dueDay === todayStr && t.due_time) {
+          const [hours, minutes] = t.due_time.split(':').map(Number);
+          const dueDateTime = new Date();
+          dueDateTime.setHours(hours, minutes, 0, 0);
+          const msUntilDue = dueDateTime.getTime() - now.getTime();
+          nearDue = msUntilDue > 0 && msUntilDue < 3 * 60 * 60 * 1000;
         }
       }
 
@@ -2912,7 +2918,7 @@ export class SupabaseRepo implements IRepo {
     }
 
     // Try habits - delete today's habit_progress entry
-    const todayDay = new Date().toISOString().split('T')[0];
+    const todayDay = getDateService().getCurrentDate();
     const { data: progressData, error: progressError } = await supabase
       .from('habit_progress')
       .delete()

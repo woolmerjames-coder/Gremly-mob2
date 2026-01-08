@@ -15,6 +15,7 @@ import { format } from 'date-fns';
 import type { SweepCandidate, SweepCardMeta } from './types';
 import type { Space } from '../types';
 import { getGremlyResponse } from './gremlyResponses';
+import { getDateService } from '../date';
 
 /**
  * Pre-computes all display metadata for a Sweep card from a candidate
@@ -50,9 +51,8 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
       // Check if due tomorrow
       const dueDay = candidate.raw.due_day;
       if (dueDay) {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+        const ds = getDateService();
+        const tomorrowStr = ds.addDays(ds.getCurrentDate(), 1);
         if (dueDay === tomorrowStr) {
           todoStatus = 'due_tomorrow';
         }

@@ -154,15 +154,15 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   });
 
   it('displays "due Today" for todos due today at midnight', async () => {
-    const today = new Date('2025-11-08T00:00:00');
-
     mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-today',
         type: 'todo',
         name: 'Morning task',
         origin: 'catchall',
-        due_date: today.toISOString(),
+        due_day: '2025-11-08',
+        due_time: null, // No specific time
+        due_date: new Date('2025-11-08T00:00:00').toISOString(),
         created_at: new Date().toISOString(),
       },
     ]);
@@ -176,15 +176,15 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   });
 
   it('displays "due Today @ 17:00" for todos due today with specific time', async () => {
-    const todayAt5PM = new Date('2025-11-08T17:00:00');
-
     mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-today-time',
         type: 'todo',
         name: 'Evening task',
         origin: 'catchall',
-        due_date: todayAt5PM.toISOString(),
+        due_day: '2025-11-08',
+        due_time: '17:00', // Explicit time
+        due_date: new Date('2025-11-08T17:00:00').toISOString(),
         created_at: new Date().toISOString(),
       },
     ]);
@@ -198,15 +198,15 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   });
 
   it('displays "due Tomorrow" for todos due tomorrow', async () => {
-    const tomorrow = new Date('2025-11-09T09:00:00');
-
     mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-tomorrow',
         type: 'todo',
         name: 'Tomorrow task',
         origin: 'catchall',
-        due_date: tomorrow.toISOString(),
+        due_day: '2025-11-09',
+        due_time: null, // No specific time - just "Tomorrow" not "Tomorrow @ 09:00"
+        due_date: new Date('2025-11-09T00:00:00').toISOString(),
         created_at: new Date().toISOString(),
       },
     ]);
@@ -215,20 +215,20 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-tomorrow');
-      expect(dueBadge.props.children).toBe('due Tomorrow @ 09:00');
+      expect(dueBadge.props.children).toBe('due Tomorrow');
     });
   });
 
   it('displays weekday short name for todos due within 7 days', async () => {
-    const wednesday = new Date('2025-11-12T14:30:00');
-
     mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-wed',
         type: 'todo',
         name: 'Wednesday meeting',
         origin: 'catchall',
-        due_date: wednesday.toISOString(),
+        due_day: '2025-11-12',
+        due_time: '14:30', // Explicit time
+        due_date: new Date('2025-11-12T14:30:00').toISOString(),
         created_at: new Date().toISOString(),
       },
     ]);
@@ -242,15 +242,15 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   });
 
   it('displays "due Nov 20" for todos due beyond 7 days (same month)', async () => {
-    const nov20 = new Date('2025-11-20T00:00:00');
-
     mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-nov20',
         type: 'todo',
         name: 'Later task',
         origin: 'catchall',
-        due_date: nov20.toISOString(),
+        due_day: '2025-11-20',
+        due_time: null, // No specific time
+        due_date: new Date('2025-11-20T00:00:00').toISOString(),
         created_at: new Date().toISOString(),
       },
     ]);
@@ -264,15 +264,15 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
   });
 
   it('displays "due Dec 5" for todos due in different month', async () => {
-    const dec5 = new Date('2025-12-05T10:15:00');
-
     mockSelectRecentTodos.mockReturnValue([
       {
         id: 'todo-dec5',
         type: 'todo',
         name: 'December task',
         origin: 'catchall',
-        due_date: dec5.toISOString(),
+        due_day: '2025-12-05',
+        due_time: null, // No specific time - just date
+        due_date: new Date('2025-12-05T00:00:00').toISOString(),
         created_at: new Date().toISOString(),
       },
     ]);
@@ -281,7 +281,7 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
 
     await waitFor(() => {
       const dueBadge = getByTestId('minddrop-recent-todo-due-todo-dec5');
-      expect(dueBadge.props.children).toBe('due Dec 5 @ 10:15');
+      expect(dueBadge.props.children).toBe('due Dec 5');
     });
   });
 
@@ -292,6 +292,8 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
         type: 'todo',
         name: 'Someday task',
         origin: 'catchall',
+        due_day: null,
+        due_time: null,
         due_date: null,
         created_at: new Date().toISOString(),
       },
@@ -312,6 +314,8 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
         type: 'todo',
         name: 'Today task',
         origin: 'catchall',
+        due_day: '2025-11-08',
+        due_time: null, // No specific time
         due_date: new Date('2025-11-08T00:00:00').toISOString(),
         created_at: new Date().toISOString(),
       },
@@ -320,6 +324,8 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
         type: 'todo',
         name: 'Tomorrow task',
         origin: 'catchall',
+        due_day: '2025-11-09',
+        due_time: '15:00', // Explicit time
         due_date: new Date('2025-11-09T15:00:00').toISOString(),
         created_at: new Date().toISOString(),
       },
@@ -328,6 +334,8 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
         type: 'todo',
         name: 'Next week',
         origin: 'catchall',
+        due_day: '2025-11-15',
+        due_time: null, // No specific time
         due_date: new Date('2025-11-15T00:00:00').toISOString(),
         created_at: new Date().toISOString(),
       },
@@ -336,6 +344,8 @@ describe('Mind Drop Recent Drops Schedule Display', () => {
         type: 'todo',
         name: 'Someday',
         origin: 'catchall',
+        due_day: null,
+        due_time: null,
         due_date: null,
         created_at: new Date().toISOString(),
       },

@@ -59,7 +59,7 @@ import { Modal } from 'react-native';
 import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
-import { getDateService } from '../../lib/date';
+import { getDateService, getTodayDayString } from '../../lib/date';
 import {
   lightTokens,
   darkTokens,
@@ -102,7 +102,6 @@ import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
-import { deleteEntityOrDrop } from '../../lib/minddrop/deleteHelpers';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
 import {
@@ -640,6 +639,83 @@ function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
   return 'log';
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sweep Status Chip Helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+type SweepStatus = {
+  label: string;
+  type: 'archived' | 'completed' | 'deferred' | 'in-sweep' | 'scheduled' | null;
+};
+
+function computeSweepStatus(entity: any, baseType: BaseType): SweepStatus {
+  if (!entity) return { label: '', type: null };
+
+  const today = getTodayDayString();
+
+  // Priority 1: Archived (all types)
+  if (entity.archived) {
+    return { label: 'Archived', type: 'archived' };
+  }
+
+  // Priority 2: Completed (todos only)
+  if (baseType === 'todo' && entity.completed_at) {
+    const completedDate = format(parseISO(entity.completed_at), 'MMM d');
+    return { label: `Done ${completedDate}`, type: 'completed' };
+  }
+
+  // Priority 3: Deferred (resurface_at in future) - todos and notes
+  const resurfaceAt = entity.resurface_at;
+  if (resurfaceAt && resurfaceAt > today) {
+    const resurfaceDate = format(parseISO(resurfaceAt), 'MMM d');
+    return { label: `Sweep: ${resurfaceDate}`, type: 'deferred' };
+  }
+
+  // TODOS
+  if (baseType === 'todo') {
+    const dueDay = entity.due_day;
+
+    // In tonight's sweep: overdue, due today, or undated
+    if (!dueDay || dueDay <= today) {
+      return { label: "In tonight's Sweep", type: 'in-sweep' };
+    }
+
+    // Future due date
+    return { label: 'Sweep: Due date', type: 'scheduled' };
+  }
+
+  // HABITS
+  if (baseType === 'habit') {
+    const startDate = entity.start_date;
+
+    // Unconfirmed habit (no start date) - needs sweep confirmation
+    if (!startDate) {
+      return { label: "In tonight's Sweep", type: 'in-sweep' };
+    }
+
+    // Confirmed/active habit - no status needed
+    return { label: '', type: null };
+  }
+
+  // NOTES (logs)
+  if (baseType === 'log') {
+    // Journal entries don't go through sweep
+    if (entity.subtype === 'journal') {
+      return { label: '', type: null };
+    }
+
+    // Swept and not resurfacing - it's been saved/processed
+    if (entity.swept_at && !resurfaceAt) {
+      return { label: 'Saved', type: 'completed' };
+    }
+
+    // Otherwise it's in sweep (recent idea, today's catchall, resurfacing, etc.)
+    return { label: "In tonight's Sweep", type: 'in-sweep' };
+  }
+
+  return { label: '', type: null };
+}
+
 /**
  * Derives the initial V2State from props, ensuring baseType is correct on first render.
  * This fixes the P0 bug where editing a todo/habit briefly shows an empty LOG overlay.
@@ -961,6 +1037,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
   const deleteNote = useGremlyStore((s) => s.deleteNote);
   const deleteHabit = useGremlyStore((s) => s.deleteHabit);
+  const archiveNote = useGremlyStore((s) => s.archiveNote);
   const insertLogPhoto = useGremlyStore((s) => s.insertLogPhoto);
   const deleteLogPhoto = useGremlyStore((s) => s.deleteLogPhoto);
   const updateLogPhotoPosition = useGremlyStore((s) => s.updateLogPhotoPosition);
@@ -1633,6 +1710,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setSourceNote(null);
     }
   }, [baseType, fullEntity, initialEntity, getItemById]);
+
+  // Compute sweep status for the entity
+  const sweepStatus = useMemo(() => {
+    const entity = fullEntity || (initialEntity as any);
+    if (!entity?.id) return { label: '', type: null };
+    return computeSweepStatus(entity, baseType);
+  }, [fullEntity, initialEntity, baseType]);
 
   // safe area insets (guard when the test harness doesn't provide the hook)
   let insets = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -3913,24 +3997,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const backgroundConversionEntityType = isTypeConversion
         ? (originalEntityType as 'todo' | 'habit' | 'note')
         : null;
-      const backgroundConversionDropId = isTypeConversion
-        ? ((fullEntity as any)?.drop_id ?? (initialEntity as any)?.drop_id ?? null)
-        : null;
+
+      // Capture Sweep conversion source note ID (from conversionMeta.sourceNoteId)
+      const backgroundSweepSourceNoteId = conversionMeta?.sourceNoteId ?? null;
+
+      // Capture delete methods for background archival (archive by ID, not drop_id)
+      const backgroundDeleteTodo = deleteTodo;
+      const backgroundDeleteHabit = deleteHabit;
+      const backgroundDeleteNote = deleteNote;
+      const backgroundArchiveNote = archiveNote; // Soft delete for Sweep conversions
 
       (async () => {
         try {
           // Archive old entity for cross-table conversions (fire-and-forget)
+          // Use delete by ID (not drop_id) to avoid archiving the newly created entity
           if (backgroundConversionOldId && backgroundConversionEntityType) {
             try {
-              await deleteEntityOrDrop(
-                backgroundRepo as any,
-                backgroundConversionOldId,
-                backgroundConversionEntityType,
-                backgroundConversionDropId,
-              );
-              console.log('[UnifiedOverlayV2] Background: old entity archived', {
+              switch (backgroundConversionEntityType) {
+                case 'todo':
+                  await backgroundDeleteTodo(backgroundConversionOldId);
+                  break;
+                case 'habit':
+                  await backgroundDeleteHabit(backgroundConversionOldId);
+                  break;
+                case 'note':
+                  await backgroundDeleteNote(backgroundConversionOldId);
+                  break;
+              }
+              console.log('[UnifiedOverlayV2] Background: archived old entity by ID', {
                 oldId: backgroundConversionOldId,
                 entityType: backgroundConversionEntityType,
+                source: 'edit-conversion',
               });
             } catch (removeError) {
               console.warn(
@@ -3938,6 +4035,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 removeError,
               );
               // Non-fatal: new entity already exists
+            }
+          }
+
+          // Archive source note for Sweep conversions (note → todo via Sweep)
+          if (backgroundSweepSourceNoteId && !backgroundConversionOldId) {
+            try {
+              await backgroundArchiveNote(backgroundSweepSourceNoteId, 'sweep-conversion');
+              console.log('[UnifiedOverlayV2] Background: archived source note from Sweep', {
+                sourceNoteId: backgroundSweepSourceNoteId,
+                source: 'sweep-conversion',
+              });
+            } catch (removeError) {
+              console.warn(
+                '[UnifiedOverlayV2] Background: Failed to archive Sweep source note:',
+                removeError,
+              );
+              // Non-fatal: new todo already exists
             }
           }
 
@@ -4170,6 +4284,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     reminders,
     photoUri, // Phase L3: Photo dependency
     mood, // Phase L4: Mood dependency
+    conversionMeta, // Sweep conversion: capture sourceNoteId for archival
   ]);
 
   const handleCancel = useCallback(async () => {
@@ -4585,7 +4700,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               const availableHeight = screenHeight - keyboardHeight - insets.top - 20; // 20px buffer
               const dynamicSheetHeight = Math.min(SHEET_MAX_H, availableHeight);
               return (
-                <View
+                <Pressable
+                  onPress={() => {
+                    // Capture taps inside sheet - don't close, just dismiss keyboard
+                    Keyboard.dismiss();
+                  }}
                   style={{
                     width: '100%',
                     alignSelf: 'stretch',
@@ -4871,8 +4990,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         width: '35%',
                         height: 1,
                         backgroundColor: 'rgba(191, 216, 192, 0.9)',
-                        marginTop: 8,
-                        marginBottom: 16,
+                        marginTop: 4,
+                        marginBottom: 4,
                       }}
                     />
                   </Box>
@@ -4900,6 +5019,47 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             paddingTop: 0,
                           }}
                         >
+                          {/* Sweep Status Chip - subtle system status */}
+                          {sweepStatus.label && mode !== 'create' && (
+                            <View
+                              style={{
+                                alignItems: 'flex-start',
+                                marginBottom: 8,
+                              }}
+                            >
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 4,
+                                  borderRadius: 12,
+                                  backgroundColor:
+                                    sweepStatus.type === 'archived'
+                                      ? 'rgba(0, 0, 0, 0.06)'
+                                      : sweepStatus.type === 'completed'
+                                        ? 'rgba(46, 85, 64, 0.08)'
+                                        : 'rgba(46, 85, 64, 0.06)',
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: '500',
+                                    color:
+                                      sweepStatus.type === 'archived'
+                                        ? '#888888'
+                                        : sweepStatus.type === 'completed'
+                                          ? '#2E5540'
+                                          : '#5a5a5a',
+                                  }}
+                                >
+                                  {sweepStatus.label}
+                                </Text>
+                              </View>
+                            </View>
+                          )}
+
                           {/* Phase 6c: Type selector - segmented control */}
                           <View style={styles.tabsContainer}>
                             {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
@@ -8443,7 +8603,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       )}
                     </Box>
                   </View>
-                </View>
+                </Pressable>
               );
             })()}
           </RNAnimated.View>

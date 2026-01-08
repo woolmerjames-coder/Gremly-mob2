@@ -3,6 +3,7 @@
 // NO OpenAI keys in client code
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
+import { getDateService } from '../date/DateService';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -718,7 +719,7 @@ export async function callEnrichPhase2(params: {
         bucket: params.bucket,
         subtype: params.subtype || null,
         recentTitles: params.recentTitles || [],
-        currentDate: new Date().toISOString().split('T')[0],
+        currentDate: getDateService().getCurrentDate(),
       }),
     });
 
@@ -872,10 +873,10 @@ export function callEnrichPhase2Streaming(
 
   const supabaseAnonKey = readSupabaseAnonKey();
 
-  const now = new Date();
-  const currentDate = now.toISOString().split('T')[0];
+  const ds = getDateService();
+  const currentDate = ds.getCurrentDate();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
 
   console.log('[CortexClient:SSE] Opening EventSource to', baseUrl);
 

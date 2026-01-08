@@ -28,6 +28,8 @@ interface ConversionMeta {
   initialTags?: string[];
   // Indicates content came from chat (for preview mode)
   fromChat?: boolean;
+  // Sweep conversion: source note ID to archive after creating todo
+  sourceNoteId?: string;
 }
 
 interface CreateOptions {

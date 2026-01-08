@@ -19,6 +19,7 @@ import {
   ActivityIndicator,
   Pressable,
 } from 'react-native';
+import { getDateService } from '../../lib/date';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -325,7 +326,7 @@ export default function NowScreenV1() {
   const recentLogsCount = recentLogs.length;
 
   // Today date string (for addToToday)
-  const todayDayString = new Date().toISOString().split('T')[0];
+  const todayDayString = getDateService().getCurrentDate();
 
   // NowData for header (computed locally)
   const nowData = useMemo(() => {

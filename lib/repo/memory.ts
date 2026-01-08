@@ -508,18 +508,15 @@ export class MemoryRepo implements IRepo {
   }
 
   async listDueToday(_nowIso: string): Promise<AppRecord[]> {
+    const today = getDateService().getCurrentDate();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo' && r.type !== 'habit') return false;
       // Exclude archived items
       if (this.isArchived(r)) return false;
-      const dueDate = r.type === 'todo' ? r.due_date : null;
-      if (!dueDate) return false;
-      try {
-        return isToday(parseISO(dueDate));
-      } catch {
-        return false;
-      }
+      // Use due_day as primary source of truth (timezone-safe)
+      const dueDay = (r as any).due_day ?? getDateService().extractDateFromIso((r as any).due_date);
+      return dueDay === today;
     });
   }
 
@@ -535,15 +532,9 @@ export class MemoryRepo implements IRepo {
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo') return false;
-      const dueDate = r.due_date;
-      if (!dueDate) return false;
-      try {
-        // due_date may be ISO timestamp or YYYY-MM-DD, extract date and compare
-        const dueDateDay = getDateService().extractDateFromIso(dueDate);
-        return dueDateDay === today;
-      } catch {
-        return false;
-      }
+      // Use due_day as primary source of truth (timezone-safe)
+      const dueDay = (r as any).due_day ?? getDateService().extractDateFromIso((r as any).due_date);
+      return dueDay === today;
     }).length;
   }
 
@@ -725,7 +716,8 @@ export class MemoryRepo implements IRepo {
       // Exclude archived todos
       if (this.isArchived(r)) return false;
       const carry = (r as any).carry_forward === true;
-      const dueDay = r.due_date ? ensureDay(r.due_date) : null;
+      // Use due_day as primary source of truth (timezone-safe)
+      const dueDay = (r as any).due_day ?? (r.due_date ? ensureDay(r.due_date) : null);
       const status = ((r as any).status ?? 'active') as 'active' | 'completed' | 'archived';
       const completedAt = (r as any).completed_at as string | null | undefined;
       if (status === 'completed' || completedAt) return false;
@@ -743,11 +735,17 @@ export class MemoryRepo implements IRepo {
     const mapTodo = (t: any) => {
       let overdue = false;
       let nearDue = false;
-      if (t.due_date) {
-        const due = new Date(t.due_date);
-        if (!Number.isNaN(due.getTime())) {
-          overdue = due < now;
-          nearDue = !overdue && due.getTime() - now.getTime() < 3 * 60 * 60 * 1000;
+      // Use due_day as source of truth for overdue calculation (timezone-safe)
+      const dueDay = t.due_day ?? (t.due_date ? ensureDay(t.due_date) : null);
+      if (dueDay) {
+        overdue = dueDay < day;
+        // nearDue requires due_time - only if due today and has time
+        if (dueDay === day && t.due_time) {
+          const [hours, minutes] = t.due_time.split(':').map(Number);
+          const dueDateTime = new Date();
+          dueDateTime.setHours(hours, minutes, 0, 0);
+          const msUntilDue = dueDateTime.getTime() - now.getTime();
+          nearDue = msUntilDue > 0 && msUntilDue < 3 * 60 * 60 * 1000;
         }
       }
       const completedAt = (t as any).completed_at ?? null;
@@ -759,7 +757,7 @@ export class MemoryRepo implements IRepo {
         id: t.id,
         name: t.name,
         due_date: t.due_date ?? null,
-        due_day: t.due_date ? ensureDay(t.due_date) : null,
+        due_day: dueDay,
         space_id: t.space_id ?? null,
         tags: [],
         status,

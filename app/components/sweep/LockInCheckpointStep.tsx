@@ -18,6 +18,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { View, StyleSheet, TouchableOpacity, Image, Dimensions } from 'react-native';
+import { getDateService } from '../../../lib/date';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -38,7 +39,7 @@ import { Sparkles } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import * as Haptics from 'expo-haptics';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
-import { selectTodayLockedItems } from '../../../lib/store/selectors';
+import { selectTodayLockedItemsIncludingCompleted } from '../../../lib/store/selectors';
 
 // Lock-in diamond icon
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -80,8 +81,8 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
   const confettiRef = useRef<any>(null);
   const [showConfetti, setShowConfetti] = useState(false);
 
-  // Get locked items from store
-  const lockedItems = useGremlyStore((state) => selectTodayLockedItems(state));
+  // Get locked items from store (including completed ones for celebration)
+  const lockedItems = useGremlyStore((state) => selectTodayLockedItemsIncludingCompleted(state));
 
   // Get raw data from store (stable references)
   const todos = useGremlyStore((state) => state.todos);
@@ -94,7 +95,7 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
   );
 
   const completedHabitIds = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getDateService().getCurrentDate();
     return new Set(habitProgress.filter((p) => p.occurred_day === today).map((p) => p.habit_id));
   }, [habitProgress]);
 

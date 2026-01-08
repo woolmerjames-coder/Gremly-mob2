@@ -56,7 +56,9 @@ import { getDateService } from '../date';
  * Accepts any object with at least these fields.
  */
 export interface FilterableTodo {
+  /** Primary due date (YYYY-MM-DD, timezone-safe) */
   due_day?: string | null;
+  /** @deprecated Use due_day instead - kept for backwards compatibility */
   due_date?: string | null;
   status?: 'active' | 'completed' | 'archived' | string;
   archived?: boolean;
@@ -68,8 +70,8 @@ export interface FilterableTodo {
  * Get the effective due day for a todo.
  *
  * Priority:
- * 1. `due_day` (canonical YYYY-MM-DD string) - preferred
- * 2. `due_date` (ISO timestamp fallback) - extract date portion
+ * 1. `due_day` (canonical YYYY-MM-DD string) - preferred, timezone-safe
+ * 2. `due_date` (ISO timestamp fallback) - extract date portion (may have timezone issues)
  *
  * @param todo - The todo to check
  * @returns YYYY-MM-DD string or null if no due date
