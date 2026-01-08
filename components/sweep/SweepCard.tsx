@@ -742,6 +742,28 @@ export function SweepCard({
     };
   });
 
+  // Glow animation for type chip when converted
+  const convertedChipGlowOpacity = useSharedValue(0);
+
+  React.useEffect(() => {
+    if (isConverted) {
+      // Pulse glow twice then fade
+      convertedChipGlowOpacity.value = withSequence(
+        withTiming(1, { duration: 300 }),
+        withTiming(0.4, { duration: 300 }),
+        withTiming(1, { duration: 300 }),
+        withTiming(0.4, { duration: 300 }),
+        withTiming(0, { duration: 800 }),
+      );
+    }
+  }, [isConverted, convertedChipGlowOpacity]);
+
+  const convertedChipGlowStyle = useAnimatedStyle(() => ({
+    textShadowColor: BRAND.colors.mossGreen,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: convertedChipGlowOpacity.value * 10,
+  }));
+
   // Haptic feedback helper
   const triggerHaptic = useCallback((type: 'light' | 'medium' | 'success') => {
     if (type === 'success') {
@@ -1150,41 +1172,42 @@ export function SweepCard({
 
               {/* CHIPS ROW - Lightweight metadata line */}
               <View style={[styles.chipsRow, hasAttachments && styles.chipsRowCompact]}>
-                <Text style={styles.chipText}>{isConverted ? 'Todo' : meta.typeChip}</Text>
+                {/* Type chip - read from candidate.kind (source of truth) */}
+                <Animated.Text style={[styles.chipText, isConverted && convertedChipGlowStyle]}>
+                  {candidate.kind === 'todo'
+                    ? 'Todo'
+                    : candidate.kind === 'habit'
+                      ? 'Habit'
+                      : 'Log'}
+                </Animated.Text>
 
-                {/* Show todo status chip when converted, otherwise show original logic */}
-                {isConverted ? (
+                {/* Status chip based on actual candidate type */}
+                {candidate.kind === 'todo' ? (
                   <>
                     <Text style={styles.chipSeparator}>·</Text>
-                    <Text style={styles.chipText}>Unscheduled</Text>
+                    <Text
+                      style={[
+                        styles.chipText,
+                        meta.todoStatus === 'overdue' && styles.chipTextOverdue,
+                      ]}
+                    >
+                      {meta.todoStatus ? getTodoStatusLabel(meta.todoStatus) : 'Unscheduled'}
+                    </Text>
                   </>
-                ) : (
-                  <>
-                    {meta.todoStatus && (
-                      <>
-                        <Text style={styles.chipSeparator}>·</Text>
-                        <Text
-                          style={[
-                            styles.chipText,
-                            meta.todoStatus === 'overdue' && styles.chipTextOverdue,
-                          ]}
-                        >
-                          {getTodoStatusLabel(meta.todoStatus)}
-                        </Text>
-                      </>
-                    )}
-                    {meta.logSubtype && (
-                      <>
-                        <Text style={styles.chipSeparator}>·</Text>
-                        <Text style={styles.chipText}>{getLogSubtypeLabel(meta.logSubtype)}</Text>
-                      </>
-                    )}
-                  </>
+                ) : candidate.kind === 'habit' ? // Habits don't need a status chip here
+                null : (
+                  // Notes/Logs - show subtype if available
+                  meta.logSubtype && (
+                    <>
+                      <Text style={styles.chipSeparator}>·</Text>
+                      <Text style={styles.chipText}>{getLogSubtypeLabel(meta.logSubtype)}</Text>
+                    </>
+                  )
                 )}
 
                 <Text style={styles.chipSeparator}>·</Text>
                 <Text style={styles.chipText}>
-                  {meta.isNew ? 'New' : `Since ${meta.resurfacingDate}`}
+                  {isConverted ? 'Just now' : meta.isNew ? 'New' : `Since ${meta.resurfacingDate}`}
                 </Text>
 
                 {meta.spaceName && (
