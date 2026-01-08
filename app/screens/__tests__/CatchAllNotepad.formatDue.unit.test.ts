@@ -39,14 +39,15 @@ describe('formatDue', () => {
       expect(formatDue(today.toISOString())).toBe('due Today');
     });
 
-    it('shows "due Today @ HH:mm" for today with time', () => {
+    // UPDATED: Time requires explicit dueTime param (timezone bug fix)
+    it('shows "due Today" without time when ISO string has time (no extraction)', () => {
       const today = new Date('2025-11-08T14:30:00');
-      expect(formatDue(today.toISOString())).toBe('due Today @ 14:30');
+      expect(formatDue(today.toISOString())).toBe('due Today');
     });
 
-    it('shows "due Today @ HH:mm" for today at 17:00', () => {
-      const today = new Date('2025-11-08T17:00:00');
-      expect(formatDue(today.toISOString())).toBe('due Today @ 17:00');
+    it('shows "due Today @ HH:mm" when dueTime is explicitly provided', () => {
+      expect(formatDue({ dueDay: '2025-11-08', dueTime: '14:30' })).toBe('due Today @ 14:30');
+      expect(formatDue({ dueDay: '2025-11-08', dueTime: '17:00' })).toBe('due Today @ 17:00');
     });
   });
 
@@ -56,9 +57,8 @@ describe('formatDue', () => {
       expect(formatDue(tomorrow.toISOString())).toBe('due Tomorrow');
     });
 
-    it('shows "due Tomorrow @ HH:mm" for tomorrow with time', () => {
-      const tomorrow = new Date('2025-11-09T09:00:00');
-      expect(formatDue(tomorrow.toISOString())).toBe('due Tomorrow @ 09:00');
+    it('shows "due Tomorrow @ HH:mm" when dueTime is explicitly provided', () => {
+      expect(formatDue({ dueDay: '2025-11-09', dueTime: '09:00' })).toBe('due Tomorrow @ 09:00');
     });
   });
 
@@ -73,9 +73,8 @@ describe('formatDue', () => {
       expect(formatDue(friday.toISOString())).toBe('due Fri');
     });
 
-    it('shows "due Wed @ HH:mm" with time', () => {
-      const wednesday = new Date('2025-11-12T15:30:00'); // Nov 12 is Wednesday
-      expect(formatDue(wednesday.toISOString())).toBe('due Wed @ 15:30');
+    it('shows "due Wed @ HH:mm" when dueTime is explicitly provided', () => {
+      expect(formatDue({ dueDay: '2025-11-12', dueTime: '15:30' })).toBe('due Wed @ 15:30');
     });
 
     it('shows "due Sat" for exactly 7 days from now', () => {
@@ -90,9 +89,8 @@ describe('formatDue', () => {
       expect(formatDue(later.toISOString())).toBe('due Nov 20');
     });
 
-    it('shows "due Nov 28 @ HH:mm" with time', () => {
-      const later = new Date('2025-11-28T10:15:00');
-      expect(formatDue(later.toISOString())).toBe('due Nov 28 @ 10:15');
+    it('shows "due Nov 28 @ HH:mm" when dueTime is explicitly provided', () => {
+      expect(formatDue({ dueDay: '2025-11-28', dueTime: '10:15' })).toBe('due Nov 28 @ 10:15');
     });
   });
 
@@ -107,9 +105,8 @@ describe('formatDue', () => {
       expect(formatDue(january.toISOString())).toBe('due Jan 15, 2026');
     });
 
-    it('shows "due Dec 25 @ HH:mm" with time', () => {
-      const christmas = new Date('2025-12-25T18:00:00');
-      expect(formatDue(christmas.toISOString())).toBe('due Dec 25 @ 18:00');
+    it('shows "due Dec 25 @ HH:mm" when dueTime is explicitly provided', () => {
+      expect(formatDue({ dueDay: '2025-12-25', dueTime: '18:00' })).toBe('due Dec 25 @ 18:00');
     });
   });
 
@@ -119,26 +116,30 @@ describe('formatDue', () => {
       expect(formatDue(midnight.toISOString())).toBe('due Mon');
     });
 
-    it('shows time for 09:00', () => {
+    // UPDATED: Time is now ONLY shown when explicitly passed via dueTime parameter
+    // We no longer extract time from ISO strings to avoid timezone bugs
+    it('does NOT show time when only ISO string is provided (timezone bug fix)', () => {
       const morning = new Date('2025-11-10T09:00:00');
-      expect(formatDue(morning.toISOString())).toBe('due Mon @ 09:00');
+      // Without dueTime param, no time is shown - this prevents timezone bugs
+      expect(formatDue(morning.toISOString())).toBe('due Mon');
     });
 
-    it('pads single-digit hours and minutes', () => {
-      const early = new Date('2025-11-10T05:05:00');
-      expect(formatDue(early.toISOString())).toBe('due Mon @ 05:05');
+    it('shows time ONLY when dueTime is explicitly provided', () => {
+      expect(formatDue({ dueDay: '2025-11-10', dueTime: '09:00' })).toBe('due Mon @ 09:00');
+      expect(formatDue({ dueDay: '2025-11-10', dueTime: '05:05' })).toBe('due Mon @ 05:05');
+      expect(formatDue({ dueDay: '2025-11-10', dueTime: '23:59' })).toBe('due Mon @ 23:59');
     });
 
-    it('shows time for 23:59', () => {
-      const lateNight = new Date('2025-11-10T23:59:00');
-      expect(formatDue(lateNight.toISOString())).toBe('due Mon @ 23:59');
+    it('ignores midnight dueTime (00:00) even when explicitly provided', () => {
+      expect(formatDue({ dueDay: '2025-11-10', dueTime: '00:00' })).toBe('due Mon');
     });
   });
 
   describe('edge cases', () => {
     it('handles past dates (shows as today if same day)', () => {
       const pastToday = new Date('2025-11-08T05:00:00'); // Earlier today
-      expect(formatDue(pastToday.toISOString())).toBe('due Today @ 05:00');
+      // No time shown without explicit dueTime
+      expect(formatDue(pastToday.toISOString())).toBe('due Today');
     });
 
     it('handles yesterday as past date', () => {
