@@ -44,6 +44,7 @@ export interface Phase2EnrichmentResult {
   extracted_date?: string | null;
   extracted_start_date?: string | null;
   extracted_frequency?: string | null;
+  extracted_days?: number[] | null; // Array of day numbers (0=Sunday, 1=Monday, ... 6=Saturday) for specific days like "Tuesdays and Thursdays"
   people?: string[];
   latency_ms?: number;
 }
@@ -942,6 +943,7 @@ export function callEnrichPhase2Streaming(
           extracted_date: data.extracted_date || finalResult.extracted_date,
           extracted_start_date: data.extracted_start_date || finalResult.extracted_start_date,
           extracted_frequency: data.extracted_frequency || finalResult.extracted_frequency,
+          extracted_days: data.extracted_days || finalResult.extracted_days,
           people: data.people || finalResult.people,
           latency_ms: data.latency_ms,
         };

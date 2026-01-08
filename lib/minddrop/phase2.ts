@@ -26,6 +26,7 @@ export interface Phase2Result {
   extractedDate: string | null;
   extractedStartDate: string | null;
   extractedFrequency: string | null;
+  extractedDays: number[] | null; // Array of day numbers (0=Sunday, 1=Monday, ... 6=Saturday)
   people: string[];
   confirmationMessage: string | null;
 }
@@ -600,6 +601,22 @@ export async function runPhase2Streaming(
                 updatePayload.cadence = cadence;
                 updatePayload.target_per_period = target_per_period;
               }
+              // Set days_active from extracted_days (e.g., [2, 4] for Tuesdays and Thursdays)
+              // Convert numeric days (0=Sunday, 1=Monday, ...) to day names for DB compatibility
+              if (result.extracted_days && result.extracted_days.length > 0) {
+                const dayNames = [
+                  'sunday',
+                  'monday',
+                  'tuesday',
+                  'wednesday',
+                  'thursday',
+                  'friday',
+                  'saturday',
+                ];
+                updatePayload.days_active = result.extracted_days
+                  .filter((d) => d >= 0 && d <= 6)
+                  .map((d) => dayNames[d]);
+              }
               if (result.time_window) {
                 updatePayload.time_window = result.time_window;
               }
@@ -650,6 +667,7 @@ export async function runPhase2Streaming(
               dueDate: result.extracted_date,
               startDate: result.extracted_start_date,
               frequency: result.extracted_frequency,
+              extracted_days: result.extracted_days ?? null,
               people: result.people ?? [],
               // Canonical habit frequency fields
               cadence: updatePayload.cadence,
