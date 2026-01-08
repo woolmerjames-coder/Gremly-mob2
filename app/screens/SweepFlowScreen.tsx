@@ -1398,6 +1398,23 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Track which notes have already been converted (prevent duplicate conversions)
   const convertedNotesRef = useRef<Set<string>>(new Set());
 
+  // Track candidates that were converted in-place (noteId -> new todo data)
+  const [convertedCandidate, setConvertedCandidate] = useState<{
+    originalNoteId: string;
+    newTodoId: string;
+    animating: boolean;
+  } | null>(null);
+
+  // Clear conversion animation state after animation completes
+  useEffect(() => {
+    if (convertedCandidate?.animating) {
+      const timer = setTimeout(() => {
+        setConvertedCandidate((prev) => (prev ? { ...prev, animating: false } : null));
+      }, 400); // Match animation duration
+      return () => clearTimeout(timer);
+    }
+  }, [convertedCandidate?.animating]);
+
   // Log candidates for debugging (using snapshot)
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0) {
@@ -1428,6 +1445,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
   const handleOutcome = useCallback(
     async (outcome: SweepOutcome) => {
+      // Clear conversion state if user is acting on converted card
+      if (convertedCandidate) {
+        setConvertedCandidate(null);
+      }
+
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta) return;
       const candidate = candidateWithMeta.candidate;
@@ -1516,16 +1538,23 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           return;
         }
 
-        console.log('[SweepFlow] Note converted to todo:', convertingNoteId, '->', payload.id);
+        console.log(
+          '[SweepFlow] Note converted to todo (in-place):',
+          convertingNoteId,
+          '->',
+          payload.id,
+        );
         // Mark this note as converted
         convertedNotesRef.current.add(convertingNoteId);
         // Clear the conversion ref
         convertingNoteIdRef.current = null;
 
-        // SIMPLE APPROACH: Just advance to next card
-        // The new todo will appear in sweep candidates on its own if unscheduled
-        // This is more robust than trying to transform the card in place
-        handleOutcomeRef.current('changed');
+        // Instead of advancing, trigger in-place transformation
+        setConvertedCandidate({
+          originalNoteId: convertingNoteId,
+          newTodoId: payload.id,
+          animating: true,
+        });
         return;
       }
 
@@ -1558,6 +1587,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Card Action Handlers (record decisions, don't commit immediately)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
+    // Clear conversion state if user is acting on converted card
+    if (convertedCandidate) {
+      setConvertedCandidate(null);
+    }
+
     const candidateWithMeta = candidatesWithMeta[currentIndex];
     if (!candidateWithMeta) return;
     const { candidate } = candidateWithMeta;
@@ -1581,6 +1615,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
 
   const handleClear = useCallback(() => {
+    // Clear conversion state if user is acting on converted card
+    if (convertedCandidate) {
+      setConvertedCandidate(null);
+    }
+
     const candidateWithMeta = candidatesWithMeta[currentIndex];
     if (!candidateWithMeta) return;
     const { candidate } = candidateWithMeta;
@@ -1925,10 +1964,36 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       return null;
     }
 
-    // Simply return the current candidate - no card transformation needed
-    // After Make Todo conversion, we advance to next card instead
-    return candidatesWithMeta[currentIndex];
-  }, [currentIndex, candidatesWithMeta]);
+    const base = candidatesWithMeta[currentIndex];
+
+    // Check if this candidate was just converted (note -> todo)
+    if (convertedCandidate && base.candidate.id === convertedCandidate.originalNoteId) {
+      // Look up the new todo from the store
+      const newTodo = todos.find((t) => t.id === convertedCandidate.newTodoId);
+      if (newTodo) {
+        // Return a transformed candidate with todo data
+        // Cast to SweepCandidateTodo structure
+        const convertedTodoCandidate: SweepCandidateTodo = {
+          id: newTodo.id,
+          kind: 'todo' as const,
+          createdAt: newTodo.created_at || base.candidate.createdAt,
+          dropId: (newTodo as any).drop_id ?? base.candidate.dropId,
+          skippedInSweepAt: null,
+          isOverdue: false,
+          isDueToday: false,
+          isCreatedToday: true,
+          raw: newTodo as any, // Todo type matches SweepTodoRow
+        };
+        return {
+          ...base,
+          candidate: convertedTodoCandidate,
+          isConverted: true, // Flag for animation
+        };
+      }
+    }
+
+    return base;
+  }, [currentIndex, candidatesWithMeta, convertedCandidate, todos]);
 
   // Loading state
   if (isLoading) {
@@ -2022,6 +2087,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           meta={currentCandidateWithMeta.meta}
           index={currentIndex}
           total={candidatesWithMeta.length}
+          isConverted={convertedCandidate?.animating ?? false}
           onSkip={handleSkip}
           onClear={handleClear}
           onOpenEdit={handleOpenEdit}

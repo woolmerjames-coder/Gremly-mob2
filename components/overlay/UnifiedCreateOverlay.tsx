@@ -179,6 +179,8 @@ export type UnifiedCreateOverlayProps = {
     initialFrequencyValue?: number;
     // When true and type is log, opens in preview mode
     fromChat?: boolean;
+    // Sweep conversion: source note ID to archive after creating todo
+    sourceNoteId?: string;
   };
   initialText?: string | null;
   initialLogPhotoUris?: string[]; // Photo Drop: initial photos for create-mode logs
@@ -738,9 +740,7 @@ export function UnifiedCreateOverlay({
 
   const isLogPerson = false;
   const allowPeopleLinking = usePhase8Features;
-  const isEditingPerson =
-    (mode === 'edit' || mode === 'view') &&
-    initialEntity?.type === 'person';
+  const isEditingPerson = (mode === 'edit' || mode === 'view') && initialEntity?.type === 'person';
 
   // Person subtype removed - no longer auto-switching to person subtype
 
@@ -2662,8 +2662,7 @@ export function UnifiedCreateOverlay({
                   : theme.colors.text.secondary;
                 const nextSubtypeForOpt =
                   opt.logSubtype ?? (opt.value === 'log' ? DEFAULT_LOG_SUBTYPE : null);
-                const disabled =
-                  typePillsDisabled || isEditingPerson;
+                const disabled = typePillsDisabled || isEditingPerson;
                 const chipKey = opt.logSubtype ? `${opt.value}-${opt.logSubtype}` : opt.value;
                 const chipTestId = opt.logSubtype
                   ? `type-pill-${opt.logSubtype}`
@@ -2927,27 +2926,26 @@ export function UnifiedCreateOverlay({
                       />
                     </>
                   )}
-                  {selectedType === 'log' &&
-                    selectedLogSubtype !== 'journal' && (
-                      <>
-                        <NoteFields
-                          title={noteTitle}
-                          onTitleChange={setNoteTitle}
-                          body={noteBody}
-                          onBodyChange={setNoteBody}
-                          details={noteDetails}
-                          onDetailsChange={setNoteDetails}
-                          disabled={false}
-                        />
-                        <TagsField
-                          value={tagsState}
-                          onChange={handleTagsChange}
-                          disabled={submitting}
-                          testID="overlay-tags-field"
-                          removedRef={removedTagsRef}
-                        />
-                      </>
-                    )}
+                  {selectedType === 'log' && selectedLogSubtype !== 'journal' && (
+                    <>
+                      <NoteFields
+                        title={noteTitle}
+                        onTitleChange={setNoteTitle}
+                        body={noteBody}
+                        onBodyChange={setNoteBody}
+                        details={noteDetails}
+                        onDetailsChange={setNoteDetails}
+                        disabled={false}
+                      />
+                      <TagsField
+                        value={tagsState}
+                        onChange={handleTagsChange}
+                        disabled={submitting}
+                        testID="overlay-tags-field"
+                        removedRef={removedTagsRef}
+                      />
+                    </>
+                  )}
                   {selectedType === 'unsorted' && (
                     <>
                       <NoteFields

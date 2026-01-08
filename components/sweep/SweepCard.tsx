@@ -36,11 +36,13 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
+  withSequence,
   runOnJS,
   runOnUI,
   interpolate,
   Extrapolation,
   interpolateColor,
+  Easing as ReanimatedEasing,
 } from 'react-native-reanimated';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SwipeHintText } from '../../app/components/sweep/SwipeHintText';
@@ -130,6 +132,8 @@ export interface SweepCardProps {
   index: number;
   /** Total number of candidates */
   total: number;
+  /** Flag indicating this card was just converted from note to todo */
+  isConverted?: boolean;
   /** Called when user wants to skip/defer the item to next sweep */
   onSkip: () => void;
   /** Called when user wants to clear/archive the item */
@@ -320,6 +324,7 @@ export function SweepCard({
   meta,
   index: _index,
   total: _total,
+  isConverted,
   onSkip,
   onClear,
   onOpenEdit,
@@ -337,6 +342,8 @@ export function SweepCard({
 }: SweepCardProps) {
   const repo = useRepo();
   const title = getCandidateTitle(candidate);
+
+  console.log('[SweepCard] isConverted:', isConverted, 'candidate.kind:', candidate.kind);
 
   // Get user's original input text for preview
   // For notes: body field contains user's original input
@@ -703,6 +710,38 @@ export function SweepCard({
   const borderOpacity = useSharedValue(0); // For smooth border fade
   const hasTriggeredHaptic = useSharedValue(false); // Track haptic at threshold
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Conversion Animation (note → todo transformation) - 360° Celebratory Spin
+  // ─────────────────────────────────────────────────────────────────────────
+  const flipRotation = useSharedValue(0);
+  const flipScale = useSharedValue(1);
+
+  React.useEffect(() => {
+    if (isConverted) {
+      // Full 360° spin
+      flipRotation.value = withTiming(360, {
+        duration: 800,
+        easing: ReanimatedEasing.inOut(ReanimatedEasing.cubic),
+      });
+      // Slight scale pop at the end for emphasis
+      flipScale.value = withSequence(
+        withTiming(0.95, { duration: 200 }),
+        withTiming(1.02, { duration: 300 }),
+        withTiming(1, { duration: 300 }),
+      );
+    }
+  }, [isConverted, flipRotation, flipScale]);
+
+  const convertAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { perspective: 1200 },
+        { rotateY: `${flipRotation.value}deg` },
+        { scale: flipScale.value },
+      ],
+    };
+  });
+
   // Haptic feedback helper
   const triggerHaptic = useCallback((type: 'light' | 'medium' | 'success') => {
     if (type === 'success') {
@@ -1050,6 +1089,7 @@ export function SweepCard({
               styles.swipeCardContainer,
               animatedCardContainerStyle,
               animatedCardStyle,
+              convertAnimatedStyle,
               meta.isLockedIn && styles.cardLockedIn,
               meta.todoStatus === 'overdue' && styles.cardOverdue,
             ]}
@@ -1110,25 +1150,35 @@ export function SweepCard({
 
               {/* CHIPS ROW - Lightweight metadata line */}
               <View style={[styles.chipsRow, hasAttachments && styles.chipsRowCompact]}>
-                <Text style={styles.chipText}>{meta.typeChip}</Text>
+                <Text style={styles.chipText}>{isConverted ? 'Todo' : meta.typeChip}</Text>
 
-                {meta.todoStatus && (
+                {/* Show todo status chip when converted, otherwise show original logic */}
+                {isConverted ? (
                   <>
                     <Text style={styles.chipSeparator}>·</Text>
-                    <Text
-                      style={[
-                        styles.chipText,
-                        meta.todoStatus === 'overdue' && styles.chipTextOverdue,
-                      ]}
-                    >
-                      {getTodoStatusLabel(meta.todoStatus)}
-                    </Text>
+                    <Text style={styles.chipText}>Unscheduled</Text>
                   </>
-                )}
-                {meta.logSubtype && (
+                ) : (
                   <>
-                    <Text style={styles.chipSeparator}>·</Text>
-                    <Text style={styles.chipText}>{getLogSubtypeLabel(meta.logSubtype)}</Text>
+                    {meta.todoStatus && (
+                      <>
+                        <Text style={styles.chipSeparator}>·</Text>
+                        <Text
+                          style={[
+                            styles.chipText,
+                            meta.todoStatus === 'overdue' && styles.chipTextOverdue,
+                          ]}
+                        >
+                          {getTodoStatusLabel(meta.todoStatus)}
+                        </Text>
+                      </>
+                    )}
+                    {meta.logSubtype && (
+                      <>
+                        <Text style={styles.chipSeparator}>·</Text>
+                        <Text style={styles.chipText}>{getLogSubtypeLabel(meta.logSubtype)}</Text>
+                      </>
+                    )}
                   </>
                 )}
 

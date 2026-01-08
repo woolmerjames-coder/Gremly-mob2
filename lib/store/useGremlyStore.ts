@@ -760,6 +760,19 @@ export const useGremlyStore = create<GremlyState>()(
       const sanitized = sanitizeForSupabase(habitData as Record<string, unknown>, 'habit');
       const payload = {
         ...sanitized,
+        // NOT NULL field defaults (nullish coalescing so explicit values aren't overwritten)
+        time_window: sanitized.time_window ?? 'any',
+        subtype: sanitized.subtype ?? 'start_habit',
+        cadence: sanitized.cadence ?? 'daily',
+        frequency: sanitized.frequency ?? 'daily',
+        period_unit: sanitized.period_unit ?? 'day',
+        target_count: sanitized.target_count ?? 1,
+        title: sanitized.title ?? sanitized.name,
+        archived: false,
+        has_list: sanitized.has_list ?? false,
+        locked_in: sanitized.locked_in ?? false,
+        ai_placed: sanitized.ai_placed ?? false,
+        // Always set these
         owner_id: userId,
         created_at: now,
         updated_at: now,

@@ -102,7 +102,6 @@ import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
-import { deleteEntityOrDrop } from '../../lib/minddrop/deleteHelpers';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
 import {
@@ -961,6 +960,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
   const deleteNote = useGremlyStore((s) => s.deleteNote);
   const deleteHabit = useGremlyStore((s) => s.deleteHabit);
+  const archiveNote = useGremlyStore((s) => s.archiveNote);
   const insertLogPhoto = useGremlyStore((s) => s.insertLogPhoto);
   const deleteLogPhoto = useGremlyStore((s) => s.deleteLogPhoto);
   const updateLogPhotoPosition = useGremlyStore((s) => s.updateLogPhotoPosition);
@@ -3913,24 +3913,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const backgroundConversionEntityType = isTypeConversion
         ? (originalEntityType as 'todo' | 'habit' | 'note')
         : null;
-      const backgroundConversionDropId = isTypeConversion
-        ? ((fullEntity as any)?.drop_id ?? (initialEntity as any)?.drop_id ?? null)
-        : null;
+
+      // Capture Sweep conversion source note ID (from conversionMeta.sourceNoteId)
+      const backgroundSweepSourceNoteId = conversionMeta?.sourceNoteId ?? null;
+
+      // Capture delete methods for background archival (archive by ID, not drop_id)
+      const backgroundDeleteTodo = deleteTodo;
+      const backgroundDeleteHabit = deleteHabit;
+      const backgroundDeleteNote = deleteNote;
+      const backgroundArchiveNote = archiveNote; // Soft delete for Sweep conversions
 
       (async () => {
         try {
           // Archive old entity for cross-table conversions (fire-and-forget)
+          // Use delete by ID (not drop_id) to avoid archiving the newly created entity
           if (backgroundConversionOldId && backgroundConversionEntityType) {
             try {
-              await deleteEntityOrDrop(
-                backgroundRepo as any,
-                backgroundConversionOldId,
-                backgroundConversionEntityType,
-                backgroundConversionDropId,
-              );
-              console.log('[UnifiedOverlayV2] Background: old entity archived', {
+              switch (backgroundConversionEntityType) {
+                case 'todo':
+                  await backgroundDeleteTodo(backgroundConversionOldId);
+                  break;
+                case 'habit':
+                  await backgroundDeleteHabit(backgroundConversionOldId);
+                  break;
+                case 'note':
+                  await backgroundDeleteNote(backgroundConversionOldId);
+                  break;
+              }
+              console.log('[UnifiedOverlayV2] Background: archived old entity by ID', {
                 oldId: backgroundConversionOldId,
                 entityType: backgroundConversionEntityType,
+                source: 'edit-conversion',
               });
             } catch (removeError) {
               console.warn(
@@ -3938,6 +3951,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 removeError,
               );
               // Non-fatal: new entity already exists
+            }
+          }
+
+          // Archive source note for Sweep conversions (note → todo via Sweep)
+          if (backgroundSweepSourceNoteId && !backgroundConversionOldId) {
+            try {
+              await backgroundArchiveNote(backgroundSweepSourceNoteId, 'sweep-conversion');
+              console.log('[UnifiedOverlayV2] Background: archived source note from Sweep', {
+                sourceNoteId: backgroundSweepSourceNoteId,
+                source: 'sweep-conversion',
+              });
+            } catch (removeError) {
+              console.warn(
+                '[UnifiedOverlayV2] Background: Failed to archive Sweep source note:',
+                removeError,
+              );
+              // Non-fatal: new todo already exists
             }
           }
 
@@ -4170,6 +4200,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     reminders,
     photoUri, // Phase L3: Photo dependency
     mood, // Phase L4: Mood dependency
+    conversionMeta, // Sweep conversion: capture sourceNoteId for archival
   ]);
 
   const handleCancel = useCallback(async () => {
