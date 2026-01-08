@@ -55,6 +55,7 @@ import { markSweepCompleted } from '../../lib/sweep/engine';
 import type {
   SweepCandidate,
   SweepCandidateTodo,
+  SweepCandidateHabit,
   SweepCardMeta,
   SweepSummary,
   SweepSummaryItem,
@@ -1145,6 +1146,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
   const notes = useGremlyStore((state) => state.notes);
+  const habits = useGremlyStore((state) => state.habits);
   const spaces = useActiveSpaces();
   const overlayController = useOverlayController();
 
@@ -1392,16 +1394,22 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
 
-  // Track note-to-todo conversion
-  const convertingNoteIdRef = useRef<string | null>(null);
+  // Track type conversion in progress (source candidate -> target type)
+  const convertingCandidateRef = useRef<{
+    sourceId: string;
+    sourceKind: 'todo' | 'habit' | 'note';
+    targetType: 'todo' | 'habit' | 'note';
+  } | null>(null);
 
-  // Track which notes have already been converted (prevent duplicate conversions)
-  const convertedNotesRef = useRef<Set<string>>(new Set());
+  // Track which candidates have already been converted (prevent duplicate conversions)
+  const convertedCandidatesRef = useRef<Set<string>>(new Set());
 
-  // Track candidates that were converted in-place (noteId -> new todo data)
+  // Track candidates that were converted in-place (source -> new entity)
   const [convertedCandidate, setConvertedCandidate] = useState<{
-    originalNoteId: string;
-    newTodoId: string;
+    originalId: string;
+    originalKind: 'todo' | 'habit' | 'note';
+    newId: string;
+    newKind: 'todo' | 'habit' | 'note';
     animating: boolean;
   } | null>(null);
 
@@ -1528,31 +1536,36 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Listen for overlay save events to detect "changed" outcomes from edit/primary actions
   useEffect(() => {
     const unsubscribeSaved = addOverlaySavedListener((payload) => {
-      // Check if this is a note-to-todo conversion
-      const convertingNoteId = convertingNoteIdRef.current;
-      if (convertingNoteId && payload.type === 'todo') {
-        // Check if this note was already converted (prevent duplicates)
-        if (convertedNotesRef.current.has(convertingNoteId)) {
-          console.log('[SweepFlow] Note already converted, ignoring duplicate:', convertingNoteId);
-          convertingNoteIdRef.current = null;
+      // Check if this is a type conversion
+      const converting = convertingCandidateRef.current;
+      if (converting && payload.type === converting.targetType) {
+        // Check if this candidate was already converted (prevent duplicates)
+        if (convertedCandidatesRef.current.has(converting.sourceId)) {
+          console.log(
+            '[SweepFlow] Candidate already converted, ignoring duplicate:',
+            converting.sourceId,
+          );
+          convertingCandidateRef.current = null;
           return;
         }
 
         console.log(
-          '[SweepFlow] Note converted to todo (in-place):',
-          convertingNoteId,
+          `[SweepFlow] ${converting.sourceKind} converted to ${converting.targetType} (in-place):`,
+          converting.sourceId,
           '->',
           payload.id,
         );
-        // Mark this note as converted
-        convertedNotesRef.current.add(convertingNoteId);
+        // Mark this candidate as converted
+        convertedCandidatesRef.current.add(converting.sourceId);
         // Clear the conversion ref
-        convertingNoteIdRef.current = null;
+        convertingCandidateRef.current = null;
 
         // Instead of advancing, trigger in-place transformation
         setConvertedCandidate({
-          originalNoteId: convertingNoteId,
-          newTodoId: payload.id,
+          originalId: converting.sourceId,
+          originalKind: converting.sourceKind,
+          newId: payload.id,
+          newKind: converting.targetType,
           animating: true,
         });
         return;
@@ -1680,19 +1693,23 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     const candidate = candidateWithMeta.candidate;
 
     // Prevent duplicate conversions
-    if (convertedNotesRef.current.has(candidate.id)) {
-      console.log('[SweepFlow] Note already converted, ignoring:', candidate.id);
+    if (convertedCandidatesRef.current.has(candidate.id)) {
+      console.log('[SweepFlow] Candidate already converted, ignoring:', candidate.id);
       return;
     }
 
     // Prevent re-triggering while conversion is in progress
-    if (convertingNoteIdRef.current === candidate.id) {
+    if (convertingCandidateRef.current?.sourceId === candidate.id) {
       console.log('[SweepFlow] Conversion already in progress for:', candidate.id);
       return;
     }
 
-    // Track that we're converting this note (so we don't advance on save)
-    convertingNoteIdRef.current = candidate.id;
+    // Track that we're converting this candidate (so we don't advance on save)
+    convertingCandidateRef.current = {
+      sourceId: candidate.id,
+      sourceKind: candidate.kind,
+      targetType: 'todo',
+    };
 
     // Look up full record from store
     const note = notes.find((n) => n.id === candidate.id);
@@ -1956,7 +1973,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     }
   }, [isLoading, candidatesWithMeta.length, currentIndex, stats, handleAllCardsComplete]);
 
-  // Build effective candidate - if this card was converted to a todo, use the todo data
+  // Build effective candidate - if this card was converted, use the new entity data
   // NOTE: This must be called unconditionally (before early returns) to satisfy React hooks rules
   const effectiveCandidateWithMeta = useMemo(() => {
     // Guard for empty/out-of-bounds state
@@ -1966,34 +1983,56 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
     const base = candidatesWithMeta[currentIndex];
 
-    // Check if this candidate was just converted (note -> todo)
-    if (convertedCandidate && base.candidate.id === convertedCandidate.originalNoteId) {
-      // Look up the new todo from the store
-      const newTodo = todos.find((t) => t.id === convertedCandidate.newTodoId);
-      if (newTodo) {
-        // Return a transformed candidate with todo data
-        // Cast to SweepCandidateTodo structure
-        const convertedTodoCandidate: SweepCandidateTodo = {
-          id: newTodo.id,
-          kind: 'todo' as const,
-          createdAt: newTodo.created_at || base.candidate.createdAt,
-          dropId: (newTodo as any).drop_id ?? base.candidate.dropId,
-          skippedInSweepAt: null,
-          isOverdue: false,
-          isDueToday: false,
-          isCreatedToday: true,
-          raw: newTodo as any, // Todo type matches SweepTodoRow
-        };
-        return {
-          ...base,
-          candidate: convertedTodoCandidate,
-          isConverted: true, // Flag for animation
-        };
+    // Check if this candidate was just converted (e.g., note -> todo, note -> habit)
+    if (convertedCandidate && base.candidate.id === convertedCandidate.originalId) {
+      // Look up the new entity from the store based on what it was converted to
+      if (convertedCandidate.newKind === 'todo') {
+        const newTodo = todos.find((t) => t.id === convertedCandidate.newId);
+        if (newTodo) {
+          // Return a transformed candidate with todo data
+          const convertedTodoCandidate: SweepCandidateTodo = {
+            id: newTodo.id,
+            kind: 'todo' as const,
+            createdAt: newTodo.created_at || base.candidate.createdAt,
+            dropId: (newTodo as any).drop_id ?? base.candidate.dropId,
+            skippedInSweepAt: null,
+            isOverdue: false,
+            isDueToday: false,
+            isCreatedToday: true,
+            raw: newTodo as any,
+          };
+          return {
+            ...base,
+            candidate: convertedTodoCandidate,
+            isConverted: true, // Flag for animation
+          };
+        }
+      } else if (convertedCandidate.newKind === 'habit') {
+        const newHabit = habits.find((h) => h.id === convertedCandidate.newId);
+        if (newHabit) {
+          // Return a transformed candidate with habit data
+          const convertedHabitCandidate: SweepCandidateHabit = {
+            id: newHabit.id,
+            kind: 'habit' as const,
+            createdAt: newHabit.created_at || base.candidate.createdAt,
+            dropId: (newHabit as any).drop_id ?? base.candidate.dropId,
+            skippedInSweepAt: null,
+            isOverdue: false,
+            isDueToday: false,
+            isCreatedToday: true,
+            raw: newHabit as any,
+          };
+          return {
+            ...base,
+            candidate: convertedHabitCandidate,
+            isConverted: true, // Flag for animation
+          };
+        }
       }
     }
 
     return base;
-  }, [currentIndex, candidatesWithMeta, convertedCandidate, todos]);
+  }, [currentIndex, candidatesWithMeta, convertedCandidate, todos, habits]);
 
   // Loading state
   if (isLoading) {
