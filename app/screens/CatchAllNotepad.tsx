@@ -1735,6 +1735,13 @@ const AnimatedMindDropCard: React.FC<{
               (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
             const hasMoods = isJournal && item.mood && item.mood.length > 0;
 
+            // For idea entries, show plain text label with up to 2 tags
+            const isIdea =
+              item.kind === 'note' &&
+              (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
+            const displayTags = isIdea ? getDisplayTagsForRecentDrop(item).slice(0, 2) : [];
+            const hasDisplayTags = displayTags.length > 0;
+
             if (isJournal && contextMeta) {
               return (
                 <View style={styles.journalMetaRow}>
@@ -1755,6 +1762,25 @@ const AnimatedMindDropCard: React.FC<{
                 </View>
               );
             }
+
+            if (isIdea && contextMeta) {
+              return (
+                <View style={styles.journalMetaRow}>
+                  <Text style={styles.journalSubtypeLabel}>{contextMeta}</Text>
+                  {hasDisplayTags && (
+                    <>
+                      <Text style={styles.journalSeparator}>·</Text>
+                      {displayTags.map((tag) => (
+                        <View key={tag} style={styles.moodChip}>
+                          <Text style={styles.moodChipText}>{tag}</Text>
+                        </View>
+                      ))}
+                    </>
+                  )}
+                </View>
+              );
+            }
+
             return contextMeta ? (
               <Text testID={contextTestId} style={styles.recentContextPill}>
                 {contextMeta}
