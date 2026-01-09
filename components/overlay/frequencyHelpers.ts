@@ -42,15 +42,17 @@ export function jsonToFrequency(json: any): FrequencyConfig {
     return { mode: 'simple', value: 'daily' };
   }
 
-  if (json.type === 'simple') {
+  const kind = json.type || json.mode; // Accept both 'type' and 'mode'
+
+  if (kind === 'simple') {
     return { mode: 'simple', value: json.value || 'daily' };
   }
 
-  if (json.type === 'days' && Array.isArray(json.days)) {
+  if (kind === 'days' && Array.isArray(json.days)) {
     return { mode: 'days', days: json.days };
   }
 
-  if (json.type === 'custom') {
+  if (kind === 'custom') {
     return {
       mode: 'custom',
       value: {

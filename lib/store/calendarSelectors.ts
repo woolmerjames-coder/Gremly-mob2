@@ -63,14 +63,10 @@ function habitOccursOnDate(habit: Habit, dateStr: string): boolean {
   if (!targetDate) return false;
 
   const dayOfWeek = targetDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const dayName = dayNames[dayOfWeek];
 
-  // Check days_active if specified
+  // Check days_active if specified (integer array: 0=Sunday, 1=Monday, etc.)
   if (habit.days_active && habit.days_active.length > 0) {
-    // days_active contains day names like ['monday', 'wednesday', 'friday']
-    const activeDaysLower = habit.days_active.map((d) => d.toLowerCase());
-    return activeDaysLower.includes(dayName);
+    return habit.days_active.includes(dayOfWeek);
   }
 
   // Default behavior based on cadence

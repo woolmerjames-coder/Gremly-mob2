@@ -293,7 +293,7 @@ describe('AllItemsTable', () => {
     it('shows custom frequency for habits with days_active', () => {
       const habit = makeHabit({
         cadence: undefined,
-        days_active: ['monday', 'wednesday', 'friday'],
+        days_active: [1, 3, 5], // Monday, Wednesday, Friday
       });
       setupMockStore({ habits: [habit] });
 

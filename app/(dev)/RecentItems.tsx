@@ -86,18 +86,12 @@ export default function RecentItems() {
             labels: habit.labels,
             type: habit.type,
             habit_progress: progressDates.map((d: string) => ({ occurred_day: d })),
-            schedule_days: (habit as any).days_active?.map((d: string) => {
-              const dayMap: Record<string, number> = {
-                sun: 0,
-                mon: 1,
-                tue: 2,
-                wed: 3,
-                thu: 4,
-                fri: 5,
-                sat: 6,
-              };
-              return dayMap[d.toLowerCase()] ?? parseInt(d, 10);
-            }),
+            // days_active is already number[] from DB (0=Sunday, 1=Monday, etc.)
+            schedule_days: Array.isArray((habit as any).days_active)
+              ? (habit as any).days_active.filter(
+                  (d: number) => typeof d === 'number' && d >= 0 && d <= 6,
+                )
+              : undefined,
           };
         }),
       );

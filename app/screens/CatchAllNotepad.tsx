@@ -799,6 +799,7 @@ type UnifiedDrop = {
   hasPhotos?: boolean; // True if note has photo attachments
   time_estimate_minutes?: number | null; // Time estimate for todos from Phase 2 enrichment
   start_date?: string | null; // ISO date string for habit start date
+  days_active?: number[] | null; // Day numbers (0=Sunday, 1=Monday, etc.) for habit scheduling
 };
 
 /**
@@ -1538,7 +1539,12 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
     return 'no deadline yet';
   }
   if (kind === 'habit') {
-    // Use centralized frequency display label (SINGLE SOURCE OF TRUTH)
+    // Show specific days if days_active is set (e.g., "Mon · Fri")
+    if (item.days_active && item.days_active.length > 0) {
+      const DAY_ABBREVS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return item.days_active.map((d) => DAY_ABBREVS[d]).join(' · ');
+    }
+    // Fall back to frequency display label (e.g., "2x/week")
     return getFrequencyDisplayLabel(item.cadence, item.target_per_period, item.frequency);
   }
   // Notes/Logs - show the subtype
@@ -1928,6 +1934,7 @@ const RecentDrops: React.FC<{
           due_time: record.due_time ?? null,
           noteSubtype: kind === 'note' ? (record.subtype ?? 'catchall') : undefined,
           canonical_type: record.canonical_type ?? null,
+          days_active: Array.isArray(record.days_active) ? record.days_active : null,
         };
         return [newItem, ...prev];
       }
@@ -1971,6 +1978,9 @@ const RecentDrops: React.FC<{
               ? ((record as any).subtype ?? item.noteSubtype ?? 'catchall')
               : item.noteSubtype,
           canonical_type: (record as any).canonical_type ?? item.canonical_type ?? null,
+          days_active: Array.isArray((record as any).days_active)
+            ? (record as any).days_active
+            : (item.days_active ?? null),
         };
       });
     },
@@ -2240,6 +2250,7 @@ const RecentDrops: React.FC<{
             labels: Array.isArray((h as any)?.labels) ? (h as any).labels : [],
             views: (h as any)?.views ?? {},
             start_date: (h as any)?.start_date ?? null,
+            days_active: (h as any)?.days_active ?? null,
           };
         });
 
@@ -2496,6 +2507,7 @@ const RecentDrops: React.FC<{
               tags: Array.isArray(record.tags) ? record.tags : [],
               views: record.views ?? {},
               labels: Array.isArray(record.labels) ? record.labels : [],
+              days_active: Array.isArray(record.days_active) ? record.days_active : null,
             };
 
             // Atomic replacement - no jolt

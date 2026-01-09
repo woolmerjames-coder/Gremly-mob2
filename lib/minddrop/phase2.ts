@@ -139,6 +139,7 @@ async function callEnrichAPI(
       extractedDate: json.extracted_date ?? null,
       extractedStartDate: json.extracted_start_date ?? null,
       extractedFrequency: json.extracted_frequency ?? null,
+      extractedDays: Array.isArray(json.extracted_days) ? json.extracted_days : null,
       people: Array.isArray(json.people) ? json.people : [],
       confirmationMessage: json.confirmation_message ?? null,
     };
@@ -602,20 +603,19 @@ export async function runPhase2Streaming(
                 updatePayload.target_per_period = target_per_period;
               }
               // Set days_active from extracted_days (e.g., [2, 4] for Tuesdays and Thursdays)
-              // Convert numeric days (0=Sunday, 1=Monday, ...) to day names for DB compatibility
+              // Pass through as integer array - DB column is integer[]
               if (result.extracted_days && result.extracted_days.length > 0) {
-                const dayNames = [
-                  'sunday',
-                  'monday',
-                  'tuesday',
-                  'wednesday',
-                  'thursday',
-                  'friday',
-                  'saturday',
-                ];
-                updatePayload.days_active = result.extracted_days
-                  .filter((d) => d >= 0 && d <= 6)
-                  .map((d) => dayNames[d]);
+                updatePayload.days_active = result.extracted_days.filter((d) => d >= 0 && d <= 6);
+                console.log('[Phase2:DaysActive] ✅ Setting days_active from worker:', {
+                  extracted_days: result.extracted_days,
+                  days_active: updatePayload.days_active,
+                  entityId,
+                });
+              } else {
+                console.log('[Phase2:DaysActive] ⚠️ No extracted_days from worker:', {
+                  extracted_days: result.extracted_days,
+                  entityId,
+                });
               }
               if (result.time_window) {
                 updatePayload.time_window = result.time_window;

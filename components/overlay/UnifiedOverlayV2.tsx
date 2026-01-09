@@ -159,57 +159,71 @@ function buildFrequencyJsonFromDb(
   frequencyValue: number | null | undefined,
   cadence?: string | null,
   targetPerPeriod?: number | null,
-  daysActive?: string[] | null,
+  daysActive?: number[] | string[] | null,
 ): any {
   // If frequency_value is already a JSON object, use it directly (legacy support)
   if (frequencyValue && typeof frequencyValue === 'object') {
+    console.log('[buildFrequencyJsonFromDb] Using legacy frequencyValue object:', frequencyValue);
     return frequencyValue;
   }
 
   // If days_active is set, build custom_days frequency
+  // DB may return as integer[] or string[] depending on how it was stored
   if (daysActive && Array.isArray(daysActive) && daysActive.length > 0) {
-    const dayNameToNumber: Record<string, number> = {
-      sunday: 0,
-      monday: 1,
-      tuesday: 2,
-      wednesday: 3,
-      thursday: 4,
-      friday: 5,
-      saturday: 6,
-    };
+    // Convert strings to numbers if needed (DB sometimes returns strings)
     const days = daysActive
-      .map((d) => dayNameToNumber[d.toLowerCase()])
-      .filter((d): d is number => typeof d === 'number')
+      .map((d) => (typeof d === 'string' ? parseInt(d, 10) : d))
+      .filter((d): d is number => typeof d === 'number' && !isNaN(d) && d >= 0 && d <= 6)
       .sort((a, b) => a - b);
     if (days.length > 0) {
-      return { kind: 'custom_days', days };
+      console.log('[buildFrequencyJsonFromDb] ✅ Built custom_days from days_active:', {
+        daysActive,
+        days,
+        result: { type: 'days', days },
+      });
+      return { type: 'days', days };
     }
   }
 
   // Use centralized utility for canonical schema (SINGLE SOURCE OF TRUTH)
   if (cadence) {
-    return canonicalToFrequencyJson(cadence, targetPerPeriod);
+    const result = canonicalToFrequencyJson(cadence, targetPerPeriod);
+    console.log('[buildFrequencyJsonFromDb] Built from cadence:', {
+      cadence,
+      targetPerPeriod,
+      result,
+    });
+    return result;
   }
 
   // Legacy: parse frequency string if no canonical fields
   if (frequency) {
     const { cadence: parsedCadence, target_per_period } = parseFrequencyString(frequency);
-    return canonicalToFrequencyJson(parsedCadence, target_per_period);
+    const result = canonicalToFrequencyJson(parsedCadence, target_per_period);
+    console.log('[buildFrequencyJsonFromDb] Built from legacy frequency:', { frequency, result });
+    return result;
   }
 
   // Default to daily
+  console.log('[buildFrequencyJsonFromDb] Defaulting to daily');
   return { type: 'simple', value: 'daily' };
 }
 
 /**
  * Extract days_active from frequency_json for custom_days frequency.
- * Converts numeric day indices (0=Sunday, 1=Monday, etc.) to day name strings.
+ * Returns numeric day indices (0=Sunday, 1=Monday, etc.) as integer array.
  *
  * @param frequencyJson - The frequency_json object from overlay state
- * @returns Array of day name strings like ['monday', 'wednesday'] or null
+ * @returns Array of day numbers like [1, 3, 5] or null
  */
-function extractDaysActiveFromFrequencyJson(frequencyJson: any): string[] | null {
-  if (!frequencyJson || typeof frequencyJson !== 'object') return null;
+function extractDaysActiveFromFrequencyJson(frequencyJson: any): number[] | null {
+  if (!frequencyJson || typeof frequencyJson !== 'object') {
+    console.log(
+      '[UnifiedOverlay:DaysActive] ❌ extractDaysActive - no frequencyJson:',
+      frequencyJson,
+    );
+    return null;
+  }
 
   // Handle custom_days format: { kind: 'custom_days', days: [1, 3, 5] }
   if (
@@ -217,12 +231,17 @@ function extractDaysActiveFromFrequencyJson(frequencyJson: any): string[] | null
     Array.isArray(frequencyJson.days) &&
     frequencyJson.days.length > 0
   ) {
-    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    return frequencyJson.days
-      .filter((d: number) => typeof d === 'number' && d >= 0 && d <= 6)
-      .map((d: number) => dayNames[d]);
+    const days = frequencyJson.days.filter(
+      (d: number) => typeof d === 'number' && d >= 0 && d <= 6,
+    );
+    console.log('[UnifiedOverlay:DaysActive] ✅ extractDaysActive - found days:', {
+      frequencyJson,
+      extractedDays: days,
+    });
+    return days;
   }
 
+  console.log('[UnifiedOverlay:DaysActive] ⚠️ extractDaysActive - not custom_days:', frequencyJson);
   return null;
 }
 
@@ -3587,13 +3606,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         if (__DEV__ && s.spaceId === null) {
           console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
         }
+        const daysActiveFromJson = extractDaysActiveFromFrequencyJson(s.habit.frequency_json);
+        console.log('[toCreateOrUpdateInput:Habit] 📤 Building habit payload:', {
+          frequency_json: s.habit.frequency_json,
+          schedule: s.habit.schedule,
+          days_active: daysActiveFromJson,
+          isEditing: !!initialEntity,
+        });
         return {
           type: 'habit' as const,
           ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
           frequency: s.habit.schedule ?? 'custom',
           frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
           ...frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule), // Set cadence/target_per_period
-          days_active: extractDaysActiveFromFrequencyJson(s.habit.frequency_json), // Extract days from custom_days frequency
+          days_active: daysActiveFromJson, // Extract days from custom_days frequency
           subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
           space_id: resolvedSpaceId3,
           origin: 'catchall' as const,
@@ -3614,6 +3640,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (__DEV__ && s.spaceId === null) {
         console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
       }
+      const daysActiveFromJson2 = extractDaysActiveFromFrequencyJson(s.habit.frequency_json);
+      console.log('[toCreateOrUpdateInput:Habit] 📤 Building NEW habit payload:', {
+        frequency_json: s.habit.frequency_json,
+        schedule: s.habit.schedule,
+        days_active: daysActiveFromJson2,
+      });
       return {
         type: 'habit' as const,
         title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
@@ -3621,7 +3653,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         frequency: s.habit.schedule ?? 'custom',
         frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
         ...frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule), // Set cadence/target_per_period
-        days_active: extractDaysActiveFromFrequencyJson(s.habit.frequency_json), // Extract days from custom_days frequency
+        days_active: daysActiveFromJson2, // Extract days from custom_days frequency
         subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
         space_id: resolvedSpaceId4,
         origin: 'catchall' as const,
@@ -5875,9 +5907,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         style={styles.dueDateIcon}
                                       />
                                       <Text style={styles.dueDateText}>
-                                        {getFrequencyLabel(
-                                          jsonToFrequency(state.habit.frequency_json),
-                                        )}
+                                        {(() => {
+                                          const raw = state.habit.frequency_json;
+                                          const converted = jsonToFrequency(raw);
+                                          const label = getFrequencyLabel(converted);
+                                          console.log('[FrequencyDebug] 🔍', {
+                                            raw,
+                                            converted,
+                                            label,
+                                          });
+                                          return label;
+                                        })()}
                                       </Text>
                                     </Pressable>
                                   </View>
@@ -8776,6 +8816,12 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
     const dbFrequency = (entity as any)?.frequency;
     const dbFrequencyValue = (entity as any)?.frequency_value;
     const dbDaysActive = (entity as any)?.days_active;
+    console.log('[UnifiedOverlay:DaysActive] 📥 Loading from entity:', {
+      entityId: (entity as any)?.id,
+      dbDaysActive,
+      dbCadence,
+      dbTargetPerPeriod,
+    });
     const frequencyJson = buildFrequencyJsonFromDb(
       dbFrequency,
       dbFrequencyValue,

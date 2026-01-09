@@ -71,7 +71,7 @@ export interface Habit {
   cadence?: Cadence; // Defaults to 'daily' in DB
   target_per_period?: number;
   target_per_day?: number;
-  days_active?: string[] | null; // Day names like ['monday', 'wednesday', 'friday']
+  days_active?: number[] | null; // Day numbers (0=Sunday, 1=Monday, ... 6=Saturday)
   last_completed_at?: string | null;
   last_checked_in_at?: string | null; // ISO 8601 - when user last reviewed this habit
   period_start_at?: string | null;
