@@ -4,6 +4,8 @@
  * Core types for the Mind Drop classification and enrichment system.
  */
 
+import type { HabitSubtype } from '../types';
+
 /**
  * The bucket/category a mind drop is classified into.
  * - 'todo': Actionable tasks with optional due dates and time estimates
@@ -114,4 +116,56 @@ export interface PendingItem {
 
   /** Associated space ID (null if in global/catch-all) */
   spaceId: string | null;
+}
+
+/**
+ * A single item extracted from a multi-entity mind drop.
+ * Represents one of potentially several items parsed from a compound input.
+ */
+export interface MultiDropItem {
+  /** The extracted text segment for this item */
+  text: string;
+
+  /** The classified bucket/category */
+  bucket: MindDropBucket;
+
+  /** Subtype for log items (null for todos and habits) */
+  subtype: LogSubtype | null;
+
+  /** Subtype for habit items: 'start_habit' | 'break_habit' | null */
+  habitSubtype: HabitSubtype | null;
+
+  /** AI-generated 3-5 word preview title */
+  preview_title: string;
+}
+
+/**
+ * Result from Phase 1 classification.
+ * Determines the bucket, subtype, and confidence of a mind drop.
+ * Supports both single-entity and multi-entity responses.
+ */
+export interface Phase1Result {
+  /** The classified bucket/category */
+  bucket: MindDropBucket;
+
+  /** Subtype for log items (null for todos and habits) */
+  subtype: LogSubtype | null;
+
+  /** Habit subtype: 'start_habit' (build) or 'break_habit' (break) */
+  habitSubtype: HabitSubtype | null;
+
+  /** Classification confidence score (0-1) */
+  confidence: number;
+
+  /** Source of the classification */
+  source: 'heuristic' | 'api' | 'heuristic-confirmed' | 'heuristic-fallback';
+
+  /** True if multiple items were detected in the input */
+  is_multi: boolean;
+
+  /** Array of parsed items when is_multi is true */
+  items?: MultiDropItem[];
+
+  /** Combined title for multi-entity drops (e.g., "Groceries + Running Habit") */
+  summary_title?: string;
 }
