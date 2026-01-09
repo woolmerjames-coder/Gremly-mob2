@@ -802,6 +802,10 @@ type UnifiedDrop = {
   start_date?: string | null; // ISO date string for habit start date
   days_active?: number[] | null; // Day numbers (0=Sunday, 1=Monday, etc.) for habit scheduling
   mood?: Mood[] | null; // Multi-select moods for journal entries
+  // Multi-entity support
+  is_multi?: boolean; // True if this drop contains multiple items
+  multi_items?: import('../../lib/minddrop/types').MultiDropItem[]; // The parsed items array
+  multi_summary_title?: string; // Summary title for display (e.g., "Groceries + Running Habit")
 };
 
 /**
