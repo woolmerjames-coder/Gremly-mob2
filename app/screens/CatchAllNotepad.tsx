@@ -64,6 +64,7 @@ import {
 } from '../../lib/store/selectors';
 import { useCortex } from '../../providers/CortexProvider';
 import { useAuth } from '../../providers/AuthProvider';
+import { useRepo } from '../../providers/RepoProvider';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createCortexEngine } from '../../cortex/createEngine';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
@@ -73,6 +74,13 @@ import {
   type TimingOption,
   type TimingChip,
 } from '../components/minddrop/MidConfidenceChips';
+import { MultiSplitModal } from '../components/minddrop/MultiSplitModal';
+import type {
+  MultiDropItem,
+  MindDropBucket,
+  LogSubtype as MindDropLogSubtype,
+} from '../../lib/minddrop/types';
+import { runPhase2Streaming } from '../../lib/minddrop/phase2';
 import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTheme } from '../../src/theme/useTheme';
@@ -1591,6 +1599,9 @@ const AnimatedMindDropCard: React.FC<{
   handleEdit: (id: string, kind: UnifiedDrop['kind'], unsorted?: boolean) => void;
   handleDelete: (id: string, kind: UnifiedDrop['kind']) => void;
   index?: number; // For stagger delay in calm arrival animation
+  // Multi-entity handlers passed from parent
+  onKeepAsNote?: (id: string) => void;
+  onSplitSelected?: (id: string, selectedItems: MultiDropItem[]) => void;
 }> = ({
   item,
   isPending,
@@ -1604,7 +1615,24 @@ const AnimatedMindDropCard: React.FC<{
   handleEdit,
   handleDelete,
   index = 0,
+  onKeepAsNote,
+  onSplitSelected,
 }) => {
+  // Check for multi-entity drops
+  const isMulti = item.is_multi === true || item.views?.is_multi === true;
+  const [multiModalVisible, setMultiModalVisible] = React.useState(false);
+
+  // DEBUG: Log multi status
+  if (item.kind === 'note') {
+    console.log('[AnimatedMindDropCard:Multi]', {
+      id: item.id,
+      title: item.title?.substring(0, 30),
+      is_multi: item.is_multi,
+      views_is_multi: item.views?.is_multi,
+      isMulti,
+    });
+  }
+
   // Get visual state from item
   const itemVisualState = getMindDropVisualState(item);
 
@@ -1681,178 +1709,241 @@ const AnimatedMindDropCard: React.FC<{
   // Complete or Failed: Show static content
   const isFailed = visualState === 'failed';
 
+  // Multi-entity handler
+  const handleCardPress = () => {
+    if (isMulti) {
+      setMultiModalVisible(true);
+      return;
+    }
+    handleEdit(item.id, item.kind, item.unsorted);
+  };
+
+  // Multi-entity keep as note handler
+  const handleKeepAsNote = () => {
+    setMultiModalVisible(false);
+    if (onKeepAsNote) {
+      onKeepAsNote(item.id);
+    }
+  };
+
+  // Multi-entity split handler
+  const handleSplitSelected = (selectedItems: MultiDropItem[]) => {
+    setMultiModalVisible(false);
+    if (onSplitSelected) {
+      onSplitSelected(item.id, selectedItems);
+    }
+  };
+
   return (
-    <Pressable
-      key={`${item.kind}:${item.id}`}
-      testID={`minddrop-recent-${item.kind}-${item.id}`}
-      style={styles.recentCard}
-      onPress={() => handleEdit(item.id, item.kind, item.unsorted)}
-      accessibilityRole="button"
-      accessibilityLabel={`Edit ${item.title || item.text || 'item'}`}
-    >
-      {/* Row 1: Title (left) + Chip (right) */}
-      <View style={styles.recentTopRow}>
-        <Text numberOfLines={1} style={styles.recentTitle}>
-          {item.title || item.text || '—'}
-        </Text>
-        <View style={styles.recentTopRight}>
-          {effectiveKind === 'note' && (item as any)?.private === true && (
-            <Lock size={12} color="#777" />
-          )}
-          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {getDisplayKindForChip(effectiveKind, item)}
-          </Text>
-        </View>
-      </View>
-
-      {/* Row 2: Confirmation message */}
-      {(() => {
-        const confirmationMsg = getConfirmationMessage(effectiveKind, item);
-        const isStreaming =
-          item.views?.minddrop_stage === 'streaming' || item.views?.minddrop_stage === 'enriching';
-
-        if (isStreaming && confirmationMsg) {
-          return (
-            <TypewriterText
-              text={confirmationMsg}
-              style={styles.recentConfirmation}
-              duration={Math.min(confirmationMsg.length * 25, 800)}
-            />
-          );
+    <>
+      <Pressable
+        key={`${item.kind}:${item.id}`}
+        testID={`minddrop-recent-${item.kind}-${item.id}`}
+        style={styles.recentCard}
+        onPress={handleCardPress}
+        accessibilityRole="button"
+        accessibilityLabel={
+          isMulti
+            ? 'Tap to decide what to do with multiple items'
+            : `Edit ${item.title || item.text || 'item'}`
         }
+      >
+        {/* Row 1: Title (left) + Chip (right) */}
+        <View style={styles.recentTopRow}>
+          <Text numberOfLines={1} style={styles.recentTitle}>
+            {isMulti
+              ? item.multi_summary_title ||
+                item.views?.multi_summary_title ||
+                item.title ||
+                'Multiple Items'
+              : item.title || item.text || '—'}
+          </Text>
+          <View style={styles.recentTopRight}>
+            {effectiveKind === 'note' && (item as any)?.private === true && (
+              <Lock size={12} color="#777" />
+            )}
+            <Text
+              style={[
+                styles.recentCategoryPill,
+                styles[badgeStyleKey],
+                isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
+              ]}
+            >
+              {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
+            </Text>
+          </View>
+        </View>
 
-        return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
-      })()}
+        {/* Row 2: Confirmation message or multi hint */}
+        {isMulti ? (
+          <Text style={{ fontSize: 13, color: '#9CA6E0', fontStyle: 'italic' }}>
+            Tap to decide what to do
+          </Text>
+        ) : (
+          (() => {
+            const confirmationMsg = getConfirmationMessage(effectiveKind, item);
+            const isStreaming =
+              item.views?.minddrop_stage === 'streaming' ||
+              item.views?.minddrop_stage === 'enriching';
 
-      {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
-      <View style={styles.recentMetaRow}>
-        {/* Left side: context pill + time estimate grouped together */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          {(() => {
-            const contextMeta = getContextualMeta(effectiveKind, item);
-            // Add testID for todos to support due date badge tests
-            const contextTestId =
-              effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
-            // For journal entries, show plain text label instead of pill
-            const isJournal =
-              item.kind === 'note' &&
-              (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
-            const hasMoods = isJournal && item.mood && item.mood.length > 0;
-
-            // For idea entries, show plain text label only
-            const isIdea =
-              item.kind === 'note' &&
-              (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
-
-            if (isJournal && contextMeta) {
+            if (isStreaming && confirmationMsg) {
               return (
-                <View style={styles.journalMetaRow}>
-                  <View style={styles.moodChip}>
-                    <Text style={styles.moodChipText}>{contextMeta}</Text>
-                  </View>
-                  {hasMoods && (
-                    <>
-                      {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
-                        <React.Fragment key={m}>
-                          {idx === 0 && <Text style={styles.journalSeparator}> </Text>}
-                          <Text style={styles.journalSubtypeLabel}>{MOOD_CONFIG[m]?.label}</Text>
-                          {idx < Math.min(item.mood!.length, 2) - 1 && (
-                            <Text style={styles.journalSeparator}>·</Text>
-                          )}
-                        </React.Fragment>
-                      ))}
-                      {item.mood!.length > 2 && (
-                        <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
-                      )}
-                    </>
-                  )}
-                </View>
+                <TypewriterText
+                  text={confirmationMsg}
+                  style={styles.recentConfirmation}
+                  duration={Math.min(confirmationMsg.length * 25, 800)}
+                />
               );
             }
 
-            if (isIdea && contextMeta) {
-              return (
-                <View style={styles.journalMetaRow}>
-                  <View style={styles.moodChip}>
-                    <Text style={styles.moodChipText}>{contextMeta}</Text>
+            return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
+          })()
+        )}
+
+        {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
+        <View style={styles.recentMetaRow}>
+          {/* Left side: context pill + time estimate grouped together */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {(() => {
+              const contextMeta = getContextualMeta(effectiveKind, item);
+              // Add testID for todos to support due date badge tests
+              const contextTestId =
+                effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
+              // For journal entries, show plain text label instead of pill
+              const isJournal =
+                item.kind === 'note' &&
+                (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
+              const hasMoods = isJournal && item.mood && item.mood.length > 0;
+
+              // For idea entries, show plain text label only
+              const isIdea =
+                item.kind === 'note' &&
+                (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
+
+              if (isJournal && contextMeta) {
+                return (
+                  <View style={styles.journalMetaRow}>
+                    <View style={styles.moodChip}>
+                      <Text style={styles.moodChipText}>{contextMeta}</Text>
+                    </View>
+                    {hasMoods && (
+                      <>
+                        {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
+                          <React.Fragment key={m}>
+                            {idx === 0 && <Text style={styles.journalSeparator}> </Text>}
+                            <Text style={styles.journalSubtypeLabel}>{MOOD_CONFIG[m]?.label}</Text>
+                            {idx < Math.min(item.mood!.length, 2) - 1 && (
+                              <Text style={styles.journalSeparator}>·</Text>
+                            )}
+                          </React.Fragment>
+                        ))}
+                        {item.mood!.length > 2 && (
+                          <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
+                        )}
+                      </>
+                    )}
                   </View>
-                </View>
-              );
-            }
+                );
+              }
 
-            // For general notes, show plain text label only
-            const isGeneralNote =
-              item.kind === 'note' &&
-              !isJournal &&
-              !isIdea &&
-              (item.noteSubtype === 'catchall' ||
-                item.noteSubtype === 'general' ||
-                item.canonical_type === 'log' ||
-                !item.noteSubtype);
-
-            if (isGeneralNote && contextMeta) {
-              return (
-                <View style={styles.journalMetaRow}>
-                  <View style={styles.moodChip}>
-                    <Text style={styles.moodChipText}>{contextMeta}</Text>
+              if (isIdea && contextMeta) {
+                return (
+                  <View style={styles.journalMetaRow}>
+                    <View style={styles.moodChip}>
+                      <Text style={styles.moodChipText}>{contextMeta}</Text>
+                    </View>
                   </View>
-                </View>
-              );
-            }
+                );
+              }
 
-            return contextMeta ? (
-              <Text testID={contextTestId} style={styles.recentContextPill}>
-                {contextMeta}
-              </Text>
-            ) : null;
-          })()}
-          {/* Start date chip for habits - before time estimate */}
-          {effectiveKind === 'habit' && (
-            <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
-          )}
-          {/* Time estimate chip for todos AND habits - comes LAST */}
-          {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
-            item.time_estimate_minutes && (
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  Alert.alert(
-                    '⏱️ Time Estimate',
-                    effectiveKind === 'habit'
-                      ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
-                      : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
-                    [{ text: 'Got it', style: 'default' }],
-                  );
-                }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <View style={styles.timeEstimateChip}>
-                  <Clock size={10} color="#888" strokeWidth={2} />
-                  <Text style={styles.timeEstimateText}>
-                    {formatTimeEstimate(item.time_estimate_minutes)}
+              // For general notes, show plain text label only
+              const isGeneralNote =
+                item.kind === 'note' &&
+                !isJournal &&
+                !isIdea &&
+                (item.noteSubtype === 'catchall' ||
+                  item.noteSubtype === 'general' ||
+                  item.canonical_type === 'log' ||
+                  !item.noteSubtype);
+
+              if (isGeneralNote && contextMeta) {
+                return (
+                  <View style={styles.journalMetaRow}>
+                    <View style={styles.moodChip}>
+                      <Text style={styles.moodChipText}>{contextMeta}</Text>
+                    </View>
+                  </View>
+                );
+              }
+
+              return contextMeta ? (
+                <Text testID={contextTestId} style={styles.recentContextPill}>
+                  {contextMeta}
+                </Text>
+              ) : null;
+            })()}
+            {/* Start date chip for habits - before time estimate */}
+            {effectiveKind === 'habit' && (
+              <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
+            )}
+            {/* Time estimate chip for todos AND habits - comes LAST */}
+            {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
+              item.time_estimate_minutes && (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    Alert.alert(
+                      '⏱️ Time Estimate',
+                      effectiveKind === 'habit'
+                        ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
+                        : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                      [{ text: 'Got it', style: 'default' }],
+                    );
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <View style={styles.timeEstimateChip}>
+                    <Clock size={10} color="#888" strokeWidth={2} />
+                    <Text style={styles.timeEstimateText}>
+                      {formatTimeEstimate(item.time_estimate_minutes)}
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
+            {item.views?.people &&
+              Array.isArray(item.views.people) &&
+              item.views.people.length > 0 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                  <User size={10} color="#6B8E6B" strokeWidth={2.5} />
+                  <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
+                    {item.views.people[0]}
                   </Text>
                 </View>
-              </Pressable>
-            )}
-          {item.views?.people &&
-            Array.isArray(item.views.people) &&
-            item.views.people.length > 0 && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                <User size={10} color="#6B8E6B" strokeWidth={2.5} />
-                <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
-                  {item.views.people[0]}
-                </Text>
-              </View>
-            )}
-          {/* Mood chips now rendered inline with Journal label above */}
+              )}
+            {/* Mood chips now rendered inline with Journal label above */}
+          </View>
+          {/* Right side: photo icon + timestamp */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
+            <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+          </View>
         </View>
-        {/* Right side: photo icon + timestamp */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
-          <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
-        </View>
-      </View>
-    </Pressable>
+      </Pressable>
+
+      {/* Multi-entity split modal */}
+      {isMulti && (
+        <MultiSplitModal
+          visible={multiModalVisible}
+          items={item.multi_items || item.views?.multi_items || []}
+          summaryTitle={
+            item.multi_summary_title || item.views?.multi_summary_title || 'Multiple Items'
+          }
+          onClose={() => setMultiModalVisible(false)}
+          onKeepAsNote={handleKeepAsNote}
+          onSplitSelected={handleSplitSelected}
+        />
+      )}
+    </>
   );
 };
 
@@ -1954,6 +2045,13 @@ const RecentDrops: React.FC<{
   const deleteNote = useGremlyStore((s) => s.deleteNote);
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
   const deleteHabit = useGremlyStore((s) => s.deleteHabit);
+  // Multi-entity handlers need these
+  const updateNote = useGremlyStore((s) => s.updateNote);
+  const createTodo = useGremlyStore((s) => s.createTodo);
+  const createHabit = useGremlyStore((s) => s.createHabit);
+  const createNote = useGremlyStore((s) => s.createNote);
+  const archiveNote = useGremlyStore((s) => s.archiveNote);
+  const repo = useRepo();
 
   // Synchronous lookups from store
   const getItemById = React.useCallback(
@@ -2227,6 +2325,20 @@ const RecentDrops: React.FC<{
       // - The original note is archived (archived=true)
       // - A new canonical item (habit/todo/note with canonicalType) is created with same drop_id
       // - We filter out archived notes and dedupe by drop_id, keeping canonical items
+
+      // DEBUG: Log notes with views before mapping
+      (Array.isArray(notes) ? notes : []).forEach((note) => {
+        const noteAny = note as any;
+        if (noteAny?.views?.is_multi || noteAny?.title?.includes('Call Mom + Quit')) {
+          console.log('[DEBUG:NoteMapping]', {
+            id: noteAny.id,
+            title: noteAny.title?.substring(0, 30),
+            has_views: !!noteAny.views,
+            views_keys: noteAny.views ? Object.keys(noteAny.views) : [],
+            is_multi: noteAny.views?.is_multi,
+          });
+        }
+      });
 
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter((n) => {
@@ -2687,6 +2799,16 @@ const RecentDrops: React.FC<{
           entityId: payload.entity?.id,
         });
 
+        // DEBUG: Log multi-entity note details
+        if (payload.type === 'note') {
+          console.log('[DEBUG:EntityCreated:Note]', {
+            entityId: payload.entity?.id,
+            has_views: !!payload.entity?.views,
+            views_is_multi: payload.entity?.views?.is_multi,
+            views_keys: payload.entity?.views ? Object.keys(payload.entity.views) : [],
+          });
+        }
+
         // Perform atomic replacement using the entity from the event
         // This is our primary mechanism since realtime may not be reliable
         if (dropId && payload.entity) {
@@ -2708,6 +2830,10 @@ const RecentDrops: React.FC<{
             due_time: entity.due_time ?? null,
             noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
             mood: entityType === 'note' ? (entity.mood ?? null) : undefined,
+            // Multi-entity support: extract from views to top level
+            is_multi: entity.views?.is_multi === true,
+            multi_items: entity.views?.multi_items ?? undefined,
+            multi_summary_title: entity.views?.multi_summary_title ?? undefined,
           };
 
           replacePendingWithReal(dropId, realItem);
@@ -2890,6 +3016,140 @@ const RecentDrops: React.FC<{
     }
   };
 
+  // Multi-entity: Keep as note handler
+  const handleKeepAsNote = React.useCallback(
+    async (noteId: string) => {
+      try {
+        const noteToUpdate = items.find((item) => item.id === noteId);
+        if (!noteToUpdate) return;
+
+        await updateNote(noteId, {
+          views: {
+            ...noteToUpdate.views,
+            is_multi: false,
+            minddrop_stage: 'classified',
+            multi_items: undefined,
+            multi_summary_title: undefined,
+          },
+        } as any);
+
+        // Update local state
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === noteId
+              ? {
+                  ...item,
+                  is_multi: false,
+                  views: { ...item.views, is_multi: false, minddrop_stage: 'classified' },
+                }
+              : item,
+          ),
+        );
+
+        console.log('[RecentDrops] Kept multi-drop as note:', noteId);
+      } catch (err) {
+        console.error('[RecentDrops] Failed to keep as note:', err);
+      }
+    },
+    [items, updateNote],
+  );
+
+  // Multi-entity: Split selected items handler
+  const handleSplitSelected = React.useCallback(
+    async (noteId: string, selectedItems: MultiDropItem[]) => {
+      console.log('[RecentDrops] Splitting multi-drop into', selectedItems.length, 'items');
+      const noteToSplit = items.find((item) => item.id === noteId);
+      const spaceId = noteToSplit?.views?.space_id ?? null;
+
+      try {
+        for (const splitItem of selectedItems) {
+          const bucket: MindDropBucket = splitItem.bucket;
+          const subtype: MindDropLogSubtype | null = splitItem.subtype;
+          let newEntity: { id: string } | null = null;
+
+          if (splitItem.bucket === 'todo') {
+            newEntity = await createTodo({
+              name: splitItem.preview_title || splitItem.text,
+              body: splitItem.text,
+              space_id: spaceId,
+              origin: 'catchall',
+              views: {
+                minddrop_stage: 'classified',
+                ai_pending: true,
+                origin: 'multi_split',
+                source_drop_id: noteId,
+              },
+            } as any);
+          } else if (splitItem.bucket === 'habit') {
+            newEntity = await createHabit({
+              name: splitItem.preview_title || splitItem.text,
+              title: splitItem.preview_title || splitItem.text,
+              notes: splitItem.text,
+              frequency: 'daily',
+              subtype: splitItem.habitSubtype || 'start_habit',
+              space_id: spaceId,
+              origin: 'catchall',
+              views: {
+                minddrop_stage: 'classified',
+                ai_pending: true,
+                origin: 'multi_split',
+                source_drop_id: noteId,
+              },
+            } as any);
+          } else {
+            // log bucket -> note
+            const noteSubtype =
+              splitItem.subtype === 'journal'
+                ? 'journal'
+                : splitItem.subtype === 'idea'
+                  ? 'idea'
+                  : 'catchall';
+            newEntity = await createNote({
+              title: splitItem.preview_title || splitItem.text,
+              body: splitItem.text,
+              subtype: noteSubtype,
+              space_id: spaceId,
+              origin: 'catchall',
+              views: {
+                minddrop_stage: 'classified',
+                ai_pending: true,
+                origin: 'multi_split',
+                source_drop_id: noteId,
+              },
+            } as any);
+          }
+
+          // Trigger Phase 2 enrichment for the new entity (runs in background)
+          if (newEntity?.id) {
+            runPhase2Streaming(
+              newEntity.id,
+              splitItem.text,
+              bucket,
+              subtype,
+              repo,
+              (field, value) => {
+                console.log(`[RecentDrops:Phase2:${newEntity!.id}] ${field}:`, value);
+              },
+            ).catch((err) => {
+              console.warn('[RecentDrops:Phase2] Enrichment failed', err);
+            });
+          }
+        }
+
+        // Archive the original multi-drop note
+        await archiveNote(noteId, 'converted');
+
+        // Remove from local state
+        setItems((prev) => prev.filter((item) => item.id !== noteId));
+
+        console.log('[RecentDrops] Split complete, archived original:', noteId);
+      } catch (err) {
+        console.error('[RecentDrops] Failed to split multi-drop:', err);
+      }
+    },
+    [items, createTodo, createHabit, createNote, archiveNote, repo],
+  );
+
   return (
     <View style={styles.recentRoot}>
       <View style={styles.recentHeaderRow}>
@@ -3001,6 +3261,8 @@ const RecentDrops: React.FC<{
                     handleEdit={handleEdit}
                     handleDelete={handleDelete}
                     index={pendingItems.length + index}
+                    onKeepAsNote={handleKeepAsNote}
+                    onSplitSelected={handleSplitSelected}
                   />
                 );
               })}

@@ -292,6 +292,16 @@ export function useMindDropSubmit(): {
             },
           });
 
+          // DEBUG: Log multi note creation
+          console.log('[DEBUG:MultiNoteCreate] Saved multi note', {
+            noteId: entity.id,
+            views_saved: {
+              is_multi: true,
+              multi_items: phase1Result.items?.length,
+              multi_summary_title: phase1Result.summary_title,
+            },
+          });
+
           // Emit event for UI updates
           eventBus.emit('entity:created', {
             entity: { ...entity, drop_id: dropId },

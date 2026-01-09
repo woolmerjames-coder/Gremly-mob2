@@ -174,6 +174,9 @@ const TypewriterText: React.FC<{
 
 export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
   ({ item, index, onPress, styles: parentStyles, badgeStyleKey }) => {
+    // DEBUG: Log every render to confirm component is used
+    console.log('[AnimatedDropCard:RENDER]', item.id, item.kind, item.is_multi);
+
     // Determine if AI title is ready (different from raw text)
     const isAITitleReady =
       !!item.title && item.title !== item.text && item.title.length < item.text.length * 0.8; // AI titles are usually shorter
@@ -250,6 +253,18 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
 
     // Check for multi-entity drops (flag may be at top level or in views)
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
+
+    // DEBUG: Log multi status for notes
+    if (item.kind === 'note') {
+      console.log('[AnimatedDropCard:Multi]', {
+        id: item.id,
+        title: item.title?.substring(0, 30),
+        is_multi: item.is_multi,
+        views_is_multi: item.views?.is_multi,
+        has_views: !!item.views,
+        isMulti,
+      });
+    }
 
     // Multi-entity modal visibility state
     const [multiModalVisible, setMultiModalVisible] = useState(false);
