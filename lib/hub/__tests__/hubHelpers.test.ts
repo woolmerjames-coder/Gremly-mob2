@@ -603,13 +603,13 @@ describe('groupJournalsByMonth', () => {
         date: '2025-12-14T10:00:00.000Z',
         created_at: '2025-12-14T10:00:00.000Z',
         body: 'Great day today!',
-        mood: 'happy',
+        mood: ['happy'], // Now multi-select array
       },
     ];
 
     const result = groupJournalsByMonth(journals);
 
     expect(result[0].journals[0].body).toBe('Great day today!');
-    expect(result[0].journals[0].mood).toBe('happy');
+    expect(result[0].journals[0].mood).toEqual(['happy']);
   });
 });

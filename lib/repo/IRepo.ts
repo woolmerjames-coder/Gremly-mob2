@@ -17,6 +17,7 @@ import type {
   TagsMeta,
   Habit,
 } from '../types';
+import type { Mood } from '../shared/moods';
 import type { SpaceInsert } from '../schemas';
 
 /**
@@ -75,7 +76,7 @@ export interface CreateRecordInput {
 
   // Extended journal/note fields (Phase 7+) - only used when subtype='journal'
   date?: string | null; // ISO date for journal entry
-  mood?: 'ecstatic' | 'happy' | 'neutral' | 'low' | 'sad' | 'tired' | null;
+  mood?: Mood[] | null; // Multi-select mood array
   fmt?: 'bullets' | 'numbers' | 'checkboxes' | null; // Formatting style
   journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only
 }

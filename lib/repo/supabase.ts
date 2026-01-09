@@ -251,6 +251,8 @@ function mapHabitFromDb(dbRecord: any): any {
     tags_meta: dbRecord.tags_meta ?? null,
     drop_id: dbRecord.drop_id ?? null,
     views: normalizeViews(dbRecord.views),
+    // Days active for custom schedules (integer array: 0=Sunday, 1=Monday, etc.)
+    days_active: dbRecord.days_active ?? null,
     // Commitment fields (Phase 6)
     commitment: dbRecord.commitment === null ? undefined : dbRecord.commitment,
     commitment_note: dbRecord.commitment_note ?? null,
@@ -272,6 +274,7 @@ function mapHabitFromDb(dbRecord: any): any {
       commitment_started_at: mapped.commitment_started_at,
       frequency: mapped.frequency,
       frequency_value: mapped.frequency_value,
+      days_active: mapped.days_active,
       reminders: mapped.reminders?.length ?? 0,
     });
   }
@@ -1113,6 +1116,37 @@ export class SupabaseRepo implements IRepo {
       if ('time_estimate_minutes' in normalizedPatch) {
         updatePayload.time_estimate_minutes =
           (normalizedPatch as any).time_estimate_minutes ?? null;
+      }
+
+      // Days active (specific days of week for custom schedules) - integer array [0-6]
+      if ('days_active' in normalizedPatch) {
+        const daysActive = (normalizedPatch as any).days_active;
+        console.log('[SupabaseRepo:DaysActive] 📝 Found days_active in patch:', {
+          daysActive,
+          type: typeof daysActive,
+          isArray: Array.isArray(daysActive),
+        });
+        // Validate it's an array of valid day numbers (0=Sunday through 6=Saturday)
+        if (Array.isArray(daysActive) && daysActive.length > 0) {
+          updatePayload.days_active = daysActive.filter(
+            (d: number) => typeof d === 'number' && d >= 0 && d <= 6,
+          );
+          console.log(
+            '[SupabaseRepo:DaysActive] ✅ Mapped to updatePayload:',
+            updatePayload.days_active,
+          );
+        } else {
+          updatePayload.days_active = null;
+          console.log(
+            '[SupabaseRepo:DaysActive] ⚠️ Setting to null (empty or invalid):',
+            daysActive,
+          );
+        }
+      } else {
+        console.log(
+          '[SupabaseRepo:DaysActive] ❌ days_active NOT in patch. Patch keys:',
+          Object.keys(normalizedPatch),
+        );
       }
 
       // Development logging for habit updates

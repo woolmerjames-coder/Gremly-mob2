@@ -10,8 +10,8 @@ type LabelOptions = {
 };
 
 const canonicalNoteLabels = {
-  singular: 'Log',
-  plural: 'Logs',
+  singular: 'Note',
+  plural: 'Notes',
 } as const;
 
 const legacyNoteLabels = {

@@ -30,8 +30,8 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
   // ─────────────────────────────────────────────────────────────────────────
   // Type chip
   // ─────────────────────────────────────────────────────────────────────────
-  const typeChip: 'Todo' | 'Log' | 'Habit' =
-    candidate.kind === 'todo' ? 'Todo' : candidate.kind === 'habit' ? 'Habit' : 'Log';
+  const typeChip: 'Todo' | 'Note' | 'Habit' =
+    candidate.kind === 'todo' ? 'Todo' : candidate.kind === 'habit' ? 'Habit' : 'Note';
 
   // ─────────────────────────────────────────────────────────────────────────
   // Todo status (only for todos)

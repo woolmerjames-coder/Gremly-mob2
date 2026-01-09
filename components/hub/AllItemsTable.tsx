@@ -234,7 +234,7 @@ export default function AllItemsTable({ onItemPress }: AllItemsTableProps) {
     { key: 'all', label: 'All' },
     { key: 'todos', label: 'Todos' },
     { key: 'habits', label: 'Habits' },
-    { key: 'logs', label: 'Logs' },
+    { key: 'logs', label: 'Notes' },
   ];
 
   return (

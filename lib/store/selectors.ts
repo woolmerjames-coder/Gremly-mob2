@@ -374,6 +374,7 @@ function isHabitDueToday(
         // days_active contains day numbers (0-6) or day names
         const isDayActive = daysActive.some((day) => {
           if (typeof day === 'number') return day === todayDayOfWeek;
+          // Legacy string support (should not occur with new data)
           if (typeof day === 'string') {
             const dayNum = parseInt(day, 10);
             if (!isNaN(dayNum)) return dayNum === todayDayOfWeek;
@@ -387,7 +388,7 @@ function isHabitDueToday(
               'friday',
               'saturday',
             ];
-            return dayNames[todayDayOfWeek]?.toLowerCase() === day.toLowerCase();
+            return dayNames[todayDayOfWeek]?.toLowerCase() === (day as string).toLowerCase();
           }
           return false;
         });

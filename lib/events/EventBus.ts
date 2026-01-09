@@ -62,6 +62,8 @@ export type EventMap = {
     time_window?: 'morning' | 'day' | 'evening' | null;
     space_id?: string | null;
     people?: string[];
+    extracted_days?: number[] | null; // Day numbers (0=Sunday, 1=Monday, ... 6=Saturday)
+    mood?: string[] | null; // Multi-select moods for journal entries
   };
   // Phase 2 streaming field update event
   'entity:field_updated': {

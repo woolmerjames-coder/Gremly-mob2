@@ -167,7 +167,26 @@ export const noteZ = baseRecordZ.extend({
   ), // Resilient to null/undefined, defaults to catchall
   // Journal-specific fields (Phase 7+) - only used when subtype='journal'
   date: z.string().nullable().optional(), // ISO date for journal entry
-  mood: z.enum(['ecstatic', 'happy', 'neutral', 'low', 'sad', 'tired']).nullable().optional(),
+  mood: z
+    .array(
+      z.enum([
+        'great',
+        'good',
+        'okay',
+        'low',
+        'tired',
+        'anxious',
+        'overwhelmed',
+        'frustrated',
+        'scattered',
+        'grateful',
+        'hopeful',
+        'focused',
+        'calm',
+      ]),
+    )
+    .nullable()
+    .optional(),
   fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
   reminders: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: tagsZ,
@@ -307,7 +326,26 @@ export const noteInsertSchema = z.object({
   tags_meta: tagsMetaZ,
   // Journal-specific fields (from generated schema - notes table has these)
   date: z.string().nullable().optional(), // ISO date for journal entry
-  mood: z.enum(['ecstatic', 'happy', 'neutral', 'low', 'sad', 'tired']).nullable().optional(),
+  mood: z
+    .array(
+      z.enum([
+        'great',
+        'good',
+        'okay',
+        'low',
+        'tired',
+        'anxious',
+        'overwhelmed',
+        'frustrated',
+        'scattered',
+        'grateful',
+        'hopeful',
+        'focused',
+        'calm',
+      ]),
+    )
+    .nullable()
+    .optional(),
   fmt: z.enum(['bullets', 'numbers', 'checkboxes']).nullable().optional(),
   reminders_json: z.array(z.any()).nullable().optional(), // ReminderRow[]
   tags: tagsZ,

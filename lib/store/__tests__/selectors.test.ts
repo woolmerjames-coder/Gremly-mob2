@@ -1249,8 +1249,8 @@ describe('selectTodayLockedItems', () => {
       todos: [],
       habits: [
         makeHabit({ id: 'h1', commitment: true, cadence: 'daily' }),
-        makeHabit({ id: 'h2', commitment: true, cadence: 'weekly', days_active: ['monday'] }), // Monday - today is Monday Dec 15
-        makeHabit({ id: 'h3', commitment: true, cadence: 'weekly', days_active: ['wednesday'] }), // Wednesday - not today
+        makeHabit({ id: 'h2', commitment: true, cadence: 'weekly', days_active: [1] }), // Monday - today is Monday Dec 15
+        makeHabit({ id: 'h3', commitment: true, cadence: 'weekly', days_active: [3] }), // Wednesday - not today
       ],
       habitProgress: [],
     });

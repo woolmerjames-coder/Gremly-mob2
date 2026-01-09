@@ -272,9 +272,9 @@ describe('Validation & Save Button State', () => {
       const entryInput = getByTestId('journal-entry');
       fireEvent.changeText(entryInput, 'Today was a good day');
 
-      // Select mood
-      const happyMood = getByTestId('mood-happy');
-      fireEvent.press(happyMood);
+      // Select mood (new mood system uses 'good' instead of 'happy')
+      const goodMood = getByTestId('mood-good');
+      fireEvent.press(goodMood);
 
       // Should enable Save
       const _saveButton = getByTestId('save-to-hub');

@@ -189,7 +189,7 @@ describe('UnifiedEntityCard', () => {
       );
 
       expect(getByText('Test Log')).toBeTruthy();
-      expect(getByText('Log')).toBeTruthy();
+      expect(getByText('Note')).toBeTruthy();
       expect(getByText('›')).toBeTruthy();
       expect(queryByTestId('test-log-checkbox')).toBeNull();
     });

@@ -9,6 +9,7 @@ import { Textarea } from '../../../design-system/Textarea';
 import { Icon } from '../../../design-system/Icon';
 import { RemindersList, type ReminderRow } from './RemindersList';
 import { FormattingToggle, type FormattingType } from './FormattingToggle';
+import { type Mood, ALL_MOODS, MOOD_CONFIG, getMoodsByCategory } from '../../../lib/shared/moods';
 
 // 10-15 inspiring prompts for journal entries
 const JOURNAL_PROMPTS = [
@@ -29,7 +30,10 @@ const JOURNAL_PROMPTS = [
   'What dream am I nurturing?',
 ];
 
-export type MoodType = 'ecstatic' | 'happy' | 'neutral' | 'low' | 'sad' | 'tired';
+// Re-export Mood type for backwards compatibility
+export type { Mood };
+// Legacy type alias for backwards compatibility
+export type MoodType = Mood;
 
 export interface JournalDetailsState {
   reminders?: ReminderRow[];
@@ -43,8 +47,8 @@ interface JournalFieldsProps {
   onDateChange: (value: string) => void;
   entry: string;
   onEntryChange: (value: string) => void;
-  mood: MoodType | null;
-  onMoodChange: (value: MoodType) => void;
+  mood: Mood[] | null; // Multi-select mood array
+  onMoodChange: (value: Mood[]) => void; // Multi-select callback
   details?: JournalDetailsState;
   onDetailsChange?: (details: JournalDetailsState) => void;
   disabled?: boolean;
@@ -92,14 +96,15 @@ export function JournalFields({
     updateDetails({ tags: currentTags.filter((t) => t !== tag) });
   };
 
-  const moodOptions: { value: MoodType; label: string; emoji: string }[] = [
-    { value: 'ecstatic', label: 'Ecstatic', emoji: '🤩' },
-    { value: 'happy', label: 'Happy', emoji: '😊' },
-    { value: 'neutral', label: 'Neutral', emoji: '😐' },
-    { value: 'low', label: 'Low', emoji: '😔' },
-    { value: 'sad', label: 'Sad', emoji: '😢' },
-    { value: 'tired', label: 'Tired', emoji: '😴' },
-  ];
+  // Toggle mood selection (multi-select)
+  const toggleMood = (moodValue: Mood) => {
+    const currentMoods = mood || [];
+    if (currentMoods.includes(moodValue)) {
+      onMoodChange(currentMoods.filter((m) => m !== moodValue));
+    } else {
+      onMoodChange([...currentMoods, moodValue]);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -115,28 +120,31 @@ export function JournalFields({
         />
       </View>
 
-      {/* Required: Mood */}
+      {/* Required: Mood (Multi-select) */}
       <View style={styles.section}>
         <Text style={styles.label}>How are you feeling? *</Text>
         <View style={styles.moodChipsRow}>
-          {moodOptions.map((option) => (
-            <Pressable
-              key={option.value}
-              onPress={() => onMoodChange(option.value)}
-              disabled={disabled}
-              style={[
-                styles.moodChip,
-                mood === option.value && styles.moodChipSelected,
-                disabled && styles.moodChipDisabled,
-              ]}
-              testID={`mood-${option.value}`}
-            >
-              <Text style={styles.moodEmoji}>{option.emoji}</Text>
-              <Text style={[styles.moodLabel, mood === option.value && styles.moodLabelSelected]}>
-                {option.label}
-              </Text>
-            </Pressable>
-          ))}
+          {ALL_MOODS.map((moodValue) => {
+            const config = MOOD_CONFIG[moodValue];
+            const isSelected = mood?.includes(moodValue) ?? false;
+            return (
+              <Pressable
+                key={moodValue}
+                onPress={() => toggleMood(moodValue)}
+                disabled={disabled}
+                style={[
+                  styles.moodChip,
+                  isSelected && styles.moodChipSelected,
+                  disabled && styles.moodChipDisabled,
+                ]}
+                testID={`mood-${moodValue}`}
+              >
+                <Text style={[styles.moodLabel, isSelected && styles.moodLabelSelected]}>
+                  {config.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       </View>
 

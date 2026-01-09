@@ -3,6 +3,8 @@
  * Includes owner_id for multi-user support.
  */
 
+import type { Mood } from './shared/moods';
+
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
 
@@ -71,7 +73,7 @@ export interface Habit {
   cadence?: Cadence; // Defaults to 'daily' in DB
   target_per_period?: number;
   target_per_day?: number;
-  days_active?: string[] | null;
+  days_active?: number[] | null; // Day numbers (0=Sunday, 1=Monday, ... 6=Saturday)
   last_completed_at?: string | null;
   last_checked_in_at?: string | null; // ISO 8601 - when user last reviewed this habit
   period_start_at?: string | null;
@@ -229,7 +231,7 @@ export interface Note {
 
   // Journal-specific fields (Phase 7+) - only used when subtype='journal'
   date?: string | null; // ISO date for journal entry (may differ from created_at)
-  mood?: 'ecstatic' | 'happy' | 'neutral' | 'low' | 'sad' | 'tired' | null;
+  mood?: Mood[] | null; // Multi-select mood array (uses shared/moods.ts)
   reminders?: any[] | null; // ReminderRow[] JSON for journal reminders
   journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only journal classification
   tags_meta?: TagsMeta | null;

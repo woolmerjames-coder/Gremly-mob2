@@ -223,7 +223,7 @@ describe('AllItemsTable', () => {
 
       const { getByText, queryByText } = render(<AllItemsTable onItemPress={jest.fn()} />);
 
-      fireEvent.press(getByText('Logs'));
+      fireEvent.press(getByText('Notes'));
 
       expect(queryByText('Todo 1')).toBeNull();
       expect(getByText('Note 1')).toBeTruthy();
@@ -293,7 +293,7 @@ describe('AllItemsTable', () => {
     it('shows custom frequency for habits with days_active', () => {
       const habit = makeHabit({
         cadence: undefined,
-        days_active: ['monday', 'wednesday', 'friday'],
+        days_active: [1, 3, 5], // Monday, Wednesday, Friday
       });
       setupMockStore({ habits: [habit] });
 

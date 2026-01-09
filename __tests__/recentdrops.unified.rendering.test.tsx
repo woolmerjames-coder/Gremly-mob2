@@ -231,7 +231,7 @@ describe('RecentDrops: Unified type + tag rendering', () => {
     const now = new Date();
 
     // A note with subtype 'catchall' but canonical_type 'log'
-    // Should show "Log" pill (capitalized in current UI)
+    // Should show "Note" pill (capitalized in current UI)
     mockSelectRecentNotes.mockReturnValue([
       {
         id: 'note1',
@@ -252,8 +252,8 @@ describe('RecentDrops: Unified type + tag rendering', () => {
 
     const card = await screen.findByTestId('minddrop-recent-note-note1');
 
-    // Should show "Log" pill (capitalized)
-    expect(within(card).getByText('Log')).toBeTruthy();
+    // Should show "Note" pill (capitalized)
+    expect(within(card).getByText('Note')).toBeTruthy();
 
     // Should NOT show "unsorted" pill
     expect(within(card).queryByText('unsorted')).toBeNull();

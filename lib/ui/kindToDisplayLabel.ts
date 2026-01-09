@@ -4,6 +4,7 @@ import type { CanonicalType } from '../cortex/canonicalMap';
 
 type NoteSubtype = string | null | undefined;
 
+// Display label type: 'note' for logs (UI shows "Note"), others as canonical
 type DisplayLabel = CanonicalType | 'note';
 
 export function kindToDisplayLabel(
@@ -15,5 +16,7 @@ export function kindToDisplayLabel(
     return recordType ?? 'note';
   }
 
-  return persistedToCanonical(recordType, noteSubtype ?? null);
+  const canonical = persistedToCanonical(recordType, noteSubtype ?? null);
+  // Map canonical 'log' to display label 'note' (UI shows "Note" instead of "Log")
+  return canonical === 'log' ? 'note' : canonical;
 }

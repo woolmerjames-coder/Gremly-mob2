@@ -232,7 +232,7 @@ describe('useCalendarItemsForDate', () => {
     it('respects days_active for custom schedules', () => {
       // Dec 22, 2025 is a Monday
       const habit = makeHabit({
-        days_active: ['monday', 'wednesday', 'friday'],
+        days_active: [1, 3, 5], // Monday, Wednesday, Friday
       });
       setupMockStore({ habits: [habit] });
 
@@ -244,7 +244,7 @@ describe('useCalendarItemsForDate', () => {
     it('excludes habits on non-active days', () => {
       // Dec 22, 2025 is a Monday
       const habit = makeHabit({
-        days_active: ['tuesday', 'thursday'],
+        days_active: [2, 4], // Tuesday, Thursday
       });
       setupMockStore({ habits: [habit] });
 

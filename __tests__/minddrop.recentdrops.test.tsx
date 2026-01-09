@@ -214,7 +214,7 @@ describe('RecentDrops in Mind Drop', () => {
     await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n4')).toBeTruthy());
 
     // Badge labels should be present for each kind (capitalized in current UI)
-    expect(screen.getAllByText('Log').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Note').length).toBeGreaterThan(0);
     expect(screen.getByText('Todo')).toBeTruthy();
     expect(screen.getByText('Habit')).toBeTruthy();
   });
@@ -269,9 +269,9 @@ describe('RecentDrops in Mind Drop', () => {
 
       await waitFor(() => expect(screen.getByTestId('minddrop-recent-note-n1')).toBeTruthy());
 
-      // Current UI shows "Log" as the category chip for notes
+      // Current UI shows "Note" as the category chip for notes
       const unsortedCard = screen.getByTestId('minddrop-recent-note-n1');
-      expect(within(unsortedCard).getByText('Log')).toBeTruthy();
+      expect(within(unsortedCard).getByText('Note')).toBeTruthy();
 
       const journalCard = screen.getByTestId('minddrop-recent-note-n2');
       // Journal appears twice: as category chip and context meta

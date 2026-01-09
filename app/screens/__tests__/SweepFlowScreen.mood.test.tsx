@@ -160,7 +160,7 @@ describe.skip('SweepFlowScreen - Mood Step', () => {
     expect(getByText('OKAY')).toBeTruthy();
     expect(getByText('LOW')).toBeTruthy();
     expect(getByText('TIRED')).toBeTruthy();
-    expect(getByText('ROUGH')).toBeTruthy();
+    expect(getByText('ANXIOUS')).toBeTruthy();
   });
 
   it('advances to wrap up step when pressing Continue with mood selected', async () => {
@@ -254,7 +254,7 @@ describe.skip('SweepFlowScreen - Mood Step', () => {
       expect.objectContaining({
         type: 'note',
         subtype: 'journal',
-        mood: 'happy', // 'Good' maps to 'happy'
+        mood: ['good'], // 'Good' maps to ['good'] array
       }),
     );
 

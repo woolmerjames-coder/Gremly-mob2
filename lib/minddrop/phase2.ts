@@ -26,8 +26,10 @@ export interface Phase2Result {
   extractedDate: string | null;
   extractedStartDate: string | null;
   extractedFrequency: string | null;
+  extractedDays: number[] | null; // Array of day numbers (0=Sunday, 1=Monday, ... 6=Saturday)
   people: string[];
   confirmationMessage: string | null;
+  mood: string[] | null; // AI-extracted moods for journal entries
 }
 
 // --- Constants ---
@@ -138,8 +140,10 @@ async function callEnrichAPI(
       extractedDate: json.extracted_date ?? null,
       extractedStartDate: json.extracted_start_date ?? null,
       extractedFrequency: json.extracted_frequency ?? null,
+      extractedDays: Array.isArray(json.extracted_days) ? json.extracted_days : null,
       people: Array.isArray(json.people) ? json.people : [],
       confirmationMessage: json.confirmation_message ?? null,
+      mood: Array.isArray(json.mood) ? json.mood : null,
     };
   } catch (err) {
     clearTimeout(timeout);
@@ -342,6 +346,10 @@ export async function runPhase2(
         if (!entity.body || entity.body === entity.title) {
           updatePayload.body = text;
         }
+        // AI-extracted mood for journal logs
+        if (result.mood && result.mood.length > 0) {
+          updatePayload.mood = result.mood;
+        }
       }
 
       mark('before_final_save');
@@ -373,6 +381,8 @@ export async function runPhase2(
         // Canonical habit frequency fields
         cadence: updatePayload.cadence,
         target_per_period: updatePayload.target_per_period,
+        // AI-extracted mood for journals
+        mood: result.mood ?? null,
       });
       mark('event_emitted');
 
@@ -600,6 +610,21 @@ export async function runPhase2Streaming(
                 updatePayload.cadence = cadence;
                 updatePayload.target_per_period = target_per_period;
               }
+              // Set days_active from extracted_days (e.g., [2, 4] for Tuesdays and Thursdays)
+              // Pass through as integer array - DB column is integer[]
+              if (result.extracted_days && result.extracted_days.length > 0) {
+                updatePayload.days_active = result.extracted_days.filter((d) => d >= 0 && d <= 6);
+                console.log('[Phase2:DaysActive] ✅ Setting days_active from worker:', {
+                  extracted_days: result.extracted_days,
+                  days_active: updatePayload.days_active,
+                  entityId,
+                });
+              } else {
+                console.log('[Phase2:DaysActive] ⚠️ No extracted_days from worker:', {
+                  extracted_days: result.extracted_days,
+                  entityId,
+                });
+              }
               if (result.time_window) {
                 updatePayload.time_window = result.time_window;
               }
@@ -607,6 +632,11 @@ export async function runPhase2Streaming(
               if (result.time_estimate_minutes) {
                 updatePayload.time_estimate_minutes = result.time_estimate_minutes;
               }
+            }
+
+            // AI-extracted mood for journal logs
+            if (bucket === 'log' && result.mood && result.mood.length > 0) {
+              updatePayload.mood = result.mood;
             }
 
             // Extract space pattern if not already assigned
@@ -650,11 +680,14 @@ export async function runPhase2Streaming(
               dueDate: result.extracted_date,
               startDate: result.extracted_start_date,
               frequency: result.extracted_frequency,
+              extracted_days: result.extracted_days ?? null,
               people: result.people ?? [],
               // Canonical habit frequency fields
               cadence: updatePayload.cadence,
               target_per_period: updatePayload.target_per_period,
               space_id: updatePayload.space_id,
+              // AI-extracted mood for journals
+              mood: result.mood ?? null,
             });
 
             resolve(result);

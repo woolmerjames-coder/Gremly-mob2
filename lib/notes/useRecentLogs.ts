@@ -45,7 +45,7 @@ export interface LogItem {
   createdAt: string;
   updatedAt: string;
   tags?: string[];
-  mood?: string;
+  mood?: string[]; // Multi-select mood array
 }
 
 /**

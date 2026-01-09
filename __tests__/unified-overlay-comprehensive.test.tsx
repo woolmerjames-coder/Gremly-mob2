@@ -239,8 +239,8 @@ describe('UnifiedCreateOverlay - Comprehensive Tests', () => {
       fireEvent.changeText(entryInput, 'Today was productive. Finished all the overlay tests.');
 
       // Select mood
-      const happyMood = getByTestId('mood-happy');
-      fireEvent.press(happyMood);
+      const goodMood = getByTestId('mood-good');
+      fireEvent.press(goodMood);
 
       // Save
       const saveButton = getByTestId('save-to-hub');
@@ -252,7 +252,7 @@ describe('UnifiedCreateOverlay - Comprehensive Tests', () => {
             type: 'journal',
             journal_date: expect.any(String),
             body: 'Today was productive. Finished all the overlay tests.',
-            mood: 'happy',
+            mood: ['good'],
           }),
         );
         expect(mockOnSaved).toHaveBeenCalledWith({
@@ -273,10 +273,10 @@ describe('UnifiedCreateOverlay - Comprehensive Tests', () => {
         />,
       );
 
-      // All mood buttons should be present
-      expect(getByTestId('mood-happy')).toBeTruthy();
-      expect(getByTestId('mood-sad')).toBeTruthy();
-      expect(getByTestId('mood-angry')).toBeTruthy();
+      // All mood buttons should be present (new mood system)
+      expect(getByTestId('mood-good')).toBeTruthy();
+      expect(getByTestId('mood-low')).toBeTruthy();
+      expect(getByTestId('mood-tired')).toBeTruthy();
       expect(getByTestId('mood-anxious')).toBeTruthy();
       expect(getByTestId('mood-calm')).toBeTruthy();
     });

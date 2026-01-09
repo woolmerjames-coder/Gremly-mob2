@@ -146,6 +146,7 @@ import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
 import { VoicePulse } from '../../components/VoicePulse';
 import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
+import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -799,6 +800,8 @@ type UnifiedDrop = {
   hasPhotos?: boolean; // True if note has photo attachments
   time_estimate_minutes?: number | null; // Time estimate for todos from Phase 2 enrichment
   start_date?: string | null; // ISO date string for habit start date
+  days_active?: number[] | null; // Day numbers (0=Sunday, 1=Monday, etc.) for habit scheduling
+  mood?: Mood[] | null; // Multi-select moods for journal entries
 };
 
 /**
@@ -1091,7 +1094,7 @@ const PendingSkeleton: React.FC<{
         </Animated.Text>
         <View style={styles.recentTopRight}>
           <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Log'}
+            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
           </Text>
         </View>
       </View>
@@ -1243,7 +1246,7 @@ const EnrichingSkeleton: React.FC<{
         </Animated.Text>
         <View style={styles.recentTopRight}>
           <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Log'}
+            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
           </Text>
         </View>
       </View>
@@ -1538,7 +1541,12 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
     return 'no deadline yet';
   }
   if (kind === 'habit') {
-    // Use centralized frequency display label (SINGLE SOURCE OF TRUTH)
+    // Show specific days if days_active is set (e.g., "Mon · Fri")
+    if (item.days_active && item.days_active.length > 0) {
+      const DAY_ABBREVS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return item.days_active.map((d) => DAY_ABBREVS[d]).join(' · ');
+    }
+    // Fall back to frequency display label (e.g., "2x/week")
     return getFrequencyDisplayLabel(item.cadence, item.target_per_period, item.frequency);
   }
   // Notes/Logs - show the subtype
@@ -1547,7 +1555,7 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
   if (subtype === 'idea') return 'Idea';
   if (subtype === 'list') return 'List';
   if (subtype === 'reference') return 'Reference';
-  return 'General';
+  return 'General Note';
 }
 
 /**
@@ -1558,8 +1566,8 @@ function getDisplayKindForChip(kind: 'note' | 'todo' | 'habit', _item: UnifiedDr
   if (kind === 'todo') return 'Todo';
   if (kind === 'habit') return 'Habit';
 
-  // For notes, always show "Log" as the parent category
-  return 'Log';
+  // For notes, always show "Note" as the parent category
+  return 'Note';
 }
 
 /**
@@ -1721,6 +1729,73 @@ const AnimatedMindDropCard: React.FC<{
             // Add testID for todos to support due date badge tests
             const contextTestId =
               effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
+            // For journal entries, show plain text label instead of pill
+            const isJournal =
+              item.kind === 'note' &&
+              (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
+            const hasMoods = isJournal && item.mood && item.mood.length > 0;
+
+            // For idea entries, show plain text label only
+            const isIdea =
+              item.kind === 'note' &&
+              (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
+
+            if (isJournal && contextMeta) {
+              return (
+                <View style={styles.journalMetaRow}>
+                  <View style={styles.moodChip}>
+                    <Text style={styles.moodChipText}>{contextMeta}</Text>
+                  </View>
+                  {hasMoods && (
+                    <>
+                      {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
+                        <React.Fragment key={m}>
+                          {idx === 0 && <Text style={styles.journalSeparator}> </Text>}
+                          <Text style={styles.journalSubtypeLabel}>{MOOD_CONFIG[m]?.label}</Text>
+                          {idx < Math.min(item.mood!.length, 2) - 1 && (
+                            <Text style={styles.journalSeparator}>·</Text>
+                          )}
+                        </React.Fragment>
+                      ))}
+                      {item.mood!.length > 2 && (
+                        <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
+                      )}
+                    </>
+                  )}
+                </View>
+              );
+            }
+
+            if (isIdea && contextMeta) {
+              return (
+                <View style={styles.journalMetaRow}>
+                  <View style={styles.moodChip}>
+                    <Text style={styles.moodChipText}>{contextMeta}</Text>
+                  </View>
+                </View>
+              );
+            }
+
+            // For general notes, show plain text label only
+            const isGeneralNote =
+              item.kind === 'note' &&
+              !isJournal &&
+              !isIdea &&
+              (item.noteSubtype === 'catchall' ||
+                item.noteSubtype === 'general' ||
+                item.canonical_type === 'log' ||
+                !item.noteSubtype);
+
+            if (isGeneralNote && contextMeta) {
+              return (
+                <View style={styles.journalMetaRow}>
+                  <View style={styles.moodChip}>
+                    <Text style={styles.moodChipText}>{contextMeta}</Text>
+                  </View>
+                </View>
+              );
+            }
+
             return contextMeta ? (
               <Text testID={contextTestId} style={styles.recentContextPill}>
                 {contextMeta}
@@ -1765,6 +1840,7 @@ const AnimatedMindDropCard: React.FC<{
                 </Text>
               </View>
             )}
+          {/* Mood chips now rendered inline with Journal label above */}
         </View>
         {/* Right side: photo icon + timestamp */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -1928,6 +2004,7 @@ const RecentDrops: React.FC<{
           due_time: record.due_time ?? null,
           noteSubtype: kind === 'note' ? (record.subtype ?? 'catchall') : undefined,
           canonical_type: record.canonical_type ?? null,
+          days_active: Array.isArray(record.days_active) ? record.days_active : null,
         };
         return [newItem, ...prev];
       }
@@ -1971,6 +2048,9 @@ const RecentDrops: React.FC<{
               ? ((record as any).subtype ?? item.noteSubtype ?? 'catchall')
               : item.noteSubtype,
           canonical_type: (record as any).canonical_type ?? item.canonical_type ?? null,
+          days_active: Array.isArray((record as any).days_active)
+            ? (record as any).days_active
+            : (item.days_active ?? null),
         };
       });
     },
@@ -2172,6 +2252,7 @@ const RecentDrops: React.FC<{
             labels: Array.isArray(noteAny?.labels) ? noteAny.labels : [],
             views: noteAny?.views ?? {},
             hasPhotos: noteAny?.views?.has_photos === true,
+            mood: noteAny?.mood ?? null,
           };
         });
 
@@ -2240,6 +2321,7 @@ const RecentDrops: React.FC<{
             labels: Array.isArray((h as any)?.labels) ? (h as any).labels : [],
             views: (h as any)?.views ?? {},
             start_date: (h as any)?.start_date ?? null,
+            days_active: (h as any)?.days_active ?? null,
           };
         });
 
@@ -2496,6 +2578,7 @@ const RecentDrops: React.FC<{
               tags: Array.isArray(record.tags) ? record.tags : [],
               views: record.views ?? {},
               labels: Array.isArray(record.labels) ? record.labels : [],
+              days_active: Array.isArray(record.days_active) ? record.days_active : null,
             };
 
             // Atomic replacement - no jolt
@@ -2544,6 +2627,7 @@ const RecentDrops: React.FC<{
               noteSubtype: record.subtype ?? 'catchall',
               archived: record.archived ?? false,
               hasPhotos: record.views?.has_photos === true,
+              mood: record.mood ?? null,
             };
 
             // Atomic replacement - no jolt
@@ -2607,6 +2691,7 @@ const RecentDrops: React.FC<{
             due_day: entity.due_day ?? null,
             due_time: entity.due_time ?? null,
             noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
+            mood: entityType === 'note' ? (entity.mood ?? null) : undefined,
           };
 
           replacePendingWithReal(dropId, realItem);
@@ -2633,9 +2718,13 @@ const RecentDrops: React.FC<{
             ...(payload.target_per_period !== undefined && {
               target_per_period: payload.target_per_period,
             }),
+            // Days active from extracted_days (for habit day-specific scheduling)
+            ...(payload.extracted_days !== undefined && { days_active: payload.extracted_days }),
             hasPhotos: payload.hasPhotos ?? item.hasPhotos,
             time_estimate_minutes: payload.timeEstimate ?? item.time_estimate_minutes,
             start_date: payload.startDate ?? item.start_date,
+            // Mood for journal entries (multi-select array)
+            ...(payload.mood !== undefined && { mood: payload.mood as Mood[] | null }),
             views: {
               ...item.views,
               minddrop_stage: 'enriched',
@@ -7046,6 +7135,51 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     timeEstimateText: {
       fontSize: 10,
       color: '#666',
+      fontFamily: 'Inter-Medium',
+    },
+    // Journal subtype display - plain text label with separator and mood chips
+    journalMetaRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 4,
+    },
+    journalSubtypeLabel: {
+      fontSize: 10,
+      color: c.mutedText,
+      fontFamily: 'Inter-Medium',
+    },
+    journalSeparator: {
+      fontSize: 10,
+      color: c.mutedText,
+      fontFamily: 'Inter-Medium',
+      marginHorizontal: 2,
+    },
+    // Mood chips for journal cards
+    moodChipsRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 4,
+    },
+    moodChip: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      backgroundColor: 'rgba(230, 240, 235, 0.6)',
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderRadius: 4,
+      gap: 2,
+    },
+    moodChipEmoji: {
+      fontSize: 10,
+    },
+    moodChipText: {
+      fontSize: 10,
+      color: '#666',
+      fontFamily: 'Inter-Medium',
+    },
+    moodOverflow: {
+      fontSize: 10,
+      color: '#888',
       fontFamily: 'Inter-Medium',
     },
     // Time ago in metadata row - same as recentMetaDue for consistency

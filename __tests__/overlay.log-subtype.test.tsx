@@ -127,10 +127,10 @@ describe('UnifiedCreateOverlay – Canonical Logs', () => {
     }
   });
 
-  it('shows "Log" pill label when canonical types are enabled', () => {
+  it('shows "Note" pill label when canonical types are enabled', () => {
     const { getByTestId } = renderOverlay();
     const logChip = getByTestId('type-pill-log');
-    expect(within(logChip).getByText('Log')).toBeTruthy();
+    expect(within(logChip).getByText('Note')).toBeTruthy();
   });
 
   it.each([

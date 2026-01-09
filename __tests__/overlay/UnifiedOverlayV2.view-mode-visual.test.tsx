@@ -274,7 +274,7 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
       );
 
       // Type selector should be visible and interactable in create mode
-      expect(getByText('Log')).toBeTruthy();
+      expect(getByText('Note')).toBeTruthy();
       expect(getByText('To-Do')).toBeTruthy();
       expect(getByText('Habit')).toBeTruthy();
     });

@@ -1178,7 +1178,7 @@ export function SweepCard({
                     ? 'Todo'
                     : candidate.kind === 'habit'
                       ? 'Habit'
-                      : 'Log'}
+                      : 'Note'}
                 </Animated.Text>
 
                 {/* Status chip based on actual candidate type */}
@@ -1194,8 +1194,7 @@ export function SweepCard({
                       {meta.todoStatus ? getTodoStatusLabel(meta.todoStatus) : 'Unscheduled'}
                     </Text>
                   </>
-                ) : candidate.kind === 'habit' ? // Habits don't need a status chip here
-                null : (
+                ) : candidate.kind === 'habit' ? null : ( // Habits don't need a status chip here
                   // Notes/Logs - show subtype if available
                   meta.logSubtype && (
                     <>

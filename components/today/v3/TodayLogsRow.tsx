@@ -1,9 +1,9 @@
 /**
- * TodayLogsRow - Full-width tappable card showing today's log count
+ * TodayLogsRow - Full-width tappable card showing today's note count
  *
  * Design:
  * - Subtle pill/card background (sage mist / off-white)
- * - Left: logs icon + "Logs" label + count
+ * - Left: notes icon + "Notes" label + count
  * - Right: chevron disclosure indicator
  */
 

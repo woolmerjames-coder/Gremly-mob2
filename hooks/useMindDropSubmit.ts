@@ -323,6 +323,7 @@ export function useMindDropSubmit(): {
             drop_id: dropId,
             origin: context.source === 'space' ? 'space_chat' : 'catchall',
             start_date: context.source === 'today' ? today : null,
+            days_active: null, // Will be set by Phase 2 if user specifies days like "Tuesdays and Thursdays"
             views: {
               minddrop_stage: 'classified',
               ai_pending: true,
