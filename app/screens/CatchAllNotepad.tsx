@@ -2009,6 +2009,10 @@ const RecentDrops: React.FC<{
           noteSubtype: kind === 'note' ? (record.subtype ?? 'catchall') : undefined,
           canonical_type: record.canonical_type ?? null,
           days_active: Array.isArray(record.days_active) ? record.days_active : null,
+          // Multi-entity support: extract from views to top level
+          is_multi: record.views?.is_multi === true,
+          multi_items: record.views?.multi_items ?? undefined,
+          multi_summary_title: record.views?.multi_summary_title ?? undefined,
         };
         return [newItem, ...prev];
       }
@@ -2055,6 +2059,10 @@ const RecentDrops: React.FC<{
           days_active: Array.isArray((record as any).days_active)
             ? (record as any).days_active
             : (item.days_active ?? null),
+          // Multi-entity support: extract from views to top level
+          is_multi: views?.is_multi === true,
+          multi_items: views?.multi_items ?? item.multi_items ?? undefined,
+          multi_summary_title: views?.multi_summary_title ?? item.multi_summary_title ?? undefined,
         };
       });
     },
@@ -2257,6 +2265,10 @@ const RecentDrops: React.FC<{
             views: noteAny?.views ?? {},
             hasPhotos: noteAny?.views?.has_photos === true,
             mood: noteAny?.mood ?? null,
+            // Multi-entity support: extract from views to top level
+            is_multi: noteAny?.views?.is_multi === true,
+            multi_items: noteAny?.views?.multi_items ?? undefined,
+            multi_summary_title: noteAny?.views?.multi_summary_title ?? undefined,
           };
         });
 
