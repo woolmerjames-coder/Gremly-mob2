@@ -27,20 +27,46 @@ export function JournalPreview({ journals, count, onViewAll }: JournalPreviewPro
     );
   }
 
-  const getMoodIcon = (mood?: string | null) => {
-    switch (mood) {
+  const getMoodIcon = (mood?: string | string[] | null) => {
+    // Handle array (new format) - show first mood's icon
+    const moodValue = Array.isArray(mood) ? mood[0] : mood;
+    switch (moodValue) {
+      case 'great':
+        return '🤩';
+      case 'good':
+        return '😊';
+      case 'okay':
+        return '😐';
+      case 'low':
+        return '😔';
+      case 'tired':
+        return '😴';
+      // Legacy values
       case 'ecstatic':
         return '🤩';
       case 'happy':
         return '😊';
       case 'neutral':
         return '😐';
-      case 'low':
-        return '😔';
       case 'sad':
         return '😢';
-      case 'tired':
-        return '😴';
+      // Emotion moods
+      case 'anxious':
+        return '😰';
+      case 'overwhelmed':
+        return '🤯';
+      case 'frustrated':
+        return '😤';
+      case 'scattered':
+        return '🌀';
+      case 'grateful':
+        return '🙏';
+      case 'hopeful':
+        return '✨';
+      case 'focused':
+        return '🎯';
+      case 'calm':
+        return '😌';
       default:
         return '📖';
     }

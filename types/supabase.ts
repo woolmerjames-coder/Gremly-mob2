@@ -537,7 +537,7 @@ export type Database = {
           journal_subtype: string | null;
           labels: Json | null;
           list_items: Json | null;
-          mood: string | null;
+          mood: string[] | null;
           origin: string | null;
           owner_id: string;
           reminders_json: Json | null;
@@ -569,7 +569,7 @@ export type Database = {
           journal_subtype?: string | null;
           labels?: Json | null;
           list_items?: Json | null;
-          mood?: string | null;
+          mood?: string[] | null;
           origin?: string | null;
           owner_id: string;
           reminders_json?: Json | null;
@@ -601,7 +601,7 @@ export type Database = {
           journal_subtype?: string | null;
           labels?: Json | null;
           list_items?: Json | null;
-          mood?: string | null;
+          mood?: string[] | null;
           origin?: string | null;
           owner_id?: string;
           reminders_json?: Json | null;

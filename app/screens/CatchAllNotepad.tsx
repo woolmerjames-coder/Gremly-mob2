@@ -146,6 +146,7 @@ import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
 import { VoicePulse } from '../../components/VoicePulse';
 import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
+import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -800,6 +801,7 @@ type UnifiedDrop = {
   time_estimate_minutes?: number | null; // Time estimate for todos from Phase 2 enrichment
   start_date?: string | null; // ISO date string for habit start date
   days_active?: number[] | null; // Day numbers (0=Sunday, 1=Monday, etc.) for habit scheduling
+  mood?: Mood[] | null; // Multi-select moods for journal entries
 };
 
 /**
@@ -1727,6 +1729,32 @@ const AnimatedMindDropCard: React.FC<{
             // Add testID for todos to support due date badge tests
             const contextTestId =
               effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
+            // For journal entries, show plain text label instead of pill
+            const isJournal =
+              item.kind === 'note' &&
+              (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
+            const hasMoods = isJournal && item.mood && item.mood.length > 0;
+
+            if (isJournal && contextMeta) {
+              return (
+                <View style={styles.journalMetaRow}>
+                  <Text style={styles.journalSubtypeLabel}>{contextMeta}</Text>
+                  {hasMoods && (
+                    <>
+                      <Text style={styles.journalSeparator}>·</Text>
+                      {item.mood!.slice(0, 2).map((m: Mood) => (
+                        <View key={m} style={styles.moodChip}>
+                          <Text style={styles.moodChipText}>{MOOD_CONFIG[m]?.label}</Text>
+                        </View>
+                      ))}
+                      {item.mood!.length > 2 && (
+                        <Text style={styles.moodOverflow}>+{item.mood!.length - 2}</Text>
+                      )}
+                    </>
+                  )}
+                </View>
+              );
+            }
             return contextMeta ? (
               <Text testID={contextTestId} style={styles.recentContextPill}>
                 {contextMeta}
@@ -1771,6 +1799,7 @@ const AnimatedMindDropCard: React.FC<{
                 </Text>
               </View>
             )}
+          {/* Mood chips now rendered inline with Journal label above */}
         </View>
         {/* Right side: photo icon + timestamp */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -2650,6 +2679,8 @@ const RecentDrops: React.FC<{
             hasPhotos: payload.hasPhotos ?? item.hasPhotos,
             time_estimate_minutes: payload.timeEstimate ?? item.time_estimate_minutes,
             start_date: payload.startDate ?? item.start_date,
+            // Mood for journal entries (multi-select array)
+            ...(payload.mood !== undefined && { mood: payload.mood as Mood[] | null }),
             views: {
               ...item.views,
               minddrop_stage: 'enriched',
@@ -7060,6 +7091,51 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     timeEstimateText: {
       fontSize: 10,
       color: '#666',
+      fontFamily: 'Inter-Medium',
+    },
+    // Journal subtype display - plain text label with separator and mood chips
+    journalMetaRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 4,
+    },
+    journalSubtypeLabel: {
+      fontSize: 10,
+      color: c.mutedText,
+      fontFamily: 'Inter-Medium',
+    },
+    journalSeparator: {
+      fontSize: 10,
+      color: c.mutedText,
+      fontFamily: 'Inter-Medium',
+      marginHorizontal: 2,
+    },
+    // Mood chips for journal cards
+    moodChipsRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 4,
+    },
+    moodChip: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      backgroundColor: 'rgba(230, 240, 235, 0.6)',
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderRadius: 4,
+      gap: 2,
+    },
+    moodChipEmoji: {
+      fontSize: 10,
+    },
+    moodChipText: {
+      fontSize: 10,
+      color: '#666',
+      fontFamily: 'Inter-Medium',
+    },
+    moodOverflow: {
+      fontSize: 10,
+      color: '#888',
       fontFamily: 'Inter-Medium',
     },
     // Time ago in metadata row - same as recentMetaDue for consistency

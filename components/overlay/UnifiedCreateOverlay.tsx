@@ -915,7 +915,12 @@ export function UnifiedCreateOverlay({
               const formData = mapJournalToForm(entity);
               setJournalDate(formData.date);
               setJournalEntry(formData.entry);
-              setJournalMood(formData.mood);
+              // Handle both legacy single mood and new array format
+              const moodValue = Array.isArray(formData.mood)
+                ? ((formData.mood[0] as import('./fields/JournalFields').MoodType | undefined) ??
+                  null)
+                : formData.mood;
+              setJournalMood(moodValue);
               setJournalDetails(formData.details);
               setSelectedType('log');
               setSelectedLogSubtype('journal');
@@ -2405,6 +2410,16 @@ export function UnifiedCreateOverlay({
       }
       case 'note': {
         if (type === 'log' && logSubtype === 'journal') {
+          // Map legacy mood to new Mood type
+          const moodMapping: Record<string, string> = {
+            ecstatic: 'great',
+            happy: 'good',
+            neutral: 'okay',
+            sad: 'low',
+            low: 'low',
+            tired: 'tired',
+          };
+          const mappedMood = journalMood ? (moodMapping[journalMood] ?? journalMood) : null;
           return {
             ...baseInput,
             type: 'note',
@@ -2412,7 +2427,7 @@ export function UnifiedCreateOverlay({
             title: journalEntry.trim() || 'Journal entry',
             body: journalEntry,
             date: journalDate || null,
-            mood: journalMood || null,
+            mood: mappedMood ? ([mappedMood] as any) : null, // Convert single to array for new format
             fmt: journalDetails.formatting || null,
             reminders: journalDetails.reminders || undefined,
             tags: tagsForCreate,
@@ -2911,8 +2926,8 @@ export function UnifiedCreateOverlay({
                         onDateChange={setJournalDate}
                         entry={journalEntry}
                         onEntryChange={setJournalEntry}
-                        mood={journalMood}
-                        onMoodChange={setJournalMood}
+                        mood={journalMood ? [journalMood] : null}
+                        onMoodChange={(moods) => setJournalMood(moods[0] ?? null)}
                         details={journalDetails}
                         onDetailsChange={setJournalDetails}
                         disabled={false}

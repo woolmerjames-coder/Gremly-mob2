@@ -32,7 +32,7 @@ export interface FormTodo {
 export interface FormJournal {
   date: string;
   entry: string;
-  mood: MoodType | null;
+  mood: MoodType | MoodType[] | string[] | null; // Support legacy single, legacy array, and new Mood array
   details: JournalDetailsState;
 }
 
@@ -128,7 +128,7 @@ export function mapJournalToForm(j: Note | AppRecord): FormJournal {
     date:
       journal.date || journal.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
     entry: journal.body || '',
-    mood: (journal.mood as MoodType) || null,
+    mood: journal.mood ?? null, // Now supports array or legacy single value
     details: {
       formatting: journal.fmt || null,
       reminders: journal.reminders || [],

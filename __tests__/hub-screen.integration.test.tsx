@@ -696,7 +696,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
         date: '2025-12-14T10:00:00.000Z',
         created_at: '2025-12-14T10:00:00.000Z',
         body: 'Had a great day today!',
-        mood: 'happy',
+        mood: ['good'],
         ai_placed: false,
       },
       {

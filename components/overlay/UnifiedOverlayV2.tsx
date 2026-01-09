@@ -98,6 +98,14 @@ import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { getEffectiveTags } from '../../lib/tags/getEffectiveTags';
 import { getEffectiveLogSubtype } from '../../lib/logs/getEffectiveLogSubtype';
+import {
+  ALL_MOODS,
+  MOOD_CONFIG,
+  getMoodsByCategory,
+  isValidMood,
+  migrateLegacyMood,
+  type Mood,
+} from '../../lib/shared/moods';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
@@ -133,20 +141,6 @@ import {
 } from '../../lib/lists';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
-
-// Mood options matching Sweep
-const MOOD_OPTIONS = [
-  'great',
-  'good',
-  'okay',
-  'low',
-  'tired',
-  'anxious',
-  'grateful',
-  'scattered',
-  'hopeful',
-  'rough',
-] as const;
 
 /**
  * Constructs frequency_json from DB columns for the overlay's FrequencyConfig format.
@@ -1488,8 +1482,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     initialLogPhotosHydratedRef.current = true;
   }, [baseType, mode, initialLogPhotoUris]);
 
-  // Mood selector for journal logs (Phase L4)
-  const [mood, setMood] = useState<(typeof MOOD_OPTIONS)[number] | null>(null);
+  // Mood selector for journal logs (Phase L4) - now multi-select
+  const [moods, setMoods] = useState<Mood[]>([]);
 
   // focus states for accessibility focus rings
   const [bodyFocused, setBodyFocused] = useState(false);
@@ -1582,7 +1576,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setPhotoUri(null);
       setLogPhotos([]);
       setSelectedPhotoIndex(null);
-      setMood(null);
+      setMoods([]);
       setMoodPickerExpanded(false);
 
       // Reset refs
@@ -2556,13 +2550,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     });
     dispatch({ type: 'HYDRATE_EDIT', payload } as any);
 
-    // Hydrate mood for journal logs (Phase L4)
+    // Hydrate mood for journal logs (Phase L4) - now multi-select
     const entity = entityToUse as any;
-    if (
-      entity?.mood &&
-      (entity.mood === 'happy' || entity.mood === 'neutral' || entity.mood === 'sad')
-    ) {
-      setMood(entity.mood);
+    if (entity?.mood) {
+      // Handle both array (new format) and single string (legacy)
+      if (Array.isArray(entity.mood)) {
+        const validMoods = entity.mood.filter(isValidMood);
+        setMoods(validMoods);
+      } else if (typeof entity.mood === 'string') {
+        // Migrate legacy single mood to array
+        const migrated = migrateLegacyMood(entity.mood);
+        setMoods(migrated ? [migrated] : []);
+      }
     }
 
     // Hydrate photo for logs (Phase L3)
@@ -3352,7 +3351,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     spaceId: string | null,
     existingEntity?: any,
     photoUri?: string | null, // Phase L3: Photo support
-    mood?: (typeof MOOD_OPTIONS)[number] | null, // Phase L4: Mood for journals
+    moodsParam?: Mood[], // Phase L4: Multi-select moods for journals
     effectiveLogSubtype?: 'journal' | 'idea' | 'general' | 'list', // Phase L8: Manual log subtype
   ) {
     const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
@@ -3685,8 +3684,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         existing: initialEntity,
       });
 
-      // Mood support for journal logs (Phase L4)
-      const moodPatch = s.log.kind === 'journal' && mood ? { mood } : {};
+      // Mood support for journal logs (Phase L4) - now multi-select array
+      const moodPatch =
+        s.log.kind === 'journal' && moodsParam && moodsParam.length > 0 ? { mood: moodsParam } : {};
 
       // fmt: list tag overrides explicit format
       // Only use valid fmt values: 'bullets', 'numbers', 'checkboxes'
@@ -3788,8 +3788,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       ...tagsPayload, // Conditionally include tags/tags_meta
     } as any;
 
-    // Mood support for journal logs (Phase L4)
-    const moodPatch2 = s.log.kind === 'journal' && mood ? { mood } : {};
+    // Mood support for journal logs (Phase L4) - now multi-select array
+    const moodPatch2 =
+      s.log.kind === 'journal' && moodsParam && moodsParam.length > 0 ? { mood: moodsParam } : {};
 
     // fmt: list tag overrides explicit format
     // Only use valid fmt values: 'bullets', 'numbers', 'checkboxes'
@@ -3853,7 +3854,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         initialSpaceId ?? null,
         fullEntity,
         photoUri, // Phase L3: Pass photo URI
-        mood, // Phase L4: Pass mood for journals
+        moods, // Phase L4: Pass multi-select moods for journals
         effectiveLogSubtype, // Phase L8: Pass effective log subtype
       );
 
@@ -4363,7 +4364,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     headerPulse,
     reminders,
     photoUri, // Phase L3: Photo dependency
-    mood, // Phase L4: Mood dependency
+    moods, // Phase L4: Multi-select moods dependency
     conversionMeta, // Sweep conversion: capture sourceNoteId for archival
   ]);
 
@@ -4695,7 +4696,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         )}
 
         {/* Mood display (for journal logs) */}
-        {isJournal && mood && (
+        {isJournal && moods.length > 0 && (
           <View
             style={{
               flexDirection: 'row',
@@ -4713,7 +4714,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               Mood:
             </Text>
             <Text style={{ fontSize: 14, color: colorMode === 'dark' ? '#fff' : '#2E5540' }}>
-              {mood ? mood.charAt(0).toUpperCase() + mood.slice(1) : 'None'}
+              {moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')}
             </Text>
           </View>
         )}
@@ -5513,8 +5514,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 {/* Mood picker - collapsed/expanded states */}
                                 {!moodPickerExpanded ? (
                                   // Collapsed state
-                                  mood ? (
-                                    // Mood is set - show as chip with clear button
+                                  moods.length > 0 ? (
+                                    // Moods are set - show as chips with clear button
                                     <Pressable
                                       onPress={() => !isViewMode && setMoodPickerExpanded(true)}
                                       style={[
@@ -5527,7 +5528,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         },
                                       ]}
                                       accessibilityRole="button"
-                                      accessibilityLabel={`Mood: ${mood}. Tap to change`}
+                                      accessibilityLabel={`Moods: ${moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')}. Tap to change`}
                                     >
                                       <Text
                                         style={[
@@ -5535,17 +5536,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           { color: colorMode === 'dark' ? '#fff' : '#2E5540' },
                                         ]}
                                       >
-                                        {mood.charAt(0).toUpperCase() + mood.slice(1)}
+                                        {moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')}
                                       </Text>
                                       {!isViewMode && (
                                         <Pressable
                                           onPress={(e) => {
                                             e.stopPropagation();
-                                            setMood(null);
+                                            setMoods([]);
                                             setMoodPickerExpanded(false);
                                           }}
                                           hitSlop={8}
-                                          accessibilityLabel="Clear mood"
+                                          accessibilityLabel="Clear moods"
                                         >
                                           <CloseIcon
                                             size={14}
@@ -5598,42 +5599,75 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     )
                                   )
                                 ) : (
-                                  // Expanded state - show all mood options
+                                  // Expanded state - show all mood options in a single wrapped group
                                   <View style={styles.moodPickerExpanded}>
-                                    {MOOD_OPTIONS.map((moodOption) => (
-                                      <Pressable
-                                        key={moodOption}
-                                        onPress={() => {
-                                          setMood(moodOption as any);
-                                          setMoodPickerExpanded(false);
-                                        }}
+                                    <View style={styles.moodOptionsRow}>
+                                      {ALL_MOODS.map((moodValue) => {
+                                        const moodConfig = MOOD_CONFIG[moodValue];
+                                        const isSelected = moods.includes(moodValue);
+                                        return (
+                                          <Pressable
+                                            key={moodValue}
+                                            onPress={() => {
+                                              // Toggle mood selection
+                                              if (isSelected) {
+                                                setMoods(moods.filter((m) => m !== moodValue));
+                                              } else {
+                                                setMoods([...moods, moodValue]);
+                                              }
+                                            }}
+                                            style={[
+                                              styles.moodOptionChip,
+                                              isSelected && styles.moodOptionChipActive,
+                                              {
+                                                backgroundColor: isSelected
+                                                  ? colorMode === 'dark'
+                                                    ? 'rgba(255,255,255,0.2)'
+                                                    : '#D4E8DA'
+                                                  : colorMode === 'dark'
+                                                    ? 'rgba(255,255,255,0.08)'
+                                                    : '#F0F4F2',
+                                              },
+                                            ]}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`${isSelected ? 'Remove' : 'Add'} ${moodConfig.label} mood`}
+                                          >
+                                            <Text
+                                              style={[
+                                                styles.moodOptionText,
+                                                {
+                                                  color: colorMode === 'dark' ? '#fff' : '#2E5540',
+                                                },
+                                              ]}
+                                            >
+                                              {moodConfig.label}
+                                            </Text>
+                                          </Pressable>
+                                        );
+                                      })}
+                                    </View>
+                                    {/* Done button to collapse */}
+                                    <Pressable
+                                      onPress={() => setMoodPickerExpanded(false)}
+                                      style={[
+                                        styles.moodDoneButton,
+                                        {
+                                          backgroundColor:
+                                            colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.1)'
+                                              : '#E8F0EB',
+                                        },
+                                      ]}
+                                    >
+                                      <Text
                                         style={[
-                                          styles.moodOptionChip,
-                                          mood === moodOption && styles.moodOptionChipActive,
-                                          {
-                                            backgroundColor:
-                                              mood === moodOption
-                                                ? colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.2)'
-                                                  : '#D4E8DA'
-                                                : colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.08)'
-                                                  : '#F0F4F2',
-                                          },
+                                          styles.moodDoneButtonText,
+                                          { color: colorMode === 'dark' ? '#fff' : '#2E5540' },
                                         ]}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Set mood to ${moodOption}`}
                                       >
-                                        <Text
-                                          style={[
-                                            styles.moodOptionText,
-                                            { color: colorMode === 'dark' ? '#fff' : '#2E5540' },
-                                          ]}
-                                        >
-                                          {moodOption.charAt(0).toUpperCase() + moodOption.slice(1)}
-                                        </Text>
-                                      </Pressable>
-                                    ))}
+                                        Done
+                                      </Text>
+                                    </Pressable>
                                   </View>
                                 )}
                               </View>
@@ -5907,17 +5941,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         style={styles.dueDateIcon}
                                       />
                                       <Text style={styles.dueDateText}>
-                                        {(() => {
-                                          const raw = state.habit.frequency_json;
-                                          const converted = jsonToFrequency(raw);
-                                          const label = getFrequencyLabel(converted);
-                                          console.log('[FrequencyDebug] 🔍', {
-                                            raw,
-                                            converted,
-                                            label,
-                                          });
-                                          return label;
-                                        })()}
+                                        {getFrequencyLabel(
+                                          jsonToFrequency(state.habit.frequency_json),
+                                        )}
                                       </Text>
                                     </Pressable>
                                   </View>
@@ -9444,11 +9470,24 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
   },
   moodPickerExpanded: {
+    flexDirection: 'column',
+    gap: 12,
+    flex: 1,
+  },
+  moodCategoryRow: {
+    flexDirection: 'column',
+    gap: 6,
+  },
+  moodCategoryLabel: {
+    fontSize: 11,
+    fontFamily: 'Inter-Medium',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  moodOptionsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    flex: 1,
-    justifyContent: 'flex-end',
   },
   moodOptionChip: {
     paddingHorizontal: 12,
@@ -9461,6 +9500,17 @@ const styles = StyleSheet.create({
   moodOptionText: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
+  },
+  moodDoneButton: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginTop: 4,
+  },
+  moodDoneButtonText: {
+    fontSize: 13,
+    fontFamily: 'Inter-SemiBold',
   },
   // Legacy mood pill styles (Phase L2, deprecated in L4)
   moodPill: {

@@ -51,7 +51,7 @@ function noteToLogItem(note: Note): LogItem {
     createdAt: note.created_at || '',
     updatedAt: note.updated_at || '',
     tags: note.tags ?? undefined,
-    mood: note.mood ?? undefined,
+    mood: note.mood ?? undefined, // Now typed as string[] | undefined
   };
 }
 

@@ -299,7 +299,7 @@ export interface JournalEntry {
   date: string; // ISO string or date field
   created_at: string;
   body?: string | null;
-  mood?: string | null;
+  mood?: string[] | null; // Multi-select mood array
 }
 
 export interface JournalMonthGroup {

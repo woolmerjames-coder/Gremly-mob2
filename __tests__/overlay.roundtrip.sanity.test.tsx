@@ -296,7 +296,7 @@ describe('Overlay Round-Trip Sanity', () => {
         body: 'Today was a good day',
         subtype: 'journal',
         date: '2025-11-30',
-        mood: 'neutral',
+        mood: ['okay'],
         private: false,
         journal_subtype: null,
         tags: [],
@@ -316,7 +316,7 @@ describe('Overlay Round-Trip Sanity', () => {
       const updatedFields = {
         title: 'Updated Journal Entry',
         body: 'Reflecting on my progress this week',
-        mood: 'happy',
+        mood: ['good'],
         private: true,
         journal_subtype: 'reflection',
         tags: ['#gratitude', '#personal'],
@@ -340,7 +340,7 @@ describe('Overlay Round-Trip Sanity', () => {
       const noteAfter = reopenedNote as any;
       assertField('Note', 'title', 'Updated Journal Entry', noteAfter.title, failures);
       assertField('Note', 'body', 'Reflecting on my progress this week', noteAfter.body, failures);
-      assertField('Note', 'mood', 'happy', noteAfter.mood, failures);
+      assertField('Note', 'mood', ['good'], noteAfter.mood, failures);
       assertField('Note', 'private', true, noteAfter.private, failures);
       assertField('Note', 'journal_subtype', 'reflection', noteAfter.journal_subtype, failures);
       assertField('Note', 'tags', ['#gratitude', '#personal'], noteAfter.tags, failures);

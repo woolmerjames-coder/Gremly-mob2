@@ -3,6 +3,8 @@
  * Includes owner_id for multi-user support.
  */
 
+import type { Mood } from './shared/moods';
+
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
 
@@ -229,7 +231,7 @@ export interface Note {
 
   // Journal-specific fields (Phase 7+) - only used when subtype='journal'
   date?: string | null; // ISO date for journal entry (may differ from created_at)
-  mood?: 'ecstatic' | 'happy' | 'neutral' | 'low' | 'sad' | 'tired' | null;
+  mood?: Mood[] | null; // Multi-select mood array (uses shared/moods.ts)
   reminders?: any[] | null; // ReminderRow[] JSON for journal reminders
   journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only journal classification
   tags_meta?: TagsMeta | null;

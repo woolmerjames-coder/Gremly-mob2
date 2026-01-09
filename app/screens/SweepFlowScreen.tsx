@@ -93,6 +93,7 @@ import {
   type GroupedHabits,
 } from '../../lib/sweep/habitHelpers';
 import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
+import { ALL_MOODS, MOOD_CONFIG, getMoodsByCategory, type Mood } from '../../lib/shared/moods';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -119,36 +120,6 @@ interface StepProps {
   onContinue: () => void;
 }
 
-// Mood value type - aligned with existing journal log moods
-type MoodValue = 'happy' | 'neutral' | 'sad' | 'ecstatic' | 'low' | 'tired';
-
-// Extended mood tag type for multi-select (includes new moods not in DB enum)
-type MoodTag =
-  | 'great'
-  | 'good'
-  | 'okay'
-  | 'low'
-  | 'tired'
-  | 'anxious'
-  | 'grateful'
-  | 'scattered'
-  | 'hopeful'
-  | 'rough';
-
-// Mood chip options for Sweep check-in (multi-select)
-const SWEEP_MOOD_CHIPS: Array<{ value: MoodTag; label: string }> = [
-  { value: 'great', label: 'Great' },
-  { value: 'good', label: 'Good' },
-  { value: 'okay', label: 'Okay' },
-  { value: 'low', label: 'Low' },
-  { value: 'tired', label: 'Tired' },
-  { value: 'anxious', label: 'Anxious' },
-  { value: 'grateful', label: 'Grateful' },
-  { value: 'scattered', label: 'Scattered' },
-  { value: 'hopeful', label: 'Hopeful' },
-  { value: 'rough', label: 'Rough' },
-];
-
 // Decision tracking for sweep (stores decisions before committing)
 type SweepDecision = {
   candidateId: string;
@@ -163,16 +134,6 @@ type SweepDecision = {
   habitAction?: 'asktomorrow' | 'starttomorrow' | 'startmonday';
 };
 
-// Map mood tags to DB enum values (for backwards compat)
-const MOOD_TAG_TO_DB: Partial<Record<MoodTag, MoodValue>> = {
-  great: 'ecstatic',
-  good: 'happy',
-  okay: 'neutral',
-  low: 'low',
-  tired: 'tired',
-  rough: 'sad',
-};
-
 // Journal prompts for inspiration
 const JOURNAL_PROMPTS = [
   'What are you grateful for today?',
@@ -181,16 +142,6 @@ const JOURNAL_PROMPTS = [
   'How is your energy right now?',
   "What's weighing on your mind?",
   'What are you looking forward to tomorrow?',
-];
-
-// Legacy mood options (kept for reference)
-const SWEEP_MOOD_OPTIONS: Array<{ value: MoodValue; label: string; icon: string }> = [
-  { value: 'ecstatic', label: 'Great', icon: 'Sun' },
-  { value: 'happy', label: 'Good', icon: 'CheckCircle2' },
-  { value: 'neutral', label: 'Okay', icon: 'Minus' },
-  { value: 'low', label: 'Low', icon: 'TrendingDown' },
-  { value: 'tired', label: 'Tired', icon: 'Moon' },
-  { value: 'sad', label: 'Rough', icon: 'Cloud' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -359,7 +310,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
   const { stats, isLoading: statsLoading } = useSweepIntroStats();
 
   // State
-  const [selectedMoods, setSelectedMoods] = useState<Set<MoodTag>>(new Set());
+  const [selectedMoods, setSelectedMoods] = useState<Mood[]>([]);
   const [journalText, setJournalText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isEntriesExpanded, setIsEntriesExpanded] = useState(false);
@@ -390,15 +341,13 @@ function SweepMoodStep({ onContinue }: StepProps) {
   const hasRecentEntries = recentEntries.length > 0;
 
   // Toggle mood selection (multi-select)
-  const toggleMood = useCallback((mood: MoodTag) => {
+  const toggleMood = useCallback((mood: Mood) => {
     setSelectedMoods((prev) => {
-      const next = new Set(prev);
-      if (next.has(mood)) {
-        next.delete(mood);
+      if (prev.includes(mood)) {
+        return prev.filter((m) => m !== mood);
       } else {
-        next.add(mood);
+        return [...prev, mood];
       }
-      return next;
     });
   }, []);
 
@@ -452,23 +401,19 @@ function SweepMoodStep({ onContinue }: StepProps) {
   // Save and continue
   const handleContinue = useCallback(async () => {
     // If nothing to save, just continue
-    if (selectedMoods.size === 0 && !journalText.trim()) {
+    if (selectedMoods.length === 0 && !journalText.trim()) {
       onContinue();
       return;
     }
 
     setIsSaving(true);
     try {
-      // Map first selected mood to DB enum for backwards compat
-      const moodArray = Array.from(selectedMoods);
-      const primaryMood = moodArray[0] ? MOOD_TAG_TO_DB[moodArray[0]] : undefined;
-
       // Create a journal note for the sweep reflection
       await createNote({
         subtype: 'journal',
         title: journalText.trim() || 'Evening reflection',
         body: journalText.trim() || undefined,
-        mood: primaryMood,
+        mood: selectedMoods.length > 0 ? selectedMoods : null, // Store as array
         origin: 'manual',
         canonicalType: 'log',
         journal_subtype: 'reflection',
@@ -477,7 +422,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
           sweep_origin: true,
           sweep_reflection: true,
           sweep_date: getDateService().getCurrentDate(),
-          sweep_moods: moodArray, // Store all selected moods
+          sweep_moods: selectedMoods, // Store all selected moods
         },
       });
     } catch (error) {
@@ -613,27 +558,28 @@ function SweepMoodStep({ onContinue }: StepProps) {
         <View style={styles.moodChipsSection}>
           <Text style={styles.moodChipsLabel}>Tag a mood</Text>
           <View style={styles.moodChipsGrid}>
-            {SWEEP_MOOD_CHIPS.map((chip) => {
-              const isSelected = selectedMoods.has(chip.value);
+            {ALL_MOODS.map((mood) => {
+              const config = MOOD_CONFIG[mood];
+              const isSelected = selectedMoods.includes(mood);
               return (
                 <Pressable
-                  key={chip.value}
+                  key={mood}
                   style={({ pressed }) => [
                     styles.moodChip,
                     isSelected && styles.moodChipSelected,
                     pressed && styles.moodChipPressed,
                   ]}
-                  onPress={() => toggleMood(chip.value)}
+                  onPress={() => toggleMood(mood)}
                 >
                   <Text style={[styles.moodChipLabel, isSelected && styles.moodChipLabelSelected]}>
-                    {chip.label}
+                    {config.label}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
-          {selectedMoods.size > 1 && (
-            <Text style={styles.moodChipsHelper}>{selectedMoods.size} moods selected</Text>
+          {selectedMoods.length > 1 && (
+            <Text style={styles.moodChipsHelper}>{selectedMoods.length} moods selected</Text>
           )}
         </View>
       </ScrollView>

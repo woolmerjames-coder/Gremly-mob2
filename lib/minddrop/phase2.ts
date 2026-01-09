@@ -29,6 +29,7 @@ export interface Phase2Result {
   extractedDays: number[] | null; // Array of day numbers (0=Sunday, 1=Monday, ... 6=Saturday)
   people: string[];
   confirmationMessage: string | null;
+  mood: string[] | null; // AI-extracted moods for journal entries
 }
 
 // --- Constants ---
@@ -142,6 +143,7 @@ async function callEnrichAPI(
       extractedDays: Array.isArray(json.extracted_days) ? json.extracted_days : null,
       people: Array.isArray(json.people) ? json.people : [],
       confirmationMessage: json.confirmation_message ?? null,
+      mood: Array.isArray(json.mood) ? json.mood : null,
     };
   } catch (err) {
     clearTimeout(timeout);
@@ -344,6 +346,10 @@ export async function runPhase2(
         if (!entity.body || entity.body === entity.title) {
           updatePayload.body = text;
         }
+        // AI-extracted mood for journal logs
+        if (result.mood && result.mood.length > 0) {
+          updatePayload.mood = result.mood;
+        }
       }
 
       mark('before_final_save');
@@ -375,6 +381,8 @@ export async function runPhase2(
         // Canonical habit frequency fields
         cadence: updatePayload.cadence,
         target_per_period: updatePayload.target_per_period,
+        // AI-extracted mood for journals
+        mood: result.mood ?? null,
       });
       mark('event_emitted');
 
@@ -626,6 +634,11 @@ export async function runPhase2Streaming(
               }
             }
 
+            // AI-extracted mood for journal logs
+            if (bucket === 'log' && result.mood && result.mood.length > 0) {
+              updatePayload.mood = result.mood;
+            }
+
             // Extract space pattern if not already assigned
             if (!updatePayload.space_id && !entity.space_id) {
               const spaceResult = extractSpacePattern(text);
@@ -673,6 +686,8 @@ export async function runPhase2Streaming(
               cadence: updatePayload.cadence,
               target_per_period: updatePayload.target_per_period,
               space_id: updatePayload.space_id,
+              // AI-extracted mood for journals
+              mood: result.mood ?? null,
             });
 
             resolve(result);

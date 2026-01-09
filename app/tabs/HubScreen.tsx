@@ -791,14 +791,28 @@ export default function HubScreen() {
   );
 
   // Mood color mapping (static, defined once)
+  // Now handles both single moods and first mood from array
   const moodColors: Record<string, string> = useMemo(
     () => ({
+      // New mood values
+      great: colors.success,
+      good: colors.mint,
+      okay: colors.gray400,
+      low: colors.periwinkle,
+      tired: colors.gray400,
+      anxious: colors.periwinkle,
+      overwhelmed: colors.periwinkle,
+      frustrated: colors.gray600,
+      scattered: colors.gray400,
+      grateful: colors.mint,
+      hopeful: colors.success,
+      focused: colors.mint,
+      calm: colors.mint,
+      // Legacy mood values (backwards compat)
       ecstatic: colors.success,
       happy: colors.mint,
       neutral: colors.gray400,
-      low: colors.periwinkle,
       sad: colors.gray600,
-      tired: colors.gray400,
     }),
     [],
   );
@@ -1292,7 +1306,12 @@ export default function HubScreen() {
                                   style={[
                                     hubV1Styles.journalTimelineMood,
                                     {
-                                      backgroundColor: moodColors[journal.mood] || colors.gray400,
+                                      backgroundColor:
+                                        moodColors[
+                                          Array.isArray(journal.mood)
+                                            ? journal.mood[0]
+                                            : journal.mood
+                                        ] || colors.gray400,
                                     },
                                   ]}
                                 />

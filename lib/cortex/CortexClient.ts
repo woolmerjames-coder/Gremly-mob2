@@ -46,6 +46,7 @@ export interface Phase2EnrichmentResult {
   extracted_frequency?: string | null;
   extracted_days?: number[] | null; // Array of day numbers (0=Sunday, 1=Monday, ... 6=Saturday) for specific days like "Tuesdays and Thursdays"
   people?: string[];
+  mood?: string[] | null; // AI-extracted moods for journal entries
   latency_ms?: number;
 }
 

@@ -81,7 +81,7 @@ export type HabitState = {
 
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
 export type PersonLink = { id: string; display: string } | null;
-export type MoodValue = 'pos' | 'neu' | 'neg';
+export type SentimentValue = 'pos' | 'neu' | 'neg'; // Simplified positive/neutral/negative for logs (not journal moods)
 export type LogSubtypeOverride = 'journal' | 'idea' | 'general' | 'list' | null;
 
 /**
@@ -115,7 +115,7 @@ export type V2State = {
   tags: TagKey[];
   stickyTags: TagKey[];
   tagTombstones: TagKey[];
-  mood?: MoodValue | null;
+  mood?: SentimentValue | null;
   list?: { items: { id: string; text: string; checked: boolean }[] } | null;
   detected: { mentions: string[]; dates: string[] };
   // Phase 4 additions
@@ -215,7 +215,7 @@ type Action =
   | { type: 'SET_TAGS'; tags: TagKey[] }
   | { type: 'TOGGLE_TAG'; tag: TagKey }
   | { type: 'ADD_TAG'; tag: TagKey }
-  | { type: 'SET_MOOD'; mood: MoodValue | null }
+  | { type: 'SET_MOOD'; mood: SentimentValue | null }
   | { type: 'SET_LIST_FROM_TEXT'; lines: string[] }
   | { type: 'TOGGLE_LIST_ITEM'; id: string; checked: boolean }
   | { type: 'SET_DETECTED'; mentions: string[]; dates: string[] }

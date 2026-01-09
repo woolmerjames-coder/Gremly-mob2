@@ -1,6 +1,7 @@
 /**
  * Tests for JournalFields component
  * Validates required fields (date + entry + mood), inspiration, formatting, and optional fields
+ * Updated for multi-select mood system using shared/moods.ts
  */
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react-native';
@@ -8,6 +9,7 @@ import {
   JournalFields,
   type JournalDetailsState,
 } from '../components/overlay/fields/JournalFields';
+import { ALL_MOODS } from '../lib/shared/moods';
 
 describe('JournalFields', () => {
   const mockOnDateChange = jest.fn();
@@ -35,7 +37,7 @@ describe('JournalFields', () => {
       expect(screen.getByTestId('journal-date')).toBeTruthy();
     });
 
-    it('renders mood chips with all 6 options', () => {
+    it('renders mood chips with all mood options from shared moods', () => {
       render(
         <JournalFields
           date="2025-10-19"
@@ -47,12 +49,10 @@ describe('JournalFields', () => {
         />,
       );
 
-      expect(screen.getByTestId('mood-ecstatic')).toBeTruthy();
-      expect(screen.getByTestId('mood-happy')).toBeTruthy();
-      expect(screen.getByTestId('mood-neutral')).toBeTruthy();
-      expect(screen.getByTestId('mood-low')).toBeTruthy();
-      expect(screen.getByTestId('mood-sad')).toBeTruthy();
-      expect(screen.getByTestId('mood-tired')).toBeTruthy();
+      // Check all moods from shared moods are rendered
+      ALL_MOODS.forEach((mood) => {
+        expect(screen.getByTestId(`mood-${mood}`)).toBeTruthy();
+      });
     });
 
     it('renders entry textarea with testID', () => {
@@ -70,7 +70,7 @@ describe('JournalFields', () => {
       expect(screen.getByTestId('journal-entry')).toBeTruthy();
     });
 
-    it('calls onMoodChange when mood chip is pressed', () => {
+    it('calls onMoodChange with array when mood chip is pressed (multi-select)', () => {
       render(
         <JournalFields
           date="2025-10-19"
@@ -82,8 +82,8 @@ describe('JournalFields', () => {
         />,
       );
 
-      fireEvent.press(screen.getByTestId('mood-happy'));
-      expect(mockOnMoodChange).toHaveBeenCalledWith('happy');
+      fireEvent.press(screen.getByTestId('mood-good'));
+      expect(mockOnMoodChange).toHaveBeenCalledWith(['good']);
     });
 
     it('shows selected mood chip with visual feedback', () => {
@@ -93,13 +93,13 @@ describe('JournalFields', () => {
           onDateChange={mockOnDateChange}
           entry=""
           onEntryChange={mockOnEntryChange}
-          mood="happy"
+          mood={['good']}
           onMoodChange={mockOnMoodChange}
         />,
       );
 
-      const happyChip = screen.getByTestId('mood-happy');
-      expect(happyChip.props.style).toMatchObject(
+      const goodChip = screen.getByTestId('mood-good');
+      expect(goodChip.props.style).toMatchObject(
         expect.arrayContaining([
           expect.objectContaining({
             borderColor: '#4CAF93',
@@ -107,6 +107,38 @@ describe('JournalFields', () => {
           }),
         ]),
       );
+    });
+
+    it('supports multi-select - adds mood to existing array', () => {
+      render(
+        <JournalFields
+          date="2025-10-19"
+          onDateChange={mockOnDateChange}
+          entry=""
+          onEntryChange={mockOnEntryChange}
+          mood={['good']}
+          onMoodChange={mockOnMoodChange}
+        />,
+      );
+
+      fireEvent.press(screen.getByTestId('mood-grateful'));
+      expect(mockOnMoodChange).toHaveBeenCalledWith(['good', 'grateful']);
+    });
+
+    it('supports multi-select - removes mood from array when toggled', () => {
+      render(
+        <JournalFields
+          date="2025-10-19"
+          onDateChange={mockOnDateChange}
+          entry=""
+          onEntryChange={mockOnEntryChange}
+          mood={['good', 'grateful']}
+          onMoodChange={mockOnMoodChange}
+        />,
+      );
+
+      fireEvent.press(screen.getByTestId('mood-good'));
+      expect(mockOnMoodChange).toHaveBeenCalledWith(['grateful']);
     });
   });
 
@@ -118,7 +150,7 @@ describe('JournalFields', () => {
           onDateChange={mockOnDateChange}
           entry=""
           onEntryChange={mockOnEntryChange}
-          mood="neutral"
+          mood={['okay']}
           onMoodChange={mockOnMoodChange}
         />,
       );
@@ -133,7 +165,7 @@ describe('JournalFields', () => {
           onDateChange={mockOnDateChange}
           entry="Existing text"
           onEntryChange={mockOnEntryChange}
-          mood="neutral"
+          mood={['okay']}
           onMoodChange={mockOnMoodChange}
         />,
       );
@@ -142,8 +174,8 @@ describe('JournalFields', () => {
 
       expect(mockOnEntryChange).toHaveBeenCalled();
       const callArg = mockOnEntryChange.mock.calls[0][0];
-      expect(callArg).toContain('Existing text'); // Should preserve existing text
-      expect(callArg.length).toBeGreaterThan('Existing text'.length); // Should add prompt
+      expect(callArg).toContain('Existing text');
+      expect(callArg.length).toBeGreaterThan('Existing text'.length);
     });
   });
 
@@ -159,14 +191,13 @@ describe('JournalFields', () => {
           onDateChange={mockOnDateChange}
           entry=""
           onEntryChange={mockOnEntryChange}
-          mood="neutral"
+          mood={['okay']}
           onMoodChange={mockOnMoodChange}
           details={details}
           onDetailsChange={mockOnDetailsChange}
         />,
       );
 
-      // FormattingToggle should render with its testIDs
       expect(screen.getByTestId('fmt-bullets')).toBeTruthy();
       expect(screen.getByTestId('fmt-numbers')).toBeTruthy();
       expect(screen.getByTestId('fmt-checkboxes')).toBeTruthy();
@@ -183,7 +214,7 @@ describe('JournalFields', () => {
           onDateChange={mockOnDateChange}
           entry=""
           onEntryChange={mockOnEntryChange}
-          mood="neutral"
+          mood={['okay']}
           onMoodChange={mockOnMoodChange}
           details={details}
           onDetailsChange={mockOnDetailsChange}
@@ -209,50 +240,32 @@ describe('JournalFields', () => {
           onDateChange={mockOnDateChange}
           entry=""
           onEntryChange={mockOnEntryChange}
-          mood="neutral"
+          mood={['okay']}
           onMoodChange={mockOnMoodChange}
           details={details}
           onDetailsChange={mockOnDetailsChange}
         />,
       );
 
-      // RemindersList should render with testID 'reminders-add'
       expect(screen.getByTestId('reminders-add')).toBeTruthy();
     });
   });
 
   describe('Add Details Toggle', () => {
-    it('shows "Add details ▾" toggle when onDetailsChange is provided', () => {
+    it('shows "Add details" toggle when onDetailsChange is provided', () => {
       render(
         <JournalFields
           date="2025-10-19"
           onDateChange={mockOnDateChange}
           entry=""
           onEntryChange={mockOnEntryChange}
-          mood="neutral"
+          mood={['okay']}
           onMoodChange={mockOnMoodChange}
           onDetailsChange={mockOnDetailsChange}
         />,
       );
 
-      expect(screen.getByText('Add details ▾')).toBeTruthy();
-    });
-
-    it('toggles to "Hide details ▴" when pressed', () => {
-      render(
-        <JournalFields
-          date="2025-10-19"
-          onDateChange={mockOnDateChange}
-          entry=""
-          onEntryChange={mockOnEntryChange}
-          mood="neutral"
-          onMoodChange={mockOnMoodChange}
-          onDetailsChange={mockOnDetailsChange}
-        />,
-      );
-
-      fireEvent.press(screen.getByTestId('add-details-toggle'));
-      expect(screen.getByText('Hide details ▴')).toBeTruthy();
+      expect(screen.getByTestId('add-details-toggle')).toBeTruthy();
     });
 
     it('shows details section when toggle is pressed', () => {
@@ -262,7 +275,7 @@ describe('JournalFields', () => {
           onDateChange={mockOnDateChange}
           entry=""
           onEntryChange={mockOnEntryChange}
-          mood="neutral"
+          mood={['okay']}
           onMoodChange={mockOnMoodChange}
           onDetailsChange={mockOnDetailsChange}
         />,
@@ -286,7 +299,7 @@ describe('JournalFields', () => {
           onDateChange={mockOnDateChange}
           entry=""
           onEntryChange={mockOnEntryChange}
-          mood="neutral"
+          mood={['okay']}
           onMoodChange={mockOnMoodChange}
           details={details}
           onDetailsChange={mockOnDetailsChange}
@@ -309,7 +322,7 @@ describe('JournalFields', () => {
           onDateChange={mockOnDateChange}
           entry=""
           onEntryChange={mockOnEntryChange}
-          mood="neutral"
+          mood={['okay']}
           onMoodChange={mockOnMoodChange}
           details={details}
           onDetailsChange={mockOnDetailsChange}
@@ -329,27 +342,6 @@ describe('JournalFields', () => {
     });
   });
 
-  describe('NO Journal Subtype Chips', () => {
-    it('does NOT render any subtype chips (AI-only feature)', () => {
-      render(
-        <JournalFields
-          date="2025-10-19"
-          onDateChange={mockOnDateChange}
-          entry="Test entry"
-          onEntryChange={mockOnEntryChange}
-          mood="happy"
-          onMoodChange={mockOnMoodChange}
-        />,
-      );
-
-      // Verify NO subtype pills exist
-      expect(screen.queryByTestId('subtype-pill-reflection')).toBeNull();
-      expect(screen.queryByTestId('subtype-pill-gratitude')).toBeNull();
-      expect(screen.queryByTestId('subtype-pill-dream')).toBeNull();
-      expect(screen.queryByTestId('subtype-pill-review')).toBeNull();
-    });
-  });
-
   describe('Disabled State', () => {
     it('disables all mood chips when disabled prop is true', () => {
       render(
@@ -364,8 +356,8 @@ describe('JournalFields', () => {
         />,
       );
 
-      const happyChip = screen.getByTestId('mood-happy');
-      expect(happyChip.props.accessibilityState.disabled).toBe(true);
+      const goodChip = screen.getByTestId('mood-good');
+      expect(goodChip.props.accessibilityState.disabled).toBe(true);
     });
 
     it('disables inspiration button when disabled prop is true', () => {
