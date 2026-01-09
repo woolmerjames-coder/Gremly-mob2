@@ -266,6 +266,62 @@ export function useMindDropSubmit(): {
           });
         }
 
+        // Handle multi-entity drops separately
+        // Multi-drops are stored as notes with multi metadata
+        // User will decide what to do via the MultiSplitModal
+        if (phase1Result.is_multi === true && phase1Result.items && phase1Result.items.length > 1) {
+          console.log('[MindDrop:Submit] Multi-entity drop detected', {
+            itemCount: phase1Result.items.length,
+            summaryTitle: phase1Result.summary_title,
+          });
+
+          // Create a note to hold the multi-entity drop
+          const entity = await createNote({
+            title: phase1Result.summary_title || 'Multiple Items',
+            body: effectiveText,
+            subtype: 'catchall',
+            space_id: resolvedSpaceId,
+            drop_id: dropId,
+            origin: context.source === 'space' ? 'space_chat' : 'catchall',
+            views: {
+              minddrop_stage: 'multi_pending',
+              ai_pending: false,
+              is_multi: true,
+              multi_items: phase1Result.items,
+              multi_summary_title: phase1Result.summary_title,
+            },
+          });
+
+          // Emit event for UI updates
+          eventBus.emit('entity:created', {
+            entity: { ...entity, drop_id: dropId },
+            type: 'note',
+            spaceId: resolvedSpaceId,
+          });
+
+          // Remove pending item
+          removePendingItem(dropId);
+
+          if (testEnabled) {
+            testLogger.step('multi_entity_created', {
+              entityId: entity.id,
+              itemCount: phase1Result.items.length,
+            });
+            testLogger.end(true);
+          }
+
+          submitLockRef.current = false;
+          setIsSubmitting(false);
+
+          return {
+            success: true,
+            dropId,
+            entityId: entity.id,
+            bucket: 'log', // Multi stored as note
+            confidence: phase1Result.confidence,
+          };
+        }
+
         // Create entity using Phase 1 classification
         const entityType = bucketToEntityType(bucket);
 
