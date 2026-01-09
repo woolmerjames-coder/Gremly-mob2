@@ -2645,6 +2645,8 @@ const RecentDrops: React.FC<{
             ...(payload.target_per_period !== undefined && {
               target_per_period: payload.target_per_period,
             }),
+            // Days active from extracted_days (for habit day-specific scheduling)
+            ...(payload.extracted_days !== undefined && { days_active: payload.extracted_days }),
             hasPhotos: payload.hasPhotos ?? item.hasPhotos,
             time_estimate_minutes: payload.timeEstimate ?? item.time_estimate_minutes,
             start_date: payload.startDate ?? item.start_date,
