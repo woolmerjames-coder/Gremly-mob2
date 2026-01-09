@@ -145,8 +145,8 @@ export interface SweepSummary {
  * Pre-computed from SweepCandidate + Space data for rendering.
  */
 export interface SweepCardMeta {
-  /** Type chip label: 'Todo', 'Log', or 'Habit' */
-  typeChip: 'Todo' | 'Log' | 'Habit';
+  /** Type chip label: 'Todo', 'Note', or 'Habit' */
+  typeChip: 'Todo' | 'Note' | 'Habit';
 
   /** Status chip for todos: scheduling state */
   todoStatus: 'unscheduled' | 'due_today' | 'due_tomorrow' | 'overdue' | 'reminder' | null;

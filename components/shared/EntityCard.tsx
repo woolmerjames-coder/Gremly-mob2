@@ -98,7 +98,7 @@ const TYPE_PILL_BG: Record<EntityType, string> = {
 const TYPE_LABELS: Record<EntityType, string> = {
   todo: 'Todo',
   habit: 'Habit',
-  log: 'Log',
+  log: 'Note',
   list: 'List',
 };
 

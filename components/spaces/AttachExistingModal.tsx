@@ -344,7 +344,7 @@ export function AttachExistingModal({
       const subtype = (item as any).subtype;
       if (subtype === 'journal') {
         icon = '📝';
-        typeLabel = 'Log';
+        typeLabel = 'Journal';
       } else if (subtype === 'idea') {
         icon = '💡';
         typeLabel = 'Idea';

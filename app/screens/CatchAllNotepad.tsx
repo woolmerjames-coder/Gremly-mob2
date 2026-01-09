@@ -1094,7 +1094,7 @@ const PendingSkeleton: React.FC<{
         </Animated.Text>
         <View style={styles.recentTopRight}>
           <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Log'}
+            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
           </Text>
         </View>
       </View>
@@ -1246,7 +1246,7 @@ const EnrichingSkeleton: React.FC<{
         </Animated.Text>
         <View style={styles.recentTopRight}>
           <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Log'}
+            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
           </Text>
         </View>
       </View>
@@ -1566,8 +1566,8 @@ function getDisplayKindForChip(kind: 'note' | 'todo' | 'habit', _item: UnifiedDr
   if (kind === 'todo') return 'Todo';
   if (kind === 'habit') return 'Habit';
 
-  // For notes, always show "Log" as the parent category
-  return 'Log';
+  // For notes, always show "Note" as the parent category
+  return 'Note';
 }
 
 /**

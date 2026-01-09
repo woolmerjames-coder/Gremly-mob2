@@ -135,7 +135,7 @@ const FILTER_OPTIONS: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'todos', label: 'Todos' },
   { key: 'habits', label: 'Habits' },
-  { key: 'logs', label: 'Logs' },
+  { key: 'logs', label: 'Notes' },
   { key: 'lists', label: 'Lists' },
 ];
 
@@ -2879,7 +2879,7 @@ function mapDisplayKindToForms(kind: DisplayKind): { singular: string; plural: s
     case 'todo':
       return { singular: 'To-Do', plural: 'To-Dos' };
     case 'log':
-      return { singular: 'Log', plural: 'Logs' };
+      return { singular: 'Note', plural: 'Notes' };
     case 'unsorted':
       return { singular: 'Unsorted', plural: 'Unsorted' };
     case 'note':

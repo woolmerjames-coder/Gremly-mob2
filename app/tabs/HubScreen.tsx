@@ -1037,7 +1037,7 @@ export default function HubScreen() {
                           : hubV1Types.has('note') && hubV1Styles.filterChipTextActive,
                       ]}
                     >
-                      {hubView === 'journals' ? 'Journals' : 'Logs'}
+                      {hubView === 'journals' ? 'Journals' : 'Notes'}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity

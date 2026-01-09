@@ -140,7 +140,7 @@ import {
   type ListItem,
 } from '../../lib/lists';
 
-const BASE_LABEL: Record<BaseType, string> = { log: 'Log', todo: 'To-Do', habit: 'Habit' };
+const BASE_LABEL: Record<BaseType, string> = { log: 'Note', todo: 'To-Do', habit: 'Habit' };
 
 /**
  * Constructs frequency_json from DB columns for the overlay's FrequencyConfig format.

@@ -230,7 +230,7 @@ function createMockMeta(overrides: Partial<SweepCardMeta> = {}): SweepCardMeta {
 /** Generate mock meta for log/note candidates */
 function createMockLogMeta(overrides: Partial<SweepCardMeta> = {}): SweepCardMeta {
   return {
-    typeChip: 'Log',
+    typeChip: 'Note',
     todoStatus: null,
     logSubtype: 'general',
     habitStatus: null,
@@ -283,7 +283,7 @@ describe('SweepCard', () => {
       const { getByText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
         />,
       );
@@ -294,7 +294,7 @@ describe('SweepCard', () => {
       const { getByText } = render(
         <SweepCard
           candidate={mockLogCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
         />,
       );
@@ -354,7 +354,7 @@ describe('SweepCard', () => {
       const { queryByText, getByText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
         />,
       );
@@ -427,7 +427,7 @@ describe('SweepCard', () => {
       const { queryByText, getByText } = render(
         <SweepCard
           candidate={noteDueToday}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
         />,
       );
@@ -478,7 +478,7 @@ describe('SweepCard', () => {
         <SweepCard
           candidate={enteredTodayCandidate}
           meta={createMockMeta({
-            typeChip: 'Log',
+            typeChip: 'Note',
             todoStatus: null,
             logSubtype: 'general',
             isNew: true,
@@ -559,7 +559,7 @@ describe('SweepCard', () => {
         <SweepCard
           candidate={noBadgeCandidate}
           meta={createMockMeta({
-            typeChip: 'Log',
+            typeChip: 'Note',
             todoStatus: null,
             logSubtype: 'general',
             isNew: false,
@@ -587,7 +587,7 @@ describe('SweepCard', () => {
       const { getByText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
         />,
       );
@@ -644,7 +644,7 @@ describe('SweepCard', () => {
       const { getByRole, getByText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
         />,
       );
@@ -763,7 +763,7 @@ describe('SweepCard', () => {
       const { getByText } = render(
         <SweepCard
           candidate={mockIdeaCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'idea' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'idea' })}
           {...defaultProps}
         />,
       );
@@ -777,7 +777,7 @@ describe('SweepCard', () => {
       const { getByText } = render(
         <SweepCard
           candidate={mockJournalCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
         />,
       );
@@ -795,7 +795,7 @@ describe('SweepCard', () => {
       const { getByText } = render(
         <SweepCard
           candidate={journalByCanonicalType}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
         />,
       );
@@ -864,7 +864,7 @@ describe('SweepCard', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
         />,
       );
@@ -877,7 +877,7 @@ describe('SweepCard', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
         />,
       );
@@ -891,7 +891,7 @@ describe('SweepCard', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockIdeaCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'idea' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'idea' })}
           {...defaultProps}
           onConvertToTodo={onConvertToTodo}
         />,
@@ -905,7 +905,7 @@ describe('SweepCard', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockJournalCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
         />,
       );
@@ -955,7 +955,7 @@ describe('SweepCard', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
           onOpenEdit={onOpenEdit}
         />,
@@ -970,7 +970,7 @@ describe('SweepCard', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockJournalCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
           onOpenEdit={onOpenEdit}
         />,
@@ -1102,7 +1102,7 @@ describe('SweepCard', () => {
       rerender(
         <SweepCard
           candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
         />,
       );
@@ -1153,7 +1153,7 @@ describe('SweepCard', () => {
       const { getByLabelText } = render(
         <SweepCard
           candidate={mockNoteWithAttachments}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
         />,
       );
@@ -1166,7 +1166,7 @@ describe('SweepCard', () => {
       const { getByText } = render(
         <SweepCard
           candidate={mockNoteWithAttachments}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
         />,
       );
@@ -1179,7 +1179,7 @@ describe('SweepCard', () => {
       const { queryByText } = render(
         <SweepCard
           candidate={mockNoteWithSingleAttachment}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
         />,
       );
@@ -1192,7 +1192,7 @@ describe('SweepCard', () => {
       const { queryByLabelText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'general' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'general' })}
           {...defaultProps}
         />,
       );
@@ -1214,7 +1214,7 @@ describe('SweepCard', () => {
       const { getByText, getByLabelText } = render(
         <SweepCard
           candidate={mockNoteWithAttachments}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
         />,
       );
@@ -1230,7 +1230,7 @@ describe('SweepCard', () => {
       const { getByLabelText, queryByLabelText } = render(
         <SweepCard
           candidate={mockNoteWithAttachments}
-          meta={createMockMeta({ typeChip: 'Log', todoStatus: null, logSubtype: 'journal' })}
+          meta={createMockMeta({ typeChip: 'Note', todoStatus: null, logSubtype: 'journal' })}
           {...defaultProps}
         />,
       );

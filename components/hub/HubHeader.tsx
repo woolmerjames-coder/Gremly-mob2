@@ -193,7 +193,7 @@ export default function HubHeader({
                     : selectedTypes.has('note') && styles.filterChipTextActive,
                 ]}
               >
-                {isJournalView ? 'Journals' : 'Logs'}
+                {isJournalView ? 'Journals' : 'Notes'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity

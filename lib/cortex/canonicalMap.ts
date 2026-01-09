@@ -5,7 +5,7 @@ export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 /**
  * Map persisted record type + subtype to canonical display type.
  *
- * Log types (notes that should display as "Log"):
+ * Note types (notes that should display as "Note"):
  * - journal: personal reflections, diary entries (log-journal)
  * - idea: captured ideas, brainstorms (log-idea)
  * - catchall: general logs - the default for all other logs (log-general)
@@ -21,13 +21,13 @@ export function persistedToCanonical(
   if (recordType === 'habit') return 'habit';
   if (recordType === 'todo') return 'todo';
 
-  // All note subtypes that should display as "Log" (not "Unsorted")
-  // The 3 primary log types are: journal, idea, general (stored as 'catchall')
+  // All note subtypes that should display as "Note" (not "Unsorted")
+  // The 3 primary note types are: journal, idea, general (stored as 'catchall')
   if (
     subtype === 'journal' ||
     subtype === 'idea' ||
-    subtype === 'general' ||   // LogSubtype value
-    subtype === 'catchall' ||  // NoteSubtype persisted value (maps to log-general)
+    subtype === 'general' || // LogSubtype value
+    subtype === 'catchall' || // NoteSubtype persisted value (maps to log-general)
     subtype === 'list' ||
     subtype === 'reference'
   ) {

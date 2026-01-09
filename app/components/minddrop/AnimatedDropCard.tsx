@@ -242,7 +242,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     const staggerDelay = index * 80;
 
     // Kind badge label
-    const kindLabel = item.kind === 'todo' ? 'Todo' : item.kind === 'habit' ? 'Habit' : 'Log';
+    const kindLabel = item.kind === 'todo' ? 'Todo' : item.kind === 'habit' ? 'Habit' : 'Note';
 
     return (
       <Animated.View
