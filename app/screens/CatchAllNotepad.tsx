@@ -1866,6 +1866,39 @@ const AnimatedMindDropCard: React.FC<{
                   item.canonical_type === 'log' ||
                   !item.noteSubtype);
 
+              // For multi-entity cards, show combined type label instead of "General Note"
+              if (isMulti) {
+                const multiItems: MultiDropItem[] =
+                  item.multi_items || item.views?.multi_items || [];
+                const bucketCounts: Record<string, number> = {};
+                for (const mi of multiItems) {
+                  // For log bucket, use subtype if available (journal, idea) else "Note"
+                  const label =
+                    mi.bucket === 'todo'
+                      ? 'Todo'
+                      : mi.bucket === 'habit'
+                        ? 'Habit'
+                        : mi.subtype === 'journal'
+                          ? 'Journal'
+                          : mi.subtype === 'idea'
+                            ? 'Idea'
+                            : 'Note';
+                  bucketCounts[label] = (bucketCounts[label] || 0) + 1;
+                }
+                const labels = Object.entries(bucketCounts).map(([label, count]) =>
+                  count > 1 ? `${count} ${label}s` : label,
+                );
+                const multiTypeLabel = labels.join(' + ') || 'Multiple Items';
+
+                return (
+                  <View style={styles.journalMetaRow}>
+                    <View style={styles.moodChip}>
+                      <Text style={styles.moodChipText}>{multiTypeLabel}</Text>
+                    </View>
+                  </View>
+                );
+              }
+
               if (isGeneralNote && contextMeta) {
                 return (
                   <View style={styles.journalMetaRow}>
@@ -3060,9 +3093,52 @@ const RecentDrops: React.FC<{
       console.log('[RecentDrops] Splitting multi-drop into', selectedItems.length, 'items');
       const noteToSplit = items.find((item) => item.id === noteId);
       const spaceId = noteToSplit?.views?.space_id ?? null;
+      const now = Date.now();
 
+      // 1. Create optimistic items immediately for instant visual feedback
+      const optimisticItems: UnifiedDrop[] = selectedItems.map((splitItem, index) => {
+        const tempId = `temp-split-${now}-${index}`;
+        const kind: 'todo' | 'habit' | 'note' =
+          splitItem.bucket === 'todo' ? 'todo' : splitItem.bucket === 'habit' ? 'habit' : 'note';
+
+        return {
+          id: tempId,
+          kind,
+          title: splitItem.preview_title || splitItem.text,
+          text: splitItem.text,
+          created_at: new Date().toISOString(),
+          drop_id: `split-${noteId}-${index}`,
+          tags: [],
+          views: {
+            minddrop_stage: 'classified',
+            ai_pending: true,
+            origin: 'multi_split',
+          },
+          labels: [],
+          noteSubtype:
+            kind === 'note'
+              ? splitItem.subtype === 'journal'
+                ? 'journal'
+                : splitItem.subtype === 'idea'
+                  ? 'idea'
+                  : 'catchall'
+              : undefined,
+        };
+      });
+
+      // 2. Update UI immediately: remove original, add optimistic items
+      setItems((prev) => {
+        const withoutOriginal = prev.filter((item) => item.id !== noteId);
+        return [...optimisticItems, ...withoutOriginal];
+      });
+
+      console.log('[RecentDrops] Added optimistic items, removed original from UI');
+
+      // 3. Create actual entities in database (async, in background)
       try {
-        for (const splitItem of selectedItems) {
+        for (let i = 0; i < selectedItems.length; i++) {
+          const splitItem = selectedItems[i];
+          const optimisticId = optimisticItems[i].id;
           const bucket: MindDropBucket = splitItem.bucket;
           const subtype: MindDropLogSubtype | null = splitItem.subtype;
           let newEntity: { id: string } | null = null;
@@ -3119,8 +3195,17 @@ const RecentDrops: React.FC<{
             } as any);
           }
 
-          // Trigger Phase 2 enrichment for the new entity (runs in background)
+          // Replace optimistic item with real item
           if (newEntity?.id) {
+            setItems((prev) =>
+              prev.map((item) =>
+                item.id === optimisticId
+                  ? { ...item, id: newEntity!.id, drop_id: item.drop_id }
+                  : item,
+              ),
+            );
+
+            // Trigger Phase 2 enrichment for the new entity (runs in background)
             runPhase2Streaming(
               newEntity.id,
               splitItem.text,
@@ -3137,14 +3222,13 @@ const RecentDrops: React.FC<{
         }
 
         // Archive the original multi-drop note
-        await archiveNote(noteId, 'converted');
-
-        // Remove from local state
-        setItems((prev) => prev.filter((item) => item.id !== noteId));
+        await archiveNote(noteId, 'split_completed');
 
         console.log('[RecentDrops] Split complete, archived original:', noteId);
       } catch (err) {
         console.error('[RecentDrops] Failed to split multi-drop:', err);
+        // On error, remove optimistic items (they weren't created)
+        setItems((prev) => prev.filter((item) => !item.id.startsWith('temp-split-')));
       }
     },
     [items, createTodo, createHabit, createNote, archiveNote, repo],

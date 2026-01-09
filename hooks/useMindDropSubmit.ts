@@ -30,6 +30,74 @@ import { setTestProbeEntityId } from '../lib/config/surfaceProbe';
 import { QARunner } from '../src/qa/QARunner';
 import { checkAllInvariants } from '../lib/minddrop/invariants';
 import { buildTodoFields } from '../lib/cortex/textNormalization';
+import { env, getEnv } from '../lib/env';
+
+// --- Phase 0: Detect Multi ---
+
+const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
+
+const readCortexUrl = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
+  const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
+};
+
+const readSupabaseAnonKey = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+};
+
+interface DetectMultiResult {
+  is_multi: boolean;
+  segments?: Array<{ text: string; likely_bucket: string }>;
+  summary?: string;
+  confidence?: number;
+}
+
+/**
+ * Phase 0: Detect if the input contains multiple distinct items.
+ * Runs BEFORE Phase 1 to short-circuit multi-entity drops.
+ */
+async function detectMulti(text: string): Promise<DetectMultiResult> {
+  const cortexUrl = readCortexUrl();
+  const anonKey = readSupabaseAnonKey();
+
+  if (!cortexUrl || !anonKey) {
+    console.log('[Phase0:DetectMulti] Missing cortex URL or anon key, skipping');
+    return { is_multi: false };
+  }
+
+  try {
+    const response = await fetch(cortexUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({
+        type: 'detect-multi',
+        text,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn('[Phase0:DetectMulti] Request failed:', response.status);
+      return { is_multi: false };
+    }
+
+    const result = await response.json();
+    console.log('[Phase0:DetectMulti] Result:', {
+      is_multi: result.is_multi,
+      segmentCount: result.segments?.length,
+      summary: result.summary,
+    });
+    return result;
+  } catch (err) {
+    console.warn('[Phase0:DetectMulti] Error:', err);
+    return { is_multi: false };
+  }
+}
 
 /**
  * Context for submitting a mind drop
@@ -237,6 +305,69 @@ export function useMindDropSubmit(): {
 
         if (testEnabled) {
           testLogger.step('optimistic_added', { dropId, tempId });
+        }
+
+        // Phase 0: Detect multi-entity drops BEFORE classification
+        // This short-circuits multi-drops to avoid running Phase 1 unnecessarily
+        const multiResult = await detectMulti(effectiveText);
+
+        if (multiResult.is_multi && multiResult.segments && multiResult.segments.length > 1) {
+          console.log('[MindDrop:Submit] Phase 0 detected multi-entity drop', {
+            segmentCount: multiResult.segments.length,
+            summary: multiResult.summary,
+          });
+
+          // Create as multi-entity note
+          const entity = await createNote({
+            title: multiResult.summary || effectiveText.substring(0, 50),
+            body: effectiveText,
+            subtype: 'catchall',
+            space_id: resolvedSpaceId,
+            drop_id: dropId,
+            origin: context.source === 'space' ? 'space_chat' : 'catchall',
+            views: {
+              minddrop_stage: 'multi_pending',
+              ai_pending: false,
+              is_multi: true,
+              multi_items: multiResult.segments.map((seg) => ({
+                text: seg.text,
+                bucket: seg.likely_bucket as MindDropBucket,
+                subtype: null,
+                habitSubtype: null,
+                preview_title: seg.text.substring(0, 40),
+              })),
+              multi_summary_title: multiResult.summary,
+            },
+          });
+
+          // Emit event for UI updates
+          eventBus.emit('entity:created', {
+            entity: { ...entity, drop_id: dropId },
+            type: 'note',
+            spaceId: resolvedSpaceId,
+          });
+
+          // Remove pending item
+          removePendingItem(dropId);
+
+          if (testEnabled) {
+            testLogger.step('phase0_multi_created', {
+              entityId: entity.id,
+              segmentCount: multiResult.segments.length,
+            });
+            testLogger.end(true);
+          }
+
+          submitLockRef.current = false;
+          setIsSubmitting(false);
+
+          return {
+            success: true,
+            dropId,
+            entityId: entity.id,
+            bucket: 'log', // Multi stored as note
+            confidence: multiResult.confidence,
+          };
         }
 
         // Phase 1: Run classification (may confirm or correct heuristic)
