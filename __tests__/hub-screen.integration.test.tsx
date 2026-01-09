@@ -610,7 +610,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
     const noteFilterChip = getByTestId('filter-type-note');
     expect(noteFilterChip).toBeTruthy();
     // The chip text should be "Logs" initially (not "Journals")
-    expect(queryByText('Logs')).toBeTruthy();
+    expect(queryByText('Notes')).toBeTruthy();
 
     // Switch to Journal View
     const journalToggle = getByTestId('hub-view-toggle-journals');
@@ -618,7 +618,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
 
     await waitFor(() => {
       // The filter chip should now show "Journals" instead of "Logs"
-      expect(queryByText('Logs')).toBeNull();
+      expect(queryByText('Notes')).toBeNull();
     });
   });
 

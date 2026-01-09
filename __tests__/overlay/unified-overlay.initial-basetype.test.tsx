@@ -157,7 +157,7 @@ describe('UnifiedOverlayV2 - Initial baseType Fix (P0)', () => {
       );
 
       // The Log tab should exist
-      expect(getByText('Log')).toBeTruthy();
+      expect(getByText('Note')).toBeTruthy();
     });
   });
 
@@ -169,7 +169,7 @@ describe('UnifiedOverlayV2 - Initial baseType Fix (P0)', () => {
       );
 
       // In create mode, log should be the default (unchanged behavior)
-      expect(getByText('Log')).toBeTruthy();
+      expect(getByText('Note')).toBeTruthy();
     });
   });
 

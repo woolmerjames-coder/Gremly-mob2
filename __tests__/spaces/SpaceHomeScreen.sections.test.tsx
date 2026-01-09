@@ -26,7 +26,7 @@ const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'todos', label: 'Todos' },
   { key: 'habits', label: 'Habits' },
-  { key: 'logs', label: 'Logs' },
+  { key: 'logs', label: 'Notes' },
   { key: 'lists', label: 'Lists' },
 ];
 
@@ -340,7 +340,7 @@ describe('SpaceHomeScreen Logs/Notes Section', () => {
   it('renders logs/notes section when logs exist', () => {
     const { getByTestId, getByText } = render(<TestSpaceLayout items={createMockItems()} />);
     expect(getByTestId('space-section-logs-notes')).toBeTruthy();
-    // Type pill should show "Log"
+    // Type pill should show "Note"
     expect(getByTestId('space-section-logs-notes-pill-note-1')).toBeTruthy();
   });
 

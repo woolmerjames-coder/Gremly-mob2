@@ -141,7 +141,7 @@ describe('AnimatedDropCard', () => {
           badgeStyleKey="note"
         />,
       );
-      expect(getByTextNote('Log')).toBeTruthy();
+      expect(getByTextNote('Note')).toBeTruthy();
     });
 
     it('shows time estimate chip when provided', () => {

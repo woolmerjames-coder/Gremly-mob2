@@ -1555,7 +1555,7 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
   if (subtype === 'idea') return 'Idea';
   if (subtype === 'list') return 'List';
   if (subtype === 'reference') return 'Reference';
-  return 'General';
+  return 'General Note';
 }
 
 /**
@@ -1735,32 +1735,30 @@ const AnimatedMindDropCard: React.FC<{
               (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
             const hasMoods = isJournal && item.mood && item.mood.length > 0;
 
-            // For idea entries, show plain text label with up to 2 tags
-            // Filter out redundant "idea"/"ideas" tags since we already show "Idea" label
+            // For idea entries, show plain text label only
             const isIdea =
               item.kind === 'note' &&
               (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
-            const displayTags = isIdea
-              ? getDisplayTagsForRecentDrop(item)
-                  .filter((tag) => tag.toLowerCase() !== 'idea' && tag.toLowerCase() !== 'ideas')
-                  .slice(0, 2)
-              : [];
-            const hasDisplayTags = displayTags.length > 0;
 
             if (isJournal && contextMeta) {
               return (
                 <View style={styles.journalMetaRow}>
-                  <Text style={styles.journalSubtypeLabel}>{contextMeta}</Text>
+                  <View style={styles.moodChip}>
+                    <Text style={styles.moodChipText}>{contextMeta}</Text>
+                  </View>
                   {hasMoods && (
                     <>
-                      <Text style={styles.journalSeparator}>·</Text>
-                      {item.mood!.slice(0, 2).map((m: Mood) => (
-                        <View key={m} style={styles.moodChip}>
-                          <Text style={styles.moodChipText}>{MOOD_CONFIG[m]?.label}</Text>
-                        </View>
+                      {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
+                        <React.Fragment key={m}>
+                          {idx === 0 && <Text style={styles.journalSeparator}> </Text>}
+                          <Text style={styles.journalSubtypeLabel}>{MOOD_CONFIG[m]?.label}</Text>
+                          {idx < Math.min(item.mood!.length, 2) - 1 && (
+                            <Text style={styles.journalSeparator}>·</Text>
+                          )}
+                        </React.Fragment>
                       ))}
                       {item.mood!.length > 2 && (
-                        <Text style={styles.moodOverflow}>+{item.mood!.length - 2}</Text>
+                        <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
                       )}
                     </>
                   )}
@@ -1771,17 +1769,29 @@ const AnimatedMindDropCard: React.FC<{
             if (isIdea && contextMeta) {
               return (
                 <View style={styles.journalMetaRow}>
-                  <Text style={styles.journalSubtypeLabel}>{contextMeta}</Text>
-                  {hasDisplayTags && (
-                    <>
-                      <Text style={styles.journalSeparator}>·</Text>
-                      {displayTags.map((tag) => (
-                        <View key={tag} style={styles.moodChip}>
-                          <Text style={styles.moodChipText}>{tag}</Text>
-                        </View>
-                      ))}
-                    </>
-                  )}
+                  <View style={styles.moodChip}>
+                    <Text style={styles.moodChipText}>{contextMeta}</Text>
+                  </View>
+                </View>
+              );
+            }
+
+            // For general notes, show plain text label only
+            const isGeneralNote =
+              item.kind === 'note' &&
+              !isJournal &&
+              !isIdea &&
+              (item.noteSubtype === 'catchall' ||
+                item.noteSubtype === 'general' ||
+                item.canonical_type === 'log' ||
+                !item.noteSubtype);
+
+            if (isGeneralNote && contextMeta) {
+              return (
+                <View style={styles.journalMetaRow}>
+                  <View style={styles.moodChip}>
+                    <Text style={styles.moodChipText}>{contextMeta}</Text>
+                  </View>
                 </View>
               );
             }
@@ -2242,6 +2252,7 @@ const RecentDrops: React.FC<{
             labels: Array.isArray(noteAny?.labels) ? noteAny.labels : [],
             views: noteAny?.views ?? {},
             hasPhotos: noteAny?.views?.has_photos === true,
+            mood: noteAny?.mood ?? null,
           };
         });
 
@@ -2616,6 +2627,7 @@ const RecentDrops: React.FC<{
               noteSubtype: record.subtype ?? 'catchall',
               archived: record.archived ?? false,
               hasPhotos: record.views?.has_photos === true,
+              mood: record.mood ?? null,
             };
 
             // Atomic replacement - no jolt
@@ -2679,6 +2691,7 @@ const RecentDrops: React.FC<{
             due_day: entity.due_day ?? null,
             due_time: entity.due_time ?? null,
             noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
+            mood: entityType === 'note' ? (entity.mood ?? null) : undefined,
           };
 
           replacePendingWithReal(dropId, realItem);

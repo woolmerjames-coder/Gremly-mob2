@@ -57,7 +57,7 @@ it.skip('preserves text when switching types (non-destructive)', async () => {
   );
 
   // back to Log; text still present
-  fireEvent.press(getByText('Log'));
+  fireEvent.press(getByText('Note'));
   await waitFor(() =>
     expect(getByPlaceholderText('Drop your thought…').props.value).toContain('Alpha'),
   );

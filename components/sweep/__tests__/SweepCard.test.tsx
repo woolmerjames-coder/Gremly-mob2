@@ -279,7 +279,7 @@ describe('SweepCard', () => {
       expect(getByText('Todo')).toBeTruthy();
     });
 
-    it('shows "Log" chip for note candidates', () => {
+    it('shows "Note" chip for note candidates', () => {
       const { getByText } = render(
         <SweepCard
           candidate={mockNoteCandidate}
@@ -287,10 +287,10 @@ describe('SweepCard', () => {
           {...defaultProps}
         />,
       );
-      expect(getByText('Log')).toBeTruthy();
+      expect(getByText('Note')).toBeTruthy();
     });
 
-    it('shows "Log" chip for journal/log candidates', () => {
+    it('shows "Note" chip for journal/log candidates', () => {
       const { getByText } = render(
         <SweepCard
           candidate={mockLogCandidate}
@@ -298,7 +298,7 @@ describe('SweepCard', () => {
           {...defaultProps}
         />,
       );
-      expect(getByText('Log')).toBeTruthy();
+      expect(getByText('Note')).toBeTruthy();
     });
   });
 

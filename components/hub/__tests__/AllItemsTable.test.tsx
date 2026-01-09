@@ -223,7 +223,7 @@ describe('AllItemsTable', () => {
 
       const { getByText, queryByText } = render(<AllItemsTable onItemPress={jest.fn()} />);
 
-      fireEvent.press(getByText('Logs'));
+      fireEvent.press(getByText('Notes'));
 
       expect(queryByText('Todo 1')).toBeNull();
       expect(getByText('Note 1')).toBeTruthy();
