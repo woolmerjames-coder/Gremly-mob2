@@ -1736,10 +1736,15 @@ const AnimatedMindDropCard: React.FC<{
             const hasMoods = isJournal && item.mood && item.mood.length > 0;
 
             // For idea entries, show plain text label with up to 2 tags
+            // Filter out redundant "idea"/"ideas" tags since we already show "Idea" label
             const isIdea =
               item.kind === 'note' &&
               (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
-            const displayTags = isIdea ? getDisplayTagsForRecentDrop(item).slice(0, 2) : [];
+            const displayTags = isIdea
+              ? getDisplayTagsForRecentDrop(item)
+                  .filter((tag) => tag.toLowerCase() !== 'idea' && tag.toLowerCase() !== 'ideas')
+                  .slice(0, 2)
+              : [];
             const hasDisplayTags = displayTags.length > 0;
 
             if (isJournal && contextMeta) {
