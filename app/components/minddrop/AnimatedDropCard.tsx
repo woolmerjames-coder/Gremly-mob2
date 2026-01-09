@@ -9,7 +9,7 @@
  * 5. Tags/meta fade in last with stagger
  */
 
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { View, Pressable, StyleSheet, Text as RNText } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -28,6 +28,11 @@ import { Clock, Camera, Lock } from 'lucide-react-native';
 
 import { getDateService } from '../../../lib/date';
 import { ShimmerPlaceholder } from './ShimmerPlaceholder';
+import { MultiSplitModal } from './MultiSplitModal';
+import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { useRepo } from '../../../providers/RepoProvider';
+import { runPhase2Streaming } from '../../../lib/minddrop/phase2';
+import type { MultiDropItem, MindDropBucket, LogSubtype } from '../../../lib/minddrop/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -48,6 +53,17 @@ export interface AnimatedDropCardItem {
   isPending?: boolean; // True while waiting for AI
   isEnriched?: boolean; // True when AI enrichment complete
   createdAt?: string;
+  space_id?: string | null; // Associated space
+  // Multi-entity support
+  is_multi?: boolean; // True if this drop contains multiple items
+  multi_items?: MultiDropItem[]; // Array of parsed items from multi-entity drop
+  multi_summary_title?: string; // Combined title like "Groceries + Running Habit"
+  views?: {
+    is_multi?: boolean;
+    multi_items?: MultiDropItem[];
+    multi_summary_title?: string;
+    [key: string]: unknown;
+  }; // View flags
 }
 
 interface AnimatedDropCardProps {
@@ -229,20 +245,193 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
 
     // ─────────────────────────────────────────────────────────────────────────
     // Display title: AI title if ready, otherwise truncated raw text
+    // For multi-entity drops, use the summary title
     // ─────────────────────────────────────────────────────────────────────────
 
+    // Check for multi-entity drops (flag may be at top level or in views)
+    const isMulti = item.is_multi === true || item.views?.is_multi === true;
+
+    // Multi-entity modal visibility state
+    const [multiModalVisible, setMultiModalVisible] = useState(false);
+
+    // Repo for Phase 2 enrichment
+    const repo = useRepo();
+
+    // Store methods for multi-entity actions
+    const updateNote = useGremlyStore((s) => s.updateNote);
+    const createTodo = useGremlyStore((s) => s.createTodo);
+    const createHabit = useGremlyStore((s) => s.createHabit);
+    const createNote = useGremlyStore((s) => s.createNote);
+    const archiveNote = useGremlyStore((s) => s.archiveNote);
+
+    // Handle keeping multi-drop as a single note
+    const handleKeepAsNote = useCallback(async () => {
+      // Close the modal
+      setMultiModalVisible(false);
+
+      // Update the note to remove multi status - it becomes a regular note
+      try {
+        await updateNote(item.id, {
+          views: {
+            ...item.views,
+            is_multi: false,
+            minddrop_stage: 'classified',
+            // Clear multi-specific fields
+            multi_items: undefined,
+            multi_summary_title: undefined,
+          },
+        } as any);
+        console.log('[AnimatedDropCard] Kept multi-drop as note:', item.id);
+      } catch (error) {
+        console.error('[AnimatedDropCard] Failed to update note:', error);
+      }
+    }, [item.id, item.views, updateNote]);
+
+    // Handle splitting multi-drop into individual entities
+    const handleSplitSelected = useCallback(
+      async (selectedItems: MultiDropItem[]) => {
+        setMultiModalVisible(false);
+
+        console.log('[AnimatedDropCard] Splitting multi-drop into', selectedItems.length, 'items');
+
+        try {
+          for (const splitItem of selectedItems) {
+            let newEntity: { id: string } | null = null;
+            const bucket: MindDropBucket = splitItem.bucket;
+            const subtype: LogSubtype | null = splitItem.subtype;
+
+            if (splitItem.bucket === 'todo') {
+              newEntity = await createTodo({
+                name: splitItem.preview_title || splitItem.text,
+                body: splitItem.text,
+                space_id: item.space_id ?? null,
+                origin: 'catchall',
+                views: {
+                  minddrop_stage: 'classified',
+                  ai_pending: true,
+                  origin: 'multi_split',
+                  source_drop_id: item.id,
+                },
+              } as any);
+            } else if (splitItem.bucket === 'habit') {
+              newEntity = await createHabit({
+                name: splitItem.preview_title || splitItem.text,
+                title: splitItem.preview_title || splitItem.text,
+                notes: splitItem.text,
+                frequency: 'daily',
+                subtype: splitItem.habitSubtype || 'start_habit',
+                space_id: item.space_id ?? null,
+                origin: 'catchall',
+                views: {
+                  minddrop_stage: 'classified',
+                  ai_pending: true,
+                  origin: 'multi_split',
+                  source_drop_id: item.id,
+                },
+              } as any);
+            } else {
+              // log bucket -> note
+              const noteSubtype =
+                splitItem.subtype === 'journal'
+                  ? 'journal'
+                  : splitItem.subtype === 'idea'
+                    ? 'idea'
+                    : 'catchall';
+              newEntity = await createNote({
+                title: splitItem.preview_title || splitItem.text,
+                body: splitItem.text,
+                subtype: noteSubtype,
+                space_id: item.space_id ?? null,
+                origin: 'catchall',
+                views: {
+                  minddrop_stage: 'classified',
+                  ai_pending: true,
+                  origin: 'multi_split',
+                  source_drop_id: item.id,
+                },
+              } as any);
+            }
+
+            // Trigger Phase 2 enrichment for the new entity (runs in background)
+            if (newEntity?.id) {
+              runPhase2Streaming(
+                newEntity.id,
+                splitItem.text,
+                bucket,
+                subtype,
+                repo,
+                (field, value) => {
+                  console.log(`[AnimatedDropCard:Phase2:${newEntity!.id}] ${field}:`, value);
+                },
+              )
+                .then((enrichment) => {
+                  if (enrichment) {
+                    console.log('[AnimatedDropCard:Phase2] Enrichment complete', {
+                      entityId: newEntity!.id,
+                      smartTitle: enrichment.smart_title?.substring(0, 30),
+                    });
+                  }
+                })
+                .catch((err) => {
+                  console.warn('[AnimatedDropCard:Phase2] Enrichment failed', err);
+                });
+            }
+          }
+
+          // Archive the original multi-drop note
+          await archiveNote(item.id, 'converted');
+          console.log('[AnimatedDropCard] Split complete, archived original:', item.id);
+        } catch (error) {
+          console.error('[AnimatedDropCard] Failed to split multi-drop:', error);
+        }
+      },
+      [item.id, item.space_id, createTodo, createHabit, createNote, archiveNote, repo],
+    );
+
     const displayTitle = useMemo(() => {
+      // Multi-entity drops use summary title
+      if (isMulti) {
+        return (
+          item.multi_summary_title ||
+          item.views?.multi_summary_title ||
+          item.title ||
+          'Multiple Items'
+        );
+      }
+      // Single-entity: AI title if ready, otherwise truncated raw text
       if (isAITitleReady && item.title) {
         return item.title;
       }
       return truncateText(item.text, 50);
-    }, [isAITitleReady, item.title, item.text]);
+    }, [
+      isMulti,
+      item.multi_summary_title,
+      item.views?.multi_summary_title,
+      isAITitleReady,
+      item.title,
+      item.text,
+    ]);
 
     // Stagger delay based on index (for multiple cards appearing at once)
     const staggerDelay = index * 80;
 
-    // Kind badge label
-    const kindLabel = item.kind === 'todo' ? 'Todo' : item.kind === 'habit' ? 'Habit' : 'Note';
+    // Kind badge label - Multi takes precedence
+    const kindLabel = isMulti
+      ? 'Multi'
+      : item.kind === 'todo'
+        ? 'Todo'
+        : item.kind === 'habit'
+          ? 'Habit'
+          : 'Note';
+
+    // Handle card press - open multi-split modal for multi-entity drops
+    const handleCardPress = () => {
+      if (isMulti) {
+        setMultiModalVisible(true);
+        return; // Don't run normal press behavior
+      }
+      onPress(); // Normal behavior for single-entity drops
+    };
 
     return (
       <Animated.View
@@ -253,7 +442,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
         <Pressable
           testID={`minddrop-card-${item.id}`}
           style={parentStyles.recentCard}
-          onPress={onPress}
+          onPress={handleCardPress}
           accessibilityRole="button"
           accessibilityLabel={`Edit ${displayTitle}`}
         >
@@ -271,14 +460,22 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
             </Animated.Text>
             <View style={parentStyles.recentTopRight}>
               {item.kind === 'note' && item.isPrivate && <Lock size={12} color="#777" />}
-              <RNText style={[parentStyles.recentCategoryPill, parentStyles[badgeStyleKey]]}>
+              <RNText
+                style={[
+                  parentStyles.recentCategoryPill,
+                  parentStyles[badgeStyleKey],
+                  isMulti && localStyles.multiBadge,
+                ]}
+              >
                 {kindLabel}
               </RNText>
             </View>
           </View>
 
           {/* Row 2: Confirmation message or skeleton */}
-          {item.confirmationMessage ? (
+          {isMulti ? (
+            <RNText style={localStyles.multiHint}>Tap to decide what to do</RNText>
+          ) : item.confirmationMessage ? (
             <Animated.View style={confirmationStyle}>
               <TypewriterText
                 text={item.confirmationMessage}
@@ -332,6 +529,18 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
             </View>
           </Animated.View>
         </Pressable>
+
+        {/* Multi-entity split modal */}
+        <MultiSplitModal
+          visible={multiModalVisible}
+          items={item.multi_items || item.views?.multi_items || []}
+          summaryTitle={
+            item.multi_summary_title || item.views?.multi_summary_title || 'Multiple Items'
+          }
+          onClose={() => setMultiModalVisible(false)}
+          onKeepAsNote={handleKeepAsNote}
+          onSplitSelected={handleSplitSelected}
+        />
       </Animated.View>
     );
   },
@@ -414,6 +623,18 @@ const localStyles = StyleSheet.create({
     fontSize: 11,
     color: '#2E5540',
     fontFamily: 'Inter-Regular',
+  },
+  // Multi-entity badge style
+  multiBadge: {
+    backgroundColor: 'rgba(156, 166, 224, 0.15)', // periwinkle at 15% opacity
+    color: '#7B86C9', // darker periwinkle for legibility
+  },
+  // Multi-entity hint text
+  multiHint: {
+    fontSize: 13,
+    color: '#9CA6E0', // periwinkle
+    fontFamily: 'Inter-Regular',
+    fontStyle: 'italic',
   },
 });
 
