@@ -3056,11 +3056,118 @@ const RecentDrops: React.FC<{
         const noteToUpdate = items.find((item) => item.id === noteId);
         if (!noteToUpdate) return;
 
+        const dominantBucket = noteToUpdate.views?.dominant_bucket;
+        const dominantSubtype = noteToUpdate.views?.dominant_subtype;
+        const originalText = noteToUpdate.text || noteToUpdate.title || '';
+        const spaceId = noteToUpdate.views?.space_id ?? null;
+
+        // If dominant_bucket is todo or habit, convert to that type instead of keeping as note
+        if (dominantBucket === 'todo') {
+          // Create a todo from this note
+          const newTodo = await createTodo({
+            name: noteToUpdate.title || originalText,
+            body: originalText,
+            space_id: spaceId,
+            origin: 'catchall',
+            views: {
+              minddrop_stage: 'classified',
+              ai_pending: true,
+              origin: 'multi_kept_together',
+            },
+          } as any);
+
+          if (newTodo?.id) {
+            // Archive the original note
+            await archiveNote(noteId, 'converted_to_todo');
+
+            // Update local state: remove note, add todo
+            setItems((prev) => {
+              const withoutOriginal = prev.filter((item) => item.id !== noteId);
+              const newItem: UnifiedDrop = {
+                id: newTodo.id,
+                kind: 'todo',
+                title: noteToUpdate.title || originalText,
+                text: originalText,
+                created_at: new Date().toISOString(),
+                tags: [],
+                views: { minddrop_stage: 'classified', ai_pending: true },
+                labels: [],
+              };
+              return [newItem, ...withoutOriginal];
+            });
+
+            // Run Phase 2 enrichment
+            runPhase2Streaming(newTodo.id, originalText, 'todo', null, repo, (field, value) => {
+              console.log(`[RecentDrops:Phase2:${newTodo.id}] ${field}:`, value);
+            }).catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
+
+            console.log('[RecentDrops] Converted multi-drop to todo:', newTodo.id);
+          }
+          return;
+        }
+
+        if (dominantBucket === 'habit') {
+          // Create a habit from this note
+          const newHabit = await createHabit({
+            name: noteToUpdate.title || originalText,
+            title: noteToUpdate.title || originalText,
+            notes: originalText,
+            frequency: 'daily',
+            subtype: 'start_habit',
+            space_id: spaceId,
+            origin: 'catchall',
+            views: {
+              minddrop_stage: 'classified',
+              ai_pending: true,
+              origin: 'multi_kept_together',
+            },
+          } as any);
+
+          if (newHabit?.id) {
+            // Archive the original note
+            await archiveNote(noteId, 'converted_to_habit');
+
+            // Update local state: remove note, add habit
+            setItems((prev) => {
+              const withoutOriginal = prev.filter((item) => item.id !== noteId);
+              const newItem: UnifiedDrop = {
+                id: newHabit.id,
+                kind: 'habit',
+                title: noteToUpdate.title || originalText,
+                text: originalText,
+                created_at: new Date().toISOString(),
+                tags: [],
+                views: { minddrop_stage: 'classified', ai_pending: true },
+                labels: [],
+              };
+              return [newItem, ...withoutOriginal];
+            });
+
+            // Run Phase 2 enrichment
+            runPhase2Streaming(newHabit.id, originalText, 'habit', null, repo, (field, value) => {
+              console.log(`[RecentDrops:Phase2:${newHabit.id}] ${field}:`, value);
+            }).catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
+
+            console.log('[RecentDrops] Converted multi-drop to habit:', newHabit.id);
+          }
+          return;
+        }
+
+        // Default: keep as note (log bucket)
+        const noteSubtype =
+          dominantSubtype === 'journal'
+            ? 'journal'
+            : dominantSubtype === 'idea'
+              ? 'idea'
+              : 'catchall';
+
         await updateNote(noteId, {
+          subtype: noteSubtype,
           views: {
             ...noteToUpdate.views,
             is_multi: false,
             minddrop_stage: 'classified',
+            ai_pending: true,
             multi_items: undefined,
             multi_summary_title: undefined,
           },
@@ -3073,24 +3180,51 @@ const RecentDrops: React.FC<{
               ? {
                   ...item,
                   is_multi: false,
-                  views: { ...item.views, is_multi: false, minddrop_stage: 'classified' },
+                  noteSubtype: noteSubtype,
+                  views: {
+                    ...item.views,
+                    is_multi: false,
+                    minddrop_stage: 'classified',
+                    ai_pending: true,
+                  },
                 }
               : item,
           ),
         );
 
-        console.log('[RecentDrops] Kept multi-drop as note:', noteId);
+        // Run Phase 2 enrichment for the note
+        runPhase2Streaming(
+          noteId,
+          originalText,
+          'log',
+          dominantSubtype || 'general',
+          repo,
+          (field, value) => {
+            console.log(`[RecentDrops:Phase2:${noteId}] ${field}:`, value);
+          },
+        ).catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
+
+        console.log('[RecentDrops] Kept multi-drop as note with subtype:', noteSubtype);
       } catch (err) {
         console.error('[RecentDrops] Failed to keep as note:', err);
       }
     },
-    [items, updateNote],
+    [items, updateNote, createTodo, createHabit, archiveNote, repo],
   );
 
   // Multi-entity: Split selected items handler
   const handleSplitSelected = React.useCallback(
     async (noteId: string, selectedItems: MultiDropItem[]) => {
       console.log('[RecentDrops] Splitting multi-drop into', selectedItems.length, 'items');
+      console.log(
+        '[RecentDrops] Split items detail:',
+        selectedItems.map((item) => ({
+          text: item.text.substring(0, 30),
+          bucket: item.bucket,
+          subtype: item.subtype,
+          habitSubtype: item.habitSubtype,
+        })),
+      );
       const noteToSplit = items.find((item) => item.id === noteId);
       const spaceId = noteToSplit?.views?.space_id ?? null;
       const now = Date.now();

@@ -50,9 +50,11 @@ const readSupabaseAnonKey = (): string => {
 
 interface DetectMultiResult {
   is_multi: boolean;
-  segments?: Array<{ text: string; likely_bucket: string }>;
+  segments?: Array<{ text: string; likely_bucket: string; likely_subtype?: string }>;
   summary?: string;
   confidence?: number;
+  dominant_bucket?: string; // Most common bucket type across segments
+  dominant_subtype?: string; // Subtype hint for log bucket (journal, idea, general)
 }
 
 /**
@@ -91,6 +93,9 @@ async function detectMulti(text: string): Promise<DetectMultiResult> {
       is_multi: result.is_multi,
       segmentCount: result.segments?.length,
       summary: result.summary,
+      segments: result.segments, // Log full segment data including likely_subtype
+      dominant_bucket: result.dominant_bucket,
+      dominant_subtype: result.dominant_subtype,
     });
     return result;
   } catch (err) {
@@ -317,6 +322,29 @@ export function useMindDropSubmit(): {
             summary: multiResult.summary,
           });
 
+          // Map segments to MultiDropItem format
+          // Fall back to dominant_subtype for log items that don't have per-segment likely_subtype
+          const multiItems = multiResult.segments.map((seg) => {
+            const bucket = seg.likely_bucket as MindDropBucket;
+            // For log bucket, use per-segment likely_subtype if available, else fall back to dominant_subtype
+            let subtype: LogSubtype | null = null;
+            if (bucket === 'log') {
+              subtype =
+                (seg.likely_subtype as LogSubtype) ||
+                (multiResult.dominant_subtype as LogSubtype) ||
+                'journal'; // Default to journal for emotional/log content
+            }
+            return {
+              text: seg.text,
+              bucket,
+              subtype,
+              habitSubtype: null,
+              preview_title: seg.text.substring(0, 40),
+            };
+          });
+
+          console.log('[MindDrop:Submit] Mapped multi_items:', multiItems);
+
           // Create as multi-entity note
           const entity = await createNote({
             title: multiResult.summary || effectiveText.substring(0, 50),
@@ -329,14 +357,11 @@ export function useMindDropSubmit(): {
               minddrop_stage: 'multi_pending',
               ai_pending: false,
               is_multi: true,
-              multi_items: multiResult.segments.map((seg) => ({
-                text: seg.text,
-                bucket: seg.likely_bucket as MindDropBucket,
-                subtype: null,
-                habitSubtype: null,
-                preview_title: seg.text.substring(0, 40),
-              })),
+              multi_items: multiItems,
               multi_summary_title: multiResult.summary,
+              dominant_bucket: multiResult.dominant_bucket || null,
+              dominant_subtype: multiResult.dominant_subtype || null,
+              space_id: resolvedSpaceId,
             },
           });
 
