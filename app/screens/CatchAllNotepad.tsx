@@ -2016,6 +2016,8 @@ const AnimatedMindDropCard: React.FC<{
           summaryTitle={
             item.multi_summary_title || item.views?.multi_summary_title || 'Multiple Items'
           }
+          dominantBucket={item.views?.dominant_bucket || null}
+          dominantSubtype={item.views?.dominant_subtype || null}
           onClose={() => setMultiModalVisible(false)}
           onKeepAsNote={handleKeepAsNote}
           onSplitSelected={handleSplitSelected}

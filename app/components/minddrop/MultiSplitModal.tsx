@@ -22,6 +22,8 @@ export interface MultiSplitModalProps {
   visible: boolean;
   items: MultiDropItem[];
   summaryTitle: string;
+  dominantBucket?: string | null;
+  dominantSubtype?: string | null;
   onClose: () => void;
   onKeepAsNote: () => void;
   onSplitSelected: (selectedItems: MultiDropItem[]) => void;
@@ -35,6 +37,8 @@ export function MultiSplitModal({
   visible,
   items,
   summaryTitle,
+  dominantBucket,
+  dominantSubtype,
   onClose,
   onKeepAsNote,
   onSplitSelected,
@@ -72,6 +76,14 @@ export function MultiSplitModal({
   }, [items, selectedIndices, onSplitSelected]);
 
   const selectedCount = selectedIndices.size;
+
+  const getKeepTogetherLabel = () => {
+    if (dominantBucket === 'todo') return 'One Task';
+    if (dominantBucket === 'habit') return 'One Habit';
+    if (dominantBucket === 'log' && dominantSubtype === 'journal') return 'Just Venting';
+    if (dominantBucket === 'log' && dominantSubtype === 'idea') return 'Just Brainstorming';
+    return 'One Item';
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -115,7 +127,7 @@ export function MultiSplitModal({
           {/* Action buttons */}
           <View style={styles.buttonRow}>
             <TouchableOpacity style={styles.secondaryButton} onPress={onKeepAsNote}>
-              <Text style={styles.secondaryButtonText}>Keep as Note</Text>
+              <Text style={styles.secondaryButtonText}>{getKeepTogetherLabel()}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.primaryButton, selectedCount === 0 && styles.buttonDisabled]}
