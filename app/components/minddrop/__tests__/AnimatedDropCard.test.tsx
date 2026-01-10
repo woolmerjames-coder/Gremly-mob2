@@ -26,6 +26,15 @@ jest.mock('../../../../providers/ThemeProvider', () => ({
   }),
 }));
 
+// Mock repo provider
+jest.mock('../../../../providers/RepoProvider', () => ({
+  useRepo: () => ({
+    update: jest.fn().mockResolvedValue(undefined),
+    archive: jest.fn().mockResolvedValue(undefined),
+    getById: jest.fn().mockResolvedValue(null),
+  }),
+}));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -281,6 +290,182 @@ describe('AnimatedDropCard', () => {
 
       // Should show truncated text with ellipsis
       expect(getByText(/This is a very long/)).toBeTruthy();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Multi-Entity Card Tests
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  describe('multi-entity cards', () => {
+    const multiItem = makeItem({
+      id: 'multi-test-1',
+      text: 'buy milk and start running habit',
+      title: 'Groceries + Running',
+      kind: 'note',
+      is_multi: true,
+      multi_items: [
+        {
+          text: 'buy milk',
+          bucket: 'todo',
+          subtype: null,
+          habitSubtype: null,
+          preview_title: 'Buy milk',
+        },
+        {
+          text: 'start running habit',
+          bucket: 'habit',
+          subtype: null,
+          habitSubtype: 'start_habit',
+          preview_title: 'Running habit',
+        },
+      ],
+      multi_summary_title: 'Groceries + Running',
+    });
+
+    it('renders multi-entity card', () => {
+      const onPress = jest.fn();
+
+      const { getByTestId } = render(
+        <AnimatedDropCard
+          item={multiItem}
+          index={0}
+          onPress={onPress}
+          styles={mockStyles}
+          badgeStyleKey="note"
+        />,
+      );
+
+      expect(getByTestId('minddrop-card-multi-test-1')).toBeTruthy();
+    });
+
+    it('renders multi summary title', () => {
+      const onPress = jest.fn();
+
+      const { getByText } = render(
+        <AnimatedDropCard
+          item={multiItem}
+          index={0}
+          onPress={onPress}
+          styles={mockStyles}
+          badgeStyleKey="note"
+        />,
+      );
+
+      expect(getByText('Groceries + Running')).toBeTruthy();
+    });
+
+    it('renders Multi badge for multi-entity items', () => {
+      const onPress = jest.fn();
+
+      const { getByText } = render(
+        <AnimatedDropCard
+          item={multiItem}
+          index={0}
+          onPress={onPress}
+          styles={mockStyles}
+          badgeStyleKey="note"
+        />,
+      );
+
+      expect(getByText('Multi')).toBeTruthy();
+    });
+
+    it('renders tap to decide text for multi-entity items', () => {
+      const onPress = jest.fn();
+
+      const { getByText } = render(
+        <AnimatedDropCard
+          item={multiItem}
+          index={0}
+          onPress={onPress}
+          styles={mockStyles}
+          badgeStyleKey="note"
+        />,
+      );
+
+      expect(getByText(/Tap to decide/)).toBeTruthy();
+    });
+
+    it('opens MultiSplitModal instead of calling onPress for multi items', () => {
+      const onPress = jest.fn();
+
+      const { getByTestId, queryByText } = render(
+        <AnimatedDropCard
+          item={multiItem}
+          index={0}
+          onPress={onPress}
+          styles={mockStyles}
+          badgeStyleKey="note"
+        />,
+      );
+
+      fireEvent.press(getByTestId('minddrop-card-multi-test-1'));
+
+      // For multi-entity cards, onPress should NOT be called
+      // Instead, the card opens the MultiSplitModal
+      expect(onPress).not.toHaveBeenCalled();
+    });
+
+    it('reads is_multi from views if not on top level', () => {
+      const itemWithViewsMulti = makeItem({
+        id: 'views-multi-1',
+        text: 'buy milk and exercise',
+        kind: 'note',
+        is_multi: undefined, // Not on top level
+        views: {
+          is_multi: true,
+          multi_items: [
+            {
+              text: 'buy milk',
+              bucket: 'todo',
+              subtype: null,
+              habitSubtype: null,
+              preview_title: 'Buy milk',
+            },
+          ],
+          multi_summary_title: 'Groceries + Exercise',
+        },
+      });
+
+      const onPress = jest.fn();
+
+      const { getByText } = render(
+        <AnimatedDropCard
+          item={itemWithViewsMulti}
+          index={0}
+          onPress={onPress}
+          styles={mockStyles}
+          badgeStyleKey="note"
+        />,
+      );
+
+      // Should detect multi from views
+      expect(getByText('Multi')).toBeTruthy();
+    });
+
+    it('renders single-entity card normally when is_multi is false', () => {
+      const singleItem = makeItem({
+        id: 'single-test-1',
+        text: 'buy milk',
+        kind: 'todo',
+        is_multi: false,
+      });
+
+      const onPress = jest.fn();
+
+      const { queryByText } = render(
+        <AnimatedDropCard
+          item={singleItem}
+          index={0}
+          onPress={onPress}
+          styles={mockStyles}
+          badgeStyleKey="todo"
+        />,
+      );
+
+      // Should NOT show Multi badge
+      expect(queryByText('Multi')).toBeNull();
     });
   });
 });
