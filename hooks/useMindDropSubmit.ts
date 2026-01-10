@@ -23,7 +23,7 @@ import { generateDropId } from '../lib/minddrop/ids';
 import { eventBus } from '../lib/events/EventBus';
 import { runPhase1 } from '../lib/minddrop/phase1';
 import { runPhase2, runPhase2Streaming } from '../lib/minddrop/phase2';
-import type { MindDropBucket, LogSubtype } from '../lib/minddrop/types';
+import type { MindDropBucket, LogSubtype, MultiDropItem } from '../lib/minddrop/types';
 import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
 import { setTestProbeEntityId } from '../lib/config/surfaceProbe';
@@ -322,26 +322,34 @@ export function useMindDropSubmit(): {
             summary: multiResult.summary,
           });
 
-          // Map segments to MultiDropItem format
-          // Fall back to dominant_subtype for log items that don't have per-segment likely_subtype
-          const multiItems = multiResult.segments.map((seg) => {
-            const bucket = seg.likely_bucket as MindDropBucket;
-            // For log bucket, use per-segment likely_subtype if available, else fall back to dominant_subtype
-            let subtype: LogSubtype | null = null;
-            if (bucket === 'log') {
-              subtype =
-                (seg.likely_subtype as LogSubtype) ||
-                (multiResult.dominant_subtype as LogSubtype) ||
-                'journal'; // Default to journal for emotional/log content
-            }
-            return {
-              text: seg.text,
-              bucket,
-              subtype,
-              habitSubtype: null,
-              preview_title: seg.text.substring(0, 40),
-            };
-          });
+          // Run Phase 1 classification on EACH segment for accurate bucket/subtype
+          // This ensures the preview card shows correct icons and split creates correct entity types
+          console.log('[MindDrop:Submit] Running Phase 1 on each segment...');
+
+          const classifiedSegments = await Promise.all(
+            multiResult.segments.map(async (seg) => {
+              const phase1 = await runPhase1(seg.text, { hasAttachments: false });
+              console.log(
+                `[MindDrop:Submit:Phase1] Segment "${seg.text.substring(0, 30)}..." → ${phase1.bucket}/${phase1.subtype}`,
+              );
+              return {
+                text: seg.text,
+                bucket: phase1.bucket,
+                subtype: phase1.subtype,
+                habitSubtype: phase1.habitSubtype,
+                confidence: phase1.confidence,
+              };
+            }),
+          );
+
+          // Map classified segments to MultiDropItem format
+          const multiItems: MultiDropItem[] = classifiedSegments.map((seg) => ({
+            text: seg.text,
+            bucket: seg.bucket,
+            subtype: seg.subtype,
+            habitSubtype: seg.habitSubtype,
+            preview_title: seg.text.substring(0, 40),
+          }));
 
           console.log('[MindDrop:Submit] Mapped multi_items:', multiItems);
 
