@@ -21,6 +21,7 @@ import {
   ActivityIndicator,
   Pressable,
   Animated,
+  Easing,
   TouchableOpacity,
   Image,
   Modal,
@@ -1095,8 +1096,22 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const [stats, setStats] = useState<SweepSummary>({ kept: 0, cleared: 0 });
 
   // Track age-up during sweep session
+  // Use both state (for UI) and refs (for async callbacks that need latest values)
   const [didAgeUp, setDidAgeUp] = useState(false);
   const [finalAge, setFinalAge] = useState(useGremlyStore.getState().gremlyAge);
+  const didAgeUpRef = useRef(false);
+  const finalAgeRef = useRef(useGremlyStore.getState().gremlyAge);
+
+  // Helper to update age-up state (both state and refs)
+  const updateAgeUpState = useCallback((aged: boolean, newAge: number) => {
+    if (aged) {
+      console.log('[Sweep] Age up! Setting didAgeUp=true, finalAge=', newAge);
+      setDidAgeUp(true);
+      setFinalAge(newAge);
+      didAgeUpRef.current = true;
+      finalAgeRef.current = newAge;
+    }
+  }, []);
 
   // Track decisions without committing them (allows back navigation)
   // Use both state (for UI re-renders) and ref (for immediate access in async operations)
@@ -1326,11 +1341,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       onFinished({
         ...summary,
         items: { todos, thoughts, habits },
-        didAgeUp,
-        finalAge,
+        didAgeUp: didAgeUpRef.current,
+        finalAge: finalAgeRef.current,
       });
     },
-    [commitAllDecisions, onFinished, didAgeUp, finalAge],
+    [commitAllDecisions, onFinished],
   );
 
   // Track the candidate ID currently being edited (for detecting overlay saves)
@@ -1547,10 +1562,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       .getState()
       .incrementSweepCount()
       .then(({ didAgeUp: aged, newAge }) => {
-        if (aged) {
-          setDidAgeUp(true);
-          setFinalAge(newAge);
-        }
+        updateAgeUpState(aged, newAge);
       })
       .catch((err) => {
         console.warn('[Sweep] Failed to increment sweep count:', err);
@@ -1589,10 +1601,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       .getState()
       .incrementSweepCount()
       .then(({ didAgeUp: aged, newAge }) => {
-        if (aged) {
-          setDidAgeUp(true);
-          setFinalAge(newAge);
-        }
+        updateAgeUpState(aged, newAge);
       })
       .catch((err) => {
         console.warn('[Sweep] Failed to increment sweep count:', err);
@@ -1709,10 +1718,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         .getState()
         .incrementSweepCount()
         .then(({ didAgeUp: aged, newAge }) => {
-          if (aged) {
-            setDidAgeUp(true);
-            setFinalAge(newAge);
-          }
+          updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
           console.warn('[Sweep] Failed to increment sweep count:', err);
@@ -1768,10 +1774,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         .getState()
         .incrementSweepCount()
         .then(({ didAgeUp: aged, newAge }) => {
-          if (aged) {
-            setDidAgeUp(true);
-            setFinalAge(newAge);
-          }
+          updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
           console.warn('[Sweep] Failed to increment sweep count:', err);
@@ -1822,10 +1825,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         .getState()
         .incrementSweepCount()
         .then(({ didAgeUp: aged, newAge }) => {
-          if (aged) {
-            setDidAgeUp(true);
-            setFinalAge(newAge);
-          }
+          updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
           console.warn('[Sweep] Failed to increment sweep count:', err);
@@ -1869,10 +1869,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         .getState()
         .incrementSweepCount()
         .then(({ didAgeUp: aged, newAge }) => {
-          if (aged) {
-            setDidAgeUp(true);
-            setFinalAge(newAge);
-          }
+          updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
           console.warn('[Sweep] Failed to increment sweep count:', err);
@@ -1934,10 +1931,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         .getState()
         .incrementSweepCount()
         .then(({ didAgeUp: aged, newAge }) => {
-          if (aged) {
-            setDidAgeUp(true);
-            setFinalAge(newAge);
-          }
+          updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
           console.warn('[Sweep] Failed to increment sweep count:', err);
@@ -2242,6 +2236,13 @@ function SweepSummaryStep({
   // Track which sections are expanded
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
+  // Animation values for age-up celebration (memoized to remain stable)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const scaleAnim = useMemo(() => new Animated.Value(didAgeUp ? 0.5 : 1), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const opacityAnim = useMemo(() => new Animated.Value(didAgeUp ? 0 : 1), []);
+  const glowAnim = useMemo(() => new Animated.Value(0), []);
+
   // Trigger haptic on mount
   useEffect(() => {
     if (didAgeUp) {
@@ -2250,6 +2251,49 @@ function SweepSummaryStep({
       triggerLight();
     }
   }, [didAgeUp]);
+
+  // Age-up animation
+  useEffect(() => {
+    if (didAgeUp) {
+      Animated.sequence([
+        Animated.delay(300), // pause for dramatic effect
+        Animated.parallel([
+          Animated.spring(scaleAnim, {
+            toValue: 1,
+            friction: 4,
+            tension: 40,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacityAnim, {
+            toValue: 1,
+            duration: 400,
+            useNativeDriver: true,
+          }),
+        ]),
+        // Glow pulse
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(glowAnim, {
+              toValue: 1,
+              duration: 800,
+              easing: Easing.inOut(Easing.ease),
+              useNativeDriver: false,
+            }),
+            Animated.timing(glowAnim, {
+              toValue: 0,
+              duration: 800,
+              easing: Easing.inOut(Easing.ease),
+              useNativeDriver: false,
+            }),
+          ]),
+          { iterations: 2 },
+        ),
+      ]).start();
+    } else {
+      scaleAnim.setValue(1);
+      opacityAnim.setValue(1);
+    }
+  }, [didAgeUp, scaleAnim, opacityAnim, glowAnim]);
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => {
@@ -2360,8 +2404,17 @@ function SweepSummaryStep({
           ) : (
             <Sprout size={24} color={BRAND.colors.mossGreen} />
           )}
-          <Text style={styles.ageCount}>{gremlyAge}</Text>
-          <Text style={styles.ageLabel}>{gremlyAge === 1 ? 'Day' : 'Days'}</Text>
+          <Animated.View
+            style={{
+              transform: [{ scale: scaleAnim }],
+              opacity: opacityAnim,
+            }}
+          >
+            <Text style={[styles.ageCount, didAgeUp && { color: BRAND.colors.mossGreen }]}>
+              {gremlyAge}
+            </Text>
+          </Animated.View>
+          <Text style={styles.ageLabel}>age</Text>
         </View>
 
         {/* Divider */}
@@ -3731,10 +3784,12 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: BRAND.colors.charcoalInk,
+    lineHeight: 36,
   },
   ageLabel: {
     fontSize: 17,
     color: BRAND.colors.inkMuted,
+    lineHeight: 24,
   },
   summaryDivider: {
     width: 80,

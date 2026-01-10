@@ -1286,13 +1286,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 15,
     fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
+    color: '#222222', // charcoalInk
     textAlign: 'center',
     marginBottom: 4,
   },
   emptySubtext: {
     fontSize: 14,
-    color: BRAND.colors.inkMuted,
+    color: '#666666', // inkMuted
     textAlign: 'center',
   },
   // Optimistic quick-add card styles (processing state)
