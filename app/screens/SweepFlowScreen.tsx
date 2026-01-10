@@ -1547,6 +1547,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Card Action Handlers (record decisions, don't commit immediately)
   // ─────────────────────────────────────────────────────────────────────────
   const handleSkip = useCallback(() => {
+    // Increment sweep count for ritual progress
+    useGremlyStore
+      .getState()
+      .incrementSweepCount()
+      .catch((err) => {
+        console.warn('[Sweep] Failed to increment sweep count:', err);
+      });
+
     // Clear conversion state if user is acting on converted card
     if (convertedCandidate) {
       setConvertedCandidate(null);
@@ -1575,6 +1583,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   }, [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete]);
 
   const handleClear = useCallback(() => {
+    // Increment sweep count for ritual progress
+    useGremlyStore
+      .getState()
+      .incrementSweepCount()
+      .catch((err) => {
+        console.warn('[Sweep] Failed to increment sweep count:', err);
+      });
+
     // Clear conversion state if user is acting on converted card
     if (convertedCandidate) {
       setConvertedCandidate(null);
@@ -1681,6 +1697,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmQuickDate = useCallback(
     (option: 'tomorrow' | 'nextweek') => {
+      // Increment sweep count for ritual progress
+      useGremlyStore
+        .getState()
+        .incrementSweepCount()
+        .catch((err) => {
+          console.warn('[Sweep] Failed to increment sweep count:', err);
+        });
+
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta) return;
       const { candidate } = candidateWithMeta;
@@ -1726,6 +1750,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmRemindLater = useCallback(
     (resurfaceDate: Date) => {
+      // Increment sweep count for ritual progress
+      useGremlyStore
+        .getState()
+        .incrementSweepCount()
+        .catch((err) => {
+          console.warn('[Sweep] Failed to increment sweep count:', err);
+        });
+
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta) return;
       const { candidate } = candidateWithMeta;
@@ -1766,6 +1798,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmCustomDate = useCallback(
     (date: Date) => {
+      // Increment sweep count for ritual progress
+      useGremlyStore
+        .getState()
+        .incrementSweepCount()
+        .catch((err) => {
+          console.warn('[Sweep] Failed to increment sweep count:', err);
+        });
+
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta) return;
       const { candidate } = candidateWithMeta;
@@ -1799,6 +1839,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleConfirmHabitStart = useCallback(
     (action: 'asktomorrow' | 'starttomorrow' | 'startmonday', customDate?: Date) => {
+      // Increment sweep count for ritual progress
+      useGremlyStore
+        .getState()
+        .incrementSweepCount()
+        .catch((err) => {
+          console.warn('[Sweep] Failed to increment sweep count:', err);
+        });
+
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'habit') return;
       const { candidate } = candidateWithMeta;
@@ -1850,6 +1898,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    */
   const handleAddToSpace = useCallback(
     async (spaceId: string) => {
+      // Increment sweep count for ritual progress
+      useGremlyStore
+        .getState()
+        .incrementSweepCount()
+        .catch((err) => {
+          console.warn('[Sweep] Failed to increment sweep count:', err);
+        });
+
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta) return;
       const candidate = candidateWithMeta.candidate;

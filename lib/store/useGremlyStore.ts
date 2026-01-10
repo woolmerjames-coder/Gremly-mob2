@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { supabase } from '../supabase/client';
+import { getRitualDay } from '../date/ritualDay';
 import type {
   Todo,
   Habit,
@@ -154,6 +155,25 @@ interface GremlyState {
   markMiniSweepCompleted: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // GREMLY AGE & RITUAL PROGRESS
+  // ═══════════════════════════════════════════════════════════════════
+  gremlyAge: number;
+  gremlyAgeLastIncrementedAt: string | null;
+  dayBoundaryHour: number;
+  onboardingCompletedAt: string | null;
+  todayRitualDay: string | null;
+  todayDropsCount: number;
+  todaySweepsCount: number;
+  todayRitualCompletedAt: string | null;
+
+  // Ritual actions
+  incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
+  incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
+  checkAndIncrementAge: () => Promise<{ didAgeUp: boolean; newAge: number }>;
+  setDayBoundaryHour: (hour: number) => Promise<void>;
+  refreshRitualProgress: () => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
   // ═══════════════════════════════════════════════════════════════════
   initialize: (userId: string) => Promise<void>;
@@ -297,6 +317,15 @@ const initialState = {
   sweepStreak: 0,
   totalSweepCount: 0,
   miniSweepLastCompletedAt: null as string | null,
+  // Gremly age & ritual progress
+  gremlyAge: 0,
+  gremlyAgeLastIncrementedAt: null as string | null,
+  dayBoundaryHour: 0,
+  onboardingCompletedAt: null as string | null,
+  todayRitualDay: null as string | null,
+  todayDropsCount: 0,
+  todaySweepsCount: 0,
+  todayRitualCompletedAt: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -338,6 +367,7 @@ export const useGremlyStore = create<GremlyState>()(
           dailyBriefRes,
           cortexPrefsRes,
           sweepEventsCountRes,
+          notificationPrefsRes,
         ] = await Promise.all([
           supabase.from('todos').select('*').eq('owner_id', userId),
           supabase.from('habits').select('*').eq('owner_id', userId),
@@ -357,10 +387,12 @@ export const useGremlyStore = create<GremlyState>()(
             .eq('owner_id', userId)
             .eq('date', getDateService().getCurrentDate())
             .maybeSingle(),
-          // Sweep preferences from cortex_preferences
+          // Sweep preferences + Gremly age from cortex_preferences
           supabase
             .from('cortex_preferences')
-            .select('last_sweep_completed_at, sweep_streak')
+            .select(
+              'last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at',
+            )
             .eq('owner_id', userId)
             .maybeSingle(),
           // Count total sweep_completed events
@@ -369,6 +401,12 @@ export const useGremlyStore = create<GremlyState>()(
             .select('*', { count: 'exact', head: true })
             .eq('owner_id', userId)
             .eq('kind', 'sweep_completed'),
+          // Notification preferences for timezone
+          supabase
+            .from('notification_preferences')
+            .select('timezone')
+            .eq('user_id', userId)
+            .maybeSingle(),
         ]);
 
         // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
@@ -392,6 +430,20 @@ export const useGremlyStore = create<GremlyState>()(
         // Extract sweep preferences (handle columns that may not exist in TypeScript types)
         const cortexPrefs = cortexPrefsRes.data as Record<string, unknown> | null;
 
+        // Compute ritual day based on user's day boundary and timezone
+        const dayBoundaryHour = (cortexPrefs?.day_boundary_hour as number) ?? 0;
+        const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const timezone = (notificationPrefsRes.data?.timezone as string) ?? detectedTimezone;
+        const ritualDay = getRitualDay(dayBoundaryHour, timezone);
+
+        // Fetch today's ritual progress
+        const { data: ritualProgress } = await supabase
+          .from('daily_ritual_progress')
+          .select('*')
+          .eq('owner_id', userId)
+          .eq('ritual_day', ritualDay)
+          .maybeSingle();
+
         set({
           // Add type field since DB doesn't store it
           todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
@@ -409,6 +461,17 @@ export const useGremlyStore = create<GremlyState>()(
           sweepStreak: (cortexPrefs?.sweep_streak as number) ?? 0,
           totalSweepCount: sweepEventsCountRes.count ?? 0,
           miniSweepLastCompletedAt: (cortexPrefs?.mini_sweep_last_completed_at as string) ?? null,
+          // Gremly age & ritual progress
+          gremlyAge: (cortexPrefs?.gremly_age as number) ?? 0,
+          gremlyAgeLastIncrementedAt:
+            (cortexPrefs?.gremly_age_last_incremented_at as string) ?? null,
+          dayBoundaryHour,
+          onboardingCompletedAt: (cortexPrefs?.onboarding_completed_at as string) ?? null,
+          todayRitualDay: ritualDay,
+          todayDropsCount: ritualProgress?.drops_count ?? 0,
+          todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
+          todayRitualCompletedAt: ritualProgress?.ritual_completed_at ?? null,
+          userTimezone: timezone,
           isLoading: false,
           isInitialized: true,
           lastSyncedAt: new Date(),
@@ -425,12 +488,13 @@ export const useGremlyStore = create<GremlyState>()(
           dailyBrief: dailyBriefRes.data?.id ?? 'none',
           sweepStreak: (cortexPrefs?.sweep_streak as number) ?? 0,
           totalSweepCount: sweepEventsCountRes.count ?? 0,
+          gremlyAge: (cortexPrefs?.gremly_age as number) ?? 0,
+          ritualDay,
+          todayDropsCount: ritualProgress?.drops_count ?? 0,
+          todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
         });
 
-        // Auto-detect timezone on initialize
-        const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        set({ userTimezone: detectedTimezone });
-        console.log('[GremlyStore] ✅ Detected timezone:', detectedTimezone);
+        console.log('[GremlyStore] ✅ Timezone:', timezone);
 
         // Subscribe to EventBus for bidirectional sync
         if (eventBusUnsubscribe) {
@@ -478,6 +542,15 @@ export const useGremlyStore = create<GremlyState>()(
         sweepStreak: 0,
         totalSweepCount: 0,
         miniSweepLastCompletedAt: null,
+        // Gremly age & ritual progress
+        gremlyAge: 0,
+        gremlyAgeLastIncrementedAt: null,
+        dayBoundaryHour: 0,
+        onboardingCompletedAt: null,
+        todayRitualDay: null,
+        todayDropsCount: 0,
+        todaySweepsCount: 0,
+        todayRitualCompletedAt: null,
       });
     },
 
@@ -516,6 +589,142 @@ export const useGremlyStore = create<GremlyState>()(
       // Update local state
       set({ miniSweepLastCompletedAt: now });
       console.log('[GremlyStore] Mini sweep marked completed at', now);
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // GREMLY AGE & RITUAL PROGRESS ACTIONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    incrementDropCount: async () => {
+      const { userId, dayBoundaryHour, userTimezone } = get();
+      if (!userId) return { dropsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
+
+      // Recompute ritual day in case it changed (crossed boundary)
+      const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
+
+      // Call Supabase RPC to increment
+      const { data, error } = await supabase.rpc('increment_drop_count', {
+        p_owner_id: userId,
+        p_ritual_day: currentRitualDay,
+      });
+
+      if (error) {
+        console.error('[GremlyStore] incrementDropCount failed:', error);
+        return { dropsCount: get().todayDropsCount, didAgeUp: false, newAge: get().gremlyAge };
+      }
+
+      const newDropsCount = data?.drops_count ?? get().todayDropsCount + 1;
+      set({ todayDropsCount: newDropsCount, todayRitualDay: currentRitualDay });
+
+      // Check if this completes the ritual
+      const ageResult = await get().checkAndIncrementAge();
+      return { dropsCount: newDropsCount, ...ageResult };
+    },
+
+    incrementSweepCount: async () => {
+      const { userId, dayBoundaryHour, userTimezone } = get();
+      if (!userId) return { sweepsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
+
+      const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
+
+      const { data, error } = await supabase.rpc('increment_sweep_count', {
+        p_owner_id: userId,
+        p_ritual_day: currentRitualDay,
+      });
+
+      if (error) {
+        console.error('[GremlyStore] incrementSweepCount failed:', error);
+        return { sweepsCount: get().todaySweepsCount, didAgeUp: false, newAge: get().gremlyAge };
+      }
+
+      const newSweepsCount = data?.sweeps_count ?? get().todaySweepsCount + 1;
+      set({ todaySweepsCount: newSweepsCount, todayRitualDay: currentRitualDay });
+
+      // Check if this completes the ritual
+      const ageResult = await get().checkAndIncrementAge();
+      return { sweepsCount: newSweepsCount, ...ageResult };
+    },
+
+    checkAndIncrementAge: async () => {
+      const { userId, dayBoundaryHour, userTimezone, todayRitualCompletedAt } = get();
+      if (!userId) return { didAgeUp: false, newAge: get().gremlyAge };
+
+      // Already completed today
+      if (todayRitualCompletedAt) {
+        return { didAgeUp: false, newAge: get().gremlyAge };
+      }
+
+      const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
+
+      const { data, error } = await supabase.rpc('check_and_increment_gremly_age', {
+        p_owner_id: userId,
+        p_ritual_day: currentRitualDay,
+      });
+
+      if (error) {
+        console.error('[GremlyStore] checkAndIncrementAge failed:', error);
+        return { didAgeUp: false, newAge: get().gremlyAge };
+      }
+
+      const result = data?.[0] ?? { did_age_up: false, new_age: get().gremlyAge };
+
+      if (result.did_age_up) {
+        set({
+          gremlyAge: result.new_age,
+          gremlyAgeLastIncrementedAt: new Date().toISOString(),
+          todayRitualCompletedAt: new Date().toISOString(),
+        });
+        console.log('[GremlyStore] Gremly aged up to', result.new_age);
+      }
+
+      return { didAgeUp: result.did_age_up, newAge: result.new_age };
+    },
+
+    setDayBoundaryHour: async (hour: number) => {
+      const userId = get().userId;
+      if (!userId) return;
+
+      const { error } = await supabase
+        .from('cortex_preferences')
+        .upsert(
+          { owner_id: userId, day_boundary_hour: hour, updated_at: new Date().toISOString() },
+          { onConflict: 'owner_id' },
+        );
+
+      if (error) {
+        console.error('[GremlyStore] setDayBoundaryHour failed:', error);
+        return;
+      }
+
+      set({ dayBoundaryHour: hour });
+
+      // Refresh ritual progress since the day boundary changed
+      await get().refreshRitualProgress();
+    },
+
+    refreshRitualProgress: async () => {
+      const { userId, dayBoundaryHour, userTimezone } = get();
+      if (!userId) return;
+
+      const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const ritualDay = getRitualDay(dayBoundaryHour, timezone);
+
+      const { data: ritualProgress } = await supabase
+        .from('daily_ritual_progress')
+        .select('*')
+        .eq('owner_id', userId)
+        .eq('ritual_day', ritualDay)
+        .maybeSingle();
+
+      set({
+        todayRitualDay: ritualDay,
+        todayDropsCount: ritualProgress?.drops_count ?? 0,
+        todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
+        todayRitualCompletedAt: ritualProgress?.ritual_completed_at ?? null,
+      });
     },
 
     // ═══════════════════════════════════════════════════════════════════
