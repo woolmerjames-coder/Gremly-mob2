@@ -41,6 +41,15 @@ jest.mock('../providers/AuthProvider', () => ({
   }),
 }));
 
+// Mock RepoProvider
+jest.mock('../providers/RepoProvider', () => ({
+  useRepo: () => ({
+    update: jest.fn().mockResolvedValue(undefined),
+    archive: jest.fn().mockResolvedValue(undefined),
+    getById: jest.fn().mockResolvedValue(null),
+  }),
+}));
+
 // Mock Zustand store selectors (RecentDrops now uses these instead of repo)
 import * as selectors from '../lib/store/selectors';
 const mockSelectRecentNotes = selectors.selectRecentNotes as unknown as jest.Mock;

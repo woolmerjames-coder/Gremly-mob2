@@ -5,9 +5,10 @@
  * Uses a 4-second timeout to ensure fast UX.
  *
  * v2.1 (2026-01-02): Added habitSubtype for build/break habit detection
+ * v2.2 (2026-01-08): Moved Phase1Result to types.ts, added multi-entity support
  */
 
-import type { MindDropBucket, LogSubtype } from './types';
+import type { MindDropBucket, LogSubtype, Phase1Result } from './types';
 import type { HabitSubtype } from '../types';
 import { heuristicClassify } from './heuristicClassify';
 import { FEATURE_FLAGS } from '../config/featureFlags';
@@ -15,14 +16,8 @@ import { env, getEnv } from '../env';
 
 // --- Types ---
 
-export interface Phase1Result {
-  bucket: MindDropBucket;
-  subtype: LogSubtype | null;
-  /** Habit subtype: 'start_habit' (build) or 'break_habit' (break) */
-  habitSubtype: HabitSubtype | null;
-  confidence: number;
-  source: 'heuristic' | 'api' | 'heuristic-confirmed' | 'heuristic-fallback';
-}
+// Phase1Result is now defined in ./types.ts
+export type { Phase1Result };
 
 export interface ClassifyContext {
   hasAttachments?: boolean;
@@ -87,6 +82,7 @@ export async function runPhase1(
         heuristic.bucket === 'habit' ? (heuristic.habitSubtypeHint ?? 'start_habit') : null,
       confidence: heuristic.confidence,
       source: 'heuristic',
+      is_multi: false,
     };
   }
 
@@ -123,11 +119,8 @@ export async function runPhase1(
       }
 
       const json = await res.json();
-      if (!json.ok && !json.bucket) {
-        console.log('[Phase1] API response missing bucket', { json });
-        return null;
-      }
-
+      // Don't validate bucket here - multi-entity responses won't have top-level bucket
+      // Validation happens after the multi-entity check below
       return json;
     } catch (err) {
       console.log('[Phase1] API error', { error: String(err) });
@@ -137,6 +130,8 @@ export async function runPhase1(
 
   // 3. Race API call against timeout
   const apiResult = await Promise.race([apiPromise, timeoutPromise]);
+
+  console.log('[Phase1:DEBUG] Raw API response:', JSON.stringify(apiResult, null, 2));
 
   // 4. If API failed or timed out, return heuristic fallback
   if (!apiResult) {
@@ -148,10 +143,44 @@ export async function runPhase1(
         heuristic.bucket === 'habit' ? (heuristic.habitSubtypeHint ?? 'start_habit') : null,
       confidence: heuristic.confidence,
       source: 'heuristic-fallback',
+      is_multi: false,
     };
   }
 
-  // 5. API succeeded - compare buckets
+  // 5. API succeeded - check for multi-entity response FIRST (no bucket at top level)
+  if (apiResult.is_multi === true && Array.isArray(apiResult.items) && apiResult.items.length > 1) {
+    console.log('[Phase1:Multi] Detected', {
+      item_count: apiResult.items.length,
+      summary: apiResult.summary_title,
+    });
+    return {
+      is_multi: true,
+      items: apiResult.items,
+      summary_title: apiResult.summary_title || '',
+      confidence: apiResult.confidence ?? 0.7,
+      source: apiResult.source || 'api',
+      // For backward compatibility, use first item's classification as primary
+      bucket: apiResult.items[0]?.bucket || 'log',
+      subtype: apiResult.items[0]?.subtype || null,
+      habitSubtype: apiResult.items[0]?.habitSubtype || null,
+    };
+  }
+
+  // 6. THEN check for missing bucket (single-item validation)
+  if (!apiResult.bucket) {
+    console.log('[Phase1] API response missing bucket', { json: apiResult });
+    return {
+      bucket: heuristic.bucket,
+      subtype: heuristic.bucket === 'log' ? (heuristic.subtypeHint ?? 'general') : null,
+      habitSubtype:
+        heuristic.bucket === 'habit' ? (heuristic.habitSubtypeHint ?? 'start_habit') : null,
+      confidence: heuristic.confidence,
+      source: 'heuristic-fallback',
+      is_multi: false,
+    };
+  }
+
+  // 7. Single-entity response - compare buckets
   const apiBucket = apiResult.bucket as MindDropBucket;
   const apiSubtype = apiResult.subtype as LogSubtype | null;
   const apiHabitSubtype = apiResult.habitSubtype as HabitSubtype | null;
@@ -198,5 +227,6 @@ export async function runPhase1(
     habitSubtype: finalHabitSubtype,
     confidence: apiConfidence,
     source,
+    is_multi: false,
   };
 }

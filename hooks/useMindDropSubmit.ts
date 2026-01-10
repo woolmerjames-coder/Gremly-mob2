@@ -23,13 +23,86 @@ import { generateDropId } from '../lib/minddrop/ids';
 import { eventBus } from '../lib/events/EventBus';
 import { runPhase1 } from '../lib/minddrop/phase1';
 import { runPhase2, runPhase2Streaming } from '../lib/minddrop/phase2';
-import type { MindDropBucket, LogSubtype } from '../lib/minddrop/types';
+import type { MindDropBucket, LogSubtype, MultiDropItem } from '../lib/minddrop/types';
 import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
 import { setTestProbeEntityId } from '../lib/config/surfaceProbe';
 import { QARunner } from '../src/qa/QARunner';
 import { checkAllInvariants } from '../lib/minddrop/invariants';
 import { buildTodoFields } from '../lib/cortex/textNormalization';
+import { env, getEnv } from '../lib/env';
+
+// --- Phase 0: Detect Multi ---
+
+const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
+
+const readCortexUrl = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
+  const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
+};
+
+const readSupabaseAnonKey = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+};
+
+interface DetectMultiResult {
+  is_multi: boolean;
+  segments?: Array<{ text: string; likely_bucket: string; likely_subtype?: string }>;
+  summary?: string;
+  confidence?: number;
+  dominant_bucket?: string; // Most common bucket type across segments
+  dominant_subtype?: string; // Subtype hint for log bucket (journal, idea, general)
+}
+
+/**
+ * Phase 0: Detect if the input contains multiple distinct items.
+ * Runs BEFORE Phase 1 to short-circuit multi-entity drops.
+ */
+async function detectMulti(text: string): Promise<DetectMultiResult> {
+  const cortexUrl = readCortexUrl();
+  const anonKey = readSupabaseAnonKey();
+
+  if (!cortexUrl || !anonKey) {
+    console.log('[Phase0:DetectMulti] Missing cortex URL or anon key, skipping');
+    return { is_multi: false };
+  }
+
+  try {
+    const response = await fetch(cortexUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({
+        type: 'detect-multi',
+        text,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn('[Phase0:DetectMulti] Request failed:', response.status);
+      return { is_multi: false };
+    }
+
+    const result = await response.json();
+    console.log('[Phase0:DetectMulti] Result:', {
+      is_multi: result.is_multi,
+      segmentCount: result.segments?.length,
+      summary: result.summary,
+      segments: result.segments, // Log full segment data including likely_subtype
+      dominant_bucket: result.dominant_bucket,
+      dominant_subtype: result.dominant_subtype,
+    });
+    return result;
+  } catch (err) {
+    console.warn('[Phase0:DetectMulti] Error:', err);
+    return { is_multi: false };
+  }
+}
 
 /**
  * Context for submitting a mind drop
@@ -239,6 +312,97 @@ export function useMindDropSubmit(): {
           testLogger.step('optimistic_added', { dropId, tempId });
         }
 
+        // Phase 0: Detect multi-entity drops BEFORE classification
+        // This short-circuits multi-drops to avoid running Phase 1 unnecessarily
+        const multiResult = await detectMulti(effectiveText);
+
+        if (multiResult.is_multi && multiResult.segments && multiResult.segments.length > 1) {
+          console.log('[MindDrop:Submit] Phase 0 detected multi-entity drop', {
+            segmentCount: multiResult.segments.length,
+            summary: multiResult.summary,
+          });
+
+          // Run Phase 1 classification on EACH segment for accurate bucket/subtype
+          // This ensures the preview card shows correct icons and split creates correct entity types
+          console.log('[MindDrop:Submit] Running Phase 1 on each segment...');
+
+          const classifiedSegments = await Promise.all(
+            multiResult.segments.map(async (seg) => {
+              const phase1 = await runPhase1(seg.text, { hasAttachments: false });
+              console.log(
+                `[MindDrop:Submit:Phase1] Segment "${seg.text.substring(0, 30)}..." → ${phase1.bucket}/${phase1.subtype}`,
+              );
+              return {
+                text: seg.text,
+                bucket: phase1.bucket,
+                subtype: phase1.subtype,
+                habitSubtype: phase1.habitSubtype,
+                confidence: phase1.confidence,
+              };
+            }),
+          );
+
+          // Map classified segments to MultiDropItem format
+          const multiItems: MultiDropItem[] = classifiedSegments.map((seg) => ({
+            text: seg.text,
+            bucket: seg.bucket,
+            subtype: seg.subtype,
+            habitSubtype: seg.habitSubtype,
+            preview_title: seg.text.substring(0, 40),
+          }));
+
+          console.log('[MindDrop:Submit] Mapped multi_items:', multiItems);
+
+          // Create as multi-entity note
+          const entity = await createNote({
+            title: multiResult.summary || effectiveText.substring(0, 50),
+            body: effectiveText,
+            subtype: 'catchall',
+            space_id: resolvedSpaceId,
+            drop_id: dropId,
+            origin: context.source === 'space' ? 'space_chat' : 'catchall',
+            views: {
+              minddrop_stage: 'multi_pending',
+              ai_pending: false,
+              is_multi: true,
+              multi_items: multiItems,
+              multi_summary_title: multiResult.summary,
+              dominant_bucket: multiResult.dominant_bucket || null,
+              dominant_subtype: multiResult.dominant_subtype || null,
+              space_id: resolvedSpaceId,
+            },
+          });
+
+          // Emit event for UI updates
+          eventBus.emit('entity:created', {
+            entity: { ...entity, drop_id: dropId },
+            type: 'note',
+            spaceId: resolvedSpaceId,
+          });
+
+          // Remove pending item
+          removePendingItem(dropId);
+
+          if (testEnabled) {
+            testLogger.step('phase0_multi_created', {
+              entityId: entity.id,
+              segmentCount: multiResult.segments.length,
+            });
+            testLogger.end(true);
+          }
+
+          submitLockRef.current = false;
+          setIsSubmitting(false);
+
+          return {
+            success: true,
+            dropId,
+            entityId: entity.id,
+            bucket: 'log', // Multi stored as note
+            confidence: multiResult.confidence,
+          };
+        }
+
         // Phase 1: Run classification (may confirm or correct heuristic)
         // Phase 1 runs synchronously, Phase 2 runs in background after entity is saved
         const phase1Result = await runPhase1(effectiveText, {
@@ -264,6 +428,72 @@ export function useMindDropSubmit(): {
             confidence: phase1Result.confidence,
             source: phase1Result.source,
           });
+        }
+
+        // Handle multi-entity drops separately
+        // Multi-drops are stored as notes with multi metadata
+        // User will decide what to do via the MultiSplitModal
+        if (phase1Result.is_multi === true && phase1Result.items && phase1Result.items.length > 1) {
+          console.log('[MindDrop:Submit] Multi-entity drop detected', {
+            itemCount: phase1Result.items.length,
+            summaryTitle: phase1Result.summary_title,
+          });
+
+          // Create a note to hold the multi-entity drop
+          const entity = await createNote({
+            title: phase1Result.summary_title || 'Multiple Items',
+            body: effectiveText,
+            subtype: 'catchall',
+            space_id: resolvedSpaceId,
+            drop_id: dropId,
+            origin: context.source === 'space' ? 'space_chat' : 'catchall',
+            views: {
+              minddrop_stage: 'multi_pending',
+              ai_pending: false,
+              is_multi: true,
+              multi_items: phase1Result.items,
+              multi_summary_title: phase1Result.summary_title,
+            },
+          });
+
+          // DEBUG: Log multi note creation
+          console.log('[DEBUG:MultiNoteCreate] Saved multi note', {
+            noteId: entity.id,
+            views_saved: {
+              is_multi: true,
+              multi_items: phase1Result.items?.length,
+              multi_summary_title: phase1Result.summary_title,
+            },
+          });
+
+          // Emit event for UI updates
+          eventBus.emit('entity:created', {
+            entity: { ...entity, drop_id: dropId },
+            type: 'note',
+            spaceId: resolvedSpaceId,
+          });
+
+          // Remove pending item
+          removePendingItem(dropId);
+
+          if (testEnabled) {
+            testLogger.step('multi_entity_created', {
+              entityId: entity.id,
+              itemCount: phase1Result.items.length,
+            });
+            testLogger.end(true);
+          }
+
+          submitLockRef.current = false;
+          setIsSubmitting(false);
+
+          return {
+            success: true,
+            dropId,
+            entityId: entity.id,
+            bucket: 'log', // Multi stored as note
+            confidence: phase1Result.confidence,
+          };
         }
 
         // Create entity using Phase 1 classification

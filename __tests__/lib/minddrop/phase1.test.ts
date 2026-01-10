@@ -264,4 +264,184 @@ describe('runPhase1', () => {
       expect(result.subtype).toBe('general');
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Multi-Entity Response Handling
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  describe('multi-entity response handling', () => {
+    test('returns is_multi: true when API returns multi-entity response', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            is_multi: true,
+            items: [
+              { text: 'buy milk', bucket: 'todo', subtype: null, preview_title: 'Buy milk' },
+              {
+                text: 'start running',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+                preview_title: 'Running habit',
+              },
+            ],
+            summary_title: 'Groceries + Running',
+            confidence: 0.85,
+          }),
+      });
+
+      const result = await runPhase1('buy milk and start running', {});
+
+      expect(result.is_multi).toBe(true);
+    });
+
+    test('returns items array from API response', async () => {
+      const mockItems = [
+        { text: 'buy milk', bucket: 'todo', subtype: null, preview_title: 'Buy milk' },
+        {
+          text: 'feeling anxious',
+          bucket: 'log',
+          subtype: 'journal',
+          preview_title: 'Anxiety reflection',
+        },
+      ];
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            is_multi: true,
+            items: mockItems,
+            summary_title: 'Task + Journal',
+            confidence: 0.9,
+          }),
+      });
+
+      const result = await runPhase1('buy milk and feeling anxious', {});
+
+      expect(result.items).toBeDefined();
+      expect(result.items).toHaveLength(2);
+      expect(result.items![0].text).toBe('buy milk');
+      expect(result.items![0].bucket).toBe('todo');
+      expect(result.items![1].text).toBe('feeling anxious');
+      expect(result.items![1].bucket).toBe('log');
+      expect(result.items![1].subtype).toBe('journal');
+    });
+
+    test('returns summary_title from API response', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            is_multi: true,
+            items: [
+              { text: 'buy milk', bucket: 'todo', preview_title: 'Buy milk' },
+              { text: 'exercise daily', bucket: 'habit', preview_title: 'Exercise' },
+            ],
+            summary_title: 'Groceries + Exercise Habit',
+            confidence: 0.88,
+          }),
+      });
+
+      const result = await runPhase1('buy milk and exercise daily', {});
+
+      expect(result.summary_title).toBe('Groceries + Exercise Habit');
+    });
+
+    test('falls back to first item bucket for backward compatibility', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            is_multi: true,
+            items: [
+              { text: 'buy milk', bucket: 'todo', subtype: null, preview_title: 'Buy milk' },
+              {
+                text: 'start running',
+                bucket: 'habit',
+                subtype: null,
+                preview_title: 'Running',
+              },
+            ],
+            summary_title: 'Multi items',
+            confidence: 0.85,
+          }),
+      });
+
+      const result = await runPhase1('buy milk and start running', {});
+
+      // For backward compatibility, bucket should be first item's bucket
+      expect(result.bucket).toBe('todo');
+    });
+
+    test('single-entity responses have is_multi: false', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            bucket: 'todo',
+            confidence: 0.9,
+            subtype: null,
+          }),
+      });
+
+      const result = await runPhase1('buy milk', {});
+
+      expect(result.is_multi).toBe(false);
+      expect(result.items).toBeUndefined();
+    });
+
+    test('heuristic fallback has is_multi: false', async () => {
+      // Mock fetch to hang forever (timeout)
+      mockFetch.mockImplementation(
+        () =>
+          new Promise(() => {
+            // Never resolves
+          }),
+      );
+
+      const resultPromise = runPhase1('buy milk', {});
+      jest.advanceTimersByTime(4500);
+
+      const result = await resultPromise;
+
+      expect(result.is_multi).toBe(false);
+      expect(result.source).toBe('heuristic-fallback');
+    });
+
+    test('handles multi-entity with habit subtypes', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            is_multi: true,
+            items: [
+              {
+                text: 'start meditating',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+                preview_title: 'Meditation habit',
+              },
+              {
+                text: 'stop smoking',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'break_habit',
+                preview_title: 'Quit smoking',
+              },
+            ],
+            summary_title: 'New habits',
+            confidence: 0.92,
+          }),
+      });
+
+      const result = await runPhase1('start meditating and stop smoking', {});
+
+      expect(result.is_multi).toBe(true);
+      expect(result.items![0].habitSubtype).toBe('start_habit');
+      expect(result.items![1].habitSubtype).toBe('break_habit');
+    });
+  });
 });

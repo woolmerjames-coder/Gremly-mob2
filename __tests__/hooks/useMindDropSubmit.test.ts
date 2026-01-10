@@ -225,3 +225,98 @@ describe('useMindDropSubmit', () => {
     expect(Object.keys(pendingItems).length).toBe(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-Entity Drop Tests
+// Note: detectMulti requires EXPO_PUBLIC_CORTEX_URL to be set.
+// Since it's an internal function, we test via heuristic classification fallbacks
+// and Phase 1 multi-entity detection paths.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('useMindDropSubmit - multi-entity fallbacks', () => {
+  beforeEach(() => {
+    useMindDropStore.getState().clearAll();
+    jest.clearAllMocks();
+
+    // Default mock implementations
+    mockCreateTodo.mockResolvedValue({ id: 'mock-todo-id', type: 'todo', name: 'test' });
+    mockCreateHabit.mockResolvedValue({ id: 'mock-habit-id', type: 'habit', name: 'test' });
+    mockCreateNote.mockResolvedValue({ id: 'mock-note-id', type: 'note', title: 'test' });
+  });
+
+  test('creates todo when multi-entity detection returns is_multi: false', async () => {
+    // Without CORTEX_URL set, detectMulti returns { is_multi: false }
+    // Flow proceeds through heuristic classification
+    const { result } = renderHook(() => useMindDropSubmit());
+
+    await act(async () => {
+      await result.current.submit('buy milk and groceries', {
+        source: 'minddrop',
+      });
+    });
+
+    // Falls back to heuristic which detects "buy" as todo
+    expect(mockCreateTodo).toHaveBeenCalledTimes(1);
+  });
+
+  test('creates habit when heuristic detects frequency pattern', async () => {
+    const { result } = renderHook(() => useMindDropSubmit());
+
+    await act(async () => {
+      await result.current.submit('exercise daily and drink water', {
+        source: 'minddrop',
+      });
+    });
+
+    // "daily" triggers habit classification
+    expect(mockCreateHabit).toHaveBeenCalledTimes(1);
+  });
+
+  test('creates note for ambiguous multi-concept input', async () => {
+    const { result } = renderHook(() => useMindDropSubmit());
+
+    await act(async () => {
+      await result.current.submit('interesting thought about life and philosophy', {
+        source: 'minddrop',
+      });
+    });
+
+    // No action keywords → falls to note
+    expect(mockCreateNote).toHaveBeenCalledTimes(1);
+  });
+
+  test('emits entity:created event for fallback classification', async () => {
+    const { result } = renderHook(() => useMindDropSubmit());
+
+    await act(async () => {
+      await result.current.submit('buy milk and bread', {
+        source: 'minddrop',
+      });
+    });
+
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      'entity:created',
+      expect.objectContaining({
+        type: 'todo',
+        entity: expect.objectContaining({
+          id: 'mock-todo-id',
+        }),
+      }),
+    );
+  });
+
+  test('returns success result for classified entity', async () => {
+    const { result } = renderHook(() => useMindDropSubmit());
+
+    let submitResult: any;
+    await act(async () => {
+      submitResult = await result.current.submit('buy milk', {
+        source: 'minddrop',
+      });
+    });
+
+    expect(submitResult.success).toBe(true);
+    expect(submitResult.bucket).toBe('todo');
+    expect(submitResult.entityId).toBe('mock-todo-id');
+  });
+});

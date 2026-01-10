@@ -60,7 +60,7 @@ export interface Habit {
   views?: {
     ai_pending?: boolean;
     ai_failed?: boolean;
-    minddrop_stage?: 'pending' | 'classified' | 'prefilled';
+    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -153,7 +153,7 @@ export interface Todo {
   views?: {
     ai_pending?: boolean;
     ai_failed?: boolean;
-    minddrop_stage?: 'pending' | 'classified' | 'prefilled';
+    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -215,7 +215,7 @@ export interface Note {
   views?: {
     ai_pending?: boolean;
     ai_failed?: boolean;
-    minddrop_stage?: 'pending' | 'classified' | 'prefilled';
+    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags

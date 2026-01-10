@@ -41,6 +41,15 @@ jest.mock('../lib/store/selectors', () => ({
   selectRecentHabits: jest.fn(() => []),
 }));
 
+// Mock RepoProvider
+jest.mock('../providers/RepoProvider', () => ({
+  useRepo: () => ({
+    update: jest.fn().mockResolvedValue(undefined),
+    archive: jest.fn().mockResolvedValue(undefined),
+    getById: jest.fn().mockResolvedValue(null),
+  }),
+}));
+
 jest.mock('../providers/ThemeProvider', () => ({
   useTheme: () => ({
     c: {
