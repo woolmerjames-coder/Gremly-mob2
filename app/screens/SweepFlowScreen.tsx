@@ -94,6 +94,7 @@ import {
 } from '../../lib/sweep/habitHelpers';
 import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
 import { ALL_MOODS, MOOD_CONFIG, getMoodsByCategory, type Mood } from '../../lib/shared/moods';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -155,7 +156,13 @@ const JOURNAL_PROMPTS = [
  * Shows the Gremly mascot and explains what the user will do.
  * Personalized copy based on sweep count and streak.
  */
-function SweepIntroStep({ onStart }: { onStart: () => void }) {
+function SweepIntroStep({
+  onStart,
+  onHelpPress,
+}: {
+  onStart: () => void;
+  onHelpPress?: () => void;
+}) {
   const { stats, isLoading } = useSweepIntroStats();
 
   const hasActivity =
@@ -237,13 +244,15 @@ function SweepIntroStep({ onStart }: { onStart: () => void }) {
 
         {/* 4. Mascot + Subtitle row - instructions right before action */}
         <View style={styles.introWelcomeRow}>
-          <Image
-            source={GREMLY_SWEEP_INTRO}
-            style={styles.introWelcomeMascot}
-            resizeMode="contain"
-            testID="sweep-intro-mascot"
-            accessibilityLabel="Gremly mascot with broom"
-          />
+          <Pressable onPress={onHelpPress} accessibilityLabel="Help">
+            <Image
+              source={GREMLY_SWEEP_INTRO}
+              style={styles.introWelcomeMascot}
+              resizeMode="contain"
+              testID="sweep-intro-mascot"
+              accessibilityLabel="Gremly mascot with broom"
+            />
+          </Pressable>
           <Text style={styles.introWelcomeSubcopy}>{subcopy}</Text>
         </View>
       </ScrollView>
@@ -2084,11 +2093,9 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     return (
       <View style={styles.stepContainer}>
         <View style={styles.decisionEmptyContainer}>
-          <Text variant="title" style={styles.decisionEmptyTitle}>
-            ✨
-          </Text>
-          <Text variant="body" style={styles.decisionEmptyText}>
-            Nothing to Sweep right now — you're all clear.
+          <Text style={styles.decisionEmptyPrimary}>Nothing to sweep!</Text>
+          <Text style={styles.decisionEmptySecondary}>
+            You're all caught up. Check back after you've dropped some thoughts.
           </Text>
         </View>
         <View style={styles.buttonContainer}>
@@ -2474,6 +2481,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Track Gremly age for summary display
   const [summaryGremlyAge, setSummaryGremlyAge] = useState(0);
   const [summaryDidAgeUp, setSummaryDidAgeUp] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   // DEV MODE: Sync step from route params when they change (for test mode jumping)
   // Using requestAnimationFrame to defer state updates and avoid cascading render warning
@@ -2759,7 +2767,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         >
           {step === 0 &&
             (__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep'),
-            (<SweepIntroStep onStart={handleIntroStart} />))}
+            (<SweepIntroStep onStart={handleIntroStart} onHelpPress={() => setShowHelp(true)} />))}
           {step === 0.5 && (
             <LockInCheckpointStep onContinue={handleLockInContinue} onClose={handleClose} />
           )}
@@ -2815,6 +2823,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           </View>
         </View>
       ) : null}
+
+      {/* Help Card */}
+      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="sweep" />
     </>
   );
 }
@@ -3623,14 +3634,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 48,
-  },
-  decisionEmptyTitle: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
-  decisionEmptyText: {
-    textAlign: 'center',
     paddingHorizontal: 24,
+  },
+  decisionEmptyPrimary: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  decisionEmptySecondary: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
   },
   decisionCardArea: {
     flex: 1,

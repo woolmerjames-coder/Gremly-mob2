@@ -141,6 +141,7 @@ import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import MascotIcon from '../../components/MascotIcon';
 import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import {
   filterAndNormalizeTags,
@@ -3506,9 +3507,16 @@ const RecentDrops: React.FC<{
           {loading ? (
             <Text style={styles.recentEmpty}>Loading…</Text>
           ) : items.length === 0 && pendingItems.length === 0 ? (
-            <Text style={styles.recentEmpty}>
-              {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
-            </Text>
+            <View style={styles.recentEmptyContainer}>
+              <Text style={styles.recentEmptyPrimary}>
+                {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
+              </Text>
+              {!showOlder && (
+                <Text style={styles.recentEmptySecondary}>
+                  What's on your mind? Drop it here — tasks, ideas, worries, anything.
+                </Text>
+              )}
+            </View>
           ) : (
             <AppScrollView
               contentContainerStyle={styles.recentScrollContent}
@@ -3966,6 +3974,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const [showRitualProgress, setShowRitualProgress] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -6800,12 +6809,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               <Text style={styles.ritualAgeNumber}>{gremlyAge}</Text>
               <Text style={styles.ritualAgeLabel}>age</Text>
             </Pressable>
-            <Image
-              source={GREMLY_TOP}
-              style={styles.headerMascot}
-              resizeMode="contain"
-              accessibilityIgnoresInvertColors
-            />
+            <Pressable onPress={() => setShowHelp(true)} accessibilityLabel="Help">
+              <Image
+                source={GREMLY_TOP}
+                style={styles.headerMascot}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
+            </Pressable>
             <View style={styles.titleImageWrapper}>
               <Image
                 ref={headerTitleRef}
@@ -7084,6 +7095,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         dropsCount={todayDropsCount}
         sweepsCount={todaySweepsCount}
       />
+
+      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="minddrop" />
 
       <Modal
         transparent
@@ -7862,6 +7875,24 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       paddingTop: 4,
       paddingBottom: 10,
+    },
+    recentEmptyContainer: {
+      alignItems: 'center',
+      paddingTop: 4,
+      paddingBottom: 10,
+    },
+    recentEmptyPrimary: {
+      fontSize: 14,
+      fontWeight: '400',
+      color: c.inkMuted,
+      textAlign: 'center',
+    },
+    recentEmptySecondary: {
+      fontSize: 13,
+      fontWeight: '400',
+      color: 'rgba(34, 34, 34, 0.45)',
+      textAlign: 'center',
+      marginTop: 2,
     },
     // Skeleton styles for pending state
     titleSkeletonContainer: {

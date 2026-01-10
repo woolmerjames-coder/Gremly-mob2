@@ -62,6 +62,8 @@ interface NowHeaderProps {
   onPressWeek?: () => void;
   /** Handler for Your Notes card press - opens YourNotesPopup */
   onNotesPress?: () => void;
+  /** Handler for mascot press - opens help */
+  onMascotPress?: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,6 +108,7 @@ export function NowHeader({
   onPressProgress,
   onPressWeek,
   onNotesPress,
+  onMascotPress,
 }: NowHeaderProps) {
   const styles = useStyles();
   const greeting = getTimeOfDayGreeting();
@@ -137,7 +140,9 @@ export function NowHeader({
           <View style={styles.headerDivider} />
         </View>
         <View style={styles.mascotColumn}>
-          <Image source={GREMLY_CLIPBOARD} style={styles.mascotImage} resizeMode="contain" />
+          <TouchableOpacity onPress={onMascotPress} activeOpacity={0.8} accessibilityLabel="Help">
+            <Image source={GREMLY_CLIPBOARD} style={styles.mascotImage} resizeMode="contain" />
+          </TouchableOpacity>
         </View>
       </View>
 

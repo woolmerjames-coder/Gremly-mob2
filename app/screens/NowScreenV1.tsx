@@ -38,6 +38,7 @@ import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
 import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { useDailyAppOpen } from '../../lib/today/hooks/useDailyAppOpen';
 // Store and selectors
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -489,6 +490,7 @@ export default function NowScreenV1() {
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
   const [isJournalVisible, setJournalVisible] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
 
   // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
@@ -678,6 +680,7 @@ export default function NowScreenV1() {
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
         onNotesPress={handleNotesPress}
+        onMascotPress={() => setShowHelp(true)}
       />
       <View style={styles.focusSectionHeader}>
         {/* Left: Section title only */}
@@ -835,6 +838,9 @@ export default function NowScreenV1() {
         onClose={() => setBriefSheetVisible(false)}
         onComplete={markTodayOpened}
       />
+
+      {/* Help Card */}
+      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="today" />
     </Screen>
   );
 }
@@ -1077,8 +1083,10 @@ function TodayFocusList({
 
       {hasNoItems && (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Nothing scheduled for today.</Text>
-          <Text style={styles.emptySubtext}>Enjoy a calmer day — or try a Sweep.</Text>
+          <Text style={styles.emptyText}>Nothing planned for today.</Text>
+          <Text style={styles.emptySubtext}>
+            Enjoy the calm, or add something from Mind Drop or Sweep.
+          </Text>
         </View>
       )}
 
@@ -1276,15 +1284,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#424242',
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#757575',
+    color: BRAND.colors.inkMuted,
     textAlign: 'center',
   },
   // Optimistic quick-add card styles (processing state)
