@@ -1583,6 +1583,36 @@ function getDisplayKindForChip(kind: 'note' | 'todo' | 'habit', _item: UnifiedDr
 }
 
 /**
+ * Pulsing animation hook for Gremly icon on multi-entity cards
+ */
+const useGremlyPulse = () => {
+  const pulseAnim = React.useMemo(() => new Animated.Value(1), []);
+
+  React.useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.15,
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [pulseAnim]);
+
+  return pulseAnim;
+};
+
+/**
  * Animated wrapper for Mind Drop card that smoothly transitions
  * from pending skeleton to final content when AI enrichment completes
  */
@@ -1621,6 +1651,9 @@ const AnimatedMindDropCard: React.FC<{
   // Check for multi-entity drops
   const isMulti = item.is_multi === true || item.views?.is_multi === true;
   const [multiModalVisible, setMultiModalVisible] = React.useState(false);
+
+  // Gremly pulse animation for multi-entity cards (always called, conditionally used)
+  const gremlyPulseScale = useGremlyPulse();
 
   // DEBUG: Log multi status
   if (item.kind === 'note') {
@@ -1739,7 +1772,7 @@ const AnimatedMindDropCard: React.FC<{
       <Pressable
         key={`${item.kind}:${item.id}`}
         testID={`minddrop-recent-${item.kind}-${item.id}`}
-        style={styles.recentCard}
+        style={[styles.recentCard, isMulti && { backgroundColor: '#F4F9F4' }]}
         onPress={handleCardPress}
         accessibilityRole="button"
         accessibilityLabel={
@@ -1776,9 +1809,21 @@ const AnimatedMindDropCard: React.FC<{
 
         {/* Row 2: Confirmation message or multi hint */}
         {isMulti ? (
-          <Text style={{ fontSize: 13, color: '#9CA6E0', fontStyle: 'italic' }}>
-            Tap to decide what to do
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+            <Animated.Image
+              source={require('../../assets/buttonforHP.png')}
+              style={{
+                width: 26,
+                height: 26,
+                marginRight: 8,
+                borderRadius: 13,
+                transform: [{ scale: gremlyPulseScale }],
+              }}
+            />
+            <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
+              Should I split these? Tap to decide.
+            </Text>
+          </View>
         ) : (
           (() => {
             const confirmationMsg = getConfirmationMessage(effectiveKind, item);
