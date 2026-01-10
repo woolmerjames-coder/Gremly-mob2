@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Image, StyleSheet, Dimensions } from 'react-native';
 import Animated, { SlideOutUp, Easing } from 'react-native-reanimated';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../providers/AuthProvider';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { Text } from '../ui';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -17,6 +18,7 @@ import RecentItems from '../app/(dev)/RecentItems';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import SweepFlowScreen from '../app/screens/SweepFlowScreen';
+import OnboardingScreen from '../app/screens/OnboardingScreen';
 import PersonDetailScreen from '../app/people/PersonDetailScreen';
 import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
@@ -26,6 +28,7 @@ import SweepTestScreen from '../app/screens/SweepTestScreen';
 
 export type RootStackParamList = {
   Login: undefined;
+  Onboarding: undefined;
   Tabs: undefined;
   DSPreview: undefined;
   DevLogin: undefined;
@@ -57,17 +60,35 @@ function LoadingScreen() {
 
 export default function RootNavigator() {
   const { user, loading } = useAuth();
+  const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
+  const isInitialized = useGremlyStore((s) => s.isInitialized);
 
-  if (loading) {
+  // Determine initial route based on onboarding status
+  const initialRouteName = useMemo(() => {
+    if (!onboardingCompletedAt) return 'Onboarding';
+    return 'Tabs';
+  }, [onboardingCompletedAt]);
+
+  // Show loading screen while auth or store is initializing
+  if (loading || (user && !isInitialized)) {
     return <LoadingScreen />;
   }
 
   return (
-    <Stack.Navigator>
+    <Stack.Navigator initialRouteName={user ? initialRouteName : 'Login'}>
       {!user ? (
         <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
       ) : (
         <>
+          <Stack.Screen
+            name="Onboarding"
+            component={OnboardingScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: false,
+              animation: 'fade',
+            }}
+          />
           <Stack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
           <Stack.Screen
             name="SpaceDetail"

@@ -171,6 +171,8 @@ interface GremlyState {
   incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
   checkAndIncrementAge: () => Promise<{ didAgeUp: boolean; newAge: number }>;
   setDayBoundaryHour: (hour: number) => Promise<void>;
+  setOnboardingCompletedAt: (timestamp: string) => Promise<void>;
+  markOnboardingComplete: () => Promise<void>;
   refreshRitualProgress: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
@@ -444,6 +446,32 @@ export const useGremlyStore = create<GremlyState>()(
           .eq('ritual_day', ritualDay)
           .maybeSingle();
 
+        // Existing users who have activity should skip onboarding
+        const hasExistingActivity =
+          (todosRes.data?.length ?? 0) > 0 ||
+          (habitsRes.data?.length ?? 0) > 0 ||
+          (notesRes.data?.length ?? 0) > 0;
+
+        const onboardingCompleted = (cortexPrefs?.onboarding_completed_at as string) ?? null;
+
+        // If user has activity but no onboarding timestamp, they're an existing user - auto-complete onboarding
+        let effectiveOnboardingCompleted = onboardingCompleted;
+        if (hasExistingActivity && !onboardingCompleted) {
+          effectiveOnboardingCompleted = new Date().toISOString();
+          // Fire and forget - update DB in background
+          supabase
+            .from('cortex_preferences')
+            .upsert(
+              {
+                owner_id: userId,
+                onboarding_completed_at: effectiveOnboardingCompleted,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'owner_id' },
+            )
+            .then(() => console.log('[GremlyStore] Auto-completed onboarding for existing user'));
+        }
+
         set({
           // Add type field since DB doesn't store it
           todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
@@ -466,7 +494,7 @@ export const useGremlyStore = create<GremlyState>()(
           gremlyAgeLastIncrementedAt:
             (cortexPrefs?.gremly_age_last_incremented_at as string) ?? null,
           dayBoundaryHour,
-          onboardingCompletedAt: (cortexPrefs?.onboarding_completed_at as string) ?? null,
+          onboardingCompletedAt: effectiveOnboardingCompleted,
           todayRitualDay: ritualDay,
           todayDropsCount: ritualProgress?.drops_count ?? 0,
           todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
@@ -703,6 +731,49 @@ export const useGremlyStore = create<GremlyState>()(
 
       // Refresh ritual progress since the day boundary changed
       await get().refreshRitualProgress();
+    },
+
+    setOnboardingCompletedAt: async (timestamp: string) => {
+      const userId = get().userId;
+      if (!userId) return;
+
+      const { error } = await supabase.from('cortex_preferences').upsert(
+        {
+          owner_id: userId,
+          onboarding_completed_at: timestamp,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'owner_id' },
+      );
+
+      if (error) {
+        console.error('[GremlyStore] setOnboardingCompletedAt failed:', error);
+        return;
+      }
+
+      set({ onboardingCompletedAt: timestamp });
+    },
+
+    markOnboardingComplete: async () => {
+      const userId = get().userId;
+      if (!userId) return;
+
+      const now = new Date().toISOString();
+
+      const { error } = await supabase
+        .from('cortex_preferences')
+        .upsert(
+          { owner_id: userId, onboarding_completed_at: now, updated_at: now },
+          { onConflict: 'owner_id' },
+        );
+
+      if (error) {
+        console.error('[GremlyStore] markOnboardingComplete failed:', error);
+        return;
+      }
+
+      set({ onboardingCompletedAt: now });
+      console.log('[GremlyStore] Onboarding marked complete');
     },
 
     refreshRitualProgress: async () => {

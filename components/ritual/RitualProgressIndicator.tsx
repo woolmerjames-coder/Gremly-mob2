@@ -22,6 +22,8 @@ interface RitualProgressIndicatorProps {
   gremlyAge: number;
   /** Use compact layout for smaller displays */
   compact?: boolean;
+  /** Hide the age text (when shown separately) */
+  hideAge?: boolean;
 }
 
 const REQUIRED_COUNT = 3;
@@ -68,13 +70,16 @@ export default function RitualProgressIndicator({
   sweepsCount,
   gremlyAge,
   compact = false,
+  hideAge = false,
 }: RitualProgressIndicatorProps) {
   return (
     <View style={[styles.container, compact && styles.containerCompact]}>
       {/* Age display */}
-      <Text style={[styles.ageText, compact && styles.ageTextCompact]}>
-        {gremlyAge} {gremlyAge === 1 ? 'Day' : 'Days'}
-      </Text>
+      {!hideAge && (
+        <Text style={[styles.ageText, compact && styles.ageTextCompact]}>
+          {gremlyAge} {gremlyAge === 1 ? 'Day' : 'Days'}
+        </Text>
+      )}
 
       {/* Progress row */}
       <View style={styles.progressRow}>

@@ -140,6 +140,7 @@ import GREMLY_TOP from '../../assets/mascot/gremly-mascot.png';
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import MascotIcon from '../../components/MascotIcon';
 import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
+import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import {
   filterAndNormalizeTags,
@@ -3964,6 +3965,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
+  const [showRitualProgress, setShowRitualProgress] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -6788,24 +6790,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ]}
           testID="minddrop-header"
         >
-          {/* Left group: Mascot + MindDrop title */}
+          {/* Left group: Age + Mascot + MindDrop title */}
           <View style={styles.headerLeftGroup}>
-            <View style={styles.mascotContainer}>
-              <Image
-                source={GREMLY_TOP}
-                style={styles.headerMascot}
-                resizeMode="contain"
-                accessibilityIgnoresInvertColors
-              />
-              <View style={styles.ritualProgressWrapper}>
-                <RitualProgressIndicator
-                  dropsCount={todayDropsCount}
-                  sweepsCount={todaySweepsCount}
-                  gremlyAge={gremlyAge}
-                  compact
-                />
-              </View>
-            </View>
+            {/* Tappable age display */}
+            <Pressable
+              onPress={() => setShowRitualProgress(true)}
+              style={styles.ritualAgePressable}
+            >
+              <Text style={styles.ritualAgeNumber}>{gremlyAge}</Text>
+              <Text style={styles.ritualAgeLabel}>age</Text>
+            </Pressable>
+            <Image
+              source={GREMLY_TOP}
+              style={styles.headerMascot}
+              resizeMode="contain"
+              accessibilityIgnoresInvertColors
+            />
             <View style={styles.titleImageWrapper}>
               <Image
                 ref={headerTitleRef}
@@ -6827,7 +6827,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             hitSlop={12}
             style={styles.logoutBtn}
           >
-            <LogOut size={20} color="#6A6F76" />
+            <LogOut size={18} color="#6A6F76" />
           </Pressable>
         </View>
 
@@ -7077,6 +7077,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         onDismiss={() => setShowAgeUpCelebration(false)}
       />
 
+      <RitualProgressPopover
+        visible={showRitualProgress}
+        onDismiss={() => setShowRitualProgress(false)}
+        gremlyAge={gremlyAge}
+        dropsCount={todayDropsCount}
+        sweepsCount={todaySweepsCount}
+      />
+
       <Modal
         transparent
         animationType="fade"
@@ -7179,7 +7187,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flexDirection: 'row',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
+      paddingHorizontal: 12,
       paddingBottom: 4,
       position: 'relative', // For absolute positioning of speech bubble
       // paddingTop is set dynamically via insets.top in the component
@@ -7187,30 +7195,38 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     headerLeftGroup: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginLeft: 20, // Shift group toward center
+      marginLeft: 0,
     },
-    mascotContainer: {
-      position: 'relative',
+    ritualAgePressable: {
       alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 8,
     },
-    ritualProgressWrapper: {
-      position: 'absolute',
-      bottom: -4,
-      left: 0,
-      right: 0,
-      alignItems: 'center',
+    ritualAgeNumber: {
+      fontSize: 24,
+      fontWeight: '700',
+      color: c.charcoalInk,
+      lineHeight: 28,
+    },
+    ritualAgeLabel: {
+      fontSize: 11,
+      fontWeight: '500',
+      color: c.inkMuted,
+      marginTop: -2,
     },
     logoutBtn: {
-      padding: 8,
-      marginTop: 4,
+      padding: 6,
+      marginTop: 0,
+      marginRight: 4,
     },
     headerMascot: {
       height: 64,
       width: 64,
-      marginRight: 8,
+      marginRight: 0,
     },
     titleImageWrapper: {
       position: 'relative',
+      marginLeft: 8,
     },
     headerTitleCenter: {
       height: 64,
@@ -7256,6 +7272,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: '#2E5540',
       lineHeight: 20,
       textAlign: 'center',
+      transform: [{ translateY: 4 }],
     },
 
     contextPrompt: {
