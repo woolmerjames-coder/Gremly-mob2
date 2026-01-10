@@ -3013,12 +3013,43 @@ const RecentDrops: React.FC<{
       },
     );
 
+    // Timeout mechanism for stuck cards - recover after 30 seconds
+    const stuckCardInterval = setInterval(() => {
+      const now = Date.now();
+      const STUCK_THRESHOLD_MS = 30000; // 30 seconds
+
+      setItems((prev) => {
+        let hasChanges = false;
+        const updated = prev.map((item) => {
+          const stage = item.views?.minddrop_stage;
+          if (stage === 'streaming' || stage === 'enriching' || stage === 'pending') {
+            const createdAt = new Date(item.created_at).getTime();
+            if (now - createdAt > STUCK_THRESHOLD_MS) {
+              console.warn('[RecentDrops] Recovering stuck card:', item.id, stage);
+              hasChanges = true;
+              return {
+                ...item,
+                views: {
+                  ...item.views,
+                  minddrop_stage: 'enriched',
+                  ai_pending: false,
+                },
+              };
+            }
+          }
+          return item;
+        });
+        return hasChanges ? updated : prev;
+      });
+    }, 10000); // Check every 10 seconds
+
     return () => {
       unsubscribe();
       unsubEntityCreated();
       unsubEntityEnriched();
       unsubFieldUpdated();
       unsubItemCompleted();
+      clearInterval(stuckCardInterval);
     };
   }, [load, removePendingItem, replacePendingWithReal]);
 
@@ -3399,6 +3430,21 @@ const RecentDrops: React.FC<{
               },
             ).catch((err) => {
               console.warn('[RecentDrops:Phase2] Enrichment failed', err);
+              // Reset card state so it doesn't stay stuck in streaming/enriching
+              setItems((prev) =>
+                prev.map((item) =>
+                  item.id === newEntity!.id
+                    ? {
+                        ...item,
+                        views: {
+                          ...item.views,
+                          minddrop_stage: 'enriched',
+                          ai_pending: false,
+                        },
+                      }
+                    : item,
+                ),
+              );
             });
           }
         }
