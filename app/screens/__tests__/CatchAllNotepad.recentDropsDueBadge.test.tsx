@@ -92,6 +92,14 @@ jest.mock('../../../contexts/OverlayContext', () => ({
   }),
 }));
 
+jest.mock('../../../providers/RepoProvider', () => ({
+  useRepo: () => ({
+    update: jest.fn().mockResolvedValue(undefined),
+    archive: jest.fn().mockResolvedValue(undefined),
+    getById: jest.fn().mockResolvedValue(null),
+  }),
+}));
+
 const mockConvertUnsortedToTodo = jest.fn();
 const mockConvertUnsortedToHabit = jest.fn();
 const mockConvertUnsortedToLog = jest.fn();
