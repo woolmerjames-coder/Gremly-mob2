@@ -139,6 +139,8 @@ import {
 import GREMLY_TOP from '../../assets/mascot/gremly-mascot.png';
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import MascotIcon from '../../components/MascotIcon';
+import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
+import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import {
   filterAndNormalizeTags,
   normalizeTags,
@@ -3846,6 +3848,29 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const deleteHabit = useGremlyStore((s) => s.deleteHabit);
   const insertLogPhoto = useGremlyStore((s) => s.insertLogPhoto);
 
+  // Ritual progress state
+  const gremlyAge = useGremlyStore((s) => s.gremlyAge);
+  const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
+  const todaySweepsCount = useGremlyStore((s) => s.todaySweepsCount);
+
+  // Age-up celebration state
+  const [showAgeUpCelebration, setShowAgeUpCelebration] = useState(false);
+  const [celebrationAge, setCelebrationAge] = useState(0);
+
+  // Subscribe to gremlyAge changes to trigger celebration modal
+  useEffect(() => {
+    const unsub = useGremlyStore.subscribe(
+      (state) => state.gremlyAge,
+      (newAge, oldAge) => {
+        if (newAge > oldAge) {
+          setCelebrationAge(newAge);
+          setShowAgeUpCelebration(true);
+        }
+      },
+    );
+    return unsub;
+  }, []);
+
   // Synchronous lookups from store
   const getItemById = useCallback(
     (id: string) => selectItemById(useGremlyStore.getState(), id),
@@ -6765,12 +6790,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         >
           {/* Left group: Mascot + MindDrop title */}
           <View style={styles.headerLeftGroup}>
-            <Image
-              source={GREMLY_TOP}
-              style={styles.headerMascot}
-              resizeMode="contain"
-              accessibilityIgnoresInvertColors
-            />
+            <View style={styles.mascotContainer}>
+              <Image
+                source={GREMLY_TOP}
+                style={styles.headerMascot}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
+              <View style={styles.ritualProgressWrapper}>
+                <RitualProgressIndicator
+                  dropsCount={todayDropsCount}
+                  sweepsCount={todaySweepsCount}
+                  gremlyAge={gremlyAge}
+                  compact
+                />
+              </View>
+            </View>
             <View style={styles.titleImageWrapper}>
               <Image
                 ref={headerTitleRef}
@@ -7036,6 +7071,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     <View style={styles.root} testID="minddrop-screen">
       {ActionToast}
 
+      <AgeUpCelebrationModal
+        visible={showAgeUpCelebration}
+        newAge={celebrationAge}
+        onDismiss={() => setShowAgeUpCelebration(false)}
+      />
+
       <Modal
         transparent
         animationType="fade"
@@ -7147,6 +7188,17 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flexDirection: 'row',
       alignItems: 'center',
       marginLeft: 20, // Shift group toward center
+    },
+    mascotContainer: {
+      position: 'relative',
+      alignItems: 'center',
+    },
+    ritualProgressWrapper: {
+      position: 'absolute',
+      bottom: -4,
+      left: 0,
+      right: 0,
+      alignItems: 'center',
     },
     logoutBtn: {
       padding: 8,
