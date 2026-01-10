@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Modal, ScrollView, Image } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import type { MultiDropItem } from '../../../lib/minddrop/types';
@@ -22,6 +22,7 @@ export interface MultiSplitModalProps {
   visible: boolean;
   items: MultiDropItem[];
   summaryTitle: string;
+  originalText?: string;
   dominantBucket?: string | null;
   dominantSubtype?: string | null;
   onClose: () => void;
@@ -37,6 +38,7 @@ export function MultiSplitModal({
   visible,
   items,
   summaryTitle,
+  originalText,
   dominantBucket,
   dominantSubtype,
   onClose,
@@ -90,8 +92,11 @@ export function MultiSplitModal({
       <View style={styles.overlay}>
         <View style={styles.container}>
           {/* Header */}
-          <Text style={styles.header}>Gremly noticed a few things</Text>
-          <Text style={styles.subheader}>{summaryTitle}</Text>
+          <View style={styles.headerRow}>
+            <Image source={require('../../../assets/buttonforHP.png')} style={styles.gremlyIcon} />
+            <Text style={styles.header}>Split these up or keep as one?</Text>
+          </View>
+          {originalText && <Text style={styles.originalText}>"{originalText}"</Text>}
 
           {/* Item list with checkboxes */}
           <ScrollView style={styles.itemList} contentContainerStyle={styles.itemListContent}>
@@ -113,11 +118,7 @@ export function MultiSplitModal({
                 <View style={styles.itemContent}>
                   <Text style={styles.itemTitle}>{item.preview_title || item.text}</Text>
                   <Text style={styles.itemBucket}>
-                    {item.bucket === 'todo'
-                      ? '📋 Todo'
-                      : item.bucket === 'habit'
-                        ? '🔄 Habit'
-                        : '📝 Note'}
+                    {item.bucket === 'todo' ? 'Todo' : item.bucket === 'habit' ? 'Habit' : 'Note'}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -164,16 +165,31 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 340,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: BRAND.colors.borderSubtle,
+    marginBottom: 12,
+  },
+  gremlyIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
   header: {
-    fontSize: 18,
+    fontSize: 16,
     ...BRAND.typography.header,
     color: BRAND.colors.charcoalInk,
-    marginBottom: 4,
+    flex: 1,
   },
-  subheader: {
+  originalText: {
     fontSize: 14,
     ...BRAND.typography.body,
     color: BRAND.colors.inkMuted,
+    fontStyle: 'italic',
     marginBottom: 20,
   },
   itemList: {
@@ -187,6 +203,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
+    marginBottom: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: BRAND.colors.borderSubtle,
   },
@@ -211,6 +228,8 @@ const styles = StyleSheet.create({
     color: BRAND.colors.surface,
     fontSize: 14,
     fontWeight: '700',
+    lineHeight: 16,
+    textAlign: 'center',
   },
   itemContent: {
     flex: 1,
@@ -227,9 +246,10 @@ const styles = StyleSheet.create({
   itemBucket: {
     fontSize: 12,
     ...BRAND.typography.bodyMedium,
-    color: BRAND.colors.periwinkleSmoke,
+    color: '#4A7C59',
     textTransform: 'capitalize',
     marginLeft: 8,
+    marginRight: 4,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -252,7 +272,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: BRAND.radius.md,
-    backgroundColor: BRAND.colors.mossGreen,
+    backgroundColor: BRAND.colors.sageMist,
     alignItems: 'center',
   },
   buttonDisabled: {
@@ -261,7 +281,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: 15,
     ...BRAND.typography.bodyMedium,
-    color: BRAND.colors.linenCream,
+    color: BRAND.colors.mossGreen,
   },
 });
 
