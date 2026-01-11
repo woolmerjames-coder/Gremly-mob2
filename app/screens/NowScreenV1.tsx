@@ -39,6 +39,7 @@ import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
 import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
+import FirstTodayVisitBubble from '../../components/onboarding/FirstTodayVisitBubble';
 import { useDailyAppOpen } from '../../lib/today/hooks/useDailyAppOpen';
 // Store and selectors
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -251,6 +252,9 @@ export default function NowScreenV1() {
   const loading = useIsLoading();
   const isInitialized = useGremlyStore((state) => state.isInitialized);
   const gremlyAge = useGremlyStore((state) => state.gremlyAge);
+  const firstTodayVisitCompletedAt = useGremlyStore((s) => s.firstTodayVisitCompletedAt);
+  const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
+  const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
 
   // Morning Brief - sequences and brief state
   const { hasCompletedBriefToday, brief } = useMorningBrief();
@@ -270,6 +274,14 @@ export default function NowScreenV1() {
       return () => clearTimeout(timer);
     }
   }, [gremlyAge, isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading]);
+
+  // Show first-visit bubble for new users
+  useEffect(() => {
+    if (onboardingCompletedAt && !firstTodayVisitCompletedAt && isInitialized) {
+      const timer = setTimeout(() => setShowFirstVisitBubble(true), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [onboardingCompletedAt, firstTodayVisitCompletedAt, isInitialized]);
 
   // Today's items - from selectors (single source of truth)
   const rawLockedItems = useLockedItems();
@@ -493,6 +505,7 @@ export default function NowScreenV1() {
   const [isNotesVisible, setNotesVisible] = useState(false);
   const [isJournalVisible, setJournalVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
 
   // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
@@ -503,6 +516,12 @@ export default function NowScreenV1() {
 
   // Toast for quick add feedback
   const { showToast, Toast: QuickAddToast } = useActionToast();
+
+  // Dismiss first visit bubble
+  const handleDismissFirstVisitBubble = useCallback(() => {
+    setShowFirstVisitBubble(false);
+    markFirstTodayVisitComplete();
+  }, [markFirstTodayVisitComplete]);
 
   // Handle item press - open overlay (uses overlayController)
   const handlePressItem = useCallback(
@@ -683,6 +702,10 @@ export default function NowScreenV1() {
         onPressWeek={() => setWeekVisible(true)}
         onNotesPress={handleNotesPress}
         onMascotPress={() => setShowHelp(true)}
+      />
+      <FirstTodayVisitBubble
+        visible={showFirstVisitBubble}
+        onDismiss={handleDismissFirstVisitBubble}
       />
       <View style={styles.focusSectionHeader}>
         {/* Left: Section title only */}

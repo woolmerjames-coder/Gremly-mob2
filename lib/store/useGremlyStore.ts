@@ -162,6 +162,7 @@ interface GremlyState {
   dayBoundaryHour: number;
   onboardingCompletedAt: string | null;
   firstDropCompletedAt: string | null;
+  firstTodayVisitCompletedAt: string | null;
   todayRitualDay: string | null;
   todayDropsCount: number;
   todaySweepsCount: number;
@@ -175,6 +176,7 @@ interface GremlyState {
   setOnboardingCompletedAt: (timestamp: string) => Promise<void>;
   markOnboardingComplete: () => Promise<void>;
   markFirstDropComplete: () => Promise<void>;
+  markFirstTodayVisitComplete: () => Promise<void>;
   refreshRitualProgress: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
@@ -327,6 +329,7 @@ const initialState = {
   dayBoundaryHour: 0,
   onboardingCompletedAt: null as string | null,
   firstDropCompletedAt: null as string | null,
+  firstTodayVisitCompletedAt: null as string | null,
   todayRitualDay: null as string | null,
   todayDropsCount: 0,
   todaySweepsCount: 0,
@@ -499,6 +502,8 @@ export const useGremlyStore = create<GremlyState>()(
           dayBoundaryHour,
           onboardingCompletedAt: effectiveOnboardingCompleted,
           firstDropCompletedAt: (cortexPrefs?.first_drop_completed_at as string) ?? null,
+          firstTodayVisitCompletedAt:
+            (cortexPrefs?.first_today_visit_completed_at as string) ?? null,
           todayRitualDay: ritualDay,
           todayDropsCount: ritualProgress?.drops_count ?? 0,
           todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
@@ -800,6 +805,28 @@ export const useGremlyStore = create<GremlyState>()(
 
       set({ firstDropCompletedAt: now });
       console.log('[GremlyStore] First drop marked complete');
+    },
+
+    markFirstTodayVisitComplete: async () => {
+      const userId = get().userId;
+      if (!userId) return;
+
+      const now = new Date().toISOString();
+
+      const { error } = await supabase
+        .from('cortex_preferences')
+        .upsert(
+          { owner_id: userId, first_today_visit_completed_at: now, updated_at: now },
+          { onConflict: 'owner_id' },
+        );
+
+      if (error) {
+        console.error('[GremlyStore] markFirstTodayVisitComplete failed:', error);
+        return;
+      }
+
+      set({ firstTodayVisitCompletedAt: now });
+      console.log('[GremlyStore] First Today visit marked complete');
     },
 
     refreshRitualProgress: async () => {

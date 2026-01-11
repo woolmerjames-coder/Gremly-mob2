@@ -431,4 +431,21 @@ describe('Gremly Age Store Actions', () => {
       expect(useGremlyStore.getState().todayRitualCompletedAt).toBeTruthy();
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // firstTodayVisitCompletedAt initialization
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('firstTodayVisitCompletedAt', () => {
+    it('defaults to null in initial state', () => {
+      useGremlyStore.setState({ firstTodayVisitCompletedAt: null });
+      expect(useGremlyStore.getState().firstTodayVisitCompletedAt).toBeNull();
+    });
+
+    it('can store a timestamp value', () => {
+      const timestamp = '2026-01-10T15:30:00Z';
+      useGremlyStore.setState({ firstTodayVisitCompletedAt: timestamp });
+      expect(useGremlyStore.getState().firstTodayVisitCompletedAt).toBe(timestamp);
+    });
+  });
 });
