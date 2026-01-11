@@ -78,6 +78,7 @@ import { addDays, nextMonday } from 'date-fns';
 import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
+import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
 import {
   selectTodayLockedItems,
@@ -96,12 +97,13 @@ import {
 import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
 import { ALL_MOODS, MOOD_CONFIG, getMoodsByCategory, type Mood } from '../../lib/shared/moods';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
+import { CompletionBadges } from '../../components/sweep/CompletionBadges';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/fistbumpgremly.png');
+const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/sweepcomplete.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_JOURNAL = require('../../assets/mascot/JournalGremly.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -119,7 +121,7 @@ interface Props {
 }
 
 interface StepProps {
-  onContinue: () => void;
+  onContinue: (data?: { habitsChecked?: number; journalWritten?: boolean }) => void;
 }
 
 // Decision tracking for sweep (stores decisions before committing)
@@ -390,9 +392,11 @@ function SweepMoodStep({ onContinue }: StepProps) {
 
   // Save and continue
   const handleContinue = useCallback(async () => {
+    const hasContent = selectedMoods.length > 0 || journalText.trim().length > 0;
+
     // If nothing to save, just continue
-    if (selectedMoods.length === 0 && !journalText.trim()) {
-      onContinue();
+    if (!hasContent) {
+      onContinue({ journalWritten: false });
       return;
     }
 
@@ -403,7 +407,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
         subtype: 'journal',
         title: journalText.trim() || 'Evening reflection',
         body: journalText.trim() || undefined,
-        mood: selectedMoods.length > 0 ? selectedMoods : null, // Store as array
+        mood: selectedMoods.length > 0 ? selectedMoods : null,
         origin: 'manual',
         canonicalType: 'log',
         journal_subtype: 'reflection',
@@ -412,19 +416,20 @@ function SweepMoodStep({ onContinue }: StepProps) {
           sweep_origin: true,
           sweep_reflection: true,
           sweep_date: getDateService().getCurrentDate(),
-          sweep_moods: selectedMoods, // Store all selected moods
+          sweep_moods: selectedMoods,
         },
       });
+      onContinue({ journalWritten: true });
     } catch (error) {
       console.warn('[SweepMoodStep] Failed to save reflection:', error);
+      onContinue({ journalWritten: false });
     } finally {
       setIsSaving(false);
-      onContinue();
     }
   }, [createNote, selectedMoods, journalText, onContinue]);
 
   const handleSkip = useCallback(() => {
-    onContinue();
+    onContinue({ journalWritten: false });
   }, [onContinue]);
 
   // Chevron rotation interpolation
@@ -832,8 +837,8 @@ function SweepHabitsStep({ onContinue }: StepProps) {
     // Wait for all to complete
     await Promise.all([...completionPromises, ...uncompletionPromises]);
 
-    // Continue to next step
-    onContinue();
+    // Continue to next step with count of habits checked
+    onContinue({ habitsChecked: sessionCompletions.size });
   }, [sessionCompletions, sessionUncompletions, completeHabit, uncompleteHabit, onContinue]);
 
   // Render a single habit row with layout animations
@@ -2219,7 +2224,10 @@ interface SummaryStepProps {
     habits: SweepSummaryItem[];
   };
   gremlyAge: number;
-  didAgeUp: boolean;
+  lockInCompleted: number;
+  lockInTotal: number;
+  habitsCheckedCount: number;
+  journalWritten: boolean;
   onDone: () => void;
 }
 
@@ -2228,7 +2236,10 @@ function SweepSummaryStep({
   clearedCount,
   items,
   gremlyAge,
-  didAgeUp,
+  lockInCompleted,
+  lockInTotal,
+  habitsCheckedCount,
+  journalWritten,
   onDone,
 }: SummaryStepProps) {
   const totalProcessed = keptCount + clearedCount;
@@ -2236,64 +2247,10 @@ function SweepSummaryStep({
   // Track which sections are expanded
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
-  // Animation values for age-up celebration (memoized to remain stable)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const scaleAnim = useMemo(() => new Animated.Value(didAgeUp ? 0.5 : 1), []);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const opacityAnim = useMemo(() => new Animated.Value(didAgeUp ? 0 : 1), []);
-  const glowAnim = useMemo(() => new Animated.Value(0), []);
-
   // Trigger haptic on mount
   useEffect(() => {
-    if (didAgeUp) {
-      triggerSuccess();
-    } else {
-      triggerLight();
-    }
-  }, [didAgeUp]);
-
-  // Age-up animation
-  useEffect(() => {
-    if (didAgeUp) {
-      Animated.sequence([
-        Animated.delay(300), // pause for dramatic effect
-        Animated.parallel([
-          Animated.spring(scaleAnim, {
-            toValue: 1,
-            friction: 4,
-            tension: 40,
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacityAnim, {
-            toValue: 1,
-            duration: 400,
-            useNativeDriver: true,
-          }),
-        ]),
-        // Glow pulse
-        Animated.loop(
-          Animated.sequence([
-            Animated.timing(glowAnim, {
-              toValue: 1,
-              duration: 800,
-              easing: Easing.inOut(Easing.ease),
-              useNativeDriver: false,
-            }),
-            Animated.timing(glowAnim, {
-              toValue: 0,
-              duration: 800,
-              easing: Easing.inOut(Easing.ease),
-              useNativeDriver: false,
-            }),
-          ]),
-          { iterations: 2 },
-        ),
-      ]).start();
-    } else {
-      scaleAnim.setValue(1);
-      opacityAnim.setValue(1);
-    }
-  }, [didAgeUp, scaleAnim, opacityAnim, glowAnim]);
+    triggerLight();
+  }, []);
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => {
@@ -2306,6 +2263,16 @@ function SweepSummaryStep({
       return next;
     });
   };
+
+  // Calculate archived items
+  const archivedItems = useMemo(() => {
+    if (!items) return [];
+    return [
+      ...items.todos.filter((i) => i.outcome === 'cleared' || i.outcome === 'archived'),
+      ...items.thoughts.filter((i) => i.outcome === 'archived'),
+      ...items.habits.filter((i) => i.outcome === 'removed'),
+    ];
+  }, [items]);
 
   // Format outcome for display
   const formatOutcome = (item: SweepSummaryItem): string => {
@@ -2331,7 +2298,7 @@ function SweepSummaryStep({
     }
   };
 
-  // Render a summary section (todos, thoughts, or habits)
+  // Render a summary section
   const renderSection = (
     title: string,
     sectionKey: string,
@@ -2374,6 +2341,44 @@ function SweepSummaryStep({
     );
   };
 
+  // Render archived section
+  const renderArchivedSection = () => {
+    if (archivedItems.length === 0) return null;
+
+    const isExpanded = expandedSections.has('archived');
+
+    return (
+      <View style={styles.summarySection}>
+        <TouchableOpacity
+          style={styles.summarySectionHeader}
+          onPress={() => toggleSection('archived')}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.summarySectionTitle}>{archivedItems.length} items archived</Text>
+          <Icon
+            name={isExpanded ? 'ChevronUp' : 'ChevronDown'}
+            size="sm"
+            color={BRAND.colors.inkMuted}
+          />
+        </TouchableOpacity>
+
+        {isExpanded && (
+          <View style={styles.summarySectionContent}>
+            {archivedItems.map((item) => (
+              <View key={item.id} style={styles.summaryItemRow}>
+                <Text style={styles.summaryItemName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const showBadges = lockInTotal > 0 || habitsCheckedCount > 0 || journalWritten;
+
   return (
     <View style={styles.stepContainer}>
       <ScrollView
@@ -2381,44 +2386,34 @@ function SweepSummaryStep({
         contentContainerStyle={styles.summaryScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Title - changes when Gremly aged up */}
+        {/* Title */}
         <Text variant="title" style={styles.summaryTitle}>
-          {didAgeUp ? 'Gremly grew up!' : 'Sweep complete'}
+          Nice sweep!
         </Text>
 
-        {/* Gremly mascot */}
+        {/* Gremly mascot - broom-riding */}
         <View style={styles.summaryMascotContainer}>
           <Image
             source={GREMLY_MASCOT_CELEBRATE}
             style={styles.summaryMascotImage}
             resizeMode="contain"
             testID="sweep-summary-mascot"
-            accessibilityLabel="Gremly mascot celebrating"
+            accessibilityLabel="Gremly mascot riding a broom"
           />
         </View>
 
-        {/* Age display */}
-        <View style={styles.ageContainer}>
-          {didAgeUp ? (
-            <Sparkles size={24} color={BRAND.colors.goldenPear} />
-          ) : (
-            <Sprout size={24} color={BRAND.colors.mossGreen} />
-          )}
-          <Animated.View
-            style={{
-              transform: [{ scale: scaleAnim }],
-              opacity: opacityAnim,
-            }}
-          >
-            <Text style={[styles.ageCount, didAgeUp && { color: BRAND.colors.mossGreen }]}>
-              {gremlyAge}
-            </Text>
-          </Animated.View>
-          <Text style={styles.ageLabel}>age</Text>
-        </View>
-
-        {/* Divider */}
-        <View style={styles.summaryDivider} />
+        {/* Completion Badges */}
+        {showBadges && (
+          <>
+            <CompletionBadges
+              lockInCompleted={lockInCompleted}
+              lockInTotal={lockInTotal}
+              habitsChecked={habitsCheckedCount}
+              journalWritten={journalWritten}
+            />
+            <View style={styles.summaryDivider} />
+          </>
+        )}
 
         {/* Expandable Summary */}
         {totalProcessed > 0 && items ? (
@@ -2428,26 +2423,15 @@ function SweepSummaryStep({
             {renderSection('to-dos', 'todos', items.todos)}
             {renderSection('thoughts', 'thoughts', items.thoughts)}
             {renderSection('habits', 'habits', items.habits)}
-          </View>
-        ) : totalProcessed > 0 ? (
-          // Fallback if no detailed items (shouldn't happen)
-          <View style={styles.summaryStatsContainer}>
-            <View style={styles.summaryStatRow}>
-              <Text variant="body" style={styles.summaryStatLabel}>
-                Kept
-              </Text>
-              <Text variant="body" style={styles.summaryStatValue}>
-                {keptCount}
-              </Text>
-            </View>
-            <View style={styles.summaryStatRow}>
-              <Text variant="body" style={styles.summaryStatLabel}>
-                Cleared
-              </Text>
-              <Text variant="body" style={styles.summaryStatValue}>
-                {clearedCount}
-              </Text>
-            </View>
+
+            {/* Cleared from your head section */}
+            {archivedItems.length > 0 && (
+              <>
+                <View style={styles.summaryDivider} />
+                <Text style={styles.summarySubheadingMuted}>Cleared from your head:</Text>
+                {renderArchivedSection()}
+              </>
+            )}
           </View>
         ) : (
           <View style={styles.summaryEmptyContainer}>
@@ -2534,7 +2518,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Track Gremly age for summary display
   const [summaryGremlyAge, setSummaryGremlyAge] = useState(0);
   const [summaryDidAgeUp, setSummaryDidAgeUp] = useState(false);
+  const [showAgeUpModal, setShowAgeUpModal] = useState(false);
+  const [celebrationAge, setCelebrationAge] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
+
+  // Track completion badges data
+  const [habitsCheckedCount, setHabitsCheckedCount] = useState(0);
+  const [journalWritten, setJournalWritten] = useState(false);
 
   // DEV MODE: Sync step from route params when they change (for test mode jumping)
   // Using requestAnimationFrame to defer state updates and avoid cascading render warning
@@ -2685,11 +2675,17 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     [lockedItems],
   );
 
-  const handleMoodContinue = () => {
+  const handleMoodContinue = (data?: { habitsChecked?: number; journalWritten?: boolean }) => {
+    if (data?.journalWritten !== undefined) {
+      setJournalWritten(data.journalWritten);
+    }
     setStep(4); // Mood → Summary
   };
 
-  const handleWrapUpContinue = () => {
+  const handleWrapUpContinue = (data?: { habitsChecked?: number; journalWritten?: boolean }) => {
+    if (data?.habitsChecked !== undefined) {
+      setHabitsCheckedCount(data.habitsChecked);
+    }
     setStep(3); // Habits → Mood
   };
 
@@ -2733,6 +2729,16 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   );
 
   const handleSummaryDone = () => {
+    if (summaryDidAgeUp) {
+      setCelebrationAge(summaryGremlyAge);
+      setShowAgeUpModal(true);
+    } else {
+      navigation.goBack();
+    }
+  };
+
+  const handleAgeModalDismiss = () => {
+    setShowAgeUpModal(false);
     navigation.goBack();
   };
 
@@ -2847,7 +2853,14 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 clearedCount={clearedCount}
                 items={summaryItems}
                 gremlyAge={summaryGremlyAge}
-                didAgeUp={summaryDidAgeUp}
+                lockInCompleted={
+                  allLockedItems.filter(
+                    (item) => 'completed_at' in item && item.completed_at !== null,
+                  ).length
+                }
+                lockInTotal={allLockedItems.length}
+                habitsCheckedCount={habitsCheckedCount}
+                journalWritten={journalWritten}
                 onDone={handleSummaryDone}
               />
             ))}
@@ -2879,6 +2892,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
       {/* Help Card */}
       <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="sweep" />
+
+      {/* Age-Up Celebration Modal */}
+      <AgeUpCelebrationModal
+        visible={showAgeUpModal}
+        newAge={celebrationAge}
+        onDismiss={handleAgeModalDismiss}
+      />
     </>
   );
 }
@@ -3770,8 +3790,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   summaryMascotImage: {
-    width: 112,
-    height: 112,
+    width: 140,
+    height: 140,
   },
   ageContainer: {
     flexDirection: 'row',
@@ -3796,7 +3816,7 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: BRAND.colors.borderSubtle,
     alignSelf: 'center',
-    marginVertical: 16,
+    marginVertical: 10,
   },
   summaryStatsContainer: {
     backgroundColor: BRAND.colors.surface,
@@ -3835,13 +3855,26 @@ const styles = StyleSheet.create({
   },
   // Expandable summary styles
   expandableSummaryContainer: {
-    marginTop: 16,
-    gap: 12,
+    paddingHorizontal: 16,
+    gap: 6,
   },
   summarySubheading: {
     fontSize: 15,
-    color: BRAND.colors.inkSubtle,
+    color: BRAND.colors.charcoalInk,
     textAlign: 'center',
+    marginBottom: 6,
+  },
+  summarySubheadingMuted: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  archivedSubheading: {
+    fontSize: 15,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginTop: 16,
     marginBottom: 8,
   },
   summarySection: {
@@ -3850,17 +3883,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BRAND.colors.borderSubtle,
     overflow: 'hidden',
+    marginBottom: 6,
   },
   summarySectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 10,
     paddingHorizontal: 16,
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: BRAND.radius.md,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
   },
   summarySectionTitle: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '500',
     color: BRAND.colors.charcoalInk,
   },
   summarySectionContent: {
