@@ -27,6 +27,7 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 // Mascot images
 import GREMLY_MASCOT from '../../assets/mascot/gremly-mascot.png';
 import GREMLY_FISTBUMP from '../../assets/mascot/fistbumpgremly.png';
+import GREMLY_SWEEP from '../../assets/mascot/sweepcomplete.png';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const REQUIRED_COUNT = 3;
@@ -46,20 +47,21 @@ interface OnboardingStep {
 const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: 'welcome',
-    title: 'Meet your Gremly',
-    body: 'Gremlins are born from mental chaos. Yours found you — and wants to help you feel less overwhelmed.',
-    subtext: 'The more you work together, the more Gremly grows.',
+    title: "Hi, I'm Gremly",
+    body: 'I help you get things out of your head and into a system that actually works.',
+    subtext: 'The more we work together, the more we both grow.',
     type: 'mascot',
     mascot: GREMLY_MASCOT,
   },
   {
     id: 'ritual',
     title: 'The Daily Ritual',
-    body: "Each day, drop 3 thoughts and sweep 3 cards. That's it.",
+    body: 'Drop at least 3 thoughts to feed Gremly. Sweep at least 3 cards before bed to clear your mind. The more, the better.',
     subtext:
-      'Complete the ritual and Gremly ages by one day. No punishment if you miss — Gremly just waits for you.',
-    type: 'icon',
-    showRitualDots: true,
+      'Complete the ritual and Gremly ages one day. Miss a day? No guilt, Gremly just waits for you.',
+    type: 'mascot',
+    mascot: GREMLY_SWEEP,
+    showRitualDots: false,
   },
   {
     id: 'start',
@@ -190,7 +192,7 @@ export default function OnboardingScreen() {
 
   const renderStep = useCallback(
     ({ item }: { item: OnboardingStep }) => (
-      <View style={{ width: SCREEN_WIDTH }}>
+      <View style={styles.stepWrapper}>
         <OnboardingStepView step={item} />
       </View>
     ),
@@ -223,7 +225,7 @@ export default function OnboardingScreen() {
         scrollEventThrottle={16}
         bounces={false}
         style={styles.flatList}
-        contentContainerStyle={styles.flatListContent}
+        contentContainerStyle={{ flexGrow: 1 }}
       />
 
       {/* Bottom controls */}
@@ -281,14 +283,15 @@ const styles = StyleSheet.create({
   flatList: {
     flex: 1,
   },
-  flatListContent: {
-    alignItems: 'center',
+  stepWrapper: {
+    width: SCREEN_WIDTH,
+    flex: 1,
   },
   stepContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: 24,
     paddingBottom: 100, // Space for bottom controls
   },
   visualContainer: {
@@ -312,6 +315,8 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
     textAlign: 'center',
     marginBottom: 16,
+    width: '100%',
+    lineHeight: 36,
   },
   body: {
     fontFamily: 'Inter-Regular',
