@@ -47,6 +47,9 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
   const rolledOverTodos = useRolledOverTodos();
   const unscheduledTodos = useUnscheduledTodosForMiniSweep();
 
+  // Get gremly age to check if user is brand new
+  const gremlyAge = useGremlyStore((s) => s.gremlyAge);
+
   // Has completed mini sweep today: compare date portion of timestamp
   const hasCompletedMiniSweepToday = useMemo(() => {
     if (!miniSweepLastCompletedAt) return false;
@@ -57,12 +60,14 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
   }, [miniSweepLastCompletedAt]);
 
   // Should show mini sweep if:
-  // 1. Haven't completed it today
-  // 2. There are items to sweep (rolled over OR unscheduled)
+  // 1. User has completed at least one ritual (gremlyAge >= 1)
+  // 2. Haven't completed mini sweep today
+  // 3. There are items to sweep (rolled over OR unscheduled)
   const shouldShowMiniSweep = useMemo(() => {
+    if (gremlyAge < 1) return false; // Don't show for brand new users
     if (hasCompletedMiniSweepToday) return false;
     return rolledOverTodos.length > 0 || unscheduledTodos.length > 0;
-  }, [hasCompletedMiniSweepToday, rolledOverTodos.length, unscheduledTodos.length]);
+  }, [gremlyAge, hasCompletedMiniSweepToday, rolledOverTodos.length, unscheduledTodos.length]);
 
   return {
     shouldShowMiniSweep,

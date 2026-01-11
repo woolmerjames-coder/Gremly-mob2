@@ -142,6 +142,7 @@ import MascotIcon from '../../components/MascotIcon';
 import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
+import FirstDropSpotlight from '../../components/onboarding/FirstDropSpotlight';
 import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import {
   filterAndNormalizeTags,
@@ -3862,6 +3863,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
   const todaySweepsCount = useGremlyStore((s) => s.todaySweepsCount);
 
+  // First drop tracking
+  const firstDropCompletedAt = useGremlyStore((s) => s.firstDropCompletedAt);
+  const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
+  const markFirstDropComplete = useGremlyStore((s) => s.markFirstDropComplete);
+
   // Age-up celebration state
   const [showAgeUpCelebration, setShowAgeUpCelebration] = useState(false);
   const [celebrationAge, setCelebrationAge] = useState(0);
@@ -3975,6 +3981,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const [showRitualProgress, setShowRitualProgress] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showFirstDropSpotlight, setShowFirstDropSpotlight] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -3998,6 +4005,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
     };
   }, []);
+
+  // Show first drop spotlight for new users
+  useEffect(() => {
+    if (onboardingCompletedAt && !firstDropCompletedAt) {
+      // Small delay to let layout settle
+      const timer = setTimeout(() => setShowFirstDropSpotlight(true), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [onboardingCompletedAt, firstDropCompletedAt]);
 
   // Track keyboard visibility to adjust bottom padding
   useEffect(() => {
@@ -4070,6 +4086,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setIsInputFocused(focused);
     // Keep recent drops visible so users can watch cards update in real-time
   }, []);
+
+  // Auto-dismiss spotlight when user focuses input or starts typing
+  useEffect(() => {
+    if (showFirstDropSpotlight && (isInputFocused || note.length > 0)) {
+      setShowFirstDropSpotlight(false);
+      markFirstDropComplete();
+    }
+  }, [showFirstDropSpotlight, isInputFocused, note.length, markFirstDropComplete]);
 
   // PanResponder for swipe-down-to-dismiss-keyboard gesture
   const panResponder = React.useRef(
@@ -7097,6 +7121,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       />
 
       <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="minddrop" />
+
+      <FirstDropSpotlight
+        visible={showFirstDropSpotlight}
+        onDismiss={() => {
+          setShowFirstDropSpotlight(false);
+          markFirstDropComplete();
+        }}
+      />
 
       <Modal
         transparent

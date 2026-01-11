@@ -77,7 +77,7 @@ function RitualRows() {
     <View style={styles.ritualRowsContainer}>
       <View style={styles.ritualRow}>
         <ArrowDown size={20} color={BRAND.colors.mossGreen} />
-        <Text style={styles.ritualRowText}>Drop 3+ things anytime (feeds me)</Text>
+        <Text style={styles.ritualRowText}>Drop 3+ thoughts anytime (feeds me)</Text>
       </View>
       <View style={styles.ritualRow}>
         <Sparkles size={20} color={BRAND.colors.mossGreen} />

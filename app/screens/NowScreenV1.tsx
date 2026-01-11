@@ -250,6 +250,7 @@ export default function NowScreenV1() {
   // Loading state
   const loading = useIsLoading();
   const isInitialized = useGremlyStore((state) => state.isInitialized);
+  const gremlyAge = useGremlyStore((state) => state.gremlyAge);
 
   // Morning Brief - sequences and brief state
   const { hasCompletedBriefToday, brief } = useMorningBrief();
@@ -258,8 +259,9 @@ export default function NowScreenV1() {
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
 
-  // Auto-open Morning Brief on first open of the day
+  // Auto-open Morning Brief on first open of the day (skip for brand new users)
   useEffect(() => {
+    if (gremlyAge < 1) return; // Don't show for brand new users - let them explore first
     if (!isChecking && isFirstOpenToday && !hasCompletedBriefToday && isInitialized && !loading) {
       // Small delay to let the screen render first
       const timer = setTimeout(() => {
@@ -267,7 +269,7 @@ export default function NowScreenV1() {
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading]);
+  }, [gremlyAge, isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading]);
 
   // Today's items - from selectors (single source of truth)
   const rawLockedItems = useLockedItems();
