@@ -55,6 +55,7 @@ describe('useMiniSweepGate', () => {
       const state = {
         miniSweepLastCompletedAt: null,
         markMiniSweepCompleted: mockMarkMiniSweepCompleted,
+        gremlyAge: 5, // Default to established user
       };
       return selector(state);
     });
@@ -65,6 +66,42 @@ describe('useMiniSweepGate', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  describe('gremlyAge gate', () => {
+    it('returns false when gremlyAge < 1 (brand new user) even with items to sweep', () => {
+      mockUseGremlyStore.mockImplementation((selector: any) => {
+        const state = {
+          miniSweepLastCompletedAt: null,
+          markMiniSweepCompleted: mockMarkMiniSweepCompleted,
+          gremlyAge: 0, // Brand new user
+        };
+        return selector(state);
+      });
+
+      mockUseRolledOverTodos.mockReturnValue([makeTodo({ id: 't1', due_day: '2025-12-14' })]);
+
+      const { result } = renderHook(() => useMiniSweepGate());
+
+      expect(result.current.shouldShowMiniSweep).toBe(false);
+    });
+
+    it('returns true when gremlyAge >= 1 and has items to sweep', () => {
+      mockUseGremlyStore.mockImplementation((selector: any) => {
+        const state = {
+          miniSweepLastCompletedAt: null,
+          markMiniSweepCompleted: mockMarkMiniSweepCompleted,
+          gremlyAge: 1, // Completed first ritual
+        };
+        return selector(state);
+      });
+
+      mockUseRolledOverTodos.mockReturnValue([makeTodo({ id: 't1', due_day: '2025-12-14' })]);
+
+      const { result } = renderHook(() => useMiniSweepGate());
+
+      expect(result.current.shouldShowMiniSweep).toBe(true);
+    });
   });
 
   describe('shouldShowMiniSweep', () => {
@@ -102,6 +139,7 @@ describe('useMiniSweepGate', () => {
         const state = {
           miniSweepLastCompletedAt: '2025-12-15T08:00:00Z', // Completed earlier today
           markMiniSweepCompleted: mockMarkMiniSweepCompleted,
+          gremlyAge: 5,
         };
         return selector(state);
       });
@@ -118,6 +156,7 @@ describe('useMiniSweepGate', () => {
         const state = {
           miniSweepLastCompletedAt: '2025-12-14T20:00:00Z', // Completed yesterday
           markMiniSweepCompleted: mockMarkMiniSweepCompleted,
+          gremlyAge: 5,
         };
         return selector(state);
       });

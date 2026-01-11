@@ -139,6 +139,11 @@ import {
 import GREMLY_TOP from '../../assets/mascot/gremly-mascot.png';
 import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
 import MascotIcon from '../../components/MascotIcon';
+import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
+import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
+import FirstDropSpotlight from '../../components/onboarding/FirstDropSpotlight';
+import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import {
   filterAndNormalizeTags,
   normalizeTags,
@@ -3503,9 +3508,16 @@ const RecentDrops: React.FC<{
           {loading ? (
             <Text style={styles.recentEmpty}>Loading…</Text>
           ) : items.length === 0 && pendingItems.length === 0 ? (
-            <Text style={styles.recentEmpty}>
-              {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
-            </Text>
+            <View style={styles.recentEmptyContainer}>
+              <Text style={styles.recentEmptyPrimary}>
+                {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
+              </Text>
+              {!showOlder && (
+                <Text style={styles.recentEmptySecondary}>
+                  What's on your mind? Drop it here — tasks, ideas, worries, anything.
+                </Text>
+              )}
+            </View>
           ) : (
             <AppScrollView
               contentContainerStyle={styles.recentScrollContent}
@@ -3846,6 +3858,34 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const deleteHabit = useGremlyStore((s) => s.deleteHabit);
   const insertLogPhoto = useGremlyStore((s) => s.insertLogPhoto);
 
+  // Ritual progress state
+  const gremlyAge = useGremlyStore((s) => s.gremlyAge);
+  const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
+  const todaySweepsCount = useGremlyStore((s) => s.todaySweepsCount);
+
+  // First drop tracking
+  const firstDropCompletedAt = useGremlyStore((s) => s.firstDropCompletedAt);
+  const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
+  const markFirstDropComplete = useGremlyStore((s) => s.markFirstDropComplete);
+
+  // Age-up celebration state
+  const [showAgeUpCelebration, setShowAgeUpCelebration] = useState(false);
+  const [celebrationAge, setCelebrationAge] = useState(0);
+
+  // Subscribe to gremlyAge changes to trigger celebration modal
+  useEffect(() => {
+    const unsub = useGremlyStore.subscribe(
+      (state) => state.gremlyAge,
+      (newAge, oldAge) => {
+        if (newAge > oldAge) {
+          setCelebrationAge(newAge);
+          setShowAgeUpCelebration(true);
+        }
+      },
+    );
+    return unsub;
+  }, []);
+
   // Synchronous lookups from store
   const getItemById = useCallback(
     (id: string) => selectItemById(useGremlyStore.getState(), id),
@@ -3939,6 +3979,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
+  const [showRitualProgress, setShowRitualProgress] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showFirstDropSpotlight, setShowFirstDropSpotlight] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -3962,6 +4005,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
     };
   }, []);
+
+  // Show first drop spotlight for new users
+  useEffect(() => {
+    if (onboardingCompletedAt && !firstDropCompletedAt) {
+      // Small delay to let layout settle
+      const timer = setTimeout(() => setShowFirstDropSpotlight(true), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [onboardingCompletedAt, firstDropCompletedAt]);
 
   // Track keyboard visibility to adjust bottom padding
   useEffect(() => {
@@ -4034,6 +4086,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setIsInputFocused(focused);
     // Keep recent drops visible so users can watch cards update in real-time
   }, []);
+
+  // Auto-dismiss spotlight when user focuses input or starts typing
+  useEffect(() => {
+    if (showFirstDropSpotlight && (isInputFocused || note.length > 0)) {
+      setShowFirstDropSpotlight(false);
+      markFirstDropComplete();
+    }
+  }, [showFirstDropSpotlight, isInputFocused, note.length, markFirstDropComplete]);
 
   // PanResponder for swipe-down-to-dismiss-keyboard gesture
   const panResponder = React.useRef(
@@ -6763,14 +6823,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           ]}
           testID="minddrop-header"
         >
-          {/* Left group: Mascot + MindDrop title */}
+          {/* Left group: Age + Mascot + MindDrop title */}
           <View style={styles.headerLeftGroup}>
-            <Image
-              source={GREMLY_TOP}
-              style={styles.headerMascot}
-              resizeMode="contain"
-              accessibilityIgnoresInvertColors
-            />
+            {/* Tappable age display */}
+            <Pressable
+              onPress={() => setShowRitualProgress(true)}
+              style={styles.ritualAgePressable}
+            >
+              <Text style={styles.ritualAgeNumber}>{gremlyAge}</Text>
+              <Text style={styles.ritualAgeLabel}>age</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowHelp(true)} accessibilityLabel="Help">
+              <Image
+                source={GREMLY_TOP}
+                style={styles.headerMascot}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
+            </Pressable>
             <View style={styles.titleImageWrapper}>
               <Image
                 ref={headerTitleRef}
@@ -6792,7 +6862,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             hitSlop={12}
             style={styles.logoutBtn}
           >
-            <LogOut size={20} color="#6A6F76" />
+            <LogOut size={18} color="#6A6F76" />
           </Pressable>
         </View>
 
@@ -7036,6 +7106,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     <View style={styles.root} testID="minddrop-screen">
       {ActionToast}
 
+      <AgeUpCelebrationModal
+        visible={showAgeUpCelebration}
+        newAge={celebrationAge}
+        onDismiss={() => setShowAgeUpCelebration(false)}
+      />
+
+      <RitualProgressPopover
+        visible={showRitualProgress}
+        onDismiss={() => setShowRitualProgress(false)}
+        gremlyAge={gremlyAge}
+        dropsCount={todayDropsCount}
+        sweepsCount={todaySweepsCount}
+      />
+
+      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="minddrop" />
+
+      <FirstDropSpotlight
+        visible={showFirstDropSpotlight}
+        onDismiss={() => {
+          setShowFirstDropSpotlight(false);
+          markFirstDropComplete();
+        }}
+      />
+
       <Modal
         transparent
         animationType="fade"
@@ -7138,7 +7232,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flexDirection: 'row',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
+      paddingHorizontal: 12,
       paddingBottom: 4,
       position: 'relative', // For absolute positioning of speech bubble
       // paddingTop is set dynamically via insets.top in the component
@@ -7146,19 +7240,38 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     headerLeftGroup: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginLeft: 20, // Shift group toward center
+      marginLeft: 0,
+    },
+    ritualAgePressable: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 8,
+    },
+    ritualAgeNumber: {
+      fontSize: 24,
+      fontWeight: '700',
+      color: c.charcoalInk,
+      lineHeight: 28,
+    },
+    ritualAgeLabel: {
+      fontSize: 11,
+      fontWeight: '500',
+      color: c.mutedText,
+      marginTop: -2,
     },
     logoutBtn: {
-      padding: 8,
-      marginTop: 4,
+      padding: 6,
+      marginTop: 0,
+      marginRight: 4,
     },
     headerMascot: {
       height: 64,
       width: 64,
-      marginRight: 8,
+      marginRight: 0,
     },
     titleImageWrapper: {
       position: 'relative',
+      marginLeft: 8,
     },
     headerTitleCenter: {
       height: 64,
@@ -7204,6 +7317,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: '#2E5540',
       lineHeight: 20,
       textAlign: 'center',
+      transform: [{ translateY: 4 }],
     },
 
     contextPrompt: {
@@ -7793,6 +7907,24 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Regular',
       paddingTop: 4,
       paddingBottom: 10,
+    },
+    recentEmptyContainer: {
+      alignItems: 'center',
+      paddingTop: 4,
+      paddingBottom: 10,
+    },
+    recentEmptyPrimary: {
+      fontSize: 14,
+      fontWeight: '400',
+      color: c.mutedText,
+      textAlign: 'center',
+    },
+    recentEmptySecondary: {
+      fontSize: 13,
+      fontWeight: '400',
+      color: 'rgba(34, 34, 34, 0.45)',
+      textAlign: 'center',
+      marginTop: 2,
     },
     // Skeleton styles for pending state
     titleSkeletonContainer: {

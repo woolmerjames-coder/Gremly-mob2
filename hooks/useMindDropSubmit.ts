@@ -195,6 +195,7 @@ export function useMindDropSubmit(): {
   const createHabit = useGremlyStore((s) => s.createHabit);
   const createNote = useGremlyStore((s) => s.createNote);
   const spaces = useGremlyStore((s) => s.spaces);
+  const incrementDropCount = useGremlyStore((s) => s.incrementDropCount);
 
   const submitLockRef = useRef(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -586,6 +587,17 @@ export function useMindDropSubmit(): {
           spaceId: resolvedSpaceId,
         });
 
+        // Increment drop count for ritual progress (one per submission, not per entity)
+        incrementDropCount()
+          .then(({ didAgeUp, newAge }) => {
+            if (didAgeUp) {
+              console.log('[MindDrop:Submit] Ritual complete! Gremly aged up to', newAge);
+            }
+          })
+          .catch((err) => {
+            console.warn('[MindDrop:Submit] Failed to increment drop count:', err);
+          });
+
         // Tap for QA runner (dev-only, no-op in prod)
         if (__DEV__) {
           QARunner.captureEntityCreated({
@@ -724,7 +736,16 @@ export function useMindDropSubmit(): {
         };
       }
     },
-    [repo, addPendingItem, removePendingItem, createTodo, createHabit, createNote, spaces],
+    [
+      repo,
+      addPendingItem,
+      removePendingItem,
+      createTodo,
+      createHabit,
+      createNote,
+      spaces,
+      incrementDropCount,
+    ],
   );
 
   return { submit, isSubmitting };

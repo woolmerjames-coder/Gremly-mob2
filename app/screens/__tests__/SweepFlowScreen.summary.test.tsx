@@ -131,7 +131,7 @@ async function navigateToSummaryStep(result: ReturnType<typeof render>) {
 
   // Step 1: Decision - empty state, tap "Done" to go to Mood
   await waitFor(() => {
-    result.getByText("Nothing to Sweep right now — you're all clear.");
+    result.getByText('Nothing to sweep!');
   });
   fireEvent.press(result.getByText('Done'));
 
@@ -312,7 +312,7 @@ describe.skip('SweepFlowScreen - Summary Step', () => {
 
       // Decision empty state - tap Done to go to Mood
       await waitFor(() => {
-        result.getByText("Nothing to Sweep right now — you're all clear.");
+        result.getByText('Nothing to sweep!');
       });
       fireEvent.press(result.getByText('Done'));
 

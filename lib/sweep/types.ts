@@ -138,6 +138,10 @@ export interface SweepSummary {
     thoughts: SweepSummaryItem[]; // notes/logs
     habits: SweepSummaryItem[];
   };
+  /** Whether Gremly aged up during this sweep session */
+  didAgeUp?: boolean;
+  /** Gremly's final age after this sweep session */
+  finalAge?: number;
 }
 
 /**

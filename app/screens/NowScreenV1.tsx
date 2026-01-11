@@ -38,6 +38,8 @@ import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
 import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
+import FirstTodayVisitBubble from '../../components/onboarding/FirstTodayVisitBubble';
 import { useDailyAppOpen } from '../../lib/today/hooks/useDailyAppOpen';
 // Store and selectors
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -249,6 +251,10 @@ export default function NowScreenV1() {
   // Loading state
   const loading = useIsLoading();
   const isInitialized = useGremlyStore((state) => state.isInitialized);
+  const gremlyAge = useGremlyStore((state) => state.gremlyAge);
+  const firstTodayVisitCompletedAt = useGremlyStore((s) => s.firstTodayVisitCompletedAt);
+  const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
+  const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
 
   // Morning Brief - sequences and brief state
   const { hasCompletedBriefToday, brief } = useMorningBrief();
@@ -257,8 +263,9 @@ export default function NowScreenV1() {
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
 
-  // Auto-open Morning Brief on first open of the day
+  // Auto-open Morning Brief on first open of the day (skip for brand new users)
   useEffect(() => {
+    if (gremlyAge < 1) return; // Don't show for brand new users - let them explore first
     if (!isChecking && isFirstOpenToday && !hasCompletedBriefToday && isInitialized && !loading) {
       // Small delay to let the screen render first
       const timer = setTimeout(() => {
@@ -266,7 +273,15 @@ export default function NowScreenV1() {
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading]);
+  }, [gremlyAge, isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading]);
+
+  // Show first-visit bubble for new users
+  useEffect(() => {
+    if (onboardingCompletedAt && !firstTodayVisitCompletedAt && isInitialized) {
+      const timer = setTimeout(() => setShowFirstVisitBubble(true), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [onboardingCompletedAt, firstTodayVisitCompletedAt, isInitialized]);
 
   // Today's items - from selectors (single source of truth)
   const rawLockedItems = useLockedItems();
@@ -489,6 +504,8 @@ export default function NowScreenV1() {
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
   const [isJournalVisible, setJournalVisible] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
 
   // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
@@ -499,6 +516,12 @@ export default function NowScreenV1() {
 
   // Toast for quick add feedback
   const { showToast, Toast: QuickAddToast } = useActionToast();
+
+  // Dismiss first visit bubble
+  const handleDismissFirstVisitBubble = useCallback(() => {
+    setShowFirstVisitBubble(false);
+    markFirstTodayVisitComplete();
+  }, [markFirstTodayVisitComplete]);
 
   // Handle item press - open overlay (uses overlayController)
   const handlePressItem = useCallback(
@@ -678,6 +701,11 @@ export default function NowScreenV1() {
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
         onNotesPress={handleNotesPress}
+        onMascotPress={() => setShowHelp(true)}
+      />
+      <FirstTodayVisitBubble
+        visible={showFirstVisitBubble}
+        onDismiss={handleDismissFirstVisitBubble}
       />
       <View style={styles.focusSectionHeader}>
         {/* Left: Section title only */}
@@ -835,6 +863,9 @@ export default function NowScreenV1() {
         onClose={() => setBriefSheetVisible(false)}
         onComplete={markTodayOpened}
       />
+
+      {/* Help Card */}
+      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="today" />
     </Screen>
   );
 }
@@ -1077,8 +1108,10 @@ function TodayFocusList({
 
       {hasNoItems && (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Nothing scheduled for today.</Text>
-          <Text style={styles.emptySubtext}>Enjoy a calmer day — or try a Sweep.</Text>
+          <Text style={styles.emptyText}>Nothing planned for today.</Text>
+          <Text style={styles.emptySubtext}>
+            Enjoy the calm, or add something from Mind Drop or Sweep.
+          </Text>
         </View>
       )}
 
@@ -1276,15 +1309,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#424242',
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#222222', // charcoalInk
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#757575',
+    color: '#666666', // inkMuted
     textAlign: 'center',
   },
   // Optimistic quick-add card styles (processing state)

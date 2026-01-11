@@ -14,6 +14,7 @@ import { eventBus } from '../../lib/events/EventBus';
 const mockCreateTodo = jest.fn();
 const mockCreateHabit = jest.fn();
 const mockCreateNote = jest.fn();
+const mockIncrementDropCount = jest.fn();
 
 jest.mock('../../lib/store/useGremlyStore', () => ({
   useGremlyStore: (selector: any) => {
@@ -21,6 +22,8 @@ jest.mock('../../lib/store/useGremlyStore', () => ({
       createTodo: mockCreateTodo,
       createHabit: mockCreateHabit,
       createNote: mockCreateNote,
+      spaces: [],
+      incrementDropCount: mockIncrementDropCount,
     };
     return selector(mockStore);
   },
@@ -53,6 +56,7 @@ describe('useMindDropSubmit', () => {
     mockCreateTodo.mockResolvedValue({ id: 'mock-todo-id', type: 'todo', name: 'test' });
     mockCreateHabit.mockResolvedValue({ id: 'mock-habit-id', type: 'habit', name: 'test' });
     mockCreateNote.mockResolvedValue({ id: 'mock-note-id', type: 'note', title: 'test' });
+    mockIncrementDropCount.mockResolvedValue({ didAgeUp: false, newAge: 1 });
   });
 
   test('adds pending item immediately on submit', async () => {
@@ -242,6 +246,7 @@ describe('useMindDropSubmit - multi-entity fallbacks', () => {
     mockCreateTodo.mockResolvedValue({ id: 'mock-todo-id', type: 'todo', name: 'test' });
     mockCreateHabit.mockResolvedValue({ id: 'mock-habit-id', type: 'habit', name: 'test' });
     mockCreateNote.mockResolvedValue({ id: 'mock-note-id', type: 'note', title: 'test' });
+    mockIncrementDropCount.mockResolvedValue({ didAgeUp: false, newAge: 1 });
   });
 
   test('creates todo when multi-entity detection returns is_multi: false', async () => {

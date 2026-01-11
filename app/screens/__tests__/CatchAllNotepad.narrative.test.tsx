@@ -31,11 +31,15 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
     createTodo: jest.fn(),
     createHabit: jest.fn(),
     createNote: jest.fn(),
+    gremlyAge: 5,
+    totalSweepCount: 10,
+    incrementSweepCount: () => Promise.resolve({ didAgeUp: false, newAge: 5 }),
   };
   const mockUseGremlyStore = (selector: any) => {
     return selector(mockState);
   };
   mockUseGremlyStore.getState = () => mockState;
+  mockUseGremlyStore.subscribe = () => () => {}; // Returns unsubscribe function
   mockUseGremlyStore._mockState = mockState; // Expose for test access
   return {
     useGremlyStore: mockUseGremlyStore,

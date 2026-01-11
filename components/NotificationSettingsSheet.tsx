@@ -1,7 +1,8 @@
 /**
- * NotificationSettingsSheet - Bottom sheet for notification preferences
+ * NotificationSettingsSheet - Bottom sheet for notification and ritual settings
  *
- * Allows users to configure Morning Brief and Evening Sweep notification times.
+ * Allows users to configure Morning Brief and Evening Sweep notification times,
+ * as well as the day boundary for ritual progress tracking.
  */
 
 import React, { useState } from 'react';
@@ -12,6 +13,8 @@ import { X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius } from '../design/tokens';
 import { BRAND } from '../design/brand';
+import DayBoundaryPicker from './settings/DayBoundaryPicker';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 
 export interface NotificationSettingsPayload {
   morningEnabled: boolean;
@@ -54,11 +57,16 @@ function createDefaultTime(hour: number): Date {
 function NotificationSettingsSheetContent({ sheetId, payload }: NotificationSettingsSheetProps) {
   const insets = useSafeAreaInsets();
 
+  // Day boundary from store
+  const dayBoundaryHour = useGremlyStore((s) => s.dayBoundaryHour);
+  const setDayBoundaryHour = useGremlyStore((s) => s.setDayBoundaryHour);
+
   // Local state for form values
   const [morningEnabled, setMorningEnabled] = useState(payload.morningEnabled);
   const [morningTime, setMorningTime] = useState(payload.morningTime);
   const [eveningEnabled, setEveningEnabled] = useState(payload.eveningEnabled);
   const [eveningTime, setEveningTime] = useState(payload.eveningTime);
+  const [localDayBoundary, setLocalDayBoundary] = useState(dayBoundaryHour);
 
   // Time picker visibility (for Android)
   const [showMorningPicker, setShowMorningPicker] = useState(false);
@@ -68,7 +76,12 @@ function NotificationSettingsSheetContent({ sheetId, payload }: NotificationSett
     SheetManager.hide(sheetId);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // Save day boundary if changed
+    if (localDayBoundary !== dayBoundaryHour) {
+      await setDayBoundaryHour(localDayBoundary);
+    }
+    // Save notification settings
     payload.onSave({
       morningEnabled,
       morningTime,
@@ -101,7 +114,7 @@ function NotificationSettingsSheetContent({ sheetId, payload }: NotificationSett
       <View style={[styles.content, { paddingBottom: insets.bottom + 16 }]}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Notifications</Text>
+          <Text style={styles.title}>Settings</Text>
           <Pressable
             onPress={handleClose}
             style={styles.closeButton}
@@ -181,6 +194,15 @@ function NotificationSettingsSheetContent({ sheetId, payload }: NotificationSett
           )}
         </View>
 
+        {/* Day Boundary Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Day Boundary</Text>
+          <Text style={styles.sectionDescription}>
+            Choose when your ritual day resets. Night owls might prefer 3am or later.
+          </Text>
+          <DayBoundaryPicker value={localDayBoundary} onChange={setLocalDayBoundary} />
+        </View>
+
         {/* Save Button */}
         <Pressable style={styles.saveButton} onPress={handleSave}>
           <Text style={styles.saveButtonText}>Save</Text>
@@ -227,6 +249,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-Medium',
     color: BRAND.colors.charcoalInk,
+  },
+  sectionDescription: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: colors.text.secondary,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
   },
   timeButton: {
     backgroundColor: colors.white,

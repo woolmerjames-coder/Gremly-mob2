@@ -34,6 +34,9 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
     deleteNote: jest.fn(),
     deleteTodo: jest.fn(),
     deleteHabit: jest.fn(),
+    gremlyAge: 5,
+    totalSweepCount: 10,
+    incrementSweepCount: () => Promise.resolve({ didAgeUp: false, newAge: 5 }),
   });
 
   const useGremlyStore = Object.assign(
@@ -43,7 +46,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       }
       return {};
     }),
-    { getState: getMockState },
+    { getState: getMockState, subscribe: () => () => {} },
   );
 
   return { useGremlyStore };
