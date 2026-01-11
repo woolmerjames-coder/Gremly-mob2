@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Text } from '../../ui';
-import { Sprout } from 'lucide-react-native';
+import { Sprout, ArrowDown, Sparkles } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
@@ -30,9 +30,6 @@ import GREMLY_FISTBUMP from '../../assets/mascot/fistbumpgremly.png';
 import GREMLY_SWEEP from '../../assets/mascot/sweepcomplete.png';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const REQUIRED_COUNT = 3;
-const DOT_SIZE = 8;
-const DOT_GAP = 6;
 
 interface OnboardingStep {
   id: string;
@@ -41,7 +38,7 @@ interface OnboardingStep {
   subtext: string;
   type: 'mascot' | 'icon';
   mascot?: any;
-  showRitualDots?: boolean;
+  showRitualRows?: boolean;
 }
 
 const ONBOARDING_STEPS: OnboardingStep[] = [
@@ -56,50 +53,35 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: 'ritual',
     title: 'The Daily Ritual',
-    body: 'Drop at least 3 thoughts to feed Gremly. Sweep at least 3 cards before bed to clear your mind. The more, the better.',
-    subtext:
-      'Complete the ritual and Gremly ages one day. Miss a day? No guilt, Gremly just waits for you.',
+    body: '',
+    subtext: 'Complete the ritual and I age by 1. Miss a day? No stress, I just wait.',
     type: 'mascot',
     mascot: GREMLY_SWEEP,
-    showRitualDots: false,
+    showRitualRows: true,
   },
   {
     id: 'start',
-    title: 'Ready to drop your first thought?',
-    body: 'Anything on your mind — tasks, ideas, worries. Drop it, and Gremly will help you sort it out.',
-    subtext: '',
+    title: 'I help you think',
+    body: 'Tap any card to chat with me. I can help you research, break things down, or turn a vague idea into real steps.',
+    subtext: "Lost? Tap me on any screen and I'll explain what to do.",
     type: 'mascot',
     mascot: GREMLY_FISTBUMP,
   },
 ];
 
 /**
- * Renders empty ritual progress dots for the onboarding explanation
+ * Renders icon+text rows for the ritual explanation
  */
-function RitualDotsPreview() {
+function RitualRows() {
   return (
-    <View style={styles.ritualDotsContainer}>
-      {/* Drops section */}
-      <View style={styles.ritualSection}>
-        <View style={styles.dotsRow}>
-          {Array.from({ length: REQUIRED_COUNT }).map((_, index) => (
-            <View key={`drop-${index}`} style={styles.dotEmpty} />
-          ))}
-        </View>
-        <Text style={styles.dotLabel}>drops</Text>
+    <View style={styles.ritualRowsContainer}>
+      <View style={styles.ritualRow}>
+        <ArrowDown size={20} color={BRAND.colors.mossGreen} />
+        <Text style={styles.ritualRowText}>Drop 3+ things anytime (feeds me)</Text>
       </View>
-
-      {/* Plus sign */}
-      <Text style={styles.plusSign}>+</Text>
-
-      {/* Sweeps section */}
-      <View style={styles.ritualSection}>
-        <View style={styles.dotsRow}>
-          {Array.from({ length: REQUIRED_COUNT }).map((_, index) => (
-            <View key={`sweep-${index}`} style={styles.dotEmpty} />
-          ))}
-        </View>
-        <Text style={styles.dotLabel}>swept</Text>
+      <View style={styles.ritualRow}>
+        <Sparkles size={20} color={BRAND.colors.mossGreen} />
+        <Text style={styles.ritualRowText}>Sweep 3+ cards before bed (rests me)</Text>
       </View>
     </View>
   );
@@ -131,11 +113,11 @@ function OnboardingStepView({ step }: { step: OnboardingStep }) {
       {/* Title */}
       <Text style={styles.title}>{step.title}</Text>
 
-      {/* Ritual dots preview (only on ritual step) */}
-      {step.showRitualDots && <RitualDotsPreview />}
+      {/* Ritual rows (only on ritual step) */}
+      {step.showRitualRows && <RitualRows />}
 
       {/* Body text */}
-      <Text style={styles.body}>{step.body}</Text>
+      {step.body ? <Text style={styles.body}>{step.body}</Text> : null}
 
       {/* Subtext */}
       {step.subtext ? <Text style={styles.subtext}>{step.subtext}</Text> : null}
@@ -266,7 +248,7 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: BRAND.colors.linenCream,
+    backgroundColor: BRAND.colors.sageMist,
   },
   skipButton: {
     position: 'absolute',
@@ -333,38 +315,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  // Ritual dots preview
-  ritualDotsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
+  // Ritual rows
+  ritualRowsContainer: {
     gap: 16,
+    marginBottom: 24,
+    width: '100%',
   },
-  ritualSection: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  dotsRow: {
+  ritualRow: {
     flexDirection: 'row',
-    gap: DOT_GAP,
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 8,
   },
-  dotEmpty: {
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
-    backgroundColor: BRAND.colors.borderSubtle,
-  },
-  dotLabel: {
-    fontSize: 11,
-    fontFamily: 'Inter-Regular',
-    color: BRAND.colors.inkSubtle,
-  },
-  plusSign: {
-    fontSize: 18,
+  ritualRowText: {
     fontFamily: 'Inter-Medium',
-    color: BRAND.colors.inkMuted,
-    marginBottom: 16,
+    fontSize: 16,
+    color: BRAND.colors.charcoalInk,
+    flex: 1,
   },
   // Bottom controls
   bottomContainer: {
