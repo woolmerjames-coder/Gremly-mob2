@@ -7224,7 +7224,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     ritualAgeLabel: {
       fontSize: 11,
       fontWeight: '500',
-      color: c.inkMuted,
+      color: c.mutedText,
       marginTop: -2,
     },
     logoutBtn: {
@@ -7884,7 +7884,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     recentEmptyPrimary: {
       fontSize: 14,
       fontWeight: '400',
-      color: c.inkMuted,
+      color: c.mutedText,
       textAlign: 'center',
     },
     recentEmptySecondary: {

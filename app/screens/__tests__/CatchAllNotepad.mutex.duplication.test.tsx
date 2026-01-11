@@ -47,12 +47,16 @@ const mockStoreState = {
   createTodo: mockCreateTodo,
   createHabit: mockCreateHabit,
   createNote: mockCreateNote,
+  gremlyAge: 5,
+  totalSweepCount: 10,
+  incrementSweepCount: () => Promise.resolve({ didAgeUp: false, newAge: 5 }),
 };
 
 const mockUseGremlyStore = (selector: any) => {
   return selector(mockStoreState);
 };
 mockUseGremlyStore.getState = () => mockStoreState;
+mockUseGremlyStore.subscribe = () => () => {}; // Returns unsubscribe function
 
 jest.mock('../../../lib/store/useGremlyStore', () => ({
   useGremlyStore: mockUseGremlyStore,

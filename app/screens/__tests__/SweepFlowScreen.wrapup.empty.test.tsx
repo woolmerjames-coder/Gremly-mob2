@@ -115,7 +115,7 @@ async function navigateToHabitsStep(result: ReturnType<typeof render>) {
 
   // Step 1: Decision - empty state, tap "Done" to go to Habits
   await waitFor(() => {
-    expect(result.getByText("Nothing to Sweep right now — you're all clear.")).toBeTruthy();
+    expect(result.getByText('Nothing to sweep!')).toBeTruthy();
   });
   fireEvent.press(result.getByText('Done'));
 

@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
   tipBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: c.sageTint,
+    backgroundColor: c.sageMist,
     borderRadius: BRAND.radius.md,
     padding: 12,
     marginTop: 16,
