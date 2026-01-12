@@ -1,14 +1,18 @@
 /**
  * EntityChatButton - Button to open entity chat
- * Two variants: overlay (circular icon) and sweep (text link)
+ * Two variants: overlay (row with mascot + text) and sweep (text link)
  */
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { MessageCircle } from 'lucide-react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, ImageSourcePropType } from 'react-native';
+import { ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 import { lightTokens } from '../../design/tokens';
+
+// Gremly mascot image
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_MASCOT: ImageSourcePropType = require('../../assets/buttonforHP.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -45,11 +49,19 @@ export function EntityChatButton({
         style={styles.overlayButton}
         onPress={handlePress}
         activeOpacity={0.8}
-        accessibilityLabel={hasExistingChat ? 'Continue chat with Gremly' : 'Chat with Gremly'}
+        accessibilityLabel="Chat with Gremly"
         accessibilityRole="button"
       >
-        <MessageCircle size={18} color={lightTokens.colors.onPrimary} />
-        {hasExistingChat && <View style={styles.chatIndicator} />}
+        {/* Mascot */}
+        <View style={styles.mascotContainer}>
+          <Image source={GREMLY_MASCOT} style={styles.mascotImage} />
+        </View>
+
+        {/* Text */}
+        <Text style={styles.overlayText}>Chat with Gremly</Text>
+
+        {/* Chevron */}
+        <ChevronRight size={18} color={lightTokens.colors.subtle} />
       </TouchableOpacity>
     );
   }
@@ -75,26 +87,29 @@ export function EntityChatButton({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  // Overlay variant
+  // Overlay variant - full row with mascot + text
   overlayButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: lightTokens.colors.mossGreen,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    ...lightTokens.elevation.sm,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(191, 216, 192, 0.3)', // Subtle sage background
+    borderRadius: 12,
   },
-  chatIndicator: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: lightTokens.colors.success,
-    borderWidth: 1.5,
-    borderColor: lightTokens.colors.surface,
+  mascotContainer: {
+    position: 'relative',
+    marginRight: 10,
+  },
+  mascotImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  overlayText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: lightTokens.typography.fontFamily.medium,
+    color: lightTokens.colors.mossGreen,
   },
 
   // Sweep variant

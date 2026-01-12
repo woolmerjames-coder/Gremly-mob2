@@ -5008,17 +5008,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Pressable>
                           )}
 
-                        {/* Entity Chat button - visible when editing or viewing existing entity */}
-                        {currentEntityId && (
-                          <EntityChatButton
-                            entityId={currentEntityId}
-                            entityType={entityTypeForChat}
-                            variant="overlay"
-                            hasExistingChat={hasExistingChat}
-                            onPress={() => setShowEntityChat(true)}
-                          />
-                        )}
-
                         {/* Header Edit button - view mode only */}
                         {isViewMode && fullEntity ? (
                           <Pressable
@@ -5500,6 +5489,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 )}
                               </ScrollView>
                             </Box>
+                          )}
+
+                          {/* Entity Chat button - below content, above tags */}
+                          {currentEntityId && (
+                            <View
+                              style={{ paddingHorizontal: 16, paddingVertical: 4, marginTop: 4 }}
+                            >
+                              <EntityChatButton
+                                entityId={currentEntityId}
+                                entityType={entityTypeForChat}
+                                variant="overlay"
+                                onPress={() => setShowEntityChat(true)}
+                              />
+                            </View>
                           )}
 
                           {/* Tags row - now directly below text field */}
