@@ -129,6 +129,9 @@ import {
 // Make Actionable feature
 import { MakeActionableButton } from './MakeActionableButton';
 import { ChecklistView } from './ChecklistView';
+
+// Entity Chat
+import { EntityChatButton, EntityChatScreen } from '../chat';
 import { ChecklistProgress } from './ChecklistProgress';
 import { RevertToTextButton } from './RevertToTextButton';
 import { TodoPreviewModal } from './TodoPreviewModal';
@@ -1190,6 +1193,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const prevEntityIdRef = useRef<string | null>(null);
   const currentEntityId = (initialEntity as any)?.id ?? null;
 
+  // Entity Chat: get store selector and derive entityType
+  const getEntityChatMessageCount = useGremlyStore((s) => s.getEntityChatMessageCount);
+
+  const entityTypeForChat: 'todo' | 'habit' | 'note' = useMemo(() => {
+    if (baseType === 'todo') return 'todo';
+    if (baseType === 'habit') return 'habit';
+    return 'note'; // log maps to 'note'
+  }, [baseType]);
+
+  const hasExistingChat = useMemo(() => {
+    if (!currentEntityId) return false;
+    return getEntityChatMessageCount(currentEntityId, entityTypeForChat) > 0;
+  }, [currentEntityId, entityTypeForChat, getEntityChatMessageCount]);
+
   // Log kind detection (Phase L1)
   const isLog = baseType === 'log';
   const logKind = isLog ? state.log.kind : 'basic';
@@ -1312,6 +1329,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [moodPickerExpanded, setMoodPickerExpanded] = useState(false);
   const [sourceNote, setSourceNote] = useState<{ id: string; title: string } | null>(null);
   const [isCreatingTodos, setIsCreatingTodos] = useState(false);
+
+  // Entity Chat state
+  const [showEntityChat, setShowEntityChat] = useState(false);
 
   // View mode: store fetched entity for display
   const [viewModeEntity, setViewModeEntity] = useState<any>(null);
@@ -4987,6 +5007,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               />
                             </Pressable>
                           )}
+
+                        {/* Entity Chat button - visible when editing or viewing existing entity */}
+                        {currentEntityId && (
+                          <EntityChatButton
+                            entityId={currentEntityId}
+                            entityType={entityTypeForChat}
+                            variant="overlay"
+                            hasExistingChat={hasExistingChat}
+                            onPress={() => setShowEntityChat(true)}
+                          />
+                        )}
 
                         {/* Header Edit button - view mode only */}
                         {isViewMode && fullEntity ? (
@@ -8741,6 +8772,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           </Pressable>
         </Modal>
       </KeyboardAvoidingView>
+
+      {/* Entity Chat Screen - full screen overlay on top of current overlay */}
+      {showEntityChat && currentEntityId && (
+        <Modal visible={showEntityChat} animationType="slide" presentationStyle="fullScreen">
+          <EntityChatScreen
+            entityId={currentEntityId}
+            entityType={entityTypeForChat}
+            onClose={() => setShowEntityChat(false)}
+          />
+        </Modal>
+      )}
 
       {/* TodoPreviewModal - for exploding notes to todos */}
       <TodoPreviewModal

@@ -1,6 +1,7 @@
 /**
  * EntityChatScreen - Full-screen chat view for entity conversations
  * Used in overlays and sweep cards to chat with Gremly about a specific entity
+ * Matches design patterns from ChatThreadScreen (Spaces Chat)
  */
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -14,19 +15,31 @@ import {
   Platform,
   SafeAreaView,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
-import { ChevronLeft, X } from 'lucide-react-native';
+import {
+  ChevronLeft,
+  X,
+  ListChecks,
+  AlertCircle,
+  Lightbulb,
+  Search,
+  CheckSquare,
+  Sparkles,
+  Target,
+  Compass,
+} from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { callEntityChatStreaming } from '../../lib/cortex/CortexClient';
 import { ChatComposer } from './ChatComposer';
+import { ChatBubble } from './ChatBubble';
 import { lightTokens } from '../../design/tokens';
 import type {
   EntityChatPreset,
   EntityChatMessage,
   EntityChatRequest,
+  SpaceChatMessage,
   Todo,
   Habit,
   Note,
@@ -56,34 +69,34 @@ export interface EntityChatScreenProps {
 interface PresetConfig {
   label: string;
   prompt: string;
-  icon: string;
+  icon: React.ComponentType<{ size: number; color: string }>;
 }
 
 const TODO_PRESETS: Record<string, PresetConfig> = {
   break_down: {
     label: 'Break it down',
     prompt: 'Help me break this task into smaller steps',
-    icon: '📋',
+    icon: ListChecks,
   },
   whats_blocking: {
     label: "What's blocking me?",
     prompt: "What might be blocking me from doing this? Let's figure it out.",
-    icon: '🚧',
+    icon: AlertCircle,
   },
   think_through: {
     label: 'Think through',
     prompt: 'Help me think through how to approach this',
-    icon: '🤔',
+    icon: Lightbulb,
   },
   research: {
     label: 'Research needed',
     prompt: 'What should I research or learn before starting this?',
-    icon: '🔍',
+    icon: Search,
   },
   action_steps: {
     label: 'Next actions',
     prompt: 'What are the concrete next actions I should take?',
-    icon: '✅',
+    icon: CheckSquare,
   },
 };
 
@@ -91,22 +104,22 @@ const HABIT_PRESETS: Record<string, PresetConfig> = {
   stay_consistent: {
     label: 'Stay consistent',
     prompt: 'Help me stay consistent with this habit',
-    icon: '🎯',
+    icon: Target,
   },
   whats_blocking: {
     label: "What's blocking me?",
     prompt: "What might be getting in the way of this habit? Let's troubleshoot.",
-    icon: '🚧',
+    icon: AlertCircle,
   },
   approach: {
     label: 'Better approach',
     prompt: 'Is there a better way to approach this habit?',
-    icon: '💡',
+    icon: Compass,
   },
   think_through: {
     label: 'Think through',
     prompt: 'Help me think through why this habit matters to me',
-    icon: '🤔',
+    icon: Lightbulb,
   },
 };
 
@@ -114,22 +127,22 @@ const NOTE_PRESETS: Record<string, PresetConfig> = {
   expand: {
     label: 'Expand on this',
     prompt: 'Help me expand on this idea',
-    icon: '✨',
+    icon: Sparkles,
   },
   action_steps: {
     label: 'Make actionable',
     prompt: 'Turn this into actionable steps',
-    icon: '✅',
+    icon: CheckSquare,
   },
   think_through: {
     label: 'Think deeper',
     prompt: 'Help me think deeper about this',
-    icon: '🤔',
+    icon: Lightbulb,
   },
   research: {
     label: 'What to explore',
     prompt: 'What related topics should I explore?',
-    icon: '🔍',
+    icon: Search,
   },
 };
 
@@ -399,41 +412,41 @@ export function EntityChatScreen({
   );
 
   // ─── Render Message ────────────────────────────────────────────────────────
-  const renderMessage = useCallback(({ item }: { item: EntityChatMessage }) => {
-    const isUser = item.role === 'user';
+  const renderMessage = useCallback(
+    ({ item }: { item: EntityChatMessage }) => {
+      // Convert EntityChatMessage to SpaceChatMessage shape for ChatBubble
+      const bubbleMessage: SpaceChatMessage = {
+        id: item.id,
+        chat_id: `entity-chat-${entityId}`, // Virtual chat ID for entity chats
+        space_id: entity?.space_id ?? '',
+        user_id: '', // Not needed for display
+        role: item.role,
+        content: item.content,
+        created_at: item.created_at,
+      };
 
-    return (
-      <View style={[styles.messageRow, isUser && styles.messageRowUser]}>
-        {!isUser && (
-          <View style={styles.avatar}>
-            <Text style={styles.avatarEmoji}>🌿</Text>
-          </View>
-        )}
-        <View style={[styles.messageBubble, isUser ? styles.userBubble : styles.assistantBubble]}>
-          <Text style={[styles.messageText, isUser && styles.userMessageText]}>{item.content}</Text>
-        </View>
-      </View>
-    );
-  }, []);
+      return <ChatBubble message={bubbleMessage} />;
+    },
+    [entity, entityId],
+  );
 
   // ─── Render Streaming Message ──────────────────────────────────────────────
   const renderStreamingMessage = () => {
-    if (!streamingContent && !isLoading) return null;
+    if (!isLoading) return null;
 
-    return (
-      <View style={styles.messageRow}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarEmoji}>🌿</Text>
-        </View>
-        <View style={[styles.messageBubble, styles.assistantBubble]}>
-          {streamingContent ? (
-            <Text style={styles.messageText}>{streamingContent}</Text>
-          ) : (
-            <ActivityIndicator size="small" color={lightTokens.colors.mossGreen} />
-          )}
-        </View>
-      </View>
-    );
+    // Create streaming message for ChatBubble
+    const streamingMessage: SpaceChatMessage & { isStreaming: boolean } = {
+      id: 'streaming',
+      chat_id: `entity-chat-${entityId}`,
+      space_id: entity?.space_id ?? '',
+      user_id: '',
+      role: 'assistant',
+      content: streamingContent || '',
+      created_at: new Date().toISOString(),
+      isStreaming: true,
+    };
+
+    return <ChatBubble message={streamingMessage as SpaceChatMessage} />;
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -468,6 +481,8 @@ export function EntityChatScreen({
             <Text style={styles.headerTitle} numberOfLines={1}>
               {getEntityTitle(entity)}
             </Text>
+            {/* Golden underline accent */}
+            <View style={styles.headerUnderline} />
           </View>
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
             <X size={24} color={lightTokens.colors.text} />
@@ -490,17 +505,20 @@ export function EntityChatScreen({
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.presetsScroll}
               >
-                {Object.entries(presets).map(([key, config]) => (
-                  <TouchableOpacity
-                    key={key}
-                    style={styles.presetChip}
-                    onPress={() => handlePresetTap(key)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.presetIcon}>{config.icon}</Text>
-                    <Text style={styles.presetLabel}>{config.label}</Text>
-                  </TouchableOpacity>
-                ))}
+                {Object.entries(presets).map(([key, config]) => {
+                  const IconComponent = config.icon;
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      style={styles.presetChip}
+                      onPress={() => handlePresetTap(key)}
+                      activeOpacity={0.7}
+                    >
+                      <IconComponent size={16} color={lightTokens.colors.mossGreen} />
+                      <Text style={styles.presetLabel}>{config.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             </View>
           )}
@@ -541,10 +559,11 @@ export function EntityChatScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: lightTokens.colors.bg,
+    backgroundColor: '#D4E4D4', // Sage green - matches Spaces Chat
   },
   keyboardAvoid: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
 
   // Header
@@ -553,8 +572,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: lightTokens.colors.border,
+    backgroundColor: 'transparent',
   },
   headerButton: {
     padding: 8,
@@ -569,14 +587,19 @@ const styles = StyleSheet.create({
     fontFamily: lightTokens.typography.fontFamily.medium,
     color: lightTokens.colors.text,
   },
+  headerUnderline: {
+    width: 40,
+    height: 3,
+    backgroundColor: '#E0C47A', // Golden accent
+    borderRadius: 2,
+    marginTop: 4,
+  },
 
   // Context Card
   contextCard: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: lightTokens.colors.linenCream,
-    borderBottomWidth: 1,
-    borderBottomColor: lightTokens.colors.border,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)', // Very subtle glass on sage
   },
   contextText: {
     fontSize: 13,
@@ -608,18 +631,18 @@ const styles = StyleSheet.create({
   presetChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: lightTokens.colors.surface,
-    borderWidth: 1,
-    borderColor: lightTokens.colors.border,
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginRight: 8,
-    ...lightTokens.elevation.sm,
-  },
-  presetIcon: {
-    fontSize: 16,
-    marginRight: 6,
+    // Subtle shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
   },
   presetLabel: {
     fontSize: 14,
@@ -627,63 +650,17 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.text,
   },
 
-  // Messages
+  // Messages - ChatBubble handles its own styling
   messageList: {
-    paddingHorizontal: 16,
     paddingVertical: 16,
     paddingBottom: 8,
-  },
-  messageRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginBottom: 12,
-  },
-  messageRowUser: {
-    justifyContent: 'flex-end',
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: lightTokens.colors.sageMist,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  avatarEmoji: {
-    fontSize: 16,
-  },
-  messageBubble: {
-    maxWidth: '75%',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 18,
-  },
-  userBubble: {
-    backgroundColor: lightTokens.colors.mossGreen,
-    borderBottomRightRadius: 4,
-  },
-  assistantBubble: {
-    backgroundColor: lightTokens.colors.surface,
-    borderWidth: 1,
-    borderColor: lightTokens.colors.border,
-    borderBottomLeftRadius: 4,
-  },
-  messageText: {
-    fontSize: 15,
-    fontFamily: lightTokens.typography.fontFamily.regular,
-    color: lightTokens.colors.text,
-    lineHeight: 21,
-  },
-  userMessageText: {
-    color: lightTokens.colors.onPrimary,
   },
 
   // Composer
   composerContainer: {
-    borderTopWidth: 1,
-    borderTopColor: lightTokens.colors.border,
-    backgroundColor: lightTokens.colors.surface,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 8,
+    paddingBottom: 4,
   },
 
   // Empty State
