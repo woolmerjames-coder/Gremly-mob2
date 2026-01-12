@@ -4,6 +4,7 @@
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService } from '../date/DateService';
+import type { EntityChatRequest, EntityChatResponse } from '../types';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -1093,6 +1094,213 @@ function getDefaultSaveResponse(): SpaceChatSaveResponse {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENTITY CHAT - Chat within entity overlays and sweep cards
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Call the Cortex proxy for Entity Chat (non-streaming).
+ * Used for quick single-turn responses in overlay/sweep chat.
+ *
+ * @param request - The entity chat request payload
+ * @returns The entity chat response with content, saveable detection, and promotion
+ */
+export async function callEntityChat(request: EntityChatRequest): Promise<EntityChatResponse> {
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    log('CONFIG_MISSING', 'Missing CORTEX_URL for entity chat');
+    return {
+      content: "I'm having trouble connecting right now. Please try again.",
+      latency_ms: 0,
+    };
+  }
+
+  if (isAiDisabled()) {
+    return {
+      content: 'AI features are currently disabled.',
+      latency_ms: 0,
+    };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  const timeoutMs = toMs(env.cortex.timeoutMs);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const startTime = Date.now();
+
+  try {
+    log('ENTITY_CHAT', 'Calling entity chat', {
+      entityType: request.entity.type,
+      entityId: request.entity.id,
+      messageCount: request.messages.length,
+      preset: request.preset,
+    });
+
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        ...request,
+        type: 'entity-chat',
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+
+    const latency_ms = Date.now() - startTime;
+
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => '');
+      log('ENTITY_CHAT_ERROR', res.status, errorText);
+      return {
+        content: "Something went wrong. Let's try that again.",
+        latency_ms,
+      };
+    }
+
+    const data = await res.json();
+    log('ENTITY_CHAT_RESPONSE', {
+      contentLength: data.content?.length || 0,
+      hasSaveable: !!data.saveable,
+      hasPromotion: !!data.promotion,
+    });
+
+    return {
+      content: data.content || '',
+      saveable: data.saveable,
+      promotion: data.promotion,
+      latency_ms: data.latency_ms ?? latency_ms,
+    };
+  } catch (e: any) {
+    const latency_ms = Date.now() - startTime;
+    if (e?.name === 'AbortError') {
+      log('ENTITY_CHAT_TIMEOUT', 'Request timed out');
+      return {
+        content: 'Request timed out. Please try again.',
+        latency_ms,
+      };
+    }
+    log('ENTITY_CHAT_EXCEPTION', e?.message || e);
+    return {
+      content: "I'm having trouble right now. Please try again.",
+      latency_ms,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Entity chat streaming callbacks
+ */
+export interface EntityChatStreamingCallbacks {
+  onDelta: (delta: string) => void;
+  onComplete: (response: EntityChatResponse) => void;
+  onError: (error: Error) => void;
+}
+
+/**
+ * Call the Cortex proxy for Entity Chat with streaming support using EventSource (SSE).
+ * Returns an object with a close() method to cancel the request.
+ *
+ * @param request - The entity chat request payload
+ * @param callbacks - Callbacks for streaming events (onDelta, onComplete, onError)
+ * @returns Object with close() method to cancel the stream
+ */
+export function callEntityChatStreaming(
+  request: EntityChatRequest,
+  callbacks: EntityChatStreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    callbacks.onError(new Error('Missing CORTEX_URL'));
+    return { close: () => {} };
+  }
+
+  if (isAiDisabled()) {
+    callbacks.onError(new Error('AI disabled'));
+    return { close: () => {} };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  let fullContent = '';
+  const startTime = Date.now();
+
+  log('ENTITY_CHAT_STREAM', 'Starting streaming entity chat', {
+    entityType: request.entity.type,
+    entityId: request.entity.id,
+    messageCount: request.messages.length,
+    preset: request.preset,
+  });
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      ...request,
+      type: 'entity-chat',
+      stream: true,
+    }),
+  });
+
+  es.addEventListener('message', (event: any) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      // Handle error in stream
+      if (data.error) {
+        callbacks.onError(new Error(data.error));
+        es.close();
+        return;
+      }
+
+      // Handle delta (partial content)
+      if (data.delta) {
+        fullContent += data.delta;
+        callbacks.onDelta(data.delta);
+      }
+
+      // Handle completion
+      if (data.done) {
+        const latency_ms = data.latency_ms ?? Date.now() - startTime;
+        callbacks.onComplete({
+          content: data.full_content || fullContent,
+          saveable: data.saveable,
+          promotion: data.promotion,
+          latency_ms,
+        });
+        es.close();
+      }
+    } catch (parseError) {
+      // Ignore parse errors for individual chunks
+      log('ENTITY_CHAT_STREAM_PARSE_ERROR', parseError);
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    const errorMessage = event.message || 'Stream error';
+    log('ENTITY_CHAT_STREAM_ERROR', errorMessage);
+    callbacks.onError(new Error(errorMessage));
+    es.close();
+  });
+
+  return { close: () => es.close() };
+}
+
 export const CortexClient = {
   callChat,
   callComplete,
@@ -1103,4 +1311,6 @@ export const CortexClient = {
   callEnrichPhase2,
   callEnrichPhase2Streaming,
   callTranscribe,
+  callEntityChat,
+  callEntityChatStreaming,
 };
