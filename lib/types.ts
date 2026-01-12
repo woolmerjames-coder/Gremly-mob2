@@ -626,6 +626,7 @@ export interface EntityChatMessage {
       | 'approach';
     is_contextual_opener?: boolean;
     has_saveable_content?: boolean;
+    isStreaming?: boolean; // True for temp streaming message
   };
 }
 

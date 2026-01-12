@@ -244,7 +244,7 @@ export function EntityChatScreen({
 
   // ─── Chat Data ─────────────────────────────────────────────────────────────
   const chatData = getEntityChat(entityId, entityType);
-  const messages = chatData?.messages ?? [];
+  const storedMessages = chatData?.messages ?? [];
 
   // ─── Local State ───────────────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(false);
@@ -259,7 +259,27 @@ export function EntityChatScreen({
 
   // ─── Presets ───────────────────────────────────────────────────────────────
   const presets = getPresetsForType(entityType);
-  const showPresets = messages.length === 0 && !isLoading;
+  const showPresets = storedMessages.length === 0 && !isLoading;
+
+  // ─── Combined Messages (including streaming) ─────────────────────────────────
+  // Include streaming message in the data array for stable rendering
+  const messages = useMemo(() => {
+    const result = [...storedMessages];
+
+    // Add streaming message if loading
+    if (isLoading) {
+      const streamingMessage: EntityChatMessage = {
+        id: 'streaming-temp',
+        role: 'assistant',
+        content: streamingContent,
+        created_at: new Date().toISOString(),
+        metadata: { isStreaming: true },
+      };
+      result.push(streamingMessage);
+    }
+
+    return result;
+  }, [storedMessages, isLoading, streamingContent]);
 
   // ─── Send Message Handler ──────────────────────────────────────────────────
   const handleSendMessage = useCallback(
@@ -309,9 +329,8 @@ export function EntityChatScreen({
         }
 
         // 3. Build messages for request (include history)
-        const existingMessages = chatData?.messages ?? [];
         const requestMessages = [
-          ...existingMessages.map((m) => ({ role: m.role, content: m.content })),
+          ...storedMessages.map((m) => ({ role: m.role, content: m.content })),
           { role: 'user' as const, content: text },
         ];
 
@@ -387,7 +406,7 @@ export function EntityChatScreen({
       entityType,
       isLoading,
       appendEntityChatMessage,
-      chatData,
+      storedMessages,
       spaceName,
       sweepContext,
     ],
@@ -469,8 +488,11 @@ export function EntityChatScreen({
   // ─── Render Message ────────────────────────────────────────────────────────
   const renderMessage = useCallback(
     ({ item }: { item: EntityChatMessage }) => {
+      // Check if this is the streaming message
+      const isStreamingMessage = item.metadata?.isStreaming === true;
+
       // Convert EntityChatMessage to SpaceChatMessage shape for ChatBubble
-      const bubbleMessage: SpaceChatMessage = {
+      const bubbleMessage: SpaceChatMessage & { isStreaming?: boolean } = {
         id: item.id,
         chat_id: `entity-chat-${entityId}`, // Virtual chat ID for entity chats
         space_id: entity?.space_id ?? '',
@@ -478,6 +500,7 @@ export function EntityChatScreen({
         role: item.role,
         content: item.content,
         created_at: item.created_at,
+        isStreaming: isStreamingMessage,
       };
 
       // Check if this is the last assistant message with saveable content
@@ -486,7 +509,7 @@ export function EntityChatScreen({
 
       return (
         <View>
-          <ChatBubble message={bubbleMessage} />
+          <ChatBubble message={bubbleMessage as SpaceChatMessage} />
           {showSaveButton && (
             <View style={styles.saveButtonWrapper}>
               <SaveButton
@@ -516,24 +539,7 @@ export function EntityChatScreen({
     ],
   );
 
-  // ─── Render Streaming Message ──────────────────────────────────────────────
-  const renderStreamingMessage = () => {
-    if (!isLoading) return null;
-
-    // Create streaming message for ChatBubble
-    const streamingMessage: SpaceChatMessage & { isStreaming: boolean } = {
-      id: 'streaming',
-      chat_id: `entity-chat-${entityId}`,
-      space_id: entity?.space_id ?? '',
-      user_id: '',
-      role: 'assistant',
-      content: streamingContent || '',
-      created_at: new Date().toISOString(),
-      isStreaming: true,
-    };
-
-    return <ChatBubble message={streamingMessage as SpaceChatMessage} />;
-  };
+  // Streaming message is now included in the messages data array above
 
   // ─── Render ────────────────────────────────────────────────────────────────
   if (!entity) {
@@ -616,9 +622,8 @@ export function EntityChatScreen({
             keyExtractor={(item) => item.id}
             renderItem={renderMessage}
             contentContainerStyle={styles.messageList}
-            ListFooterComponent={renderStreamingMessage}
             onContentSizeChange={() => {
-              if (messages.length > 0 || streamingContent) {
+              if (messages.length > 0) {
                 flatListRef.current?.scrollToEnd({ animated: false });
               }
             }}
