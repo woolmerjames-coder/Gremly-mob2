@@ -275,7 +275,7 @@ export function EntityNotesModal({
 
         {/* Content Card - positioned at top */}
         <View style={[styles.card, { maxHeight: maxCardHeight }]}>
-          {/* Header */}
+          {/* Header - clean with just title, trash, and close */}
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Notes from Chat</Text>
             <View style={styles.headerActions}>
@@ -285,23 +285,8 @@ export function EntityNotesModal({
                 style={styles.deleteButton}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Trash2 size={20} color="#DC2626" />
+                <Trash2 size={20} color="#E57373" />
               </TouchableOpacity>
-
-              {/* Make checklist button (only if content has bullet points and not already a checklist) */}
-              {hasBulletPoints && onConvertToChecklist && !isEditMode && (
-                <TouchableOpacity onPress={handleMakeChecklist} style={styles.makeChecklistButton}>
-                  <ListChecks size={16} color={lightTokens.colors.mossGreen} />
-                  <Text style={styles.makeChecklistText}>Make checklist</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Edit/Done toggle (only for non-checklist notes) */}
-              {!isChecklist && (
-                <TouchableOpacity onPress={toggleEditMode} style={styles.editButton}>
-                  <Text style={styles.editButtonText}>{isEditMode ? 'Done' : 'Edit'}</Text>
-                </TouchableOpacity>
-              )}
 
               {/* Close X */}
               <TouchableOpacity
@@ -309,7 +294,7 @@ export function EntityNotesModal({
                 onPress={handleClose}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <X size={22} color={lightTokens.colors.text} />
+                <X size={20} color={lightTokens.colors.subtle} />
               </TouchableOpacity>
             </View>
           </View>
@@ -408,6 +393,36 @@ export function EntityNotesModal({
               <Text style={styles.noteText}>No content saved</Text>
             )}
           </ScrollView>
+
+          {/* Action Bar - Edit and Make checklist buttons */}
+          {!isChecklist && (
+            <View style={styles.actionBar}>
+              {/* Make checklist button (only if content has bullet points) */}
+              {hasBulletPoints && onConvertToChecklist && !isEditMode && (
+                <TouchableOpacity
+                  onPress={handleMakeChecklist}
+                  style={styles.actionButton}
+                  activeOpacity={0.7}
+                >
+                  <ListChecks size={16} color={lightTokens.colors.mossGreen} />
+                  <Text style={styles.actionButtonText}>Make checklist</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Edit/Done toggle */}
+              <TouchableOpacity
+                onPress={toggleEditMode}
+                style={[styles.actionButton, isEditMode && styles.actionButtonActive]}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[styles.actionButtonText, isEditMode && styles.actionButtonTextActive]}
+                >
+                  {isEditMode ? 'Done' : 'Edit'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -449,7 +464,7 @@ const styles = StyleSheet.create({
     fontFamily: lightTokens.typography.fontFamily.medium,
     fontWeight: '600',
     color: lightTokens.colors.text,
-    flex: 1,
+    flexShrink: 0,
   },
   headerActions: {
     flexDirection: 'row',
@@ -458,17 +473,6 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     padding: 4,
-  },
-  editButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(191, 216, 192, 0.3)',
-    borderRadius: 8,
-  },
-  editButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: lightTokens.colors.mossGreen,
   },
   closeButton: {
     padding: 4,
@@ -535,20 +539,6 @@ const styles = StyleSheet.create({
     padding: 0,
     backgroundColor: 'transparent',
   },
-  makeChecklistButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(191, 216, 192, 0.3)',
-    borderRadius: 8,
-    gap: 4,
-  },
-  makeChecklistText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: lightTokens.colors.mossGreen,
-  },
   preambleContainer: {
     marginBottom: 12,
     paddingBottom: 8,
@@ -560,6 +550,34 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: lightTokens.colors.border,
+  },
+  actionBar: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: lightTokens.colors.border,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(191, 216, 192, 0.2)',
+    borderRadius: 8,
+    gap: 6,
+  },
+  actionButtonActive: {
+    backgroundColor: lightTokens.colors.mossGreen,
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: lightTokens.colors.mossGreen,
+  },
+  actionButtonTextActive: {
+    color: '#fff',
   },
 });
 
