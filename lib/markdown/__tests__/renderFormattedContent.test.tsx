@@ -109,13 +109,13 @@ describe('renderFormattedContent', () => {
     it('handles empty lines as spacing', () => {
       const result = renderFormattedContent('Line one\n\nLine two');
       // Should have 3 elements: line, spacer, line
-      expect(result.length).toBe(3);
+      expect(result?.length).toBe(3);
     });
 
     it('handles multiple consecutive empty lines', () => {
       const result = renderFormattedContent('Start\n\n\nEnd');
       // Start, spacer, spacer, End
-      expect(result.length).toBe(4);
+      expect(result?.length).toBe(4);
     });
   });
 

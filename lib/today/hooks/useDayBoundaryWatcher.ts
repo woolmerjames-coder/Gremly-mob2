@@ -18,7 +18,7 @@ export default function useDayBoundaryWatcher(): void {
       if (nextAppState === 'active') {
         const { todayRitualDay, dayBoundaryHour, userTimezone } = useGremlyStore.getState();
 
-        const currentRitualDay = getRitualDay(dayBoundaryHour, userTimezone);
+        const currentRitualDay = getRitualDay(dayBoundaryHour, userTimezone ?? undefined);
 
         if (todayRitualDay && todayRitualDay !== currentRitualDay) {
           console.log(

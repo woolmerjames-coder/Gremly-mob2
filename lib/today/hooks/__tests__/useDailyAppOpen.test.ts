@@ -16,9 +16,9 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 // Mock getRitualDay to return predictable values
-const mockGetRitualDay = jest.fn(() => '2026-01-12');
+const mockGetRitualDay = jest.fn<string, [number, string | null]>(() => '2026-01-12');
 jest.mock('../../../date/ritualDay', () => ({
-  getRitualDay: (...args: any[]) => mockGetRitualDay(...args),
+  getRitualDay: (hour: number, tz: string | null) => mockGetRitualDay(hour, tz),
 }));
 
 // Mock the store
