@@ -16,6 +16,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../lib/supabase/client';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { FLAGS } from '../config/flags';
+import useDayBoundaryWatcher from '../lib/today/hooks/useDayBoundaryWatcher';
 import { registerForPushNotifications, savePushToken } from '../src/utils/notifications';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -70,6 +71,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     initializeStore();
   }, [user?.id, initialize, reset]);
+
+  // Watches for day boundary changes to refresh ritual progress
+  useDayBoundaryWatcher();
 
   useEffect(() => {
     let mounted = true;

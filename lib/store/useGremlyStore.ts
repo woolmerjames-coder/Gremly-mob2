@@ -172,6 +172,7 @@ interface GremlyState {
   todayRitualCompletedAt: string | null;
 
   // Ritual actions
+  ensureCurrentRitualDay: () => string;
   incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
   incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
   checkAndIncrementAge: () => Promise<{ didAgeUp: boolean; newAge: number }>;
@@ -699,13 +700,39 @@ export const useGremlyStore = create<GremlyState>()(
     // GREMLY AGE & RITUAL PROGRESS ACTIONS
     // ═══════════════════════════════════════════════════════════════════
 
-    incrementDropCount: async () => {
-      const { userId, dayBoundaryHour, userTimezone } = get();
-      if (!userId) return { dropsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
-
-      // Recompute ritual day in case it changed (crossed boundary)
+    /**
+     * Ensures we're tracking the current ritual day.
+     * If the day has rolled over, resets daily progress to allow fresh aging.
+     * Returns the current ritual day string.
+     */
+    ensureCurrentRitualDay: () => {
+      const { dayBoundaryHour, userTimezone, todayRitualDay } = get();
       const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
       const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
+
+      // Check if we've crossed the day boundary
+      if (todayRitualDay && currentRitualDay !== todayRitualDay) {
+        console.log('[GremlyStore] Day boundary crossed, resetting ritual progress');
+        set({
+          todayRitualDay: currentRitualDay,
+          todayDropsCount: 0,
+          todaySweepsCount: 0,
+          todayRitualCompletedAt: null, // CRITICAL: allows aging to happen again
+        });
+      } else if (!todayRitualDay) {
+        // First time - just set the day
+        set({ todayRitualDay: currentRitualDay });
+      }
+
+      return currentRitualDay;
+    },
+
+    incrementDropCount: async () => {
+      const { userId } = get();
+      if (!userId) return { dropsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
+
+      // Ensure we're on the current ritual day (resets state if day changed)
+      const currentRitualDay = get().ensureCurrentRitualDay();
 
       // Call Supabase RPC to increment
       const { data, error } = await supabase.rpc('increment_drop_count', {
@@ -727,11 +754,11 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     incrementSweepCount: async () => {
-      const { userId, dayBoundaryHour, userTimezone } = get();
+      const { userId } = get();
       if (!userId) return { sweepsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
 
-      const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
+      // Ensure we're on the current ritual day (resets state if day changed)
+      const currentRitualDay = get().ensureCurrentRitualDay();
 
       const { data, error } = await supabase.rpc('increment_sweep_count', {
         p_owner_id: userId,
@@ -752,16 +779,24 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     checkAndIncrementAge: async () => {
-      const { userId, dayBoundaryHour, userTimezone, todayRitualCompletedAt } = get();
+      const { userId, dayBoundaryHour, userTimezone, todayRitualCompletedAt, todayRitualDay } =
+        get();
       if (!userId) return { didAgeUp: false, newAge: get().gremlyAge };
-
-      // Already completed today
-      if (todayRitualCompletedAt) {
-        return { didAgeUp: false, newAge: get().gremlyAge };
-      }
 
       const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
       const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
+
+      // Defensive check: if ritual was completed for a different day, it doesn't count for today
+      if (todayRitualCompletedAt && todayRitualDay !== currentRitualDay) {
+        console.log(
+          '[GremlyStore] checkAndIncrementAge: Stale ritual completion detected, clearing',
+        );
+        set({ todayRitualCompletedAt: null });
+        // Continue to check RPC - don't return early
+      } else if (todayRitualCompletedAt) {
+        // Already completed today (and day matches)
+        return { didAgeUp: false, newAge: get().gremlyAge };
+      }
 
       const { data, error } = await supabase.rpc('check_and_increment_gremly_age', {
         p_owner_id: userId,
