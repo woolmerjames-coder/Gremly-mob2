@@ -2303,7 +2303,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 10,
     marginTop: 28,
-    marginBottom: 40,
+    marginBottom: 8, // Reduced to keep chat button close
   },
   gremlyAvatar: {
     width: 40,
@@ -2343,12 +2343,13 @@ const styles = StyleSheet.create({
   // Chat button - appears below speech bubble like a reply
   chatButtonContainer: {
     alignSelf: 'flex-start',
-    marginLeft: 52, // Align with speech bubble (avatar width + margin)
-    marginTop: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    backgroundColor: 'rgba(46, 85, 64, 0.08)', // Very subtle sage
-    borderRadius: 16,
+    marginLeft: 52, // Align with speech bubble text (avatar 40px + gap 10px + 2px)
+    marginTop: -4, // Negative margin to tuck up closer to speech bubble
+    marginBottom: 24, // Add breathing room below chat button
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(46, 85, 64, 0.08)',
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(46, 85, 64, 0.15)',
   },
