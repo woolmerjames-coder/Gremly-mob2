@@ -31,6 +31,7 @@ import {
 import type { EntityChatNote } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 import { contentHasBullets, convertContentToChecklist } from '../../lib/chat/extractChecklist';
+import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -354,14 +355,20 @@ export function EntityNotesModal({
                       ) : (
                         <Square size={22} color={lightTokens.colors.subtle} />
                       )}
-                      <Text
+                      <View
                         style={[
-                          styles.checklistText,
-                          item.completed && styles.checklistTextCompleted,
+                          styles.checklistTextContainer,
+                          item.completed && styles.checklistTextContainerCompleted,
                         ]}
                       >
-                        {item.label}
-                      </Text>
+                        {renderFormattedContent(item.label, {
+                          textColor: item.completed
+                            ? lightTokens.colors.subtle
+                            : lightTokens.colors.text,
+                          fontSize: 15,
+                          lineHeight: 22,
+                        })}
+                      </View>
                     </TouchableOpacity>
                   );
                 })}
@@ -512,6 +519,12 @@ const styles = StyleSheet.create({
   checklistItemBorder: {
     borderBottomWidth: 1,
     borderBottomColor: lightTokens.colors.border,
+  },
+  checklistTextContainer: {
+    flex: 1,
+  },
+  checklistTextContainerCompleted: {
+    opacity: 0.6,
   },
   checklistText: {
     flex: 1,
