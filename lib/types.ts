@@ -642,6 +642,8 @@ export interface EntityChatNote {
     label: string;
     completed: boolean;
   }>;
+  preamble?: string; // Text before first bullet (when converted to checklist)
+  postamble?: string; // Text after last bullet (when converted to checklist)
   created_at: string;
   source_message_id: string; // Which assistant message this came from
 }

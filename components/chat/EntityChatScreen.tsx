@@ -532,31 +532,16 @@ export function EntityChatScreen({
 
       setSaveState('loading');
 
-      // Build checklist items if it's a checklist
-      const checklistItems =
-        saveable.type === 'checklist' && saveable.checklist_items
-          ? saveable.checklist_items.map((label, idx) => ({
-              id: `item_${Date.now()}_${idx}`,
-              label: label.trim(),
-              completed: false,
-            }))
-          : undefined;
-
-      // For content, use the checklist items joined, or get content from the last assistant message
-      let content = '';
-      if (saveable.checklist_items && saveable.checklist_items.length > 0) {
-        content = saveable.checklist_items.join('\n');
-      } else {
-        // Fallback: get the last assistant message content
-        const messages = getEntityChat(entityId, entityType)?.messages ?? [];
-        const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-        content = lastAssistant?.content ?? 'Saved from chat';
-      }
+      // Always save as plain note first - user can convert to checklist later
+      // Get the full content from the last assistant message
+      const messages = getEntityChat(entityId, entityType)?.messages ?? [];
+      const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+      const content = lastAssistant?.content ?? 'Saved from chat';
 
       const noteData = {
         content,
-        is_checklist: saveable.type === 'checklist' && !!checklistItems,
-        checklist_items: checklistItems,
+        is_checklist: false, // Always false on initial save
+        checklist_items: undefined, // Never auto-create
         source_message_id: lastAssistantMessageId || '',
       };
 
@@ -649,10 +634,10 @@ export function EntityChatScreen({
                 state={buttonState}
                 suggestedType={getSaveableType(isAlreadySaved ? 'note' : lastSaveable?.type)}
                 entityName={getEntityTitle(entity)}
-                onSave={() => handleSaveNote(lastSaveable)}
+                onSave={() => handleSaveNote(lastSaveable ?? undefined)}
                 onEdit={() => {
                   // For now, just save - edit functionality can be added later
-                  handleSaveNote(lastSaveable);
+                  handleSaveNote(lastSaveable ?? undefined);
                 }}
                 onDismiss={handleDismissSaveable}
               />

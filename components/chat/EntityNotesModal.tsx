@@ -2,9 +2,10 @@
  * EntityNotesModal - Modal to display saved notes from entity chat
  * Shows checklist items with completion tracking, supports multiple notes navigation
  * Includes edit mode, delete functionality, and checkbox persistence
+ * Supports "Make checklist" conversion for bulleted content
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -18,7 +19,15 @@ import {
   Dimensions,
 } from 'react-native';
 import Markdown from 'react-native-markdown-display';
-import { X, CheckSquare, Square, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react-native';
+import {
+  X,
+  CheckSquare,
+  Square,
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
+  ListChecks,
+} from 'lucide-react-native';
 import type { EntityChatNote } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
 
@@ -33,6 +42,15 @@ export interface EntityNotesModalProps {
   onChecklistToggle?: (noteId: string, itemId: string, completed: boolean) => void;
   onUpdateNote?: (noteId: string, content: string) => void;
   onDeleteNote?: (noteId: string) => void;
+  onConvertToChecklist?: (
+    noteId: string,
+    checklistData: {
+      is_checklist: true;
+      checklist_items: Array<{ id: string; label: string; completed: boolean }>;
+      preamble?: string;
+      postamble?: string;
+    },
+  ) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -115,6 +133,7 @@ export function EntityNotesModal({
   onChecklistToggle,
   onUpdateNote,
   onDeleteNote,
+  onConvertToChecklist,
 }: EntityNotesModalProps) {
   // Clamp index to valid range
   const clampedIndex = Math.min(Math.max(0, 0), Math.max(0, notes.length - 1));
@@ -155,6 +174,70 @@ export function EntityNotesModal({
 
   const hasMultipleNotes = notes.length > 1;
   const isChecklist = currentNote?.is_checklist && currentNote?.checklist_items;
+
+  // Check if note content contains bullet points (can be converted to checklist)
+  const hasBulletPoints =
+    !isChecklist && currentNote?.content && /^[\s]*[-•*]\s+.+$/gm.test(currentNote.content);
+
+  // Parse bullet content into preamble, items, and postamble
+  const parseContentForChecklist = (content: string) => {
+    const lines = content.split('\n');
+    const bulletRegex = /^[\s]*[-•*]\s+(.+)$/;
+
+    const preambleLines: string[] = [];
+    const bulletItems: string[] = [];
+    const postambleLines: string[] = [];
+    let foundFirstBullet = false;
+    let foundLastBullet = false;
+
+    for (const line of lines) {
+      const match = line.match(bulletRegex);
+      if (match) {
+        foundFirstBullet = true;
+        foundLastBullet = false;
+        bulletItems.push(match[1].trim());
+      } else if (!foundFirstBullet) {
+        preambleLines.push(line);
+      } else {
+        // After bullets - check if we hit more bullets later
+        postambleLines.push(line);
+      }
+    }
+
+    // Filter empty lines from preamble/postamble edges
+    const preamble = preambleLines.join('\n').trim();
+    const postamble = postambleLines.join('\n').trim();
+
+    return {
+      preamble: preamble || undefined,
+      postamble: postamble || undefined,
+      items: bulletItems,
+    };
+  };
+
+  const handleMakeChecklist = () => {
+    if (!currentNote || !hasBulletPoints || !onConvertToChecklist) return;
+
+    const parsed = parseContentForChecklist(currentNote.content);
+
+    if (parsed.items.length === 0) {
+      Alert.alert('No Items Found', 'Could not find any bullet points to convert.');
+      return;
+    }
+
+    const checklistData = {
+      is_checklist: true as const,
+      checklist_items: parsed.items.map((text, i) => ({
+        id: `item_${Date.now()}_${i}`,
+        label: text,
+        completed: false,
+      })),
+      preamble: parsed.preamble,
+      postamble: parsed.postamble,
+    };
+
+    onConvertToChecklist(currentNote.id, checklistData);
+  };
 
   const handlePrevNote = () => {
     // Save any pending edits before navigating
@@ -252,6 +335,14 @@ export function EntityNotesModal({
                 <Trash2 size={20} color="#DC2626" />
               </TouchableOpacity>
 
+              {/* Make checklist button (only if content has bullet points and not already a checklist) */}
+              {hasBulletPoints && onConvertToChecklist && !isEditMode && (
+                <TouchableOpacity onPress={handleMakeChecklist} style={styles.makeChecklistButton}>
+                  <ListChecks size={16} color={lightTokens.colors.mossGreen} />
+                  <Text style={styles.makeChecklistText}>Make checklist</Text>
+                </TouchableOpacity>
+              )}
+
               {/* Edit/Done toggle (only for non-checklist notes) */}
               {!isChecklist && (
                 <TouchableOpacity onPress={toggleEditMode} style={styles.editButton}>
@@ -301,32 +392,49 @@ export function EntityNotesModal({
             bounces={true}
           >
             {isChecklist ? (
-              // Render checklist items with toggleable checkboxes
-              currentNote.checklist_items!.map((item, index) => {
-                const isLast = index === currentNote.checklist_items!.length - 1;
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[styles.checklistItem, !isLast && styles.checklistItemBorder]}
-                    onPress={() => handleChecklistItemPress(item.id, item.completed)}
-                    activeOpacity={0.7}
-                  >
-                    {item.completed ? (
-                      <CheckSquare size={22} color={lightTokens.colors.mossGreen} />
-                    ) : (
-                      <Square size={22} color={lightTokens.colors.subtle} />
-                    )}
-                    <Text
-                      style={[
-                        styles.checklistText,
-                        item.completed && styles.checklistTextCompleted,
-                      ]}
+              // Render checklist with preamble, items, and postamble
+              <>
+                {/* Preamble (text before bullets) */}
+                {currentNote.preamble && (
+                  <View style={styles.preambleContainer}>
+                    <Markdown style={markdownStyles}>{currentNote.preamble}</Markdown>
+                  </View>
+                )}
+
+                {/* Checklist items with toggleable checkboxes */}
+                {currentNote.checklist_items!.map((item, index) => {
+                  const isLast = index === currentNote.checklist_items!.length - 1;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[styles.checklistItem, !isLast && styles.checklistItemBorder]}
+                      onPress={() => handleChecklistItemPress(item.id, item.completed)}
+                      activeOpacity={0.7}
                     >
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })
+                      {item.completed ? (
+                        <CheckSquare size={22} color={lightTokens.colors.mossGreen} />
+                      ) : (
+                        <Square size={22} color={lightTokens.colors.subtle} />
+                      )}
+                      <Text
+                        style={[
+                          styles.checklistText,
+                          item.completed && styles.checklistTextCompleted,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {/* Postamble (text after bullets) */}
+                {currentNote.postamble && (
+                  <View style={styles.postambleContainer}>
+                    <Markdown style={markdownStyles}>{currentNote.postamble}</Markdown>
+                  </View>
+                )}
+              </>
             ) : isEditMode ? (
               // Edit mode - show TextInput
               <TextInput
@@ -473,6 +581,32 @@ const styles = StyleSheet.create({
     minHeight: 150,
     padding: 0,
     backgroundColor: 'transparent',
+  },
+  makeChecklistButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(191, 216, 192, 0.3)',
+    borderRadius: 8,
+    gap: 4,
+  },
+  makeChecklistText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: lightTokens.colors.mossGreen,
+  },
+  preambleContainer: {
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: lightTokens.colors.border,
+  },
+  postambleContainer: {
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: lightTokens.colors.border,
   },
 });
 

@@ -1278,6 +1278,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     [currentEntityId, entityTypeForChat, deleteEntityChatNote],
   );
 
+  // Entity Chat: handle convert to checklist
+  const convertNoteToChecklist = useGremlyStore((s) => s.convertNoteToChecklist);
+  const handleConvertNoteToChecklist = useCallback(
+    (
+      noteId: string,
+      checklistData: {
+        is_checklist: true;
+        checklist_items: Array<{ id: string; label: string; completed: boolean }>;
+        preamble?: string;
+        postamble?: string;
+      },
+    ) => {
+      if (!currentEntityId) return;
+      convertNoteToChecklist(currentEntityId, entityTypeForChat, noteId, checklistData);
+    },
+    [currentEntityId, entityTypeForChat, convertNoteToChecklist],
+  );
+
   // Log kind detection (Phase L1)
   const isLog = baseType === 'log';
   const logKind = isLog ? state.log.kind : 'basic';
@@ -8915,6 +8933,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         onChecklistToggle={handleChatNoteChecklistToggle}
         onUpdateNote={handleChatNoteUpdate}
         onDeleteNote={handleChatNoteDelete}
+        onConvertToChecklist={handleConvertNoteToChecklist}
       />
     </>
   );

@@ -344,6 +344,17 @@ interface GremlyState {
     noteId: string,
     content: string,
   ) => Promise<void>;
+  convertNoteToChecklist: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    noteId: string,
+    checklistData: {
+      is_checklist: true;
+      checklist_items: Array<{ id: string; label: string; completed: boolean }>;
+      preamble?: string;
+      postamble?: string;
+    },
+  ) => Promise<void>;
   deleteEntityChatNote: (
     entityId: string,
     entityType: 'todo' | 'habit' | 'note',
@@ -3730,6 +3741,95 @@ export const useGremlyStore = create<GremlyState>()(
 
         if (error) {
           console.error(`[GremlyStore] updateEntityChatNote failed:`, error);
+        }
+      }
+    },
+
+    convertNoteToChecklist: async (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      noteId: string,
+      checklistData: {
+        is_checklist: true;
+        checklist_items: Array<{ id: string; label: string; completed: boolean }>;
+        preamble?: string;
+        postamble?: string;
+      },
+    ): Promise<void> => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Helper to convert note to checklist
+      const updateChatData = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = currentViews?.chat as EntityChatData | undefined;
+        if (!existingChat) return currentViews ?? {};
+
+        const updatedNotes = existingChat.notes.map((n) => {
+          if (n.id !== noteId) return n;
+          return {
+            ...n,
+            is_checklist: checklistData.is_checklist,
+            checklist_items: checklistData.checklist_items,
+            preamble: checklistData.preamble,
+            postamble: checklistData.postamble,
+          };
+        });
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            notes: updatedNotes,
+          },
+        };
+      };
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: updateChatData(t.views as Record<string, unknown>), updated_at: now }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: updateChatData(h.views as Record<string, unknown>), updated_at: now }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: updateChatData(n.views as Record<string, unknown>), updated_at: now }
+              : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const entity =
+        entityType === 'todo'
+          ? get().todos.find((t) => t.id === entityId)
+          : entityType === 'habit'
+            ? get().habits.find((h) => h.id === entityId)
+            : get().notes.find((n) => n.id === entityId);
+
+      if (entity) {
+        const { error } = await supabase
+          .from(table)
+          .update({ views: entity.views, updated_at: now })
+          .eq('id', entityId);
+
+        if (error) {
+          console.error(`[GremlyStore] convertNoteToChecklist failed:`, error);
         }
       }
     },
