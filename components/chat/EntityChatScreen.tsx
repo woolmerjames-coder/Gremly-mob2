@@ -17,7 +17,15 @@ import {
   Alert,
   LayoutAnimation,
 } from 'react-native';
-import Animated, { FadeOut, FadeInRight, SlideOutRight, Layout } from 'react-native-reanimated';
+import Animated, {
+  FadeOut,
+  FadeInRight,
+  SlideOutRight,
+  Layout,
+  useAnimatedStyle,
+  withTiming,
+  useSharedValue,
+} from 'react-native-reanimated';
 import {
   ChevronLeft,
   X,
@@ -510,13 +518,15 @@ export function EntityChatScreen({
       setSelectedPreset(presetKey);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      // Delay sending message to let animation play
+      // Delay sending message to let full animation sequence play:
+      // - 0-300ms: Unselected buttons float up and fade out
+      // - 300-550ms: Selected button swipes right off screen
       setTimeout(() => {
         const presetConfig = presets[presetKey];
         if (presetConfig) {
           handleSendMessage(presetConfig.prompt, presetKey as EntityChatPreset);
         }
-      }, 350);
+      }, 550);
     },
     [presets, handleSendMessage],
   );
@@ -723,41 +733,55 @@ export function EntityChatScreen({
                 {Object.entries(presets).map(([key, config], index) => {
                   const IconComponent = config.icon;
                   const isSelected = selectedPreset === key;
-                  const isOther = selectedPreset !== null && selectedPreset !== key;
+                  const isUnselected = selectedPreset !== null && selectedPreset !== key;
 
-                  // Other chips slide out when one is selected
-                  if (isOther) {
+                  // Unselected: float up and fade out
+                  if (isUnselected) {
                     return (
                       <Animated.View
                         key={key}
-                        exiting={SlideOutRight.duration(200).delay(index * 50)}
+                        style={styles.presetChipWrapper}
+                        exiting={FadeOut.duration(250).delay(index * 40)}
                       >
-                        <TouchableOpacity style={styles.presetChip} activeOpacity={0.7} disabled>
+                        <Animated.View
+                          style={[
+                            styles.presetChip,
+                            {
+                              opacity: withTiming(0, { duration: 250 }),
+                              transform: [{ translateY: withTiming(-30, { duration: 250 }) }],
+                            },
+                          ]}
+                        >
                           <Text style={styles.presetLabel}>{config.label}</Text>
                           <IconComponent size={16} color={lightTokens.colors.mossGreen} />
-                        </TouchableOpacity>
+                        </Animated.View>
                       </Animated.View>
                     );
                   }
 
-                  // Selected chip highlights then fades out
+                  // Selected: turn green immediately, then swipe right after others gone
                   if (isSelected) {
                     return (
-                      <Animated.View key={key} exiting={FadeOut.duration(200).delay(250)}>
-                        <View style={[styles.presetChip, styles.presetChipSelected]}>
-                          <Text style={[styles.presetLabel, styles.presetLabelSelected]}>
+                      <Animated.View
+                        key={key}
+                        style={styles.presetChipWrapper}
+                        exiting={SlideOutRight.duration(250).delay(300)}
+                      >
+                        <View style={[styles.presetChip, styles.selectedPresetChip]}>
+                          <Text style={[styles.presetLabel, styles.selectedPresetLabel]}>
                             {config.label}
                           </Text>
-                          <IconComponent size={16} color="#fff" />
+                          <IconComponent size={16} color="#FFFFFF" />
                         </View>
                       </Animated.View>
                     );
                   }
 
-                  // Normal state with entrance animation
+                  // Default state (nothing selected yet) with entrance animation
                   return (
                     <Animated.View
                       key={key}
+                      style={styles.presetChipWrapper}
                       entering={FadeInRight.duration(200).delay(index * 50)}
                       layout={Layout.springify()}
                     >
@@ -882,6 +906,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 10,
   },
+  presetChipWrapper: {
+    // Wrapper for animation targeting
+  },
   presetChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -897,17 +924,17 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 1,
   },
-  presetChipSelected: {
-    backgroundColor: lightTokens.colors.mossGreen,
-    transform: [{ scale: 1.02 }],
+  selectedPresetChip: {
+    backgroundColor: '#5C6B5A', // Sage green solid
   },
   presetLabel: {
     fontSize: 14,
     fontFamily: lightTokens.typography.fontFamily.medium,
     color: lightTokens.colors.text,
   },
-  presetLabelSelected: {
-    color: '#fff',
+  selectedPresetLabel: {
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
 
   // Messages container
