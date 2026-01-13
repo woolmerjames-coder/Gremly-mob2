@@ -299,7 +299,8 @@ export function EntityChatScreen({
 
   // ─── Presets ───────────────────────────────────────────────────────────────
   const presets = getPresetsForType(entityType);
-  const showPresets = storedMessages.length === 0 && !isLoading && !selectedPreset;
+  // Keep presets visible during animation (selectedPreset is set but messages not yet sent)
+  const showPresets = storedMessages.length === 0 && !isLoading;
 
   // ─── Combined Messages ───────────────────────────────────────────────
   // Streaming messages are now managed in the store, so we just use storedMessages directly
