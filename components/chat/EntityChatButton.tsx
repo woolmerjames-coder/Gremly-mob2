@@ -24,6 +24,7 @@ export interface EntityChatButtonProps {
   variant: 'overlay' | 'sweep';
   hasExistingChat?: boolean;
   onPress: () => void;
+  style?: any; // Additional container style for flex layout
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ export function EntityChatButton({
   variant,
   hasExistingChat = false,
   onPress,
+  style,
 }: EntityChatButtonProps) {
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -46,7 +48,7 @@ export function EntityChatButton({
   if (variant === 'overlay') {
     return (
       <TouchableOpacity
-        style={styles.overlayButton}
+        style={[styles.overlayButton, style]}
         onPress={handlePress}
         activeOpacity={0.8}
         accessibilityLabel="Chat with Gremly"
@@ -59,9 +61,6 @@ export function EntityChatButton({
 
         {/* Text */}
         <Text style={styles.overlayText}>Chat with Gremly</Text>
-
-        {/* Chevron */}
-        <ChevronRight size={18} color={lightTokens.colors.subtle} />
       </TouchableOpacity>
     );
   }
@@ -87,27 +86,27 @@ export function EntityChatButton({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  // Overlay variant - full row with mascot + text
+  // Overlay variant - compact row with mascot + text
   overlayButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    justifyContent: 'center',
+    paddingVertical: 10,
     paddingHorizontal: 12,
     backgroundColor: 'rgba(191, 216, 192, 0.3)', // Subtle sage background
-    borderRadius: 12,
+    borderRadius: 10,
   },
   mascotContainer: {
     position: 'relative',
-    marginRight: 10,
+    marginRight: 8,
   },
   mascotImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
   overlayText: {
-    flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: lightTokens.typography.fontFamily.medium,
     color: lightTokens.colors.mossGreen,
   },

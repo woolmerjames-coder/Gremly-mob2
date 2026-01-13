@@ -15,6 +15,8 @@ import {
   Platform,
   SafeAreaView,
   ScrollView,
+  Alert,
+  LayoutAnimation,
 } from 'react-native';
 import {
   ChevronLeft,
@@ -208,6 +210,32 @@ const getDaysSinceCreated = (createdAt: string): number => {
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 };
 
+/**
+ * Liberal saveable detection - bias toward showing Save button for structured/actionable content
+ */
+const isContentSaveable = (
+  content: string,
+  apiSaveable?: { detected?: boolean } | null,
+): boolean => {
+  // Trust API if it says saveable
+  if (apiSaveable?.detected) return true;
+
+  // Check for bullet points or numbered lists
+  const hasBullets = /^[\s]*[-•*]\s+.+$/gm.test(content);
+  const hasNumbers = /^[\s]*\d+[.)]\s+.+$/gm.test(content);
+  if (hasBullets || hasNumbers) return true;
+
+  // Check for substantial content (>100 words)
+  const wordCount = content.split(/\s+/).length;
+  if (wordCount > 100) return true;
+
+  // Check for actionable phrases
+  const actionable = /\b(you could|consider|try|start with|here's|here are)\b/i.test(content);
+  if (actionable) return true;
+
+  return false;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -227,6 +255,9 @@ export function EntityChatScreen({
   const spaces = useGremlyStore((s) => s.spaces);
   const getEntityChat = useGremlyStore((s) => s.getEntityChat);
   const appendEntityChatMessage = useGremlyStore((s) => s.appendEntityChatMessage);
+  const createStreamingMessage = useGremlyStore((s) => s.createEntityChatStreamingMessage);
+  const updateStreamingContent = useGremlyStore((s) => s.updateEntityChatStreamingContent);
+  const finalizeStreamingMessage = useGremlyStore((s) => s.finalizeEntityChatStreamingMessage);
   const saveEntityChatNote = useGremlyStore((s) => s.saveEntityChatNote);
 
   // ─── Get Entity ────────────────────────────────────────────────────────────
@@ -248,38 +279,22 @@ export function EntityChatScreen({
 
   // ─── Local State ───────────────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(false);
-  const [streamingContent, setStreamingContent] = useState('');
   const [lastSaveable, setLastSaveable] = useState<EntityChatResponse['saveable'] | null>(null);
   const [lastAssistantMessageId, setLastAssistantMessageId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'initial' | 'loading' | 'confirmed'>('initial');
 
   const flatListRef = useRef<FlatList>(null);
   const streamRef = useRef<{ close: () => void } | null>(null);
+  const streamingMessageIdRef = useRef<string | null>(null);
   const hasUsedInitialPresetRef = useRef(false);
 
   // ─── Presets ───────────────────────────────────────────────────────────────
   const presets = getPresetsForType(entityType);
   const showPresets = storedMessages.length === 0 && !isLoading;
 
-  // ─── Combined Messages (including streaming) ─────────────────────────────────
-  // Include streaming message in the data array for stable rendering
-  const messages = useMemo(() => {
-    const result = [...storedMessages];
-
-    // Add streaming message if loading
-    if (isLoading) {
-      const streamingMessage: EntityChatMessage = {
-        id: 'streaming-temp',
-        role: 'assistant',
-        content: streamingContent,
-        created_at: new Date().toISOString(),
-        metadata: { isStreaming: true },
-      };
-      result.push(streamingMessage);
-    }
-
-    return result;
-  }, [storedMessages, isLoading, streamingContent]);
+  // ─── Combined Messages ───────────────────────────────────────────────
+  // Streaming messages are now managed in the store, so we just use storedMessages directly
+  const messages = storedMessages;
 
   // ─── Send Message Handler ──────────────────────────────────────────────────
   const handleSendMessage = useCallback(
@@ -287,7 +302,6 @@ export function EntityChatScreen({
       if (!entity || isLoading) return;
 
       setIsLoading(true);
-      setStreamingContent('');
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
       try {
@@ -298,7 +312,11 @@ export function EntityChatScreen({
           metadata: preset ? { preset_used: preset } : undefined,
         });
 
-        // 2. Build entity context for request
+        // 2. Create streaming message placeholder in store (message lives in store from start)
+        const streamingMsgId = createStreamingMessage(entityId, entityType);
+        streamingMessageIdRef.current = streamingMsgId;
+
+        // 3. Build entity context for request
         const entityContext: EntityChatRequest['entity'] = {
           id: entity.id,
           type: entityType,
@@ -328,13 +346,15 @@ export function EntityChatScreen({
           entityContext.space_name = spaceName;
         }
 
-        // 3. Build messages for request (include history)
+        // 4. Build messages for request (include history, exclude the streaming placeholder)
         const requestMessages = [
-          ...storedMessages.map((m) => ({ role: m.role, content: m.content })),
+          ...storedMessages
+            .filter((m) => m.id !== streamingMsgId)
+            .map((m) => ({ role: m.role, content: m.content })),
           { role: 'user' as const, content: text },
         ];
 
-        // 4. Build full request
+        // 5. Build full request
         const request: EntityChatRequest = {
           type: 'entity-chat',
           stream: true,
@@ -344,33 +364,65 @@ export function EntityChatScreen({
           sweepContext,
         };
 
-        // 5. Call streaming API
+        // Track accumulated content for updates
+        let accumulatedContent = '';
+
+        // 6. Call streaming API
         streamRef.current = callEntityChatStreaming(request, {
           onDelta: (delta) => {
-            setStreamingContent((prev) => prev + delta);
+            // Accumulate content and update the streaming message in place
+            accumulatedContent += delta;
+            if (streamingMessageIdRef.current) {
+              updateStreamingContent(
+                entityId,
+                entityType,
+                streamingMessageIdRef.current,
+                accumulatedContent,
+              );
+            }
           },
           onComplete: async (response) => {
-            // Append assistant message to store
-            const newMessage = await appendEntityChatMessage(entityId, entityType, {
-              role: 'assistant',
-              content: response.content,
-              metadata: {
-                has_saveable_content: response.saveable?.detected,
-              },
+            const msgId = streamingMessageIdRef.current;
+            if (!msgId) return;
+
+            console.log('[EntityChatScreen] Stream complete:', {
+              msgId,
+              contentLength: response.content?.length,
+              apiSaveable: response.saveable,
             });
 
-            // Track saveable content for SaveButton
-            if (response.saveable?.detected && newMessage) {
-              setLastSaveable(response.saveable);
-              setLastAssistantMessageId(newMessage.id);
+            // Use liberal saveable detection
+            const shouldShowSave = isContentSaveable(response.content, response.saveable);
+            console.log('[EntityChatScreen] Saveable detection:', {
+              shouldShowSave,
+              apiDetected: response.saveable?.detected,
+            });
+
+            // Finalize the streaming message (removes isStreaming flag, persists to DB)
+            await finalizeStreamingMessage(entityId, entityType, msgId, response.content, {
+              has_saveable_content: shouldShowSave,
+            });
+
+            // Track saveable content for SaveButton (use liberal detection)
+            if (shouldShowSave) {
+              // Use API saveable if available, otherwise create a basic one
+              const saveableData = response.saveable?.detected
+                ? response.saveable
+                : { detected: true, type: 'note' as const, content: response.content };
+              console.log('[EntityChatScreen] Setting saveable state:', {
+                saveableData,
+                msgId,
+              });
+              setLastSaveable(saveableData);
+              setLastAssistantMessageId(msgId);
               setSaveState('initial');
             }
 
-            setStreamingContent('');
+            streamingMessageIdRef.current = null;
             setIsLoading(false);
             streamRef.current = null;
 
-            // Scroll to bottom after message added
+            // Scroll to bottom after message finalized
             setTimeout(() => {
               flatListRef.current?.scrollToEnd({ animated: true });
             }, 100);
@@ -378,13 +430,18 @@ export function EntityChatScreen({
           onError: async (error) => {
             console.error('[EntityChatScreen] Stream error:', error);
 
-            // Append error message
-            await appendEntityChatMessage(entityId, entityType, {
-              role: 'assistant',
-              content: "I'm having trouble responding right now. Please try again.",
-            });
+            const msgId = streamingMessageIdRef.current;
+            if (msgId) {
+              // Finalize with error message
+              await finalizeStreamingMessage(
+                entityId,
+                entityType,
+                msgId,
+                "I'm having trouble responding right now. Please try again.",
+              );
+            }
 
-            setStreamingContent('');
+            streamingMessageIdRef.current = null;
             setIsLoading(false);
             streamRef.current = null;
           },
@@ -397,7 +454,6 @@ export function EntityChatScreen({
       } catch (error) {
         console.error('[EntityChatScreen] Send error:', error);
         setIsLoading(false);
-        setStreamingContent('');
       }
     },
     [
@@ -406,6 +462,9 @@ export function EntityChatScreen({
       entityType,
       isLoading,
       appendEntityChatMessage,
+      createStreamingMessage,
+      updateStreamingContent,
+      finalizeStreamingMessage,
       storedMessages,
       spaceName,
       sweepContext,
@@ -432,6 +491,16 @@ export function EntityChatScreen({
       streamRef.current?.close();
     };
   }, []);
+  // ─── Scroll to bottom on mount ───────────────────────────────────────────
+  useEffect(() => {
+    // Scroll to bottom when chat opens with existing messages
+    if (storedMessages.length > 0) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 150);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only on mount
 
   // ─── Handle Preset Tap ─────────────────────────────────────────────────────
   const handlePresetTap = useCallback(
@@ -445,31 +514,67 @@ export function EntityChatScreen({
   );
 
   // ─── Handle Save Note ──────────────────────────────────────────────────────
+  const MAX_NOTES_PER_ENTITY = 5;
+
   const handleSaveNote = useCallback(
     async (saveable: EntityChatResponse['saveable']) => {
       if (!saveable) return;
 
+      // Check notes limit
+      const existingNotes = getEntityChat(entityId, entityType)?.notes ?? [];
+      if (existingNotes.length >= MAX_NOTES_PER_ENTITY) {
+        Alert.alert(
+          'Limit Reached',
+          'You can save up to 5 notes per item. Consider creating a Space for deeper work.',
+        );
+        return;
+      }
+
       setSaveState('loading');
 
-      try {
-        await saveEntityChatNote(entityId, entityType, {
-          content: saveable.checklist_items?.join('\n') || 'Saved from chat',
-          is_checklist: saveable.type === 'checklist',
-          checklist_items: saveable.checklist_items?.map((label, idx) => ({
-            id: `item_${idx}`,
-            label,
-            completed: false,
-          })),
-          source_message_id: lastAssistantMessageId || '',
-        });
+      // Build checklist items if it's a checklist
+      const checklistItems =
+        saveable.type === 'checklist' && saveable.checklist_items
+          ? saveable.checklist_items.map((label, idx) => ({
+              id: `item_${Date.now()}_${idx}`,
+              label: label.trim(),
+              completed: false,
+            }))
+          : undefined;
 
+      // For content, use the checklist items joined, or get content from the last assistant message
+      let content = '';
+      if (saveable.checklist_items && saveable.checklist_items.length > 0) {
+        content = saveable.checklist_items.join('\n');
+      } else {
+        // Fallback: get the last assistant message content
+        const messages = getEntityChat(entityId, entityType)?.messages ?? [];
+        const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+        content = lastAssistant?.content ?? 'Saved from chat';
+      }
+
+      const noteData = {
+        content,
+        is_checklist: saveable.type === 'checklist' && !!checklistItems,
+        checklist_items: checklistItems,
+        source_message_id: lastAssistantMessageId || '',
+      };
+
+      console.log('[EntityChatScreen] Saving note:', { entityId, entityType, noteData });
+
+      try {
+        await saveEntityChatNote(entityId, entityType, noteData);
+        console.log('[EntityChatScreen] Note saved successfully');
         setSaveState('confirmed');
+
+        // Keep lastSaveable and lastAssistantMessageId so confirmed state shows
+        // User can dismiss via the X button which calls handleDismissSaveable
       } catch (error) {
         console.error('[EntityChatScreen] Save error:', error);
         setSaveState('initial'); // Reset on error
       }
     },
-    [entityId, entityType, saveEntityChatNote, lastAssistantMessageId],
+    [entityId, entityType, saveEntityChatNote, lastAssistantMessageId, getEntityChat],
   );
 
   // ─── Handle Dismiss Saveable ───────────────────────────────────────────────
@@ -484,6 +589,9 @@ export function EntityChatScreen({
     if (type === 'checklist') return 'log-general';
     return 'log-general'; // 'note' maps to 'log-general'
   };
+
+  // ─── Saved Notes (for deriving saved state from persisted data) ─────────────
+  const savedNotes = chatData?.notes ?? [];
 
   // ─── Render Message ────────────────────────────────────────────────────────
   const renderMessage = useCallback(
@@ -503,9 +611,33 @@ export function EntityChatScreen({
         isStreaming: isStreamingMessage,
       };
 
-      // Check if this is the last assistant message with saveable content
-      const showSaveButton =
-        item.id === lastAssistantMessageId && lastSaveable?.detected && saveState !== 'confirmed';
+      // Check if this message was already saved (persisted state)
+      const savedNote = savedNotes.find((n) => n.source_message_id === item.id);
+      const isAlreadySaved = !!savedNote;
+
+      // Determine if we should show the SaveButton:
+      // 1. If already saved - show confirmed state (persisted)
+      // 2. If this is the current saveable message - show based on local state
+      const isCurrentSaveableMessage = item.id === lastAssistantMessageId && lastSaveable?.detected;
+      const showSaveButton = isAlreadySaved || isCurrentSaveableMessage;
+
+      // Determine the save button state:
+      // - If already saved in store, show 'confirmed'
+      // - Otherwise use the local saveState
+      const buttonState: 'initial' | 'loading' | 'confirmed' = isAlreadySaved
+        ? 'confirmed'
+        : saveState;
+
+      // Debug logging for save button visibility
+      if (item.role === 'assistant' && !isStreamingMessage) {
+        console.log('[EntityChatScreen] Render message:', {
+          msgId: item.id,
+          isAlreadySaved,
+          isCurrentSaveableMessage,
+          showSaveButton,
+          buttonState,
+        });
+      }
 
       return (
         <View>
@@ -514,8 +646,9 @@ export function EntityChatScreen({
             <View style={styles.saveButtonWrapper}>
               <SaveButton
                 visible={true}
-                state={saveState}
-                suggestedType={getSaveableType(lastSaveable?.type)}
+                state={buttonState}
+                suggestedType={getSaveableType(isAlreadySaved ? 'note' : lastSaveable?.type)}
+                entityName={getEntityTitle(entity)}
                 onSave={() => handleSaveNote(lastSaveable)}
                 onEdit={() => {
                   // For now, just save - edit functionality can be added later
@@ -531,6 +664,7 @@ export function EntityChatScreen({
     [
       entity,
       entityId,
+      savedNotes,
       lastAssistantMessageId,
       lastSaveable,
       saveState,
@@ -621,6 +755,7 @@ export function EntityChatScreen({
             data={messages}
             keyExtractor={(item) => item.id}
             renderItem={renderMessage}
+            style={styles.messages}
             contentContainerStyle={styles.messageList}
             onContentSizeChange={() => {
               if (messages.length > 0) {
@@ -741,10 +876,15 @@ const styles = StyleSheet.create({
     color: lightTokens.colors.text,
   },
 
-  // Messages - ChatBubble handles its own styling
+  // Messages container
+  messages: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  // Messages content - ChatBubble handles its own styling
   messageList: {
-    paddingVertical: 16,
-    paddingBottom: 8,
+    padding: 16,
+    paddingBottom: 140, // Account for input field + SaveButton + safe area
   },
   saveButtonWrapper: {
     paddingHorizontal: 16,

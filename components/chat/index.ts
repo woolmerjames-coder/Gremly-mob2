@@ -9,6 +9,10 @@ export { EntityChatScreen } from './EntityChatScreen';
 export type { EntityChatScreenProps } from './EntityChatScreen';
 export { EntityChatButton } from './EntityChatButton';
 export type { EntityChatButtonProps } from './EntityChatButton';
+export { EntityNotesSection } from './EntityNotesSection';
+export type { EntityNotesSectionProps } from './EntityNotesSection';
+export { EntityNotesModal } from './EntityNotesModal';
+export type { EntityNotesModalProps } from './EntityNotesModal';
 
 // Save Components
 export { default as SaveButton } from './SaveButton';

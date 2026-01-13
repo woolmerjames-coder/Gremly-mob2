@@ -52,6 +52,7 @@ function ChatBubbleInner({
       saveable: message.saveable,
       willShowSaveButton: !!message.saveable && !message.saveableDismissed && !isStreaming,
     });
+    console.log('[ChatBubble] Message content:', message.content?.substring(0, 100));
   }
 
   // Skip animations in test environment

@@ -55,6 +55,24 @@ export function renderFormattedContent(text: string, options: RenderOptions = {}
     boldFontFamily = lightTokens.typography.fontFamily.bold,
   } = options;
 
+  // Debug: check if text is received
+  if (__DEV__) {
+    console.log(
+      '[renderFormattedContent] Input text length:',
+      text?.length,
+      'first 100:',
+      text?.substring(0, 100),
+    );
+    // Log first few lines to see bullet characters
+    const firstLines = text?.split('\n').slice(0, 5);
+    console.log('[renderFormattedContent] First lines:', JSON.stringify(firstLines));
+  }
+
+  // Handle empty/undefined text
+  if (!text) {
+    return null;
+  }
+
   const lines = text.split('\n');
 
   return lines.map((line, index) => {
@@ -113,9 +131,10 @@ export function renderFormattedContent(text: string, options: RenderOptions = {}
       return parts.length > 0 ? parts : content;
     };
 
-    // Bullet line (• or -)
-    if (trimmed.startsWith('• ') || trimmed.startsWith('- ')) {
-      const bulletContent = trimmed.slice(2);
+    // Bullet line (•, -, *, ·, ◦, ▪, ▸ or similar)
+    const bulletMatch = trimmed.match(/^([•\-*·◦▪▸])\s+(.*)$/);
+    if (bulletMatch) {
+      const bulletContent = bulletMatch[2];
       return (
         <View
           key={index}
