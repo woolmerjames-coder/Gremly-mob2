@@ -17,15 +17,7 @@ import {
   Alert,
   LayoutAnimation,
 } from 'react-native';
-import Animated, {
-  FadeOut,
-  FadeInRight,
-  SlideOutRight,
-  Layout,
-  useAnimatedStyle,
-  withTiming,
-  useSharedValue,
-} from 'react-native-reanimated';
+import Animated, { FadeOutUp, FadeInRight, SlideOutRight, Layout } from 'react-native-reanimated';
 import {
   ChevronLeft,
   X,
@@ -741,21 +733,11 @@ export function EntityChatScreen({
                     return (
                       <Animated.View
                         key={key}
-                        style={styles.presetChipWrapper}
-                        exiting={FadeOut.duration(250).delay(index * 40)}
+                        style={[styles.presetChipWrapper, styles.presetChip]}
+                        exiting={FadeOutUp.duration(250).delay(index * 40)}
                       >
-                        <Animated.View
-                          style={[
-                            styles.presetChip,
-                            {
-                              opacity: withTiming(0, { duration: 250 }),
-                              transform: [{ translateY: withTiming(-30, { duration: 250 }) }],
-                            },
-                          ]}
-                        >
-                          <Text style={styles.presetLabel}>{config.label}</Text>
-                          <IconComponent size={16} color={lightTokens.colors.mossGreen} />
-                        </Animated.View>
+                        <Text style={styles.presetLabel}>{config.label}</Text>
+                        <IconComponent size={16} color={lightTokens.colors.mossGreen} />
                       </Animated.View>
                     );
                   }
