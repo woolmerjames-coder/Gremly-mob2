@@ -14,10 +14,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
-  ScrollView,
   Alert,
   LayoutAnimation,
 } from 'react-native';
+import Animated, { FadeOut, FadeInRight, SlideOutRight, Layout } from 'react-native-reanimated';
 import {
   ChevronLeft,
   X,
@@ -282,6 +282,7 @@ export function EntityChatScreen({
   const [lastSaveable, setLastSaveable] = useState<EntityChatResponse['saveable'] | null>(null);
   const [lastAssistantMessageId, setLastAssistantMessageId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'initial' | 'loading' | 'confirmed'>('initial');
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
   const streamRef = useRef<{ close: () => void } | null>(null);
@@ -290,7 +291,7 @@ export function EntityChatScreen({
 
   // ─── Presets ───────────────────────────────────────────────────────────────
   const presets = getPresetsForType(entityType);
-  const showPresets = storedMessages.length === 0 && !isLoading;
+  const showPresets = storedMessages.length === 0 && !isLoading && !selectedPreset;
 
   // ─── Combined Messages ───────────────────────────────────────────────
   // Streaming messages are now managed in the store, so we just use storedMessages directly
@@ -505,10 +506,17 @@ export function EntityChatScreen({
   // ─── Handle Preset Tap ─────────────────────────────────────────────────────
   const handlePresetTap = useCallback(
     (presetKey: string) => {
-      const presetConfig = presets[presetKey];
-      if (presetConfig) {
-        handleSendMessage(presetConfig.prompt, presetKey as EntityChatPreset);
-      }
+      // Set selected state to trigger animations
+      setSelectedPreset(presetKey);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      // Delay sending message to let animation play
+      setTimeout(() => {
+        const presetConfig = presets[presetKey];
+        if (presetConfig) {
+          handleSendMessage(presetConfig.prompt, presetKey as EntityChatPreset);
+        }
+      }, 350);
     },
     [presets, handleSendMessage],
   );
@@ -711,26 +719,60 @@ export function EntityChatScreen({
           {showPresets && (
             <View style={styles.presetsSection}>
               <Text style={styles.presetsTitle}>Ask Gremly to help you:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.presetsScroll}
-              >
-                {Object.entries(presets).map(([key, config]) => {
+              <View style={styles.presetsList}>
+                {Object.entries(presets).map(([key, config], index) => {
                   const IconComponent = config.icon;
+                  const isSelected = selectedPreset === key;
+                  const isOther = selectedPreset !== null && selectedPreset !== key;
+
+                  // Other chips slide out when one is selected
+                  if (isOther) {
+                    return (
+                      <Animated.View
+                        key={key}
+                        exiting={SlideOutRight.duration(200).delay(index * 50)}
+                      >
+                        <TouchableOpacity style={styles.presetChip} activeOpacity={0.7} disabled>
+                          <Text style={styles.presetLabel}>{config.label}</Text>
+                          <IconComponent size={16} color={lightTokens.colors.mossGreen} />
+                        </TouchableOpacity>
+                      </Animated.View>
+                    );
+                  }
+
+                  // Selected chip highlights then fades out
+                  if (isSelected) {
+                    return (
+                      <Animated.View key={key} exiting={FadeOut.duration(200).delay(250)}>
+                        <View style={[styles.presetChip, styles.presetChipSelected]}>
+                          <Text style={[styles.presetLabel, styles.presetLabelSelected]}>
+                            {config.label}
+                          </Text>
+                          <IconComponent size={16} color="#fff" />
+                        </View>
+                      </Animated.View>
+                    );
+                  }
+
+                  // Normal state with entrance animation
                   return (
-                    <TouchableOpacity
+                    <Animated.View
                       key={key}
-                      style={styles.presetChip}
-                      onPress={() => handlePresetTap(key)}
-                      activeOpacity={0.7}
+                      entering={FadeInRight.duration(200).delay(index * 50)}
+                      layout={Layout.springify()}
                     >
-                      <IconComponent size={16} color={lightTokens.colors.mossGreen} />
-                      <Text style={styles.presetLabel}>{config.label}</Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.presetChip}
+                        onPress={() => handlePresetTap(key)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.presetLabel}>{config.label}</Text>
+                        <IconComponent size={16} color={lightTokens.colors.mossGreen} />
+                      </TouchableOpacity>
+                    </Animated.View>
                   );
                 })}
-              </ScrollView>
+              </View>
             </View>
           )}
 
@@ -827,27 +869,27 @@ const styles = StyleSheet.create({
   presetsSection: {
     paddingTop: 20,
     paddingBottom: 16,
+    paddingHorizontal: 16,
   },
   presetsTitle: {
     fontSize: 15,
     fontFamily: lightTokens.typography.fontFamily.medium,
     color: lightTokens.colors.text,
-    paddingHorizontal: 16,
     marginBottom: 12,
+    textAlign: 'right',
   },
-  presetsScroll: {
-    paddingHorizontal: 16,
+  presetsList: {
+    alignItems: 'flex-end',
     gap: 10,
   },
   presetChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.85)',
     borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginRight: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     // Subtle shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -855,10 +897,17 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 1,
   },
+  presetChipSelected: {
+    backgroundColor: lightTokens.colors.mossGreen,
+    transform: [{ scale: 1.02 }],
+  },
   presetLabel: {
     fontSize: 14,
-    fontFamily: lightTokens.typography.fontFamily.regular,
+    fontFamily: lightTokens.typography.fontFamily.medium,
     color: lightTokens.colors.text,
+  },
+  presetLabelSelected: {
+    color: '#fff',
   },
 
   // Messages container
