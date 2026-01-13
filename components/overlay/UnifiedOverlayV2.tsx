@@ -5591,16 +5591,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 paddingVertical: 8,
                               }}
                             >
-                              {/* Chat with Gremly button */}
+                              {/* Chat with Gremly button - primary action, takes more space */}
                               <EntityChatButton
                                 entityId={currentEntityId}
                                 entityType={entityTypeForChat}
                                 variant="overlay"
                                 onPress={() => setShowEntityChat(true)}
-                                style={{ flex: 1 }}
+                                style={{ flex: 2 }}
                               />
 
-                              {/* Notes button - only if notes exist */}
+                              {/* Notes button - secondary, takes less space */}
                               {entityChatNotes.length > 0 && (
                                 <TouchableOpacity
                                   style={{
