@@ -79,6 +79,8 @@ import { useRepo } from '../../providers/RepoProvider';
 import { useActiveSpaces } from '../../lib/store/selectors';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 import type { Space } from '../../lib/types';
+import { getContextualOpener } from '../../lib/chat/contextualOpeners';
+import type { SweepContext } from '../../lib/chat/contextualOpeners';
 
 // Gremly mascot avatar for card responses
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -170,6 +172,8 @@ export interface SweepCardProps {
     startDate?: Date;
     habitAction?: 'asktomorrow' | 'starttomorrow' | 'startmonday';
   };
+  /** Called when user taps the chat button */
+  onOpenChat?: (presetHint?: string) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -339,6 +343,7 @@ export function SweepCard({
   onSwipeProgress,
   onGoBack,
   previousDecision,
+  onOpenChat,
 }: SweepCardProps) {
   const repo = useRepo();
   const title = getCandidateTitle(candidate);
@@ -367,6 +372,21 @@ export function SweepCard({
     candidate.kind === 'note' && candidate.attachments && candidate.attachments.length > 0;
   const firstAttachment = hasAttachments ? candidate.attachments![0] : null;
   const attachmentCount = hasAttachments ? candidate.attachments!.length : 0;
+
+  // Compute sweep context for contextual opener
+  const sweepContext: SweepContext = useMemo(
+    () => ({
+      times_moved: meta.rescheduleCount ?? 0,
+      days_unscheduled: 0, // TODO: compute from created_at if needed
+      is_overdue: meta.todoStatus === 'overdue',
+    }),
+    [meta.rescheduleCount, meta.todoStatus],
+  );
+
+  const contextualOpener = useMemo(
+    () => getContextualOpener(candidate.kind, sweepContext),
+    [candidate.kind, sweepContext],
+  );
 
   // DEBUG: Photo attachment debugging
   console.log('[SweepCard] Photo debug:', {
@@ -1274,6 +1294,21 @@ export function SweepCard({
                     <Text style={styles.gremlyResponseText}>{meta.gremlyResponse}</Text>
                   </View>
                 </View>
+              )}
+
+              {/* CHAT BUTTON - Below speech bubble, looks like a reply */}
+              {!hasAttachments && onOpenChat && (
+                <TouchableOpacity
+                  style={styles.chatButtonContainer}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    onOpenChat(contextualOpener.presetHint);
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Chat with Gremly about this item"
+                >
+                  <Text style={styles.chatButtonText}>{contextualOpener.buttonText}</Text>
+                </TouchableOpacity>
               )}
 
               {/* Spacer - Pushes action block to bottom of card */}
@@ -2303,6 +2338,25 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: BRAND.colors.mossGreen,
     opacity: 0.75,
+  },
+
+  // Chat button - appears below speech bubble like a reply
+  chatButtonContainer: {
+    alignSelf: 'flex-start',
+    marginLeft: 52, // Align with speech bubble (avatar width + margin)
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(46, 85, 64, 0.08)', // Very subtle sage
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.15)',
+  },
+  chatButtonText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+    letterSpacing: 0.1,
   },
 
   // Spacer - Pushes action block to bottom of card
