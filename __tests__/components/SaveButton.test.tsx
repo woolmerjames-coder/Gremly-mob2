@@ -2,9 +2,9 @@
  * Unit tests for SaveButton component
  *
  * SaveButton has three visual states:
- * - initial: "Save this" with save icon (no Edit/X buttons)
+ * - initial: "Save this" with save icon
  * - loading: "Saving..." with spinner
- * - confirmed: "Saved as [Type] ✓" with [Edit] and [X] buttons
+ * - confirmed: "Saved as [Type] ✓" with [X] dismiss button
  */
 
 import React from 'react';
@@ -109,17 +109,15 @@ describe('SaveButton', () => {
       expect(getLog(/saved as note/i)).toBeTruthy();
     });
 
-    test('Edit and X buttons only appear in confirmed state', () => {
+    test('Dismiss button only appears in confirmed state', () => {
       const { queryByLabelText: queryInitial } = render(
         <SaveButton {...defaultProps} state="initial" />,
       );
-      expect(queryInitial(/edit/i)).toBeNull();
       expect(queryInitial(/dismiss/i)).toBeNull();
 
       const { getByLabelText: getConfirmed } = render(
         <SaveButton {...defaultProps} state="confirmed" />,
       );
-      expect(getConfirmed(/edit/i)).toBeTruthy();
       expect(getConfirmed(/dismiss/i)).toBeTruthy();
     });
   });
@@ -133,16 +131,6 @@ describe('SaveButton', () => {
 
       fireEvent.press(getByText('Save this'));
       expect(onSave).toHaveBeenCalledTimes(1);
-    });
-
-    test('calls onEdit when Edit pressed in confirmed state', () => {
-      const onEdit = jest.fn();
-      const { getByLabelText } = render(
-        <SaveButton {...defaultProps} onEdit={onEdit} state="confirmed" />,
-      );
-
-      fireEvent.press(getByLabelText(/edit/i));
-      expect(onEdit).toHaveBeenCalledTimes(1);
     });
 
     test('calls onDismiss when X pressed in confirmed state', () => {
@@ -176,11 +164,6 @@ describe('SaveButton', () => {
     test('has accessibility label for save this action', () => {
       const { getByLabelText } = render(<SaveButton {...defaultProps} state="initial" />);
       expect(getByLabelText(/save this content/i)).toBeTruthy();
-    });
-
-    test('has edit accessibility label in confirmed state', () => {
-      const { getByLabelText } = render(<SaveButton {...defaultProps} state="confirmed" />);
-      expect(getByLabelText(/edit saved item/i)).toBeTruthy();
     });
 
     test('has dismiss accessibility label in confirmed state', () => {

@@ -15,11 +15,31 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   removeItem: jest.fn(),
 }));
 
+// Mock getRitualDay to return predictable values
+const mockGetRitualDay = jest.fn<string, [number, string | null]>(() => '2026-01-12');
+jest.mock('../../../date/ritualDay', () => ({
+  getRitualDay: (hour: number, tz: string | null) => mockGetRitualDay(hour, tz),
+}));
+
+// Mock the store
+jest.mock('../../../store/useGremlyStore', () => ({
+  useGremlyStore: {
+    getState: () => ({
+      dayBoundaryHour: 4,
+      userTimezone: 'America/New_York',
+    }),
+  },
+}));
+
 const mockAsyncStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+
+// Storage key v2 uses ritual day
+const STORAGE_KEY = '@gremly/last_app_open_date_v2';
 
 describe('useDailyAppOpen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetRitualDay.mockReturnValue('2026-01-12');
     mockAsyncStorage.getItem.mockResolvedValue(null);
     mockAsyncStorage.setItem.mockResolvedValue(undefined);
     mockAsyncStorage.removeItem.mockResolvedValue(undefined);
@@ -59,10 +79,8 @@ describe('useDailyAppOpen', () => {
     });
 
     it('returns isFirstOpenToday false when opened same day', async () => {
-      // Mock today's date
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      mockAsyncStorage.getItem.mockResolvedValue(todayStr);
+      // Mock that today's ritual day was already opened
+      mockAsyncStorage.getItem.mockResolvedValue('2026-01-12');
 
       const { result } = renderHook(() => useDailyAppOpen());
 
@@ -89,8 +107,8 @@ describe('useDailyAppOpen', () => {
       });
 
       expect(mockAsyncStorage.setItem).toHaveBeenCalledWith(
-        '@gremly/last_app_open_date',
-        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        STORAGE_KEY,
+        '2026-01-12', // The mocked ritual day
       );
     });
 
@@ -114,9 +132,7 @@ describe('useDailyAppOpen', () => {
   describe('resetForTesting', () => {
     it('clears AsyncStorage and sets isFirstOpenToday to true', async () => {
       // Start with today already opened
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      mockAsyncStorage.getItem.mockResolvedValue(todayStr);
+      mockAsyncStorage.getItem.mockResolvedValue('2026-01-12');
 
       const { result } = renderHook(() => useDailyAppOpen());
 
@@ -128,7 +144,7 @@ describe('useDailyAppOpen', () => {
         await result.current.resetForTesting();
       });
 
-      expect(mockAsyncStorage.removeItem).toHaveBeenCalledWith('@gremly/last_app_open_date');
+      expect(mockAsyncStorage.removeItem).toHaveBeenCalledWith(STORAGE_KEY);
       expect(result.current.isFirstOpenToday).toBe(true);
     });
   });

@@ -53,11 +53,15 @@ import { supabase } from '../../supabase/client';
 describe('Gremly Age Store Actions', () => {
   const mockRpc = supabase.rpc as jest.Mock;
   const mockFrom = supabase.from as jest.Mock;
+  const { getRitualDay } = require('../../date/ritualDay');
 
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-01-10T10:00:00Z'));
+
+    // Restore getRitualDay mock after clearAllMocks
+    (getRitualDay as jest.Mock).mockReturnValue('2026-01-10');
 
     // Reset store state
     useGremlyStore.setState({
@@ -132,7 +136,7 @@ describe('Gremly Age Store Actions', () => {
     });
 
     it('returns current count on RPC error', async () => {
-      useGremlyStore.setState({ todayDropsCount: 2 });
+      useGremlyStore.setState({ todayDropsCount: 2, todayRitualDay: '2026-01-10' });
       mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'RPC failed' } });
 
       await act(async () => {
@@ -149,13 +153,41 @@ describe('Gremly Age Store Actions', () => {
         data: [{ did_age_up: true, new_age: 6 }],
         error: null,
       });
-      useGremlyStore.setState({ todaySweepsCount: 3 }); // Already have 3 sweeps
+      useGremlyStore.setState({ todaySweepsCount: 3, todayRitualDay: '2026-01-10' }); // Already have 3 sweeps
 
       await act(async () => {
         const result = await useGremlyStore.getState().incrementDropCount();
         expect(result.didAgeUp).toBe(true);
         expect(result.newAge).toBe(6);
       });
+    });
+
+    it('resets ritual progress when day boundary is crossed', async () => {
+      // Set up state from "yesterday"
+      useGremlyStore.setState({
+        todayDropsCount: 2,
+        todaySweepsCount: 3,
+        todayRitualDay: '2026-01-09', // Yesterday
+        todayRitualCompletedAt: '2026-01-09T22:00:00Z', // Completed yesterday
+      });
+
+      // Mock getRitualDay to return "today" (different from stored '2026-01-09')
+      (getRitualDay as jest.Mock).mockReturnValueOnce('2026-01-10');
+
+      mockRpc.mockResolvedValueOnce({ data: { drops_count: 1 }, error: null });
+      mockRpc.mockResolvedValueOnce({
+        data: [{ did_age_up: false, new_age: 5 }],
+        error: null,
+      });
+
+      await act(async () => {
+        await useGremlyStore.getState().incrementDropCount();
+      });
+
+      // State should have been reset before RPC call
+      const state = useGremlyStore.getState();
+      expect(state.todayRitualDay).toBe('2026-01-10');
+      expect(state.todayRitualCompletedAt).toBeNull(); // CRITICAL: allows aging again
     });
   });
 
@@ -213,7 +245,7 @@ describe('Gremly Age Store Actions', () => {
     });
 
     it('returns current count on RPC error', async () => {
-      useGremlyStore.setState({ todaySweepsCount: 1 });
+      useGremlyStore.setState({ todaySweepsCount: 1, todayRitualDay: '2026-01-10' });
       mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'RPC failed' } });
 
       await act(async () => {
@@ -292,6 +324,37 @@ describe('Gremly Age Store Actions', () => {
 
       // Should not have called RPC
       expect(mockRpc).not.toHaveBeenCalled();
+    });
+
+    it('clears stale ritual completion and continues to RPC when day has changed', async () => {
+      // Set up: ritual was completed yesterday, but day has rolled over
+      useGremlyStore.setState({
+        todayRitualCompletedAt: '2026-01-09T22:00:00Z', // Completed "yesterday"
+        todayRitualDay: '2026-01-09', // Yesterday's day
+        gremlyAge: 5,
+      });
+
+      // getRitualDay returns "today" (different from stored day)
+      (getRitualDay as jest.Mock).mockReturnValueOnce('2026-01-10');
+
+      mockRpc.mockResolvedValueOnce({
+        data: [{ did_age_up: false, new_age: 5 }],
+        error: null,
+      });
+
+      await act(async () => {
+        const result = await useGremlyStore.getState().checkAndIncrementAge();
+        expect(result.didAgeUp).toBe(false);
+      });
+
+      // Should have cleared stale completion and called RPC
+      expect(useGremlyStore.getState().todayRitualCompletedAt).toBeNull();
+      expect(mockRpc).toHaveBeenCalledWith(
+        'check_and_increment_gremly_age',
+        expect.objectContaining({
+          p_owner_id: 'user-123',
+        }),
+      );
     });
 
     it('returns current age if no userId', async () => {

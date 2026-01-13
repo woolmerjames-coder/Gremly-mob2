@@ -601,6 +601,123 @@ export interface DailyBriefInput {
   completed_at?: string | null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Entity Chat Types
+// Types for chat functionality within entity overlays and sweep cards
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A single message in an entity chat conversation
+ */
+export interface EntityChatMessage {
+  id: string; // UUID
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string; // ISO timestamp
+  metadata?: {
+    preset_used?:
+      | 'break_down'
+      | 'research'
+      | 'think_through'
+      | 'whats_blocking'
+      | 'action_steps'
+      | 'expand'
+      | 'stay_consistent'
+      | 'approach';
+    is_contextual_opener?: boolean;
+    has_saveable_content?: boolean;
+    isStreaming?: boolean; // True for temp streaming message
+  };
+}
+
+/**
+ * A saved note from an entity chat conversation
+ */
+export interface EntityChatNote {
+  id: string; // UUID
+  content: string; // The saved note text
+  is_checklist: boolean;
+  checklist_items?: Array<{
+    id: string;
+    label: string;
+    completed: boolean;
+  }>;
+  preamble?: string; // Text before first bullet (when converted to checklist)
+  postamble?: string; // Text after last bullet (when converted to checklist)
+  created_at: string;
+  source_message_id: string; // Which assistant message this came from
+}
+
+/**
+ * Full entity chat data structure (stored on entity)
+ */
+export interface EntityChatData {
+  messages: EntityChatMessage[];
+  message_count: number;
+  last_message_at: string | null;
+  notes: EntityChatNote[];
+}
+
+/**
+ * Entity chat preset types
+ */
+export type EntityChatPreset =
+  | 'break_down'
+  | 'research'
+  | 'think_through'
+  | 'whats_blocking'
+  | 'action_steps'
+  | 'expand'
+  | 'stay_consistent'
+  | 'approach';
+
+/**
+ * Request payload for entity chat to Cortex
+ */
+export interface EntityChatRequest {
+  type: 'entity-chat';
+  stream?: boolean;
+  entity: {
+    id: string;
+    type: 'todo' | 'habit' | 'note';
+    title: string;
+    body?: string;
+    tags?: string[];
+    due_date?: string;
+    frequency?: string;
+    time_estimate?: number;
+    space_name?: string;
+    created_at: string;
+    times_swept?: number;
+    days_since_created?: number;
+  };
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  preset?: EntityChatPreset;
+  sweepContext?: {
+    times_moved: number;
+    days_unscheduled: number;
+    is_overdue: boolean;
+  };
+}
+
+/**
+ * Response from Cortex for entity chat
+ */
+export interface EntityChatResponse {
+  content: string;
+  saveable?: {
+    detected: boolean;
+    type: 'note' | 'checklist';
+    checklist_items?: string[];
+    has_save_suggestion?: boolean;
+  };
+  promotion?: {
+    suggested: boolean;
+    reason?: string;
+  };
+  latency_ms: number;
+}
+
 /**
  * Helper functions
  */

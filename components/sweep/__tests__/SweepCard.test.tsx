@@ -1361,4 +1361,91 @@ describe('SweepCard', () => {
       expect(getByText('Buy groceries')).toBeTruthy();
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Chat Button Tests
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('Chat Button', () => {
+    it('renders chat button when onOpenChat is provided', () => {
+      const onOpenChat = jest.fn();
+      const { getByLabelText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          onOpenChat={onOpenChat}
+        />,
+      );
+      expect(getByLabelText('Chat with Gremly about this item')).toBeTruthy();
+    });
+
+    it('does NOT render chat button when onOpenChat is undefined', () => {
+      const { queryByLabelText } = render(
+        <SweepCard candidate={mockTodoCandidate} meta={createMockMeta()} {...defaultProps} />,
+      );
+      expect(queryByLabelText('Chat with Gremly about this item')).toBeNull();
+    });
+
+    it('calls onOpenChat when chat button is pressed', () => {
+      const onOpenChat = jest.fn();
+      const { getByLabelText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          onOpenChat={onOpenChat}
+        />,
+      );
+      fireEvent.press(getByLabelText('Chat with Gremly about this item'));
+      expect(onOpenChat).toHaveBeenCalledTimes(1);
+    });
+
+    it('displays contextual opener text based on sweep context', () => {
+      const onOpenChat = jest.fn();
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta({ rescheduleCount: 2 })}
+          {...defaultProps}
+          onOpenChat={onOpenChat}
+        />,
+      );
+      // When rescheduleCount >= 2, should show "keeps moving" text
+      expect(getByText('This keeps moving. Want to figure out why?')).toBeTruthy();
+    });
+
+    it('shows default chat text for items without special context', () => {
+      const onOpenChat = jest.fn();
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta({ rescheduleCount: 0 })}
+          {...defaultProps}
+          onOpenChat={onOpenChat}
+        />,
+      );
+      expect(getByText('Chat about this →')).toBeTruthy();
+    });
+
+    it('does NOT render chat button when note has attachments', () => {
+      const onOpenChat = jest.fn();
+      // Use a note candidate (attachments only apply to notes)
+      const noteWithAttachments: SweepCandidate = {
+        ...mockNoteCandidate,
+        kind: 'note',
+        attachments: [{ id: 'photo-1', url: 'https://example.com/photo.jpg', position: 0 }],
+      };
+      const { queryByLabelText } = render(
+        <SweepCard
+          candidate={noteWithAttachments}
+          meta={createMockLogMeta()}
+          {...defaultProps}
+          onOpenChat={onOpenChat}
+        />,
+      );
+      // Chat button should NOT appear when note has attachments
+      expect(queryByLabelText('Chat with Gremly about this item')).toBeNull();
+    });
+  });
 });

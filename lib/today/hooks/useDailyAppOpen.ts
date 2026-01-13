@@ -2,16 +2,19 @@
  * useDailyAppOpen - First-open detection for Morning Brief prompt
  *
  * Tracks last app open date in AsyncStorage.
- * Returns true once per calendar day (midnight local time reset).
+ * Returns true once per ritual day (respects user's day boundary setting).
  */
 
 import { useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getRitualDay } from '../../date/ritualDay';
+import { useGremlyStore } from '../../store/useGremlyStore';
 
-const STORAGE_KEY = '@gremly/last_app_open_date';
+// v2: Now uses ritual day instead of calendar day
+const STORAGE_KEY = '@gremly/last_app_open_date_v2';
 
 interface UseDailyAppOpenReturn {
-  /** True if this is the first open of the calendar day */
+  /** True if this is the first open of the ritual day */
   isFirstOpenToday: boolean;
   /** Loading state while checking AsyncStorage */
   isChecking: boolean;
@@ -22,11 +25,14 @@ interface UseDailyAppOpenReturn {
 }
 
 /**
- * Get today's date string in YYYY-MM-DD format (local time)
+ * Get today's ritual day string in YYYY-MM-DD format
+ * Respects user's day boundary hour setting
  */
-function getTodayDateString(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+function getRitualDateString(): string {
+  const { dayBoundaryHour, userTimezone } = useGremlyStore.getState();
+  const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const boundaryHour = dayBoundaryHour ?? 0;
+  return getRitualDay(boundaryHour, timezone);
 }
 
 export function useDailyAppOpen(): UseDailyAppOpenReturn {
@@ -40,7 +46,7 @@ export function useDailyAppOpen(): UseDailyAppOpenReturn {
     const checkLastOpen = async () => {
       try {
         const lastOpenDate = await AsyncStorage.getItem(STORAGE_KEY);
-        const todayDate = getTodayDateString();
+        const todayDate = getRitualDateString();
 
         if (mounted) {
           // First open if no record or different day
@@ -75,7 +81,7 @@ export function useDailyAppOpen(): UseDailyAppOpenReturn {
   // Mark today as opened
   const markTodayOpened = useCallback(async () => {
     try {
-      const todayDate = getTodayDateString();
+      const todayDate = getRitualDateString();
       await AsyncStorage.setItem(STORAGE_KEY, todayDate);
       setIsFirstOpenToday(false);
 

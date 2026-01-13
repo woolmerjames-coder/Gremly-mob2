@@ -23,6 +23,7 @@ import {
   PanResponder,
   GestureResponderEvent,
   PanResponderGestureState,
+  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
@@ -129,6 +130,9 @@ import {
 // Make Actionable feature
 import { MakeActionableButton } from './MakeActionableButton';
 import { ChecklistView } from './ChecklistView';
+
+// Entity Chat
+import { EntityChatButton, EntityChatScreen, EntityNotesSection, EntityNotesModal } from '../chat';
 import { ChecklistProgress } from './ChecklistProgress';
 import { RevertToTextButton } from './RevertToTextButton';
 import { TodoPreviewModal } from './TodoPreviewModal';
@@ -1190,6 +1194,108 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const prevEntityIdRef = useRef<string | null>(null);
   const currentEntityId = (initialEntity as any)?.id ?? null;
 
+  // Entity Chat: get store selectors and derive entityType
+  const getEntityChatMessageCount = useGremlyStore((s) => s.getEntityChatMessageCount);
+  const updateEntityChatNoteChecklist = useGremlyStore((s) => s.updateEntityChatNoteChecklist);
+  const updateEntityChatNote = useGremlyStore((s) => s.updateEntityChatNote);
+  const deleteEntityChatNote = useGremlyStore((s) => s.deleteEntityChatNote);
+
+  // Select entity arrays to make notes reactive to store changes
+  const storeTodos = useGremlyStore((s) => s.todos);
+  const storeHabits = useGremlyStore((s) => s.habits);
+  const storeNotes = useGremlyStore((s) => s.notes);
+
+  const entityTypeForChat: 'todo' | 'habit' | 'note' = useMemo(() => {
+    if (baseType === 'todo') return 'todo';
+    if (baseType === 'habit') return 'habit';
+    return 'note'; // log maps to 'note'
+  }, [baseType]);
+
+  const hasExistingChat = useMemo(() => {
+    if (!currentEntityId) return false;
+    return getEntityChatMessageCount(currentEntityId, entityTypeForChat) > 0;
+  }, [currentEntityId, entityTypeForChat, getEntityChatMessageCount]);
+
+  // Entity Chat: get saved notes for current entity (reactive to store changes)
+  const entityChatNotes = useMemo(() => {
+    if (!currentEntityId) return [];
+
+    // Find the entity from the appropriate store array
+    let entity: any;
+    if (entityTypeForChat === 'todo') {
+      entity = storeTodos.find((t) => t.id === currentEntityId);
+    } else if (entityTypeForChat === 'habit') {
+      entity = storeHabits.find((h) => h.id === currentEntityId);
+    } else {
+      entity = storeNotes.find((n) => n.id === currentEntityId);
+    }
+
+    // Extract notes from entity.views.chat
+    const views = entity?.views as Record<string, any> | undefined;
+    const chatData = views?.chat;
+    const notes = chatData?.notes ?? [];
+
+    // Debug logging
+    if (__DEV__) {
+      console.log('[UnifiedOverlayV2] entityChatNotes computed:', {
+        entityId: currentEntityId,
+        entityType: entityTypeForChat,
+        hasEntity: !!entity,
+        viewsKeys: views ? Object.keys(views) : null,
+        hasChatData: !!chatData,
+        notesCount: notes.length,
+        notes: notes.map((n: any) => ({ id: n.id, content: n.content?.substring(0, 30) })),
+      });
+    }
+
+    return notes;
+  }, [currentEntityId, entityTypeForChat, storeTodos, storeHabits, storeNotes]);
+
+  // Entity Chat: handle checklist toggle
+  const handleChatNoteChecklistToggle = useCallback(
+    (noteId: string, itemId: string, completed: boolean) => {
+      if (!currentEntityId) return;
+      updateEntityChatNoteChecklist(currentEntityId, entityTypeForChat, noteId, itemId, completed);
+    },
+    [currentEntityId, entityTypeForChat, updateEntityChatNoteChecklist],
+  );
+
+  // Entity Chat: handle note content update
+  const handleChatNoteUpdate = useCallback(
+    (noteId: string, content: string) => {
+      if (!currentEntityId) return;
+      updateEntityChatNote(currentEntityId, entityTypeForChat, noteId, content);
+    },
+    [currentEntityId, entityTypeForChat, updateEntityChatNote],
+  );
+
+  // Entity Chat: handle note deletion
+  const handleChatNoteDelete = useCallback(
+    (noteId: string) => {
+      if (!currentEntityId) return;
+      deleteEntityChatNote(currentEntityId, entityTypeForChat, noteId);
+    },
+    [currentEntityId, entityTypeForChat, deleteEntityChatNote],
+  );
+
+  // Entity Chat: handle convert to checklist
+  const convertNoteToChecklist = useGremlyStore((s) => s.convertNoteToChecklist);
+  const handleConvertNoteToChecklist = useCallback(
+    (
+      noteId: string,
+      checklistData: {
+        is_checklist: true;
+        checklist_items: Array<{ id: string; label: string; completed: boolean }>;
+        preamble?: string;
+        postamble?: string;
+      },
+    ) => {
+      if (!currentEntityId) return;
+      convertNoteToChecklist(currentEntityId, entityTypeForChat, noteId, checklistData);
+    },
+    [currentEntityId, entityTypeForChat, convertNoteToChecklist],
+  );
+
   // Log kind detection (Phase L1)
   const isLog = baseType === 'log';
   const logKind = isLog ? state.log.kind : 'basic';
@@ -1312,6 +1418,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [moodPickerExpanded, setMoodPickerExpanded] = useState(false);
   const [sourceNote, setSourceNote] = useState<{ id: string; title: string } | null>(null);
   const [isCreatingTodos, setIsCreatingTodos] = useState(false);
+
+  // Entity Chat state
+  const [showEntityChat, setShowEntityChat] = useState(false);
+  const [showNotesModal, setShowNotesModal] = useState(false);
 
   // View mode: store fetched entity for display
   const [viewModeEntity, setViewModeEntity] = useState<any>(null);
@@ -5471,6 +5581,57 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Box>
                           )}
 
+                          {/* Entity Chat & Notes buttons - side by side */}
+                          {currentEntityId && (
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                gap: 10,
+                                paddingHorizontal: 16,
+                                paddingVertical: 8,
+                              }}
+                            >
+                              {/* Chat with Gremly button - primary action, takes more space */}
+                              <EntityChatButton
+                                entityId={currentEntityId}
+                                entityType={entityTypeForChat}
+                                variant="overlay"
+                                onPress={() => setShowEntityChat(true)}
+                                style={{ flex: 2 }}
+                              />
+
+                              {/* Notes button - secondary, takes less space */}
+                              {entityChatNotes.length > 0 && (
+                                <TouchableOpacity
+                                  style={{
+                                    flex: 1,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                                    borderRadius: 10,
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 12,
+                                  }}
+                                  onPress={() => setShowNotesModal(true)}
+                                  activeOpacity={0.7}
+                                >
+                                  <FileText size={16} color={lightTokens.colors.mossGreen} />
+                                  <Text
+                                    style={{
+                                      fontSize: 13,
+                                      fontFamily: lightTokens.typography.fontFamily.medium,
+                                      color: lightTokens.colors.mossGreen,
+                                    }}
+                                  >
+                                    Notes ({entityChatNotes.length})
+                                  </Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          )}
+
                           {/* Tags row - now directly below text field */}
                           <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
                             <TagsRow
@@ -8742,6 +8903,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         </Modal>
       </KeyboardAvoidingView>
 
+      {/* Entity Chat Screen - full screen overlay on top of current overlay */}
+      {showEntityChat && currentEntityId && (
+        <Modal visible={showEntityChat} animationType="slide" presentationStyle="fullScreen">
+          <EntityChatScreen
+            entityId={currentEntityId}
+            entityType={entityTypeForChat}
+            onClose={() => setShowEntityChat(false)}
+          />
+        </Modal>
+      )}
+
       {/* TodoPreviewModal - for exploding notes to todos */}
       <TodoPreviewModal
         visible={showTodoPreview}
@@ -8751,6 +8923,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         onConfirm={handleExplodeToTodos}
         onCancel={() => setShowTodoPreview(false)}
         isLoading={isCreatingTodos}
+      />
+
+      {/* Entity Notes Modal - saved notes from chat */}
+      <EntityNotesModal
+        visible={showNotesModal}
+        notes={entityChatNotes}
+        onClose={() => setShowNotesModal(false)}
+        onChecklistToggle={handleChatNoteChecklistToggle}
+        onUpdateNote={handleChatNoteUpdate}
+        onDeleteNote={handleChatNoteDelete}
+        onConvertToChecklist={handleConvertNoteToChecklist}
       />
     </>
   );

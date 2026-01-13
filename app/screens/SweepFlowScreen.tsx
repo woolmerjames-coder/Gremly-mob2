@@ -64,6 +64,7 @@ import type {
 } from '../../lib/sweep/types';
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
+import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { OverlayComponent } from '../../components/overlay';
@@ -1123,6 +1124,10 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const [decisions, setDecisions] = useState<Map<string, SweepDecision>>(new Map());
   const decisionsRef = useRef<Map<string, SweepDecision>>(new Map());
 
+  // Entity chat state (for chat button on sweep cards)
+  const [showEntityChat, setShowEntityChat] = useState(false);
+  const [chatPresetHint, setChatPresetHint] = useState<string | undefined>();
+
   // Track item details for summary display
   const itemDetailsRef = useRef<Map<string, { name: string; kind: 'todo' | 'habit' | 'note' }>>(
     new Map(),
@@ -2003,6 +2008,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     }
   }, [currentIndex]);
 
+  /**
+   * Open Entity Chat Handler - Opens chat modal for current card
+   */
+  const handleOpenChat = useCallback((presetHint?: string) => {
+    setChatPresetHint(presetHint);
+    setShowEntityChat(true);
+  }, []);
+
   // Auto-advance to summary when all cards are processed (fallback)
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0 && currentIndex >= candidatesWithMeta.length) {
@@ -2177,6 +2190,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           hideBottomSaveExit={true}
           onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
           previousDecision={currentDecision}
+          onOpenChat={handleOpenChat}
         />
       </View>
 
@@ -2204,6 +2218,26 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Entity Chat Modal */}
+      <Modal
+        visible={showEntityChat}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowEntityChat(false)}
+      >
+        <EntityChatScreen
+          entityId={currentCandidate.id}
+          entityType={currentCandidate.kind}
+          initialPreset={chatPresetHint as any}
+          sweepContext={{
+            times_moved: currentCandidateWithMeta.meta.rescheduleCount ?? 0,
+            days_unscheduled: 0,
+            is_overdue: currentCandidateWithMeta.meta.todoStatus === 'overdue',
+          }}
+          onClose={() => setShowEntityChat(false)}
+        />
+      </Modal>
     </View>
   );
 }

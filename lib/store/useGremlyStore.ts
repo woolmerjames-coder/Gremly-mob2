@@ -12,6 +12,9 @@ import type {
   SpaceChatMessage,
   DailyBrief,
   DailyBriefInput,
+  EntityChatData,
+  EntityChatMessage,
+  EntityChatNote,
 } from '../types';
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
@@ -169,6 +172,7 @@ interface GremlyState {
   todayRitualCompletedAt: string | null;
 
   // Ritual actions
+  ensureCurrentRitualDay: () => string;
   incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
   incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
   checkAndIncrementAge: () => Promise<{ didAgeUp: boolean; newAge: number }>;
@@ -294,6 +298,70 @@ interface GremlyState {
   // MINDDROP CRASH RECOVERY
   // ═══════════════════════════════════════════════════════════════════
   recoverStuckMindDrops: () => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ENTITY CHAT MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  getEntityChat: (entityId: string, entityType: 'todo' | 'habit' | 'note') => EntityChatData | null;
+  getEntityChatMessageCount: (entityId: string, entityType: 'todo' | 'habit' | 'note') => number;
+  appendEntityChatMessage: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    message: Omit<EntityChatMessage, 'id' | 'created_at'>,
+  ) => Promise<EntityChatMessage>;
+  // Streaming support for entity chat
+  createEntityChatStreamingMessage: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+  ) => string; // Returns the message ID
+  updateEntityChatStreamingContent: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    messageId: string,
+    content: string,
+  ) => void;
+  finalizeEntityChatStreamingMessage: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    messageId: string,
+    finalContent: string,
+    metadata?: Record<string, unknown>,
+  ) => Promise<void>;
+  saveEntityChatNote: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    note: Omit<EntityChatNote, 'id' | 'created_at'>,
+  ) => Promise<EntityChatNote>;
+  updateEntityChatNoteChecklist: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    noteId: string,
+    itemId: string,
+    completed: boolean,
+  ) => Promise<void>;
+  updateEntityChatNote: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    noteId: string,
+    content: string,
+  ) => Promise<void>;
+  convertNoteToChecklist: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    noteId: string,
+    checklistData: {
+      is_checklist: true;
+      checklist_items: Array<{ id: string; label: string; completed: boolean }>;
+      preamble?: string;
+      postamble?: string;
+    },
+  ) => Promise<void>;
+  deleteEntityChatNote: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    noteId: string,
+  ) => Promise<void>;
+  clearEntityChat: (entityId: string, entityType: 'todo' | 'habit' | 'note') => Promise<void>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -632,13 +700,39 @@ export const useGremlyStore = create<GremlyState>()(
     // GREMLY AGE & RITUAL PROGRESS ACTIONS
     // ═══════════════════════════════════════════════════════════════════
 
-    incrementDropCount: async () => {
-      const { userId, dayBoundaryHour, userTimezone } = get();
-      if (!userId) return { dropsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
-
-      // Recompute ritual day in case it changed (crossed boundary)
+    /**
+     * Ensures we're tracking the current ritual day.
+     * If the day has rolled over, resets daily progress to allow fresh aging.
+     * Returns the current ritual day string.
+     */
+    ensureCurrentRitualDay: () => {
+      const { dayBoundaryHour, userTimezone, todayRitualDay } = get();
       const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
       const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
+
+      // Check if we've crossed the day boundary
+      if (todayRitualDay && currentRitualDay !== todayRitualDay) {
+        console.log('[GremlyStore] Day boundary crossed, resetting ritual progress');
+        set({
+          todayRitualDay: currentRitualDay,
+          todayDropsCount: 0,
+          todaySweepsCount: 0,
+          todayRitualCompletedAt: null, // CRITICAL: allows aging to happen again
+        });
+      } else if (!todayRitualDay) {
+        // First time - just set the day
+        set({ todayRitualDay: currentRitualDay });
+      }
+
+      return currentRitualDay;
+    },
+
+    incrementDropCount: async () => {
+      const { userId } = get();
+      if (!userId) return { dropsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
+
+      // Ensure we're on the current ritual day (resets state if day changed)
+      const currentRitualDay = get().ensureCurrentRitualDay();
 
       // Call Supabase RPC to increment
       const { data, error } = await supabase.rpc('increment_drop_count', {
@@ -660,11 +754,11 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     incrementSweepCount: async () => {
-      const { userId, dayBoundaryHour, userTimezone } = get();
+      const { userId } = get();
       if (!userId) return { sweepsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
 
-      const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
+      // Ensure we're on the current ritual day (resets state if day changed)
+      const currentRitualDay = get().ensureCurrentRitualDay();
 
       const { data, error } = await supabase.rpc('increment_sweep_count', {
         p_owner_id: userId,
@@ -685,16 +779,24 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     checkAndIncrementAge: async () => {
-      const { userId, dayBoundaryHour, userTimezone, todayRitualCompletedAt } = get();
+      const { userId, dayBoundaryHour, userTimezone, todayRitualCompletedAt, todayRitualDay } =
+        get();
       if (!userId) return { didAgeUp: false, newAge: get().gremlyAge };
-
-      // Already completed today
-      if (todayRitualCompletedAt) {
-        return { didAgeUp: false, newAge: get().gremlyAge };
-      }
 
       const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
       const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
+
+      // Defensive check: if ritual was completed for a different day, it doesn't count for today
+      if (todayRitualCompletedAt && todayRitualDay !== currentRitualDay) {
+        console.log(
+          '[GremlyStore] checkAndIncrementAge: Stale ritual completion detected, clearing',
+        );
+        set({ todayRitualCompletedAt: null });
+        // Continue to check RPC - don't return early
+      } else if (todayRitualCompletedAt) {
+        // Already completed today (and day matches)
+        return { didAgeUp: false, newAge: get().gremlyAge };
+      }
 
       const { data, error } = await supabase.rpc('check_and_increment_gremly_age', {
         p_owner_id: userId,
@@ -3070,6 +3172,850 @@ export const useGremlyStore = create<GremlyState>()(
         console.log(`[GremlyStore] ✅ Recovered ${totalStuck} stuck MindDrop items`);
       } catch (error) {
         console.error('[GremlyStore] ❌ Failed to recover stuck MindDrop items:', error);
+      }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ENTITY CHAT MUTATIONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    getEntityChat: (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+    ): EntityChatData | null => {
+      const state = get();
+      let entity: Todo | Habit | Note | undefined;
+
+      if (entityType === 'todo') {
+        entity = state.todos.find((t) => t.id === entityId);
+      } else if (entityType === 'habit') {
+        entity = state.habits.find((h) => h.id === entityId);
+      } else {
+        entity = state.notes.find((n) => n.id === entityId);
+      }
+
+      if (!entity) return null;
+
+      const views = entity.views as Record<string, unknown> | undefined;
+      const chat = views?.chat as EntityChatData | undefined;
+      return chat ?? null;
+    },
+
+    getEntityChatMessageCount: (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+    ): number => {
+      const chat = get().getEntityChat(entityId, entityType);
+      return chat?.message_count ?? 0;
+    },
+
+    appendEntityChatMessage: async (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      message: Omit<EntityChatMessage, 'id' | 'created_at'>,
+    ): Promise<EntityChatMessage> => {
+      const now = new Date().toISOString();
+      const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const newMessage: EntityChatMessage = {
+        ...message,
+        id: messageId,
+        created_at: now,
+      };
+
+      const state = get();
+      const MAX_MESSAGES = 50;
+
+      // Helper to update chat data
+      const updateChatData = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = (currentViews?.chat as EntityChatData) ?? {
+          messages: [],
+          message_count: 0,
+          last_message_at: null,
+          notes: [],
+        };
+
+        let messages = [...existingChat.messages, newMessage];
+        // Cap at MAX_MESSAGES, remove oldest
+        if (messages.length > MAX_MESSAGES) {
+          messages = messages.slice(messages.length - MAX_MESSAGES);
+        }
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            messages,
+            message_count: existingChat.message_count + 1,
+            last_message_at: now,
+          },
+        };
+      };
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: updateChatData(t.views as Record<string, unknown>), updated_at: now }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: updateChatData(h.views as Record<string, unknown>), updated_at: now }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: updateChatData(n.views as Record<string, unknown>), updated_at: now }
+              : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const entity =
+        entityType === 'todo'
+          ? get().todos.find((t) => t.id === entityId)
+          : entityType === 'habit'
+            ? get().habits.find((h) => h.id === entityId)
+            : get().notes.find((n) => n.id === entityId);
+
+      if (entity) {
+        const { error } = await supabase
+          .from(table)
+          .update({ views: entity.views, updated_at: now })
+          .eq('id', entityId);
+
+        if (error) {
+          console.error(`[GremlyStore] appendEntityChatMessage failed:`, error);
+        }
+      }
+
+      return newMessage;
+    },
+
+    // ─── Streaming Support ─────────────────────────────────────────────────────
+    // Creates a placeholder streaming message in the messages array (synchronous)
+    createEntityChatStreamingMessage: (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+    ): string => {
+      const now = new Date().toISOString();
+      const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const streamingMessage: EntityChatMessage = {
+        id: messageId,
+        role: 'assistant',
+        content: '',
+        created_at: now,
+        metadata: { isStreaming: true },
+      };
+
+      const state = get();
+
+      // Helper to add streaming message to chat data
+      const addStreamingMessage = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = (currentViews?.chat as EntityChatData) ?? {
+          messages: [],
+          message_count: 0,
+          last_message_at: null,
+          notes: [],
+        };
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            messages: [...existingChat.messages, streamingMessage],
+          },
+        };
+      };
+
+      // Optimistic update only (no persistence yet)
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: addStreamingMessage(t.views as Record<string, unknown>) }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: addStreamingMessage(h.views as Record<string, unknown>) }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: addStreamingMessage(n.views as Record<string, unknown>) }
+              : n,
+          ),
+        });
+      }
+
+      return messageId;
+    },
+
+    // Updates streaming message content in place (synchronous, no persistence)
+    updateEntityChatStreamingContent: (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      messageId: string,
+      content: string,
+    ): void => {
+      const state = get();
+
+      // Helper to update message content
+      const updateMessageContent = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = (currentViews?.chat as EntityChatData) ?? {
+          messages: [],
+          message_count: 0,
+          last_message_at: null,
+          notes: [],
+        };
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            messages: existingChat.messages.map((m) =>
+              m.id === messageId ? { ...m, content } : m,
+            ),
+          },
+        };
+      };
+
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: updateMessageContent(t.views as Record<string, unknown>) }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: updateMessageContent(h.views as Record<string, unknown>) }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: updateMessageContent(n.views as Record<string, unknown>) }
+              : n,
+          ),
+        });
+      }
+    },
+
+    // Finalizes streaming message: removes streaming flag, updates count, persists to DB
+    finalizeEntityChatStreamingMessage: async (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      messageId: string,
+      finalContent: string,
+      metadata?: Record<string, unknown>,
+    ): Promise<void> => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Helper to finalize streaming message
+      const finalizeMessage = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = (currentViews?.chat as EntityChatData) ?? {
+          messages: [],
+          message_count: 0,
+          last_message_at: null,
+          notes: [],
+        };
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            messages: existingChat.messages.map((m) =>
+              m.id === messageId
+                ? {
+                    ...m,
+                    content: finalContent,
+                    metadata: { ...metadata, isStreaming: false },
+                  }
+                : m,
+            ),
+            message_count: existingChat.message_count + 1,
+            last_message_at: now,
+          },
+        };
+      };
+
+      // Update state
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? {
+                  ...t,
+                  views: finalizeMessage(t.views as Record<string, unknown>),
+                  updated_at: now,
+                }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? {
+                  ...h,
+                  views: finalizeMessage(h.views as Record<string, unknown>),
+                  updated_at: now,
+                }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? {
+                  ...n,
+                  views: finalizeMessage(n.views as Record<string, unknown>),
+                  updated_at: now,
+                }
+              : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const entity =
+        entityType === 'todo'
+          ? get().todos.find((t) => t.id === entityId)
+          : entityType === 'habit'
+            ? get().habits.find((h) => h.id === entityId)
+            : get().notes.find((n) => n.id === entityId);
+
+      if (entity) {
+        const { error } = await supabase
+          .from(table)
+          .update({ views: entity.views, updated_at: now })
+          .eq('id', entityId);
+
+        if (error) {
+          console.error(`[GremlyStore] finalizeEntityChatStreamingMessage failed:`, error);
+        }
+      }
+    },
+
+    saveEntityChatNote: async (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      note: Omit<EntityChatNote, 'id' | 'created_at'>,
+    ): Promise<EntityChatNote> => {
+      const now = new Date().toISOString();
+      const noteId = `cnote_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const newNote: EntityChatNote = {
+        ...note,
+        id: noteId,
+        created_at: now,
+      };
+
+      const state = get();
+
+      // Helper to update chat data with new note
+      const updateChatData = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = (currentViews?.chat as EntityChatData) ?? {
+          messages: [],
+          message_count: 0,
+          last_message_at: null,
+          notes: [],
+        };
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            notes: [...existingChat.notes, newNote],
+          },
+        };
+      };
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: updateChatData(t.views as Record<string, unknown>), updated_at: now }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: updateChatData(h.views as Record<string, unknown>), updated_at: now }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: updateChatData(n.views as Record<string, unknown>), updated_at: now }
+              : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const entity =
+        entityType === 'todo'
+          ? get().todos.find((t) => t.id === entityId)
+          : entityType === 'habit'
+            ? get().habits.find((h) => h.id === entityId)
+            : get().notes.find((n) => n.id === entityId);
+
+      if (entity) {
+        const { error } = await supabase
+          .from(table)
+          .update({ views: entity.views, updated_at: now })
+          .eq('id', entityId);
+
+        if (error) {
+          console.error(`[GremlyStore] saveEntityChatNote failed:`, error);
+        }
+      }
+
+      return newNote;
+    },
+
+    updateEntityChatNoteChecklist: async (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      noteId: string,
+      itemId: string,
+      completed: boolean,
+    ): Promise<void> => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Helper to update checklist item
+      const updateChatData = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = currentViews?.chat as EntityChatData | undefined;
+        if (!existingChat) return currentViews ?? {};
+
+        const updatedNotes = existingChat.notes.map((n) => {
+          if (n.id !== noteId) return n;
+          return {
+            ...n,
+            checklist_items: n.checklist_items?.map((item) =>
+              item.id === itemId ? { ...item, completed } : item,
+            ),
+          };
+        });
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            notes: updatedNotes,
+          },
+        };
+      };
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: updateChatData(t.views as Record<string, unknown>), updated_at: now }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: updateChatData(h.views as Record<string, unknown>), updated_at: now }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: updateChatData(n.views as Record<string, unknown>), updated_at: now }
+              : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const entity =
+        entityType === 'todo'
+          ? get().todos.find((t) => t.id === entityId)
+          : entityType === 'habit'
+            ? get().habits.find((h) => h.id === entityId)
+            : get().notes.find((n) => n.id === entityId);
+
+      if (entity) {
+        const { error } = await supabase
+          .from(table)
+          .update({ views: entity.views, updated_at: now })
+          .eq('id', entityId);
+
+        if (error) {
+          console.error(`[GremlyStore] updateEntityChatNoteChecklist failed:`, error);
+        }
+      }
+    },
+
+    updateEntityChatNote: async (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      noteId: string,
+      content: string,
+    ): Promise<void> => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Helper to update note content
+      const updateChatData = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = currentViews?.chat as EntityChatData | undefined;
+        if (!existingChat) return currentViews ?? {};
+
+        const updatedNotes = existingChat.notes.map((n) => {
+          if (n.id !== noteId) return n;
+          return { ...n, content };
+        });
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            notes: updatedNotes,
+          },
+        };
+      };
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: updateChatData(t.views as Record<string, unknown>), updated_at: now }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: updateChatData(h.views as Record<string, unknown>), updated_at: now }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: updateChatData(n.views as Record<string, unknown>), updated_at: now }
+              : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const entity =
+        entityType === 'todo'
+          ? get().todos.find((t) => t.id === entityId)
+          : entityType === 'habit'
+            ? get().habits.find((h) => h.id === entityId)
+            : get().notes.find((n) => n.id === entityId);
+
+      if (entity) {
+        const { error } = await supabase
+          .from(table)
+          .update({ views: entity.views, updated_at: now })
+          .eq('id', entityId);
+
+        if (error) {
+          console.error(`[GremlyStore] updateEntityChatNote failed:`, error);
+        }
+      }
+    },
+
+    convertNoteToChecklist: async (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      noteId: string,
+      checklistData: {
+        is_checklist: true;
+        checklist_items: Array<{ id: string; label: string; completed: boolean }>;
+        preamble?: string;
+        postamble?: string;
+      },
+    ): Promise<void> => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Helper to convert note to checklist
+      const updateChatData = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = currentViews?.chat as EntityChatData | undefined;
+        if (!existingChat) return currentViews ?? {};
+
+        const updatedNotes = existingChat.notes.map((n) => {
+          if (n.id !== noteId) return n;
+          return {
+            ...n,
+            is_checklist: checklistData.is_checklist,
+            checklist_items: checklistData.checklist_items,
+            preamble: checklistData.preamble,
+            postamble: checklistData.postamble,
+          };
+        });
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            notes: updatedNotes,
+          },
+        };
+      };
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: updateChatData(t.views as Record<string, unknown>), updated_at: now }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: updateChatData(h.views as Record<string, unknown>), updated_at: now }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: updateChatData(n.views as Record<string, unknown>), updated_at: now }
+              : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const entity =
+        entityType === 'todo'
+          ? get().todos.find((t) => t.id === entityId)
+          : entityType === 'habit'
+            ? get().habits.find((h) => h.id === entityId)
+            : get().notes.find((n) => n.id === entityId);
+
+      if (entity) {
+        const { error } = await supabase
+          .from(table)
+          .update({ views: entity.views, updated_at: now })
+          .eq('id', entityId);
+
+        if (error) {
+          console.error(`[GremlyStore] convertNoteToChecklist failed:`, error);
+        }
+      }
+    },
+
+    deleteEntityChatNote: async (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      noteId: string,
+    ): Promise<void> => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Helper to delete note from chat data
+      const updateChatData = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = currentViews?.chat as EntityChatData | undefined;
+        if (!existingChat) return currentViews ?? {};
+
+        const updatedNotes = existingChat.notes.filter((n) => n.id !== noteId);
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            notes: updatedNotes,
+          },
+        };
+      };
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: updateChatData(t.views as Record<string, unknown>), updated_at: now }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: updateChatData(h.views as Record<string, unknown>), updated_at: now }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: updateChatData(n.views as Record<string, unknown>), updated_at: now }
+              : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const entity =
+        entityType === 'todo'
+          ? get().todos.find((t) => t.id === entityId)
+          : entityType === 'habit'
+            ? get().habits.find((h) => h.id === entityId)
+            : get().notes.find((n) => n.id === entityId);
+
+      if (entity) {
+        const { error } = await supabase
+          .from(table)
+          .update({ views: entity.views, updated_at: now })
+          .eq('id', entityId);
+
+        if (error) {
+          console.error(`[GremlyStore] deleteEntityChatNote failed:`, error);
+        }
+      }
+    },
+
+    clearEntityChat: async (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+    ): Promise<void> => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Helper to remove chat from views
+      const removeChatFromViews = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        if (!currentViews) return {};
+        const { chat: _chat, ...rest } = currentViews;
+        return rest;
+      };
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? {
+                  ...t,
+                  views: removeChatFromViews(t.views as Record<string, unknown>),
+                  updated_at: now,
+                }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? {
+                  ...h,
+                  views: removeChatFromViews(h.views as Record<string, unknown>),
+                  updated_at: now,
+                }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? {
+                  ...n,
+                  views: removeChatFromViews(n.views as Record<string, unknown>),
+                  updated_at: now,
+                }
+              : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const entity =
+        entityType === 'todo'
+          ? get().todos.find((t) => t.id === entityId)
+          : entityType === 'habit'
+            ? get().habits.find((h) => h.id === entityId)
+            : get().notes.find((n) => n.id === entityId);
+
+      if (entity) {
+        const { error } = await supabase
+          .from(table)
+          .update({ views: entity.views, updated_at: now })
+          .eq('id', entityId);
+
+        if (error) {
+          console.error(`[GremlyStore] clearEntityChat failed:`, error);
+        }
       }
     },
   })),

@@ -52,6 +52,8 @@ export interface SaveButtonProps {
   savedType?: SavedItemType;
   /** The ID of the saved item (for Edit to open overlay) */
   savedItemId?: string;
+  /** The name of the entity this was saved to (for confirmed state) */
+  entityName?: string;
   /** Called when user taps Save (instant save) - only in initial state */
   onSave: () => void;
   /** Called when user taps Edit - only in confirmed state */
@@ -92,6 +94,7 @@ export default function SaveButton({
   state = 'initial',
   savedType,
   savedItemId: _savedItemId,
+  entityName,
   onSave,
   onEdit,
   onDismiss,
@@ -117,6 +120,12 @@ export default function SaveButton({
 
   // Get the display label for confirmed state
   const getConfirmedLabel = (): string => {
+    // If entityName is provided, show "Saved to [Entity Name]"
+    if (entityName) {
+      // Truncate long names
+      const truncatedName = entityName.length > 25 ? entityName.slice(0, 25) + '...' : entityName;
+      return `Saved to ${truncatedName}`;
+    }
     // Prefer savedType if provided
     if (savedType) {
       return SAVED_TYPE_LABELS[savedType] || 'Saved';
@@ -141,41 +150,21 @@ export default function SaveButton({
 
       case 'confirmed':
         return (
-          <>
-            {/* Row 1: Confirmed Label */}
-            <View style={styles.confirmedRow}>
-              <CheckCircle size={18} color="#2E5540" style={styles.checkIcon} />
-              <Text style={styles.confirmedText}>{getConfirmedLabel()} ✓</Text>
-            </View>
-
-            {/* Row 2: Edit & Dismiss Buttons */}
-            <View style={styles.confirmedButtonRow}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.editButtonConfirmed,
-                  pressed && styles.editButtonConfirmedPressed,
-                ]}
-                onPress={onEdit}
-                accessibilityRole="button"
-                accessibilityLabel="Edit saved item"
-              >
-                <Pencil size={14} color="#8BA888" style={styles.editIcon} />
-                <Text style={styles.editButtonConfirmedText}>Edit</Text>
-              </Pressable>
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.dismissButtonConfirmed,
-                  pressed && styles.dismissButtonPressed,
-                ]}
-                onPress={onDismiss}
-                accessibilityRole="button"
-                accessibilityLabel="Dismiss"
-              >
-                <Text style={styles.dismissText}>✕</Text>
-              </Pressable>
-            </View>
-          </>
+          <View style={styles.confirmedSimple}>
+            <CheckCircle size={16} color="#4A7C59" style={styles.checkIcon} />
+            <Text style={styles.confirmedSimpleText}>{getConfirmedLabel()}</Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.dismissButtonSimple,
+                pressed && styles.dismissButtonPressed,
+              ]}
+              onPress={onDismiss}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss"
+            >
+              <Text style={styles.dismissTextSimple}>×</Text>
+            </Pressable>
+          </View>
         );
 
       case 'initial':
@@ -220,7 +209,8 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     backgroundColor: '#FFFEF5', // Warm cream
-    maxWidth: 320,
+    minWidth: 200,
+    maxWidth: 400,
     alignSelf: 'flex-start',
     marginVertical: 8,
     // Shadow - iOS
@@ -294,6 +284,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#2E5540',
     fontWeight: '600',
+  },
+  // Simpler confirmed state styles (for entity chat)
+  confirmedSimple: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(74, 124, 89, 0.1)', // Light sage green background
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 180, // Ensures enough room for "Saved as To-Do" or entity names
+  },
+  confirmedSimpleText: {
+    fontSize: 13,
+    color: '#4A7C59',
+    fontWeight: '500',
+    flex: 1,
+    marginLeft: 6,
+  },
+  dismissButtonSimple: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
+  dismissTextSimple: {
+    fontSize: 18,
+    color: '#999',
+    fontWeight: '300',
   },
   confirmedButtonRow: {
     flexDirection: 'row',

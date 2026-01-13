@@ -109,13 +109,13 @@ describe('renderFormattedContent', () => {
     it('handles empty lines as spacing', () => {
       const result = renderFormattedContent('Line one\n\nLine two');
       // Should have 3 elements: line, spacer, line
-      expect(result.length).toBe(3);
+      expect(result?.length).toBe(3);
     });
 
     it('handles multiple consecutive empty lines', () => {
       const result = renderFormattedContent('Start\n\n\nEnd');
       // Start, spacer, spacer, End
-      expect(result.length).toBe(4);
+      expect(result?.length).toBe(4);
     });
   });
 
@@ -137,12 +137,13 @@ describe('renderFormattedContent', () => {
   describe('edge cases', () => {
     it('handles empty string', () => {
       const result = renderFormattedContent('');
-      expect(result.length).toBe(1); // One empty line spacer
+      expect(result).toBeNull(); // Empty string returns null for graceful handling
     });
 
     it('handles string with only whitespace', () => {
       const result = renderFormattedContent('   ');
-      expect(result.length).toBe(1); // Trimmed to empty = spacer
+      // Now processes whitespace-only strings (trims each line)
+      expect(result).not.toBeNull();
     });
 
     it('handles mixed content types', () => {
