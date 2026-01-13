@@ -30,6 +30,7 @@ import {
 } from 'lucide-react-native';
 import type { EntityChatNote } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
+import { contentHasBullets, convertContentToChecklist } from '../../lib/chat/extractChecklist';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -176,65 +177,17 @@ export function EntityNotesModal({
   const isChecklist = currentNote?.is_checklist && currentNote?.checklist_items;
 
   // Check if note content contains bullet points (can be converted to checklist)
-  const hasBulletPoints =
-    !isChecklist && currentNote?.content && /^[\s]*[-•*]\s+.+$/gm.test(currentNote.content);
-
-  // Parse bullet content into preamble, items, and postamble
-  const parseContentForChecklist = (content: string) => {
-    const lines = content.split('\n');
-    const bulletRegex = /^[\s]*[-•*]\s+(.+)$/;
-
-    const preambleLines: string[] = [];
-    const bulletItems: string[] = [];
-    const postambleLines: string[] = [];
-    let foundFirstBullet = false;
-    let foundLastBullet = false;
-
-    for (const line of lines) {
-      const match = line.match(bulletRegex);
-      if (match) {
-        foundFirstBullet = true;
-        foundLastBullet = false;
-        bulletItems.push(match[1].trim());
-      } else if (!foundFirstBullet) {
-        preambleLines.push(line);
-      } else {
-        // After bullets - check if we hit more bullets later
-        postambleLines.push(line);
-      }
-    }
-
-    // Filter empty lines from preamble/postamble edges
-    const preamble = preambleLines.join('\n').trim();
-    const postamble = postambleLines.join('\n').trim();
-
-    return {
-      preamble: preamble || undefined,
-      postamble: postamble || undefined,
-      items: bulletItems,
-    };
-  };
+  const hasBulletPoints = !isChecklist && contentHasBullets(currentNote?.content);
 
   const handleMakeChecklist = () => {
     if (!currentNote || !hasBulletPoints || !onConvertToChecklist) return;
 
-    const parsed = parseContentForChecklist(currentNote.content);
+    const checklistData = convertContentToChecklist(currentNote.content);
 
-    if (parsed.items.length === 0) {
+    if (!checklistData) {
       Alert.alert('No Items Found', 'Could not find any bullet points to convert.');
       return;
     }
-
-    const checklistData = {
-      is_checklist: true as const,
-      checklist_items: parsed.items.map((text, i) => ({
-        id: `item_${Date.now()}_${i}`,
-        label: text,
-        completed: false,
-      })),
-      preamble: parsed.preamble,
-      postamble: parsed.postamble,
-    };
 
     onConvertToChecklist(currentNote.id, checklistData);
   };
