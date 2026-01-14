@@ -98,8 +98,10 @@ import {
 } from '../../lib/sweep/habitHelpers';
 import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
 import { ALL_MOODS, MOOD_CONFIG, getMoodsByCategory, type Mood } from '../../lib/shared/moods';
-import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { CompletionBadges } from '../../components/sweep/CompletionBadges';
+import { SweepCelebrationTransition } from '../../components/sweep/SweepCelebrationTransition';
+import { SweepInstructionsModal } from '../../components/sweep/SweepInstructionsModal';
+import { SweepCompletedModal } from '../../components/sweep/SweepCompletedModal';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -158,119 +160,141 @@ const JOURNAL_PROMPTS = [
  * Step 0: Intro ("Ready to Sweep?")
  *
  * Welcome screen that introduces the Sweep ritual.
- * Shows the Gremly mascot and explains what the user will do.
- * Personalized copy based on sweep count and streak.
+ * Shows what's ahead with a secondary link to see completed items.
  */
 function SweepIntroStep({
   onStart,
   onHelpPress,
+  onClose,
+  completedCount = 0,
+  onSeeCompleted,
 }: {
   onStart: () => void;
   onHelpPress?: () => void;
+  onClose?: () => void;
+  completedCount?: number;
+  onSeeCompleted?: () => void;
 }) {
   const { stats, isLoading } = useSweepIntroStats();
-
-  const hasActivity =
-    stats &&
-    (stats.completed.todos.length > 0 ||
-      stats.completed.habits.length > 0 ||
-      stats.dropped.todos.length > 0 ||
-      stats.dropped.habits.length > 0 ||
-      stats.dropped.notes.length > 0);
-
-  // Get sweep count from stats and gremlyAge from store
-  const totalSweepCount = stats?.totalSweepCount ?? 0;
   const gremlyAge = useGremlyStore.getState().gremlyAge;
+  const candidates = useSweepCandidatesUnified();
 
-  // Calculate total items to process
-  const totalCaptured =
-    (stats?.dropped.todos.length ?? 0) +
-    (stats?.dropped.habits.length ?? 0) +
-    (stats?.dropped.notes.length ?? 0);
+  // Count items by type
+  const todoCount = candidates.filter((c) => c.candidate.kind === 'todo').length;
+  const habitCount = candidates.filter((c) => c.candidate.kind === 'habit').length;
+  const noteCount = candidates.filter((c) => c.candidate.kind === 'note').length;
+  const totalCount = todoCount + habitCount + noteCount;
 
-  // Dynamic title based on sweep count (streak shown in badge instead)
-  const getTitle = (): string => {
-    const options = ['Time for a quick tidy', "Let's close those tabs", "Let's clear the clutter"];
-    return options[totalSweepCount % options.length];
+  // Time estimate
+  const getTimeEstimate = () => {
+    if (totalCount <= 4) return '~ 1 min ~';
+    if (totalCount <= 8) return '~ 2 min ~';
+    if (totalCount <= 15) return '~ 3 min ~';
+    return '~ 5 min ~';
   };
 
-  // Dynamic subtitle based on sweep count and items
-  const getSubtitle = (): string => {
-    if (totalSweepCount === 0) {
-      return "I'll show you your open todos, habits, and recent captures. Tap a button to choose what happens, then swipe right to confirm, or swipe left to let go.";
-    } else if (totalSweepCount < 5) {
-      return "Tap a button, swipe right to confirm. Swipe left to let go. You've got this!";
-    } else {
-      return 'Ready for a quick tidy? Swipe right to keep, left to let go.';
-    }
+  // Encouraging phrases
+  const phrases = [
+    "Let's clear the mental clutter",
+    'Ready when you are',
+    'A few minutes for peace of mind',
+    "Let's tidy up together",
+    "You've got this",
+  ];
+  const [phrase] = useState(() => phrases[Math.floor(Math.random() * phrases.length)]);
+
+  // Build breakdown string
+  const buildBreakdown = () => {
+    const parts: string[] = [];
+    if (todoCount > 0) parts.push(`${todoCount} ${todoCount === 1 ? 'todo' : 'todos'}`);
+    if (noteCount > 0) parts.push(`${noteCount} ${noteCount === 1 ? 'idea' : 'ideas'}`);
+    if (habitCount > 0) parts.push(`${habitCount} ${habitCount === 1 ? 'habit' : 'habits'}`);
+    return parts.join(' · ');
   };
 
-  const headline = getTitle();
-  const subcopy = getSubtitle();
+  // First time user
+  const isFirstTime = stats?.isFirstSweep || gremlyAge === 0;
 
-  // Render the age badge with dividers
-  const renderAgeBadge = () => {
+  // Edge case: nothing to sweep
+  if (totalCount === 0 && !isLoading) {
     return (
-      <View style={styles.streakBadgeContainer}>
-        <View style={styles.streakDivider} />
-        <View style={styles.streakBadge}>
-          <Sprout size={24} color={BRAND.colors.mossGreen} />
-          <Text style={styles.streakBadgeTextWelcome}>
-            {gremlyAge === 0 ? 'Day 1 together!' : `Day ${gremlyAge} together`}
-          </Text>
-        </View>
-        <View style={styles.streakDivider} />
-      </View>
-    );
-  };
+      <View style={styles.introContainer}>
+        <TouchableOpacity style={styles.introCloseButton} onPress={onClose}>
+          <Icon name="X" size="sm" color={BRAND.colors.inkMuted} />
+        </TouchableOpacity>
 
-  return (
-    <View style={styles.moodStepContainer}>
-      <ScrollView
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.introScrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* 1. Title - full width */}
-        <Text variant="title" style={styles.introWelcomeTitle}>
-          {headline}
+        <Pressable onPress={onHelpPress} style={styles.introMascotContainerNew}>
+          <Image source={GREMLY_MASCOT} style={styles.introMascotNew} resizeMode="contain" />
+        </Pressable>
+
+        <Text style={styles.introCelebrationTitle}>All clear! 🎉</Text>
+        <Text style={styles.introCelebrationSubtitle}>
+          Nothing to sweep — you're caught up.{'\n'}Enjoy the mental clarity.
         </Text>
 
-        {/* 2. Stats section - FIRST (positive reinforcement) */}
-        {(isLoading || hasActivity) && (
-          <View style={styles.introStatsSection}>
-            <Text style={styles.achievementLabel}>Achieved since your last Sweep</Text>
-            <SweepIntroStatsCard stats={stats} isLoading={isLoading} />
-          </View>
+        {completedCount > 0 && (
+          <TouchableOpacity onPress={onSeeCompleted} style={styles.seeCompletedLink}>
+            <Text style={styles.seeCompletedText}>See {completedCount} completed →</Text>
+          </TouchableOpacity>
         )}
 
-        {/* 3. Age badge - centered with dividers */}
-        {renderAgeBadge()}
-
-        {/* 4. Mascot + Subtitle row - instructions right before action */}
-        <View style={styles.introWelcomeRow}>
-          <Pressable onPress={onHelpPress} accessibilityLabel="Help">
-            <Image
-              source={GREMLY_SWEEP_INTRO}
-              style={styles.introWelcomeMascot}
-              resizeMode="contain"
-              testID="sweep-intro-mascot"
-              accessibilityLabel="Gremly mascot with broom"
-            />
-          </Pressable>
-          <Text style={styles.introWelcomeSubcopy}>{subcopy}</Text>
-        </View>
-      </ScrollView>
-
-      {/* 3. Button */}
-      <View style={styles.moodFooter}>
-        <TouchableOpacity style={styles.continueButton} onPress={onStart} activeOpacity={0.8}>
-          <View style={styles.continueButtonContent}>
-            <Text style={styles.continueButtonText}>Start Sweeping</Text>
-            <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-          </View>
+        <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
+          <Text style={styles.secondaryButtonText}>Back to Today</Text>
         </TouchableOpacity>
+
+        <Text style={styles.introFooter}>Day {gremlyAge || 1} together</Text>
       </View>
+    );
+  }
+
+  return (
+    <View style={styles.introContainer}>
+      {/* Close button */}
+      <TouchableOpacity style={styles.introCloseButton} onPress={onClose}>
+        <Icon name="X" size="sm" color={BRAND.colors.inkMuted} />
+      </TouchableOpacity>
+
+      {/* Gremly - tappable for help */}
+      <Pressable onPress={onHelpPress} style={styles.introMascotContainerNew}>
+        <Image source={GREMLY_MASCOT} style={styles.introMascotNew} resizeMode="contain" />
+      </Pressable>
+
+      {/* Encouraging text */}
+      <Text style={styles.introPhrase}>{isFirstTime ? 'Welcome to Sweep!' : phrase}</Text>
+
+      {isFirstTime && (
+        <Text style={styles.introSubphrase}>Let's tidy up your mental clutter together.</Text>
+      )}
+
+      {/* Divider */}
+      <View style={styles.introDivider} />
+
+      {/* What's ahead */}
+      <Text style={styles.introSectionHeader}>
+        {isFirstTime ? 'Your first sweep:' : "Today's sweep:"}
+      </Text>
+
+      <Text style={styles.introBreakdown}>{buildBreakdown()}</Text>
+
+      <Text style={styles.introTimeEstimate}>{getTimeEstimate()}</Text>
+
+      {/* Divider */}
+      <View style={styles.introDivider} />
+
+      {/* See completed link */}
+      {completedCount > 0 && (
+        <TouchableOpacity onPress={onSeeCompleted} style={styles.seeCompletedLink}>
+          <Text style={styles.seeCompletedText}>See {completedCount} completed →</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* CTA */}
+      <TouchableOpacity style={styles.introButton} onPress={onStart} activeOpacity={0.8}>
+        <Text style={styles.introButtonText}>Let's do this →</Text>
+      </TouchableOpacity>
+
+      {/* Footer */}
+      <Text style={styles.introFooter}>Day {gremlyAge || 1} together</Text>
     </View>
   );
 }
@@ -2578,7 +2602,25 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const [summaryDidAgeUp, setSummaryDidAgeUp] = useState(false);
   const [showAgeUpModal, setShowAgeUpModal] = useState(false);
   const [celebrationAge, setCelebrationAge] = useState(0);
-  const [showHelp, setShowHelp] = useState(false);
+
+  // Celebration transition and modal state
+  const [showCelebration, setShowCelebration] = useState(true);
+  const [showInstructionsModal, setShowInstructionsModal] = useState(false);
+  const [showCompletedModal, setShowCompletedModal] = useState(false);
+
+  // Get completed items for celebration
+  const { stats: introStats } = useSweepIntroStats();
+  const completedItems = useMemo(() => {
+    if (!introStats) return [];
+    return [
+      ...introStats.completed.todos.map((t) => ({ id: t.id, name: t.name, type: 'todo' as const })),
+      ...introStats.completed.habits.map((h) => ({
+        id: h.id,
+        name: h.name,
+        type: 'habit' as const,
+      })),
+    ];
+  }, [introStats]);
 
   // Track completion badges data
   const [habitsCheckedCount, setHabitsCheckedCount] = useState(0);
@@ -2882,9 +2924,27 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 : styles.content
           }
         >
-          {step === 0 &&
-            (__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep'),
-            (<SweepIntroStep onStart={handleIntroStart} onHelpPress={() => setShowHelp(true)} />))}
+          {step === 0 && (!showCelebration || completedItems.length === 0) && (
+            <>
+              {__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep')}
+              <SweepIntroStep
+                onStart={handleIntroStart}
+                onHelpPress={() => setShowInstructionsModal(true)}
+                onClose={handleClose}
+                completedCount={completedItems.length}
+                onSeeCompleted={() => setShowCompletedModal(true)}
+              />
+              <SweepInstructionsModal
+                visible={showInstructionsModal}
+                onClose={() => setShowInstructionsModal(false)}
+              />
+              <SweepCompletedModal
+                visible={showCompletedModal}
+                onClose={() => setShowCompletedModal(false)}
+                completedItems={completedItems}
+              />
+            </>
+          )}
           {step === 0.5 && (
             <LockInCheckpointStep onContinue={handleLockInContinue} onClose={handleClose} />
           )}
@@ -2925,6 +2985,17 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         </View>
       </Screen>
 
+      {/* Celebration Overlay - Full screen, covers header */}
+      {step === 0 && showCelebration && completedItems.length > 0 && (
+        <View style={styles.celebrationOverlay}>
+          <SweepCelebrationTransition
+            completedItems={completedItems}
+            onComplete={() => setShowCelebration(false)}
+            onSkip={() => setShowCelebration(false)}
+          />
+        </View>
+      )}
+
       {/* Local Overlay Portal - renders ON TOP of Sweep modal
           Since Sweep is presented as a modal, the global OverlayHost renders
           below it. We render the overlay here so it appears above Sweep. */}
@@ -2947,9 +3018,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           </View>
         </View>
       ) : null}
-
-      {/* Help Card */}
-      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="sweep" />
 
       {/* Age-Up Celebration Modal */}
       <AgeUpCelebrationModal
@@ -3030,6 +3098,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: BRAND.colors.linenCream,
   },
+  celebrationOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+  },
   contentDecision: {
     flex: 1,
     paddingHorizontal: 0, // Full-bleed for decision step
@@ -3052,7 +3124,115 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   // ─────────────────────────────────────────────────────────────────────────
-  // SweepIntroStep styles
+  // SweepIntroStep styles - New Design
+  // ─────────────────────────────────────────────────────────────────────────
+  introContainer: {
+    flex: 1,
+    backgroundColor: BRAND.colors.linenCream,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  introCloseButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    padding: 8,
+  },
+  introMascotContainerNew: {
+    marginBottom: 16,
+  },
+  introMascotNew: {
+    width: 64,
+    height: 64,
+  },
+  introPhrase: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  introSubphrase: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  introDivider: {
+    width: 200,
+    height: 1,
+    backgroundColor: 'rgba(34, 34, 34, 0.1)',
+    marginVertical: 20,
+  },
+  introSectionHeader: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  introBreakdown: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  introTimeEstimate: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+  },
+  seeCompletedLink: {
+    marginBottom: 20,
+  },
+  seeCompletedText: {
+    fontSize: 14,
+    color: BRAND.colors.mossGreen,
+    fontWeight: '500',
+  },
+  introButton: {
+    backgroundColor: BRAND.colors.mossGreen,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    marginBottom: 24,
+  },
+  introButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  secondaryButtonText: {
+    color: BRAND.colors.mossGreen,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  introFooter: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    position: 'absolute',
+    bottom: 24,
+  },
+  introCelebrationTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 8,
+  },
+  introCelebrationSubtitle: {
+    fontSize: 15,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  // ─────────────────────────────────────────────────────────────────────────
+  // SweepIntroStep styles - Legacy (kept for reference)
   // ─────────────────────────────────────────────────────────────────────────
   introScrollContent: {
     flexGrow: 1,
