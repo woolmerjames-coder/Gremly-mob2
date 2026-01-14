@@ -64,6 +64,7 @@ import type {
 } from '../../lib/sweep/types';
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
+import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -2152,9 +2153,25 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
   return (
     <View style={styles.decisionStepContainer}>
-      {/* Decision Step Header - X close button at top right only */}
+      {/* Decision Step Header - Back on left, Close on right */}
       <View style={styles.decisionHeader}>
-        <View style={styles.decisionHeaderSpacer} />
+        {/* Back button - only show if not on first card */}
+        {currentIndex > 0 ? (
+          <TouchableOpacity
+            style={styles.decisionBackButton}
+            onPress={handleGoBackCard}
+            activeOpacity={0.7}
+            accessibilityLabel="Go back to previous card"
+            accessibilityRole="button"
+          >
+            <Icon name="ChevronLeft" size="sm" color={BRAND.colors.mossGreen} />
+            <Text style={styles.decisionBackText}>Back</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.decisionHeaderSpacer} />
+        )}
+
+        {/* Close button */}
         {onClose && (
           <TouchableOpacity
             style={styles.decisionCloseButton}
@@ -2170,6 +2187,13 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
       {/* Full-screen Card Area */}
       <View style={styles.decisionCardArea}>
+        <Reanimated.View entering={FadeIn.duration(200)}>
+          <SweepGremlyHeader
+            candidate={currentCandidate}
+            meta={currentCandidateWithMeta.meta}
+            onOpenChat={handleOpenChat}
+          />
+        </Reanimated.View>
         <SweepCard
           key={`${currentCandidate.id}-${currentIndex}`}
           candidate={currentCandidate}
@@ -3671,14 +3695,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingTop: 12,
     paddingBottom: 8,
     backgroundColor: 'transparent',
     zIndex: 1,
   },
   decisionHeaderSpacer: {
-    flex: 1,
+    width: 60, // Match back button width for alignment
+  },
+  decisionBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    gap: 2,
+  },
+  decisionBackText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
   },
   decisionCloseButton: {
     padding: 8,
