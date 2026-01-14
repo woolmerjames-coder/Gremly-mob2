@@ -29,12 +29,14 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Check, Repeat, Lightbulb } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
+import { triggerLight, triggerMedium, triggerSuccess } from '../../lib/haptics';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_ANIMATED_ITEMS = 6;
+const MAX_VISIBLE_TICKS = 6;
 
 // Timing constants (in ms)
 const TIMING = {
@@ -107,6 +109,9 @@ const AnimatedCard: React.FC<AnimatedCardProps> = ({ item, onAnimationComplete, 
   const scale = useSharedValue(1);
 
   useEffect(() => {
+    // Haptic when card appears
+    triggerLight();
+
     // Slide in
     translateX.value = withTiming(0, {
       duration: TIMING.cardSlideIn,
@@ -197,6 +202,9 @@ const ConsolidatedTick: React.FC<{ count: number; onPulseStart: () => void }> = 
   const burstScale = useSharedValue(0.5);
 
   useEffect(() => {
+    // Haptic on explosion
+    triggerSuccess();
+
     // Burst effect
     burstScale.value = withTiming(1.8, { duration: 400, easing: Easing.out(Easing.cubic) });
     burstOpacity.value = withTiming(0, { duration: 400 });
@@ -373,6 +381,7 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
 
   // Handle tick appearance
   const handleTickTime = useCallback(() => {
+    triggerMedium();
     setTickCount((prev) => prev + 1);
   }, []);
 
@@ -429,9 +438,14 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
           <View style={styles.ticksArea}>
             {phase !== 'consolidated' && phase !== 'done' && (
               <View style={styles.ticksRow}>
-                {Array.from({ length: tickCount }).map((_, idx) => (
+                {Array.from({ length: Math.min(tickCount, MAX_VISIBLE_TICKS) }).map((_, idx) => (
                   <AnimatedTick key={`tick-${idx}`} />
                 ))}
+                {tickCount > MAX_VISIBLE_TICKS && (
+                  <Animated.Text style={styles.tickOverflow} entering={FadeIn.duration(200)}>
+                    +{tickCount - MAX_VISIBLE_TICKS}
+                  </Animated.Text>
+                )}
               </View>
             )}
 
@@ -519,13 +533,21 @@ const styles = StyleSheet.create({
   },
   ticksRow: {
     flexDirection: 'row',
-    gap: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
   },
   tick: {
     width: 32,
     height: 32,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  tickOverflow: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: BRAND.colors.mossGreen,
+    marginLeft: 8,
   },
   consolidatedContainer: {
     justifyContent: 'center',
