@@ -195,10 +195,10 @@ function SweepIntroStep({
 
   // Encouraging phrases
   const phrases = [
-    "Let's clear the mental clutter",
+    "Let's clear the path for tomorrow",
     'Ready when you are',
-    'A few minutes for peace of mind',
-    "Let's tidy up together",
+    'A few quick decisions ahead',
+    "Let's set up tomorrow for success",
     "You've got this",
   ];
   const [phrase] = useState(() => phrases[Math.floor(Math.random() * phrases.length)]);
@@ -219,12 +219,8 @@ function SweepIntroStep({
   if (totalCount === 0 && !isLoading) {
     return (
       <View style={styles.introContainer}>
-        <TouchableOpacity style={styles.introCloseButton} onPress={onClose}>
-          <Icon name="X" size="sm" color={BRAND.colors.inkMuted} />
-        </TouchableOpacity>
-
         <Pressable onPress={onHelpPress} style={styles.introMascotContainerNew}>
-          <Image source={GREMLY_MASCOT} style={styles.introMascotNew} resizeMode="contain" />
+          <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotNew} resizeMode="contain" />
         </Pressable>
 
         <Text style={styles.introCelebrationTitle}>All clear! 🎉</Text>
@@ -241,30 +237,21 @@ function SweepIntroStep({
         <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
           <Text style={styles.secondaryButtonText}>Back to Today</Text>
         </TouchableOpacity>
-
-        <Text style={styles.introFooter}>Day {gremlyAge || 1} together</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.introContainer}>
-      {/* Close button */}
-      <TouchableOpacity style={styles.introCloseButton} onPress={onClose}>
-        <Icon name="X" size="sm" color={BRAND.colors.inkMuted} />
-      </TouchableOpacity>
-
       {/* Gremly - tappable for help */}
       <Pressable onPress={onHelpPress} style={styles.introMascotContainerNew}>
-        <Image source={GREMLY_MASCOT} style={styles.introMascotNew} resizeMode="contain" />
+        <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotNew} resizeMode="contain" />
       </Pressable>
 
       {/* Encouraging text */}
       <Text style={styles.introPhrase}>{isFirstTime ? 'Welcome to Sweep!' : phrase}</Text>
 
-      {isFirstTime && (
-        <Text style={styles.introSubphrase}>Let's tidy up your mental clutter together.</Text>
-      )}
+      {isFirstTime && <Text style={styles.introSubphrase}>Let's clear the path for tomorrow.</Text>}
 
       {/* Divider */}
       <View style={styles.introDivider} />
@@ -292,9 +279,6 @@ function SweepIntroStep({
       <TouchableOpacity style={styles.introButton} onPress={onStart} activeOpacity={0.8}>
         <Text style={styles.introButtonText}>Let's do this →</Text>
       </TouchableOpacity>
-
-      {/* Footer */}
-      <Text style={styles.introFooter}>Day {gremlyAge || 1} together</Text>
     </View>
   );
 }
@@ -3130,77 +3114,77 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingHorizontal: 24,
-  },
-  introCloseButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    padding: 8,
+    paddingTop: 60,
   },
   introMascotContainerNew: {
-    marginBottom: 16,
+    marginBottom: 24,
   },
   introMascotNew: {
-    width: 64,
-    height: 64,
+    width: 110,
+    height: 110,
   },
   introPhrase: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 26,
+    fontWeight: '700',
     color: BRAND.colors.charcoalInk,
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: 12,
+    lineHeight: 34,
+    paddingTop: 4,
+    includeFontPadding: true,
   },
   introSubphrase: {
-    fontSize: 14,
+    fontSize: 16,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 20,
+    lineHeight: 24,
   },
   introDivider: {
     width: 200,
     height: 1,
     backgroundColor: 'rgba(34, 34, 34, 0.1)',
-    marginVertical: 20,
+    marginVertical: 28,
   },
   introSectionHeader: {
-    fontSize: 13,
+    fontSize: 14,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   introBreakdown: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '700',
     color: BRAND.colors.charcoalInk,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   introTimeEstimate: {
-    fontSize: 14,
+    fontSize: 15,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
   },
   seeCompletedLink: {
-    marginBottom: 20,
+    marginBottom: 24,
+    marginTop: 4,
   },
   seeCompletedText: {
-    fontSize: 14,
+    fontSize: 15,
     color: BRAND.colors.mossGreen,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   introButton: {
-    backgroundColor: BRAND.colors.mossGreen,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 12,
+    backgroundColor: BRAND.colors.sageMist,
+    paddingVertical: 18,
+    paddingHorizontal: 48,
+    borderRadius: 14,
     marginBottom: 24,
   },
   introButtonText: {
-    color: 'white',
-    fontSize: 16,
+    color: BRAND.colors.mossGreen,
+    fontSize: 18,
     fontWeight: '600',
   },
   secondaryButton: {
