@@ -11,6 +11,7 @@ import {
 import { Text, Box, Button } from '../../../ui';
 import { useRepo } from '../../../providers/RepoProvider';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { dateService } from '../../../lib/date/DateService';
 import {
   selectItemById,
   useTodayTodos,
@@ -108,7 +109,7 @@ export default function TaskHabitStack() {
 
   // Compute today's habit progress counts
   const habitProgressToday = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = dateService.today();
     const map = new Map<string, number>();
     for (const row of habitProgress) {
       if (row.occurred_day === today) {

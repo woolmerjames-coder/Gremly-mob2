@@ -1,1 +1,91 @@
+#!/bin/sh
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TIMEZONE BUG CHECKER - Pre-commit hook
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# This hook prevents the #1 JavaScript date bug from being committed:
+#
+#   new Date().toISOString().split('T')[0]
+#
+# WHY IS THIS A BUG?
+# toISOString() converts to UTC first. At 6pm in San Francisco (UTC-8),
+# the UTC time is already 2am THE NEXT DAY. So this returns tomorrow's date!
+#
+# CORRECT SOLUTION:
+#   import { dateService } from '@/lib/date/DateService';
+#   const today = dateService.today();        // Local date as YYYY-MM-DD
+#   const localDate = dateService.toLocalDate(someDate);  // Convert Date to local
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Get staged TypeScript files (excluding tests, DateService.ts, and server-side code)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$' | grep -v '__tests__' | grep -v '\.test\.' | grep -v 'DateService\.ts' | grep -v 'supabase/functions')
+
+if [ -z "$STAGED_FILES" ]; then
+  # No relevant files staged, run lint-staged and exit
+  npx lint-staged
+  exit 0
+fi
+
+TIMEZONE_BUGS_FOUND=0
+BUG_FILES=""
+
+# Check for toISOString().split('T')[0] pattern
+for FILE in $STAGED_FILES; do
+  if [ -f "$FILE" ]; then
+    # Check for the dangerous pattern
+    if grep -n "toISOString().*split.*\[0\]" "$FILE" > /dev/null 2>&1; then
+      TIMEZONE_BUGS_FOUND=1
+      MATCHES=$(grep -n "toISOString().*split.*\[0\]" "$FILE")
+      BUG_FILES="$BUG_FILES
+📍 $FILE:
+$MATCHES
+"
+    fi
+    
+    # Check for formatISO with representation:'date'
+    if grep -n "formatISO.*representation.*date" "$FILE" > /dev/null 2>&1; then
+      TIMEZONE_BUGS_FOUND=1
+      MATCHES=$(grep -n "formatISO.*representation.*date" "$FILE")
+      BUG_FILES="$BUG_FILES
+📍 $FILE:
+$MATCHES
+"
+    fi
+  fi
+done
+
+if [ $TIMEZONE_BUGS_FOUND -eq 1 ]; then
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════════════════════"
+  echo "🚨 TIMEZONE BUG DETECTED - Commit blocked!"
+  echo "═══════════════════════════════════════════════════════════════════════════════"
+  echo ""
+  echo "Found dangerous date patterns that cause timezone bugs:"
+  echo "$BUG_FILES"
+  echo ""
+  echo "WHY IS THIS A BUG?"
+  echo "  toISOString() converts to UTC first. At 6pm in San Francisco (UTC-8),"
+  echo "  the UTC time is already 2am THE NEXT DAY. So this returns tomorrow's date!"
+  echo ""
+  echo "FIX: Use DateService methods instead:"
+  echo ""
+  echo "  import { dateService } from '@/lib/date/DateService';"
+  echo ""
+  echo "  // Instead of: new Date().toISOString().split('T')[0]"
+  echo "  const today = dateService.today();"
+  echo ""
+  echo "  // Instead of: someDate.toISOString().split('T')[0]"
+  echo "  const localDate = dateService.toLocalDate(someDate);"
+  echo ""
+  echo "  // For UTC timestamps from database:"
+  echo "  const localDate = dateService.extractLocalDate(timestamp);"
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════════════════════"
+  echo ""
+  exit 1
+fi
+
+# No timezone bugs found, proceed with lint-staged
 npx lint-staged

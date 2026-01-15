@@ -251,12 +251,12 @@ const mockNoteCandidate: SweepCandidate = {
 async function renderAtDecisionStep() {
   const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-  // Step 0: Intro - tap "Start Sweeping" to go to Decision
-  // Copy rotates: "Time for a quick tidy", "Let's close those tabs", "Let's clear the clutter"
+  // Step 0: Intro - tap "Let's do this" to go to Decision
+  // Intro shows "Welcome to Sweep!" for first-time users or random encouraging phrase
   await waitFor(() => {
-    result.getByText('Time for a quick tidy');
+    result.getByText(/Let's do this/);
   });
-  fireEvent.press(result.getByText('Start Sweeping'));
+  fireEvent.press(result.getByText(/Let's do this/));
 
   return result;
 }
@@ -272,78 +272,64 @@ describe('SweepFlowScreen - Decision Step', () => {
   });
 
   describe('Intro Step', () => {
+    beforeEach(() => {
+      // Need candidates to show intro (otherwise shows "All clear!" immediately)
+      mockCandidates = [mockTodoCandidate];
+    });
+
     it('renders the intro step first', () => {
       const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      expect(result.getByText('Time for a quick tidy')).toBeTruthy();
-      expect(result.getByText('Start Sweeping')).toBeTruthy();
+      // First-time users see "Welcome to Sweep!", otherwise one of several phrases
+      expect(result.getByText(/Welcome to Sweep|Let's clear|Ready when|A few quick|Let's set up|You've got this/)).toBeTruthy();
+      expect(result.getByText(/Let's do this/)).toBeTruthy();
     });
 
-    it('advances to decision step when Start Sweeping is pressed', async () => {
+    it('advances to decision step when button is pressed', async () => {
       const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      // Tap Start Sweeping
-      fireEvent.press(result.getByText('Start Sweeping'));
+      // Tap Let's do this
+      fireEvent.press(result.getByText(/Let's do this/));
 
-      // Should now be on decision step (shows loading or empty state)
+      // Should now be on decision step (shows card or loading)
       await waitFor(() => {
-        expect(
-          result.queryByText('Time for a quick tidy') || result.getByText('Nothing to sweep!'),
-        ).toBeTruthy();
+        // Should see the todo we mocked
+        expect(result.getByText('Test task')).toBeTruthy();
       });
     });
   });
 
   describe('Loading State', () => {
-    it('shows empty state when store is loaded but has no candidates', async () => {
-      // Store is loaded (isLoading=false) but has no candidates
+    it('shows empty celebration when store has no candidates', () => {
+      // When there are no candidates, intro shows "All clear!" celebration
       mockCandidates = [];
 
-      const result = await renderAtDecisionStep();
+      const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      await waitFor(() => {
-        expect(result.getByText('Nothing to sweep!')).toBeTruthy();
-      });
+      expect(result.getByText('All clear! 🎉')).toBeTruthy();
+      expect(result.getByText(/Nothing to sweep/)).toBeTruthy();
     });
   });
 
   describe('Empty State', () => {
-    it('shows empty state when no candidates', async () => {
-      mockFetchSweepCandidates.mockResolvedValue([]);
+    it('shows empty celebration when no candidates from start', () => {
+      mockCandidates = [];
 
-      const result = await renderAtDecisionStep();
+      const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      await waitFor(() => {
-        expect(result.getByText('Nothing to sweep!')).toBeTruthy();
-      });
+      expect(result.getByText('All clear! 🎉')).toBeTruthy();
     });
 
-    it('shows Done button in empty state', async () => {
-      mockFetchSweepCandidates.mockResolvedValue([]);
+    it('shows Back to Today button in empty state', () => {
+      mockCandidates = [];
 
-      const result = await renderAtDecisionStep();
+      const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      await waitFor(() => {
-        expect(result.getByText('Done')).toBeTruthy();
-      });
+      expect(result.getByText('Back to Today')).toBeTruthy();
     });
 
-    it('transitions to habits step when Done is pressed', async () => {
-      mockFetchSweepCandidates.mockResolvedValue([]);
-
-      const result = await renderAtDecisionStep();
-
-      await waitFor(() => {
-        result.getByText('Done');
-      });
-
-      fireEvent.press(result.getByText('Done'));
-
-      // Should now be on Habits step (step 2)
-      await waitFor(() => {
-        expect(result.getByText('Habits today')).toBeTruthy();
-      });
-    });
+    // Note: When there are no candidates, clicking "Back to Today" closes sweep
+    // There is no decision step to navigate through - just direct to empty celebration
   });
 
   describe('Card Display', () => {
@@ -510,16 +496,18 @@ describe('SweepFlowScreen - Decision Step', () => {
   });
 
   describe('Step Navigation', () => {
-    it('hides previous step content after advancing', async () => {
-      mockFetchSweepCandidates.mockResolvedValue([]);
+    it('hides intro content after advancing to decision step', async () => {
+      // Need candidates to show intro and then advance
+      mockCandidates = [mockTodoCandidate];
 
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByText('Nothing to sweep!');
+        result.getByText('Test task');
       });
 
-      expect(result.queryByText('Time for a quick tidy')).toBeNull();
+      // Intro content should no longer be visible
+      expect(result.queryByText(/Let's do this/)).toBeNull();
     });
   });
 

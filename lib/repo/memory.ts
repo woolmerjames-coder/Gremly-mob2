@@ -15,6 +15,7 @@ import { genId, nowIso } from '../types';
 import { recordZ, spaceInsertSchema, type SpaceInsert } from '../schemas';
 import { eventBus } from '../events';
 import { getDateService } from '../date';
+import { dateService } from '../date/DateService';
 import type {
   IRepo,
   CreateRecordInput,
@@ -85,7 +86,7 @@ const seed = (ownerId: string): AppRecord[] => {
 };
 
 function ensureDay(dateIso: string): string {
-  return new Date(dateIso).toISOString().split('T')[0];
+  return dateService.extractLocalDate(dateIso) || '';
 }
 
 const hasAll = (itemTags: string[] | null | undefined, wanted: string[]) => {

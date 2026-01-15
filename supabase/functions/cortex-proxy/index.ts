@@ -231,6 +231,7 @@ Return ONLY JSON: { "bucket": "todo"|"habit"|"log", "confidence": 0.0-1.0, "subt
     const text = body.text || '';
     const bucket = body.bucket || 'log';
     const subtype = body.subtype || null;
+    // eslint-disable-next-line no-restricted-syntax -- Server-side code, UTC is intentional for consistency
     const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
 
     const phase2Prompt = `You are enriching items for Gremly, a productivity app. Your job is to make items SCANNABLE and ORGANIZED.

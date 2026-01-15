@@ -23,6 +23,7 @@ import { Box } from '../ui/Box';
 import { GremlyPicker } from './spaces/GremlyPicker';
 import { getMascotSource } from '../lib/mascots/mascotConfig';
 import type { Space } from '../lib/types';
+import { getDateService } from '../lib/date';
 
 // Module-scope callback for navigation after creation
 let onCreatedCallback: ((space: Space) => void) | null = null;
@@ -104,9 +105,10 @@ export default function CreateSpaceModal() {
 
       // 2. Create milestone if goal provided
       if (form.goalName.trim()) {
+        const ds = getDateService();
         await storeCreateMilestone(space.id, {
           name: form.goalName.trim(),
-          date: form.targetDate?.toISOString().split('T')[0] || null,
+          date: form.targetDate ? ds.toLocalDate(form.targetDate) : null,
         });
       }
 

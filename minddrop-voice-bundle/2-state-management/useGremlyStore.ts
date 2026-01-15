@@ -15,6 +15,7 @@ import type {
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
+import { dateService } from '../../lib/date/DateService';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
@@ -351,7 +352,7 @@ export const useGremlyStore = create<GremlyState>()(
             .from('daily_briefs')
             .select('*')
             .eq('owner_id', userId)
-            .eq('date', new Date().toISOString().split('T')[0])
+            .eq('date', dateService.today())
             .maybeSingle(),
           // Sweep preferences from cortex_preferences
           supabase
@@ -1944,7 +1945,7 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) return;
 
-      const todayDate = new Date().toISOString().split('T')[0];
+      const todayDate = dateService.today();
 
       set({ dailyBriefLoading: true });
 
@@ -1974,7 +1975,7 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const todayDate = new Date().toISOString().split('T')[0];
+      const todayDate = dateService.today();
       const now = new Date().toISOString();
       const existingBrief = get().dailyBrief;
 
@@ -2041,7 +2042,7 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) return;
 
-      const todayDate = new Date().toISOString().split('T')[0];
+      const todayDate = dateService.today();
       const existingBrief = get().dailyBrief;
 
       // Optimistic update

@@ -426,9 +426,7 @@ export const useGremlyStore = create<GremlyState>()(
 
       try {
         // Calculate date range: last 60 days for monthly cadence + streak calculation
-        const sixtyDaysAgo = new Date();
-        sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-        const sinceDate = sixtyDaysAgo.toISOString().split('T')[0];
+        const sinceDate = getDateService().daysAgo(60);
 
         // Fetch ALL user data in parallel
         const [
@@ -2404,9 +2402,7 @@ export const useGremlyStore = create<GremlyState>()(
       set({ isLoading: true });
 
       try {
-        const sixtyDaysAgo = new Date();
-        sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-        const sinceDate = sixtyDaysAgo.toISOString().split('T')[0];
+        const sinceDate = getDateService().daysAgo(60);
 
         const [
           todosRes,

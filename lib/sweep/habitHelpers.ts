@@ -114,6 +114,7 @@ export interface HabitWithMeta {
   frequencyLabel: string;
   isCompletedForPeriod: boolean;
   isCompletedToday: boolean;
+  isAheadOfTarget: boolean; // True if completedThisPeriod >= targetPerPeriod (for weekly/monthly)
 }
 
 export interface GroupedHabits {
@@ -341,6 +342,9 @@ export function groupHabitsForSweep(
     const isCompletedForPeriod =
       cadence === 'daily' ? isCompletedToday : completedThisPeriod >= targetPerPeriod;
 
+    // Track if habit is ahead of target (for weekly/monthly habits)
+    const isAheadOfTarget = cadence !== 'daily' && completedThisPeriod >= targetPerPeriod;
+
     const habitWithMeta: HabitWithMeta = {
       habit,
       cadence,
@@ -350,10 +354,13 @@ export function groupHabitsForSweep(
       frequencyLabel: getFrequencyLabel(habit),
       isCompletedForPeriod,
       isCompletedToday,
+      isAheadOfTarget,
     };
 
     // Sort into appropriate group
-    if (isCompletedForPeriod) {
+    // Key change: Only move to "completed" if completed TODAY
+    // Habits that are "ahead" for the period but not done today stay visible
+    if (isCompletedToday) {
       result.completed.push(habitWithMeta);
     } else {
       // Safety check: ensure cadence is a valid key

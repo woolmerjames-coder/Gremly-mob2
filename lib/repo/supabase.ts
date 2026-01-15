@@ -23,6 +23,7 @@ import type {
 import { supabase } from '../supabase/client';
 import { eventBus } from '../events';
 import { computeDueDay, computeDueTime, getDateService } from '../date';
+import { dateService } from '../date/DateService';
 import {
   logSupabaseError,
   getUserFriendlyErrorMessage,
@@ -171,7 +172,7 @@ function normalizeIsoDatetime(value?: string | null): string | null | undefined 
 }
 
 function ensureDay(dateIso: string): string {
-  return new Date(dateIso).toISOString().split('T')[0];
+  return dateService.extractLocalDate(dateIso) || '';
 }
 
 /**

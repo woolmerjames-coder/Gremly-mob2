@@ -12,6 +12,7 @@ import { View, TextInput, Text, StyleSheet, Pressable } from 'react-native';
 import { Icon } from '../../../design-system';
 import { FormattingToggle, FormattingType } from './FormattingToggle';
 import { RemindersList, ReminderRow } from './RemindersList';
+import { dateService } from '../../../lib/date/DateService';
 
 // ============================================================================
 // Types
@@ -69,7 +70,7 @@ export function PersonFields({
   const handleAddDate = () => {
     const newDate: PersonDate = {
       id: `date-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
+      date: dateService.today(),
       label: 'birthday',
     };
     onDetailsChange({

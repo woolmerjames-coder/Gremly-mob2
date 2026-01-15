@@ -47,19 +47,22 @@ jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user-id' }),
 }));
 
+// Use a fixed test date to avoid timezone issues
+const TEST_DATE = '2025-01-14';
+
 // Mock data for useTodayEntries - only habits are relevant for this step
 const mockHabit1 = {
   id: 'habit-1',
   type: 'habit' as const,
   name: 'Morning meditation',
-  due_day: new Date().toISOString().split('T')[0],
+  due_day: TEST_DATE,
 };
 
 const mockHabit2 = {
   id: 'habit-2',
   type: 'habit' as const,
   name: 'Evening journaling',
-  due_day: new Date().toISOString().split('T')[0],
+  due_day: TEST_DATE,
 };
 
 // These todos should NOT appear in the Habits step (filtered out)
@@ -67,7 +70,7 @@ const mockTodo = {
   id: 'todo-1',
   type: 'todo' as const,
   name: 'Review pull request',
-  due_day: new Date().toISOString().split('T')[0],
+  due_day: TEST_DATE,
 };
 
 const mockReload = jest.fn();

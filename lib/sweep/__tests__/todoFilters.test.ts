@@ -19,12 +19,12 @@ import {
   buildSweepTodoOrClause,
   type FilterableTodo,
 } from '../todoFilters';
+import { getDateService } from '../../date';
 
 // Helper to create date strings
 function getDayString(daysOffset: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + daysOffset);
-  return date.toISOString().split('T')[0];
+  const ds = getDateService();
+  return daysOffset >= 0 ? ds.daysFromNow(daysOffset) : ds.daysAgo(-daysOffset);
 }
 
 const todayDay = getDayString(0);

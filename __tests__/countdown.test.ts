@@ -1,7 +1,11 @@
 // Test the countdown calculation logic
 // This tests the calculateCountdown function from useSpaceMilestone
 
+import { getDateService } from '../lib/date';
+
 describe('Countdown Calculation', () => {
+  const ds = getDateService();
+
   // Helper to calculate countdown (same logic as in hook)
   function calculateCountdown(dateString: string | null): {
     days: number | null;
@@ -55,10 +59,8 @@ describe('Countdown Calculation', () => {
   });
 
   it('calculates future dates correctly', () => {
-    // Calculate a date 10 days from now
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 10);
-    const dateString = futureDate.toISOString().split('T')[0];
+    // Calculate a date 10 days from now using dateService
+    const dateString = ds.daysFromNow(10);
 
     const result = calculateCountdown(dateString);
     // Allow for timezone boundary variance (±1 day)
@@ -68,8 +70,7 @@ describe('Countdown Calculation', () => {
   });
 
   it('returns 0 days for today', () => {
-    const today = new Date();
-    const dateString = today.toISOString().split('T')[0];
+    const dateString = ds.today();
 
     const result = calculateCountdown(dateString);
     // Allow for timezone boundary variance (0 or 1)
@@ -79,10 +80,8 @@ describe('Countdown Calculation', () => {
   });
 
   it('marks past dates correctly', () => {
-    // Calculate a date 5 days ago
-    const pastDate = new Date();
-    pastDate.setDate(pastDate.getDate() - 5);
-    const dateString = pastDate.toISOString().split('T')[0];
+    // Calculate a date 5 days ago using dateService
+    const dateString = ds.daysAgo(5);
 
     const result = calculateCountdown(dateString);
     expect(result.days).toBeLessThan(0);

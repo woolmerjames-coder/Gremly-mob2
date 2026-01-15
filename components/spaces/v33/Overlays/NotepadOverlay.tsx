@@ -11,7 +11,8 @@ import {
   Alert,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { format, formatISO } from 'date-fns';
+import { format } from 'date-fns';
+import { dateService } from '../../../../lib/date/DateService';
 import { COLORS, RADII, SPACE, ELEV } from '../_tokens';
 import {
   X,
@@ -73,7 +74,7 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('compose');
   const [noteType, setNoteType] = useState<NoteType>('note');
   const [content, setContent] = useState('');
-  const [date, setDate] = useState<string>(formatISO(new Date(), { representation: 'date' }));
+  const [date, setDate] = useState<string>(dateService.today());
   const [currentNoteId, setCurrentNoteId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
@@ -187,7 +188,7 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
     setCurrentNoteId(null);
     setHasUnsavedChanges(false);
     setNoteType('note');
-    setDate(formatISO(new Date(), { representation: 'date' }));
+    setDate(dateService.today());
     setTab('compose');
   }, []);
 
@@ -195,7 +196,7 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
     setCurrentNoteId(note.id);
     setContent(note.content);
     setNoteType(note.type);
-    setDate(note.date || formatISO(new Date(), { representation: 'date' }));
+    setDate(note.date || dateService.today());
     setHasUnsavedChanges(false);
     setTab('compose');
   }, []);

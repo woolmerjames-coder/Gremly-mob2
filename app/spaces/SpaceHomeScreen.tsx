@@ -48,6 +48,7 @@ import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import { startOfWeek, formatISO, addDays } from 'date-fns';
 import { getDateService } from '../../lib/date';
+import { dateService } from '../../lib/date/DateService';
 
 // Components
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
@@ -341,7 +342,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const weekly = useMemo(() => {
     const start = startOfWeek(new Date());
     const weekDates = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
-    const weekISO = formatISO(start, { representation: 'date' });
+    const weekISO = dateService.toLocalDate(start);
 
     // Helper: Calculate weekly target from habit frequency
     const calculateWeeklyTarget = (habit: any): number => {
@@ -385,7 +386,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
     for (const h of storeHabits as any[]) {
       const flags = weekDates.map((d) => {
-        const iso = formatISO(d, { representation: 'date' });
+        const iso = dateService.toLocalDate(d);
         const day = (timelineDays || []).find((x: any) => x.dateISO === iso);
         const match = (day?.items || []).find((it: any) => it.type === 'habit' && it.id === h.id);
         return !!match?.done;
@@ -439,9 +440,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layoutState, setLayoutState] = useState<LayoutState>({});
-  const [selectedDayISO, setSelectedDayISO] = useState<string>(() =>
-    formatISO(new Date(), { representation: 'date' }),
-  );
+  const [selectedDayISO, setSelectedDayISO] = useState<string>(() => dateService.today());
   const [showTimeline, setShowTimeline] = useState(false);
   // Phase 5: Removed showCalendarV33, editGoalVisible, editGoalRecord, showNotepad, intentDraft, showPeople
   // Phase 5: Removed showUnifiedAdd, goalMenuId, renameChatModalOpen, renameChatId, renameChatTitle
@@ -916,7 +915,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     const daysSince = lastTs ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24)) : 999;
     if (daysSince >= 7)
       return { tone: 'low' as const, text: 'It’s been quiet — want to revisit your goals?' };
-    const todayISO = formatISO(new Date(), { representation: 'date' });
+    const todayISO = dateService.today();
     const today = (timelineDays || []).find((d) => d.dateISO === todayISO);
     const anyDone = (timelineDays || []).some((d) => (d.items || []).some((it: any) => !!it.done));
     if (anyDone || (today && (today.items || []).length > 0)) {
@@ -937,7 +936,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
     if (daysSince >= 7) return 'low';
 
-    const todayISO = formatISO(new Date(), { representation: 'date' });
+    const todayISO = dateService.today();
     const today = (timelineDays || []).find((d) => d.dateISO === todayISO);
     const anyDone = (timelineDays || []).some((d) => (d.items || []).some((it: any) => !!it.done));
 
@@ -972,7 +971,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   useEffect(() => {
     const run = async () => {
       try {
-        const todayISO = formatISO(new Date(), { representation: 'date' });
+        const todayISO = dateService.today();
         const key = `focusCard:dismiss:${spaceId}:${todayISO}`;
         const until = await AsyncStorage.getItem(key);
         if (until) {
@@ -1231,13 +1230,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           // Update existing
           await store.updateMilestone(milestone.id, {
             name,
-            date: targetDate.toISOString().split('T')[0],
+            date: dateService.toLocalDate(targetDate),
           });
         } else {
           // Create new
           await store.createMilestone(spaceId, {
             name,
-            date: targetDate.toISOString().split('T')[0],
+            date: dateService.toLocalDate(targetDate),
           });
         }
         // Store update triggers automatic UI refresh via subscription
@@ -1447,7 +1446,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   );
 
   // Compute preview data from store (already filtered by spaceId)
-  const weekStart = formatISO(startOfWeek(new Date()), { representation: 'date' });
+  const weekStart = dateService.getStartOfWeek();
   const previewHabits = useMemo(() => storeHabits.slice(0, 3), [storeHabits]);
   const previewTodos = useMemo(() => storeTodos.slice(0, 3), [storeTodos]);
   const previewNotes = useMemo(() => storeNotes.slice(0, 5), [storeNotes]);
@@ -2803,10 +2802,10 @@ function buildLastVisitedLabel(items: AppRecord[], chats: SpaceChat[]): string {
 // v22 helpers
 function buildMockWeek(selectedISO: string) {
   const start = startOfWeek(new Date());
-  const todayISO = formatISO(new Date(), { representation: 'date' });
+  const todayISO = dateService.today();
   return Array.from({ length: 7 }, (_, i) => {
     const d = addDays(start, i);
-    const iso = formatISO(d, { representation: 'date' });
+    const iso = dateService.toLocalDate(d);
     return {
       dateISO: iso,
       isActive: iso === todayISO,

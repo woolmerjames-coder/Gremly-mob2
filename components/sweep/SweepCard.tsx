@@ -14,7 +14,7 @@
  * - Swipe gestures: left = clear, right = keep
  */
 
-import React, { useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -45,19 +45,15 @@ import Animated, {
   Easing as ReanimatedEasing,
 } from 'react-native-reanimated';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { SwipeHintText } from '../../app/components/sweep/SwipeHintText';
 import {
   Pencil,
-  Archive,
-  Calendar,
-  ArrowRightCircle,
-  CheckSquare,
   Camera,
-  RotateCcw,
-  Plus,
-  ChevronLeft,
+  ArrowRightCircle,
+  Calendar,
   Bell,
   Check,
+  CheckSquare,
+  FolderPlus,
 } from 'lucide-react-native';
 import {
   format,
@@ -79,16 +75,14 @@ import { useRepo } from '../../providers/RepoProvider';
 import { useActiveSpaces } from '../../lib/store/selectors';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 import type { Space } from '../../lib/types';
-import { getContextualOpener } from '../../lib/chat/contextualOpeners';
-import type { SweepContext } from '../../lib/chat/contextualOpeners';
-
-// Gremly mascot avatar for card responses
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_AVATAR = require('../../assets/buttonforHP.png');
 
 // Lock-in diamond icon for committed items
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const LOCKIN_ICON = require('../../assets/lockin_icon.png');
+
+// Gremly face for confirmation feedback
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_FACE = require('../../assets/buttonforHP.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CTA Types
@@ -108,6 +102,7 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 const SWIPE_THRESHOLD = 100; // Reduced for card-based swiping
 const SWIPE_OUT_DISTANCE = SCREEN_WIDTH; // Animate card off to the side
 const VELOCITY_THRESHOLD = 400; // Velocity that can trigger swipe even if threshold not met
+const CARD_EXIT_DELAY = 350; // Delay before next card (ms) - lets user see confirmation
 const CARD_WIDTH = SCREEN_WIDTH * 0.84; // 84% of screen width - leaves room for edge labels
 
 // Behind-card confirmation messages (revealed as card moves)
@@ -373,21 +368,6 @@ export function SweepCard({
   const firstAttachment = hasAttachments ? candidate.attachments![0] : null;
   const attachmentCount = hasAttachments ? candidate.attachments!.length : 0;
 
-  // Compute sweep context for contextual opener
-  const sweepContext: SweepContext = useMemo(
-    () => ({
-      times_moved: meta.rescheduleCount ?? 0,
-      days_unscheduled: 0, // TODO: compute from created_at if needed
-      is_overdue: meta.todoStatus === 'overdue',
-    }),
-    [meta.rescheduleCount, meta.todoStatus],
-  );
-
-  const contextualOpener = useMemo(
-    () => getContextualOpener(candidate.kind, sweepContext),
-    [candidate.kind, sweepContext],
-  );
-
   // DEBUG: Photo attachment debugging
   console.log('[SweepCard] Photo debug:', {
     kind: candidate.kind,
@@ -490,7 +470,7 @@ export function SweepCard({
     // Reset to defaults first
     setSelectedQuickAction(getDefaultSelection());
     setHasUserSelected(false);
-    setSelectedHabitAction('asktomorrow');
+    setSelectedHabitAction('starttomorrow'); // Default to first button in top row
     setConfirmedCustomDate(null);
     setConfirmedRemindDate(null);
     setIsDatePickerForRemind(false);
@@ -553,15 +533,153 @@ export function SweepCard({
   }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Arrow Pulse Animation - Subtle movement to draw attention to swipe hints
+  // ─────────────────────────────────────────────────────────────────────────
+  const arrowPulse = useRef(new RNAnimated.Value(0)).current;
+
+  useEffect(() => {
+    const pulse = RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(arrowPulse, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        RNAnimated.timing(arrowPulse, {
+          toValue: 0,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [arrowPulse]);
+
+  const arrowAnimatedStyle = {
+    transform: [
+      {
+        translateX: arrowPulse.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, 4], // Subtle 4px movement right
+        }),
+      },
+    ],
+    opacity: arrowPulse.interpolate({
+      inputRange: [0, 0.5, 1],
+      outputRange: [0.7, 1, 0.7],
+    }),
+  };
+
+  const leftArrowAnimatedStyle = {
+    transform: [
+      {
+        translateX: arrowPulse.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, -4], // Subtle 4px movement left
+        }),
+      },
+    ],
+    opacity: arrowPulse.interpolate({
+      inputRange: [0, 0.5, 1],
+      outputRange: [0.7, 1, 0.7],
+    }),
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Action Label Text - Shows what the selected action will do
+  // ─────────────────────────────────────────────────────────────────────────
+  const getActionLabelText = useCallback((): string => {
+    if (candidate.kind === 'todo') {
+      switch (selectedQuickAction) {
+        case 'tomorrow':
+          return 'Set due tomorrow';
+        case 'nextweek':
+          return 'Set due next week';
+        case 'pickdate':
+          return confirmedCustomDate
+            ? `Set due ${format(confirmedCustomDate, 'MMM d')}`
+            : 'Pick a date';
+        case 'remindlater':
+          return confirmedRemindDate
+            ? `Remind ${format(confirmedRemindDate, 'MMM d')}`
+            : 'Set reminder';
+        default:
+          return 'Set due tomorrow';
+      }
+    }
+    if (candidate.kind === 'habit') {
+      switch (selectedHabitAction) {
+        case 'starttomorrow':
+          return 'Start tomorrow';
+        case 'startmonday':
+          return 'Start Monday';
+        case 'pickdate':
+          return confirmedCustomDate
+            ? `Start ${format(confirmedCustomDate, 'MMM d')}`
+            : 'Pick start date';
+        case 'asktomorrow':
+          return 'Decide in next sweep';
+        default:
+          return 'Start tomorrow';
+      }
+    }
+    // Notes
+    switch (selectedQuickAction) {
+      case 'justsave':
+        return 'Keep as note';
+      case 'remindlater':
+      case 'nextsweep':
+        return confirmedRemindDate
+          ? `Remind ${format(confirmedRemindDate, 'MMM d')}`
+          : 'Set reminder';
+      case 'addtospace':
+        return selectedSpace ? `Add to ${selectedSpace.name}` : 'Add to Space';
+      case 'maketodo':
+        return 'Convert to todo';
+      default:
+        return 'Keep as note';
+    }
+  }, [
+    candidate.kind,
+    selectedQuickAction,
+    selectedHabitAction,
+    confirmedCustomDate,
+    confirmedRemindDate,
+    selectedSpace,
+  ]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Right Zone Header - Context-aware header for the selection zone
+  // ─────────────────────────────────────────────────────────────────────────
+  const getRightZoneHeader = useCallback((): string => {
+    if (candidate.kind === 'todo') {
+      if (meta.todoStatus === 'overdue' || meta.todoStatus === 'due_today') {
+        return 'Reschedule';
+      }
+      return 'Schedule for';
+    }
+    if (candidate.kind === 'habit') {
+      return 'Start on';
+    }
+    // Note/Idea
+    return 'select option';
+  }, [candidate.kind, meta.todoStatus]);
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Quick Date Button Handlers (selection only - confirmed on swipe)
   // ─────────────────────────────────────────────────────────────────────────
   const handleTomorrow = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     console.log('[SweepCard] Tomorrow tapped, setting selection');
     setSelectedQuickAction('tomorrow');
     setHasUserSelected(true);
   }, []);
 
   const handleRemindLater = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     console.log('[SweepCard] Remind Me Later tapped, opening date picker');
     setSelectedQuickAction('remindlater');
     setIsDatePickerForRemind(true);
@@ -570,12 +688,14 @@ export function SweepCard({
   }, []);
 
   const handleNextWeek = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     console.log('[SweepCard] Next Week tapped, setting selection');
     setSelectedQuickAction('nextweek');
     setHasUserSelected(true);
   }, []);
 
   const handlePickDate = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsDatePickerForRemind(false);
     setSelectedQuickAction('pickdate');
     setHasUserSelected(true);
@@ -586,11 +706,13 @@ export function SweepCard({
   // Log Action Handlers
   // ─────────────────────────────────────────────────────────────────────────
   const handleJustSave = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedQuickAction('justsave');
     setHasUserSelected(true);
   }, []);
 
   const handleRemindMe = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedQuickAction('remindlater');
     setHasUserSelected(true);
     // Open date picker modal directly
@@ -625,6 +747,7 @@ export function SweepCard({
   }, []);
 
   const handleAddToSpace = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedQuickAction('addtospace');
     setHasUserSelected(true);
     // Show space picker modal
@@ -637,6 +760,7 @@ export function SweepCard({
   }, []);
 
   const handleMakeTodo = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedQuickAction('maketodo');
     setHasUserSelected(true);
     // Immediately open the overlay to convert note to todo
@@ -687,28 +811,42 @@ export function SweepCard({
     cardOpacity.value = 1;
   }, [candidate.id, translateX, cardOpacity]);
 
+  // Store callbacks in refs so they can be called from worklets via stable wrapper
+  const pendingCallbackRef = React.useRef<(() => void) | null>(null);
+
+  // Stable wrapper function that executes pending callback after delay
+  const executePendingCallback = useCallback(() => {
+    setTimeout(() => {
+      if (pendingCallbackRef.current) {
+        pendingCallbackRef.current();
+        pendingCallbackRef.current = null;
+      }
+    }, CARD_EXIT_DELAY);
+  }, []);
+
   // Animate card off-screen and trigger callback
   const animateOut = useCallback(
-    (direction: 'left' | 'right', callback: () => void) => {
+    (direction: 'left' | 'right') => {
       'worklet';
       const toValue = direction === 'right' ? SWIPE_OUT_DISTANCE : -SWIPE_OUT_DISTANCE;
 
       translateX.value = withSpring(
         toValue,
         {
-          damping: 20,
-          stiffness: 200,
+          damping: 15, // Slower exit (was 20)
+          stiffness: 120, // Slower exit (was 200)
           overshootClamping: true,
         },
         (finished) => {
           if (finished) {
-            runOnJS(callback)();
+            // Execute callback via stable wrapper (avoids worklet serialization issue)
+            runOnJS(executePendingCallback)();
           }
         },
       );
-      cardOpacity.value = withTiming(0, { duration: 200 });
+      cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade (was 200)
     },
-    [translateX, cardOpacity],
+    [translateX, cardOpacity, executePendingCallback],
   );
 
   // Button press handler (calls animateOut from JS thread)
@@ -719,8 +857,10 @@ export function SweepCard({
         callback();
         return;
       }
+      // Store callback in ref so it can be executed from worklet
+      pendingCallbackRef.current = callback;
       // Use runOnUI to call the worklet from JS thread
-      runOnUI(animateOut)(direction, callback);
+      runOnUI(animateOut)(direction);
     },
     [animateOut],
   );
@@ -870,12 +1010,29 @@ export function SweepCard({
     onClear();
   }, [onClear]);
 
+  // Delayed wrapper for swipe right - executes on JS thread with delay
+  const handleSwipeRightWithDelay = useCallback(() => {
+    setTimeout(() => handleSwipeRight(), CARD_EXIT_DELAY);
+  }, [handleSwipeRight]);
+
+  // Delayed wrapper for swipe left - executes on JS thread with delay
+  const handleSwipeLeftWithDelay = useCallback(() => {
+    setTimeout(() => handleSwipeLeft(), CARD_EXIT_DELAY);
+  }, [handleSwipeLeft]);
+
+  // Haptic trigger for drag start (subtle tick)
+  const triggerDragStartHaptic = useCallback(() => {
+    Haptics.selectionAsync();
+  }, []);
+
   // Pan gesture for swiping - now tracks drag state
   const panGesture = Gesture.Pan()
     .activeOffsetX([-10, 10]) // Only activate for horizontal movement
     .failOffsetY([-15, 15]) // Fail if vertical movement is dominant
     .onStart(() => {
       isDragging.value = true;
+      // Subtle tick when user starts dragging
+      runOnJS(triggerDragStartHaptic)();
       // Fade in border
       borderOpacity.value = withTiming(1, { duration: 150 });
     })
@@ -887,11 +1044,12 @@ export function SweepCard({
         runOnJS(onSwipeProgress)(event.translationX / SWIPE_THRESHOLD);
       }
 
-      // Trigger haptic at 80% threshold (once)
+      // Trigger haptic when crossing threshold during drag
       const progress = Math.abs(event.translationX) / SWIPE_THRESHOLD;
       if (progress >= 0.8 && !hasTriggeredHaptic.value) {
         hasTriggeredHaptic.value = true;
-        runOnJS(triggerHaptic)('medium');
+        // Light haptic at threshold crossing - signals "committed to swipe"
+        runOnJS(triggerHaptic)('light');
       } else if (progress < 0.5) {
         // Reset when user pulls back past halfway
         hasTriggeredHaptic.value = false;
@@ -915,33 +1073,35 @@ export function SweepCard({
         translationX < -SWIPE_THRESHOLD || (translationX < -50 && velocityX < -VELOCITY_THRESHOLD);
 
       if (swipedRight) {
-        // Success haptic on commit
+        // Satisfying success notification for "keeping" - positive action
         runOnJS(triggerHaptic)('success');
         // Swiped right past threshold → animate out and call JS handler
         translateX.value = withSpring(
           SWIPE_OUT_DISTANCE,
-          { damping: 20, stiffness: 200, overshootClamping: true },
+          { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
           (finished) => {
             if (finished) {
-              runOnJS(handleSwipeRight)();
+              // Call JS handler with built-in delay (avoids worklet serialization issue)
+              runOnJS(handleSwipeRightWithDelay)();
             }
           },
         );
-        cardOpacity.value = withTiming(0, { duration: 200 });
+        cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
       } else if (swipedLeft) {
-        // Success haptic on commit
-        runOnJS(triggerHaptic)('success');
+        // Firmer medium impact for "letting go" - decisive action
+        runOnJS(triggerHaptic)('medium');
         // Swiped left past threshold → animate out and call JS handler
         translateX.value = withSpring(
           -SWIPE_OUT_DISTANCE,
-          { damping: 20, stiffness: 200, overshootClamping: true },
+          { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
           (finished) => {
             if (finished) {
-              runOnJS(handleSwipeLeft)();
+              // Call JS handler with built-in delay (avoids worklet serialization issue)
+              runOnJS(handleSwipeLeftWithDelay)();
             }
           },
         );
-        cardOpacity.value = withTiming(0, { duration: 200 });
+        cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
       } else {
         // Didn't cross threshold → spring back to center
         translateX.value = withSpring(0, {
@@ -963,28 +1123,6 @@ export function SweepCard({
       borderColor: BRAND.colors.mossGreen,
       borderWidth: interpolate(borderOpacity.value, [0, 1], [0, 1], Extrapolation.CLAMP),
     };
-  });
-
-  // Animated style for left edge label ("← Clear")
-  const animatedLeftLabelStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [-SWIPE_THRESHOLD, -50, 0],
-      [1, 0.85, 0.75],
-      Extrapolation.CLAMP,
-    );
-    return { opacity };
-  });
-
-  // Animated style for right edge label ("Keep →")
-  const animatedRightLabelStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      translateX.value,
-      [0, 50, SWIPE_THRESHOLD],
-      [0.75, 0.85, 1],
-      Extrapolation.CLAMP,
-    );
-    return { opacity };
   });
 
   // Animated style for the card - includes color transformation
@@ -1043,11 +1181,41 @@ export function SweepCard({
     return { opacity };
   });
 
+  // Animated style for Gremly face (shown when swiping right, with scale-in)
+  const animatedGremlyFaceStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [0, SWIPE_THRESHOLD * 0.5, SWIPE_THRESHOLD],
+      [0, 0.5, 1],
+      Extrapolation.CLAMP,
+    );
+    const scale = interpolate(
+      translateX.value,
+      [0, SWIPE_THRESHOLD],
+      [0.5, 1],
+      Extrapolation.CLAMP,
+    );
+    return {
+      opacity: translateX.value > 0 ? opacity : 0,
+      transform: [{ scale }],
+    };
+  });
+
   // Animated style for "clear" text (shown when swiping left)
   const animatedClearTextStyle = useAnimatedStyle(() => {
     const opacity = translateX.value < 0 ? 1 : 0;
     return { opacity };
   });
+
+  // Delayed wrapper for onSkip - used from animation callbacks
+  const handleSkipWithDelay = useCallback(() => {
+    setTimeout(() => onSkip(), CARD_EXIT_DELAY);
+  }, [onSkip]);
+
+  // Delayed wrapper for onClear - used from animation callbacks
+  const handleClearWithDelay = useCallback(() => {
+    setTimeout(() => onClear(), CARD_EXIT_DELAY);
+  }, [onClear]);
 
   // Button handlers with animation
   const handleKeepPress = useCallback(() => {
@@ -1059,13 +1227,14 @@ export function SweepCard({
     }
     translateX.value = withSpring(
       SWIPE_OUT_DISTANCE,
-      { damping: 20, stiffness: 200, overshootClamping: true },
+      { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
       (finished) => {
-        if (finished) runOnJS(onSkip)();
+        // Call JS handler with built-in delay (avoids worklet serialization issue)
+        if (finished) runOnJS(handleSkipWithDelay)();
       },
     );
-    cardOpacity.value = withTiming(0, { duration: 200 });
-  }, [onSkip, translateX, cardOpacity]);
+    cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
+  }, [onSkip, translateX, cardOpacity, handleSkipWithDelay]);
 
   const handleClearPress = useCallback(() => {
     // In test mode, call directly without animation
@@ -1075,42 +1244,25 @@ export function SweepCard({
     }
     translateX.value = withSpring(
       -SWIPE_OUT_DISTANCE,
-      { damping: 20, stiffness: 200, overshootClamping: true },
+      { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
       (finished) => {
-        if (finished) runOnJS(onClear)();
+        // Call JS handler with built-in delay (avoids worklet serialization issue)
+        if (finished) runOnJS(handleClearWithDelay)();
       },
     );
-    cardOpacity.value = withTiming(0, { duration: 200 });
-  }, [onClear, translateX, cardOpacity]);
+    cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
+  }, [onClear, translateX, cardOpacity, handleClearWithDelay]);
 
   return (
     <View style={styles.cardWrapper}>
-      {/* Swipe Cue Labels - ABOVE the card (contextual based on item type) */}
-      <View style={styles.swipeCueRow} pointerEvents="none">
-        <Animated.View style={animatedLeftLabelStyle}>
-          <Text style={styles.swipeCueText}>
-            {candidate.kind === 'todo'
-              ? meta.isLockedIn
-                ? '← Let it go'
-                : '← Done with this'
-              : '← Remove this'}
-          </Text>
-        </Animated.View>
-        <Animated.View style={animatedRightLabelStyle}>
-          <Text style={styles.swipeCueText}>
-            {candidate.kind === 'todo'
-              ? meta.isLockedIn
-                ? 'Keep commitment →'
-                : 'Still matters →'
-              : 'Save this →'}
-          </Text>
-        </Animated.View>
-      </View>
-
       {/* Centered Card Container - Swipeable */}
       <View style={styles.cardCenteringContainer}>
         {/* Confirmation Card - sits behind main card, fades in as card moves */}
         <Animated.View style={[styles.confirmationCard, animatedConfirmationStyle]}>
+          {/* Gremly face - appears when swiping right */}
+          <Animated.View style={[styles.gremlyConfirmContainer, animatedGremlyFaceStyle]}>
+            <Image source={GREMLY_FACE} style={styles.gremlyConfirmFace} resizeMode="contain" />
+          </Animated.View>
           <Animated.Text style={[styles.confirmationCardText, animatedKeepTextStyle]}>
             {keepMessage}
           </Animated.Text>
@@ -1147,13 +1299,8 @@ export function SweepCard({
               pointerEvents="none"
             />
 
-            {/* Content Area - Scrollable */}
-            <ScrollView
-              style={styles.contentScrollView}
-              contentContainerStyle={styles.contentScrollContent}
-              showsVerticalScrollIndicator={false}
-              bounces={false}
-            >
+            {/* Content Area - Fixed height, no scrolling */}
+            <View style={styles.contentContainer}>
               {/* Locked-in diamond icon */}
               {meta.isLockedIn && (
                 <View style={styles.lockedInIconContainer}>
@@ -1163,20 +1310,6 @@ export function SweepCard({
                     accessibilityLabel="Locked in commitment"
                   />
                 </View>
-              )}
-
-              {/* Back Button - Top left corner */}
-              {onGoBack && (
-                <TouchableOpacity
-                  style={styles.backButton}
-                  onPress={onGoBack}
-                  accessibilityLabel="Go back to previous card"
-                  accessibilityRole="button"
-                  activeOpacity={0.6}
-                >
-                  <ChevronLeft size={18} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                  <Text style={styles.backButtonText}>Back</Text>
-                </TouchableOpacity>
               )}
 
               {/* Edit Icon - Top right corner */}
@@ -1269,392 +1402,500 @@ export function SweepCard({
               <View style={styles.titleSection}>
                 <Text
                   style={[styles.titleText, hasAttachments && styles.titleTextWithPhoto]}
-                  numberOfLines={hasAttachments ? 2 : 4}
+                  numberOfLines={hasAttachments ? 2 : 3}
                 >
                   {title}
                 </Text>
-                {/* User original input preview - 1 line, muted (hide when photo present) */}
+                {/* User original input preview - helps them recognize what they captured */}
                 {!hasAttachments && showUserPreview && userOriginalText && (
-                  <Text style={styles.userPreviewText} numberOfLines={1}>
+                  <Text style={styles.userPreviewText} numberOfLines={2}>
                     {userOriginalText}
                   </Text>
                 )}
               </View>
 
-              {/* GREMLY RESPONSE - Avatar + speech bubble (hide for photo logs) */}
-              {!hasAttachments && (
-                <View style={styles.gremlyResponseSection}>
-                  <Image
-                    source={GREMLY_AVATAR}
-                    style={styles.gremlyAvatar}
-                    accessibilityLabel="Gremly mascot"
-                  />
-                  <View style={styles.speechBubble}>
-                    <View style={styles.speechBubbleTail} />
-                    <Text style={styles.gremlyResponseText}>{meta.gremlyResponse}</Text>
-                  </View>
-                </View>
-              )}
-
-              {/* CHAT BUTTON - Below speech bubble, looks like a reply */}
-              {!hasAttachments && onOpenChat && (
-                <TouchableOpacity
-                  style={styles.chatButtonContainer}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    onOpenChat(contextualOpener.presetHint);
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Chat with Gremly about this item"
-                >
-                  <Text style={styles.chatButtonText}>{contextualOpener.buttonText}</Text>
-                </TouchableOpacity>
-              )}
-
               {/* Spacer - Pushes action block to bottom of card */}
               <View style={[styles.actionSpacer, hasAttachments && styles.actionSpacerCompact]} />
 
-              {/* Divider above action row */}
-              <View style={styles.actionDividerContainer}>
-                <View style={styles.actionDivider} />
+              {/* Divider separating content from actions */}
+              <View style={styles.actionDivider} />
+
+              {/* Left/Right Split Action Zone */}
+              <View style={styles.actionZone}>
+                {/* LEFT ZONE - Dismiss */}
+                <View style={styles.leftZone}>
+                  <Check size={40} color={BRAND.colors.goldenPear} strokeWidth={2.5} />
+                  <Text style={styles.byeText}>BYE</Text>
+                </View>
+
+                {/* Vertical Divider */}
+                <View style={styles.zoneDivider} />
+
+                {/* RIGHT ZONE - Selection */}
+                <View style={styles.rightZone}>
+                  <View>
+                    <Text style={styles.rightZoneHeader}>{getRightZoneHeader()}</Text>
+
+                    <View style={styles.optionsList}>
+                      {candidate.kind === 'todo' ? (
+                        <>
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedQuickAction === 'tomorrow' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedQuickAction('tomorrow');
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Set due tomorrow"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <ArrowRightCircle
+                                size={14}
+                                color={
+                                  selectedQuickAction === 'tomorrow'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedQuickAction === 'tomorrow' && styles.optionTextSelected,
+                                ]}
+                              >
+                                Tomorrow
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedQuickAction === 'nextweek' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedQuickAction('nextweek');
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Set due next week"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <Calendar
+                                size={14}
+                                color={
+                                  selectedQuickAction === 'nextweek'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedQuickAction === 'nextweek' && styles.optionTextSelected,
+                                ]}
+                              >
+                                Next Week
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedQuickAction === 'pickdate' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedQuickAction('pickdate');
+                              setShowDatePicker(true);
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Pick a date"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <Calendar
+                                size={14}
+                                color={
+                                  selectedQuickAction === 'pickdate'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedQuickAction === 'pickdate' && styles.optionTextSelected,
+                                ]}
+                              >
+                                Pick Date
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedQuickAction === 'remindlater' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedQuickAction('remindlater');
+                              setIsDatePickerForRemind(true);
+                              setShowDatePicker(true);
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Set a reminder"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <Bell
+                                size={14}
+                                color={
+                                  selectedQuickAction === 'remindlater'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedQuickAction === 'remindlater' &&
+                                    styles.optionTextSelected,
+                                ]}
+                              >
+                                {confirmedRemindDate
+                                  ? `Remind ${format(confirmedRemindDate, 'MMM d')}`
+                                  : 'Remind Later'}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        </>
+                      ) : isUnconfirmedHabit ? (
+                        <>
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedHabitAction === 'starttomorrow' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedHabitAction('starttomorrow');
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Start tomorrow"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <ArrowRightCircle
+                                size={14}
+                                color={
+                                  selectedHabitAction === 'starttomorrow'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedHabitAction === 'starttomorrow' &&
+                                    styles.optionTextSelected,
+                                ]}
+                              >
+                                Tomorrow
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedHabitAction === 'startmonday' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedHabitAction('startmonday');
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Start Monday"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <Calendar
+                                size={14}
+                                color={
+                                  selectedHabitAction === 'startmonday'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedHabitAction === 'startmonday' &&
+                                    styles.optionTextSelected,
+                                ]}
+                              >
+                                Monday
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedHabitAction === 'pickdate' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedHabitAction('pickdate');
+                              setShowDatePicker(true);
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Pick a start date"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <Calendar
+                                size={14}
+                                color={
+                                  selectedHabitAction === 'pickdate'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedHabitAction === 'pickdate' && styles.optionTextSelected,
+                                ]}
+                              >
+                                Pick Date
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          {/* TODO: Implement full remind-with-date for habits (needs resurface_at field) */}
+                          {/* For now, "Remind" on habits defers to next sweep (asktomorrow) */}
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedHabitAction === 'asktomorrow' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedHabitAction('asktomorrow');
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Decide in next sweep"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <Bell
+                                size={14}
+                                color={
+                                  selectedHabitAction === 'asktomorrow'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedHabitAction === 'asktomorrow' &&
+                                    styles.optionTextSelected,
+                                ]}
+                              >
+                                Remind Later
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedQuickAction === 'justsave' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedQuickAction('justsave');
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Just save the note"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <Check
+                                size={14}
+                                color={
+                                  selectedQuickAction === 'justsave'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedQuickAction === 'justsave' && styles.optionTextSelected,
+                                ]}
+                              >
+                                Just Save
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedQuickAction === 'maketodo' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedQuickAction('maketodo');
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Convert to todo"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <CheckSquare
+                                size={14}
+                                color={
+                                  selectedQuickAction === 'maketodo'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedQuickAction === 'maketodo' && styles.optionTextSelected,
+                                ]}
+                              >
+                                Make Todo
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              selectedQuickAction === 'addtospace' && styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedQuickAction('addtospace');
+                              setShowSpacePicker(true);
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Add to Space"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <FolderPlus
+                                size={14}
+                                color={
+                                  selectedQuickAction === 'addtospace'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  selectedQuickAction === 'addtospace' && styles.optionTextSelected,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                To Space
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.optionItem,
+                              (selectedQuickAction === 'remindlater' ||
+                                selectedQuickAction === 'nextsweep') &&
+                                styles.optionItemSelected,
+                            ]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedQuickAction('remindlater');
+                              setIsDatePickerForRemind(true);
+                              setShowDatePicker(true);
+                              setHasUserSelected(true);
+                            }}
+                            accessibilityLabel="Set a reminder"
+                            activeOpacity={0.7}
+                          >
+                            <View style={styles.optionRow}>
+                              <Bell
+                                size={14}
+                                color={
+                                  selectedQuickAction === 'remindlater' ||
+                                  selectedQuickAction === 'nextsweep'
+                                    ? BRAND.colors.mossGreen
+                                    : BRAND.colors.inkMuted
+                                }
+                                strokeWidth={2}
+                              />
+                              <Text
+                                style={[
+                                  styles.optionText,
+                                  (selectedQuickAction === 'remindlater' ||
+                                    selectedQuickAction === 'nextsweep') &&
+                                    styles.optionTextSelected,
+                                ]}
+                              >
+                                {confirmedRemindDate
+                                  ? `Remind ${format(confirmedRemindDate, 'MMM d')}`
+                                  : 'Remind Later'}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        </>
+                      )}
+                    </View>
+                  </View>
+                </View>
               </View>
+            </View>
 
-              {/* ACTION BUTTONS - 4-column grid, different for todos vs logs vs habits */}
-              <View style={styles.actionButtonsSection}>
-                {candidate.kind === 'todo' ? (
-                  <>
-                    {/* Todo buttons: Tomorrow, 2 Days, Next Week, Pick Date */}
-                    <View style={styles.buttonGrid}>
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedQuickAction === 'tomorrow'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={handleTomorrow}
-                        accessibilityLabel="Set due tomorrow"
-                        activeOpacity={0.7}
-                      >
-                        <ArrowRightCircle
-                          size={16}
-                          color={BRAND.colors.mossGreen}
-                          strokeWidth={2}
-                        />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedQuickAction === 'tomorrow' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          Tomorrow
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedQuickAction === 'nextweek'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={handleNextWeek}
-                        accessibilityLabel="Set due next week"
-                        activeOpacity={0.7}
-                      >
-                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedQuickAction === 'nextweek' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          Next Week
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedQuickAction === 'pickdate'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={handlePickDate}
-                        accessibilityLabel="Pick a date"
-                        activeOpacity={0.7}
-                      >
-                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedQuickAction === 'pickdate' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          {confirmedCustomDate ? format(confirmedCustomDate, 'MMM d') : 'Pick Date'}
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedQuickAction === 'remindlater'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={handleRemindLater}
-                        accessibilityLabel="Remind me later"
-                        activeOpacity={0.7}
-                      >
-                        <Bell size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedQuickAction === 'remindlater' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          {confirmedRemindDate ? format(confirmedRemindDate, 'MMM d') : 'Remind Me'}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Swipe hint text */}
-                    <SwipeHintText
-                      candidateKind="todo"
-                      selectedQuickAction={selectedQuickAction}
-                      confirmedCustomDate={confirmedCustomDate}
-                      confirmedRemindDate={confirmedRemindDate}
-                    />
-                  </>
-                ) : isUnconfirmedHabit ? (
-                  <>
-                    {/* Habit buttons: Next Sweep, Start Tomorrow, Start Monday, Pick Date */}
-                    <View style={styles.buttonGrid}>
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedHabitAction === 'asktomorrow'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={() => {
-                          setSelectedHabitAction('asktomorrow');
-                          setHasUserSelected(true);
-                        }}
-                        accessibilityLabel="Ask me in next sweep"
-                        activeOpacity={0.7}
-                      >
-                        <RotateCcw size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedHabitAction === 'asktomorrow' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          Ask Next Sweep
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedHabitAction === 'starttomorrow'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={() => {
-                          setSelectedHabitAction('starttomorrow');
-                          setHasUserSelected(true);
-                        }}
-                        accessibilityLabel="Start tomorrow"
-                        activeOpacity={0.7}
-                      >
-                        <ArrowRightCircle
-                          size={16}
-                          color={BRAND.colors.mossGreen}
-                          strokeWidth={2}
-                        />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedHabitAction === 'starttomorrow' &&
-                              styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          Start Tomorrow
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedHabitAction === 'startmonday'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={() => {
-                          setSelectedHabitAction('startmonday');
-                          setHasUserSelected(true);
-                        }}
-                        accessibilityLabel="Start Monday"
-                        activeOpacity={0.7}
-                      >
-                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedHabitAction === 'startmonday' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          Start Monday
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedHabitAction === 'pickdate'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={() => {
-                          setSelectedHabitAction('pickdate');
-                          setShowDatePicker(true);
-                          setHasUserSelected(true);
-                        }}
-                        accessibilityLabel="Pick a start date"
-                        activeOpacity={0.7}
-                      >
-                        <Calendar size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedHabitAction === 'pickdate' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          Pick Date
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Swipe hint text */}
-                    <SwipeHintText
-                      candidateKind="habit"
-                      selectedHabitAction={selectedHabitAction}
-                      confirmedCustomDate={confirmedCustomDate}
-                    />
-                  </>
-                ) : (
-                  <>
-                    {/* Log buttons: Just Save, Remind Me, Add to Space, Make Todo */}
-                    <View style={styles.buttonGrid}>
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedQuickAction === 'justsave'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={handleJustSave}
-                        accessibilityLabel="Just save the note"
-                        activeOpacity={0.7}
-                      >
-                        <Check size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedQuickAction === 'justsave' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          Just Save
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedQuickAction === 'remindlater' ||
-                          selectedQuickAction === 'nextsweep'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={handleRemindMe}
-                        accessibilityLabel="Set a reminder"
-                        activeOpacity={0.7}
-                      >
-                        <Bell size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            (selectedQuickAction === 'remindlater' ||
-                              selectedQuickAction === 'nextsweep') &&
-                              styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          {selectedQuickAction === 'nextsweep'
-                            ? 'Next Sweep'
-                            : confirmedRemindDate
-                              ? formatRemindDateLabel(confirmedRemindDate)
-                              : 'Remind Me'}
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedQuickAction === 'addtospace'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={handleAddToSpace}
-                        accessibilityLabel="Add to space"
-                        activeOpacity={0.7}
-                      >
-                        <Plus size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedQuickAction === 'addtospace' && styles.gridButtonLabelPrimary,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {selectedSpace ? selectedSpace.name : 'To Space'}
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.gridButton,
-                          selectedQuickAction === 'maketodo'
-                            ? styles.gridButtonPrimary
-                            : styles.gridButtonSecondary,
-                        ]}
-                        onPress={handleMakeTodo}
-                        accessibilityLabel="Convert to todo"
-                        activeOpacity={0.7}
-                      >
-                        <CheckSquare size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                        <Text
-                          style={[
-                            styles.gridButtonLabel,
-                            selectedQuickAction === 'maketodo' && styles.gridButtonLabelPrimary,
-                          ]}
-                        >
-                          Make Todo
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Swipe hint text */}
-                    <SwipeHintText
-                      candidateKind="note"
-                      selectedQuickAction={selectedQuickAction}
-                      confirmedRemindDate={confirmedRemindDate}
-                    />
-                  </>
-                )}
+            {/* Swipe Hints - Absolute bottom of card */}
+            <View style={styles.swipeHintsRow}>
+              <View style={styles.swipeHintContainer}>
+                <RNAnimated.Text style={[styles.swipeLeftHint, leftArrowAnimatedStyle]}>
+                  ←
+                </RNAnimated.Text>
+                <Text style={styles.swipeLeftHintText}>swipe left</Text>
               </View>
-            </ScrollView>
+              <View style={styles.swipeHintContainer}>
+                <Text style={styles.swipeRightHintText}>swipe right</Text>
+                <RNAnimated.Text style={[styles.swipeRightHint, arrowAnimatedStyle]}>
+                  →
+                </RNAnimated.Text>
+              </View>
+            </View>
           </Animated.View>
         </GestureDetector>
       </View>
@@ -2032,13 +2273,36 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
 
+  // ─────────────────────────────────────────────────────────────────────────
   // Swipe Card Container - The actual card that swipes
+  // ─────────────────────────────────────────────────────────────────────────
+  // Card outer frame stays consistent (340-480px height), internal content adapts.
+  //
+  // TEXT-ONLY CARDS:
+  // - Chips row (type · status · new)
+  // - Title (up to 3 lines)
+  // - Preview text (up to 2 lines, user's original input)
+  // - Flexible spacer (pushes actions to bottom)
+  // - Divider
+  // - Action buttons
+  // - Swipe hint text
+  //
+  // PHOTO CARDS (when hasAttachments is true):
+  // - Chips row (includes camera icon indicator)
+  // - Photo hero image (~200px, takes up significant space)
+  // - Title (up to 2 lines, shorter since photo takes space)
+  // - Preview text is hidden (photo IS the preview)
+  // - Smaller spacer since photo takes vertical space
+  // - Divider
+  // - Action buttons
+  // - Swipe hint text
+  // ─────────────────────────────────────────────────────────────────────────
   swipeCardContainer: {
     width: CARD_WIDTH,
     maxWidth: 400,
-    minHeight: 400,
+    minHeight: 340,
     flex: 1,
-    maxHeight: '100%',
+    maxHeight: 480,
     // backgroundColor controlled by animatedCardStyle for swipe color transformation
     borderRadius: 16,
     overflow: 'hidden',
@@ -2068,9 +2332,22 @@ const styles = StyleSheet.create({
     color: BRAND.colors.sageMist,
     letterSpacing: 3,
     textTransform: 'uppercase',
+    top: 100, // Push text below Gremly face
   },
   confirmationCardTextClear: {
     color: BRAND.colors.goldenPear,
+    top: 40, // Clear text stays higher (no Gremly face)
+  },
+  // Gremly face confirmation container
+  gremlyConfirmContainer: {
+    position: 'absolute',
+    top: -20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gremlyConfirmFace: {
+    width: 90,
+    height: 90,
   },
 
   // Card background variants
@@ -2099,16 +2376,14 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
 
-  // Content Scroll
-  contentScrollView: {
+  // Content Container - Fixed, no scrolling
+  contentContainer: {
     flex: 1,
-  },
-  contentScrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 52,
-    paddingBottom: 32,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
     position: 'relative',
+    overflow: 'hidden',
   },
 
   // Edit Icon - Top right corner of card content
@@ -2125,26 +2400,6 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
 
-  // Back Button - Top left corner
-  backButton: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 18,
-    backgroundColor: 'rgba(191, 216, 192, 0.25)', // Sage Mist @ 25%
-    zIndex: 10,
-  },
-  backButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: BRAND.colors.mossGreen,
-    marginLeft: 2,
-  },
-
   // Locked-in Icon
   lockedInIconContainer: {
     position: 'absolute',
@@ -2158,6 +2413,8 @@ const styles = StyleSheet.create({
   },
 
   // Photo Hero Container - Large image at top of card (priority layout)
+  // Takes ~200px of vertical space, so title is limited to 2 lines
+  // and preview text is hidden when photo is present
   photoHero: {
     width: '100%',
     height: 200, // Slightly smaller
@@ -2297,133 +2554,135 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // Gremly Response Section
-  gremlyResponseSection: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginTop: 28,
-    marginBottom: 8, // Reduced to keep chat button close
-  },
-  gremlyAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    flexShrink: 0,
-  },
-  speechBubble: {
-    flex: 1,
-    backgroundColor: 'rgba(46, 85, 64, 0.05)',
-    borderRadius: 16,
-    borderTopLeftRadius: 4,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    position: 'relative',
-  },
-  speechBubbleTail: {
-    position: 'absolute',
-    left: -6,
-    top: 12,
-    width: 0,
-    height: 0,
-    borderTopWidth: 6,
-    borderBottomWidth: 6,
-    borderRightWidth: 8,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderRightColor: 'rgba(46, 85, 64, 0.05)',
-  },
-  gremlyResponseText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: BRAND.colors.mossGreen,
-    opacity: 0.75,
-  },
-
-  // Chat button - appears below speech bubble like a reply
-  chatButtonContainer: {
-    alignSelf: 'flex-start',
-    marginLeft: 52, // Align with speech bubble text (avatar 40px + gap 10px + 2px)
-    marginTop: -4, // Negative margin to tuck up closer to speech bubble
-    marginBottom: 24, // Add breathing room below chat button
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(46, 85, 64, 0.08)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(46, 85, 64, 0.15)',
-  },
-  chatButtonText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: BRAND.colors.mossGreen,
-    letterSpacing: 0.1,
-  },
-
   // Spacer - Pushes action block to bottom of card
   actionSpacer: {
     flex: 1,
-    minHeight: 40, // More breathing room before actions
+    minHeight: 8,
+    maxHeight: 30,
   },
   actionSpacerCompact: {
-    minHeight: 8, // Much less space when photo is present
+    minHeight: 4, // Much less space when photo is present
     flex: 0, // Don't flex grow
   },
 
-  // Divider above action row
-  actionDividerContainer: {
-    alignItems: 'center',
-    paddingTop: 16,
-    paddingBottom: 20,
-  },
+  // Action Divider - separates content from actions
   actionDivider: {
-    width: '90%',
     height: 1,
-    backgroundColor: 'rgba(191, 216, 192, 0.5)', // sageMistBorder
+    backgroundColor: 'rgba(34, 34, 34, 0.1)',
+    marginHorizontal: 16,
+    marginBottom: 8,
   },
 
-  // Action Buttons Section - 4-column grid
-  actionButtonsSection: {
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  buttonGrid: {
+  // Left/Right Split Action Zone
+  actionZone: {
     flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    width: '100%',
   },
-  gridButton: {
+
+  leftZone: {
     flex: 1,
-    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    borderRadius: 12,
-    backgroundColor: 'rgba(46, 85, 64, 0.1)',
-    gap: 4,
-    minWidth: 70,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    minHeight: 120,
+    overflow: 'visible',
   },
-  gridButtonPrimary: {
-    backgroundColor: BRAND.colors.sageMist,
-  },
-  gridButtonSecondary: {
-    backgroundColor: 'rgba(46, 85, 64, 0.1)',
-  },
-  gridButtonIcon: {
-    fontSize: 16,
-    color: BRAND.colors.mossGreen,
-    fontWeight: '600',
-  },
-  gridButtonLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
+
+  byeText: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: BRAND.colors.charcoalInk,
+    marginTop: 2,
+    letterSpacing: 3,
     textAlign: 'center',
-    lineHeight: 12,
+    lineHeight: 36,
   },
-  gridButtonLabelPrimary: {
+
+  swipeHintsRow: {
+    flexDirection: 'row',
+    paddingBottom: 12,
+    paddingTop: 8,
+  },
+
+  swipeHintContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+
+  swipeLeftHint: {
+    fontSize: 11,
+    color: BRAND.colors.inkMuted,
+  },
+
+  swipeLeftHintText: {
+    fontSize: 11,
+    color: BRAND.colors.inkMuted,
+  },
+
+  zoneDivider: {
+    width: 1,
+    backgroundColor: 'rgba(34, 34, 34, 0.12)',
+    alignSelf: 'stretch',
+    marginTop: 24,
+  },
+
+  rightZone: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+
+  rightZoneHeader: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
+    marginBottom: 8,
+  },
+
+  optionsList: {
+    gap: 6,
+  },
+
+  optionItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+
+  optionItemSelected: {
+    backgroundColor: 'rgba(191, 216, 192, 0.4)',
+    transform: [{ scale: 1.03 }],
+  },
+
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  optionText: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+  },
+
+  optionTextSelected: {
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+  },
+
+  swipeRightHint: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+  },
+
+  swipeRightHintText: {
+    fontSize: 11,
+    fontWeight: '500',
     color: BRAND.colors.mossGreen,
   },
 
@@ -2519,23 +2778,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: BRAND.colors.inkSubtle,
-  },
-
-  // Swipe Cue Row - Above the card, aligned with card edges
-  swipeCueRow: {
-    position: 'absolute',
-    top: 8,
-    left: 24,
-    right: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    zIndex: 3,
-  },
-  swipeCueText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(34, 34, 34, 0.55)', // Reduced prominence
-    letterSpacing: 0.2,
   },
 
   // Save & Exit Container - Single centered text link

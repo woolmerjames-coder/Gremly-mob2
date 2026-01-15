@@ -19,6 +19,8 @@
     // Exclude minddrop-reference - documentation/snippet files not meant to compile
     "minddrop-reference/**/*",
     // Exclude minddrop-voice-bundle - copied code with broken relative imports
-    "minddrop-voice-bundle/**/*"
+    "minddrop-voice-bundle/**/*",
+    // Exclude date-audit - temporary audit folder with stale imports
+    "date-audit/**/*"
   ]
 }

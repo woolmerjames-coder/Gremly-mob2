@@ -39,7 +39,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
 import { Icon } from '../../design-system/Icon';
-import { Flame, Sparkles, Sprout } from 'lucide-react-native';
+import { Flame, Sparkles, Sprout, CheckCircle, Leaf, Moon } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
@@ -64,6 +64,7 @@ import type {
 } from '../../lib/sweep/types';
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
+import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -97,8 +98,12 @@ import {
 } from '../../lib/sweep/habitHelpers';
 import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
 import { ALL_MOODS, MOOD_CONFIG, getMoodsByCategory, type Mood } from '../../lib/shared/moods';
-import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { CompletionBadges } from '../../components/sweep/CompletionBadges';
+import { SweepCelebrationTransition } from '../../components/sweep/SweepCelebrationTransition';
+import { SweepInstructionsModal } from '../../components/sweep/SweepInstructionsModal';
+import { SweepCompletedModal } from '../../components/sweep/SweepCompletedModal';
+import { SweepEndCard } from '../../components/sweep/SweepEndCard';
+import { SweepEndItemList } from '../../components/sweep/SweepEndItemList';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -157,119 +162,125 @@ const JOURNAL_PROMPTS = [
  * Step 0: Intro ("Ready to Sweep?")
  *
  * Welcome screen that introduces the Sweep ritual.
- * Shows the Gremly mascot and explains what the user will do.
- * Personalized copy based on sweep count and streak.
+ * Shows what's ahead with a secondary link to see completed items.
  */
 function SweepIntroStep({
   onStart,
   onHelpPress,
+  onClose,
+  completedCount = 0,
+  onSeeCompleted,
 }: {
   onStart: () => void;
   onHelpPress?: () => void;
+  onClose?: () => void;
+  completedCount?: number;
+  onSeeCompleted?: () => void;
 }) {
   const { stats, isLoading } = useSweepIntroStats();
-
-  const hasActivity =
-    stats &&
-    (stats.completed.todos.length > 0 ||
-      stats.completed.habits.length > 0 ||
-      stats.dropped.todos.length > 0 ||
-      stats.dropped.habits.length > 0 ||
-      stats.dropped.notes.length > 0);
-
-  // Get sweep count from stats and gremlyAge from store
-  const totalSweepCount = stats?.totalSweepCount ?? 0;
   const gremlyAge = useGremlyStore.getState().gremlyAge;
+  const candidates = useSweepCandidatesUnified();
 
-  // Calculate total items to process
-  const totalCaptured =
-    (stats?.dropped.todos.length ?? 0) +
-    (stats?.dropped.habits.length ?? 0) +
-    (stats?.dropped.notes.length ?? 0);
+  // Count items by type
+  const todoCount = candidates.filter((c) => c.candidate.kind === 'todo').length;
+  const habitCount = candidates.filter((c) => c.candidate.kind === 'habit').length;
+  const noteCount = candidates.filter((c) => c.candidate.kind === 'note').length;
+  const totalCount = todoCount + habitCount + noteCount;
 
-  // Dynamic title based on sweep count (streak shown in badge instead)
-  const getTitle = (): string => {
-    const options = ['Time for a quick tidy', "Let's close those tabs", "Let's clear the clutter"];
-    return options[totalSweepCount % options.length];
+  // Time estimate
+  const getTimeEstimate = () => {
+    if (totalCount <= 4) return '~ 1 min ~';
+    if (totalCount <= 8) return '~ 2 min ~';
+    if (totalCount <= 15) return '~ 3 min ~';
+    return '~ 5 min ~';
   };
 
-  // Dynamic subtitle based on sweep count and items
-  const getSubtitle = (): string => {
-    if (totalSweepCount === 0) {
-      return "I'll show you your open todos, habits, and recent captures. Tap a button to choose what happens, then swipe right to confirm, or swipe left to let go.";
-    } else if (totalSweepCount < 5) {
-      return "Tap a button, swipe right to confirm. Swipe left to let go. You've got this!";
-    } else {
-      return 'Ready for a quick tidy? Swipe right to keep, left to let go.';
-    }
+  // Encouraging phrases
+  const phrases = [
+    "Let's clear the path for tomorrow",
+    'Ready when you are',
+    'A few quick decisions ahead',
+    "Let's set up tomorrow for success",
+    "You've got this",
+  ];
+  const [phrase] = useState(() => phrases[Math.floor(Math.random() * phrases.length)]);
+
+  // Build breakdown string
+  const buildBreakdown = () => {
+    const parts: string[] = [];
+    if (todoCount > 0) parts.push(`${todoCount} ${todoCount === 1 ? 'todo' : 'todos'}`);
+    if (noteCount > 0) parts.push(`${noteCount} ${noteCount === 1 ? 'idea' : 'ideas'}`);
+    if (habitCount > 0) parts.push(`${habitCount} ${habitCount === 1 ? 'habit' : 'habits'}`);
+    return parts.join(' · ');
   };
 
-  const headline = getTitle();
-  const subcopy = getSubtitle();
+  // First time user
+  const isFirstTime = stats?.isFirstSweep || gremlyAge === 0;
 
-  // Render the age badge with dividers
-  const renderAgeBadge = () => {
+  // Edge case: nothing to sweep
+  if (totalCount === 0 && !isLoading) {
     return (
-      <View style={styles.streakBadgeContainer}>
-        <View style={styles.streakDivider} />
-        <View style={styles.streakBadge}>
-          <Sprout size={24} color={BRAND.colors.mossGreen} />
-          <Text style={styles.streakBadgeTextWelcome}>
-            {gremlyAge === 0 ? 'Day 1 together!' : `Day ${gremlyAge} together`}
-          </Text>
-        </View>
-        <View style={styles.streakDivider} />
-      </View>
-    );
-  };
+      <View style={styles.introContainer}>
+        <Pressable onPress={onHelpPress} style={styles.introMascotContainerNew}>
+          <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotNew} resizeMode="contain" />
+        </Pressable>
 
-  return (
-    <View style={styles.moodStepContainer}>
-      <ScrollView
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.introScrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* 1. Title - full width */}
-        <Text variant="title" style={styles.introWelcomeTitle}>
-          {headline}
+        <Text style={styles.introCelebrationTitle}>All clear! 🎉</Text>
+        <Text style={styles.introCelebrationSubtitle}>
+          Nothing to sweep — you're caught up.{'\n'}Enjoy the mental clarity.
         </Text>
 
-        {/* 2. Stats section - FIRST (positive reinforcement) */}
-        {(isLoading || hasActivity) && (
-          <View style={styles.introStatsSection}>
-            <Text style={styles.achievementLabel}>Achieved since your last Sweep</Text>
-            <SweepIntroStatsCard stats={stats} isLoading={isLoading} />
-          </View>
+        {completedCount > 0 && (
+          <TouchableOpacity onPress={onSeeCompleted} style={styles.seeCompletedLink}>
+            <Text style={styles.seeCompletedText}>See {completedCount} completed →</Text>
+          </TouchableOpacity>
         )}
 
-        {/* 3. Age badge - centered with dividers */}
-        {renderAgeBadge()}
-
-        {/* 4. Mascot + Subtitle row - instructions right before action */}
-        <View style={styles.introWelcomeRow}>
-          <Pressable onPress={onHelpPress} accessibilityLabel="Help">
-            <Image
-              source={GREMLY_SWEEP_INTRO}
-              style={styles.introWelcomeMascot}
-              resizeMode="contain"
-              testID="sweep-intro-mascot"
-              accessibilityLabel="Gremly mascot with broom"
-            />
-          </Pressable>
-          <Text style={styles.introWelcomeSubcopy}>{subcopy}</Text>
-        </View>
-      </ScrollView>
-
-      {/* 3. Button */}
-      <View style={styles.moodFooter}>
-        <TouchableOpacity style={styles.continueButton} onPress={onStart} activeOpacity={0.8}>
-          <View style={styles.continueButtonContent}>
-            <Text style={styles.continueButtonText}>Start Sweeping</Text>
-            <Icon name="ArrowRight" size="sm" color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-          </View>
+        <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
+          <Text style={styles.secondaryButtonText}>Back to Today</Text>
         </TouchableOpacity>
       </View>
+    );
+  }
+
+  return (
+    <View style={styles.introContainer}>
+      {/* Gremly - tappable for help */}
+      <Pressable onPress={onHelpPress} style={styles.introMascotContainerNew}>
+        <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotNew} resizeMode="contain" />
+      </Pressable>
+
+      {/* Encouraging text */}
+      <Text style={styles.introPhrase}>{isFirstTime ? 'Welcome to Sweep!' : phrase}</Text>
+
+      {isFirstTime && <Text style={styles.introSubphrase}>Let's clear the path for tomorrow.</Text>}
+
+      {/* Divider */}
+      <View style={styles.introDivider} />
+
+      {/* What's ahead */}
+      <Text style={styles.introSectionHeader}>
+        {isFirstTime ? 'Your first sweep:' : "Today's sweep:"}
+      </Text>
+
+      <Text style={styles.introBreakdown}>{buildBreakdown()}</Text>
+
+      <Text style={styles.introTimeEstimate}>{getTimeEstimate()}</Text>
+
+      {/* Divider */}
+      <View style={styles.introDivider} />
+
+      {/* See completed link */}
+      {completedCount > 0 && (
+        <TouchableOpacity onPress={onSeeCompleted} style={styles.seeCompletedLink}>
+          <Text style={styles.seeCompletedText}>See {completedCount} completed →</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* CTA */}
+      <TouchableOpacity style={styles.introButton} onPress={onStart} activeOpacity={0.8}>
+        <Text style={styles.introButtonText}>Let's do this →</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -858,6 +869,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
           streakDays={item.streakDays}
           completedThisPeriod={item.completedThisPeriod}
           targetPerPeriod={item.targetPerPeriod}
+          isAheadOfTarget={item.isAheadOfTarget}
           frequencyLabel={item.frequencyLabel}
           isCompleted={isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday)}
           onToggle={handleToggle}
@@ -1177,6 +1189,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    * (state updates may not have been applied yet in the same render cycle).
    */
   const commitAllDecisions = useCallback(async () => {
+    const ds = getDateService();
     const updates: Promise<void>[] = [];
     let keptCount = 0;
     let clearedCount = 0;
@@ -1196,24 +1209,15 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         keptCount++;
         if (decision.candidateKind === 'todo' && decision.resurfaceDate) {
           // Handle resurface date (remind me later)
-          const resurfaceDateStr = decision.resurfaceDate.toISOString().split('T')[0];
+          const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
           console.log('[SweepFlowScreen] Setting resurface_at:', resurfaceDateStr);
 
           updates.push(
-            (async () => {
-              const { error } = await supabase
-                .from('todos')
-                .update({
-                  resurface_at: resurfaceDateStr,
-                  due_day: null,
-                  due_date: null,
-                })
-                .eq('id', decision.candidateId);
-
-              if (error) {
-                console.error('[SweepFlowScreen] Failed to update resurface_at:', error);
-              }
-            })(),
+            updateTodo(decision.candidateId, {
+              resurface_at: resurfaceDateStr,
+              due_day: null,
+              due_date: null,
+            } as any),
           );
         } else if (decision.candidateKind === 'todo' && decision.dueDate) {
           updates.push(
@@ -1225,7 +1229,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         } else if (decision.candidateKind === 'habit' && decision.startDate) {
           updates.push(
             updateHabit(decision.candidateId, {
-              start_date: decision.startDate.toISOString().split('T')[0],
+              start_date: ds.toLocalDate(decision.startDate),
               start_date_confirmed: true,
             }),
           );
@@ -1234,7 +1238,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           // Mark as swept so it doesn't reappear in sweep
           if (decision.resurfaceDate) {
             // "Remind Me" - set resurface date
-            const resurfaceDateStr = decision.resurfaceDate.toISOString().split('T')[0];
+            const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
             console.log('[SweepFlowScreen] Setting note resurface_at:', resurfaceDateStr);
             updates.push(
               updateNote(decision.candidateId, {
@@ -2152,9 +2156,25 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
   return (
     <View style={styles.decisionStepContainer}>
-      {/* Decision Step Header - X close button at top right only */}
+      {/* Decision Step Header - Back on left, Close on right */}
       <View style={styles.decisionHeader}>
-        <View style={styles.decisionHeaderSpacer} />
+        {/* Back button - only show if not on first card */}
+        {currentIndex > 0 ? (
+          <TouchableOpacity
+            style={styles.decisionBackButton}
+            onPress={handleGoBackCard}
+            activeOpacity={0.7}
+            accessibilityLabel="Go back to previous card"
+            accessibilityRole="button"
+          >
+            <Icon name="ChevronLeft" size="sm" color={BRAND.colors.mossGreen} />
+            <Text style={styles.decisionBackText}>Back</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.decisionHeaderSpacer} />
+        )}
+
+        {/* Close button */}
         {onClose && (
           <TouchableOpacity
             style={styles.decisionCloseButton}
@@ -2170,6 +2190,13 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
       {/* Full-screen Card Area */}
       <View style={styles.decisionCardArea}>
+        <Reanimated.View entering={FadeIn.duration(200)}>
+          <SweepGremlyHeader
+            candidate={currentCandidate}
+            meta={currentCandidateWithMeta.meta}
+            onOpenChat={handleOpenChat}
+          />
+        </Reanimated.View>
         <SweepCard
           key={`${currentCandidate.id}-${currentIndex}`}
           candidate={currentCandidate}
@@ -2276,140 +2303,47 @@ function SweepSummaryStep({
   journalWritten,
   onDone,
 }: SummaryStepProps) {
+  const ds = getDateService();
   const totalProcessed = keptCount + clearedCount;
 
-  // Track which sections are expanded
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  // Sweep streak from Zustand
+  const sweepStreak = useGremlyStore((state) => state.sweepStreak);
+
+  // Get raw data from store
+  const allTodos = useGremlyStore((state) => state.todos);
+  const allHabits = useGremlyStore((state) => state.habits);
+
+  // Tomorrow's items - memoized to prevent infinite loops
+  const tomorrowTodos = useMemo(() => {
+    const tomorrowStr = ds.tomorrow();
+    return allTodos.filter((t) => !t.archived && !t.completed_at && t.due_day === tomorrowStr);
+  }, [allTodos]);
+
+  const tomorrowHabits = useMemo(() => {
+    return allHabits.filter((h) => !h.archived);
+  }, [allHabits]);
+
+  const hasTomorrow = tomorrowTodos.length > 0 || tomorrowHabits.length > 0;
+
+  const tomorrowSubtitle = useMemo(
+    () =>
+      [
+        tomorrowTodos.length > 0
+          ? `${tomorrowTodos.length} ${tomorrowTodos.length === 1 ? 'todo' : 'todos'}`
+          : null,
+        tomorrowHabits.length > 0
+          ? `${tomorrowHabits.length} ${tomorrowHabits.length === 1 ? 'habit' : 'habits'}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    [tomorrowTodos, tomorrowHabits],
+  );
 
   // Trigger haptic on mount
   useEffect(() => {
     triggerLight();
   }, []);
-
-  const toggleSection = (section: string) => {
-    setExpandedSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(section)) {
-        next.delete(section);
-      } else {
-        next.add(section);
-      }
-      return next;
-    });
-  };
-
-  // Calculate archived items
-  const archivedItems = useMemo(() => {
-    if (!items) return [];
-    return [
-      ...items.todos.filter((i) => i.outcome === 'cleared' || i.outcome === 'archived'),
-      ...items.thoughts.filter((i) => i.outcome === 'archived'),
-      ...items.habits.filter((i) => i.outcome === 'removed'),
-    ];
-  }, [items]);
-
-  // Format outcome for display
-  const formatOutcome = (item: SweepSummaryItem): string => {
-    switch (item.outcome) {
-      case 'scheduled':
-        return `→ Due ${item.scheduledDate}`;
-      case 'remind':
-        return `→ Remind ${item.scheduledDate}`;
-      case 'saved':
-        return '→ Saved';
-      case 'cleared':
-        return '→ Cleared';
-      case 'archived':
-        return '→ Archived';
-      case 'removed':
-        return '→ Removed';
-      case 'logged':
-        return '→ Done ✓';
-      case 'skipped':
-        return '→ Skipped';
-      default:
-        return '→ Kept';
-    }
-  };
-
-  // Render a summary section
-  const renderSection = (
-    title: string,
-    sectionKey: string,
-    sectionItems: SweepSummaryItem[] | undefined,
-  ) => {
-    if (!sectionItems || sectionItems.length === 0) return null;
-
-    const isExpanded = expandedSections.has(sectionKey);
-
-    return (
-      <View style={styles.summarySection} key={sectionKey}>
-        <TouchableOpacity
-          style={styles.summarySectionHeader}
-          onPress={() => toggleSection(sectionKey)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.summarySectionTitle}>
-            {sectionItems.length} {title}
-          </Text>
-          <Icon
-            name={isExpanded ? 'ChevronUp' : 'ChevronDown'}
-            size="sm"
-            color={BRAND.colors.inkMuted}
-          />
-        </TouchableOpacity>
-
-        {isExpanded && (
-          <View style={styles.summarySectionContent}>
-            {sectionItems.map((item) => (
-              <View key={item.id} style={styles.summaryItemRow}>
-                <Text style={styles.summaryItemName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={styles.summaryItemOutcome}>{formatOutcome(item)}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    );
-  };
-
-  // Render archived section
-  const renderArchivedSection = () => {
-    if (archivedItems.length === 0) return null;
-
-    const isExpanded = expandedSections.has('archived');
-
-    return (
-      <View style={styles.summarySection}>
-        <TouchableOpacity
-          style={styles.summarySectionHeader}
-          onPress={() => toggleSection('archived')}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.summarySectionTitle}>{archivedItems.length} items archived</Text>
-          <Icon
-            name={isExpanded ? 'ChevronUp' : 'ChevronDown'}
-            size="sm"
-            color={BRAND.colors.inkMuted}
-          />
-        </TouchableOpacity>
-
-        {isExpanded && (
-          <View style={styles.summarySectionContent}>
-            {archivedItems.map((item) => (
-              <View key={item.id} style={styles.summaryItemRow}>
-                <Text style={styles.summaryItemName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    );
-  };
 
   const showBadges = lockInTotal > 0 || habitsCheckedCount > 0 || journalWritten;
 
@@ -2420,11 +2354,6 @@ function SweepSummaryStep({
         contentContainerStyle={styles.summaryScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Title */}
-        <Text variant="title" style={styles.summaryTitle}>
-          Nice sweep!
-        </Text>
-
         {/* Gremly mascot - broom-riding */}
         <View style={styles.summaryMascotContainer}>
           <Image
@@ -2435,6 +2364,18 @@ function SweepSummaryStep({
             accessibilityLabel="Gremly mascot riding a broom"
           />
         </View>
+
+        {/* Title */}
+        <Text variant="title" style={styles.summaryTitle}>
+          Nice sweep!
+        </Text>
+
+        {/* Subtext */}
+        {totalProcessed > 0 && (
+          <Text style={styles.summarySubtext}>
+            Your mind is {totalProcessed} {totalProcessed === 1 ? 'item' : 'items'} lighter.
+          </Text>
+        )}
 
         {/* Completion Badges */}
         {showBadges && (
@@ -2452,19 +2393,113 @@ function SweepSummaryStep({
         {/* Expandable Summary */}
         {totalProcessed > 0 && items ? (
           <View style={styles.expandableSummaryContainer}>
-            <Text style={styles.summarySubheading}>Here's what you swept:</Text>
+            {(() => {
+              const sortedTodos = items.todos.filter(
+                (i) => i.outcome !== 'cleared' && i.outcome !== 'archived',
+              );
+              const sortedThoughts = items.thoughts.filter((i) => i.outcome !== 'archived');
+              const sortedHabits = items.habits.filter((i) => i.outcome !== 'removed');
+              const sortedCount = sortedTodos.length + sortedThoughts.length + sortedHabits.length;
 
-            {renderSection('to-dos', 'todos', items.todos)}
-            {renderSection('thoughts', 'thoughts', items.thoughts)}
-            {renderSection('habits', 'habits', items.habits)}
+              if (sortedCount === 0) return null;
 
-            {/* Cleared from your head section */}
-            {archivedItems.length > 0 && (
-              <>
-                <View style={styles.summaryDivider} />
-                <Text style={styles.summarySubheadingMuted}>Cleared from your head:</Text>
-                {renderArchivedSection()}
-              </>
+              return (
+                <SweepEndCard
+                  icon={<CheckCircle size={20} color={BRAND.colors.mossGreen} />}
+                  title={`${sortedCount} ${sortedCount === 1 ? 'item' : 'items'} sorted`}
+                  expandable={true}
+                >
+                  <SweepEndItemList
+                    todos={sortedTodos.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                      outcome: i.scheduledDate ? `Due ${i.scheduledDate}` : 'Saved',
+                    }))}
+                    notes={sortedThoughts.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                      outcome: i.scheduledDate ? `Remind ${i.scheduledDate}` : 'Saved',
+                    }))}
+                    habits={sortedHabits.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                      outcome:
+                        i.outcome === 'logged'
+                          ? 'Done ✓'
+                          : i.outcome === 'skipped'
+                            ? 'Skipped'
+                            : 'Kept',
+                    }))}
+                  />
+                </SweepEndCard>
+              );
+            })()}
+
+            {/* Things you let go section */}
+            {(() => {
+              const clearedTodos = items.todos.filter(
+                (i) => i.outcome === 'cleared' || i.outcome === 'archived',
+              );
+              const clearedThoughts = items.thoughts.filter((i) => i.outcome === 'archived');
+              const clearedHabits = items.habits.filter((i) => i.outcome === 'removed');
+              const clearedCount =
+                clearedTodos.length + clearedThoughts.length + clearedHabits.length;
+
+              if (clearedCount === 0) return null;
+
+              return (
+                <SweepEndCard
+                  icon={<Leaf size={20} color={BRAND.colors.goldenPear} />}
+                  title={`${clearedCount} ${clearedCount === 1 ? 'thing' : 'things'} let go`}
+                  expandable={true}
+                >
+                  <SweepEndItemList
+                    clearedItems={[
+                      ...clearedTodos.map((i) => ({
+                        id: i.id,
+                        name: i.name,
+                        type: 'todo' as const,
+                      })),
+                      ...clearedThoughts.map((i) => ({
+                        id: i.id,
+                        name: i.name,
+                        type: 'note' as const,
+                      })),
+                      ...clearedHabits.map((i) => ({
+                        id: i.id,
+                        name: i.name,
+                        type: 'habit' as const,
+                      })),
+                    ]}
+                  />
+                </SweepEndCard>
+              );
+            })()}
+
+            {/* Tomorrow's ready section */}
+            {hasTomorrow && (
+              <View style={styles.tomorrowSection}>
+                <Text style={styles.tomorrowHeader}>Tomorrow's looking good</Text>
+                <SweepEndCard
+                  icon={<Moon size={20} color={BRAND.colors.mossGreen} />}
+                  title={tomorrowSubtitle}
+                  expandable={true}
+                  variant="outline"
+                >
+                  <SweepEndItemList
+                    todos={tomorrowTodos.map((t) => ({
+                      id: t.id,
+                      name: t.name || 'Untitled',
+                      outcome: '',
+                    }))}
+                    habits={tomorrowHabits.map((h) => ({
+                      id: h.id,
+                      name: h.name || 'Untitled',
+                      outcome: '',
+                    }))}
+                  />
+                </SweepEndCard>
+              </View>
             )}
           </View>
         ) : (
@@ -2475,6 +2510,14 @@ function SweepSummaryStep({
           </View>
         )}
       </ScrollView>
+
+      {/* Streak display */}
+      {sweepStreak >= 1 && (
+        <View style={styles.streakContainer}>
+          <Flame size={16} color={BRAND.colors.goldenPear} />
+          <Text style={styles.streakText}>{sweepStreak} day streak</Text>
+        </View>
+      )}
 
       {/* Done Button */}
       <View style={styles.buttonContainer}>
@@ -2554,7 +2597,25 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const [summaryDidAgeUp, setSummaryDidAgeUp] = useState(false);
   const [showAgeUpModal, setShowAgeUpModal] = useState(false);
   const [celebrationAge, setCelebrationAge] = useState(0);
-  const [showHelp, setShowHelp] = useState(false);
+
+  // Celebration transition and modal state
+  const [showCelebration, setShowCelebration] = useState(true);
+  const [showInstructionsModal, setShowInstructionsModal] = useState(false);
+  const [showCompletedModal, setShowCompletedModal] = useState(false);
+
+  // Get completed items for celebration
+  const { stats: introStats } = useSweepIntroStats();
+  const completedItems = useMemo(() => {
+    if (!introStats) return [];
+    return [
+      ...introStats.completed.todos.map((t) => ({ id: t.id, name: t.name, type: 'todo' as const })),
+      ...introStats.completed.habits.map((h) => ({
+        id: h.id,
+        name: h.name,
+        type: 'habit' as const,
+      })),
+    ];
+  }, [introStats]);
 
   // Track completion badges data
   const [habitsCheckedCount, setHabitsCheckedCount] = useState(0);
@@ -2668,43 +2729,56 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   // Handle lock-in checkpoint decisions
   const handleLockInContinue = useCallback(
-    async (decisions: Map<string, 'done' | 'tomorrow' | 'archive'>) => {
-      const { updateTodo, archiveTodo, archiveHabit, completeHabit } = useGremlyStore.getState();
-      const ds = getDateService();
-      const tomorrow = ds.addDays(ds.getCurrentDate(), 1);
-
-      for (const [itemId, decision] of decisions) {
-        const item = lockedItems.find((i) => i.id === itemId);
-        if (!item) continue;
-
-        const isTodo = 'name' in item && !('frequency' in item);
-
-        switch (decision) {
-          case 'done':
-            if (isTodo) {
-              await updateTodo(itemId, { completed_at: new Date().toISOString() });
-            } else {
-              await completeHabit(itemId);
-            }
-            break;
-          case 'tomorrow':
-            if (isTodo) {
-              await updateTodo(itemId, { due_day: tomorrow, due_date: tomorrow });
-            }
-            // Habits automatically stay locked for tomorrow
-            break;
-          case 'archive':
-            if (isTodo) {
-              await archiveTodo(itemId);
-            } else {
-              await archiveHabit(itemId);
-            }
-            break;
-        }
-      }
-
+    (decisions: Map<string, 'done' | 'tomorrow' | 'archive'>) => {
+      // Navigate IMMEDIATELY - don't wait for processing
       setLockInCheckpointComplete(true);
       setStep(1); // Proceed to decision cards
+
+      // Process decisions in background (fire and forget)
+      const processDecisions = async () => {
+        const { updateTodo, archiveTodo, archiveHabit, completeHabit } = useGremlyStore.getState();
+        const ds = getDateService();
+        const tomorrow = ds.addDays(ds.getCurrentDate(), 1);
+
+        for (const [itemId, decision] of decisions) {
+          const item = lockedItems.find((i) => i.id === itemId);
+          if (!item) continue;
+
+          const isTodo = 'name' in item && !('frequency' in item);
+
+          try {
+            switch (decision) {
+              case 'done':
+                if (isTodo) {
+                  await updateTodo(itemId, { completed_at: new Date().toISOString() });
+                } else {
+                  await completeHabit(itemId);
+                }
+                break;
+              case 'tomorrow':
+                if (isTodo) {
+                  await updateTodo(itemId, { due_day: tomorrow, due_date: tomorrow });
+                }
+                // Habits automatically stay locked for tomorrow
+                break;
+              case 'archive':
+                if (isTodo) {
+                  await archiveTodo(itemId);
+                } else {
+                  await archiveHabit(itemId);
+                }
+                break;
+            }
+          } catch (err) {
+            console.warn('[LockIn] Failed to process decision for', itemId, err);
+          }
+        }
+      };
+
+      // Fire and forget - don't block navigation
+      processDecisions().catch((err) => {
+        console.warn('[LockIn] Failed to process decisions:', err);
+      });
     },
     [lockedItems],
   );
@@ -2858,9 +2932,27 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 : styles.content
           }
         >
-          {step === 0 &&
-            (__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep'),
-            (<SweepIntroStep onStart={handleIntroStart} onHelpPress={() => setShowHelp(true)} />))}
+          {step === 0 && (!showCelebration || completedItems.length === 0) && (
+            <>
+              {__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep')}
+              <SweepIntroStep
+                onStart={handleIntroStart}
+                onHelpPress={() => setShowInstructionsModal(true)}
+                onClose={handleClose}
+                completedCount={completedItems.length}
+                onSeeCompleted={() => setShowCompletedModal(true)}
+              />
+              <SweepInstructionsModal
+                visible={showInstructionsModal}
+                onClose={() => setShowInstructionsModal(false)}
+              />
+              <SweepCompletedModal
+                visible={showCompletedModal}
+                onClose={() => setShowCompletedModal(false)}
+                completedItems={completedItems}
+              />
+            </>
+          )}
           {step === 0.5 && (
             <LockInCheckpointStep onContinue={handleLockInContinue} onClose={handleClose} />
           )}
@@ -2901,6 +2993,17 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         </View>
       </Screen>
 
+      {/* Celebration Overlay - Full screen, covers header */}
+      {step === 0 && showCelebration && completedItems.length > 0 && (
+        <View style={styles.celebrationOverlay}>
+          <SweepCelebrationTransition
+            completedItems={completedItems}
+            onComplete={() => setShowCelebration(false)}
+            onSkip={() => setShowCelebration(false)}
+          />
+        </View>
+      )}
+
       {/* Local Overlay Portal - renders ON TOP of Sweep modal
           Since Sweep is presented as a modal, the global OverlayHost renders
           below it. We render the overlay here so it appears above Sweep. */}
@@ -2923,9 +3026,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           </View>
         </View>
       ) : null}
-
-      {/* Help Card */}
-      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="sweep" />
 
       {/* Age-Up Celebration Modal */}
       <AgeUpCelebrationModal
@@ -3006,6 +3106,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: BRAND.colors.linenCream,
   },
+  celebrationOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+  },
   contentDecision: {
     flex: 1,
     paddingHorizontal: 0, // Full-bleed for decision step
@@ -3028,7 +3132,115 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   // ─────────────────────────────────────────────────────────────────────────
-  // SweepIntroStep styles
+  // SweepIntroStep styles - New Design
+  // ─────────────────────────────────────────────────────────────────────────
+  introContainer: {
+    flex: 1,
+    backgroundColor: BRAND.colors.linenCream,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 24,
+    paddingTop: 60,
+  },
+  introMascotContainerNew: {
+    marginBottom: 24,
+  },
+  introMascotNew: {
+    width: 110,
+    height: 110,
+  },
+  introPhrase: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 12,
+    lineHeight: 34,
+    paddingTop: 4,
+    includeFontPadding: true,
+  },
+  introSubphrase: {
+    fontSize: 16,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 24,
+  },
+  introDivider: {
+    width: 200,
+    height: 1,
+    backgroundColor: 'rgba(34, 34, 34, 0.1)',
+    marginVertical: 28,
+  },
+  introSectionHeader: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  introBreakdown: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  introTimeEstimate: {
+    fontSize: 15,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+  },
+  seeCompletedLink: {
+    marginBottom: 24,
+    marginTop: 4,
+  },
+  seeCompletedText: {
+    fontSize: 15,
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
+  },
+  introButton: {
+    backgroundColor: BRAND.colors.sageMist,
+    paddingVertical: 18,
+    paddingHorizontal: 48,
+    borderRadius: 14,
+    marginBottom: 24,
+  },
+  introButtonText: {
+    color: BRAND.colors.mossGreen,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  secondaryButtonText: {
+    color: BRAND.colors.mossGreen,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  introFooter: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    position: 'absolute',
+    bottom: 24,
+  },
+  introCelebrationTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 8,
+  },
+  introCelebrationSubtitle: {
+    fontSize: 15,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  // ─────────────────────────────────────────────────────────────────────────
+  // SweepIntroStep styles - Legacy (kept for reference)
   // ─────────────────────────────────────────────────────────────────────────
   introScrollContent: {
     flexGrow: 1,
@@ -3555,6 +3767,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     backgroundColor: BRAND.colors.linenCream,
   },
+  streakContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 20,
+    marginBottom: 8,
+    backgroundColor: BRAND.colors.linenCream,
+  },
+  streakText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
+  },
   wrapUpOpenItemsReminder: {
     fontSize: 13,
     fontWeight: '400',
@@ -3671,14 +3897,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingTop: 12,
     paddingBottom: 8,
     backgroundColor: 'transparent',
     zIndex: 1,
   },
   decisionHeaderSpacer: {
-    flex: 1,
+    width: 60, // Match back button width for alignment
+  },
+  decisionBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    gap: 2,
+  },
+  decisionBackText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
   },
   decisionCloseButton: {
     padding: 8,
@@ -3815,13 +4053,30 @@ const styles = StyleSheet.create({
   },
   summaryTitle: {
     textAlign: 'center',
-    marginTop: 24,
+    marginTop: 8,
     marginBottom: 8,
+  },
+  summarySubtext: {
+    fontSize: 16,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  tomorrowSection: {
+    marginTop: 24,
+    width: '100%',
+  },
+  tomorrowHeader: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 12,
   },
   summaryMascotContainer: {
     alignItems: 'center',
     marginTop: 8,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   summaryMascotImage: {
     width: 140,

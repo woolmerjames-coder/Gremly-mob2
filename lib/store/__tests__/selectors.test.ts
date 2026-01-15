@@ -1161,12 +1161,21 @@ describe('selectCompletionsThisWeek', () => {
 import { selectLockedTodos, selectTodayLockedItems, selectTodayActiveItems } from '../selectors';
 
 describe('selectLockedTodos', () => {
-  it('returns todos with commitment = true', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T10:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns todos with commitment = true and due today', () => {
     const state = makeState({
       todos: [
-        makeTodo({ id: 't1', commitment: true, archived: false }),
-        makeTodo({ id: 't2', commitment: false, archived: false }),
-        makeTodo({ id: 't3', commitment: true, archived: false }),
+        makeTodo({ id: 't1', commitment: true, archived: false, due_day: '2025-12-15' }),
+        makeTodo({ id: 't2', commitment: false, archived: false, due_day: '2025-12-15' }),
+        makeTodo({ id: 't3', commitment: true, archived: false, due_day: '2025-12-15' }),
       ],
     });
 
@@ -1179,8 +1188,8 @@ describe('selectLockedTodos', () => {
   it('excludes archived todos even if commitment is true', () => {
     const state = makeState({
       todos: [
-        makeTodo({ id: 't1', commitment: true, archived: true }),
-        makeTodo({ id: 't2', commitment: true, archived: false }),
+        makeTodo({ id: 't1', commitment: true, archived: true, due_day: '2025-12-15' }),
+        makeTodo({ id: 't2', commitment: true, archived: false, due_day: '2025-12-15' }),
       ],
     });
 
@@ -1193,8 +1202,8 @@ describe('selectLockedTodos', () => {
   it('excludes completed todos even if commitment is true', () => {
     const state = makeState({
       todos: [
-        makeTodo({ id: 't1', commitment: true, completed_at: '2025-12-15T10:00:00Z' }),
-        makeTodo({ id: 't2', commitment: true, completed_at: null }),
+        makeTodo({ id: 't1', commitment: true, completed_at: '2025-12-15T10:00:00Z', due_day: '2025-12-15' }),
+        makeTodo({ id: 't2', commitment: true, completed_at: null, due_day: '2025-12-15' }),
       ],
     });
 
@@ -1207,8 +1216,8 @@ describe('selectLockedTodos', () => {
   it('returns empty array when no locked todos', () => {
     const state = makeState({
       todos: [
-        makeTodo({ id: 't1', commitment: false }),
-        makeTodo({ id: 't2', commitment: undefined }),
+        makeTodo({ id: 't1', commitment: false, due_day: '2025-12-15' }),
+        makeTodo({ id: 't2', commitment: undefined, due_day: '2025-12-15' }),
       ],
     });
 
@@ -1230,7 +1239,10 @@ describe('selectTodayLockedItems', () => {
 
   it('combines locked todos and locked habits', () => {
     const state = makeState({
-      todos: [makeTodo({ id: 't1', commitment: true }), makeTodo({ id: 't2', commitment: false })],
+      todos: [
+        makeTodo({ id: 't1', commitment: true, due_day: '2025-12-15' }),
+        makeTodo({ id: 't2', commitment: false, due_day: '2025-12-15' }),
+      ],
       habits: [
         makeHabit({ id: 'h1', commitment: true, cadence: 'daily' }),
         makeHabit({ id: 'h2', commitment: false, cadence: 'daily' }),

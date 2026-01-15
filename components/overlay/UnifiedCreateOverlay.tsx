@@ -43,6 +43,7 @@ import { useRepo } from '../../providers/RepoProvider';
 import { useCortex } from '../../providers/CortexProvider';
 import { useTheme } from '../../providers/ThemeProvider';
 import { useAuth } from '../../providers/AuthProvider';
+import { dateService } from '../../lib/date/DateService';
 import type {
   AppRecord,
   CanonicalType,
@@ -486,7 +487,7 @@ export function UnifiedCreateOverlay({
   }, [runCommitmentsChangedCallback]);
 
   // Journal fields
-  const [journalDate, setJournalDate] = useState(new Date().toISOString().split('T')[0]);
+  const [journalDate, setJournalDate] = useState(dateService.today());
   const [journalEntry, setJournalEntry] = useState('');
   const [journalMood, setJournalMood] = useState<import('./fields/JournalFields').MoodType | null>(
     null,
@@ -1251,7 +1252,7 @@ export function UnifiedCreateOverlay({
     setTodoDueDate(null);
     setTodoDueTime(null);
     setTodoDetails({});
-    setJournalDate(new Date().toISOString().split('T')[0]);
+    setJournalDate(dateService.today());
     setJournalEntry('');
     setJournalMood(null);
     setJournalDetails({});
