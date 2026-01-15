@@ -11,6 +11,7 @@ import type {
 import type { SweepIntroItem, SweepIntroStats } from '../sweep/introStats';
 import { computeSweepCardMeta } from '../sweep/computeSweepCardMeta';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
+import { dateService } from '../../lib/date/DateService';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -255,7 +256,7 @@ export const selectUrgentFrequencyHabits = createSelector(
   [selectHabits, selectHabitProgress],
   (habits, progress): Habit[] => {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = dateService.today();
 
     return habits.filter((h) => {
       if (h.archived) return false;
@@ -268,7 +269,7 @@ export const selectUrgentFrequencyHabits = createSelector(
       // Get completions in current window
       const windowStart = new Date(today);
       windowStart.setDate(today.getDate() - windowDays + 1);
-      const windowStartStr = windowStart.toISOString().split('T')[0];
+      const windowStartStr = dateService.toLocalDate(windowStart);
 
       const completions = progress.filter(
         (p) =>
@@ -289,7 +290,7 @@ export const selectUrgentFrequencyHabits = createSelector(
       tomorrow.setDate(today.getDate() + 1);
       const tomorrowWindowStart = new Date(tomorrow);
       tomorrowWindowStart.setDate(tomorrow.getDate() - windowDays + 1);
-      const tomorrowWindowStartStr = tomorrowWindowStart.toISOString().split('T')[0];
+      const tomorrowWindowStartStr = dateService.toLocalDate(tomorrowWindowStart);
 
       // If oldest completion would be outside tomorrow's window, it's urgent
       return oldestCompletion < tomorrowWindowStartStr;

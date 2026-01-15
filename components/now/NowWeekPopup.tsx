@@ -23,6 +23,7 @@ import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayContro
 import { useWeeklyHabitStats, type RawHabit } from '../../lib/today/hooks/useWeeklyHabitStats';
 import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitStats';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { dateService } from '../../lib/date/DateService';
 import type {
   NowWeeklyHabitSummary,
   NowLockedItem,
@@ -110,7 +111,7 @@ function getCheckInStatus(habit: Habit | undefined): HabitStatus {
   if (!habit) return 'needs_attention';
 
   const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const yesterday = dateService.yesterday();
   const cadence = habit.cadence ?? 'daily';
 
   if (!lastCheckedIn) return 'needs_attention';
@@ -118,7 +119,7 @@ function getCheckInStatus(habit: Habit | undefined): HabitStatus {
   if (cadence === 'daily') {
     return lastCheckedIn >= yesterday ? 'on_track' : 'needs_attention';
   } else {
-    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+    const sevenDaysAgo = dateService.daysAgo(7);
     return lastCheckedIn >= sevenDaysAgo ? 'on_track' : 'needs_attention';
   }
 }
@@ -304,8 +305,8 @@ export function NowWeekPopup({
     if (!allHabits) return { upToDate: 0, total: 0 };
 
     const now = Date.now();
-    const yesterday = new Date(now - 86400000).toISOString().split('T')[0];
-    const sevenDaysAgo = new Date(now - 7 * 86400000).toISOString().split('T')[0];
+    const yesterday = dateService.yesterday();
+    const sevenDaysAgo = dateService.daysAgo(7);
 
     const total = allHabits.filter((h) => !h.archived).length;
 

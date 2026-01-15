@@ -48,6 +48,7 @@ import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import { startOfWeek, formatISO, addDays } from 'date-fns';
 import { getDateService } from '../../lib/date';
+import { dateService } from '../../lib/date/DateService';
 
 // Components
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
@@ -440,7 +441,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [layoutState, setLayoutState] = useState<LayoutState>({});
   const [selectedDayISO, setSelectedDayISO] = useState<string>(() =>
-    formatISO(new Date(), { representation: 'date' }),
+    dateService.today(),
   );
   const [showTimeline, setShowTimeline] = useState(false);
   // Phase 5: Removed showCalendarV33, editGoalVisible, editGoalRecord, showNotepad, intentDraft, showPeople
@@ -916,7 +917,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     const daysSince = lastTs ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24)) : 999;
     if (daysSince >= 7)
       return { tone: 'low' as const, text: 'It’s been quiet — want to revisit your goals?' };
-    const todayISO = formatISO(new Date(), { representation: 'date' });
+    const todayISO = dateService.today();
     const today = (timelineDays || []).find((d) => d.dateISO === todayISO);
     const anyDone = (timelineDays || []).some((d) => (d.items || []).some((it: any) => !!it.done));
     if (anyDone || (today && (today.items || []).length > 0)) {
@@ -937,7 +938,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
     if (daysSince >= 7) return 'low';
 
-    const todayISO = formatISO(new Date(), { representation: 'date' });
+    const todayISO = dateService.today();
     const today = (timelineDays || []).find((d) => d.dateISO === todayISO);
     const anyDone = (timelineDays || []).some((d) => (d.items || []).some((it: any) => !!it.done));
 
@@ -972,7 +973,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   useEffect(() => {
     const run = async () => {
       try {
-        const todayISO = formatISO(new Date(), { representation: 'date' });
+        const todayISO = dateService.today();
         const key = `focusCard:dismiss:${spaceId}:${todayISO}`;
         const until = await AsyncStorage.getItem(key);
         if (until) {
@@ -1447,7 +1448,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   );
 
   // Compute preview data from store (already filtered by spaceId)
-  const weekStart = formatISO(startOfWeek(new Date()), { representation: 'date' });
+  const weekStart = dateService.getStartOfWeek();
   const previewHabits = useMemo(() => storeHabits.slice(0, 3), [storeHabits]);
   const previewTodos = useMemo(() => storeTodos.slice(0, 3), [storeTodos]);
   const previewNotes = useMemo(() => storeNotes.slice(0, 5), [storeNotes]);
@@ -2803,7 +2804,7 @@ function buildLastVisitedLabel(items: AppRecord[], chats: SpaceChat[]): string {
 // v22 helpers
 function buildMockWeek(selectedISO: string) {
   const start = startOfWeek(new Date());
-  const todayISO = formatISO(new Date(), { representation: 'date' });
+  const todayISO = dateService.today();
   return Array.from({ length: 7 }, (_, i) => {
     const d = addDays(start, i);
     const iso = formatISO(d, { representation: 'date' });

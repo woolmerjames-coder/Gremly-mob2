@@ -15,6 +15,7 @@ import { useCallback } from 'react';
 import { useRepo } from '../providers/RepoProvider';
 import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
+import { dateService } from '../lib/date/DateService';
 
 type EntityType = 'todo' | 'habit' | 'note';
 
@@ -32,9 +33,10 @@ interface MutationResult {
 
 /**
  * Get today's date string in YYYY-MM-DD format
+ * Using dateService.today() to avoid timezone bug (toISOString converts to UTC first)
  */
 function getTodayString(): string {
-  return new Date().toISOString().split('T')[0];
+  return dateService.today();
 }
 
 /**

@@ -11,6 +11,7 @@ import type { NoteDetailsState } from './fields/NoteFields';
 import type { PersonDetailsState, PersonDate } from './fields/PersonFields';
 import type { FrequencyValue } from './fields/HabitFrequency';
 import { splitDueParts } from './dueUtils';
+import { dateService } from '../../lib/date/DateService';
 
 export interface FormHabit {
   name: string;
@@ -126,7 +127,7 @@ export function mapJournalToForm(j: Note | AppRecord): FormJournal {
 
   return {
     date:
-      journal.date || journal.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+      journal.date || dateService.extractLocalDate(journal.created_at) || dateService.today(),
     entry: journal.body || '',
     mood: journal.mood ?? null, // Now supports array or legacy single value
     details: {

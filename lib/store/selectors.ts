@@ -521,15 +521,17 @@ export const selectTodosCompletedToday = createSelector([selectTodos], (todos): 
   return todos.filter((t) => t.completed_at && ds().isTimestampToday(t.completed_at));
 });
 
-/** Todos with commitment = true (locked in) - excludes completed */
-export const selectLockedTodos = createSelector([selectActiveTodos], (todos): Todo[] =>
-  todos.filter((t) => t.commitment === true),
-);
+/** Todos with commitment = true (locked in) AND due today - excludes completed */
+export const selectLockedTodos = createSelector([selectActiveTodos], (todos): Todo[] => {
+  const today = getTodayDayString();
+  return todos.filter((t) => t.commitment === true && t.due_day === today);
+});
 
-/** Todos with commitment = true (locked in) - includes completed for sweep celebration */
-export const selectLockedTodosIncludingCompleted = createSelector([selectTodos], (todos): Todo[] =>
-  todos.filter((t) => t.commitment === true && !t.archived),
-);
+/** Todos with commitment = true (locked in) AND due today - includes completed for sweep celebration */
+export const selectLockedTodosIncludingCompleted = createSelector([selectTodos], (todos): Todo[] => {
+  const today = getTodayDayString();
+  return todos.filter((t) => t.commitment === true && !t.archived && t.due_day === today);
+});
 
 /** Undated todos (no due_day, for triage) */
 export const selectUndatedTodos = createSelector([selectActiveTodos], (todos): Todo[] =>

@@ -12,6 +12,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useMindDropStore } from '../lib/stores/mindDropStore';
 import { useRepo } from '../providers/RepoProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { dateService } from '../lib/date/DateService';
 import { heuristicClassify } from '../lib/minddrop/heuristicClassify';
 import { findSpaceByName } from '../lib/minddrop/spacePatterns';
 import {
@@ -501,7 +502,8 @@ export function useMindDropSubmit(): {
         const entityType = bucketToEntityType(bucket);
 
         // For 'today' source, set due_at/start_date to today
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+        // Using dateService.today() to avoid timezone bug (toISOString converts to UTC first)
+        const today = dateService.today();
 
         let entity;
 

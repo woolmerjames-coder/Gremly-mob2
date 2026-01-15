@@ -28,6 +28,7 @@ import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
 import { setTestProbeEntityId } from '../lib/config/surfaceProbe';
 import { QARunner } from '../src/qa/QARunner';
+import { dateService } from '../../lib/date/DateService';
 import { checkAllInvariants } from '../lib/minddrop/invariants';
 import { buildTodoFields } from '../lib/cortex/textNormalization';
 
@@ -270,7 +271,7 @@ export function useMindDropSubmit(): {
         const entityType = bucketToEntityType(bucket);
 
         // For 'today' source, set due_at/start_date to today
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+        const today = dateService.today();
 
         let entity;
 

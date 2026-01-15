@@ -10,6 +10,7 @@
 import { useCallback, useRef } from 'react';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import type { SubmitResult } from '../../hooks/useMindDropSubmit';
+import { dateService } from '../../lib/date/DateService';
 
 /** Result object passed to onComplete callback */
 export interface NowQuickAddCompleteResult {
@@ -41,7 +42,7 @@ export interface UseNowQuickAddResult {
  * Map useMindDropSubmit result to NowQuickAddCompleteResult
  */
 function mapSubmitResult(result: SubmitResult): NowQuickAddCompleteResult {
-  const today = new Date().toISOString().split('T')[0];
+  const today = dateService.today();
 
   if (!result.success || !result.bucket) {
     return {

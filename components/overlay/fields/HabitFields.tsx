@@ -9,6 +9,7 @@ import { Icon } from '../../../design-system/Icon';
 import Chip from '../../ui/Chip';
 import { Text } from '../../../ui/Text';
 import type { Frequency } from '../../../lib/types';
+import { dateService } from '../../../lib/date/DateService';
 import { HabitFrequency, type FrequencyValue } from './HabitFrequency';
 import { RemindersList, type ReminderRow } from './RemindersList';
 
@@ -144,7 +145,7 @@ export function HabitFields({
 
   // Get today's date in YYYY-MM-DD format
   const getTodayDate = () => {
-    return new Date().toISOString().split('T')[0];
+    return dateService.today();
   };
 
   // Break Habit helpers
