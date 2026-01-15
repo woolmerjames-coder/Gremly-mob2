@@ -313,9 +313,7 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
       <Animated.View style={[styles.instructionsContainer, instructionsStyle]}>
         <Image source={GREMLY_MASCOT} style={styles.instructionsMascot} resizeMode="contain" />
         <Text style={styles.instructionsText}>
-          Did you crush it? Tap <Text style={styles.instructionsBold}>Done</Text>, or slide to{' '}
-          <Text style={styles.instructionsBold}>tomorrow</Text>.{' '}
-          <Text style={styles.instructionsItalic}>No stress!</Text>
+          Did you crush it? Tap Done, or slide to tomorrow. No stress!
         </Text>
       </Animated.View>
 
@@ -340,14 +338,16 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
         showsVerticalScrollIndicator={false}
       >
         {items.map((item, index) => (
-          <LockInItemRow
-            key={item.id}
-            item={item}
-            decision={decisions.get(item.id) || 'tomorrow'}
-            onDecisionChange={(decision) => handleDecisionChange(item.id, decision)}
-            isCelebrated={celebratedItems.has(item.id)}
-            index={index}
-          />
+          <React.Fragment key={item.id}>
+            <LockInItemRow
+              item={item}
+              decision={decisions.get(item.id) || 'tomorrow'}
+              onDecisionChange={(decision) => handleDecisionChange(item.id, decision)}
+              isCelebrated={celebratedItems.has(item.id)}
+              index={index}
+            />
+            {index < items.length - 1 && <View style={styles.itemDivider} />}
+          </React.Fragment>
         ))}
       </Animated.ScrollView>
 
@@ -414,16 +414,27 @@ function LockInItemRow({
   }, [decision]);
 
   const diamondAnimatedStyle = useAnimatedStyle(() => {
-    // Track is now narrower, calculate positions
-    const trackWidth = SCREEN_WIDTH - 40 - 32 - 40; // container padding - item padding - track margins
-    const positions = [0, trackWidth / 2 - 16, trackWidth - 32]; // left, center, right (adjusted for diamond width)
+    // Track width = container width - paddingHorizontal (40 total)
+    // Track itself has no margins now, dots are absolutely positioned
+    const containerWidth = SCREEN_WIDTH - 40; // itemRow paddingHorizontal: 20 each side
+    const diamondWidth = 32;
+    const dotWidth = 12;
+
+    // Dot centers are at: 0%, 50%, 100% of track
+    // Diamond should center over each dot
+    const positions = [
+      dotWidth / 2 - diamondWidth / 2, // Archive: center diamond over left dot
+      containerWidth / 2 - diamondWidth / 2, // Tomorrow: exact center
+      containerWidth - dotWidth / 2 - diamondWidth / 2, // Done: center diamond over right dot
+    ];
 
     return {
       transform: [
         {
-          translateX: withSpring(positions[diamondPosition.value] + 20, {
-            damping: 15,
-            stiffness: 150,
+          translateX: withSpring(positions[diamondPosition.value], {
+            damping: 20,
+            stiffness: 300,
+            mass: 0.8,
           }),
         },
       ],
@@ -452,8 +463,10 @@ function LockInItemRow({
   }));
 
   const glowStyle = useAnimatedStyle(() => ({
-    borderColor: rowGlow.value > 0.5 ? BRAND.colors.goldenPear : BRAND.colors.sageMist,
-    borderWidth: interpolate(rowGlow.value, [0, 1], [1, 3]),
+    backgroundColor:
+      interpolate(rowGlow.value, [0, 1], [0, 0.1]) > 0.05
+        ? `rgba(243, 195, 72, ${interpolate(rowGlow.value, [0, 1], [0, 0.15])})`
+        : 'transparent',
   }));
 
   return (
@@ -470,12 +483,13 @@ function LockInItemRow({
 
       {/* Slim Toggle Track with Dots */}
       <View style={styles.toggleTrackContainer}>
-        {/* Track line with dots */}
-        <View style={styles.toggleTrackLine}>
-          <View style={styles.toggleDot} />
-          <View style={styles.toggleDotMiddle} />
-          <View style={styles.toggleDot} />
-        </View>
+        {/* Track line */}
+        <View style={styles.toggleTrackLine} />
+
+        {/* Absolutely positioned dots */}
+        <View style={styles.dotArchive} />
+        <View style={styles.dotTomorrow} />
+        <View style={styles.dotDone} />
 
         {/* Sliding Diamond Indicator */}
         <Animated.View style={[styles.diamondIndicator, diamondAnimatedStyle]}>
@@ -522,13 +536,31 @@ function LockInItemRow({
 
       {/* Labels below track */}
       <View style={styles.toggleLabels}>
-        <Text style={[styles.toggleLabel, decision === 'archive' && styles.toggleLabelActive]}>
+        <Text
+          style={[
+            styles.toggleLabel,
+            styles.toggleLabelLeft,
+            decision === 'archive' && styles.toggleLabelActive,
+          ]}
+        >
           Archive
         </Text>
-        <Text style={[styles.toggleLabel, decision === 'tomorrow' && styles.toggleLabelActive]}>
+        <Text
+          style={[
+            styles.toggleLabel,
+            styles.toggleLabelCenter,
+            decision === 'tomorrow' && styles.toggleLabelActive,
+          ]}
+        >
           Tomorrow
         </Text>
-        <Text style={[styles.toggleLabel, decision === 'done' && styles.toggleLabelActive]}>
+        <Text
+          style={[
+            styles.toggleLabel,
+            styles.toggleLabelRight,
+            decision === 'done' && styles.toggleLabelActive,
+          ]}
+        >
           Done ✓
         </Text>
       </View>
@@ -627,50 +659,65 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   itemsContent: {
-    paddingHorizontal: 20,
     paddingBottom: 24,
   },
 
   itemRow: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: BRAND.colors.sageMist,
-    marginBottom: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  itemDivider: {
+    height: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    marginHorizontal: 20,
   },
   itemHeader: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   itemName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
   },
 
   // Toggle track - slim line with dots
   toggleTrackContainer: {
-    height: 40,
+    height: 36,
     justifyContent: 'center',
     position: 'relative',
   },
   toggleTrackLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    position: 'absolute',
+    left: 6,
+    right: 6,
+    top: 16,
     height: 4,
     backgroundColor: 'rgba(191, 216, 192, 0.4)',
     borderRadius: 2,
-    marginHorizontal: 20,
   },
-  toggleDot: {
+  dotArchive: {
+    position: 'absolute',
+    left: 0,
+    top: 12,
     width: 12,
     height: 12,
     borderRadius: 6,
     backgroundColor: BRAND.colors.sageMist,
-    marginHorizontal: -6,
   },
-  toggleDotMiddle: {
+  dotTomorrow: {
+    position: 'absolute',
+    left: '50%',
+    marginLeft: -6,
+    top: 12,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: BRAND.colors.sageMist,
+  },
+  dotDone: {
+    position: 'absolute',
+    right: 0,
+    top: 12,
     width: 12,
     height: 12,
     borderRadius: 6,
@@ -678,7 +725,7 @@ const styles = StyleSheet.create({
   },
   diamondIndicator: {
     position: 'absolute',
-    top: 4,
+    top: 2,
     left: 0,
     width: 32,
     height: 32,
@@ -711,16 +758,22 @@ const styles = StyleSheet.create({
   },
   toggleLabels: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     marginTop: 8,
-    paddingHorizontal: 4,
   },
   toggleLabel: {
     fontSize: 12,
     fontWeight: '500',
     color: BRAND.colors.inkMuted,
-    textAlign: 'center',
     flex: 1,
+  },
+  toggleLabelLeft: {
+    textAlign: 'left',
+  },
+  toggleLabelCenter: {
+    textAlign: 'center',
+  },
+  toggleLabelRight: {
+    textAlign: 'right',
   },
   toggleLabelActive: {
     color: BRAND.colors.mossGreen,
@@ -737,10 +790,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 16,
     right: 16,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    padding: 8,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
