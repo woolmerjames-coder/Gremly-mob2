@@ -327,6 +327,98 @@ describe('getFrequencyLabel', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('groupHabitsForSweep', () => {
+  // Helper to create weekly progress entries within the current week
+  const createWeeklyProgress = (
+    habitId: string,
+    count: number,
+    includeToday: boolean = false,
+  ): HabitProgressRow[] => {
+    const today = getTodayDateString(); // Use local date from dateService
+    const progress: HabitProgressRow[] = [];
+
+    // Get current day of week (0=Sun, 6=Sat)
+    const todayDate = new Date(today + 'T12:00:00'); // Parse as local noon
+    const dayOfWeek = todayDate.getDay();
+    // Days since Monday (Mon=0, Tue=1, ..., Sun=6)
+    const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+    for (let i = 0; i < count; i++) {
+      // If includeToday is false, start from yesterday
+      let daysAgo = includeToday ? i : i + 1;
+
+      // Clamp to stay within current week (don't go before Monday)
+      if (daysAgo > daysSinceMonday) {
+        daysAgo = daysSinceMonday;
+      }
+
+      // Calculate date using local date math
+      const date = new Date(today + 'T12:00:00');
+      date.setDate(date.getDate() - daysAgo);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+
+      progress.push({
+        id: `progress-${i}`,
+        habit_id: habitId,
+        owner_id: 'user-1',
+        occurred_day: dateStr,
+        occurred_at: new Date().toISOString(),
+        count: 1,
+        occurrence_index: null,
+      });
+    }
+
+    return progress;
+  };
+
+  // Helper to create monthly progress entries within the current month
+  const createMonthlyProgress = (
+    habitId: string,
+    count: number,
+    includeToday: boolean = false,
+  ): HabitProgressRow[] => {
+    const today = getTodayDateString(); // Use local date from dateService
+    const progress: HabitProgressRow[] = [];
+
+    // Get day of month
+    const todayDate = new Date(today + 'T12:00:00'); // Parse as local noon
+    const dayOfMonth = todayDate.getDate();
+    // Days since start of month (1st = 0 days since, 2nd = 1 day since, etc.)
+    const daysSinceMonthStart = dayOfMonth - 1;
+
+    for (let i = 0; i < count; i++) {
+      // If includeToday is false, start from yesterday
+      let daysAgo = includeToday ? i : i + 1;
+
+      // Clamp to stay within current month
+      if (daysAgo > daysSinceMonthStart) {
+        daysAgo = daysSinceMonthStart;
+      }
+
+      // Calculate date using local date math
+      const date = new Date(today + 'T12:00:00');
+      date.setDate(date.getDate() - daysAgo);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+
+      progress.push({
+        id: `progress-${i}`,
+        habit_id: habitId,
+        owner_id: 'user-1',
+        occurred_day: dateStr,
+        occurred_at: new Date().toISOString(),
+        count: 1,
+        occurrence_index: null,
+      });
+    }
+
+    return progress;
+  };
+
   it('groups habits by their cadence', () => {
     const habits: Partial<Habit>[] = [
       { id: '1', name: 'Daily Habit', cadence: 'daily', target_per_period: 1 },
@@ -369,5 +461,196 @@ describe('groupHabitsForSweep', () => {
     // Completed daily habit should be in completed group
     expect(result.completed.length).toBe(1);
     expect(result.daily.length).toBe(0);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // isAheadOfTarget Tests (sweep-refinements-1.13 branch)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('isAheadOfTarget field', () => {
+    it('sets isAheadOfTarget=true for weekly habit at target', () => {
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Weekly Habit', cadence: 'weekly', target_per_period: 3 },
+      ];
+      // 3 completions this week but NOT today
+      const progress = createWeeklyProgress('1', 3, false);
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+      // Should still be in weekly section (not completed because not done today)
+      expect(result.weekly.length).toBe(1);
+      expect(result.weekly[0].isAheadOfTarget).toBe(true);
+    });
+
+    it('sets isAheadOfTarget=true for weekly habit over target', () => {
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Weekly Habit', cadence: 'weekly', target_per_period: 3 },
+      ];
+      // 4 completions this week (over target)
+      const progress = createWeeklyProgress('1', 4, false);
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+      expect(result.weekly.length).toBe(1);
+      expect(result.weekly[0].isAheadOfTarget).toBe(true);
+    });
+
+    it('sets isAheadOfTarget=false for weekly habit under target', () => {
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Weekly Habit', cadence: 'weekly', target_per_period: 3 },
+      ];
+      // 2 completions this week (under target)
+      const progress = createWeeklyProgress('1', 2, false);
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+      expect(result.weekly.length).toBe(1);
+      expect(result.weekly[0].isAheadOfTarget).toBe(false);
+    });
+
+    it('sets isAheadOfTarget=false for daily habits (always)', () => {
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Daily Habit', cadence: 'daily', target_per_period: 1 },
+      ];
+      const progress: HabitProgressRow[] = [];
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+      expect(result.daily.length).toBe(1);
+      expect(result.daily[0].isAheadOfTarget).toBe(false);
+    });
+
+    it('sets isAheadOfTarget=false for completed daily habits', () => {
+      const today = getTodayDateString();
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Daily Habit', cadence: 'daily', target_per_period: 1 },
+      ];
+      const progress: HabitProgressRow[] = [
+        {
+          id: '1',
+          habit_id: '1',
+          owner_id: 'user-1',
+          occurred_day: today,
+          occurred_at: new Date().toISOString(),
+          count: 1,
+          occurrence_index: null,
+        },
+      ];
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+      expect(result.completed.length).toBe(1);
+      expect(result.completed[0].isAheadOfTarget).toBe(false);
+    });
+
+    it('sets isAheadOfTarget=true for monthly habit at target', () => {
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Monthly Habit', cadence: 'monthly', target_per_period: 2 },
+      ];
+      // 2 completions this month (at target)
+      const progress = createMonthlyProgress('1', 2, false);
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+      expect(result.monthly.length).toBe(1);
+      expect(result.monthly[0].isAheadOfTarget).toBe(true);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Completed TODAY vs Completed for Period (sweep-refinements-1.13 branch)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('grouping by completed TODAY (not completed for period)', () => {
+    it('keeps ahead weekly habits visible (not in completed) if not done today', () => {
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Weekly Habit', cadence: 'weekly', target_per_period: 3 },
+      ];
+      // 3 completions but NOT today - habit is "ahead" but still visible
+      const progress = createWeeklyProgress('1', 3, false);
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+
+      expect(result.weekly.length).toBe(1); // Still in weekly section
+      expect(result.completed.length).toBe(0); // NOT in completed
+      expect(result.weekly[0].isAheadOfTarget).toBe(true);
+      expect(result.weekly[0].isCompletedForPeriod).toBe(true);
+      expect(result.weekly[0].isCompletedToday).toBe(false);
+    });
+
+    it('moves weekly habit to completed if done today (even if under target)', () => {
+      const today = getTodayDateString();
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Weekly Habit', cadence: 'weekly', target_per_period: 3 },
+      ];
+      // Only 1 completion and it's today
+      const progress: HabitProgressRow[] = [
+        {
+          id: '1',
+          habit_id: '1',
+          owner_id: 'user-1',
+          occurred_day: today,
+          occurred_at: new Date().toISOString(),
+          count: 1,
+          occurrence_index: null,
+        },
+      ];
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+
+      expect(result.completed.length).toBe(1); // In completed because done today
+      expect(result.weekly.length).toBe(0);
+      expect(result.completed[0].isCompletedToday).toBe(true);
+      expect(result.completed[0].isAheadOfTarget).toBe(false); // Not at target yet
+    });
+
+    it('moves habit to completed only if completed TODAY', () => {
+      const today = getTodayDateString();
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Daily Habit', cadence: 'daily', target_per_period: 1 },
+      ];
+      const progress: HabitProgressRow[] = [
+        {
+          id: '1',
+          habit_id: '1',
+          owner_id: 'user-1',
+          occurred_day: today, // Completed TODAY
+          occurred_at: new Date().toISOString(),
+          count: 1,
+          occurrence_index: null,
+        },
+      ];
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+
+      expect(result.completed.length).toBe(1);
+      expect(result.daily.length).toBe(0);
+    });
+
+    it('keeps daily habit visible if completed yesterday (not today)', () => {
+      // Calculate yesterday using local date
+      const today = getTodayDateString();
+      const todayDate = new Date(today + 'T12:00:00'); // Parse as local noon
+      todayDate.setDate(todayDate.getDate() - 1);
+      const year = todayDate.getFullYear();
+      const month = String(todayDate.getMonth() + 1).padStart(2, '0');
+      const day = String(todayDate.getDate()).padStart(2, '0');
+      const yesterdayStr = `${year}-${month}-${day}`;
+
+      const habits: Partial<Habit>[] = [
+        { id: '1', name: 'Daily Habit', cadence: 'daily', target_per_period: 1 },
+      ];
+      const progress: HabitProgressRow[] = [
+        {
+          id: '1',
+          habit_id: '1',
+          owner_id: 'user-1',
+          occurred_day: yesterdayStr, // Completed YESTERDAY (local time)
+          occurred_at: new Date().toISOString(),
+          count: 1,
+          occurrence_index: null,
+        },
+      ];
+
+      const result = groupHabitsForSweep(habits as Habit[], progress);
+
+      expect(result.daily.length).toBe(1); // Still visible in daily
+      expect(result.completed.length).toBe(0); // NOT in completed
+      expect(result.daily[0].isCompletedToday).toBe(false);
+    });
   });
 });

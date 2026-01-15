@@ -109,6 +109,221 @@ describe('DateService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
+  // NEW CONVENIENCE METHODS (sweep-refinements-1.13 branch)
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe('today()', () => {
+    it('returns current date in YYYY-MM-DD format', () => {
+      expect(service.today()).toBe('2025-12-22');
+    });
+
+    it('is equivalent to getCurrentDate()', () => {
+      expect(service.today()).toBe(service.getCurrentDate());
+    });
+
+    it('uses injectable clock', () => {
+      const afternoonService = createDateService({
+        clock: () => new Date('2025-12-25T23:59:59'),
+      });
+      expect(afternoonService.today()).toBe('2025-12-25');
+    });
+  });
+
+  describe('tomorrow()', () => {
+    it('returns next day in YYYY-MM-DD format', () => {
+      expect(service.tomorrow()).toBe('2025-12-23');
+    });
+
+    it('handles month boundary', () => {
+      const monthEndService = createDateService({
+        clock: () => new Date('2025-12-31T10:00:00'),
+      });
+      expect(monthEndService.tomorrow()).toBe('2026-01-01');
+    });
+
+    it('handles year boundary', () => {
+      const yearEndService = createDateService({
+        clock: () => new Date('2025-12-31T10:00:00'),
+      });
+      expect(yearEndService.tomorrow()).toBe('2026-01-01');
+    });
+  });
+
+  describe('yesterday()', () => {
+    it('returns previous day in YYYY-MM-DD format', () => {
+      expect(service.yesterday()).toBe('2025-12-21');
+    });
+
+    it('handles month boundary', () => {
+      const monthStartService = createDateService({
+        clock: () => new Date('2025-01-01T10:00:00'),
+      });
+      expect(monthStartService.yesterday()).toBe('2024-12-31');
+    });
+  });
+
+  describe('daysAgo()', () => {
+    it('returns date N days in past', () => {
+      expect(service.daysAgo(7)).toBe('2025-12-15');
+    });
+
+    it('handles 0 days ago (today)', () => {
+      expect(service.daysAgo(0)).toBe('2025-12-22');
+    });
+
+    it('handles 1 day ago (yesterday)', () => {
+      expect(service.daysAgo(1)).toBe('2025-12-21');
+    });
+
+    it('handles month boundary', () => {
+      expect(service.daysAgo(22)).toBe('2025-11-30');
+    });
+  });
+
+  describe('daysFromNow()', () => {
+    it('returns date N days in future', () => {
+      expect(service.daysFromNow(7)).toBe('2025-12-29');
+    });
+
+    it('handles 0 days from now (today)', () => {
+      expect(service.daysFromNow(0)).toBe('2025-12-22');
+    });
+
+    it('handles 1 day from now (tomorrow)', () => {
+      expect(service.daysFromNow(1)).toBe('2025-12-23');
+    });
+
+    it('handles month boundary', () => {
+      expect(service.daysFromNow(10)).toBe('2026-01-01');
+    });
+  });
+
+  describe('getHour()', () => {
+    it('returns hour 0-23 from injected clock', () => {
+      expect(service.getHour()).toBe(10); // 10am from fixture
+    });
+
+    it('handles midnight', () => {
+      const midnightService = createDateService({
+        clock: () => new Date('2025-12-22T00:30:00'),
+      });
+      expect(midnightService.getHour()).toBe(0);
+    });
+
+    it('handles evening', () => {
+      const eveningService = createDateService({
+        clock: () => new Date('2025-12-22T20:45:00'),
+      });
+      expect(eveningService.getHour()).toBe(20);
+    });
+
+    it('handles near-midnight', () => {
+      const lateService = createDateService({
+        clock: () => new Date('2025-12-22T23:59:59'),
+      });
+      expect(lateService.getHour()).toBe(23);
+    });
+  });
+
+  describe('getStartOfWeek()', () => {
+    it('returns Monday of current week', () => {
+      // Dec 22, 2025 is Monday
+      expect(service.getStartOfWeek()).toBe('2025-12-22');
+    });
+
+    it('returns Monday when today is Tuesday', () => {
+      const tuesdayService = createDateService({
+        clock: () => new Date('2025-12-23T10:00:00'), // Tuesday
+      });
+      expect(tuesdayService.getStartOfWeek()).toBe('2025-12-22');
+    });
+
+    it('returns Monday when today is Friday', () => {
+      const fridayService = createDateService({
+        clock: () => new Date('2025-12-26T10:00:00'), // Friday
+      });
+      expect(fridayService.getStartOfWeek()).toBe('2025-12-22');
+    });
+
+    it('returns Monday when today is Sunday', () => {
+      const sundayService = createDateService({
+        clock: () => new Date('2025-12-28T10:00:00'), // Sunday
+      });
+      expect(sundayService.getStartOfWeek()).toBe('2025-12-22');
+    });
+
+    it('returns previous Monday when in next week', () => {
+      const nextWeekService = createDateService({
+        clock: () => new Date('2025-12-30T10:00:00'), // Tuesday next week
+      });
+      expect(nextWeekService.getStartOfWeek()).toBe('2025-12-29');
+    });
+  });
+
+  describe('nowTimestamp()', () => {
+    it('returns ISO timestamp string', () => {
+      const result = service.nowTimestamp();
+      expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    });
+
+    it('includes timezone indicator', () => {
+      const result = service.nowTimestamp();
+      // Should end with Z or timezone offset
+      expect(result).toMatch(/(Z|[+-]\d{2}:\d{2})$/);
+    });
+  });
+
+  describe('extractLocalDate()', () => {
+    it('extracts YYYY-MM-DD from ISO timestamp', () => {
+      expect(service.extractLocalDate('2025-12-22T18:30:00.000Z')).toBe('2025-12-22');
+    });
+
+    it('extracts date from timestamp without Z suffix', () => {
+      expect(service.extractLocalDate('2025-12-22T18:30:00')).toBe('2025-12-22');
+    });
+
+    it('returns null for null input', () => {
+      expect(service.extractLocalDate(null)).toBeNull();
+    });
+
+    it('returns null for undefined input', () => {
+      expect(service.extractLocalDate(undefined)).toBeNull();
+    });
+
+    it('returns null for empty string', () => {
+      expect(service.extractLocalDate('')).toBeNull();
+    });
+
+    it('returns null for invalid format', () => {
+      expect(service.extractLocalDate('not-a-date')).toBeNull();
+    });
+
+    it('handles date-only string (passes through)', () => {
+      expect(service.extractLocalDate('2025-12-22')).toBe('2025-12-22');
+    });
+  });
+
+  describe('toLocalDate()', () => {
+    it('converts Date to YYYY-MM-DD in local timezone', () => {
+      const date = new Date(2025, 11, 22, 14, 30); // Dec 22, 2025 2:30pm
+      expect(service.toLocalDate(date)).toBe('2025-12-22');
+    });
+
+    it('returns empty string for null', () => {
+      expect(service.toLocalDate(null)).toBe('');
+    });
+
+    it('returns empty string for undefined', () => {
+      expect(service.toLocalDate(undefined)).toBe('');
+    });
+
+    it('pads single-digit month and day', () => {
+      const date = new Date(2025, 0, 5, 10, 0); // Jan 5, 2025
+      expect(service.toLocalDate(date)).toBe('2025-01-05');
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
   // PARSING - Multi-Stage Pipeline
   // ═══════════════════════════════════════════════════════════════════
 

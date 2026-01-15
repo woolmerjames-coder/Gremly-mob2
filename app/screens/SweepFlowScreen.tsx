@@ -1189,6 +1189,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    * (state updates may not have been applied yet in the same render cycle).
    */
   const commitAllDecisions = useCallback(async () => {
+    const ds = getDateService();
     const updates: Promise<void>[] = [];
     let keptCount = 0;
     let clearedCount = 0;
@@ -1208,7 +1209,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         keptCount++;
         if (decision.candidateKind === 'todo' && decision.resurfaceDate) {
           // Handle resurface date (remind me later)
-          const resurfaceDateStr = decision.resurfaceDate.toISOString().split('T')[0];
+          const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
           console.log('[SweepFlowScreen] Setting resurface_at:', resurfaceDateStr);
 
           updates.push(
@@ -1228,7 +1229,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         } else if (decision.candidateKind === 'habit' && decision.startDate) {
           updates.push(
             updateHabit(decision.candidateId, {
-              start_date: decision.startDate.toISOString().split('T')[0],
+              start_date: ds.toLocalDate(decision.startDate),
               start_date_confirmed: true,
             }),
           );
@@ -1237,7 +1238,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           // Mark as swept so it doesn't reappear in sweep
           if (decision.resurfaceDate) {
             // "Remind Me" - set resurface date
-            const resurfaceDateStr = decision.resurfaceDate.toISOString().split('T')[0];
+            const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
             console.log('[SweepFlowScreen] Setting note resurface_at:', resurfaceDateStr);
             updates.push(
               updateNote(decision.candidateId, {
@@ -2302,6 +2303,7 @@ function SweepSummaryStep({
   journalWritten,
   onDone,
 }: SummaryStepProps) {
+  const ds = getDateService();
   const totalProcessed = keptCount + clearedCount;
 
   // Sweep streak from Zustand
@@ -2313,9 +2315,7 @@ function SweepSummaryStep({
 
   // Tomorrow's items - memoized to prevent infinite loops
   const tomorrowTodos = useMemo(() => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const tomorrowStr = ds.tomorrow();
     return allTodos.filter((t) => !t.archived && !t.completed_at && t.due_day === tomorrowStr);
   }, [allTodos]);
 

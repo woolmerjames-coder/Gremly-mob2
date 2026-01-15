@@ -28,6 +28,7 @@ import { X, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useSweepCandidatesUnified } from '../../lib/store/selectors';
+import { getDateService } from '../../lib/date';
 import { supabase } from '../../lib/supabase/client';
 import { useAuth } from '../../providers/AuthProvider';
 
@@ -37,21 +38,17 @@ import { useAuth } from '../../providers/AuthProvider';
 
 /** Get YYYY-MM-DD for today */
 function getTodayDate(): string {
-  return new Date().toISOString().split('T')[0];
+  return getDateService().today();
 }
 
 /** Get YYYY-MM-DD for yesterday */
 function getYesterdayDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
+  return getDateService().yesterday();
 }
 
 /** Get YYYY-MM-DD for tomorrow */
 function getTomorrowDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().split('T')[0];
+  return getDateService().tomorrow();
 }
 
 // =============================================================================
