@@ -26,7 +26,7 @@ import * as Haptics from 'expo-haptics';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { Icon } from '../../design-system/Icon';
-import { Flame, RefreshCw, Calendar } from 'lucide-react-native';
+import { Flame, RefreshCw, Calendar, Trophy } from 'lucide-react-native';
 
 // Gremly avatar for the slider
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -50,6 +50,17 @@ const CONFIRM_MESSAGES = [
   'Crushed it',
 ];
 
+// Bonus messages - shown when completing a habit already ahead of target
+const BONUS_MESSAGES = [
+  'BONUS!',
+  'Extra credit',
+  'Overachiever',
+  'Going hard',
+  'Legend',
+  'Above & beyond',
+  'On fire 🔥',
+];
+
 export interface SweepHabitRowProps {
   id: string;
   name: string;
@@ -61,6 +72,9 @@ export interface SweepHabitRowProps {
   // For weekly/monthly habits: progress toward target
   completedThisPeriod?: number;
   targetPerPeriod?: number;
+
+  // True if habit has met/exceeded target for the period (weekly/monthly)
+  isAheadOfTarget?: boolean;
 
   // Frequency display text (e.g., "Every day", "3x per week")
   frequencyLabel: string;
@@ -82,6 +96,7 @@ export function SweepHabitRow({
   streakDays,
   completedThisPeriod = 0,
   targetPerPeriod = 1,
+  isAheadOfTarget = false,
   frequencyLabel,
   isCompleted,
   onToggle,
@@ -130,7 +145,9 @@ export function SweepHabitRow({
         // Completing - show confirmation
         triggerHaptic('success');
 
-        const msg = CONFIRM_MESSAGES[Math.floor(Math.random() * CONFIRM_MESSAGES.length)];
+        // Use bonus messages if already ahead of target
+        const messages = isAheadOfTarget ? BONUS_MESSAGES : CONFIRM_MESSAGES;
+        const msg = messages[Math.floor(Math.random() * messages.length)];
         setConfirmMessage(msg);
 
         confirmTextOpacity.value = 0;
@@ -151,7 +168,7 @@ export function SweepHabitRow({
 
       onToggle(id, completed);
     },
-    [id, onToggle, triggerHaptic, confirmTextOpacity, confirmTextScale, checkScale],
+    [id, onToggle, triggerHaptic, confirmTextOpacity, confirmTextScale, checkScale, isAheadOfTarget],
   );
 
   // Pan gesture for dragging Gremly
@@ -255,22 +272,24 @@ export function SweepHabitRow({
   // Build metadata string
   const metadataDisplay = useMemo(() => {
     if (cadence === 'daily' && streakDays !== undefined && streakDays > 0) {
-      return { iconType: 'flame' as const, text: `${streakDays}`, isStreak: true };
+      return { iconType: 'flame' as const, text: `${streakDays}`, isStreak: true, isAhead: false };
     } else if (cadence === 'weekly') {
       return {
         iconType: 'refresh' as const,
         text: `${completedThisPeriod}/${targetPerPeriod}`,
         isStreak: false,
+        isAhead: isAheadOfTarget,
       };
     } else if (cadence === 'monthly') {
       return {
         iconType: 'calendar' as const,
         text: `${completedThisPeriod}/${targetPerPeriod}`,
         isStreak: false,
+        isAhead: isAheadOfTarget,
       };
     }
     return null;
-  }, [cadence, streakDays, completedThisPeriod, targetPerPeriod]);
+  }, [cadence, streakDays, completedThisPeriod, targetPerPeriod, isAheadOfTarget]);
 
   return (
     <View style={[styles.container, showDivider && styles.withDivider]}>
@@ -313,16 +332,22 @@ export function SweepHabitRow({
         {/* Metadata (streak or progress) */}
         {metadataDisplay && (
           <View style={styles.metadataContainer}>
+            {metadataDisplay.isAhead && (
+              <View style={styles.aheadBadge}>
+                <Trophy size={14} color={BRAND.colors.goldenPear} />
+                <Text style={styles.aheadBadgeText}>Ahead</Text>
+              </View>
+            )}
             {metadataDisplay.iconType === 'flame' && (
               <Flame size={12} color={BRAND.colors.goldenPear} strokeWidth={2.5} />
             )}
             {metadataDisplay.iconType === 'refresh' && (
-              <RefreshCw size={12} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+              <RefreshCw size={12} color={metadataDisplay.isAhead ? BRAND.colors.goldenPear : BRAND.colors.mossGreen} strokeWidth={2.5} />
             )}
             {metadataDisplay.iconType === 'calendar' && (
-              <Calendar size={12} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+              <Calendar size={12} color={metadataDisplay.isAhead ? BRAND.colors.goldenPear : BRAND.colors.mossGreen} strokeWidth={2.5} />
             )}
-            <Text style={[styles.metadataText, metadataDisplay.isStreak && styles.metadataStreak]}>
+            <Text style={[styles.metadataText, (metadataDisplay.isStreak || metadataDisplay.isAhead) && styles.metadataStreak]}>
               {metadataDisplay.text}
             </Text>
           </View>
@@ -433,6 +458,21 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
   },
   metadataStreak: {
+    color: BRAND.colors.goldenPear,
+  },
+  aheadBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(212, 175, 55, 0.15)', // goldenPear at 15% opacity
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 6,
+  },
+  aheadBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
     color: BRAND.colors.goldenPear,
   },
 });

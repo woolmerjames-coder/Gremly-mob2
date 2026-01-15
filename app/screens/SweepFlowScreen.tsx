@@ -869,6 +869,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
           streakDays={item.streakDays}
           completedThisPeriod={item.completedThisPeriod}
           targetPerPeriod={item.targetPerPeriod}
+          isAheadOfTarget={item.isAheadOfTarget}
           frequencyLabel={item.frequencyLabel}
           isCompleted={isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday)}
           onToggle={handleToggle}
@@ -2728,43 +2729,56 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   // Handle lock-in checkpoint decisions
   const handleLockInContinue = useCallback(
-    async (decisions: Map<string, 'done' | 'tomorrow' | 'archive'>) => {
-      const { updateTodo, archiveTodo, archiveHabit, completeHabit } = useGremlyStore.getState();
-      const ds = getDateService();
-      const tomorrow = ds.addDays(ds.getCurrentDate(), 1);
-
-      for (const [itemId, decision] of decisions) {
-        const item = lockedItems.find((i) => i.id === itemId);
-        if (!item) continue;
-
-        const isTodo = 'name' in item && !('frequency' in item);
-
-        switch (decision) {
-          case 'done':
-            if (isTodo) {
-              await updateTodo(itemId, { completed_at: new Date().toISOString() });
-            } else {
-              await completeHabit(itemId);
-            }
-            break;
-          case 'tomorrow':
-            if (isTodo) {
-              await updateTodo(itemId, { due_day: tomorrow, due_date: tomorrow });
-            }
-            // Habits automatically stay locked for tomorrow
-            break;
-          case 'archive':
-            if (isTodo) {
-              await archiveTodo(itemId);
-            } else {
-              await archiveHabit(itemId);
-            }
-            break;
-        }
-      }
-
+    (decisions: Map<string, 'done' | 'tomorrow' | 'archive'>) => {
+      // Navigate IMMEDIATELY - don't wait for processing
       setLockInCheckpointComplete(true);
       setStep(1); // Proceed to decision cards
+
+      // Process decisions in background (fire and forget)
+      const processDecisions = async () => {
+        const { updateTodo, archiveTodo, archiveHabit, completeHabit } = useGremlyStore.getState();
+        const ds = getDateService();
+        const tomorrow = ds.addDays(ds.getCurrentDate(), 1);
+
+        for (const [itemId, decision] of decisions) {
+          const item = lockedItems.find((i) => i.id === itemId);
+          if (!item) continue;
+
+          const isTodo = 'name' in item && !('frequency' in item);
+
+          try {
+            switch (decision) {
+              case 'done':
+                if (isTodo) {
+                  await updateTodo(itemId, { completed_at: new Date().toISOString() });
+                } else {
+                  await completeHabit(itemId);
+                }
+                break;
+              case 'tomorrow':
+                if (isTodo) {
+                  await updateTodo(itemId, { due_day: tomorrow, due_date: tomorrow });
+                }
+                // Habits automatically stay locked for tomorrow
+                break;
+              case 'archive':
+                if (isTodo) {
+                  await archiveTodo(itemId);
+                } else {
+                  await archiveHabit(itemId);
+                }
+                break;
+            }
+          } catch (err) {
+            console.warn('[LockIn] Failed to process decision for', itemId, err);
+          }
+        }
+      };
+
+      // Fire and forget - don't block navigation
+      processDecisions().catch((err) => {
+        console.warn('[LockIn] Failed to process decisions:', err);
+      });
     },
     [lockedItems],
   );

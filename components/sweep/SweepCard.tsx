@@ -80,6 +80,10 @@ import type { Space } from '../../lib/types';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const LOCKIN_ICON = require('../../assets/lockin_icon.png');
 
+// Gremly face for confirmation feedback
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_FACE = require('../../assets/buttonforHP.png');
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CTA Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -98,6 +102,7 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 const SWIPE_THRESHOLD = 100; // Reduced for card-based swiping
 const SWIPE_OUT_DISTANCE = SCREEN_WIDTH; // Animate card off to the side
 const VELOCITY_THRESHOLD = 400; // Velocity that can trigger swipe even if threshold not met
+const CARD_EXIT_DELAY = 350; // Delay before next card (ms) - lets user see confirmation
 const CARD_WIDTH = SCREEN_WIDTH * 0.84; // 84% of screen width - leaves room for edge labels
 
 // Behind-card confirmation messages (revealed as card moves)
@@ -815,17 +820,18 @@ export function SweepCard({
       translateX.value = withSpring(
         toValue,
         {
-          damping: 20,
-          stiffness: 200,
+          damping: 15, // Slower exit (was 20)
+          stiffness: 120, // Slower exit (was 200)
           overshootClamping: true,
         },
         (finished) => {
           if (finished) {
-            runOnJS(callback)();
+            // Delay before advancing to next card so user can see confirmation
+            runOnJS(setTimeout)(() => runOnJS(callback)(), CARD_EXIT_DELAY);
           }
         },
       );
-      cardOpacity.value = withTiming(0, { duration: 200 });
+      cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade (was 200)
     },
     [translateX, cardOpacity],
   );
@@ -989,12 +995,19 @@ export function SweepCard({
     onClear();
   }, [onClear]);
 
+  // Haptic trigger for drag start (subtle tick)
+  const triggerDragStartHaptic = useCallback(() => {
+    Haptics.selectionAsync();
+  }, []);
+
   // Pan gesture for swiping - now tracks drag state
   const panGesture = Gesture.Pan()
     .activeOffsetX([-10, 10]) // Only activate for horizontal movement
     .failOffsetY([-15, 15]) // Fail if vertical movement is dominant
     .onStart(() => {
       isDragging.value = true;
+      // Subtle tick when user starts dragging
+      runOnJS(triggerDragStartHaptic)();
       // Fade in border
       borderOpacity.value = withTiming(1, { duration: 150 });
     })
@@ -1006,11 +1019,12 @@ export function SweepCard({
         runOnJS(onSwipeProgress)(event.translationX / SWIPE_THRESHOLD);
       }
 
-      // Trigger haptic at 80% threshold (once)
+      // Trigger haptic when crossing threshold during drag
       const progress = Math.abs(event.translationX) / SWIPE_THRESHOLD;
       if (progress >= 0.8 && !hasTriggeredHaptic.value) {
         hasTriggeredHaptic.value = true;
-        runOnJS(triggerHaptic)('medium');
+        // Light haptic at threshold crossing - signals "committed to swipe"
+        runOnJS(triggerHaptic)('light');
       } else if (progress < 0.5) {
         // Reset when user pulls back past halfway
         hasTriggeredHaptic.value = false;
@@ -1034,33 +1048,35 @@ export function SweepCard({
         translationX < -SWIPE_THRESHOLD || (translationX < -50 && velocityX < -VELOCITY_THRESHOLD);
 
       if (swipedRight) {
-        // Success haptic on commit
+        // Satisfying success notification for "keeping" - positive action
         runOnJS(triggerHaptic)('success');
         // Swiped right past threshold → animate out and call JS handler
         translateX.value = withSpring(
           SWIPE_OUT_DISTANCE,
-          { damping: 20, stiffness: 200, overshootClamping: true },
+          { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
           (finished) => {
             if (finished) {
-              runOnJS(handleSwipeRight)();
+              // Delay before advancing to next card
+              runOnJS(setTimeout)(() => runOnJS(handleSwipeRight)(), CARD_EXIT_DELAY);
             }
           },
         );
-        cardOpacity.value = withTiming(0, { duration: 200 });
+        cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
       } else if (swipedLeft) {
-        // Success haptic on commit
-        runOnJS(triggerHaptic)('success');
+        // Firmer medium impact for "letting go" - decisive action
+        runOnJS(triggerHaptic)('medium');
         // Swiped left past threshold → animate out and call JS handler
         translateX.value = withSpring(
           -SWIPE_OUT_DISTANCE,
-          { damping: 20, stiffness: 200, overshootClamping: true },
+          { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
           (finished) => {
             if (finished) {
-              runOnJS(handleSwipeLeft)();
+              // Delay before advancing to next card
+              runOnJS(setTimeout)(() => runOnJS(handleSwipeLeft)(), CARD_EXIT_DELAY);
             }
           },
         );
-        cardOpacity.value = withTiming(0, { duration: 200 });
+        cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
       } else {
         // Didn't cross threshold → spring back to center
         translateX.value = withSpring(0, {
@@ -1140,6 +1156,26 @@ export function SweepCard({
     return { opacity };
   });
 
+  // Animated style for Gremly face (shown when swiping right, with scale-in)
+  const animatedGremlyFaceStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      translateX.value,
+      [0, SWIPE_THRESHOLD * 0.5, SWIPE_THRESHOLD],
+      [0, 0.5, 1],
+      Extrapolation.CLAMP,
+    );
+    const scale = interpolate(
+      translateX.value,
+      [0, SWIPE_THRESHOLD],
+      [0.5, 1],
+      Extrapolation.CLAMP,
+    );
+    return {
+      opacity: translateX.value > 0 ? opacity : 0,
+      transform: [{ scale }],
+    };
+  });
+
   // Animated style for "clear" text (shown when swiping left)
   const animatedClearTextStyle = useAnimatedStyle(() => {
     const opacity = translateX.value < 0 ? 1 : 0;
@@ -1156,12 +1192,13 @@ export function SweepCard({
     }
     translateX.value = withSpring(
       SWIPE_OUT_DISTANCE,
-      { damping: 20, stiffness: 200, overshootClamping: true },
+      { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
       (finished) => {
-        if (finished) runOnJS(onSkip)();
+        // Delay before advancing to next card
+        if (finished) runOnJS(setTimeout)(() => runOnJS(onSkip)(), CARD_EXIT_DELAY);
       },
     );
-    cardOpacity.value = withTiming(0, { duration: 200 });
+    cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
   }, [onSkip, translateX, cardOpacity]);
 
   const handleClearPress = useCallback(() => {
@@ -1172,12 +1209,13 @@ export function SweepCard({
     }
     translateX.value = withSpring(
       -SWIPE_OUT_DISTANCE,
-      { damping: 20, stiffness: 200, overshootClamping: true },
+      { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
       (finished) => {
-        if (finished) runOnJS(onClear)();
+        // Delay before advancing to next card
+        if (finished) runOnJS(setTimeout)(() => runOnJS(onClear)(), CARD_EXIT_DELAY);
       },
     );
-    cardOpacity.value = withTiming(0, { duration: 200 });
+    cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
   }, [onClear, translateX, cardOpacity]);
 
   return (
@@ -1186,6 +1224,14 @@ export function SweepCard({
       <View style={styles.cardCenteringContainer}>
         {/* Confirmation Card - sits behind main card, fades in as card moves */}
         <Animated.View style={[styles.confirmationCard, animatedConfirmationStyle]}>
+          {/* Gremly face - appears when swiping right */}
+          <Animated.View style={[styles.gremlyConfirmContainer, animatedGremlyFaceStyle]}>
+            <Image
+              source={GREMLY_FACE}
+              style={styles.gremlyConfirmFace}
+              resizeMode="contain"
+            />
+          </Animated.View>
           <Animated.Text style={[styles.confirmationCardText, animatedKeepTextStyle]}>
             {keepMessage}
           </Animated.Text>
@@ -2255,9 +2301,22 @@ const styles = StyleSheet.create({
     color: BRAND.colors.sageMist,
     letterSpacing: 3,
     textTransform: 'uppercase',
+    top: 100, // Push text below Gremly face
   },
   confirmationCardTextClear: {
     color: BRAND.colors.goldenPear,
+    top: 40, // Clear text stays higher (no Gremly face)
+  },
+  // Gremly face confirmation container
+  gremlyConfirmContainer: {
+    position: 'absolute',
+    top: -20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gremlyConfirmFace: {
+    width: 90,
+    height: 90,
   },
 
   // Card background variants
