@@ -39,7 +39,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
 import { Icon } from '../../design-system/Icon';
-import { Flame, Sparkles, Sprout } from 'lucide-react-native';
+import { Flame, Sparkles, Sprout, CheckCircle, Leaf, Moon } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
@@ -102,6 +102,8 @@ import { CompletionBadges } from '../../components/sweep/CompletionBadges';
 import { SweepCelebrationTransition } from '../../components/sweep/SweepCelebrationTransition';
 import { SweepInstructionsModal } from '../../components/sweep/SweepInstructionsModal';
 import { SweepCompletedModal } from '../../components/sweep/SweepCompletedModal';
+import { SweepEndCard } from '../../components/sweep/SweepEndCard';
+import { SweepEndItemList } from '../../components/sweep/SweepEndItemList';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -1209,20 +1211,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           console.log('[SweepFlowScreen] Setting resurface_at:', resurfaceDateStr);
 
           updates.push(
-            (async () => {
-              const { error } = await supabase
-                .from('todos')
-                .update({
-                  resurface_at: resurfaceDateStr,
-                  due_day: null,
-                  due_date: null,
-                })
-                .eq('id', decision.candidateId);
-
-              if (error) {
-                console.error('[SweepFlowScreen] Failed to update resurface_at:', error);
-              }
-            })(),
+            updateTodo(decision.candidateId, {
+              resurface_at: resurfaceDateStr,
+              due_day: null,
+              due_date: null,
+            } as any),
           );
         } else if (decision.candidateKind === 'todo' && decision.dueDate) {
           updates.push(
@@ -2310,138 +2303,46 @@ function SweepSummaryStep({
 }: SummaryStepProps) {
   const totalProcessed = keptCount + clearedCount;
 
-  // Track which sections are expanded
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  // Sweep streak from Zustand
+  const sweepStreak = useGremlyStore((state) => state.sweepStreak);
+
+  // Get raw data from store
+  const allTodos = useGremlyStore((state) => state.todos);
+  const allHabits = useGremlyStore((state) => state.habits);
+
+  // Tomorrow's items - memoized to prevent infinite loops
+  const tomorrowTodos = useMemo(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    return allTodos.filter((t) => !t.archived && !t.completed_at && t.due_day === tomorrowStr);
+  }, [allTodos]);
+
+  const tomorrowHabits = useMemo(() => {
+    return allHabits.filter((h) => !h.archived);
+  }, [allHabits]);
+
+  const hasTomorrow = tomorrowTodos.length > 0 || tomorrowHabits.length > 0;
+
+  const tomorrowSubtitle = useMemo(
+    () =>
+      [
+        tomorrowTodos.length > 0
+          ? `${tomorrowTodos.length} ${tomorrowTodos.length === 1 ? 'todo' : 'todos'}`
+          : null,
+        tomorrowHabits.length > 0
+          ? `${tomorrowHabits.length} ${tomorrowHabits.length === 1 ? 'habit' : 'habits'}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    [tomorrowTodos, tomorrowHabits],
+  );
 
   // Trigger haptic on mount
   useEffect(() => {
     triggerLight();
   }, []);
-
-  const toggleSection = (section: string) => {
-    setExpandedSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(section)) {
-        next.delete(section);
-      } else {
-        next.add(section);
-      }
-      return next;
-    });
-  };
-
-  // Calculate archived items
-  const archivedItems = useMemo(() => {
-    if (!items) return [];
-    return [
-      ...items.todos.filter((i) => i.outcome === 'cleared' || i.outcome === 'archived'),
-      ...items.thoughts.filter((i) => i.outcome === 'archived'),
-      ...items.habits.filter((i) => i.outcome === 'removed'),
-    ];
-  }, [items]);
-
-  // Format outcome for display
-  const formatOutcome = (item: SweepSummaryItem): string => {
-    switch (item.outcome) {
-      case 'scheduled':
-        return `→ Due ${item.scheduledDate}`;
-      case 'remind':
-        return `→ Remind ${item.scheduledDate}`;
-      case 'saved':
-        return '→ Saved';
-      case 'cleared':
-        return '→ Cleared';
-      case 'archived':
-        return '→ Archived';
-      case 'removed':
-        return '→ Removed';
-      case 'logged':
-        return '→ Done ✓';
-      case 'skipped':
-        return '→ Skipped';
-      default:
-        return '→ Kept';
-    }
-  };
-
-  // Render a summary section
-  const renderSection = (
-    title: string,
-    sectionKey: string,
-    sectionItems: SweepSummaryItem[] | undefined,
-  ) => {
-    if (!sectionItems || sectionItems.length === 0) return null;
-
-    const isExpanded = expandedSections.has(sectionKey);
-
-    return (
-      <View style={styles.summarySection} key={sectionKey}>
-        <TouchableOpacity
-          style={styles.summarySectionHeader}
-          onPress={() => toggleSection(sectionKey)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.summarySectionTitle}>
-            {sectionItems.length} {title}
-          </Text>
-          <Icon
-            name={isExpanded ? 'ChevronUp' : 'ChevronDown'}
-            size="sm"
-            color={BRAND.colors.inkMuted}
-          />
-        </TouchableOpacity>
-
-        {isExpanded && (
-          <View style={styles.summarySectionContent}>
-            {sectionItems.map((item) => (
-              <View key={item.id} style={styles.summaryItemRow}>
-                <Text style={styles.summaryItemName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={styles.summaryItemOutcome}>{formatOutcome(item)}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    );
-  };
-
-  // Render archived section
-  const renderArchivedSection = () => {
-    if (archivedItems.length === 0) return null;
-
-    const isExpanded = expandedSections.has('archived');
-
-    return (
-      <View style={styles.summarySection}>
-        <TouchableOpacity
-          style={styles.summarySectionHeader}
-          onPress={() => toggleSection('archived')}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.summarySectionTitle}>{archivedItems.length} items archived</Text>
-          <Icon
-            name={isExpanded ? 'ChevronUp' : 'ChevronDown'}
-            size="sm"
-            color={BRAND.colors.inkMuted}
-          />
-        </TouchableOpacity>
-
-        {isExpanded && (
-          <View style={styles.summarySectionContent}>
-            {archivedItems.map((item) => (
-              <View key={item.id} style={styles.summaryItemRow}>
-                <Text style={styles.summaryItemName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    );
-  };
 
   const showBadges = lockInTotal > 0 || habitsCheckedCount > 0 || journalWritten;
 
@@ -2452,11 +2353,6 @@ function SweepSummaryStep({
         contentContainerStyle={styles.summaryScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Title */}
-        <Text variant="title" style={styles.summaryTitle}>
-          Nice sweep!
-        </Text>
-
         {/* Gremly mascot - broom-riding */}
         <View style={styles.summaryMascotContainer}>
           <Image
@@ -2467,6 +2363,18 @@ function SweepSummaryStep({
             accessibilityLabel="Gremly mascot riding a broom"
           />
         </View>
+
+        {/* Title */}
+        <Text variant="title" style={styles.summaryTitle}>
+          Nice sweep!
+        </Text>
+
+        {/* Subtext */}
+        {totalProcessed > 0 && (
+          <Text style={styles.summarySubtext}>
+            Your mind is {totalProcessed} {totalProcessed === 1 ? 'item' : 'items'} lighter.
+          </Text>
+        )}
 
         {/* Completion Badges */}
         {showBadges && (
@@ -2484,19 +2392,113 @@ function SweepSummaryStep({
         {/* Expandable Summary */}
         {totalProcessed > 0 && items ? (
           <View style={styles.expandableSummaryContainer}>
-            <Text style={styles.summarySubheading}>Here's what you swept:</Text>
+            {(() => {
+              const sortedTodos = items.todos.filter(
+                (i) => i.outcome !== 'cleared' && i.outcome !== 'archived',
+              );
+              const sortedThoughts = items.thoughts.filter((i) => i.outcome !== 'archived');
+              const sortedHabits = items.habits.filter((i) => i.outcome !== 'removed');
+              const sortedCount = sortedTodos.length + sortedThoughts.length + sortedHabits.length;
 
-            {renderSection('to-dos', 'todos', items.todos)}
-            {renderSection('thoughts', 'thoughts', items.thoughts)}
-            {renderSection('habits', 'habits', items.habits)}
+              if (sortedCount === 0) return null;
 
-            {/* Cleared from your head section */}
-            {archivedItems.length > 0 && (
-              <>
-                <View style={styles.summaryDivider} />
-                <Text style={styles.summarySubheadingMuted}>Cleared from your head:</Text>
-                {renderArchivedSection()}
-              </>
+              return (
+                <SweepEndCard
+                  icon={<CheckCircle size={20} color={BRAND.colors.mossGreen} />}
+                  title={`${sortedCount} ${sortedCount === 1 ? 'item' : 'items'} sorted`}
+                  expandable={true}
+                >
+                  <SweepEndItemList
+                    todos={sortedTodos.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                      outcome: i.scheduledDate ? `Due ${i.scheduledDate}` : 'Saved',
+                    }))}
+                    notes={sortedThoughts.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                      outcome: i.scheduledDate ? `Remind ${i.scheduledDate}` : 'Saved',
+                    }))}
+                    habits={sortedHabits.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                      outcome:
+                        i.outcome === 'logged'
+                          ? 'Done ✓'
+                          : i.outcome === 'skipped'
+                            ? 'Skipped'
+                            : 'Kept',
+                    }))}
+                  />
+                </SweepEndCard>
+              );
+            })()}
+
+            {/* Things you let go section */}
+            {(() => {
+              const clearedTodos = items.todos.filter(
+                (i) => i.outcome === 'cleared' || i.outcome === 'archived',
+              );
+              const clearedThoughts = items.thoughts.filter((i) => i.outcome === 'archived');
+              const clearedHabits = items.habits.filter((i) => i.outcome === 'removed');
+              const clearedCount =
+                clearedTodos.length + clearedThoughts.length + clearedHabits.length;
+
+              if (clearedCount === 0) return null;
+
+              return (
+                <SweepEndCard
+                  icon={<Leaf size={20} color={BRAND.colors.goldenPear} />}
+                  title={`${clearedCount} ${clearedCount === 1 ? 'thing' : 'things'} let go`}
+                  expandable={true}
+                >
+                  <SweepEndItemList
+                    clearedItems={[
+                      ...clearedTodos.map((i) => ({
+                        id: i.id,
+                        name: i.name,
+                        type: 'todo' as const,
+                      })),
+                      ...clearedThoughts.map((i) => ({
+                        id: i.id,
+                        name: i.name,
+                        type: 'note' as const,
+                      })),
+                      ...clearedHabits.map((i) => ({
+                        id: i.id,
+                        name: i.name,
+                        type: 'habit' as const,
+                      })),
+                    ]}
+                  />
+                </SweepEndCard>
+              );
+            })()}
+
+            {/* Tomorrow's ready section */}
+            {hasTomorrow && (
+              <View style={styles.tomorrowSection}>
+                <Text style={styles.tomorrowHeader}>Tomorrow's looking good</Text>
+                <SweepEndCard
+                  icon={<Moon size={20} color={BRAND.colors.mossGreen} />}
+                  title={tomorrowSubtitle}
+                  expandable={true}
+                  variant="outline"
+                >
+                  <SweepEndItemList
+                    todos={tomorrowTodos.map((t) => ({
+                      id: t.id,
+                      name: t.name || 'Untitled',
+                      outcome: '',
+                    }))}
+                    habits={tomorrowHabits.map((h) => ({
+                      id: h.id,
+                      name: h.name || 'Untitled',
+                      outcome: '',
+                    }))}
+                  />
+                </SweepEndCard>
+              </View>
             )}
           </View>
         ) : (
@@ -2507,6 +2509,14 @@ function SweepSummaryStep({
           </View>
         )}
       </ScrollView>
+
+      {/* Streak display */}
+      {sweepStreak >= 1 && (
+        <View style={styles.streakContainer}>
+          <Flame size={16} color={BRAND.colors.goldenPear} />
+          <Text style={styles.streakText}>{sweepStreak} day streak</Text>
+        </View>
+      )}
 
       {/* Done Button */}
       <View style={styles.buttonContainer}>
@@ -3743,6 +3753,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     backgroundColor: BRAND.colors.linenCream,
   },
+  streakContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 20,
+    marginBottom: 8,
+    backgroundColor: BRAND.colors.linenCream,
+  },
+  streakText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
+  },
   wrapUpOpenItemsReminder: {
     fontSize: 13,
     fontWeight: '400',
@@ -4015,13 +4039,30 @@ const styles = StyleSheet.create({
   },
   summaryTitle: {
     textAlign: 'center',
-    marginTop: 24,
+    marginTop: 8,
     marginBottom: 8,
+  },
+  summarySubtext: {
+    fontSize: 16,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  tomorrowSection: {
+    marginTop: 24,
+    width: '100%',
+  },
+  tomorrowHeader: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 12,
   },
   summaryMascotContainer: {
     alignItems: 'center',
     marginTop: 8,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   summaryMascotImage: {
     width: 140,
