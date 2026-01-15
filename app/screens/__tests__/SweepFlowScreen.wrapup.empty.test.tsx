@@ -41,13 +41,16 @@ jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'test-user' }, userId: 'test-user-id' }),
 }));
 
+// Use a fixed test date to avoid timezone issues
+const TEST_DATE = '2025-01-14';
+
 // Mock useTodayEntries with NO HABITS for empty state testing
 // Include a todo to verify it doesn't appear (habits-only step)
 const mockTodo = {
   id: 'todo-1',
   type: 'todo' as const,
   name: 'Some todo that should not appear',
-  due_day: new Date().toISOString().split('T')[0],
+  due_day: TEST_DATE,
 };
 
 jest.mock('../../../lib/today/hooks/useTodayEntries', () => ({

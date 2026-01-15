@@ -10,6 +10,7 @@
  */
 
 import { renderHook } from '@testing-library/react-native';
+import { getDateService } from '../../lib/date';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock Setup
@@ -230,7 +231,8 @@ describe.skip('useTodayStats', () => {
     });
 
     it('excludes todos due today (not overdue)', () => {
-      const todayString = new Date().toISOString().split('T')[0];
+      const ds = getDateService();
+      const todayString = ds.today();
 
       const todayTodo = createMockSweepCandidate({
         id: 'todo-today',
@@ -246,9 +248,8 @@ describe.skip('useTodayStats', () => {
     });
 
     it('excludes todos due in the future', () => {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowString = tomorrow.toISOString().split('T')[0];
+      const ds = getDateService();
+      const tomorrowString = ds.tomorrow();
 
       const futureTodo = createMockSweepCandidate({
         id: 'todo-future',

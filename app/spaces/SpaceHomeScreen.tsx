@@ -342,7 +342,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const weekly = useMemo(() => {
     const start = startOfWeek(new Date());
     const weekDates = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
-    const weekISO = formatISO(start, { representation: 'date' });
+    const weekISO = dateService.toLocalDate(start);
 
     // Helper: Calculate weekly target from habit frequency
     const calculateWeeklyTarget = (habit: any): number => {
@@ -386,7 +386,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
     for (const h of storeHabits as any[]) {
       const flags = weekDates.map((d) => {
-        const iso = formatISO(d, { representation: 'date' });
+        const iso = dateService.toLocalDate(d);
         const day = (timelineDays || []).find((x: any) => x.dateISO === iso);
         const match = (day?.items || []).find((it: any) => it.type === 'habit' && it.id === h.id);
         return !!match?.done;
@@ -440,9 +440,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [layoutState, setLayoutState] = useState<LayoutState>({});
-  const [selectedDayISO, setSelectedDayISO] = useState<string>(() =>
-    dateService.today(),
-  );
+  const [selectedDayISO, setSelectedDayISO] = useState<string>(() => dateService.today());
   const [showTimeline, setShowTimeline] = useState(false);
   // Phase 5: Removed showCalendarV33, editGoalVisible, editGoalRecord, showNotepad, intentDraft, showPeople
   // Phase 5: Removed showUnifiedAdd, goalMenuId, renameChatModalOpen, renameChatId, renameChatTitle
@@ -1232,13 +1230,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           // Update existing
           await store.updateMilestone(milestone.id, {
             name,
-            date: targetDate.toISOString().split('T')[0],
+            date: dateService.toLocalDate(targetDate),
           });
         } else {
           // Create new
           await store.createMilestone(spaceId, {
             name,
-            date: targetDate.toISOString().split('T')[0],
+            date: dateService.toLocalDate(targetDate),
           });
         }
         // Store update triggers automatic UI refresh via subscription
@@ -2807,7 +2805,7 @@ function buildMockWeek(selectedISO: string) {
   const todayISO = dateService.today();
   return Array.from({ length: 7 }, (_, i) => {
     const d = addDays(start, i);
-    const iso = formatISO(d, { representation: 'date' });
+    const iso = dateService.toLocalDate(d);
     return {
       dateISO: iso,
       isActive: iso === todayISO,

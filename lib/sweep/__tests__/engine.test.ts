@@ -10,6 +10,7 @@
 
 import type { SweepAction } from '../engine';
 import type { SweepEntityKind } from '../types';
+import { getDateService } from '../../date';
 
 describe('SweepAction', () => {
   describe('keep action', () => {
@@ -206,9 +207,8 @@ describe('SweepCandidate isOverdue field', () => {
 
   // Helper to create a date string for a given offset from today
   function getDayString(daysOffset: number): string {
-    const date = new Date();
-    date.setDate(date.getDate() + daysOffset);
-    return date.toISOString().split('T')[0];
+    const ds = getDateService();
+    return daysOffset >= 0 ? ds.daysFromNow(daysOffset) : ds.daysAgo(-daysOffset);
   }
 
   // Helper to compute isOverdue using the same formula as engine.ts
@@ -546,9 +546,8 @@ describe('Due-today and overdue todos always in sweep', () => {
 
   // Helper to create date strings
   function getDayString(daysOffset: number): string {
-    const date = new Date();
-    date.setDate(date.getDate() + daysOffset);
-    return date.toISOString().split('T')[0];
+    const ds = getDateService();
+    return daysOffset >= 0 ? ds.daysFromNow(daysOffset) : ds.daysAgo(-daysOffset);
   }
 
   const todayDayString = getDayString(0);
@@ -650,7 +649,12 @@ describe('Due-today and overdue todos always in sweep', () => {
        * Todos without due dates follow normal sweep rules.
        * They have no deadline so cannot be "overdue".
        */
-      const noDueDateTodo: { id: string; due_day: string | null; created_at: string; skipped_in_sweep_at: null } = {
+      const noDueDateTodo: {
+        id: string;
+        due_day: string | null;
+        created_at: string;
+        skipped_in_sweep_at: null;
+      } = {
         id: 'no-due-date',
         due_day: null,
         created_at: `${lastWeekDayString}T10:00:00Z`,
@@ -658,7 +662,8 @@ describe('Due-today and overdue todos always in sweep', () => {
       };
 
       // With null due_day, the lte check would fail (null <= '2025-12-05' is falsy)
-      const shouldInclude = noDueDateTodo.due_day !== null && noDueDateTodo.due_day <= todayDayString;
+      const shouldInclude =
+        noDueDateTodo.due_day !== null && noDueDateTodo.due_day <= todayDayString;
       expect(shouldInclude).toBe(false);
     });
   });
@@ -725,9 +730,8 @@ describe('Mind Drop notes always appear in sweep once', () => {
 
   // Helper to create date strings
   function getDayString(daysOffset: number): string {
-    const date = new Date();
-    date.setDate(date.getDate() + daysOffset);
-    return date.toISOString().split('T')[0];
+    const ds = getDateService();
+    return daysOffset >= 0 ? ds.daysFromNow(daysOffset) : ds.daysAgo(-daysOffset);
   }
 
   const todayDayString = getDayString(0);
