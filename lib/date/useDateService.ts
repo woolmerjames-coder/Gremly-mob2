@@ -1,6 +1,9 @@
 import { useEffect } from 'react';
-import { DateService, dateService } from './DateService';
+import { DateService, dateService, LocalDateString, UtcTimestamp } from './DateService';
 import { useGremlyStore } from '../store/useGremlyStore';
+
+// Re-export branded types for consumers
+export type { LocalDateString, UtcTimestamp };
 
 /**
  * React hook for accessing DateService with Zustand store integration.
@@ -10,14 +13,18 @@ import { useGremlyStore } from '../store/useGremlyStore';
  * 2. Syncs with the Zustand store's userTimezone setting
  * 3. Automatically updates DateService when timezone changes
  *
- * Usage:
- *   const dateService = useDateService();
- *   const today = dateService.getCurrentDate();
- *   const parsed = dateService.parseNaturalDate('tomorrow');
- *   const chip = dateService.formatForChip('2025-12-25');
+ * @example
+ * ```tsx
+ * const dateService = useDateService();
+ * const today = dateService.today();
+ * const parsed = dateService.parseNaturalDate('tomorrow');
+ * const chip = dateService.formatForChip('2025-12-25');
+ * ```
  *
- * Or destructure common methods:
- *   const { getCurrentDate, parseNaturalDate, formatForChip } = useDateService();
+ * @example Destructure common methods
+ * ```tsx
+ * const { today, tomorrow, parseNaturalDate, formatForChip } = useDateService();
+ * ```
  */
 export function useDateService(): DateService {
   // Get timezone from store (may be undefined initially)
@@ -34,23 +41,73 @@ export function useDateService(): DateService {
 }
 
 /**
+ * Get today's date as a LocalDateString (YYYY-MM-DD).
+ * Convenience hook for components that only need the current date.
+ *
+ * ⚠️ This returns the date in the user's LOCAL timezone, not UTC.
+ *
+ * @returns LocalDateString - Today's date in "YYYY-MM-DD" format
+ *
+ * @example
+ * ```tsx
+ * const today = useToday(); // "2025-01-14"
+ *
+ * // Use for comparisons
+ * if (todo.due_day === today) {
+ *   // Due today
+ * }
+ * ```
+ */
+export function useToday(): string {
+  const service = useDateService();
+  return service.today();
+}
+
+/**
+ * Get the current UTC timestamp.
+ * Convenience hook for components that need a full ISO timestamp.
+ *
+ * @returns UtcTimestamp - Current time in ISO format "YYYY-MM-DDTHH:mm:ss.sssZ"
+ *
+ * @example
+ * ```tsx
+ * const timestamp = useNowTimestamp(); // "2025-01-14T18:30:00.000Z"
+ *
+ * // Use for database writes
+ * updateTodo({ completed_at: timestamp });
+ * ```
+ */
+export function useNowTimestamp(): string {
+  const service = useDateService();
+  return service.nowTimestamp();
+}
+
+/**
+ * @deprecated Use useToday() instead
+ *
  * Get the current date string (YYYY-MM-DD) using the DateService singleton.
  * Convenience hook for components that only need the current date.
  *
- * Usage:
- *   const today = useCurrentDate(); // "2025-12-22"
+ * @example
+ * ```tsx
+ * const today = useCurrentDate(); // "2025-01-14"
+ * ```
  */
 export function useCurrentDate(): string {
-  const service = useDateService();
-  return service.getCurrentDate();
+  return useToday();
 }
 
 /**
  * Check if a date string is today.
  * Convenience hook for conditional rendering.
  *
- * Usage:
- *   const isDueToday = useIsToday(todo.due_day);
+ * @example
+ * ```tsx
+ * const isDueToday = useIsToday(todo.due_day);
+ * if (isDueToday) {
+ *   // Show "Due Today" badge
+ * }
+ * ```
  */
 export function useIsToday(dateStr: string | null | undefined): boolean {
   const service = useDateService();
@@ -61,8 +118,13 @@ export function useIsToday(dateStr: string | null | undefined): boolean {
  * Format a date for chip display.
  * Convenience hook for UI components.
  *
- * Usage:
- *   const chipLabel = useDateChip(todo.due_day); // "Today", "Tomorrow", "Mon", "Dec 25"
+ * @returns Formatted string: "Today", "Tomorrow", "Mon", "Dec 25", etc.
+ *
+ * @example
+ * ```tsx
+ * const chipLabel = useDateChip(todo.due_day); // "Today", "Tomorrow", "Mon", "Dec 25"
+ * return <Chip label={chipLabel} />;
+ * ```
  */
 export function useDateChip(dateStr: string | null | undefined): string {
   const service = useDateService();
@@ -73,8 +135,13 @@ export function useDateChip(dateStr: string | null | undefined): string {
  * Format a date for overlay display.
  * Convenience hook for overlay components.
  *
- * Usage:
- *   const overlayLabel = useDateOverlay(todo.due_day); // "Monday, December 25"
+ * @returns Formatted string: "Monday, December 25", "Today", "Tomorrow", etc.
+ *
+ * @example
+ * ```tsx
+ * const overlayLabel = useDateOverlay(todo.due_day); // "Monday, December 25"
+ * return <Text>{overlayLabel}</Text>;
+ * ```
  */
 export function useDateOverlay(dateStr: string | null | undefined): string {
   const service = useDateService();

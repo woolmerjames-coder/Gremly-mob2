@@ -4,7 +4,34 @@
  * This is the SINGLE SOURCE OF TRUTH for all date operations in the app.
  * All components should use this service instead of direct Date manipulation.
  *
- * Architecture:
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * CRITICAL TIMEZONE BUG - READ THIS FIRST
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * The #1 cause of date bugs in JavaScript: using toISOString() to get "today's date"
+ *
+ * ❌ WRONG - This is a timezone bug:
+ *    new Date().toISOString().split('T')[0]
+ *
+ *    Why? toISOString() converts to UTC first. At 6pm in San Francisco (UTC-8),
+ *    the UTC time is already 2am THE NEXT DAY. So this returns tomorrow's date!
+ *
+ * ✅ CORRECT - Use DateService methods:
+ *    dateService.today()           // "2025-01-14" in user's local timezone
+ *    dateService.toLocalDate(date) // Convert Date to local YYYY-MM-DD
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * BRANDED TYPES
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * We use branded types to prevent mixing up date strings:
+ * - LocalDateString: "YYYY-MM-DD" in user's local timezone (for due_day, etc.)
+ * - UtcTimestamp: Full ISO string in UTC (for created_at, updated_at, etc.)
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * ARCHITECTURE
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
  * - Factory pattern with createDateService() for testability
  * - Injectable clock via config.clock for reliable testing
  * - Injectable timezone via config.timezone
@@ -15,18 +42,61 @@
  * - Stage 2: chrono-node for standard patterns (tomorrow, next tuesday, Dec 25)
  * - Stage 3: Regex fallback for ISO dates and US dates
  *
- * CRITICAL: All dates are stored as YYYY-MM-DD strings (due_day format)
- * to avoid timezone drift issues with ISO timestamps.
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * USAGE EXAMPLES
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * // Get today's date
+ * const today = dateService.today();  // "2025-01-14"
+ *
+ * // Get tomorrow's date
+ * const tmrw = dateService.tomorrow();  // "2025-01-15"
+ *
+ * // Convert Date object to local date string
+ * const localDate = dateService.toLocalDate(someDate);
+ *
+ * // Parse from YYYY-MM-DD string
+ * const date = dateService.fromLocalDate("2025-01-14");
+ *
+ * // Get current UTC timestamp for database
+ * const timestamp = dateService.nowTimestamp();  // "2025-01-14T18:30:00.000Z"
+ *
+ * // Check if something is due today
+ * if (dateService.isToday(todo.due_day)) { ... }
  */
 
 import * as chrono from 'chrono-node';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BRANDED TYPES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A date string in "YYYY-MM-DD" format representing a LOCAL date.
+ * This is NOT a UTC date - it represents the date in the user's timezone.
+ *
+ * Use for: due_day, completed_day, start_date, end_date, etc.
+ *
+ * @example "2025-01-14" - January 14th, 2025 in local timezone
+ */
+export type LocalDateString = string & { readonly __brand: 'LocalDateString' };
+
+/**
+ * A full ISO 8601 timestamp string in UTC.
+ * This is what JavaScript's toISOString() produces.
+ *
+ * Use for: created_at, updated_at, resurface_at, etc.
+ *
+ * @example "2025-01-14T18:30:00.000Z" - Always in UTC (Z suffix)
+ */
+export type UtcTimestamp = string & { readonly __brand: 'UtcTimestamp' };
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export interface ParsedDate {
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (LocalDateString)
   time: string | null; // HH:mm if specified
   confidence: number; // 0-1
   originalText: string; // The matched text
@@ -113,22 +183,137 @@ export class DateService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // CURRENT DATE/TIME
+  // CURRENT DATE/TIME - Primary Methods
   // ═══════════════════════════════════════════════════════════════════
 
   /**
    * Get today's date as YYYY-MM-DD in user's local timezone.
    * This is the canonical way to get "today" for all date comparisons.
+   *
+   * ⚠️ DO NOT use `new Date().toISOString().split('T')[0]` - that's a timezone bug!
+   *
+   * @returns LocalDateString - Today's date in local timezone
+   *
+   * @example
+   * const today = dateService.today(); // "2025-01-14"
    */
-  getCurrentDate(): string {
-    return this.toDateString(this.now());
+  today(): string {
+    return this.toLocalDate(this.now());
   }
 
   /**
-   * Get current datetime as full ISO string
+   * Get tomorrow's date as YYYY-MM-DD in user's local timezone.
+   *
+   * @returns LocalDateString - Tomorrow's date
+   *
+   * @example
+   * const tmrw = dateService.tomorrow(); // "2025-01-15"
+   */
+  tomorrow(): string {
+    return this.addDays(this.today(), 1);
+  }
+
+  /**
+   * Get yesterday's date as YYYY-MM-DD in user's local timezone.
+   *
+   * @returns LocalDateString - Yesterday's date
+   *
+   * @example
+   * const yest = dateService.yesterday(); // "2025-01-13"
+   */
+  yesterday(): string {
+    return this.addDays(this.today(), -1);
+  }
+
+  /**
+   * Get the date N days ago as YYYY-MM-DD.
+   *
+   * @param n - Number of days ago
+   * @returns LocalDateString
+   *
+   * @example
+   * const weekAgo = dateService.daysAgo(7); // "2025-01-07"
+   */
+  daysAgo(n: number): string {
+    return this.addDays(this.today(), -n);
+  }
+
+  /**
+   * Get the date N days from now as YYYY-MM-DD.
+   *
+   * @param n - Number of days from now
+   * @returns LocalDateString
+   *
+   * @example
+   * const nextWeek = dateService.daysFromNow(7); // "2025-01-21"
+   */
+  daysFromNow(n: number): string {
+    return this.addDays(this.today(), n);
+  }
+
+  /**
+   * Get the current hour (0-23) in local timezone.
+   * Useful for time-of-day checks (morning, evening, etc.)
+   *
+   * @returns Hour number 0-23
+   *
+   * @example
+   * if (dateService.getHour() >= 18) {
+   *   // It's evening, show "good evening" greeting
+   * }
+   */
+  getHour(): number {
+    return this.now().getHours();
+  }
+
+  /**
+   * Get the start of the current week (Monday) as YYYY-MM-DD.
+   *
+   * @returns LocalDateString - Monday of current week
+   *
+   * @example
+   * const weekStart = dateService.getStartOfWeek(); // "2025-01-13" (if today is Wed Jan 15)
+   */
+  getStartOfWeek(): string {
+    const now = this.now();
+    const day = now.getDay();
+    // Convert Sunday (0) to 7 for easier calculation
+    const dayOfWeek = day === 0 ? 7 : day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - (dayOfWeek - 1));
+    monday.setHours(12, 0, 0, 0);
+    return this.toLocalDate(monday);
+  }
+
+  /**
+   * Get current datetime as full ISO string in UTC.
+   * Use this for database timestamps (created_at, updated_at, etc.)
+   *
+   * @returns UtcTimestamp - Current time in ISO format
+   *
+   * @example
+   * const timestamp = dateService.nowTimestamp(); // "2025-01-14T18:30:00.000Z"
+   */
+  nowTimestamp(): string {
+    return this.now().toISOString();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CURRENT DATE/TIME - Deprecated Aliases (for backward compatibility)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * @deprecated Use today() instead
+   */
+  getCurrentDate(): string {
+    return this.today();
+  }
+
+  /**
+   * @deprecated Use nowTimestamp() instead
    */
   getCurrentDateTime(): string {
-    return this.now().toISOString();
+    return this.nowTimestamp();
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -435,21 +620,49 @@ export class DateService {
     try {
       const dateObj = new Date(isoDate);
       if (isNaN(dateObj.getTime())) return null;
-      return this.toDateString(dateObj);
+      return this.toLocalDate(dateObj);
     } catch {
       return null;
     }
   }
 
+  /**
+   * Extract the local date (YYYY-MM-DD) from a UTC timestamp.
+   * This is the primary method - extractDateFromIso is a deprecated alias.
+   *
+   * IMPORTANT: This converts the UTC timestamp to local timezone first,
+   * so "2025-01-15T02:00:00Z" becomes "2025-01-14" in SF (UTC-8).
+   *
+   * @param isoTimestamp - UTC timestamp or YYYY-MM-DD string
+   * @returns LocalDateString or null if invalid
+   *
+   * @example
+   * extractLocalDate("2025-01-15T02:00:00Z") // "2025-01-14" in SF
+   * extractLocalDate("2025-01-14")            // "2025-01-14" (unchanged)
+   */
+  extractLocalDate(isoTimestamp: string | null | undefined): string | null {
+    return this.extractDateFromIso(isoTimestamp);
+  }
+
   // ═══════════════════════════════════════════════════════════════════
-  // CONVERSION
+  // CONVERSION - Primary Methods
   // ═══════════════════════════════════════════════════════════════════
 
   /**
    * Convert Date object to YYYY-MM-DD string in LOCAL timezone.
-   * IMPORTANT: Does NOT use toISOString() which converts to UTC.
+   *
+   * ⚠️ IMPORTANT: This does NOT use toISOString() which would convert to UTC.
+   * That's the #1 timezone bug - at 6pm in SF, toISOString() returns tomorrow!
+   *
+   * @param date - Date object to convert
+   * @returns LocalDateString in format "YYYY-MM-DD"
+   *
+   * @example
+   * // At 6pm on Jan 14 in San Francisco:
+   * toLocalDate(new Date())           // "2025-01-14" ✅ correct
+   * new Date().toISOString().split('T')[0]  // "2025-01-15" ❌ WRONG (UTC)
    */
-  toDateString(date: Date | null | undefined): string {
+  toLocalDate(date: Date | null | undefined): string {
     if (!date || isNaN(date.getTime())) return '';
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -458,9 +671,16 @@ export class DateService {
   }
 
   /**
-   * Parse YYYY-MM-DD string to Date object (set to noon to avoid DST issues)
+   * Parse YYYY-MM-DD string to Date object.
+   * Sets time to noon to avoid DST edge cases.
+   *
+   * @param dateStr - LocalDateString in format "YYYY-MM-DD"
+   * @returns Date object set to noon, or null if invalid
+   *
+   * @example
+   * fromLocalDate("2025-01-14") // Date object for Jan 14, 2025 at 12:00pm
    */
-  fromDateString(dateStr: string | null | undefined): Date | null {
+  fromLocalDate(dateStr: string | null | undefined): Date | null {
     if (!dateStr || typeof dateStr !== 'string') return null;
 
     const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -476,6 +696,24 @@ export class DateService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // CONVERSION - Deprecated Aliases (for backward compatibility)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * @deprecated Use toLocalDate() instead
+   */
+  toDateString(date: Date | null | undefined): string {
+    return this.toLocalDate(date);
+  }
+
+  /**
+   * @deprecated Use fromLocalDate() instead
+   */
+  fromDateString(dateStr: string | null | undefined): Date | null {
+    return this.fromLocalDate(dateStr);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // FORMATTING
   // ═══════════════════════════════════════════════════════════════════
 
@@ -488,10 +726,10 @@ export class DateService {
     if (this.isToday(dateStr)) return 'Today';
     if (this.isTomorrow(dateStr)) return 'Tomorrow';
 
-    const date = this.fromDateString(dateStr);
+    const date = this.fromLocalDate(dateStr);
     if (!date) return '';
 
-    const days = this.daysBetween(this.getCurrentDate(), dateStr);
+    const days = this.daysBetween(this.today(), dateStr);
 
     // Within 7 days - show weekday
     if (days > 0 && days <= 7) {
@@ -766,11 +1004,46 @@ export function resetDateService(): void {
 export const dateService = getDateService();
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BACKWARD COMPATIBILITY EXPORTS
+// FUNCTION EXPORTS - Primary API
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Export individual functions for backward compatibility during migration
+// New preferred function names
+export const today = () => getDateService().today();
+export const tomorrow = () => getDateService().tomorrow();
+export const yesterday = () => getDateService().yesterday();
+export const daysAgo = (n: number) => getDateService().daysAgo(n);
+export const daysFromNow = (n: number) => getDateService().daysFromNow(n);
+export const nowTimestamp = () => getDateService().nowTimestamp();
+export const getHour = () => getDateService().getHour();
+export const getStartOfWeek = () => getDateService().getStartOfWeek();
+export const toLocalDate = (date: Date | null | undefined) => getDateService().toLocalDate(date);
+export const fromLocalDate = (dateStr: string | null | undefined) =>
+  getDateService().fromLocalDate(dateStr);
+export const extractLocalDate = (iso: string | null | undefined) =>
+  getDateService().extractLocalDate(iso);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION EXPORTS - Deprecated Aliases (for backward compatibility)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** @deprecated Use today() instead */
 export const getCurrentDate = () => getDateService().getCurrentDate();
+
+/** @deprecated Use nowTimestamp() instead */
+export const getCurrentDateTime = () => getDateService().getCurrentDateTime();
+
+/** @deprecated Use toLocalDate() instead */
+export const toDateString = (date: Date | null | undefined) => getDateService().toDateString(date);
+
+/** @deprecated Use fromLocalDate() instead */
+export const fromDateString = (dateStr: string | null | undefined) =>
+  getDateService().fromDateString(dateStr);
+
+/** @deprecated Use extractLocalDate() instead */
+export const extractDateFromIso = (iso: string | null | undefined) =>
+  getDateService().extractDateFromIso(iso);
+
+// Other exports (not renamed)
 export const parseNaturalDate = (input: string, ref?: Date) =>
   getDateService().parseNaturalDate(input, ref);
 export const formatForChip = (dateStr: string | null | undefined) =>
@@ -781,5 +1054,3 @@ export const isTimestampToday = (iso: string | null | undefined) =>
   getDateService().isTimestampToday(iso);
 export const isTimestampWithinDays = (iso: string | null | undefined, days: number) =>
   getDateService().isTimestampWithinDays(iso, days);
-export const extractDateFromIso = (iso: string | null | undefined) =>
-  getDateService().extractDateFromIso(iso);
