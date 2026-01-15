@@ -737,13 +737,16 @@ describe('HubScreen - Journal View Data Filtering', () => {
   });
 
   it('shows analyze CTA in Journal View when journals exist', async () => {
+    // Use recent dates to ensure journals appear in the filtered view
+    const now = new Date();
+    const recentDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
     const mockJournals = [
       {
         id: 'journal-1',
         type: 'note' as const,
         subtype: 'journal' as const,
-        date: '2025-12-14T10:00:00.000Z',
-        created_at: '2025-12-14T10:00:00.000Z',
+        date: recentDate,
+        created_at: recentDate,
         body: 'Had a great day today!',
         ai_placed: false,
       },
@@ -771,13 +774,16 @@ describe('HubScreen - Journal View Data Filtering', () => {
   });
 
   it('opens analyze modal when CTA is tapped', async () => {
+    // Use recent dates to ensure journals appear in the filtered view
+    const now = new Date();
+    const recentDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
     const mockJournals = [
       {
         id: 'journal-1',
         type: 'note' as const,
         subtype: 'journal' as const,
-        date: '2025-12-14T10:00:00.000Z',
-        created_at: '2025-12-14T10:00:00.000Z',
+        date: recentDate,
+        created_at: recentDate,
         body: 'Had a great day today!',
         ai_placed: false,
       },
@@ -814,13 +820,16 @@ describe('HubScreen - Journal View Data Filtering', () => {
   });
 
   it('closes analyze modal when close button is tapped', async () => {
+    // Use recent dates to ensure journals appear in the filtered view
+    const now = new Date();
+    const recentDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
     const mockJournals = [
       {
         id: 'journal-1',
         type: 'note' as const,
         subtype: 'journal' as const,
-        date: '2025-12-14T10:00:00.000Z',
-        created_at: '2025-12-14T10:00:00.000Z',
+        date: recentDate,
+        created_at: recentDate,
         body: 'Had a great day today!',
         ai_placed: false,
       },
