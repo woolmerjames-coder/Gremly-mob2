@@ -283,11 +283,11 @@ const mockNoteCandidate: SweepCandidate = {
 async function renderAtDecisionStep() {
   const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-  // Step 0: Intro - tap "Start Sweeping" to go to Decision
+  // Step 0: Intro - tap "Let's do this" to go to Decision
   await waitFor(() => {
-    result.getByText('Time for a quick tidy');
+    result.getByText(/Let's do this/);
   });
-  fireEvent.press(result.getByText('Start Sweeping'));
+  fireEvent.press(result.getByText(/Let's do this/));
 
   return result;
 }
