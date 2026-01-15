@@ -811,9 +811,22 @@ export function SweepCard({
     cardOpacity.value = 1;
   }, [candidate.id, translateX, cardOpacity]);
 
+  // Store callbacks in refs so they can be called from worklets via stable wrapper
+  const pendingCallbackRef = React.useRef<(() => void) | null>(null);
+
+  // Stable wrapper function that executes pending callback after delay
+  const executePendingCallback = useCallback(() => {
+    setTimeout(() => {
+      if (pendingCallbackRef.current) {
+        pendingCallbackRef.current();
+        pendingCallbackRef.current = null;
+      }
+    }, CARD_EXIT_DELAY);
+  }, []);
+
   // Animate card off-screen and trigger callback
   const animateOut = useCallback(
-    (direction: 'left' | 'right', callback: () => void) => {
+    (direction: 'left' | 'right') => {
       'worklet';
       const toValue = direction === 'right' ? SWIPE_OUT_DISTANCE : -SWIPE_OUT_DISTANCE;
 
@@ -826,14 +839,14 @@ export function SweepCard({
         },
         (finished) => {
           if (finished) {
-            // Delay before advancing to next card so user can see confirmation
-            runOnJS(setTimeout)(() => runOnJS(callback)(), CARD_EXIT_DELAY);
+            // Execute callback via stable wrapper (avoids worklet serialization issue)
+            runOnJS(executePendingCallback)();
           }
         },
       );
       cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade (was 200)
     },
-    [translateX, cardOpacity],
+    [translateX, cardOpacity, executePendingCallback],
   );
 
   // Button press handler (calls animateOut from JS thread)
@@ -844,8 +857,10 @@ export function SweepCard({
         callback();
         return;
       }
+      // Store callback in ref so it can be executed from worklet
+      pendingCallbackRef.current = callback;
       // Use runOnUI to call the worklet from JS thread
-      runOnUI(animateOut)(direction, callback);
+      runOnUI(animateOut)(direction);
     },
     [animateOut],
   );
@@ -995,6 +1010,16 @@ export function SweepCard({
     onClear();
   }, [onClear]);
 
+  // Delayed wrapper for swipe right - executes on JS thread with delay
+  const handleSwipeRightWithDelay = useCallback(() => {
+    setTimeout(() => handleSwipeRight(), CARD_EXIT_DELAY);
+  }, [handleSwipeRight]);
+
+  // Delayed wrapper for swipe left - executes on JS thread with delay
+  const handleSwipeLeftWithDelay = useCallback(() => {
+    setTimeout(() => handleSwipeLeft(), CARD_EXIT_DELAY);
+  }, [handleSwipeLeft]);
+
   // Haptic trigger for drag start (subtle tick)
   const triggerDragStartHaptic = useCallback(() => {
     Haptics.selectionAsync();
@@ -1056,8 +1081,8 @@ export function SweepCard({
           { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
           (finished) => {
             if (finished) {
-              // Delay before advancing to next card
-              runOnJS(setTimeout)(() => runOnJS(handleSwipeRight)(), CARD_EXIT_DELAY);
+              // Call JS handler with built-in delay (avoids worklet serialization issue)
+              runOnJS(handleSwipeRightWithDelay)();
             }
           },
         );
@@ -1071,8 +1096,8 @@ export function SweepCard({
           { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
           (finished) => {
             if (finished) {
-              // Delay before advancing to next card
-              runOnJS(setTimeout)(() => runOnJS(handleSwipeLeft)(), CARD_EXIT_DELAY);
+              // Call JS handler with built-in delay (avoids worklet serialization issue)
+              runOnJS(handleSwipeLeftWithDelay)();
             }
           },
         );
@@ -1182,6 +1207,16 @@ export function SweepCard({
     return { opacity };
   });
 
+  // Delayed wrapper for onSkip - used from animation callbacks
+  const handleSkipWithDelay = useCallback(() => {
+    setTimeout(() => onSkip(), CARD_EXIT_DELAY);
+  }, [onSkip]);
+
+  // Delayed wrapper for onClear - used from animation callbacks
+  const handleClearWithDelay = useCallback(() => {
+    setTimeout(() => onClear(), CARD_EXIT_DELAY);
+  }, [onClear]);
+
   // Button handlers with animation
   const handleKeepPress = useCallback(() => {
     // Just proceed - don't block with date picker (user can add date via button if they want)
@@ -1194,12 +1229,12 @@ export function SweepCard({
       SWIPE_OUT_DISTANCE,
       { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
       (finished) => {
-        // Delay before advancing to next card
-        if (finished) runOnJS(setTimeout)(() => runOnJS(onSkip)(), CARD_EXIT_DELAY);
+        // Call JS handler with built-in delay (avoids worklet serialization issue)
+        if (finished) runOnJS(handleSkipWithDelay)();
       },
     );
     cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
-  }, [onSkip, translateX, cardOpacity]);
+  }, [onSkip, translateX, cardOpacity, handleSkipWithDelay]);
 
   const handleClearPress = useCallback(() => {
     // In test mode, call directly without animation
@@ -1211,12 +1246,12 @@ export function SweepCard({
       -SWIPE_OUT_DISTANCE,
       { damping: 15, stiffness: 120, overshootClamping: true }, // Slower exit
       (finished) => {
-        // Delay before advancing to next card
-        if (finished) runOnJS(setTimeout)(() => runOnJS(onClear)(), CARD_EXIT_DELAY);
+        // Call JS handler with built-in delay (avoids worklet serialization issue)
+        if (finished) runOnJS(handleClearWithDelay)();
       },
     );
     cardOpacity.value = withTiming(0, { duration: 300 }); // Slower fade
-  }, [onClear, translateX, cardOpacity]);
+  }, [onClear, translateX, cardOpacity, handleClearWithDelay]);
 
   return (
     <View style={styles.cardWrapper}>
@@ -1226,11 +1261,7 @@ export function SweepCard({
         <Animated.View style={[styles.confirmationCard, animatedConfirmationStyle]}>
           {/* Gremly face - appears when swiping right */}
           <Animated.View style={[styles.gremlyConfirmContainer, animatedGremlyFaceStyle]}>
-            <Image
-              source={GREMLY_FACE}
-              style={styles.gremlyConfirmFace}
-              resizeMode="contain"
-            />
+            <Image source={GREMLY_FACE} style={styles.gremlyConfirmFace} resizeMode="contain" />
           </Animated.View>
           <Animated.Text style={[styles.confirmationCardText, animatedKeepTextStyle]}>
             {keepMessage}
