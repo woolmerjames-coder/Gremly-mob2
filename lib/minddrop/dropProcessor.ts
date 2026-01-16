@@ -306,12 +306,14 @@ export async function processDrop(
   const { localId, text } = drop;
 
   console.log('[DropProcessor] Processing drop', { localId, textPreview: text.substring(0, 30) });
+  const startTime = Date.now();
 
   try {
     // --- Phase 0: Multi-entity detection ---
     await updateDrop(localId, { status: 'classifying' });
 
     const multiResult = await detectMulti(text);
+    console.log('[DropProcessor] Phase 0 timing', { localId, elapsed: Date.now() - startTime });
 
     if (multiResult.is_multi && multiResult.segments && multiResult.segments.length > 1) {
       console.log('[DropProcessor] Multi-entity detected', {
@@ -366,6 +368,7 @@ export async function processDrop(
 
     // --- Phase 1: Classification ---
     const phase1Result = await runPhase1(text, { hasAttachments: false });
+    console.log('[DropProcessor] Phase 1 timing', { localId, elapsed: Date.now() - startTime });
 
     await updateDrop(localId, {
       bucket: phase1Result.bucket,
@@ -415,6 +418,7 @@ export async function processDrop(
     }
 
     callbacks?.onPhase2Complete?.(localId);
+    console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
 
     // --- Sync to Supabase ---
     await updateDrop(localId, { status: 'syncing' });
@@ -428,6 +432,12 @@ export async function processDrop(
       },
       enrichmentResult,
     );
+
+    console.log('[DropProcessor] Sync timing', {
+      localId,
+      elapsed: Date.now() - startTime,
+      total: Date.now() - startTime,
+    });
 
     if (syncResult.success && syncResult.supabaseId) {
       await markSynced(localId, syncResult.supabaseId, syncResult.entityType!);
