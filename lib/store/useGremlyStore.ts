@@ -107,6 +107,23 @@ export interface HabitProgressRow {
   occurrence_index: number | null;
 }
 
+// --- Pending Drop Types (for optimistic Mind Drop queue) ---
+export interface PendingDrop {
+  localId: string;
+  text: string;
+  spaceId: string | null;
+  createdAt: string;
+  bucket?: 'todo' | 'habit' | 'log';
+  subtype?: 'journal' | 'idea' | 'general' | null;
+  smartTitle?: string;
+  tags?: string[];
+  confirmationMessage?: string | null;
+  timeEstimateMinutes?: number | null;
+  timeWindow?: 'morning' | 'day' | 'evening' | null;
+  status: 'pending' | 'classifying' | 'enriching' | 'syncing' | 'synced';
+  isMulti?: boolean;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STORE INTERFACE
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -124,6 +141,7 @@ interface GremlyState {
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
   milestones: Milestone[];
+  pendingDrops: Map<string, PendingDrop>;
 
   // ═══════════════════════════════════════════════════════════════════
   // MORNING BRIEF STATE
@@ -300,6 +318,21 @@ interface GremlyState {
   recoverStuckMindDrops: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // PENDING DROP ACTIONS (for optimistic Mind Drop queue)
+  // ═══════════════════════════════════════════════════════════════════
+  addPendingDrop: (drop: PendingDrop) => void;
+  updatePendingDropClassification: (
+    localId: string,
+    classification: {
+      bucket: 'todo' | 'habit' | 'log';
+      subtype: 'journal' | 'idea' | 'general' | null;
+    },
+  ) => void;
+  updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
+  promotePendingDropToEntity: (localId: string, supabaseId: string) => void;
+  removePendingDrop: (localId: string) => void;
+
+  // ═══════════════════════════════════════════════════════════════════
   // ENTITY CHAT MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
   getEntityChat: (entityId: string, entityType: 'todo' | 'habit' | 'note') => EntityChatData | null;
@@ -402,6 +435,7 @@ const initialState = {
   todayDropsCount: 0,
   todaySweepsCount: 0,
   todayRitualCompletedAt: null as string | null,
+  pendingDrops: new Map<string, PendingDrop>(),
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3169,6 +3203,75 @@ export const useGremlyStore = create<GremlyState>()(
       } catch (error) {
         console.error('[GremlyStore] ❌ Failed to recover stuck MindDrop items:', error);
       }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PENDING DROP ACTIONS (for optimistic Mind Drop queue)
+    // ═══════════════════════════════════════════════════════════════════
+
+    addPendingDrop: (drop: PendingDrop) => {
+      set((state) => {
+        const newPending = new Map(state.pendingDrops);
+        newPending.set(drop.localId, drop);
+        return { pendingDrops: newPending };
+      });
+      console.log('[GremlyStore] Added pending drop', { localId: drop.localId });
+    },
+
+    updatePendingDropClassification: (
+      localId: string,
+      classification: {
+        bucket: 'todo' | 'habit' | 'log';
+        subtype: 'journal' | 'idea' | 'general' | null;
+      },
+    ) => {
+      set((state) => {
+        const drop = state.pendingDrops.get(localId);
+        if (!drop) return state;
+
+        const updated: PendingDrop = { ...drop, ...classification, status: 'enriching' as const };
+        const newPending = new Map(state.pendingDrops);
+        newPending.set(localId, updated);
+        return { pendingDrops: newPending };
+      });
+      console.log('[GremlyStore] Updated pending drop classification', {
+        localId,
+        ...classification,
+      });
+    },
+
+    updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => {
+      set((state) => {
+        const drop = state.pendingDrops.get(localId);
+        if (!drop) return state;
+
+        const updated: PendingDrop = { ...drop, ...enrichment };
+        const newPending = new Map(state.pendingDrops);
+        newPending.set(localId, updated);
+        return { pendingDrops: newPending };
+      });
+      console.log('[GremlyStore] Updated pending drop enrichment', {
+        localId,
+        fields: Object.keys(enrichment),
+      });
+    },
+
+    promotePendingDropToEntity: (localId: string, supabaseId: string) => {
+      set((state) => {
+        const newPending = new Map(state.pendingDrops);
+        newPending.delete(localId);
+        return { pendingDrops: newPending };
+      });
+      console.log('[GremlyStore] Promoted pending drop to entity', { localId, supabaseId });
+    },
+
+    removePendingDrop: (localId: string) => {
+      set((state) => {
+        const newPending = new Map(state.pendingDrops);
+        newPending.delete(localId);
+        return { pendingDrops: newPending };
+      });
+      console.log('[GremlyStore] Removed pending drop', { localId });
     },
 
     // ═══════════════════════════════════════════════════════════════════

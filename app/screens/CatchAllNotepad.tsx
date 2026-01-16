@@ -54,7 +54,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Text } from '../../ui/Text';
 import { Icon } from '../../design-system/Icon';
-import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useGremlyStore, type PendingDrop } from '../../lib/store/useGremlyStore';
 import {
   selectItemById,
   selectNoteBySourceMessageId,
@@ -80,6 +80,7 @@ import type {
   MindDropBucket,
   LogSubtype as MindDropLogSubtype,
 } from '../../lib/minddrop/types';
+import { heuristicClassify } from '../../lib/minddrop/heuristicClassify';
 import { runPhase2Streaming } from '../../lib/minddrop/phase2';
 import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
@@ -2104,15 +2105,6 @@ const RecentDrops: React.FC<{
   onEdited?: () => void;
   onDeleted?: () => void;
   onTodayCountChange?: (count: number) => void; // Callback to sync counter with actual Today items
-  onAddPendingItem?: (
-    callback: (params: {
-      dropId: string;
-      text: string;
-      kind: 'todo' | 'habit' | 'note';
-      noteSubtype?: string;
-    }) => void,
-  ) => void;
-  onRemovePendingItem?: (callback: (dropId: string) => void) => void;
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
@@ -2121,8 +2113,6 @@ const RecentDrops: React.FC<{
   onEdited,
   onDeleted,
   onTodayCountChange,
-  onAddPendingItem,
-  onRemovePendingItem,
   refreshSignal,
   initiallyOpen = true,
   eagerLoad = false,
@@ -2139,6 +2129,9 @@ const RecentDrops: React.FC<{
   const archiveNote = useGremlyStore((s) => s.archiveNote);
   const repo = useRepo();
 
+  // Pending drops from Zustand (optimistic queue system)
+  const pendingDropsMap = useGremlyStore((s) => s.pendingDrops);
+
   // Synchronous lookups from store
   const getItemById = React.useCallback(
     (id: string) => selectItemById(useGremlyStore.getState(), id),
@@ -2152,9 +2145,42 @@ const RecentDrops: React.FC<{
   const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
-  const [pendingItems, setPendingItems] = React.useState<UnifiedDrop[]>([]); // Optimistic items shown before DB creation
   const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
   const canonicalTypesOn = env.feature.canonicalTypes;
+
+  // Transform pending drops from Zustand Map to UnifiedDrop array
+  const pendingItems = React.useMemo((): UnifiedDrop[] => {
+    const drops = Array.from(pendingDropsMap.values());
+    return drops
+      .map((drop: PendingDrop): UnifiedDrop => {
+        // Map bucket to kind
+        const kind: 'todo' | 'habit' | 'note' =
+          drop.bucket === 'todo' ? 'todo' : drop.bucket === 'habit' ? 'habit' : 'note';
+
+        // Map subtype for notes
+        const noteSubtype = kind === 'note' ? (drop.subtype ?? 'catchall') : undefined;
+
+        return {
+          id: drop.localId,
+          kind,
+          title: drop.smartTitle || drop.text.substring(0, 60) + (drop.text.length > 60 ? '…' : ''),
+          text: drop.text,
+          created_at: drop.createdAt,
+          drop_id: drop.localId,
+          noteSubtype,
+          tags: drop.tags || [],
+          labels: [],
+          views: {
+            ai_pending: drop.status !== 'synced',
+            minddrop_stage: drop.status === 'synced' ? 'enriched' : 'pending',
+            confirmation_message: drop.confirmationMessage,
+          },
+          time_estimate_minutes: drop.timeEstimateMinutes ?? null,
+          is_multi: drop.isMulti,
+        };
+      })
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [pendingDropsMap]);
 
   const rangeLabel = showOlder ? 'Earlier' : 'Today';
   const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
@@ -2252,118 +2278,6 @@ const RecentDrops: React.FC<{
     },
     [],
   );
-
-  /**
-   * Add an optimistic pending item to the Recent Drops list
-   * This item appears immediately when user submits, before DB creation
-   */
-  const addPendingItem = React.useCallback(
-    (params: {
-      dropId: string;
-      text: string;
-      kind: 'todo' | 'habit' | 'note';
-      noteSubtype?: string;
-    }) => {
-      const { dropId, text, kind, noteSubtype } = params;
-      const tempId = `local-${dropId}`;
-      const shortTitle = text.substring(0, 60) + (text.length > 60 ? '…' : '');
-
-      const pendingItem: UnifiedDrop = {
-        id: tempId,
-        kind,
-        title: shortTitle,
-        text,
-        created_at: new Date().toISOString(),
-        drop_id: dropId,
-        noteSubtype: kind === 'note' ? noteSubtype : null,
-        tags: [],
-        labels: [],
-        views: {
-          ai_pending: true,
-          minddrop_stage: 'pending',
-        },
-      };
-
-      setPendingItems((prev) => [pendingItem, ...prev]);
-      console.debug('[MindDrop.Optimistic] Added pending item', { dropId, kind, tempId });
-
-      // Auto-expire orphaned pending items after 30 seconds
-      setTimeout(() => {
-        setPendingItems((prev) => {
-          const filtered = prev.filter((item) => item.drop_id !== dropId);
-          if (filtered.length < prev.length) {
-            console.debug('[MindDrop.Optimistic] Auto-expired pending item', { dropId });
-          }
-          return filtered;
-        });
-      }, 30000);
-    },
-    [],
-  );
-
-  // Expose addPendingItem to parent component
-  React.useEffect(() => {
-    if (onAddPendingItem) {
-      onAddPendingItem(addPendingItem);
-    }
-  }, [onAddPendingItem, addPendingItem]);
-
-  /**
-   * Remove pending item(s) by drop_id when real entity appears
-   * Called after Stage A creates the real entity in the database
-   */
-  const removePendingItem = React.useCallback((dropId: string) => {
-    setPendingItems((prev) => {
-      const filtered = prev.filter((item) => item.drop_id !== dropId);
-      if (filtered.length < prev.length) {
-        console.debug('[MindDrop.Optimistic] Removed pending item', { dropId });
-      }
-      return filtered;
-    });
-  }, []);
-
-  /**
-   * Atomically replace a pending item with the real entity
-   * This creates a smooth transition instead of remove-then-add jolt
-   */
-  const replacePendingWithReal = React.useCallback((dropId: string, realItem: UnifiedDrop) => {
-    // First, check if we have this pending item and remove it
-    setPendingItems((prev) => {
-      const hasPending = prev.some((item) => item.drop_id === dropId);
-      if (!hasPending) return prev;
-
-      console.debug('[MindDrop.Optimistic] Replacing pending with real', {
-        dropId,
-        realId: realItem.id,
-      });
-
-      // Remove the pending item
-      return prev.filter((item) => item.drop_id !== dropId);
-    });
-
-    // Simultaneously add/update the real item in items list
-    setItems((prev) => {
-      // Check if real item already exists
-      const existingIndex = prev.findIndex((item) => item.id === realItem.id);
-
-      if (existingIndex >= 0) {
-        // Update existing
-        const updated = [...prev];
-        updated[existingIndex] = realItem;
-        return updated;
-      }
-
-      // Add new at top
-      return [realItem, ...prev];
-    });
-  }, []);
-
-  // Expose removePendingItem to parent component
-  React.useEffect(() => {
-    if (onRemovePendingItem) {
-      onRemovePendingItem(removePendingItem);
-    }
-  }, [onRemovePendingItem, removePendingItem]);
 
   /**
    * Load recent Mind Drops for the Catch-All / Recent Mind Drops list
@@ -2645,26 +2559,7 @@ const RecentDrops: React.FC<{
         failed: visualStates.filter((s) => s.visualState === 'failed').length,
       });
 
-      // Remove pending items that now have real counterparts (auto-cleanup)
-      {
-        const realDropIds = new Set(unified.map((item) => item.drop_id).filter(Boolean));
-        setPendingItems((prev) => {
-          if (prev.length === 0) return prev;
-          const filtered = prev.filter((p) => !realDropIds.has(p.drop_id));
-          console.debug('[RecentDrops] Auto-cleanup pendingItems', {
-            before: prev.length,
-            after: filtered.length,
-          });
-          if (filtered.length < prev.length) {
-            console.debug('[RecentDrops] Auto-cleanup removed pending items:', {
-              before: prev.length,
-              after: filtered.length,
-              removed: prev.length - filtered.length,
-            });
-          }
-          return filtered;
-        });
-      }
+      // Note: Pending items now come from Zustand pendingDrops - auto-cleanup is handled by the store
 
       // Notify parent of today count (for "X thoughts organized today" counter)
       // This ensures the counter always matches the actual number of items in Today section
@@ -2732,29 +2627,8 @@ const RecentDrops: React.FC<{
             views: record.views ?? null,
           });
 
-          if (record.drop_id) {
-            // Build the real item for atomic replacement
-            const realItem: UnifiedDrop = {
-              id: record.id,
-              kind: 'todo' as const,
-              title: record.title ?? record.name ?? '',
-              text: record.body ?? record.name ?? '',
-              created_at: record.created_at,
-              drop_id: record.drop_id,
-              tags: Array.isArray(record.tags) ? record.tags : [],
-              views: record.views ?? {},
-              labels: Array.isArray(record.labels) ? record.labels : [],
-              due_date: record.due_date ?? null,
-              due_day: record.due_day ?? null,
-              due_time: record.due_time ?? null,
-            };
-
-            // Atomic replacement - no jolt
-            replacePendingWithReal(record.drop_id, realItem);
-          } else {
-            // No drop_id, just merge normally
-            setItems((prev) => mergeDbRecordIntoItems(prev, record, 'todo'));
-          }
+          // Merge into items list - pending drops are managed by Zustand pendingDrops
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'todo'));
         },
       )
       .subscribe();
@@ -2780,27 +2654,8 @@ const RecentDrops: React.FC<{
             views: record.views ?? null,
           });
 
-          if (record.drop_id) {
-            // Build the real item for atomic replacement
-            const realItem: UnifiedDrop = {
-              id: record.id,
-              kind: 'habit' as const,
-              title: record.name ?? '',
-              text: record.name ?? '',
-              created_at: record.created_at,
-              drop_id: record.drop_id,
-              tags: Array.isArray(record.tags) ? record.tags : [],
-              views: record.views ?? {},
-              labels: Array.isArray(record.labels) ? record.labels : [],
-              days_active: Array.isArray(record.days_active) ? record.days_active : null,
-            };
-
-            // Atomic replacement - no jolt
-            replacePendingWithReal(record.drop_id, realItem);
-          } else {
-            // No drop_id, just merge normally
-            setItems((prev) => mergeDbRecordIntoItems(prev, record, 'habit'));
-          }
+          // Merge into items list - pending drops are managed by Zustand pendingDrops
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'habit'));
         },
       )
       .subscribe();
@@ -2826,30 +2681,8 @@ const RecentDrops: React.FC<{
             views: record.views ?? null,
           });
 
-          if (record.drop_id) {
-            // Build the real item for atomic replacement
-            const realItem: UnifiedDrop = {
-              id: record.id,
-              kind: 'note' as const,
-              title: record.title ?? '',
-              text: record.body ?? record.title ?? '',
-              created_at: record.created_at,
-              drop_id: record.drop_id,
-              tags: Array.isArray(record.tags) ? record.tags : [],
-              views: record.views ?? {},
-              labels: Array.isArray(record.labels) ? record.labels : [],
-              noteSubtype: record.subtype ?? 'catchall',
-              archived: record.archived ?? false,
-              hasPhotos: record.views?.has_photos === true,
-              mood: record.mood ?? null,
-            };
-
-            // Atomic replacement - no jolt
-            replacePendingWithReal(record.drop_id, realItem);
-          } else {
-            // No drop_id, just merge normally
-            setItems((prev) => mergeDbRecordIntoItems(prev, record, 'note'));
-          }
+          // Merge into items list - pending drops are managed by Zustand pendingDrops
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'note'));
         },
       )
       .subscribe();
@@ -2860,7 +2693,7 @@ const RecentDrops: React.FC<{
       void habitsChannel.unsubscribe();
       void notesChannel.unsubscribe();
     };
-  }, [userId, load, removePendingItem, replacePendingWithReal, mergeDbRecordIntoItems]);
+  }, [userId, load, mergeDbRecordIntoItems]);
 
   // Listen for entity:deleted events from overlay and immediately remove from list
   useEffect(() => {
@@ -2870,8 +2703,7 @@ const RecentDrops: React.FC<{
         console.debug('[RecentDrops] entity:deleted event:', event.id, event.type);
         // Remove the item immediately from local state
         setItems((prev) => prev.filter((item) => item.id !== event.id));
-        // Also remove from pending items in case it was still pending
-        setPendingItems((prev) => prev.filter((item) => item.id !== event.id));
+        // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
       },
     );
 
@@ -2895,8 +2727,7 @@ const RecentDrops: React.FC<{
           });
         }
 
-        // Perform atomic replacement using the entity from the event
-        // This is our primary mechanism since realtime may not be reliable
+        // Merge entity into items list - pending drops are managed by Zustand pendingDrops
         if (dropId && payload.entity) {
           const entityType = payload.type as 'todo' | 'habit' | 'note';
           const entity = payload.entity;
@@ -2922,7 +2753,16 @@ const RecentDrops: React.FC<{
             multi_summary_title: entity.views?.multi_summary_title ?? undefined,
           };
 
-          replacePendingWithReal(dropId, realItem);
+          // Merge into items - pending drops will be automatically removed from Zustand when synced
+          setItems((prev) => {
+            const existingIndex = prev.findIndex((item) => item.id === realItem.id);
+            if (existingIndex >= 0) {
+              const updated = [...prev];
+              updated[existingIndex] = realItem;
+              return updated;
+            }
+            return [realItem, ...prev];
+          });
         }
       },
     );
@@ -3013,8 +2853,7 @@ const RecentDrops: React.FC<{
         console.debug('[RecentDrops] ItemCompleted event:', payload.id, payload.type);
         // Remove the item immediately from local state
         setItems((prev) => prev.filter((item) => item.id !== payload.id));
-        // Also remove from pending items in case it was still pending
-        setPendingItems((prev) => prev.filter((item) => item.id !== payload.id));
+        // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
       },
     );
 
@@ -3056,7 +2895,7 @@ const RecentDrops: React.FC<{
       unsubItemCompleted();
       clearInterval(stuckCardInterval);
     };
-  }, [load, removePendingItem, replacePendingWithReal]);
+  }, [load]);
 
   const handleEdit = async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
     try {
@@ -4226,40 +4065,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
   const noopCallback = useCallback(() => {}, []);
 
-  // Ref to hold the addPendingItem callback from RecentDrops component
-  const addPendingItemRef = useRef<
-    | ((params: {
-        dropId: string;
-        text: string;
-        kind: 'todo' | 'habit' | 'note';
-        noteSubtype?: string;
-      }) => void)
-    | null
-  >(null);
-
-  // Ref to hold the removePendingItem callback from RecentDrops component
-  const removePendingItemRef = useRef<((dropId: string) => void) | null>(null);
-
-  // Callback to receive addPendingItem from RecentDrops
-  const handleReceiveAddPendingItem = useCallback(
-    (
-      callback: (params: {
-        dropId: string;
-        text: string;
-        kind: 'todo' | 'habit' | 'note';
-        noteSubtype?: string;
-      }) => void,
-    ) => {
-      addPendingItemRef.current = callback;
-    },
-    [],
-  );
-
-  // Callback to receive removePendingItem from RecentDrops
-  const handleReceiveRemovePendingItem = useCallback((callback: (dropId: string) => void) => {
-    removePendingItemRef.current = callback;
-  }, []);
-
   // Callback to sync "X thoughts organized today" counter with actual Today items count
   const handleTodayCountChange = useCallback(
     (count: number) => {
@@ -4679,24 +4484,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     // Use the same dropId from CatchAllNotepad ref for pending item correlation
     const { dropId } = ensureSubmissionAndDropIds();
 
-    // OPTIMISTIC UI: Add local pending item for instant feedback
-    // This is needed because USE_ZUSTAND_STORE is false - UI reads from local state
-    // Predict kind based on simple heuristics (will be replaced when real entity appears)
-    const lowerText = effectiveText.toLowerCase();
-    const seemsLikeTodo =
-      !hasPhotos &&
-      (/\b(buy|get|call|email|schedule|book|remind|cancel|update|fix|send)\b/.test(lowerText) ||
-        /\b(todo|task|asap|urgent|deadline)\b/.test(lowerText));
-    const seemsLikeHabit =
-      !hasPhotos && /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(lowerText);
-    const probableKind = seemsLikeTodo ? 'todo' : seemsLikeHabit ? 'habit' : 'note';
-
-    addPendingItemRef.current?.({
-      dropId,
-      text: effectiveText,
-      kind: probableKind,
-      noteSubtype: probableKind === 'note' ? 'general' : undefined,
-    });
+    // OPTIMISTIC UI: The new submit flow already adds pending item via addPendingDrop
+    // in useMindDropSubmit hook, so no manual call needed here
 
     const result = await mindDropSubmit(effectiveText, {
       spaceId: null, // CatchAllNotepad is global, no space
@@ -5837,18 +5626,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
       }
 
-      // Don't remove pending item here - let realtime subscription handle the
-      // atomic replacement via replacePendingWithReal. This prevents the "jolt"
-      // where pending card disappears before real card appears.
-      //
-      // The realtime handler will:
-      // 1. Receive the INSERT event from Supabase
-      // 2. Call replacePendingWithReal(drop_id, realItem)
-      // 3. Atomically swap pending→real in the items array
-      //
-      // Fallback: If realtime doesn't fire within 5s, clean up stale pending items
-      // (handled by existing periodic cleanup or user refresh)
-      console.log('[MindDrop][Pipeline] Success - deferring to realtime for atomic replacement', {
+      // With the new optimistic queue system:
+      // - Pending drops are managed by Zustand pendingDrops (auto-removed when synced)
+      // - Real items are merged via entity:created event handler
+      // - No manual pending item cleanup needed here
+      console.log('[MindDrop][Pipeline] Success - entity created via realtime', {
         dropId,
       });
 
@@ -6514,24 +6296,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // NOT automatically when AI finishes classification or prefill.
         // This prevents interrupting the user's flow.
 
-        // OPTIMISTIC UI: Add pending item immediately for instant feedback
-        // Use simple heuristic to predict kind (will be replaced when real entity appears)
-        // For photo drops, default to note (log) kind
-        const lowerText = effectiveText.toLowerCase();
-        const seemsLikeTodo =
-          !hasPhotos &&
-          (/\b(buy|get|call|email|schedule|book|remind|cancel|update|fix|send)\b/.test(lowerText) ||
-            /\b(todo|task|asap|urgent|deadline)\b/.test(lowerText));
-        const seemsLikeHabit =
-          !hasPhotos && /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(lowerText);
-        const probableKind = seemsLikeTodo ? 'todo' : seemsLikeHabit ? 'habit' : 'note';
-
-        addPendingItemRef.current?.({
-          dropId,
-          text: effectiveText,
-          kind: probableKind,
-          noteSubtype: probableKind === 'note' ? 'general' : undefined,
-        });
+        // OPTIMISTIC UI: The new submit flow already adds pending item via addPendingDrop
+        // in useMindDropSubmit hook, so no manual call needed here
+        // Heuristic prediction happens inside the hook using heuristicClassify
 
         // Capture photos for background upload (they will be cleared from state)
         const photosToUpload = hasPhotos ? [...pendingPhotoUris] : undefined;
@@ -6548,7 +6315,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         resetState();
         setIsSubmitting(false);
 
-        // Show optimistic speech based on predicted kind
+        // Show optimistic speech based on heuristic bucket
+        const heuristicResult = heuristicClassify(effectiveText, {
+          hasAttachments: hasPhotos,
+          spaceId: null,
+        });
+        const probableKind = heuristicResult.bucket;
         const optimisticSpeech =
           probableKind === 'todo'
             ? 'Added as a task.'
@@ -6890,8 +6662,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             onEdited={noopCallback}
             onDeleted={noopCallback}
             onTodayCountChange={handleTodayCountChange}
-            onAddPendingItem={handleReceiveAddPendingItem}
-            onRemovePendingItem={handleReceiveRemovePendingItem}
             initiallyOpen={true}
           />
         </Animated.View>
