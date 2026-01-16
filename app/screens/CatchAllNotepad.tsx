@@ -2219,6 +2219,7 @@ const RecentDrops: React.FC<{
           noteSubtype: kind === 'note' ? (record.subtype ?? 'catchall') : undefined,
           canonical_type: record.canonical_type ?? null,
           days_active: Array.isArray(record.days_active) ? record.days_active : null,
+          time_estimate_minutes: record.time_estimate_minutes ?? null,
           // Multi-entity support: extract from views to top level
           is_multi: record.views?.is_multi === true,
           multi_items: record.views?.multi_items ?? undefined,
@@ -2269,6 +2270,8 @@ const RecentDrops: React.FC<{
           days_active: Array.isArray((record as any).days_active)
             ? (record as any).days_active
             : (item.days_active ?? null),
+          time_estimate_minutes:
+            (record as any).time_estimate_minutes ?? item.time_estimate_minutes ?? null,
           // Multi-entity support: extract from views to top level
           is_multi: views?.is_multi === true,
           multi_items: views?.multi_items ?? item.multi_items ?? undefined,
@@ -2450,6 +2453,7 @@ const RecentDrops: React.FC<{
             views: (h as any)?.views ?? {},
             start_date: (h as any)?.start_date ?? null,
             days_active: (h as any)?.days_active ?? null,
+            time_estimate_minutes: (h as any)?.time_estimate_minutes ?? null,
           };
         });
 
@@ -2747,6 +2751,7 @@ const RecentDrops: React.FC<{
             due_time: entity.due_time ?? null,
             noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
             mood: entityType === 'note' ? (entity.mood ?? null) : undefined,
+            time_estimate_minutes: entity.time_estimate_minutes ?? null,
             // Multi-entity support: extract from views to top level
             is_multi: entity.views?.is_multi === true,
             multi_items: entity.views?.multi_items ?? undefined,
@@ -2839,6 +2844,10 @@ const RecentDrops: React.FC<{
               ...item,
               views: { ...item.views, minddrop_stage: value },
             };
+          }
+          if (field === 'time_estimate_minutes') {
+            console.log('⏱️ UPDATING TIME ESTIMATE IN STATE:', value);
+            return { ...item, time_estimate_minutes: value };
           }
 
           return item;

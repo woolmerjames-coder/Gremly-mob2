@@ -450,8 +450,18 @@ export async function processDrop(
       phase1Result.subtype,
       (field, value) => {
         callbacks?.onPhase2Field?.(localId, field, value);
+        // Map snake_case field names from server to camelCase for PendingDrop
+        const fieldMap: Record<string, string> = {
+          smart_title: 'smartTitle',
+          confirmation_message: 'confirmationMessage',
+          time_estimate_minutes: 'timeEstimateMinutes',
+          time_window: 'timeWindow',
+        };
+        const camelField = fieldMap[field] ?? field;
         // Update Zustand progressively (in-memory only, no AsyncStorage)
-        useGremlyStore.getState().updatePendingDropEnrichment(localId, { [field]: value } as any);
+        useGremlyStore
+          .getState()
+          .updatePendingDropEnrichment(localId, { [camelField]: value } as any);
       },
     );
 
