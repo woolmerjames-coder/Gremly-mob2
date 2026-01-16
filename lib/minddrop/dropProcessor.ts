@@ -133,7 +133,7 @@ async function syncDropToSupabase(
         origin: source === 'space' ? 'space_chat' : 'catchall',
         tags: enrichment?.tags || [],
         time_estimate_minutes: enrichment?.time_estimate_minutes || null,
-        time_window: enrichment?.time_window || null,
+        time_window: enrichment?.time_window || 'day',
         due_day: dueDay,
         due_date: dueDay,
         due_time: parsedFields.dueTime || null,
@@ -168,7 +168,7 @@ async function syncDropToSupabase(
         target_per_period: freq.target_per_period,
         days_active: enrichment?.extracted_days || null,
         start_date: enrichment?.extracted_start_date || (source === 'today' ? today : null),
-        time_window: enrichment?.time_window || null,
+        time_window: enrichment?.time_window || 'day',
         time_estimate_minutes: enrichment?.time_estimate_minutes || null,
         tags: enrichment?.tags || [],
         views: {
