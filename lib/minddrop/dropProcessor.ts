@@ -18,7 +18,7 @@
  * UI updates still happen progressively via Zustand (in-memory, instant)
  */
 
-import { type QueuedDrop, updateDrop, markSynced, markFailed, getPendingDrops } from './dropQueue';
+import { type QueuedDrop, updateDrop, markFailed, getPendingDrops, dequeue } from './dropQueue';
 import { detectMulti } from './detectMulti';
 import { runPhase1 } from './phase1';
 import type { MindDropBucket, LogSubtype } from './types';
@@ -394,8 +394,8 @@ export async function processDrop(
       });
 
       if (syncResult.success && syncResult.supabaseId) {
-        // CHECKPOINT 2 (for multi): Mark synced
-        await markSynced(localId, syncResult.supabaseId, 'note');
+        // Remove from queue entirely instead of marking synced (keeps queue small)
+        await dequeue(localId);
         useGremlyStore.getState().promotePendingDropToEntity(localId, syncResult.supabaseId);
         callbacks?.onSyncComplete?.(localId, syncResult.supabaseId);
 
@@ -493,8 +493,8 @@ export async function processDrop(
     );
 
     if (syncResult.success && syncResult.supabaseId) {
-      // CHECKPOINT 3: Mark synced (final save)
-      await markSynced(localId, syncResult.supabaseId, syncResult.entityType!);
+      // Remove from queue entirely instead of marking synced (keeps queue small)
+      await dequeue(localId);
       useGremlyStore.getState().promotePendingDropToEntity(localId, syncResult.supabaseId);
       callbacks?.onSyncComplete?.(localId, syncResult.supabaseId);
 
