@@ -4,6 +4,7 @@ import Animated, { SlideOutUp, Easing } from 'react-native-reanimated';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { useDropRecovery } from '../hooks/useDropRecovery';
 import { Text } from '../ui';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -62,6 +63,9 @@ export default function RootNavigator() {
   const { user, loading } = useAuth();
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const isInitialized = useGremlyStore((s) => s.isInitialized);
+
+  // Recover any pending drops from previous session
+  useDropRecovery();
 
   // Determine initial route based on onboarding status
   const initialRouteName = useMemo(() => {
