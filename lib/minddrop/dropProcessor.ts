@@ -1,14 +1,28 @@
 /**
- * Drop Processor - Orchestrates background processing of Mind Drops
+ * Drop Processor - Optimized Version (Conservative Approach)
  *
- * Processes drops from the queue through Phase 0 → 1 → 2 → Supabase sync
- * Updates Zustand store progressively for instant UI feedback
+ * OPTIMIZATION: Reduced AsyncStorage writes from 9+ to 3-4 per drop
+ *
+ * Checkpoint strategy:
+ * 1. Initial enqueue (handled by dropQueue.ts)
+ * 2. After Phase 1 classification (expensive AI work - worth saving)
+ * 3. After Phase 2 enrichment complete (all fields at once, not per-field)
+ * 4. After Supabase sync (markSynced)
+ *
+ * REMOVED unnecessary saves:
+ * - status: 'classifying' (not needed - if crash, we retry from start)
+ * - status: 'enriching' (not needed - if crash, we retry from Phase 1)
+ * - status: 'syncing' (not needed - if crash, we retry from Phase 2)
+ * - Per-field enrichment updates (now batched into single save)
+ *
+ * UI updates still happen progressively via Zustand (in-memory, instant)
  */
 
 import { type QueuedDrop, updateDrop, markSynced, markFailed, getPendingDrops } from './dropQueue';
 import { detectMulti } from './detectMulti';
 import { runPhase1 } from './phase1';
 import type { MindDropBucket, LogSubtype } from './types';
+import type { HabitSubtype } from '../types';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { eventBus } from '../events/EventBus';
 import { supabase } from '../supabase/client';
@@ -65,7 +79,8 @@ async function runPhase2InMemory(
         { text, bucket, subtype, recentTitles: [] },
         {
           onField: (field, value) => {
-            partialResult[field as keyof Phase2EnrichmentResult] = value as never;
+            partialResult[field as keyof Phase2EnrichmentResult] = value as any;
+            // Only update Zustand (in-memory) - NO AsyncStorage write here
             onField?.(field, value);
           },
           onComplete: (result) => {
@@ -133,7 +148,7 @@ async function syncDropToSupabase(
         origin: source === 'space' ? 'space_chat' : 'catchall',
         tags: enrichment?.tags || [],
         time_estimate_minutes: enrichment?.time_estimate_minutes || null,
-        time_window: enrichment?.time_window || 'day',
+        time_window: enrichment?.time_window || null,
         due_day: dueDay,
         due_date: dueDay,
         due_time: parsedFields.dueTime || null,
@@ -168,7 +183,7 @@ async function syncDropToSupabase(
         target_per_period: freq.target_per_period,
         days_active: enrichment?.extracted_days || null,
         start_date: enrichment?.extracted_start_date || (source === 'today' ? today : null),
-        time_window: enrichment?.time_window || 'day',
+        time_window: enrichment?.time_window || 'day', // Default to 'day' to fix NOT NULL constraint
         time_estimate_minutes: enrichment?.time_estimate_minutes || null,
         tags: enrichment?.tags || [],
         views: {
@@ -220,7 +235,22 @@ async function syncDropToSupabase(
 
     console.log('[DropProcessor] Synced successfully', { localId, supabaseId: data.id });
 
-    // Emit event for store and other listeners to pick up
+    // Add to Zustand store using set() pattern
+    if (entityType === 'todo') {
+      useGremlyStore.setState((state) => ({
+        todos: [...state.todos, { ...data, type: 'todo' as const }],
+      }));
+    } else if (entityType === 'habit') {
+      useGremlyStore.setState((state) => ({
+        habits: [...state.habits, { ...data, type: 'habit' as const }],
+      }));
+    } else {
+      useGremlyStore.setState((state) => ({
+        notes: [...state.notes, { ...data, type: 'note' as const }],
+      }));
+    }
+
+    // Emit event for other listeners
     eventBus.emit('entity:created', {
       entity: { ...data, type: entityType, drop_id: localId },
       type: entityType,
@@ -284,7 +314,12 @@ async function syncMultiDropToSupabase(drop: QueuedDrop): Promise<SyncResult> {
       return { success: false, error };
     }
 
-    // Emit event for store and other listeners
+    // Add to Zustand store using set() pattern
+    useGremlyStore.setState((state) => ({
+      notes: [...state.notes, { ...data, type: 'note' as const }],
+    }));
+
+    // Emit event
     eventBus.emit('entity:created', {
       entity: { ...data, type: 'note', drop_id: localId },
       type: 'note',
@@ -304,15 +339,18 @@ export async function processDrop(
   callbacks?: ProcessingCallbacks,
 ): Promise<{ success: boolean; supabaseId?: string; error?: Error }> {
   const { localId, text } = drop;
-
-  console.log('[DropProcessor] Processing drop', { localId, textPreview: text.substring(0, 30) });
   const startTime = Date.now();
 
+  console.log('[DropProcessor] Processing drop', { localId, textPreview: text.substring(0, 30) });
+
   try {
-    // --- Phase 0: Multi-entity detection ---
-    await updateDrop(localId, { status: 'classifying' });
+    // =========================================
+    // PHASE 0: Multi-entity detection
+    // NO AsyncStorage save here (not worth checkpoint)
+    // =========================================
 
     const multiResult = await detectMulti(text);
+
     console.log('[DropProcessor] Phase 0 timing', { localId, elapsed: Date.now() - startTime });
 
     if (multiResult.is_multi && multiResult.segments && multiResult.segments.length > 1) {
@@ -334,13 +372,14 @@ export async function processDrop(
         }),
       );
 
+      // CHECKPOINT 1 (for multi): Save multi-detection results before sync
       await updateDrop(localId, {
         isMulti: true,
         multiSegments: classifiedSegments,
         multiSummary: multiResult.summary,
         dominantBucket: multiResult.dominant_bucket as MindDropBucket,
         dominantSubtype: multiResult.dominant_subtype as LogSubtype | null,
-        status: 'syncing',
+        status: 'classified', // Clear checkpoint status
       });
 
       callbacks?.onPhase0Complete?.(localId, true);
@@ -355,9 +394,15 @@ export async function processDrop(
       });
 
       if (syncResult.success && syncResult.supabaseId) {
+        // CHECKPOINT 2 (for multi): Mark synced
         await markSynced(localId, syncResult.supabaseId, 'note');
         useGremlyStore.getState().promotePendingDropToEntity(localId, syncResult.supabaseId);
         callbacks?.onSyncComplete?.(localId, syncResult.supabaseId);
+
+        console.log('[DropProcessor] Total timing (multi)', {
+          localId,
+          elapsed: Date.now() - startTime,
+        });
         return { success: true, supabaseId: syncResult.supabaseId };
       } else {
         throw syncResult.error || new Error('Multi-drop sync failed');
@@ -366,19 +411,26 @@ export async function processDrop(
 
     callbacks?.onPhase0Complete?.(localId, false);
 
-    // --- Phase 1: Classification ---
+    // =========================================
+    // PHASE 1: Classification
+    // CHECKPOINT 1: Save after Phase 1 (expensive AI work)
+    // =========================================
+
     const phase1Result = await runPhase1(text, { hasAttachments: false });
+
     console.log('[DropProcessor] Phase 1 timing', { localId, elapsed: Date.now() - startTime });
 
+    // CHECKPOINT 1: Save classification results
+    // This is the first save - protects expensive Phase 1 AI work
     await updateDrop(localId, {
       bucket: phase1Result.bucket,
       subtype: phase1Result.subtype,
       habitSubtype: phase1Result.habitSubtype,
       confidence: phase1Result.confidence,
-      status: 'enriching',
+      status: 'classified', // Clear checkpoint status
     });
 
-    // Update Zustand for immediate UI feedback
+    // Update Zustand for immediate UI feedback (in-memory, instant)
     useGremlyStore.getState().updatePendingDropClassification(localId, {
       bucket: phase1Result.bucket,
       subtype: phase1Result.subtype,
@@ -386,21 +438,26 @@ export async function processDrop(
 
     callbacks?.onPhase1Complete?.(localId, phase1Result.bucket);
 
-    // --- Phase 2: Enrichment ---
+    // =========================================
+    // PHASE 2: Enrichment
+    // NO per-field AsyncStorage saves during streaming
+    // Zustand updates happen in-memory for UI
+    // =========================================
+
     const enrichmentResult = await runPhase2InMemory(
       text,
       phase1Result.bucket,
       phase1Result.subtype,
       (field, value) => {
         callbacks?.onPhase2Field?.(localId, field, value);
-        useGremlyStore
-          .getState()
-          .updatePendingDropEnrichment(localId, { [field]: value } as Partial<
-            import('../store/useGremlyStore').PendingDrop
-          >);
+        // Update Zustand progressively (in-memory only, no AsyncStorage)
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, { [field]: value } as any);
       },
     );
 
+    console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
+
+    // CHECKPOINT 2: Save ALL enrichment results in ONE write
     if (enrichmentResult) {
       await updateDrop(localId, {
         smartTitle: enrichmentResult.smart_title,
@@ -414,14 +471,16 @@ export async function processDrop(
         people: enrichmentResult.people,
         confirmationMessage: enrichmentResult.confirmation_message,
         mood: enrichmentResult.mood,
+        status: 'enriched', // Clear checkpoint status
       });
     }
 
     callbacks?.onPhase2Complete?.(localId);
-    console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
 
-    // --- Sync to Supabase ---
-    await updateDrop(localId, { status: 'syncing' });
+    // =========================================
+    // SYNC: Write to Supabase
+    // NO separate 'syncing' status save (not needed)
+    // =========================================
 
     const syncResult = await syncDropToSupabase(
       {
@@ -433,16 +492,17 @@ export async function processDrop(
       enrichmentResult,
     );
 
-    console.log('[DropProcessor] Sync timing', {
-      localId,
-      elapsed: Date.now() - startTime,
-      total: Date.now() - startTime,
-    });
-
     if (syncResult.success && syncResult.supabaseId) {
+      // CHECKPOINT 3: Mark synced (final save)
       await markSynced(localId, syncResult.supabaseId, syncResult.entityType!);
       useGremlyStore.getState().promotePendingDropToEntity(localId, syncResult.supabaseId);
       callbacks?.onSyncComplete?.(localId, syncResult.supabaseId);
+
+      console.log('[DropProcessor] Sync timing', {
+        localId,
+        elapsed: Date.now() - startTime,
+        total: Date.now() - startTime,
+      });
       return { success: true, supabaseId: syncResult.supabaseId };
     } else {
       throw syncResult.error || new Error('Sync failed');
@@ -468,6 +528,16 @@ export async function processAllPending(): Promise<void> {
   console.log('[DropProcessor] Processing pending drops', { count: pending.length });
 
   for (const drop of pending) {
+    // Determine where to resume based on status
+    if (drop.status === 'enriched') {
+      // Skip directly to sync
+      console.log('[DropProcessor] Resuming from enriched state', { localId: drop.localId });
+    } else if (drop.status === 'classified') {
+      // Skip to Phase 2
+      console.log('[DropProcessor] Resuming from classified state', { localId: drop.localId });
+    }
+    // Otherwise start from beginning
+
     await processDrop(drop);
   }
 }

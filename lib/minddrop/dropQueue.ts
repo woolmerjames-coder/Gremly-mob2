@@ -22,7 +22,15 @@ const MAX_RETRY_COUNT = 3;
 // Types
 // ============================================================================
 
-export type DropStatus = 'queued' | 'classifying' | 'enriching' | 'syncing' | 'synced' | 'failed';
+export type DropStatus =
+  | 'queued'
+  | 'classifying'
+  | 'classified'
+  | 'enriching'
+  | 'enriched'
+  | 'syncing'
+  | 'synced'
+  | 'failed';
 
 export type DropSource = 'minddrop' | 'today' | 'space' | 'photo';
 
@@ -370,7 +378,9 @@ export async function getQueueStats(): Promise<{
   const byStatus: Record<DropStatus, number> = {
     queued: 0,
     classifying: 0,
+    classified: 0,
     enriching: 0,
+    enriched: 0,
     syncing: 0,
     synced: 0,
     failed: 0,
