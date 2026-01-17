@@ -1116,6 +1116,53 @@ const AnimatedCardInsert: React.FC<{
 };
 
 /**
+ * AnimatedCardSlideDown - Wrapper for existing cards to animate their position
+ * when new cards are inserted above them.
+ *
+ * Uses Reanimated's Layout transition for smooth position animation.
+ * The 450ms duration matches CardInsertLayoutAnimation for visual consistency.
+ *
+ * CRITICAL: Only enable Layout animation after card content is fully settled (2 seconds).
+ * This prevents the "jump/bump" when chips appear or other content changes happen.
+ * Cards only animate their position when OTHER cards are inserted/removed, not when
+ * their own content changes.
+ */
+const AnimatedCardSlideDown: React.FC<{
+  itemId: string;
+  children: React.ReactNode;
+}> = ({ itemId, children }) => {
+  // Track if this item's content has fully settled (all enrichment complete)
+  // Use a longer delay (2s) to ensure chips, typewriter, and all transitions are done
+  const [hasSettled, setHasSettled] = React.useState(false);
+
+  React.useEffect(() => {
+    // Wait 2 seconds after mount before enabling layout animation
+    // This ensures all Phase 1/2 enrichment, chip animations, and content updates are complete
+    // Only AFTER this point will the card animate its position for sibling changes
+    const timeout = setTimeout(() => {
+      setHasSettled(true);
+    }, 2000);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  // Before settling, render without Layout animation
+  // This prevents jumps during content updates (chips appearing, etc.)
+  if (!hasSettled) {
+    return <View>{children}</View>;
+  }
+
+  // After settling, enable Layout animation for position changes
+  // Now this card will smoothly slide when NEW cards are inserted above it
+  return (
+    <Reanimated.View
+      layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+    >
+      {children}
+    </Reanimated.View>
+  );
+};
+
+/**
  * AnimatedChipsTransition - Magical blur-to-sharp reveal for Phase 2 metadata chips
  *
  * When Phase 2 data arrives, ALL chips "emerge from mist" together:
@@ -3941,22 +3988,23 @@ const RecentDrops: React.FC<{
                 const isPending = visualState === 'pending';
 
                 return (
-                  <AnimatedMindDropCard
-                    key={`${item.kind}:${item.id}`}
-                    item={item}
-                    isPending={isPending}
-                    effectiveKind={effectiveKind}
-                    displayKind={displayKind}
-                    showLegacyUnsortedBadge={showLegacyUnsortedBadge}
-                    badgeStyleKey={badgeStyleKey}
-                    c={c}
-                    styles={styles}
-                    mode={themeMode}
-                    handleEdit={handleEdit}
-                    handleDelete={handleDelete}
-                    onKeepAsNote={handleKeepAsNote}
-                    onSplitSelected={handleSplitSelected}
-                  />
+                  <AnimatedCardSlideDown key={`${item.kind}:${item.id}`} itemId={item.id}>
+                    <AnimatedMindDropCard
+                      item={item}
+                      isPending={isPending}
+                      effectiveKind={effectiveKind}
+                      displayKind={displayKind}
+                      showLegacyUnsortedBadge={showLegacyUnsortedBadge}
+                      badgeStyleKey={badgeStyleKey}
+                      c={c}
+                      styles={styles}
+                      mode={themeMode}
+                      handleEdit={handleEdit}
+                      handleDelete={handleDelete}
+                      onKeepAsNote={handleKeepAsNote}
+                      onSplitSelected={handleSplitSelected}
+                    />
+                  </AnimatedCardSlideDown>
                 );
               })}
             </AppScrollView>
