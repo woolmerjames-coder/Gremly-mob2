@@ -3346,12 +3346,13 @@ const RecentDrops: React.FC<{
             console.log('🟢 UPDATING TAGS IN STATE:', value);
             return { ...item, tags: value };
           }
+          // CRITICAL: Do NOT update minddrop_stage via field_updated events!
+          // The stage should ONLY be set to 'enriched' via the entity:enriched event
+          // which contains ALL fields at once. If we set 'enriched' here before
+          // time_estimate_minutes arrives, chips animate in without the time estimate.
           if (field === 'minddrop_stage') {
-            console.log('🟣 UPDATING STAGE IN STATE:', value);
-            return {
-              ...item,
-              views: { ...item.views, minddrop_stage: value },
-            };
+            console.log('🟣 IGNORING minddrop_stage via field_updated (wait for entity:enriched)');
+            return item; // Don't update - wait for entity:enriched
           }
           if (field === 'time_estimate_minutes') {
             console.log('⏱️ UPDATING TIME ESTIMATE IN STATE:', value);
