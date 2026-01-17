@@ -826,6 +826,50 @@ type UnifiedDrop = {
 };
 
 /**
+ * Apply Phase 2 enrichment result to a UnifiedDrop item
+ * CRITICAL: Must include ALL chip-relevant fields so they all animate together
+ * Missing any field means that chip appears later without the blur animation
+ */
+function applyEnrichmentToItem(
+  item: UnifiedDrop,
+  result: {
+    smartTitle?: string;
+    tags?: string[];
+    timeEstimateMinutes?: number | null;
+    extractedDate?: string | null;
+    extractedStartDate?: string | null;
+    extractedFrequency?: string | null;
+    extractedDays?: number[] | null;
+    cadence?: string | null;
+    targetPerPeriod?: number | null;
+    confirmationMessage?: string | null;
+    people?: string[];
+    mood?: string[] | null;
+  },
+): UnifiedDrop {
+  return {
+    ...item,
+    tags: result.tags || item.tags,
+    time_estimate_minutes: result.timeEstimateMinutes ?? item.time_estimate_minutes,
+    due_date: result.extractedDate ?? item.due_date,
+    due_day: result.extractedDate?.split('T')[0] ?? item.due_day,
+    start_date: result.extractedStartDate ?? item.start_date,
+    frequency: result.extractedFrequency ?? item.frequency,
+    cadence: (result.cadence as 'daily' | 'weekly' | 'monthly' | null) ?? item.cadence,
+    target_per_period: result.targetPerPeriod ?? item.target_per_period,
+    days_active: result.extractedDays ?? item.days_active,
+    mood: (result.mood as Mood[] | null) ?? item.mood,
+    views: {
+      ...item.views,
+      minddrop_stage: 'enriched',
+      ai_pending: false,
+      confirmation_message: result.confirmationMessage ?? item.views?.confirmation_message,
+      people: result.people ?? item.views?.people,
+    },
+  };
+}
+
+/**
  * Visual state for Mind Drop items in Recent Drops list
  * - 'pending': AI enrichment in progress (views.ai_pending = true)
  * - 'enriching': Phase 2 enrichment in progress (entity exists, refining)
@@ -3553,22 +3597,11 @@ const RecentDrops: React.FC<{
             runPhase2(newTodo.id, originalText, 'todo', null, repo)
               .then((result) => {
                 console.log(`[RecentDrops:Phase2:${newTodo.id}] Complete`, result);
-                // runPhase2 handles entity updates internally, but update local state too
+                // Update local state with ALL enrichment fields so chips animate together
                 if (result) {
                   setItems((prev) =>
                     prev.map((item) =>
-                      item.id === newTodo.id
-                        ? {
-                            ...item,
-                            tags: result.tags || item.tags,
-                            time_estimate_minutes: result.timeEstimateMinutes,
-                            views: {
-                              ...item.views,
-                              minddrop_stage: 'enriched',
-                              ai_pending: false,
-                            },
-                          }
-                        : item,
+                      item.id === newTodo.id ? applyEnrichmentToItem(item, result) : item,
                     ),
                   );
                 }
@@ -3621,21 +3654,11 @@ const RecentDrops: React.FC<{
             runPhase2(newHabit.id, originalText, 'habit', null, repo)
               .then((result) => {
                 console.log(`[RecentDrops:Phase2:${newHabit.id}] Complete`, result);
+                // Update local state with ALL enrichment fields so chips animate together
                 if (result) {
                   setItems((prev) =>
                     prev.map((item) =>
-                      item.id === newHabit.id
-                        ? {
-                            ...item,
-                            tags: result.tags || item.tags,
-                            frequency: result.extractedFrequency,
-                            views: {
-                              ...item.views,
-                              minddrop_stage: 'enriched',
-                              ai_pending: false,
-                            },
-                          }
-                        : item,
+                      item.id === newHabit.id ? applyEnrichmentToItem(item, result) : item,
                     ),
                   );
                 }
@@ -3690,20 +3713,11 @@ const RecentDrops: React.FC<{
         runPhase2(noteId, originalText, 'log', dominantSubtype || 'general', repo)
           .then((result) => {
             console.log(`[RecentDrops:Phase2:${noteId}] Complete`, result);
+            // Update local state with ALL enrichment fields so chips animate together
             if (result) {
               setItems((prev) =>
                 prev.map((item) =>
-                  item.id === noteId
-                    ? {
-                        ...item,
-                        tags: result.tags || item.tags,
-                        views: {
-                          ...item.views,
-                          minddrop_stage: 'enriched',
-                          ai_pending: false,
-                        },
-                      }
-                    : item,
+                  item.id === noteId ? applyEnrichmentToItem(item, result) : item,
                 ),
               );
             }
@@ -3850,22 +3864,11 @@ const RecentDrops: React.FC<{
             runPhase2(entityIdForPhase2, splitItem.text, bucket, subtype, repo)
               .then((result) => {
                 console.log(`[RecentDrops:Phase2:${entityIdForPhase2}] Complete`, result);
-                // Update local state with enrichment results
+                // Update local state with ALL enrichment fields so chips animate together
                 if (result) {
                   setItems((prev) =>
                     prev.map((item) =>
-                      item.id === entityIdForPhase2
-                        ? {
-                            ...item,
-                            tags: result.tags || item.tags,
-                            time_estimate_minutes: result.timeEstimateMinutes,
-                            views: {
-                              ...item.views,
-                              minddrop_stage: 'enriched',
-                              ai_pending: false,
-                            },
-                          }
-                        : item,
+                      item.id === entityIdForPhase2 ? applyEnrichmentToItem(item, result) : item,
                     ),
                   );
                 }
