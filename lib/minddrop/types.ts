@@ -168,4 +168,10 @@ export interface Phase1Result {
 
   /** Combined title for multi-entity drops (e.g., "Groceries + Running Habit") */
   summary_title?: string;
+
+  /** Early smart title from Phase 1 (enables faster typewriter animation) */
+  smart_title?: string | null;
+
+  /** Early confirmation message from Phase 1 (enables faster typewriter animation) */
+  confirmation_message?: string | null;
 }

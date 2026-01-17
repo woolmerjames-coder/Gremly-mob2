@@ -22,21 +22,32 @@ import { type QueuedDrop, updateDrop, markFailed, getPendingDrops, dequeue } fro
 import { detectMulti } from './detectMulti';
 import { runPhase1 } from './phase1';
 import type { MindDropBucket, LogSubtype } from './types';
-import type { HabitSubtype } from '../types';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { eventBus } from '../events/EventBus';
 import { supabase } from '../supabase/client';
 import { dateService } from '../date/DateService';
 import { buildTodoFields } from '../cortex/textNormalization';
 import { parseFrequencyString } from '../habits/frequencyUtils';
-import { callEnrichPhase2Streaming, type Phase2EnrichmentResult } from '../cortex/CortexClient';
+import { env, getEnv } from '../env';
 
 // --- Types ---
+
+/** Phase 2 enrichment result (metadata fields only, no smart_title/confirmation_message) */
+export interface Phase2MetadataResult {
+  tags: string[];
+  time_estimate_minutes: number | null;
+  time_window: 'morning' | 'day' | 'evening' | null;
+  extracted_date: string | null;
+  extracted_start_date: string | null;
+  extracted_frequency: string | null;
+  extracted_days: number[] | null;
+  people: string[];
+  mood: string[] | null;
+}
 
 export interface ProcessingCallbacks {
   onPhase0Complete?: (localId: string, isMulti: boolean) => void;
   onPhase1Complete?: (localId: string, bucket: MindDropBucket) => void;
-  onPhase2Field?: (localId: string, field: string, value: unknown) => void;
   onPhase2Complete?: (localId: string) => void;
   onSyncComplete?: (localId: string, supabaseId: string) => void;
   onError?: (localId: string, error: Error) => void;
@@ -49,68 +60,115 @@ interface SyncResult {
   error?: Error;
 }
 
-// --- Helper: Run Phase 2 without DB writes ---
+// --- Constants ---
 
-async function runPhase2InMemory(
+const PHASE2_TIMEOUT_MS = 8000;
+
+const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
+
+const readCortexUrl = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
+  const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
+};
+
+const readSupabaseAnonKey = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+};
+
+// --- Helper: Run Phase 2 (non-streaming) ---
+
+async function runPhase2(
   text: string,
   bucket: MindDropBucket,
   subtype: LogSubtype | null,
-  onField?: (field: string, value: unknown) => void,
-): Promise<Phase2EnrichmentResult | null> {
-  return new Promise((resolve) => {
-    const partialResult: Partial<Phase2EnrichmentResult> = {};
-    let resolved = false;
+): Promise<Phase2MetadataResult | null> {
+  const cortexUrl = readCortexUrl();
+  const anonKey = readSupabaseAnonKey();
 
-    const safeResolve = (result: Phase2EnrichmentResult | null) => {
-      if (!resolved) {
-        resolved = true;
-        resolve(result);
-      }
-    };
+  if (!cortexUrl || !anonKey) {
+    console.log('[DropProcessor] Missing cortex URL or anon key for Phase 2');
+    return null;
+  }
 
-    // Timeout fallback
-    const timeout = setTimeout(() => {
-      console.log('[DropProcessor] Phase 2 timeout, using partial result');
-      safeResolve(partialResult.smart_title ? (partialResult as Phase2EnrichmentResult) : null);
-    }, 10000);
-
-    try {
-      callEnrichPhase2Streaming(
-        { text, bucket, subtype, recentTitles: [] },
-        {
-          onField: (field, value) => {
-            partialResult[field as keyof Phase2EnrichmentResult] = value as any;
-            // Only update Zustand (in-memory) - NO AsyncStorage write here
-            onField?.(field, value);
-          },
-          onComplete: (result) => {
-            clearTimeout(timeout);
-            safeResolve(result);
-          },
-          onError: (error) => {
-            clearTimeout(timeout);
-            console.error('[DropProcessor] Phase 2 error:', error);
-            safeResolve(
-              partialResult.smart_title ? (partialResult as Phase2EnrichmentResult) : null,
-            );
-          },
-        },
-      );
-    } catch (err) {
-      clearTimeout(timeout);
-      console.error('[DropProcessor] Phase 2 exception:', err);
-      safeResolve(null);
-    }
+  // Create timeout promise
+  const timeoutPromise = new Promise<null>((resolve) => {
+    setTimeout(() => resolve(null), PHASE2_TIMEOUT_MS);
   });
+
+  // Create API call promise
+  const apiPromise = (async (): Promise<Phase2MetadataResult | null> => {
+    try {
+      const res = await fetch(cortexUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${anonKey}`,
+        },
+        body: JSON.stringify({
+          type: 'enrich-phase2',
+          text,
+          bucket,
+          subtype,
+        }),
+      });
+
+      if (!res.ok) {
+        console.log('[DropProcessor] Phase 2 API returned non-ok status', { status: res.status });
+        return null;
+      }
+
+      const json = await res.json();
+      
+      // Validate response has expected fields
+      if (!json || typeof json !== 'object') {
+        console.log('[DropProcessor] Phase 2 API returned invalid JSON');
+        return null;
+      }
+
+      // Validate and cast time_window to valid values
+      const validTimeWindows = ['morning', 'day', 'evening'] as const;
+      const rawTimeWindow = json.time_window;
+      const time_window = validTimeWindows.includes(rawTimeWindow) 
+        ? (rawTimeWindow as 'morning' | 'day' | 'evening') 
+        : null;
+
+      return {
+        tags: Array.isArray(json.tags) ? json.tags : [],
+        time_estimate_minutes: json.time_estimate_minutes ?? null,
+        time_window,
+        extracted_date: json.extracted_date ?? null,
+        extracted_start_date: json.extracted_start_date ?? null,
+        extracted_frequency: json.extracted_frequency ?? null,
+        extracted_days: json.extracted_days ?? null,
+        people: Array.isArray(json.people) ? json.people : [],
+        mood: json.mood ?? null,
+      };
+    } catch (err) {
+      console.log('[DropProcessor] Phase 2 API error', { error: String(err) });
+      return null;
+    }
+  })();
+
+  // Race API call against timeout
+  const result = await Promise.race([apiPromise, timeoutPromise]);
+  
+  if (!result) {
+    console.log('[DropProcessor] Phase 2 timeout or error');
+  }
+  
+  return result;
 }
 
 // --- Helper: Sync single drop to Supabase ---
 
 async function syncDropToSupabase(
   drop: QueuedDrop,
-  enrichment: Phase2EnrichmentResult | null,
+  enrichment: Phase2MetadataResult | null,
 ): Promise<SyncResult> {
-  const { localId, text, spaceId, source, bucket, subtype, habitSubtype } = drop;
+  const { localId, text, spaceId, source, bucket, subtype, habitSubtype, smartTitle, confirmationMessage } = drop;
 
   const userId = useGremlyStore.getState().userId;
   if (!userId) {
@@ -141,7 +199,7 @@ async function syncDropToSupabase(
 
       payload = {
         owner_id: userId,
-        name: enrichment?.smart_title || parsedFields.title || text.substring(0, 60),
+        name: smartTitle || parsedFields.title || text.substring(0, 60),
         body: text,
         space_id: spaceId,
         drop_id: localId,
@@ -155,7 +213,7 @@ async function syncDropToSupabase(
         views: {
           minddrop_stage: 'enriched',
           ai_pending: false,
-          confirmation_message: enrichment?.confirmation_message,
+          confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
         },
         created_at: now,
@@ -171,8 +229,8 @@ async function syncDropToSupabase(
 
       payload = {
         owner_id: userId,
-        name: enrichment?.smart_title || text.substring(0, 60),
-        title: enrichment?.smart_title || text.substring(0, 60),
+        name: smartTitle || text.substring(0, 60),
+        title: smartTitle || text.substring(0, 60),
         notes: text,
         space_id: spaceId,
         drop_id: localId,
@@ -189,7 +247,7 @@ async function syncDropToSupabase(
         views: {
           minddrop_stage: 'enriched',
           ai_pending: false,
-          confirmation_message: enrichment?.confirmation_message,
+          confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
         },
         created_at: now,
@@ -205,7 +263,7 @@ async function syncDropToSupabase(
 
       payload = {
         owner_id: userId,
-        title: enrichment?.smart_title || text.substring(0, 60),
+        title: smartTitle || text.substring(0, 60),
         body: text,
         subtype: noteSubtype,
         space_id: spaceId,
@@ -216,7 +274,7 @@ async function syncDropToSupabase(
         views: {
           minddrop_stage: 'enriched',
           ai_pending: false,
-          confirmation_message: enrichment?.confirmation_message,
+          confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
         },
         created_at: now,
@@ -420,13 +478,16 @@ export async function processDrop(
 
     console.log('[DropProcessor] Phase 1 timing', { localId, elapsed: Date.now() - startTime });
 
-    // CHECKPOINT 1: Save classification results
+    // CHECKPOINT 1: Save classification results (and early enrichment fields if present)
     // This is the first save - protects expensive Phase 1 AI work
     await updateDrop(localId, {
       bucket: phase1Result.bucket,
       subtype: phase1Result.subtype,
       habitSubtype: phase1Result.habitSubtype,
       confidence: phase1Result.confidence,
+      // Phase 1 now returns early enrichment fields for faster typewriter animation
+      ...(phase1Result.smart_title && { smartTitle: phase1Result.smart_title }),
+      ...(phase1Result.confirmation_message && { confirmationMessage: phase1Result.confirmation_message }),
       status: 'classified', // Clear checkpoint status
     });
 
@@ -436,41 +497,49 @@ export async function processDrop(
       subtype: phase1Result.subtype,
     });
 
+    // If Phase 1 returned early enrichment fields, push them to Zustand immediately
+    // This allows typewriter animation to start after Phase 1 (~1.5s) instead of Phase 2 (~4s)
+    if (phase1Result.smart_title || phase1Result.confirmation_message) {
+      const earlyEnrichment: Record<string, string | null> = {};
+      if (phase1Result.smart_title) {
+        earlyEnrichment.smartTitle = phase1Result.smart_title;
+      }
+      if (phase1Result.confirmation_message) {
+        earlyEnrichment.confirmationMessage = phase1Result.confirmation_message;
+      }
+      useGremlyStore.getState().updatePendingDropEnrichment(localId, earlyEnrichment);
+      console.log('[DropProcessor] Phase 1 early enrichment', { localId, fields: Object.keys(earlyEnrichment) });
+    }
+
     callbacks?.onPhase1Complete?.(localId, phase1Result.bucket);
 
     // =========================================
-    // PHASE 2: Enrichment
-    // NO per-field AsyncStorage saves during streaming
-    // Zustand updates happen in-memory for UI
+    // PHASE 2: Enrichment (non-streaming)
+    // Simple JSON request/response for metadata fields
+    // smart_title and confirmation_message already came from Phase 1
     // =========================================
 
-    const enrichmentResult = await runPhase2InMemory(
+    const enrichmentResult = await runPhase2(
       text,
       phase1Result.bucket,
       phase1Result.subtype,
-      (field, value) => {
-        callbacks?.onPhase2Field?.(localId, field, value);
-        // Map snake_case field names from server to camelCase for PendingDrop
-        const fieldMap: Record<string, string> = {
-          smart_title: 'smartTitle',
-          confirmation_message: 'confirmationMessage',
-          time_estimate_minutes: 'timeEstimateMinutes',
-          time_window: 'timeWindow',
-        };
-        const camelField = fieldMap[field] ?? field;
-        // Update Zustand progressively (in-memory only, no AsyncStorage)
-        useGremlyStore
-          .getState()
-          .updatePendingDropEnrichment(localId, { [camelField]: value } as any);
-      },
     );
 
     console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
 
+    // Update Zustand with metadata fields (time estimate, tags, etc.)
+    if (enrichmentResult) {
+      useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+        tags: enrichmentResult.tags,
+        timeEstimateMinutes: enrichmentResult.time_estimate_minutes,
+        timeWindow: enrichmentResult.time_window,
+      });
+    }
+
     // CHECKPOINT 2: Save ALL enrichment results in ONE write
+    // Note: smart_title and confirmation_message already saved with Phase 1
     if (enrichmentResult) {
       await updateDrop(localId, {
-        smartTitle: enrichmentResult.smart_title,
         tags: enrichmentResult.tags,
         timeEstimateMinutes: enrichmentResult.time_estimate_minutes,
         timeWindow: enrichmentResult.time_window,
@@ -479,7 +548,6 @@ export async function processDrop(
         extractedFrequency: enrichmentResult.extracted_frequency,
         extractedDays: enrichmentResult.extracted_days,
         people: enrichmentResult.people,
-        confirmationMessage: enrichmentResult.confirmation_message,
         mood: enrichmentResult.mood,
         status: 'enriched', // Clear checkpoint status
       });
@@ -498,6 +566,9 @@ export async function processDrop(
         bucket: phase1Result.bucket,
         subtype: phase1Result.subtype,
         habitSubtype: phase1Result.habitSubtype,
+        // Include Phase 1 smart title and confirmation message
+        smartTitle: phase1Result.smart_title ?? undefined,
+        confirmationMessage: phase1Result.confirmation_message ?? undefined,
       },
       enrichmentResult,
     );

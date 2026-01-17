@@ -1302,16 +1302,16 @@ const RevealingCard: React.FC<{
   const [line2Done, setLine2Done] = React.useState(false);
   const [line3Done, setLine3Done] = React.useState(false);
 
-  // Memoize the text values so they're stable during reveal
-  const titleText = React.useMemo(() => item.title || item.text || '—', [item.title, item.text]);
-  const confirmationText = React.useMemo(
-    () => getConfirmationMessage(effectiveKind, item),
-    [effectiveKind, item],
-  );
-  const contextMeta = React.useMemo(
-    () => getContextualMeta(effectiveKind, item),
-    [effectiveKind, item],
-  );
+  // CRITICAL: Capture initial values in refs so they don't change during animation
+  // This prevents Phase 2 updates from restarting the typewriter animation
+  const initialTitleRef = React.useRef(item.title || item.text || '—');
+  const initialConfirmationRef = React.useRef(getConfirmationMessage(effectiveKind, item));
+  const initialContextRef = React.useRef(getContextualMeta(effectiveKind, item));
+
+  // Use the frozen initial values
+  const titleText = initialTitleRef.current;
+  const confirmationText = initialConfirmationRef.current;
+  const contextMeta = initialContextRef.current;
 
   // Memoize callbacks to prevent re-renders
   const handleLine1Done = React.useCallback(() => setLine1Done(true), []);
@@ -1618,6 +1618,10 @@ const useGremlyPulse = () => {
   return pulseAnim;
 };
 
+// Module-level Set to track items that have already shown reveal animation
+// Prevents double animation when component remounts or Phase 2 arrives
+const revealedItemIds = new Set<string>();
+
 /**
  * Animated wrapper for Mind Drop card that smoothly transitions
  * from pending skeleton to final content when AI enrichment completes
@@ -1675,25 +1679,74 @@ const AnimatedMindDropCard: React.FC<{
   // Get visual state from item
   const itemVisualState = getMindDropVisualState(item);
 
+  // Track revealed items by drop_id (stable across pending→synced transition)
+  // Falls back to item.id for items without drop_id
+  const trackingId = item.drop_id || item.id;
+
   // Local state to track revealing phase
   const [isRevealing, setIsRevealing] = React.useState(false);
-  const [revealComplete, setRevealComplete] = React.useState(false);
-  const prevStateRef = React.useRef<MindDropVisualState>(itemVisualState);
+  const [revealComplete, setRevealComplete] = React.useState(() => {
+    // Initialize as complete if this item was already revealed
+    return revealedItemIds.has(trackingId);
+  });
+  const prevStateRef = React.useRef<MindDropVisualState | null>(null);
+  const isFirstRender = React.useRef(true);
 
-  // Detect transition from enriching → complete to trigger reveal
+  // Detect transition to complete state to trigger reveal animation
+  // Only triggers ONCE per item - uses module-level Set to track by drop_id
   React.useEffect(() => {
-    if (prevStateRef.current === 'enriching' && itemVisualState === 'complete') {
+    const prev = prevStateRef.current;
+    
+    // Skip if already revealed (check by tracking ID which persists across sync)
+    if (revealedItemIds.has(trackingId)) {
+      // Ensure local state is in sync
+      if (!revealComplete) {
+        setRevealComplete(true);
+      }
+      prevStateRef.current = itemVisualState;
+      return;
+    }
+    
+    // For first render: if item is already complete and was created recently (within 30s),
+    // trigger reveal animation since user just submitted it
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      if (itemVisualState === 'complete') {
+        const createdAt = new Date(item.created_at).getTime();
+        const ageMs = Date.now() - createdAt;
+        if (ageMs < 30000) {
+          // Item is new (created within 30s), trigger reveal
+          // Mark as revealing IMMEDIATELY to prevent duplicate animations on sync
+          revealedItemIds.add(trackingId);
+          console.log('[AnimatedMindDropCard] First render reveal', { trackingId, ageMs });
+          setIsRevealing(true);
+        } else {
+          // Item is old, mark as already revealed
+          revealedItemIds.add(trackingId);
+          setRevealComplete(true);
+        }
+      }
+      prevStateRef.current = itemVisualState;
+      return;
+    }
+
+    // Normal transition detection
+    if ((prev === 'enriching' || prev === 'pending') && itemVisualState === 'complete') {
+      // Mark as revealing IMMEDIATELY to prevent duplicate animations on sync
+      revealedItemIds.add(trackingId);
       // Start revealing animation
+      console.log('[AnimatedMindDropCard] Transition reveal', { trackingId, prev, current: itemVisualState });
       setIsRevealing(true);
     }
     prevStateRef.current = itemVisualState;
-  }, [itemVisualState]);
+  }, [itemVisualState, trackingId, item.created_at, revealComplete]);
 
-  // Handle reveal completion
+  // Handle reveal completion - mark as revealed to prevent re-animation
   const handleRevealComplete = React.useCallback(() => {
+    revealedItemIds.add(trackingId);
     setIsRevealing(false);
     setRevealComplete(true);
-  }, []);
+  }, [trackingId]);
 
   // Determine actual visual state
   const visualState: MindDropVisualState = isRevealing
@@ -2160,6 +2213,18 @@ const RecentDrops: React.FC<{
         // Map subtype for notes
         const noteSubtype = kind === 'note' ? (drop.subtype ?? 'catchall') : undefined;
 
+        // Determine visual stage based on status and enrichment fields
+        // - pending: no classification yet → show PendingSkeleton
+        // - enriching: classified but enrichment fields arriving → show EnrichingSkeleton
+        // - enriched: has smartTitle (Phase 2 done) → trigger reveal animation
+        // - synced: fully complete
+        const hasEnrichmentFields = !!drop.smartTitle || !!drop.confirmationMessage;
+        const minddropStage =
+          drop.status === 'pending' ? 'pending' :
+          drop.status === 'enriching' && hasEnrichmentFields ? 'enriched' :
+          drop.status === 'enriching' ? 'enriching' :
+          drop.status === 'synced' ? 'enriched' : 'pending';
+
         return {
           id: drop.localId,
           kind,
@@ -2172,7 +2237,7 @@ const RecentDrops: React.FC<{
           labels: [],
           views: {
             ai_pending: drop.status !== 'synced',
-            minddrop_stage: drop.status === 'synced' ? 'enriched' : 'pending',
+            minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
           },
           time_estimate_minutes: drop.timeEstimateMinutes ?? null,
