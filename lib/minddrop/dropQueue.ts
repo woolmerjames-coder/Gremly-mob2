@@ -36,6 +36,10 @@ export interface MultiSegment {
   bucket: MindDropBucket;
   subtype: LogSubtype | null;
   habitSubtype?: HabitSubtype | null;
+  /** Smart title from Phase 1 classification */
+  smart_title?: string | null;
+  /** Confirmation message from Phase 1 classification */
+  confirmation_message?: string | null;
 }
 
 export interface QueuedDrop {

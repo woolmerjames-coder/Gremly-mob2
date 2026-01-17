@@ -480,6 +480,9 @@ export async function processDrop(
               bucket: phase1.bucket,
               subtype: phase1.subtype,
               confirmed: true, // Now confirmed by Phase 1
+              // Store Phase 1's smart_title and confirmation_message for split/keep actions
+              smartTitle: phase1.smart_title ?? null,
+              confirmationMessage: phase1.confirmation_message ?? null,
             };
             useGremlyStore.getState().updatePendingDropEnrichment(localId, {
               multiSegments: updatedSegments,
@@ -491,6 +494,9 @@ export async function processDrop(
             bucket: phase1.bucket,
             subtype: phase1.subtype,
             habitSubtype: phase1.habitSubtype,
+            // Include Phase 1's smart_title and confirmation_message
+            smart_title: phase1.smart_title ?? null,
+            confirmation_message: phase1.confirmation_message ?? null,
           };
         }),
       );
@@ -498,6 +504,11 @@ export async function processDrop(
       console.log('[DropProcessor] Phase 1 segments complete', {
         localId,
         elapsed: Date.now() - startTime,
+        segmentTitles: classifiedSegments.map((s) => ({
+          text: s.text.substring(0, 20),
+          smart_title: s.smart_title,
+          confirmation_message: s.confirmation_message?.substring(0, 30),
+        })),
       });
 
       // Update status to enriching now that Phase 1 is done

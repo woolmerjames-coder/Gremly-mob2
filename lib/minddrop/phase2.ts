@@ -299,13 +299,38 @@ export async function runPhase2(
       // Combine category tags + people tags (deduped)
       const allTags = Array.from(new Set([...result.tags, ...peopleTags]));
 
+      // Check if entity already has a "smart" title from Phase 1
+      // A smart title differs from the raw text (body/notes) - don't overwrite it
+      const existingName = entity.name || entity.title;
+      const existingBody = entity.body || entity.notes;
+      const hasPhase1SmartTitle =
+        existingName &&
+        existingBody &&
+        existingName.toLowerCase().trim() !== existingBody.toLowerCase().trim();
+
+      // Use Phase 1's smart title if available, otherwise use Phase 2's
+      const finalSmartTitle = hasPhase1SmartTitle ? existingName : result.smartTitle;
+
+      console.log('[Phase2] Smart title decision', {
+        entityId,
+        existingName: existingName?.substring(0, 30),
+        hasPhase1SmartTitle,
+        phase2SmartTitle: result.smartTitle?.substring(0, 30),
+        finalSmartTitle: finalSmartTitle?.substring(0, 30),
+      });
+
+      // Check if entity already has a confirmation_message from Phase 1 - preserve it
+      const existingConfirmation = entity.views?.confirmation_message;
+      const finalConfirmationMessage = existingConfirmation || result.confirmationMessage;
+
       const updatePayload: Record<string, any> = {
         views: {
           ...sanitizeViews(entity.views),
           minddrop_stage: 'enriched',
           ai_pending: false,
           // Schema requires string | undefined (not null)
-          confirmation_message: result.confirmationMessage ?? undefined,
+          // Preserve Phase 1's confirmation_message if it exists
+          confirmation_message: finalConfirmationMessage ?? undefined,
           people: result.people?.length > 0 ? result.people : undefined,
         },
         tags: allTags.length > 0 ? allTags : undefined,
@@ -313,7 +338,7 @@ export async function runPhase2(
 
       // Set title/name based on entity type
       if (bucket === 'todo') {
-        updatePayload.name = result.smartTitle;
+        updatePayload.name = finalSmartTitle;
         // Preserve original text in body if not already set
         if (!entity.body) {
           updatePayload.body = text;
@@ -334,8 +359,8 @@ export async function runPhase2(
           }
         }
       } else if (bucket === 'habit') {
-        updatePayload.name = result.smartTitle;
-        updatePayload.title = result.smartTitle;
+        updatePayload.name = finalSmartTitle;
+        updatePayload.title = finalSmartTitle;
         // Preserve original text in notes if not already set
         if (!entity.notes) {
           updatePayload.notes = text;
@@ -356,7 +381,7 @@ export async function runPhase2(
         }
       } else {
         // log (note)
-        updatePayload.title = result.smartTitle;
+        updatePayload.title = finalSmartTitle;
         // Preserve original text in body if not already set
         if (!entity.body || entity.body === entity.title) {
           updatePayload.body = text;
@@ -373,7 +398,7 @@ export async function runPhase2(
 
       console.log('[Phase2] Enrichment complete', {
         entityId,
-        smartTitle: result.smartTitle.substring(0, 30) + '...',
+        smartTitle: finalSmartTitle.substring(0, 30) + '...',
         tagsCount: result.tags.length,
         hasTimeEstimate: result.timeEstimateMinutes !== null,
         hasDate: result.extractedDate !== null,
@@ -383,12 +408,12 @@ export async function runPhase2(
       // Emit event for UI to update card smoothly without refresh
       eventBus.emit('entity:enriched', {
         entityId,
-        smartTitle: result.smartTitle,
+        smartTitle: finalSmartTitle,
         tags: result.tags,
         timeEstimate: result.timeEstimateMinutes,
         time_window: result.timeWindow,
         dueDate: result.extractedDate,
-        confirmationMessage: result.confirmationMessage,
+        confirmationMessage: finalConfirmationMessage,
         frequency: result.extractedFrequency ?? null,
         people: result.people ?? [],
         hasPhotos: entity.views?.has_photos === true,

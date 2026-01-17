@@ -315,9 +315,12 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
             const bucket: MindDropBucket = splitItem.bucket;
             const subtype: LogSubtype | null = splitItem.subtype;
 
+            // Use smart_title from Phase 1 if available
+            const entityTitle = splitItem.smart_title || splitItem.preview_title || splitItem.text;
+
             if (splitItem.bucket === 'todo') {
               newEntity = await createTodo({
-                name: splitItem.preview_title || splitItem.text,
+                name: entityTitle,
                 body: splitItem.text,
                 space_id: item.space_id ?? null,
                 origin: 'catchall',
@@ -326,12 +329,13 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                   ai_pending: true,
                   origin: 'multi_split',
                   source_drop_id: item.id,
+                  confirmation_message: splitItem.confirmation_message ?? null,
                 },
               } as any);
             } else if (splitItem.bucket === 'habit') {
               newEntity = await createHabit({
-                name: splitItem.preview_title || splitItem.text,
-                title: splitItem.preview_title || splitItem.text,
+                name: entityTitle,
+                title: entityTitle,
                 notes: splitItem.text,
                 frequency: 'daily',
                 subtype: splitItem.habitSubtype || 'start_habit',
@@ -342,6 +346,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                   ai_pending: true,
                   origin: 'multi_split',
                   source_drop_id: item.id,
+                  confirmation_message: splitItem.confirmation_message ?? null,
                 },
               } as any);
             } else {
@@ -353,7 +358,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                     ? 'idea'
                     : 'catchall';
               newEntity = await createNote({
-                title: splitItem.preview_title || splitItem.text,
+                title: entityTitle,
                 body: splitItem.text,
                 subtype: noteSubtype,
                 space_id: item.space_id ?? null,
@@ -363,6 +368,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                   ai_pending: true,
                   origin: 'multi_split',
                   source_drop_id: item.id,
+                  confirmation_message: splitItem.confirmation_message ?? null,
                 },
               } as any);
             }

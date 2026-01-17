@@ -2697,17 +2697,31 @@ const RecentDrops: React.FC<{
           days_active: drop.extractedDays ?? null, // For habits: day numbers for scheduling
           mood: drop.mood ? (drop.mood as unknown as Mood[]) : null, // For journals: mood chips
           is_multi: drop.isMulti,
-          // Multi-drop fields (from Phase 0, before entity creation)
-          multi_items: drop.multiSegments?.map(
-            (seg) =>
-              ({
-                text: seg.text,
-                bucket: seg.bucket,
-                subtype: seg.subtype ?? null,
-                habitSubtype: null,
-                preview_title: seg.text.substring(0, 40),
-              }) satisfies MultiDropItem,
-          ),
+          // Multi-drop fields (from Phase 0/1, before entity creation)
+          multi_items: drop.multiSegments?.map((seg, idx) => {
+            // Debug: Log segment data including Phase 1 titles
+            if (idx === 0) {
+              console.log('🟡 [pendingItems] Mapping multiSegments', {
+                segmentCount: drop.multiSegments?.length,
+                firstSeg: {
+                  text: seg.text?.substring(0, 20),
+                  smartTitle: seg.smartTitle,
+                  confirmationMessage: seg.confirmationMessage?.substring(0, 30),
+                },
+              });
+            }
+            return {
+              text: seg.text,
+              bucket: seg.bucket,
+              subtype: seg.subtype ?? null,
+              habitSubtype: null,
+              // Use smart_title from Phase 1 if available, fall back to truncated text
+              preview_title: seg.smartTitle || seg.text.substring(0, 40),
+              // Pass Phase 1 data for entity creation during split
+              smart_title: seg.smartTitle ?? null,
+              confirmation_message: seg.confirmationMessage ?? null,
+            } satisfies MultiDropItem;
+          }),
           multi_summary_title: drop.multiSummary,
         };
       })
@@ -3749,6 +3763,8 @@ const RecentDrops: React.FC<{
           bucket: item.bucket,
           subtype: item.subtype,
           habitSubtype: item.habitSubtype,
+          smart_title: item.smart_title,
+          confirmation_message: item.confirmation_message,
         })),
       );
       const noteToSplit = items.find((item) => item.id === noteId);
@@ -3761,10 +3777,13 @@ const RecentDrops: React.FC<{
         const kind: 'todo' | 'habit' | 'note' =
           splitItem.bucket === 'todo' ? 'todo' : splitItem.bucket === 'habit' ? 'habit' : 'note';
 
+        // Use smart_title from Phase 1 if available, fall back to preview_title or raw text
+        const displayTitle = splitItem.smart_title || splitItem.preview_title || splitItem.text;
+
         return {
           id: tempId,
           kind,
-          title: splitItem.preview_title || splitItem.text,
+          title: displayTitle,
           text: splitItem.text,
           created_at: new Date().toISOString(),
           drop_id: `split-${noteId}-${index}`,
@@ -3773,6 +3792,8 @@ const RecentDrops: React.FC<{
             minddrop_stage: 'classified',
             ai_pending: true,
             origin: 'multi_split',
+            // Store confirmation_message for display
+            confirmation_message: splitItem.confirmation_message ?? null,
           },
           labels: [],
           noteSubtype:
@@ -3803,9 +3824,12 @@ const RecentDrops: React.FC<{
           const subtype: MindDropLogSubtype | null = splitItem.subtype;
           let newEntity: { id: string } | null = null;
 
+          // Use smart_title from Phase 1 if available
+          const entityTitle = splitItem.smart_title || splitItem.preview_title || splitItem.text;
+
           if (splitItem.bucket === 'todo') {
             newEntity = await createTodo({
-              name: splitItem.preview_title || splitItem.text,
+              name: entityTitle,
               body: splitItem.text,
               space_id: spaceId,
               origin: 'catchall',
@@ -3814,12 +3838,13 @@ const RecentDrops: React.FC<{
                 ai_pending: true,
                 origin: 'multi_split',
                 source_drop_id: noteId,
+                confirmation_message: splitItem.confirmation_message ?? null,
               },
             } as any);
           } else if (splitItem.bucket === 'habit') {
             newEntity = await createHabit({
-              name: splitItem.preview_title || splitItem.text,
-              title: splitItem.preview_title || splitItem.text,
+              name: entityTitle,
+              title: entityTitle,
               notes: splitItem.text,
               frequency: 'daily',
               subtype: splitItem.habitSubtype || 'start_habit',
@@ -3830,6 +3855,7 @@ const RecentDrops: React.FC<{
                 ai_pending: true,
                 origin: 'multi_split',
                 source_drop_id: noteId,
+                confirmation_message: splitItem.confirmation_message ?? null,
               },
             } as any);
           } else {
@@ -3841,7 +3867,7 @@ const RecentDrops: React.FC<{
                   ? 'idea'
                   : 'catchall';
             newEntity = await createNote({
-              title: splitItem.preview_title || splitItem.text,
+              title: entityTitle,
               body: splitItem.text,
               subtype: noteSubtype,
               space_id: spaceId,
@@ -3851,6 +3877,7 @@ const RecentDrops: React.FC<{
                 ai_pending: true,
                 origin: 'multi_split',
                 source_drop_id: noteId,
+                confirmation_message: splitItem.confirmation_message ?? null,
               },
             } as any);
           }

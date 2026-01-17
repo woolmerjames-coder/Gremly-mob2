@@ -117,6 +117,10 @@ export interface PendingDropSegment {
   likelyBucket?: string; // From Phase 0 (before Phase 1 confirmation)
   likelySubtype?: string; // From Phase 0
   confirmed?: boolean; // True after Phase 1 confirms the bucket
+  /** Smart title from Phase 1 (properly formatted title) */
+  smartTitle?: string | null;
+  /** Confirmation message from Phase 1 */
+  confirmationMessage?: string | null;
 }
 
 export interface PendingDrop {

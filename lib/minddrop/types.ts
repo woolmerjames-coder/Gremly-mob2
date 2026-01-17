@@ -135,8 +135,14 @@ export interface MultiDropItem {
   /** Subtype for habit items: 'start_habit' | 'break_habit' | null */
   habitSubtype: HabitSubtype | null;
 
-  /** AI-generated 3-5 word preview title */
+  /** AI-generated 3-5 word preview title (from Phase 0, may be raw text) */
   preview_title: string;
+
+  /** Smart title from Phase 1 classification (properly formatted) */
+  smart_title?: string | null;
+
+  /** Confirmation message from Phase 1 classification */
+  confirmation_message?: string | null;
 }
 
 /**
