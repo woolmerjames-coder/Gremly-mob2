@@ -3401,10 +3401,11 @@ const RecentDrops: React.FC<{
           // DEBUG: Log entity:created data
           console.log('🟣 [entity:created] Creating realItem', {
             entityId: entity.id,
+            entityType,
+            entityTitle: entity.title,
+            entityName: entity.name,
+            derivedTitle: entity.title ?? entity.name ?? '',
             minddrop_stage: entity.views?.minddrop_stage,
-            time_estimate: entity.time_estimate_minutes,
-            people: entity.views?.people,
-            chip_data_ready: entity.views?.chip_data_ready,
           });
 
           const realItem: UnifiedDrop = {
@@ -3918,7 +3919,14 @@ const RecentDrops: React.FC<{
         return [...optimisticItems, ...withoutOriginal];
       });
 
-      console.log('[RecentDrops] Added optimistic items, removed original from UI');
+      console.log(
+        '[RecentDrops] Added optimistic items:',
+        optimisticItems.map((o) => ({
+          id: o.id,
+          title: o.title,
+          kind: o.kind,
+        })),
+      );
 
       // 3. Create actual entities in database (async, in background)
       try {
