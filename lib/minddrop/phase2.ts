@@ -301,12 +301,11 @@ export async function runPhase2(
 
       // Check if entity already has a "smart" title from Phase 1
       // A smart title differs from the raw text (body/notes) - don't overwrite it
+      // Use exact comparison (not case-insensitive) because Phase 1 may have just title-cased it
       const existingName = entity.name || entity.title;
       const existingBody = entity.body || entity.notes;
       const hasPhase1SmartTitle =
-        existingName &&
-        existingBody &&
-        existingName.toLowerCase().trim() !== existingBody.toLowerCase().trim();
+        existingName && existingBody && existingName.trim() !== existingBody.trim();
 
       // Use Phase 1's smart title if available, otherwise use Phase 2's
       const finalSmartTitle = hasPhase1SmartTitle ? existingName : result.smartTitle;

@@ -80,15 +80,6 @@ export function MultiSplitModal({
 
   const handleSplitSelected = useCallback(() => {
     const selected = items.filter((_, i) => selectedIndices.has(i));
-    console.log(
-      '[MultiSplitModal] 🔍 Split selected items:',
-      selected.map((item) => ({
-        text: item.text.substring(0, 30),
-        preview_title: item.preview_title,
-        smart_title: item.smart_title,
-        bucket: item.bucket,
-      })),
-    );
     if (selected.length > 0) {
       onSplitSelected(selected);
     }

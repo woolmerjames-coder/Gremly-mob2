@@ -3398,16 +3398,6 @@ const RecentDrops: React.FC<{
           // Mark this drop as recently promoted to skip Layout animation jolt
           markDropAsRecentlyPromoted(dropId);
 
-          // DEBUG: Log entity:created data
-          console.log('🟣 [entity:created] Creating realItem', {
-            entityId: entity.id,
-            entityType,
-            entityTitle: entity.title,
-            entityName: entity.name,
-            derivedTitle: entity.title ?? entity.name ?? '',
-            minddrop_stage: entity.views?.minddrop_stage,
-          });
-
           const realItem: UnifiedDrop = {
             id: entity.id,
             kind: entityType,
