@@ -1894,11 +1894,10 @@ function formatTimeEstimate(minutes: number | null | undefined): string | null {
 
 /**
  * Format habit start date for display
- * Returns null if no date, or "Starts Mon" / "Starts Jan 1" format
- * CRITICAL: Returns null (not fallback text) so chip doesn't render prematurely
+ * Returns "Starts TBD" if null, or "Starts Mon" / "Starts Jan 1" format
  */
-function formatStartDate(startDate: string | null | undefined): string | null {
-  if (!startDate) return null;
+function formatStartDate(startDate: string | null | undefined): string {
+  if (!startDate) return 'Starts TBD';
 
   try {
     const date = new Date(startDate + 'T00:00:00'); // Parse as local date
@@ -1915,22 +1914,19 @@ function formatStartDate(startDate: string | null | undefined): string | null {
     const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     return `Starts ${formatted}`;
   } catch {
-    return null;
+    return 'Starts TBD';
   }
 }
 
 /**
  * Get contextual metadata string for Mind Drop card meta row
- * CRITICAL: Returns null (not fallback text) when data isn't ready
- * This ensures chips don't render prematurely with placeholder values
  */
 function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string | null {
   if (kind === 'todo') {
     if (item.due_date || item.due_day) {
       return formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time });
     }
-    // No deadline - return null so chip doesn't render
-    return null;
+    return 'no deadline yet';
   }
   if (kind === 'habit') {
     // Show specific days if days_active is set (e.g., "Mon · Fri")
@@ -1938,13 +1934,8 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
       const DAY_ABBREVS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       return item.days_active.map((d) => DAY_ABBREVS[d]).join(' · ');
     }
-    // Only show frequency if we have actual frequency data
-    // (cadence, target_per_period, or frequency string from Phase 2)
-    if (item.cadence || item.target_per_period || item.frequency) {
-      return getFrequencyDisplayLabel(item.cadence, item.target_per_period, item.frequency);
-    }
-    // No frequency data - return null so chip doesn't render
-    return null;
+    // Fall back to frequency display label (e.g., "2x/week")
+    return getFrequencyDisplayLabel(item.cadence, item.target_per_period, item.frequency);
   }
   // Notes/Logs - show the subtype
   const subtype = item.noteSubtype || item.canonical_type || 'log';
@@ -2425,8 +2416,8 @@ const AnimatedMindDropCard = React.memo<{
                         </View>
                       ) : null;
                     })()}
-                    {/* Start date chip for habits - only renders when start_date exists */}
-                    {effectiveKind === 'habit' && formatStartDate(item.start_date) && (
+                    {/* Start date chip for habits - before time estimate */}
+                    {effectiveKind === 'habit' && (
                       <Text style={styles.recentContextPill}>
                         {formatStartDate(item.start_date)}
                       </Text>
