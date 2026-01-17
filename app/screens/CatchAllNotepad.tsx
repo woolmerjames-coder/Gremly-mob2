@@ -1113,16 +1113,19 @@ const AnimatedCardInsert: React.FC<{
 };
 
 /**
- * AnimatedChipsTransition - Magical blur-to-sharp reveal for Phase 2 metadata chips
+ * AnimatedChipsTransition - Magical "fizzle in" reveal for Phase 2 metadata chips
  *
- * When Phase 2 data arrives, ALL chips "emerge from mist" together:
- * - Start: opacity 0.3, scale 0.98, with frosted mist overlay
- * - End: opacity 1, scale 1.0, mist fades away
- * - Duration: 550ms ease-out
+ * When Phase 2 data arrives, ALL chips "fizzle" into existence together:
+ * - Chips materialize from static/noise like particles assembling
+ * - Flickering opacity creates a crackling energy effect
+ * - Subtle scale oscillation adds organic, alive feeling
+ * - Duration: 900ms for a more intentional, noticeable effect
  *
- * The mist effect is achieved by overlaying a semi-transparent white layer
- * that fades out as the chips become visible, creating the illusion of
- * content crystallizing out of fog.
+ * The effect is achieved by:
+ * 1. Starting nearly invisible (opacity 0.1) and slightly small (scale 0.92)
+ * 2. Rapidly flickering opacity during first 400ms to simulate static/fizzle
+ * 3. Smooth settle to final values in remaining 500ms
+ * 4. Noise overlay that fades out as chips solidify
  *
  * CRITICAL: Uses module-level chipAnimatedIds Set to persist animation state
  * across pending→entity transition. The drop_id stays the same, so we track
@@ -1140,11 +1143,13 @@ const AnimatedChipsTransition: React.FC<{
   // Use useState to create stable Animated.Values that persist across re-renders
   // If already animated, start at final values
   const [animValues] = React.useState(() => ({
-    // Chips: start dim and slightly smaller, end fully visible
-    opacity: new Animated.Value(alreadyAnimated ? 1 : 0.3),
-    scale: new Animated.Value(alreadyAnimated ? 1 : 0.98),
-    // Mist overlay: starts visible, fades to invisible
-    mistOpacity: new Animated.Value(alreadyAnimated ? 0 : 0.85),
+    // Chips: start nearly invisible and small, fizzle into existence
+    opacity: new Animated.Value(alreadyAnimated ? 1 : 0.1),
+    scale: new Animated.Value(alreadyAnimated ? 1 : 0.92),
+    // Noise/static overlay: starts visible, fades as chips solidify
+    noiseOpacity: new Animated.Value(alreadyAnimated ? 0 : 0.7),
+    // Glow effect: pulses during fizzle, fades at end
+    glowOpacity: new Animated.Value(alreadyAnimated ? 0 : 0),
   }));
   // Track animation state for render decisions - show immediately if already animated
   const [isVisible, setIsVisible] = React.useState(alreadyAnimated || hasRealData);
@@ -1152,34 +1157,141 @@ const AnimatedChipsTransition: React.FC<{
   const animationStarted = React.useRef(alreadyAnimated);
 
   React.useEffect(() => {
-    // When real data arrives, animate chips into view with magical reveal
+    // When real data arrives, animate chips into view with fizzle effect
     // Skip if already animated (tracked by module-level Set)
     if (hasRealData && !animationStarted.current && !chipAnimatedIds.has(trackingId)) {
       animationStarted.current = true;
       chipAnimatedIds.add(trackingId); // Persist across remounts
       // Start showing the container immediately (animation will run)
       setIsVisible(true);
-      Animated.parallel([
-        // Chips fade in and scale up
-        Animated.timing(animValues.opacity, {
-          toValue: 1,
-          duration: 550,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(animValues.scale, {
-          toValue: 1,
-          duration: 550,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        // Mist clears away
-        Animated.timing(animValues.mistOpacity, {
-          toValue: 0,
-          duration: 550,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
+
+      // FIZZLE EFFECT: Flickering opacity sequence to simulate static/materialization
+      // Creates crackling energy feel as chips assemble from particles
+      Animated.sequence([
+        // Phase 1: Rapid flicker/fizzle (400ms) - chips crackling into existence
+        Animated.parallel([
+          // Flickering opacity: 0.1 → 0.4 → 0.2 → 0.6 → 0.35 → 0.75
+          Animated.sequence([
+            Animated.timing(animValues.opacity, {
+              toValue: 0.4,
+              duration: 70,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.opacity, {
+              toValue: 0.15,
+              duration: 60,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.opacity, {
+              toValue: 0.55,
+              duration: 80,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.opacity, {
+              toValue: 0.3,
+              duration: 50,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.opacity, {
+              toValue: 0.7,
+              duration: 70,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.opacity, {
+              toValue: 0.5,
+              duration: 70,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            }),
+          ]),
+          // Scale oscillates slightly during fizzle: 0.92 → 0.95 → 0.93 → 0.97
+          Animated.sequence([
+            Animated.timing(animValues.scale, {
+              toValue: 0.95,
+              duration: 100,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.scale, {
+              toValue: 0.93,
+              duration: 100,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.scale, {
+              toValue: 0.97,
+              duration: 100,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.scale, {
+              toValue: 0.95,
+              duration: 100,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+          ]),
+          // Glow pulses during fizzle
+          Animated.sequence([
+            Animated.timing(animValues.glowOpacity, {
+              toValue: 0.4,
+              duration: 150,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.glowOpacity, {
+              toValue: 0.2,
+              duration: 100,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(animValues.glowOpacity, {
+              toValue: 0.35,
+              duration: 150,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+          ]),
+          // Noise starts fading during fizzle
+          Animated.timing(animValues.noiseOpacity, {
+            toValue: 0.4,
+            duration: 400,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+        // Phase 2: Smooth settle (500ms) - chips solidify into final form
+        Animated.parallel([
+          Animated.timing(animValues.opacity, {
+            toValue: 1,
+            duration: 500,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(animValues.scale, {
+            toValue: 1,
+            duration: 500,
+            easing: Easing.out(Easing.back(1.5)), // Slight overshoot for organic feel
+            useNativeDriver: true,
+          }),
+          Animated.timing(animValues.noiseOpacity, {
+            toValue: 0,
+            duration: 400,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(animValues.glowOpacity, {
+            toValue: 0,
+            duration: 350,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]),
       ]).start();
     } else if (hasRealData && chipAnimatedIds.has(trackingId) && !isVisible) {
       // Already animated but not visible (e.g., remounted) - show immediately
@@ -1199,9 +1311,23 @@ const AnimatedChipsTransition: React.FC<{
     return <View style={containerStyle} />;
   }
 
-  // Render chips with animation + mist overlay
+  // Render chips with fizzle animation + noise overlay
   return (
     <View style={[containerStyle, { position: 'relative' }]}>
+      {/* Glow layer - pulses during fizzle effect */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: -6,
+          left: -8,
+          right: -8,
+          bottom: -6,
+          backgroundColor: 'rgba(74, 124, 89, 0.15)', // Subtle green glow matching brand
+          opacity: animValues.glowOpacity,
+          borderRadius: 12,
+        }}
+      />
       {/* Chips layer - animated opacity and scale */}
       <Animated.View
         style={{
@@ -1213,7 +1339,7 @@ const AnimatedChipsTransition: React.FC<{
       >
         {children}
       </Animated.View>
-      {/* Mist overlay - fades out to reveal sharp chips */}
+      {/* Noise/static overlay - fades out as chips solidify */}
       <Animated.View
         pointerEvents="none"
         style={{
@@ -1222,8 +1348,8 @@ const AnimatedChipsTransition: React.FC<{
           left: -4,
           right: -4,
           bottom: -2,
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          opacity: animValues.mistOpacity,
+          backgroundColor: 'rgba(255, 255, 255, 0.92)',
+          opacity: animValues.noiseOpacity,
           borderRadius: 8,
         }}
       />
