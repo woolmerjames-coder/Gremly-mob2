@@ -219,6 +219,8 @@ export async function runPhase1(
     habitSubtype: finalHabitSubtype,
     confidence: apiConfidence,
     source,
+    smart_title: apiResult.smart_title || null,
+    confirmation_message: apiResult.confirmation_message || null,
   });
 
   return {
@@ -228,5 +230,8 @@ export async function runPhase1(
     confidence: apiConfidence,
     source,
     is_multi: false,
+    // Early enrichment fields (enables typewriter to start after Phase 1)
+    smart_title: apiResult.smart_title || null,
+    confirmation_message: apiResult.confirmation_message || null,
   };
 }

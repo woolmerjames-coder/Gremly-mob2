@@ -37,6 +37,7 @@ import {
   StyleSheet,
   TextInput,
   View,
+  ViewStyle,
   findNodeHandle,
   GestureResponderEvent,
   NativeSyntheticEvent,
@@ -46,6 +47,8 @@ import {
   Keyboard,
   PanResponder,
   PanResponderGestureState,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { AppScrollView } from '../../components/common/AppScrollView';
 import * as ImagePicker from 'expo-image-picker';
@@ -54,7 +57,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Text } from '../../ui/Text';
 import { Icon } from '../../design-system/Icon';
-import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useGremlyStore, type PendingDrop } from '../../lib/store/useGremlyStore';
 import {
   selectItemById,
   selectNoteBySourceMessageId,
@@ -80,7 +83,8 @@ import type {
   MindDropBucket,
   LogSubtype as MindDropLogSubtype,
 } from '../../lib/minddrop/types';
-import { runPhase2Streaming } from '../../lib/minddrop/phase2';
+import { heuristicClassify } from '../../lib/minddrop/heuristicClassify';
+import { runPhase2 } from '../../lib/minddrop/phase2';
 import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTheme } from '../../src/theme/useTheme';
@@ -97,6 +101,7 @@ import Reanimated, {
   withTiming,
   withRepeat,
   withSequence,
+  withSpring,
   cancelAnimation,
   Easing as ReanimatedEasing,
 } from 'react-native-reanimated';
@@ -822,6 +827,50 @@ type UnifiedDrop = {
 };
 
 /**
+ * Apply Phase 2 enrichment result to a UnifiedDrop item
+ * CRITICAL: Must include ALL chip-relevant fields so they all animate together
+ * Missing any field means that chip appears later without the blur animation
+ */
+function applyEnrichmentToItem(
+  item: UnifiedDrop,
+  result: {
+    smartTitle?: string;
+    tags?: string[];
+    timeEstimateMinutes?: number | null;
+    extractedDate?: string | null;
+    extractedStartDate?: string | null;
+    extractedFrequency?: string | null;
+    extractedDays?: number[] | null;
+    cadence?: string | null;
+    targetPerPeriod?: number | null;
+    confirmationMessage?: string | null;
+    people?: string[];
+    mood?: string[] | null;
+  },
+): UnifiedDrop {
+  return {
+    ...item,
+    tags: result.tags || item.tags,
+    time_estimate_minutes: result.timeEstimateMinutes ?? item.time_estimate_minutes,
+    due_date: result.extractedDate ?? item.due_date,
+    due_day: result.extractedDate?.split('T')[0] ?? item.due_day,
+    start_date: result.extractedStartDate ?? item.start_date,
+    frequency: result.extractedFrequency ?? item.frequency,
+    cadence: (result.cadence as 'daily' | 'weekly' | 'monthly' | null) ?? item.cadence,
+    target_per_period: result.targetPerPeriod ?? item.target_per_period,
+    days_active: result.extractedDays ?? item.days_active,
+    mood: (result.mood as Mood[] | null) ?? item.mood,
+    views: {
+      ...item.views,
+      minddrop_stage: 'enriched',
+      ai_pending: false,
+      confirmation_message: result.confirmationMessage ?? item.views?.confirmation_message,
+      people: result.people ?? item.views?.people,
+    },
+  };
+}
+
+/**
  * Visual state for Mind Drop items in Recent Drops list
  * - 'pending': AI enrichment in progress (views.ai_pending = true)
  * - 'enriching': Phase 2 enrichment in progress (entity exists, refining)
@@ -952,6 +1001,625 @@ const ShimmerBar: React.FC<{
         />
       </Animated.View>
     </View>
+  );
+};
+
+// Track which items have already been animated in (persists across re-renders)
+const animatedInItemIds = new Set<string>();
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// Custom LayoutAnimation config for smooth card slide-down (Phase 1)
+// Made slower and more intentional so users clearly see cards "making room"
+const CardInsertLayoutAnimation = {
+  duration: 450,
+  create: {
+    type: LayoutAnimation.Types.easeOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+  update: {
+    // Spring animation for visible, bouncy slide-down effect
+    type: LayoutAnimation.Types.spring,
+    springDamping: 0.85, // Lower = more bouncy (0.85 = subtle bounce at end)
+  },
+};
+
+/**
+ * AnimatedCardInsert - Premium depth emergence animation synced with Phase 0 timing
+ *
+ * TIMING (synced with Phase 0 multi-detect ~700ms):
+ *
+ * 0ms    - User taps Drop, pending drop added to Zustand
+ * 0-500ms - PHASE 1: Existing cards slide down via LayoutAnimation
+ * 200ms  - PHASE 2 START: Card begins emerging from depth
+ *          Initial state: scale 0.65, opacity 0.2 (far beneath surface)
+ * 700ms  - Phase 0 returns: bucket + isMulti now known
+ *          Card is at ~scale 0.88, opacity 0.74 (still visibly emerging)
+ *          React re-renders with correct card type (single/multi)
+ * 950ms  - PHASE 2 END: Card reaches full size
+ *          Final state: scale 1.0, opacity 1.0 (fully surfaced)
+ *          Card has "revealed" its true form during emergence
+ *
+ * The card content updates at 700ms while still scaled down (~0.88),
+ * so the correct type (single/multi) is revealed as the card surfaces.
+ * This creates a seamless "morph" effect - users never see a type switch.
+ *
+ * Math: Animation starts at 200ms, duration 750ms, ends at 950ms.
+ * At 700ms: (700-200)/750 = 66.7% through animation.
+ * With easeOut(cubic), ~85% of value change completed.
+ * Scale at 700ms: 0.65 + 0.35 * 0.85 ≈ 0.88
+ */
+const AnimatedCardInsert: React.FC<{
+  itemId: string;
+  children: React.ReactNode;
+}> = ({ itemId, children }) => {
+  // Check if this item has already been animated
+  const hasAnimated = animatedInItemIds.has(itemId);
+
+  // Animation values for depth emergence - start at final state if already animated
+  // scale: 0.65 → 1.0 (rising from deep within the screen)
+  // opacity: 0.2 → 1.0 (emerging through frosted glass layers)
+  const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
+  const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
+
+  React.useEffect(() => {
+    // Skip animation if already animated
+    if (hasAnimated) return;
+
+    // Mark as animated immediately to prevent re-triggering
+    animatedInItemIds.add(itemId);
+
+    // NOTE: LayoutAnimation.configureNext is now called in addPendingDrop (Zustand store)
+    // BEFORE the state change, so existing cards slide down properly.
+    // Calling it here in useEffect would be TOO LATE (layout already changed).
+
+    // Phase 2: Depth emergence animation
+    // Starts at 200ms so card is mid-emergence when Phase 0 returns at ~700ms
+    const timeout = setTimeout(() => {
+      Animated.parallel([
+        // Scale from 0.65 to 1.0 - rising from deep within the phone
+        Animated.timing(scale, {
+          toValue: 1,
+          duration: 750,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        // Opacity from 0.2 to 1.0 - emerging through glass layers
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 750,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 200);
+
+    return () => clearTimeout(timeout);
+  }, [itemId, hasAnimated, scale, opacity]);
+
+  // If already animated, render without wrapper for performance
+  if (hasAnimated) {
+    return <>{children}</>;
+  }
+
+  return (
+    <Animated.View
+      style={{
+        opacity,
+        transform: [{ scale }],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+};
+
+// Module-level Set to track drop_ids that recently transitioned from pending→real
+// These items should NOT have Layout animation enabled initially to avoid jolt
+const recentlyPromotedDropIds = new Set<string>();
+
+/**
+ * AnimatedCardSlideDown - Wrapper for existing cards to animate their position
+ * when new cards are inserted above them.
+ *
+ * Uses Reanimated's Layout transition for smooth position animation.
+ * The 450ms duration matches CardInsertLayoutAnimation for visual consistency.
+ *
+ * CRITICAL: We use a smart delay system to prevent jolts:
+ * 1. Items that just transitioned from pending→real skip Layout initially
+ * 2. Items wait 500ms after mount before enabling Layout animation
+ *
+ * This prevents the "jolt" when pending items are removed and real items appear,
+ * while still allowing smooth slide-down when NEW cards are inserted.
+ */
+const AnimatedCardSlideDown: React.FC<{
+  itemId: string;
+  dropId?: string | null;
+  children: React.ReactNode;
+}> = ({ itemId, dropId, children }) => {
+  // Track if this item's layout animation is enabled
+  const [layoutEnabled, setLayoutEnabled] = React.useState(false);
+
+  React.useEffect(() => {
+    // Check if this item just transitioned from pending
+    // If so, we need to skip Layout animation to avoid the jolt
+    const wasRecentlyPromoted = dropId && recentlyPromotedDropIds.has(dropId);
+
+    if (wasRecentlyPromoted) {
+      // Remove from set after checking (one-time skip)
+      recentlyPromotedDropIds.delete(dropId);
+      // Use longer delay for recently promoted items
+      const timeout = setTimeout(() => {
+        setLayoutEnabled(true);
+      }, 2000);
+      return () => clearTimeout(timeout);
+    }
+
+    // For normal items, enable Layout after a short delay
+    // This prevents any initial mount jitter
+    const timeout = setTimeout(() => {
+      setLayoutEnabled(true);
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [itemId, dropId]);
+
+  // Before Layout is enabled, render without animation
+  if (!layoutEnabled) {
+    return <View>{children}</View>;
+  }
+
+  // After enabled, use Reanimated Layout for smooth position animation
+  return (
+    <Reanimated.View
+      layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+    >
+      {children}
+    </Reanimated.View>
+  );
+};
+
+// Export function to mark a drop as recently promoted (called from entity:created handler)
+export const markDropAsRecentlyPromoted = (dropId: string) => {
+  recentlyPromotedDropIds.add(dropId);
+  // Auto-cleanup after 5 seconds
+  setTimeout(() => recentlyPromotedDropIds.delete(dropId), 5000);
+};
+
+/**
+ * UnifiedCardWrapper - Single wrapper for both pending and real items.
+ *
+ * CRITICAL: Using a single component prevents React from remounting children
+ * when an item transitions from pending to real. This preserves modal state.
+ *
+ * - isPending=true: Apply depth emergence animation (scale + opacity)
+ * - isPending=false: Apply slide-down animation via Reanimated Layout
+ */
+const UnifiedCardWrapper: React.FC<{
+  itemId: string;
+  dropId?: string | null;
+  isPending: boolean;
+  children: React.ReactNode;
+}> = ({ itemId, dropId, isPending, children }) => {
+  // DEBUG: Track wrapper mount/unmount
+  React.useEffect(() => {
+    console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
+    return () => {
+      console.log('[DEBUG:Wrapper] UnifiedCardWrapper UNMOUNTED:', { itemId, dropId });
+    };
+  }, []);
+
+  // DEBUG: Track isPending changes
+  React.useEffect(() => {
+    console.log('[DEBUG:Wrapper] isPending changed:', { itemId, dropId, isPending });
+  }, [isPending, itemId, dropId]);
+
+  // Track animation state - starts true if was pending, then transitions
+  const [wasPending, setWasPending] = React.useState(isPending);
+  const [layoutEnabled, setLayoutEnabled] = React.useState(false);
+
+  // Animation values for depth emergence (pending items)
+  const hasAnimated = animatedInItemIds.has(itemId);
+  const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
+  const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
+
+  // Handle pending→real transition
+  React.useEffect(() => {
+    if (wasPending && !isPending) {
+      // Item just transitioned from pending to real
+      // Mark that transition happened so we can skip Layout animation
+      if (dropId) {
+        recentlyPromotedDropIds.add(dropId);
+      }
+      setWasPending(false);
+    }
+  }, [isPending, wasPending, dropId]);
+
+  // Pending item animation (depth emergence)
+  React.useEffect(() => {
+    if (!isPending || hasAnimated) return;
+
+    animatedInItemIds.add(itemId);
+
+    const timeout = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(scale, {
+          toValue: 1,
+          duration: 750,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 750,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 200);
+
+    return () => clearTimeout(timeout);
+  }, [itemId, isPending, hasAnimated, scale, opacity]);
+
+  // Real item Layout animation (slide-down)
+  React.useEffect(() => {
+    if (isPending) return;
+
+    const wasRecentlyPromoted = dropId && recentlyPromotedDropIds.has(dropId);
+    const delay = wasRecentlyPromoted ? 2000 : 500;
+
+    if (wasRecentlyPromoted && dropId) {
+      recentlyPromotedDropIds.delete(dropId);
+    }
+
+    const timeout = setTimeout(() => {
+      setLayoutEnabled(true);
+    }, delay);
+    return () => clearTimeout(timeout);
+  }, [isPending, dropId]);
+
+  // Pending items: use Animated.View with scale/opacity
+  if (isPending && !hasAnimated) {
+    return <Animated.View style={{ opacity, transform: [{ scale }] }}>{children}</Animated.View>;
+  }
+
+  // Real items with Layout enabled: use Reanimated.View
+  if (!isPending && layoutEnabled) {
+    return (
+      <Reanimated.View
+        layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+      >
+        {children}
+      </Reanimated.View>
+    );
+  }
+
+  // Default: plain View (pending after animation, or real before Layout enabled)
+  return <View>{children}</View>;
+};
+
+/**
+ * AnimatedChipsTransition - Magical blur-to-sharp reveal for Phase 2 metadata chips
+ *
+ * When Phase 2 data arrives, ALL chips "emerge from mist" together:
+ * - Start: opacity 0.3, scale 0.98, with frosted mist overlay
+ * - End: opacity 1, scale 1.0, mist fades away
+ * - Duration: 900ms ease-out for a more intentional, noticeable effect
+ *
+ * The mist effect is achieved by overlaying a semi-transparent white layer
+ * that fades out as the chips become visible, creating the illusion of
+ * content crystallizing out of fog.
+ *
+ * CRITICAL: Uses module-level chipAnimatedIds Set to persist animation state
+ * across pending→entity transition. The drop_id stays the same, so we track
+ * by that instead of component-level ref which resets on remount.
+ */
+const AnimatedChipsTransition: React.FC<{
+  trackingId: string;
+  hasRealData: boolean;
+  children: React.ReactNode;
+}> = ({ trackingId, hasRealData, children }) => {
+  // Check if this drop has already animated using module-level Set
+  // This persists across pending→entity transition (drop_id stays the same)
+  const alreadyAnimated = chipAnimatedIds.has(trackingId);
+
+  // Use useState to create stable Animated.Values that persist across re-renders
+  // If already animated, start at final values
+  const [animValues] = React.useState(() => ({
+    // Chips: start dim and slightly smaller, end fully visible
+    opacity: new Animated.Value(alreadyAnimated ? 1 : 0.3),
+    scale: new Animated.Value(alreadyAnimated ? 1 : 0.98),
+    // Mist overlay: starts visible, fades to invisible
+    mistOpacity: new Animated.Value(alreadyAnimated ? 0 : 0.85),
+  }));
+  // Track animation state for render decisions - show immediately if already animated
+  const [isVisible, setIsVisible] = React.useState(alreadyAnimated || hasRealData);
+  // Component-level ref to prevent double-trigger within same mount
+  const animationStarted = React.useRef(alreadyAnimated);
+
+  React.useEffect(() => {
+    // When real data arrives, animate chips into view with magical reveal
+    // Skip if already animated (tracked by module-level Set)
+    if (hasRealData && !animationStarted.current && !chipAnimatedIds.has(trackingId)) {
+      animationStarted.current = true;
+      chipAnimatedIds.add(trackingId); // Persist across remounts
+      // Start showing the container immediately (animation will run)
+      setIsVisible(true);
+      Animated.parallel([
+        // Chips fade in and scale up
+        Animated.timing(animValues.opacity, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(animValues.scale, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        // Mist clears away
+        Animated.timing(animValues.mistOpacity, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else if (hasRealData && chipAnimatedIds.has(trackingId) && !isVisible) {
+      // Already animated but not visible (e.g., remounted) - show immediately
+      setIsVisible(true);
+    }
+  }, [trackingId, hasRealData, animValues, isVisible]);
+
+  // Fixed minimum height prevents layout jump when chips appear
+  const containerStyle: ViewStyle = {
+    minHeight: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+  };
+
+  // If not visible yet, render empty container with min height (no placeholders)
+  if (!isVisible) {
+    return <View style={containerStyle} />;
+  }
+
+  // Render chips with animation + mist overlay
+  return (
+    <View style={[containerStyle, { position: 'relative' }]}>
+      {/* Chips layer - animated opacity and scale */}
+      <Animated.View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          opacity: animValues.opacity,
+          transform: [{ scale: animValues.scale }],
+        }}
+      >
+        {children}
+      </Animated.View>
+      {/* Mist overlay - fades out to reveal sharp chips */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: -2,
+          left: -4,
+          right: -4,
+          bottom: -2,
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          opacity: animValues.mistOpacity,
+          borderRadius: 8,
+        }}
+      />
+    </View>
+  );
+};
+
+/**
+ * Row3Chips - UNIFIED chip rendering component for Row 3
+ *
+ * This is the SINGLE source of truth for ALL Row 3 chip rendering.
+ * All chips (context, deadline, frequency, start date, time estimate, mood, people)
+ * are rendered in ONE place so they ALL animate together with blur-to-focus.
+ *
+ * CRITICAL: Returns null until enrichment is complete. This ensures:
+ * 1. All chips appear at the SAME TIME
+ * 2. All chips get the SAME animation
+ * 3. No flickering from partial data
+ */
+const Row3Chips: React.FC<{
+  item: UnifiedDrop;
+  effectiveKind: 'todo' | 'habit' | 'note';
+  styles: any;
+  isMulti?: boolean;
+}> = ({ item, effectiveKind, styles, isMulti = false }) => {
+  // Compute derived state once
+  const isJournal =
+    item.kind === 'note' && (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
+  const isIdea =
+    item.kind === 'note' && (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
+  const isGeneralNote =
+    item.kind === 'note' &&
+    !isJournal &&
+    !isIdea &&
+    (item.noteSubtype === 'catchall' ||
+      item.noteSubtype === 'general' ||
+      item.canonical_type === 'log' ||
+      !item.noteSubtype);
+
+  const hasMoods = isJournal && item.mood && item.mood.length > 0;
+  const hasPeople =
+    item.views?.people && Array.isArray(item.views.people) && item.views.people.length > 0;
+
+  // CRITICAL: Row 3 chips must wait for Phase 2 to FULLY complete before animating.
+  // This is SEPARATE from minddrop_stage which triggers Row 1-2 typewriter earlier.
+  //
+  // For pending drops: chip_data_ready is EXPLICITLY set (false until Phase 2, then true)
+  // For real entities: chip_data_ready is undefined, use minddrop_stage === 'enriched'
+  // For legacy items: no stage tracking at all
+  const chipDataReady = item.views?.chip_data_ready === true;
+  const minddropStage = item.views?.minddrop_stage;
+  const isEntityEnriched = minddropStage === 'enriched';
+  const isLegacyItem =
+    minddropStage === undefined &&
+    item.views?.ai_pending !== true &&
+    item.views?.ai_failed !== true;
+
+  // CRITICAL: Check if this is a pending drop (chip_data_ready is explicitly set)
+  // Pending drops: chip_data_ready is false/true - ONLY use chipDataReady
+  // Real entities: chip_data_ready is undefined - use isEntityEnriched
+  const isPendingDrop = item.views?.chip_data_ready !== undefined;
+  const hasRealChipData = isPendingDrop ? chipDataReady : isEntityEnriched || isLegacyItem;
+
+  // CRITICAL: Use drop_id for tracking animation state across pending→entity transition
+  // drop_id is set when pending drop is created and persists when synced to Supabase
+  const trackingId = item.drop_id || item.id;
+
+  // Get chip data
+  const contextMeta = getContextualMeta(effectiveKind, item);
+  const contextTestId =
+    effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
+
+  // Build multi-entity type label if needed
+  let multiTypeLabel = '';
+  if (isMulti) {
+    const multiItems: MultiDropItem[] = item.multi_items || item.views?.multi_items || [];
+    const bucketCounts: Record<string, number> = {};
+    for (const mi of multiItems) {
+      const label =
+        mi.bucket === 'todo'
+          ? 'Todo'
+          : mi.bucket === 'habit'
+            ? 'Habit'
+            : mi.subtype === 'journal'
+              ? 'Journal'
+              : mi.subtype === 'idea'
+                ? 'Idea'
+                : 'Note';
+      bucketCounts[label] = (bucketCounts[label] || 0) + 1;
+    }
+    const labels = Object.entries(bucketCounts).map(([label, count]) =>
+      count > 1 ? `${count} ${label}s` : label,
+    );
+    multiTypeLabel = labels.join(' + ') || 'Multiple Items';
+  }
+
+  // Render context chip based on item type
+  const renderContextChip = () => {
+    // Multi-entity: show combined type label
+    if (isMulti) {
+      return (
+        <View style={styles.moodChip}>
+          <Text style={styles.moodChipText}>{multiTypeLabel}</Text>
+        </View>
+      );
+    }
+
+    // Journal: show type + mood chips
+    if (isJournal && contextMeta) {
+      return (
+        <>
+          <View style={styles.moodChip}>
+            <Text style={styles.moodChipText}>{contextMeta}</Text>
+          </View>
+          {hasMoods && (
+            <>
+              {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
+                <React.Fragment key={m}>
+                  {idx === 0 && <Text style={styles.journalSeparator}> </Text>}
+                  <Text style={styles.journalSubtypeLabel}>{MOOD_CONFIG[m]?.label}</Text>
+                  {idx < Math.min(item.mood!.length, 2) - 1 && (
+                    <Text style={styles.journalSeparator}>·</Text>
+                  )}
+                </React.Fragment>
+              ))}
+              {item.mood!.length > 2 && (
+                <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
+              )}
+            </>
+          )}
+        </>
+      );
+    }
+
+    // Idea: show type chip
+    if (isIdea && contextMeta) {
+      return (
+        <View style={styles.moodChip}>
+          <Text style={styles.moodChipText}>{contextMeta}</Text>
+        </View>
+      );
+    }
+
+    // General note: show type chip
+    if (isGeneralNote && contextMeta) {
+      return (
+        <View style={styles.moodChip}>
+          <Text style={styles.moodChipText}>{contextMeta}</Text>
+        </View>
+      );
+    }
+
+    // Todo/Habit: show context pill (deadline/frequency)
+    return contextMeta ? (
+      <View style={styles.recentContextPillContainer}>
+        <Text testID={contextTestId} style={styles.recentContextPill}>
+          {contextMeta}
+        </Text>
+      </View>
+    ) : null;
+  };
+
+  return (
+    <AnimatedChipsTransition trackingId={trackingId} hasRealData={hasRealChipData}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {/* Context chip (deadline, frequency, type label, etc.) */}
+        {renderContextChip()}
+
+        {/* Start date chip for habits - before time estimate */}
+        {effectiveKind === 'habit' && (
+          <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
+        )}
+
+        {/* Time estimate chip for todos AND habits */}
+        {(effectiveKind === 'todo' || effectiveKind === 'habit') && item.time_estimate_minutes && (
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              Alert.alert(
+                '⏱️ Time Estimate',
+                effectiveKind === 'habit'
+                  ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
+                  : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                [{ text: 'Got it', style: 'default' }],
+              );
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <View style={styles.timeEstimateChip}>
+              <Clock size={10} color="#888" strokeWidth={2} />
+              <Text style={styles.timeEstimateText}>
+                {formatTimeEstimate(item.time_estimate_minutes)}
+              </Text>
+            </View>
+          </Pressable>
+        )}
+
+        {/* People chip */}
+        {hasPeople && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+            <User size={10} color="#6B8E6B" strokeWidth={2.5} />
+            <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
+              {item.views!.people![0]}
+            </Text>
+          </View>
+        )}
+      </View>
+    </AnimatedChipsTransition>
   );
 };
 
@@ -1121,9 +1789,9 @@ const PendingSkeleton: React.FC<{
         <ShimmerBar width="45%" height={14} />
       </View>
 
-      {/* Row 3: Context skeleton + Organizing indicator */}
+      {/* Row 3: Empty chip row (no placeholders) + Organizing indicator */}
       <View style={styles.recentMetaRow}>
-        <ShimmerBar width={70} height={12} />
+        <View style={{ minHeight: 20 }} />
         <Text
           style={[styles.recentMetaTime, { fontStyle: 'italic', color: '#6B7280', minWidth: 75 }]}
         >
@@ -1273,9 +1941,9 @@ const EnrichingSkeleton: React.FC<{
         <ShimmerBar width="40%" height={14} />
       </View>
 
-      {/* Row 3: Context shimmer + timestamp */}
+      {/* Row 3: Empty chip row (no placeholders) + timestamp */}
       <View style={styles.recentMetaRow}>
-        <ShimmerBar width={60} height={12} />
+        <View style={{ minHeight: 20 }} />
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
     </Animated.View>
@@ -1296,28 +1964,24 @@ const RevealingCard: React.FC<{
   c: any;
   onRevealComplete: () => void;
 }> = ({ item, effectiveKind, displayKind, badgeStyleKey, styles, c, onRevealComplete }) => {
+  // CRITICAL: Use drop_id for tracking - persists across pending→entity transition
+  const trackingId = item.drop_id || item.id;
+
   // Track completion of each line
   const [line1Done, setLine1Done] = React.useState(false);
   const [line2Done, setLine2Done] = React.useState(false);
-  const [line3Done, setLine3Done] = React.useState(false);
 
-  // Memoize the text values so they're stable during reveal
-  const titleText = React.useMemo(() => item.title || item.text || '—', [item.title, item.text]);
-  const confirmationText = React.useMemo(
-    () => getConfirmationMessage(effectiveKind, item),
-    [effectiveKind, item],
-  );
-  const contextMeta = React.useMemo(
-    () => getContextualMeta(effectiveKind, item),
-    [effectiveKind, item],
-  );
+  // CRITICAL: Capture initial values so they don't change during animation
+  // This prevents Phase 2 updates from restarting the typewriter animation
+  // Using useState initializer to freeze on first render (only runs once)
+  const [titleText] = React.useState(() => item.title || item.text || '—');
+  const [confirmationText] = React.useState(() => getConfirmationMessage(effectiveKind, item));
 
   // Memoize callbacks to prevent re-renders
   const handleLine1Done = React.useCallback(() => setLine1Done(true), []);
   const handleLine2Done = React.useCallback(() => setLine2Done(true), []);
-  const handleLine3Done = React.useCallback(() => setLine3Done(true), []);
 
-  // Shimmer fade-out animation
+  // Row 1 & 2: Shimmer fade-out / text fade-in (starts immediately)
   const shimmerOpacity = React.useMemo(() => new Animated.Value(1), []);
   const textOpacity = React.useMemo(() => new Animated.Value(0), []);
 
@@ -1325,7 +1989,7 @@ const RevealingCard: React.FC<{
   const settleScale = React.useMemo(() => new Animated.Value(1), []);
   const settleShadow = React.useMemo(() => new Animated.Value(0), []);
 
-  // Start crossfade immediately
+  // Start Row 1 & 2 crossfade immediately
   React.useEffect(() => {
     Animated.parallel([
       Animated.timing(shimmerOpacity, {
@@ -1341,9 +2005,10 @@ const RevealingCard: React.FC<{
     ]).start();
   }, [shimmerOpacity, textOpacity]);
 
-  // Trigger settle animation when all lines complete
+  // Trigger settle animation when Row 1 & 2 typewriter complete
+  // Row 3 chips have their own animation via AnimatedChipsTransition
   React.useEffect(() => {
-    if (line1Done && line2Done && line3Done) {
+    if (line1Done && line2Done) {
       // Subtle pulse: scale up slightly, glow, then settle
       Animated.sequence([
         Animated.parallel([
@@ -1376,7 +2041,7 @@ const RevealingCard: React.FC<{
         onRevealComplete();
       });
     }
-  }, [line1Done, line2Done, line3Done, settleScale, settleShadow, onRevealComplete]);
+  }, [line1Done, line2Done, settleScale, settleShadow, onRevealComplete]);
 
   // Animated shadow for settle effect
   const animatedShadowOpacity = settleShadow.interpolate({
@@ -1437,29 +2102,9 @@ const RevealingCard: React.FC<{
         </Animated.View>
       </View>
 
-      {/* Row 3: Contextual info + timestamp */}
+      {/* Row 3: Chips (use Row3Chips with AnimatedChipsTransition) + timestamp */}
       <View style={styles.recentMetaRow}>
-        <View style={{ position: 'relative', flex: 1 }}>
-          {/* Shimmer layer (fades out) */}
-          <Animated.View style={{ opacity: shimmerOpacity, position: 'absolute', left: 0 }}>
-            <ShimmerBar width={60} height={12} />
-          </Animated.View>
-          {/* Text layer (fades in, typewriter) */}
-          <Animated.View style={{ opacity: textOpacity }}>
-            {contextMeta ? (
-              <TypewriterText
-                text={contextMeta}
-                style={styles.recentContextPill}
-                duration={250}
-                delay={250}
-                onComplete={handleLine3Done}
-              />
-            ) : (
-              // No context meta - mark as done immediately after delay
-              <DelayedCallback delay={300} onComplete={handleLine3Done} />
-            )}
-          </Animated.View>
-        </View>
+        <Row3Chips item={item} effectiveKind={effectiveKind} styles={styles} />
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
     </Animated.View>
@@ -1617,11 +2262,25 @@ const useGremlyPulse = () => {
   return pulseAnim;
 };
 
+// Module-level Set to track items that have already shown reveal animation
+// Prevents double animation when component remounts or Phase 2 arrives
+const revealedItemIds = new Set<string>();
+
+// Module-level Set to track drops that have already animated their Row 3 chips
+// This persists across pending→entity transition (drop_id stays the same)
+const chipAnimatedIds = new Set<string>();
+
+// Module-level Set to track drops that have already shown multi-drop bounce animation
+// Uses drop_id for stability across pending→synced transition
+const multiBounceAnimatedIds = new Set<string>();
+
 /**
  * Animated wrapper for Mind Drop card that smoothly transitions
  * from pending skeleton to final content when AI enrichment completes
+ *
+ * MEMOIZED to prevent re-renders when other cards update
  */
-const AnimatedMindDropCard: React.FC<{
+const AnimatedMindDropCard = React.memo<{
   item: UnifiedDrop;
   isPending: boolean;
   effectiveKind: 'note' | 'todo' | 'habit';
@@ -1637,401 +2296,351 @@ const AnimatedMindDropCard: React.FC<{
   // Multi-entity handlers passed from parent
   onKeepAsNote?: (id: string) => void;
   onSplitSelected?: (id: string, selectedItems: MultiDropItem[]) => void;
-}> = ({
-  item,
-  isPending,
-  effectiveKind,
-  displayKind,
-  showLegacyUnsortedBadge,
-  badgeStyleKey,
-  c,
-  styles,
-  mode,
-  handleEdit,
-  handleDelete,
-  index = 0,
-  onKeepAsNote,
-  onSplitSelected,
-}) => {
-  // Check for multi-entity drops
-  const isMulti = item.is_multi === true || item.views?.is_multi === true;
-  const [multiModalVisible, setMultiModalVisible] = React.useState(false);
+  // Callback to open modal at parent level (modal lives in RecentDrops, not here)
+  onOpenModal?: (item: UnifiedDrop) => void;
+}>(
+  ({
+    item,
+    isPending,
+    effectiveKind,
+    displayKind,
+    showLegacyUnsortedBadge,
+    badgeStyleKey,
+    c,
+    styles,
+    mode,
+    handleEdit,
+    handleDelete,
+    index = 0,
+    onKeepAsNote,
+    onSplitSelected,
+    onOpenModal,
+  }) => {
+    // Check for multi-entity drops
+    const isMulti = item.is_multi === true || item.views?.is_multi === true;
 
-  // Gremly pulse animation for multi-entity cards (always called, conditionally used)
-  const gremlyPulseScale = useGremlyPulse();
+    // DEBUG: Track component mount/unmount
+    React.useEffect(() => {
+      console.log('[DEBUG:AnimatedMindDropCard] MOUNTED:', {
+        itemId: item.id,
+        dropId: item.drop_id,
+        isMulti,
+      });
+      return () => {
+        console.log('[DEBUG:AnimatedMindDropCard] UNMOUNTED:', {
+          itemId: item.id,
+          dropId: item.drop_id,
+        });
+      };
+    }, []); // Empty deps = only on mount/unmount
 
-  // DEBUG: Log multi status
-  if (item.kind === 'note') {
-    console.log('[AnimatedMindDropCard:Multi]', {
-      id: item.id,
-      title: item.title?.substring(0, 30),
-      is_multi: item.is_multi,
-      views_is_multi: item.views?.is_multi,
-      isMulti,
+    // ─────────────────────────────────────────────────────────────────────────
+    // Multi-drop bounce animation
+    // When a card transitions to multi-drop, do a celebratory bounce
+    // Uses drop_id (stable across pending→synced) to prevent duplicate animations
+    // ─────────────────────────────────────────────────────────────────────────
+    const bounceScale = useSharedValue(1);
+
+    // Use drop_id for tracking (stable across pending→entity transition)
+    // Falls back to item.id for items without drop_id
+    const bounceTrackingId = item.drop_id || item.id;
+
+    React.useEffect(() => {
+      // Trigger bounce when isMulti is true AND we haven't animated this drop yet
+      // Uses module-level Set to persist across component remounts
+      if (isMulti && !multiBounceAnimatedIds.has(bounceTrackingId)) {
+        multiBounceAnimatedIds.add(bounceTrackingId);
+
+        // Pronounced bounce: 1.0 → 1.10 → 0.96 → 1.0
+        bounceScale.value = withSequence(
+          withTiming(1.1, { duration: 180 }),
+          withTiming(0.96, { duration: 140 }),
+          withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
+        );
+      }
+    }, [isMulti, bounceTrackingId, bounceScale]);
+
+    const bounceStyle = useAnimatedStyle(() => ({
+      transform: [{ scale: bounceScale.value }],
+    }));
+
+    // Gremly pulse animation for multi-entity cards (always called, conditionally used)
+    const gremlyPulseScale = useGremlyPulse();
+
+    // Get visual state from item
+    const itemVisualState = getMindDropVisualState(item);
+
+    // Track revealed items by drop_id (stable across pending→synced transition)
+    // Falls back to item.id for items without drop_id
+    const trackingId = item.drop_id || item.id;
+
+    // Local state to track revealing phase
+    const [isRevealing, setIsRevealing] = React.useState(false);
+    const [revealComplete, setRevealComplete] = React.useState(() => {
+      // Initialize as complete if this item was already revealed
+      return revealedItemIds.has(trackingId);
     });
-  }
+    const prevStateRef = React.useRef<MindDropVisualState | null>(null);
+    const isFirstRender = React.useRef(true);
 
-  // Get visual state from item
-  const itemVisualState = getMindDropVisualState(item);
+    // Detect transition to complete state to trigger reveal animation
+    // Only triggers ONCE per item - uses module-level Set to track by drop_id
+    React.useEffect(() => {
+      const prev = prevStateRef.current;
 
-  // Local state to track revealing phase
-  const [isRevealing, setIsRevealing] = React.useState(false);
-  const [revealComplete, setRevealComplete] = React.useState(false);
-  const prevStateRef = React.useRef<MindDropVisualState>(itemVisualState);
-
-  // Detect transition from enriching → complete to trigger reveal
-  React.useEffect(() => {
-    if (prevStateRef.current === 'enriching' && itemVisualState === 'complete') {
-      // Start revealing animation
-      setIsRevealing(true);
-    }
-    prevStateRef.current = itemVisualState;
-  }, [itemVisualState]);
-
-  // Handle reveal completion
-  const handleRevealComplete = React.useCallback(() => {
-    setIsRevealing(false);
-    setRevealComplete(true);
-  }, []);
-
-  // Determine actual visual state
-  const visualState: MindDropVisualState = isRevealing
-    ? 'revealing'
-    : revealComplete || itemVisualState === 'complete'
-      ? 'complete'
-      : itemVisualState;
-
-  // Phase 1: Still creating entity - show raw text with skeleton for secondary fields
-  if (visualState === 'pending') {
-    return (
-      <PendingSkeleton
-        item={item}
-        effectiveKind={effectiveKind}
-        badgeStyleKey={badgeStyleKey}
-        styles={styles}
-        c={c}
-        index={index}
-      />
-    );
-  }
-
-  // Phase 2: Entity exists, enriching in progress - show shimmers + chip/timestamp
-  if (visualState === 'enriching') {
-    return (
-      <EnrichingSkeleton
-        item={item}
-        effectiveKind={effectiveKind}
-        badgeStyleKey={badgeStyleKey}
-        styles={styles}
-        c={c}
-        index={index}
-      />
-    );
-  }
-
-  // Phase 3: Transitioning - crossfade shimmer to typewriter reveal
-  if (visualState === 'revealing') {
-    return (
-      <RevealingCard
-        item={item}
-        effectiveKind={effectiveKind}
-        displayKind={displayKind}
-        badgeStyleKey={badgeStyleKey}
-        styles={styles}
-        c={c}
-        onRevealComplete={handleRevealComplete}
-      />
-    );
-  }
-
-  // Complete or Failed: Show static content
-  const isFailed = visualState === 'failed';
-
-  // Multi-entity handler
-  const handleCardPress = () => {
-    if (isMulti) {
-      setMultiModalVisible(true);
-      return;
-    }
-    handleEdit(item.id, item.kind, item.unsorted);
-  };
-
-  // Multi-entity keep as note handler
-  const handleKeepAsNote = () => {
-    setMultiModalVisible(false);
-    if (onKeepAsNote) {
-      onKeepAsNote(item.id);
-    }
-  };
-
-  // Multi-entity split handler
-  const handleSplitSelected = (selectedItems: MultiDropItem[]) => {
-    setMultiModalVisible(false);
-    if (onSplitSelected) {
-      onSplitSelected(item.id, selectedItems);
-    }
-  };
-
-  return (
-    <>
-      <Pressable
-        key={`${item.kind}:${item.id}`}
-        testID={`minddrop-recent-${item.kind}-${item.id}`}
-        style={[styles.recentCard, isMulti && { backgroundColor: '#F4F9F4' }]}
-        onPress={handleCardPress}
-        accessibilityRole="button"
-        accessibilityLabel={
-          isMulti
-            ? 'Tap to decide what to do with multiple items'
-            : `Edit ${item.title || item.text || 'item'}`
+      // Skip if already revealed (check by tracking ID which persists across sync)
+      if (revealedItemIds.has(trackingId)) {
+        // Ensure local state is in sync
+        if (!revealComplete) {
+          setRevealComplete(true);
         }
-      >
-        {/* Row 1: Title (left) + Chip (right) */}
-        <View style={styles.recentTopRow}>
-          <Text numberOfLines={1} style={styles.recentTitle}>
-            {isMulti
-              ? item.multi_summary_title ||
-                item.views?.multi_summary_title ||
-                item.title ||
-                'Multiple Items'
-              : item.title || item.text || '—'}
-          </Text>
-          <View style={styles.recentTopRight}>
-            {effectiveKind === 'note' && (item as any)?.private === true && (
-              <Lock size={12} color="#777" />
-            )}
-            <Text
-              style={[
-                styles.recentCategoryPill,
-                styles[badgeStyleKey],
-                isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
-              ]}
-            >
-              {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
-            </Text>
-          </View>
-        </View>
+        prevStateRef.current = itemVisualState;
+        return;
+      }
 
-        {/* Row 2: Confirmation message or multi hint */}
-        {isMulti ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
-            <Animated.Image
-              source={require('../../assets/buttonforHP.png')}
-              style={{
-                width: 26,
-                height: 26,
-                marginRight: 8,
-                borderRadius: 13,
-                transform: [{ scale: gremlyPulseScale }],
-              }}
-            />
-            <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
-              Should I split these? Tap to decide.
-            </Text>
-          </View>
-        ) : (
-          (() => {
-            const confirmationMsg = getConfirmationMessage(effectiveKind, item);
-            const isStreaming =
-              item.views?.minddrop_stage === 'streaming' ||
-              item.views?.minddrop_stage === 'enriching';
-
-            if (isStreaming && confirmationMsg) {
-              return (
-                <TypewriterText
-                  text={confirmationMsg}
-                  style={styles.recentConfirmation}
-                  duration={Math.min(confirmationMsg.length * 25, 800)}
-                />
-              );
-            }
-
-            return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
-          })()
-        )}
-
-        {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
-        <View style={styles.recentMetaRow}>
-          {/* Left side: context pill + time estimate grouped together */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {(() => {
-              const contextMeta = getContextualMeta(effectiveKind, item);
-              // Add testID for todos to support due date badge tests
-              const contextTestId =
-                effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
-              // For journal entries, show plain text label instead of pill
-              const isJournal =
-                item.kind === 'note' &&
-                (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
-              const hasMoods = isJournal && item.mood && item.mood.length > 0;
-
-              // For idea entries, show plain text label only
-              const isIdea =
-                item.kind === 'note' &&
-                (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
-
-              if (isJournal && contextMeta) {
-                return (
-                  <View style={styles.journalMetaRow}>
-                    <View style={styles.moodChip}>
-                      <Text style={styles.moodChipText}>{contextMeta}</Text>
-                    </View>
-                    {hasMoods && (
-                      <>
-                        {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
-                          <React.Fragment key={m}>
-                            {idx === 0 && <Text style={styles.journalSeparator}> </Text>}
-                            <Text style={styles.journalSubtypeLabel}>{MOOD_CONFIG[m]?.label}</Text>
-                            {idx < Math.min(item.mood!.length, 2) - 1 && (
-                              <Text style={styles.journalSeparator}>·</Text>
-                            )}
-                          </React.Fragment>
-                        ))}
-                        {item.mood!.length > 2 && (
-                          <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
-                        )}
-                      </>
-                    )}
-                  </View>
-                );
-              }
-
-              if (isIdea && contextMeta) {
-                return (
-                  <View style={styles.journalMetaRow}>
-                    <View style={styles.moodChip}>
-                      <Text style={styles.moodChipText}>{contextMeta}</Text>
-                    </View>
-                  </View>
-                );
-              }
-
-              // For general notes, show plain text label only
-              const isGeneralNote =
-                item.kind === 'note' &&
-                !isJournal &&
-                !isIdea &&
-                (item.noteSubtype === 'catchall' ||
-                  item.noteSubtype === 'general' ||
-                  item.canonical_type === 'log' ||
-                  !item.noteSubtype);
-
-              // For multi-entity cards, show combined type label instead of "General Note"
-              if (isMulti) {
-                const multiItems: MultiDropItem[] =
-                  item.multi_items || item.views?.multi_items || [];
-                const bucketCounts: Record<string, number> = {};
-                for (const mi of multiItems) {
-                  // For log bucket, use subtype if available (journal, idea) else "Note"
-                  const label =
-                    mi.bucket === 'todo'
-                      ? 'Todo'
-                      : mi.bucket === 'habit'
-                        ? 'Habit'
-                        : mi.subtype === 'journal'
-                          ? 'Journal'
-                          : mi.subtype === 'idea'
-                            ? 'Idea'
-                            : 'Note';
-                  bucketCounts[label] = (bucketCounts[label] || 0) + 1;
-                }
-                const labels = Object.entries(bucketCounts).map(([label, count]) =>
-                  count > 1 ? `${count} ${label}s` : label,
-                );
-                const multiTypeLabel = labels.join(' + ') || 'Multiple Items';
-
-                return (
-                  <View style={styles.journalMetaRow}>
-                    <View style={styles.moodChip}>
-                      <Text style={styles.moodChipText}>{multiTypeLabel}</Text>
-                    </View>
-                  </View>
-                );
-              }
-
-              if (isGeneralNote && contextMeta) {
-                return (
-                  <View style={styles.journalMetaRow}>
-                    <View style={styles.moodChip}>
-                      <Text style={styles.moodChipText}>{contextMeta}</Text>
-                    </View>
-                  </View>
-                );
-              }
-
-              return contextMeta ? (
-                <Text testID={contextTestId} style={styles.recentContextPill}>
-                  {contextMeta}
-                </Text>
-              ) : null;
-            })()}
-            {/* Start date chip for habits - before time estimate */}
-            {effectiveKind === 'habit' && (
-              <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
-            )}
-            {/* Time estimate chip for todos AND habits - comes LAST */}
-            {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
-              item.time_estimate_minutes && (
-                <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    Alert.alert(
-                      '⏱️ Time Estimate',
-                      effectiveKind === 'habit'
-                        ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
-                        : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
-                      [{ text: 'Got it', style: 'default' }],
-                    );
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <View style={styles.timeEstimateChip}>
-                    <Clock size={10} color="#888" strokeWidth={2} />
-                    <Text style={styles.timeEstimateText}>
-                      {formatTimeEstimate(item.time_estimate_minutes)}
-                    </Text>
-                  </View>
-                </Pressable>
-              )}
-            {item.views?.people &&
-              Array.isArray(item.views.people) &&
-              item.views.people.length > 0 && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                  <User size={10} color="#6B8E6B" strokeWidth={2.5} />
-                  <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
-                    {item.views.people[0]}
-                  </Text>
-                </View>
-              )}
-            {/* Mood chips now rendered inline with Journal label above */}
-          </View>
-          {/* Right side: photo icon + timestamp */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
-            <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
-          </View>
-        </View>
-      </Pressable>
-
-      {/* Multi-entity split modal */}
-      {isMulti && (
-        <MultiSplitModal
-          visible={multiModalVisible}
-          items={item.multi_items || item.views?.multi_items || []}
-          summaryTitle={
-            item.multi_summary_title || item.views?.multi_summary_title || 'Multiple Items'
+      // For first render: if item is already complete/streaming and was created recently (within 30s),
+      // trigger reveal animation since user just submitted it
+      if (isFirstRender.current) {
+        isFirstRender.current = false;
+        // Streaming = Phase 1 done, title ready for typewriter
+        // Complete = Phase 2 done, all data ready
+        if (itemVisualState === 'complete' || itemVisualState === 'streaming') {
+          const createdAt = new Date(item.created_at).getTime();
+          const ageMs = Date.now() - createdAt;
+          if (ageMs < 30000) {
+            // Item is new (created within 30s), trigger reveal
+            // Mark as revealing IMMEDIATELY to prevent duplicate animations on sync
+            revealedItemIds.add(trackingId);
+            console.log('[AnimatedMindDropCard] First render reveal', { trackingId, ageMs });
+            setIsRevealing(true);
+          } else {
+            // Item is old, mark as already revealed
+            revealedItemIds.add(trackingId);
+            setRevealComplete(true);
           }
-          originalText={item.text || item.title || ''}
-          dominantBucket={item.views?.dominant_bucket || null}
-          dominantSubtype={item.views?.dominant_subtype || null}
-          onClose={() => setMultiModalVisible(false)}
-          onKeepAsNote={handleKeepAsNote}
-          onSplitSelected={handleSplitSelected}
-        />
-      )}
-    </>
-  );
-};
+        }
+        prevStateRef.current = itemVisualState;
+        return;
+      }
+
+      // Normal transition detection
+      // Trigger reveal when Phase 1 completes (streaming) or Phase 2 completes (complete)
+      const isNowReadyForReveal = itemVisualState === 'complete' || itemVisualState === 'streaming';
+      const wasNotReady = prev === 'enriching' || prev === 'pending';
+      if (wasNotReady && isNowReadyForReveal) {
+        // Mark as revealing IMMEDIATELY to prevent duplicate animations on sync
+        revealedItemIds.add(trackingId);
+        // Start revealing animation
+        console.log('[AnimatedMindDropCard] Transition reveal', {
+          trackingId,
+          prev,
+          current: itemVisualState,
+        });
+        setIsRevealing(true);
+      }
+      prevStateRef.current = itemVisualState;
+    }, [itemVisualState, trackingId, item.created_at, revealComplete]);
+
+    // Handle reveal completion - mark as revealed to prevent re-animation
+    const handleRevealComplete = React.useCallback(() => {
+      revealedItemIds.add(trackingId);
+      setIsRevealing(false);
+      setRevealComplete(true);
+    }, [trackingId]);
+
+    // Determine actual visual state
+    // 'streaming' = Phase 1 done, treat like 'complete' for card rendering (chips will wait for chip_data_ready)
+    const visualState: MindDropVisualState = isRevealing
+      ? 'revealing'
+      : revealComplete || itemVisualState === 'complete' || itemVisualState === 'streaming'
+        ? 'complete'
+        : itemVisualState;
+
+    // MULTI-DROP EARLY RETURN: Show multi-card immediately, even during pending/enriching
+    // Multi-drops have enough info from Phase 0 to render the multi-card shape
+    // This bypasses skeleton states so the multi-card appears at ~2s (Phase 0) not ~5s (Phase 1+2)
+    if (isMulti) {
+      // Fall through to complete card render below (skip skeleton states)
+    } else {
+      // Phase 1: Still creating entity - show raw text with skeleton for secondary fields
+      if (visualState === 'pending') {
+        return (
+          <PendingSkeleton
+            item={item}
+            effectiveKind={effectiveKind}
+            badgeStyleKey={badgeStyleKey}
+            styles={styles}
+            c={c}
+            index={index}
+          />
+        );
+      }
+
+      // Phase 2: Entity exists, enriching in progress - show shimmers + chip/timestamp
+      if (visualState === 'enriching') {
+        return (
+          <EnrichingSkeleton
+            item={item}
+            effectiveKind={effectiveKind}
+            badgeStyleKey={badgeStyleKey}
+            styles={styles}
+            c={c}
+            index={index}
+          />
+        );
+      }
+
+      // Phase 3: Transitioning - crossfade shimmer to typewriter reveal
+      if (visualState === 'revealing') {
+        return (
+          <RevealingCard
+            item={item}
+            effectiveKind={effectiveKind}
+            displayKind={displayKind}
+            badgeStyleKey={badgeStyleKey}
+            styles={styles}
+            c={c}
+            onRevealComplete={handleRevealComplete}
+          />
+        );
+      }
+    }
+
+    // Complete or Failed: Show static content (also used for multi-drops)
+    const isFailed = visualState === 'failed';
+
+    // Multi-entity handler - opens modal at parent level
+    const handleCardPress = () => {
+      if (isMulti) {
+        // Modal lives in RecentDrops - just tell parent to open it
+        if (onOpenModal) {
+          onOpenModal(item);
+        }
+        return;
+      }
+      handleEdit(item.id, item.kind, item.unsorted);
+    };
+
+    return (
+      <Reanimated.View style={bounceStyle}>
+        <Pressable
+          key={`${item.kind}:${item.id}`}
+          testID={`minddrop-recent-${item.kind}-${item.id}`}
+          style={[styles.recentCard, isMulti && { backgroundColor: '#F4F9F4' }]}
+          onPress={handleCardPress}
+          accessibilityRole="button"
+          accessibilityLabel={
+            isMulti
+              ? 'Tap to decide what to do with multiple items'
+              : `Edit ${item.title || item.text || 'item'}`
+          }
+        >
+          {/* Row 1: Title (left) + Chip (right) */}
+          <View style={styles.recentTopRow}>
+            <Text numberOfLines={1} style={styles.recentTitle}>
+              {isMulti
+                ? item.multi_summary_title ||
+                  item.views?.multi_summary_title ||
+                  item.title ||
+                  'Multiple Items'
+                : item.title || item.text || '—'}
+            </Text>
+            <View style={styles.recentTopRight}>
+              {effectiveKind === 'note' && (item as any)?.private === true && (
+                <Lock size={12} color="#777" />
+              )}
+              <Text
+                style={[
+                  styles.recentCategoryPill,
+                  styles[badgeStyleKey],
+                  isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
+                ]}
+              >
+                {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Row 2: Confirmation message or multi hint */}
+          {isMulti ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+              <Animated.Image
+                source={require('../../assets/buttonforHP.png')}
+                style={{
+                  width: 26,
+                  height: 26,
+                  marginRight: 8,
+                  borderRadius: 13,
+                  transform: [{ scale: gremlyPulseScale }],
+                }}
+              />
+              <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
+                Should I split these? Tap to decide.
+              </Text>
+            </View>
+          ) : (
+            (() => {
+              const confirmationMsg = getConfirmationMessage(effectiveKind, item);
+              // Always show static text in CompleteCard - TypewriterText is only used in RevealingCard
+              return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
+            })()
+          )}
+
+          {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
+          <View style={styles.recentMetaRow}>
+            {/* Left side: ALL chips rendered by unified Row3Chips component */}
+            <Row3Chips
+              item={item}
+              effectiveKind={effectiveKind}
+              styles={styles}
+              isMulti={isMulti}
+            />
+            {/* Right side: photo icon + timestamp */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
+              <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+            </View>
+          </View>
+        </Pressable>
+      </Reanimated.View>
+    );
+  },
+  (prevProps, nextProps) => {
+    // Custom comparison for React.memo - only re-render if THIS card's data changed
+    // Compare by item id and key fields that affect rendering
+    if (prevProps.item.id !== nextProps.item.id) return false;
+    if (prevProps.item.title !== nextProps.item.title) return false;
+    if (prevProps.item.views?.minddrop_stage !== nextProps.item.views?.minddrop_stage) return false;
+    if (prevProps.item.views?.confirmation_message !== nextProps.item.views?.confirmation_message)
+      return false;
+    if (prevProps.item.time_estimate_minutes !== nextProps.item.time_estimate_minutes) return false;
+    if (prevProps.item.frequency !== nextProps.item.frequency) return false; // Habit frequency
+    if (prevProps.item.cadence !== nextProps.item.cadence) return false; // Habit cadence
+    if (prevProps.isPending !== nextProps.isPending) return false;
+    if (prevProps.effectiveKind !== nextProps.effectiveKind) return false;
+    // Tags comparison (shallow array check)
+    const prevTags = prevProps.item.tags || [];
+    const nextTags = nextProps.item.tags || [];
+    if (prevTags.length !== nextTags.length) return false;
+    for (let i = 0; i < prevTags.length; i++) {
+      if (prevTags[i] !== nextTags[i]) return false;
+    }
+    // Multi-drop comparison - re-render when isMulti or segments change
+    if (prevProps.item.is_multi !== nextProps.item.is_multi) return false;
+    const prevSegments = prevProps.item.multi_items || [];
+    const nextSegments = nextProps.item.multi_items || [];
+    if (prevSegments.length !== nextSegments.length) return false;
+    for (let i = 0; i < prevSegments.length; i++) {
+      if (prevSegments[i]?.bucket !== nextSegments[i]?.bucket) return false;
+      // Check preview_title to detect when Phase 1 updates segment titles
+      if (prevSegments[i]?.preview_title !== nextSegments[i]?.preview_title) return false;
+    }
+    return true; // Props are equal, skip re-render
+  },
+);
+
+// Display name for debugging
+AnimatedMindDropCard.displayName = 'AnimatedMindDropCard';
 
 /**
  * Get display tags for Recent drops list
@@ -2099,20 +2708,15 @@ function useMaybeGlobalOverlay(): GlobalOverlayController | null {
   }
 }
 
+// Stable no-op callbacks for pending items (avoids inline arrow functions defeating React.memo)
+const NOOP_EDIT = () => {};
+const NOOP_DELETE = () => {};
+
 const RecentDrops: React.FC<{
   overlay: GlobalOverlayController;
   onEdited?: () => void;
   onDeleted?: () => void;
   onTodayCountChange?: (count: number) => void; // Callback to sync counter with actual Today items
-  onAddPendingItem?: (
-    callback: (params: {
-      dropId: string;
-      text: string;
-      kind: 'todo' | 'habit' | 'note';
-      noteSubtype?: string;
-    }) => void,
-  ) => void;
-  onRemovePendingItem?: (callback: (dropId: string) => void) => void;
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
@@ -2121,12 +2725,13 @@ const RecentDrops: React.FC<{
   onEdited,
   onDeleted,
   onTodayCountChange,
-  onAddPendingItem,
-  onRemovePendingItem,
   refreshSignal,
   initiallyOpen = true,
   eagerLoad = false,
 }) => {
+  // DEBUG: Log every RecentDrops render with timestamp
+  console.log('[RecentDrops] 🔄 Render', { timestamp: Date.now() });
+
   // Direct store access - no adapter
   const deleteNote = useGremlyStore((s) => s.deleteNote);
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
@@ -2138,6 +2743,62 @@ const RecentDrops: React.FC<{
   const createNote = useGremlyStore((s) => s.createNote);
   const archiveNote = useGremlyStore((s) => s.archiveNote);
   const repo = useRepo();
+
+  // Pending drops from Zustand (optimistic queue system)
+  const pendingDropsMap = useGremlyStore((s) => s.pendingDrops);
+
+  // Configure smooth layout animation when pending drops content changes
+  // This prevents jolt when Phase 1 data (smart titles) arrive for segments
+  // BUT we skip animation when:
+  // - Drops are just being removed (promoted to entity)
+  // - A drop just became multi (bounce animation handles that)
+  const prevPendingDropsVersionRef = React.useRef<string>('');
+  const prevPendingDropsCountRef = React.useRef<number>(0);
+  const prevMultiIdsRef = React.useRef<Set<string>>(new Set());
+  React.useLayoutEffect(() => {
+    const currentDrops = Array.from(pendingDropsMap.values());
+    const currentCount = currentDrops.length;
+
+    // Track which drops are multi
+    const currentMultiIds = new Set(currentDrops.filter((d) => d.isMulti).map((d) => d.localId));
+
+    // Check if any drop just became multi (bounce animation handles this)
+    const newlyMulti = [...currentMultiIds].some((id) => !prevMultiIdsRef.current.has(id));
+
+    // Create a "version" string based on segment count and titles
+    // This detects meaningful changes that could affect card height
+    const version = currentDrops
+      .map(
+        (d) =>
+          `${d.localId}:${d.multiSegments?.length ?? 0}:${d.multiSegments?.[0]?.smartTitle ?? ''}`,
+      )
+      .join('|');
+
+    // Only animate if:
+    // 1. Version changed (content changed)
+    // 2. Not initial mount
+    // 3. Count didn't decrease (drop wasn't removed/promoted)
+    // 4. No drop just became multi (bounce handles that transition)
+    const contentChanged = version !== prevPendingDropsVersionRef.current;
+    const notInitialMount = prevPendingDropsVersionRef.current !== '';
+    const notRemoval = currentCount >= prevPendingDropsCountRef.current;
+
+    if (contentChanged && notInitialMount && notRemoval && !newlyMulti) {
+      console.log('[CatchAllNotepad] 🔄 Pending drops data changed, configuring layout animation');
+      LayoutAnimation.configureNext({
+        duration: 200,
+        update: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          // Use opacity instead of scaleY to avoid conflict with bounce animation
+          property: LayoutAnimation.Properties.opacity,
+        },
+      });
+    }
+
+    prevPendingDropsVersionRef.current = version;
+    prevPendingDropsCountRef.current = currentCount;
+    prevMultiIdsRef.current = currentMultiIds;
+  }, [pendingDropsMap]);
 
   // Synchronous lookups from store
   const getItemById = React.useCallback(
@@ -2152,9 +2813,144 @@ const RecentDrops: React.FC<{
   const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
-  const [pendingItems, setPendingItems] = React.useState<UnifiedDrop[]>([]); // Optimistic items shown before DB creation
   const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
   const canonicalTypesOn = env.feature.canonicalTypes;
+
+  // Modal state lifted from AnimatedMindDropCard to prevent remount issues
+  // Modal stays visible even when card remounts due to pending→real transition
+  const [activeModalItem, setActiveModalItem] = React.useState<UnifiedDrop | null>(null);
+
+  // Handler to open modal from child card
+  const handleOpenModal = React.useCallback((item: UnifiedDrop) => {
+    console.log('[RecentDrops] Opening modal for item:', item.id, item.drop_id);
+    setActiveModalItem(item);
+  }, []);
+
+  // Transform pending drops from Zustand Map to UnifiedDrop array
+  const pendingItems = React.useMemo((): UnifiedDrop[] => {
+    const drops = Array.from(pendingDropsMap.values());
+    return drops
+      .map((drop: PendingDrop): UnifiedDrop => {
+        // Map bucket to kind
+        const kind: 'todo' | 'habit' | 'note' =
+          drop.bucket === 'todo' ? 'todo' : drop.bucket === 'habit' ? 'habit' : 'note';
+
+        // Map subtype for notes
+        const noteSubtype = kind === 'note' ? (drop.subtype ?? 'catchall') : undefined;
+
+        // Determine visual stage based on status and enrichment fields
+        // - pending: no classification yet → show PendingSkeleton
+        // - enriching: classified but Phase 2 in progress → show EnrichingSkeleton
+        // - streaming: Phase 1 done, show title/confirmation with typewriter, chips wait for Phase 2
+        // - enriched: Phase 2 complete → all data ready
+        //
+        // CRITICAL: Only report 'enriched' when status === 'enriched' (Phase 2 done)
+        // This ensures chips don't animate until all chip data is available
+        const hasEnrichmentFields = !!drop.smartTitle || !!drop.confirmationMessage;
+        const minddropStage =
+          drop.status === 'pending'
+            ? 'pending'
+            : drop.status === 'classifying'
+              ? 'classifying' // Multi-drop: Phase 1 running
+              : drop.status === 'enriching' && hasEnrichmentFields
+                ? 'streaming' // Phase 1 done, show typewriter, but chips wait for Phase 2
+                : drop.status === 'enriching'
+                  ? 'enriching' // Phase 2 still in progress, no enrichment fields yet
+                  : drop.status === 'enriched' || drop.status === 'synced'
+                    ? 'enriched' // Phase 2 FULLY complete - NOW chips can animate
+                    : 'pending';
+
+        // For multi-drops, use the summary as the title
+        const displayTitle =
+          drop.isMulti && drop.multiSummary
+            ? drop.multiSummary
+            : drop.smartTitle || drop.text.substring(0, 60) + (drop.text.length > 60 ? '…' : '');
+
+        return {
+          id: drop.localId,
+          kind,
+          title: displayTitle,
+          text: drop.text,
+          created_at: drop.createdAt,
+          drop_id: drop.localId,
+          noteSubtype,
+          tags: drop.tags || [],
+          labels: [],
+          // Map extracted date to due_date/due_day for deadline chip
+          due_date: drop.extractedDate ?? null,
+          due_day: drop.extractedDate?.split('T')[0] ?? null,
+          views: {
+            ai_pending: drop.status !== 'synced' && drop.status !== 'enriched',
+            minddrop_stage: minddropStage,
+            confirmation_message: drop.confirmationMessage,
+            people: drop.people, // Include people for chip rendering
+            // Flag for Row3Chips: only animate chips when Phase 2 is FULLY complete
+            // This is separate from minddrop_stage which triggers Row 1-2 typewriter earlier
+            chip_data_ready: drop.status === 'enriched' || drop.status === 'synced',
+            // Multi-drop data for UI rendering
+            is_multi: drop.isMulti,
+            multi_segments: drop.multiSegments,
+            multi_summary: drop.multiSummary,
+          },
+          time_estimate_minutes: drop.timeEstimateMinutes ?? null,
+          frequency: drop.extractedFrequency ?? null, // For habits: "3x/week", "daily", etc.
+          days_active: drop.extractedDays ?? null, // For habits: day numbers for scheduling
+          mood: drop.mood ? (drop.mood as unknown as Mood[]) : null, // For journals: mood chips
+          is_multi: drop.isMulti,
+          // Multi-drop fields (from Phase 0/1, before entity creation)
+          multi_items: drop.multiSegments?.map((seg, idx) => {
+            // Debug: Log segment data including Phase 1 titles
+            if (idx === 0) {
+              console.log('🟡 [pendingItems] Mapping multiSegments', {
+                segmentCount: drop.multiSegments?.length,
+                firstSeg: {
+                  text: seg.text?.substring(0, 20),
+                  smartTitle: seg.smartTitle,
+                  confirmationMessage: seg.confirmationMessage?.substring(0, 30),
+                },
+              });
+            }
+            return {
+              text: seg.text,
+              bucket: seg.bucket,
+              subtype: seg.subtype ?? null,
+              habitSubtype: null,
+              // Use smart_title from Phase 1 if available, fall back to truncated text
+              preview_title: seg.smartTitle || seg.text.substring(0, 40),
+              // Pass Phase 1 data for entity creation during split
+              smart_title: seg.smartTitle ?? null,
+              confirmation_message: seg.confirmationMessage ?? null,
+            } satisfies MultiDropItem;
+          }),
+          multi_summary_title: drop.multiSummary,
+        };
+      })
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [pendingDropsMap]);
+
+  // Get drop_ids of all pending items to filter out duplicates from real items
+  const pendingDropIds = React.useMemo(() => {
+    return new Set(pendingItems.map((p) => p.drop_id).filter(Boolean));
+  }, [pendingItems]);
+
+  // Filter real items to exclude any that still have a pending version
+  // This prevents the "jolt" when a pending item is promoted to a real entity
+  const filteredItems = React.useMemo(() => {
+    if (pendingDropIds.size === 0) return items;
+    return items.filter((item) => !item.drop_id || !pendingDropIds.has(item.drop_id));
+  }, [items, pendingDropIds]);
+
+  // Keep modal item synced with latest version from items/pendingItems
+  // (in case Phase 1 updates segments while modal is open)
+  const currentModalItem = React.useMemo(() => {
+    if (!activeModalItem) return null;
+    // Find the current version of this item by drop_id or id in both lists
+    const dropId = activeModalItem.drop_id || activeModalItem.id;
+    const fromPending = pendingItems.find((i) => (i.drop_id || i.id) === dropId);
+    if (fromPending) return fromPending;
+    const fromItems = items.find((i) => (i.drop_id || i.id) === dropId);
+    return fromItems || activeModalItem;
+  }, [activeModalItem, pendingItems, items]);
 
   const rangeLabel = showOlder ? 'Earlier' : 'Today';
   const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
@@ -2193,6 +2989,11 @@ const RecentDrops: React.FC<{
           noteSubtype: kind === 'note' ? (record.subtype ?? 'catchall') : undefined,
           canonical_type: record.canonical_type ?? null,
           days_active: Array.isArray(record.days_active) ? record.days_active : null,
+          time_estimate_minutes: record.time_estimate_minutes ?? null,
+          // Habit frequency fields
+          frequency: record.frequency ?? null,
+          cadence: record.cadence ?? null,
+          target_per_period: record.target_per_period ?? null,
           // Multi-entity support: extract from views to top level
           is_multi: record.views?.is_multi === true,
           multi_items: record.views?.multi_items ?? undefined,
@@ -2243,6 +3044,12 @@ const RecentDrops: React.FC<{
           days_active: Array.isArray((record as any).days_active)
             ? (record as any).days_active
             : (item.days_active ?? null),
+          time_estimate_minutes:
+            (record as any).time_estimate_minutes ?? item.time_estimate_minutes ?? null,
+          // Habit frequency fields - use record value if present, else preserve existing
+          frequency: (record as any).frequency ?? item.frequency ?? null,
+          cadence: (record as any).cadence ?? item.cadence ?? null,
+          target_per_period: (record as any).target_per_period ?? item.target_per_period ?? null,
           // Multi-entity support: extract from views to top level
           is_multi: views?.is_multi === true,
           multi_items: views?.multi_items ?? item.multi_items ?? undefined,
@@ -2252,118 +3059,6 @@ const RecentDrops: React.FC<{
     },
     [],
   );
-
-  /**
-   * Add an optimistic pending item to the Recent Drops list
-   * This item appears immediately when user submits, before DB creation
-   */
-  const addPendingItem = React.useCallback(
-    (params: {
-      dropId: string;
-      text: string;
-      kind: 'todo' | 'habit' | 'note';
-      noteSubtype?: string;
-    }) => {
-      const { dropId, text, kind, noteSubtype } = params;
-      const tempId = `local-${dropId}`;
-      const shortTitle = text.substring(0, 60) + (text.length > 60 ? '…' : '');
-
-      const pendingItem: UnifiedDrop = {
-        id: tempId,
-        kind,
-        title: shortTitle,
-        text,
-        created_at: new Date().toISOString(),
-        drop_id: dropId,
-        noteSubtype: kind === 'note' ? noteSubtype : null,
-        tags: [],
-        labels: [],
-        views: {
-          ai_pending: true,
-          minddrop_stage: 'pending',
-        },
-      };
-
-      setPendingItems((prev) => [pendingItem, ...prev]);
-      console.debug('[MindDrop.Optimistic] Added pending item', { dropId, kind, tempId });
-
-      // Auto-expire orphaned pending items after 30 seconds
-      setTimeout(() => {
-        setPendingItems((prev) => {
-          const filtered = prev.filter((item) => item.drop_id !== dropId);
-          if (filtered.length < prev.length) {
-            console.debug('[MindDrop.Optimistic] Auto-expired pending item', { dropId });
-          }
-          return filtered;
-        });
-      }, 30000);
-    },
-    [],
-  );
-
-  // Expose addPendingItem to parent component
-  React.useEffect(() => {
-    if (onAddPendingItem) {
-      onAddPendingItem(addPendingItem);
-    }
-  }, [onAddPendingItem, addPendingItem]);
-
-  /**
-   * Remove pending item(s) by drop_id when real entity appears
-   * Called after Stage A creates the real entity in the database
-   */
-  const removePendingItem = React.useCallback((dropId: string) => {
-    setPendingItems((prev) => {
-      const filtered = prev.filter((item) => item.drop_id !== dropId);
-      if (filtered.length < prev.length) {
-        console.debug('[MindDrop.Optimistic] Removed pending item', { dropId });
-      }
-      return filtered;
-    });
-  }, []);
-
-  /**
-   * Atomically replace a pending item with the real entity
-   * This creates a smooth transition instead of remove-then-add jolt
-   */
-  const replacePendingWithReal = React.useCallback((dropId: string, realItem: UnifiedDrop) => {
-    // First, check if we have this pending item and remove it
-    setPendingItems((prev) => {
-      const hasPending = prev.some((item) => item.drop_id === dropId);
-      if (!hasPending) return prev;
-
-      console.debug('[MindDrop.Optimistic] Replacing pending with real', {
-        dropId,
-        realId: realItem.id,
-      });
-
-      // Remove the pending item
-      return prev.filter((item) => item.drop_id !== dropId);
-    });
-
-    // Simultaneously add/update the real item in items list
-    setItems((prev) => {
-      // Check if real item already exists
-      const existingIndex = prev.findIndex((item) => item.id === realItem.id);
-
-      if (existingIndex >= 0) {
-        // Update existing
-        const updated = [...prev];
-        updated[existingIndex] = realItem;
-        return updated;
-      }
-
-      // Add new at top
-      return [realItem, ...prev];
-    });
-  }, []);
-
-  // Expose removePendingItem to parent component
-  React.useEffect(() => {
-    if (onRemovePendingItem) {
-      onRemovePendingItem(removePendingItem);
-    }
-  }, [onRemovePendingItem, removePendingItem]);
 
   /**
    * Load recent Mind Drops for the Catch-All / Recent Mind Drops list
@@ -2536,6 +3231,7 @@ const RecentDrops: React.FC<{
             views: (h as any)?.views ?? {},
             start_date: (h as any)?.start_date ?? null,
             days_active: (h as any)?.days_active ?? null,
+            time_estimate_minutes: (h as any)?.time_estimate_minutes ?? null,
           };
         });
 
@@ -2645,26 +3341,7 @@ const RecentDrops: React.FC<{
         failed: visualStates.filter((s) => s.visualState === 'failed').length,
       });
 
-      // Remove pending items that now have real counterparts (auto-cleanup)
-      {
-        const realDropIds = new Set(unified.map((item) => item.drop_id).filter(Boolean));
-        setPendingItems((prev) => {
-          if (prev.length === 0) return prev;
-          const filtered = prev.filter((p) => !realDropIds.has(p.drop_id));
-          console.debug('[RecentDrops] Auto-cleanup pendingItems', {
-            before: prev.length,
-            after: filtered.length,
-          });
-          if (filtered.length < prev.length) {
-            console.debug('[RecentDrops] Auto-cleanup removed pending items:', {
-              before: prev.length,
-              after: filtered.length,
-              removed: prev.length - filtered.length,
-            });
-          }
-          return filtered;
-        });
-      }
+      // Note: Pending items now come from Zustand pendingDrops - auto-cleanup is handled by the store
 
       // Notify parent of today count (for "X thoughts organized today" counter)
       // This ensures the counter always matches the actual number of items in Today section
@@ -2732,29 +3409,8 @@ const RecentDrops: React.FC<{
             views: record.views ?? null,
           });
 
-          if (record.drop_id) {
-            // Build the real item for atomic replacement
-            const realItem: UnifiedDrop = {
-              id: record.id,
-              kind: 'todo' as const,
-              title: record.title ?? record.name ?? '',
-              text: record.body ?? record.name ?? '',
-              created_at: record.created_at,
-              drop_id: record.drop_id,
-              tags: Array.isArray(record.tags) ? record.tags : [],
-              views: record.views ?? {},
-              labels: Array.isArray(record.labels) ? record.labels : [],
-              due_date: record.due_date ?? null,
-              due_day: record.due_day ?? null,
-              due_time: record.due_time ?? null,
-            };
-
-            // Atomic replacement - no jolt
-            replacePendingWithReal(record.drop_id, realItem);
-          } else {
-            // No drop_id, just merge normally
-            setItems((prev) => mergeDbRecordIntoItems(prev, record, 'todo'));
-          }
+          // Merge into items list - pending drops are managed by Zustand pendingDrops
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'todo'));
         },
       )
       .subscribe();
@@ -2780,27 +3436,8 @@ const RecentDrops: React.FC<{
             views: record.views ?? null,
           });
 
-          if (record.drop_id) {
-            // Build the real item for atomic replacement
-            const realItem: UnifiedDrop = {
-              id: record.id,
-              kind: 'habit' as const,
-              title: record.name ?? '',
-              text: record.name ?? '',
-              created_at: record.created_at,
-              drop_id: record.drop_id,
-              tags: Array.isArray(record.tags) ? record.tags : [],
-              views: record.views ?? {},
-              labels: Array.isArray(record.labels) ? record.labels : [],
-              days_active: Array.isArray(record.days_active) ? record.days_active : null,
-            };
-
-            // Atomic replacement - no jolt
-            replacePendingWithReal(record.drop_id, realItem);
-          } else {
-            // No drop_id, just merge normally
-            setItems((prev) => mergeDbRecordIntoItems(prev, record, 'habit'));
-          }
+          // Merge into items list - pending drops are managed by Zustand pendingDrops
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'habit'));
         },
       )
       .subscribe();
@@ -2826,30 +3463,8 @@ const RecentDrops: React.FC<{
             views: record.views ?? null,
           });
 
-          if (record.drop_id) {
-            // Build the real item for atomic replacement
-            const realItem: UnifiedDrop = {
-              id: record.id,
-              kind: 'note' as const,
-              title: record.title ?? '',
-              text: record.body ?? record.title ?? '',
-              created_at: record.created_at,
-              drop_id: record.drop_id,
-              tags: Array.isArray(record.tags) ? record.tags : [],
-              views: record.views ?? {},
-              labels: Array.isArray(record.labels) ? record.labels : [],
-              noteSubtype: record.subtype ?? 'catchall',
-              archived: record.archived ?? false,
-              hasPhotos: record.views?.has_photos === true,
-              mood: record.mood ?? null,
-            };
-
-            // Atomic replacement - no jolt
-            replacePendingWithReal(record.drop_id, realItem);
-          } else {
-            // No drop_id, just merge normally
-            setItems((prev) => mergeDbRecordIntoItems(prev, record, 'note'));
-          }
+          // Merge into items list - pending drops are managed by Zustand pendingDrops
+          setItems((prev) => mergeDbRecordIntoItems(prev, record, 'note'));
         },
       )
       .subscribe();
@@ -2860,7 +3475,7 @@ const RecentDrops: React.FC<{
       void habitsChannel.unsubscribe();
       void notesChannel.unsubscribe();
     };
-  }, [userId, load, removePendingItem, replacePendingWithReal, mergeDbRecordIntoItems]);
+  }, [userId, load, mergeDbRecordIntoItems]);
 
   // Listen for entity:deleted events from overlay and immediately remove from list
   useEffect(() => {
@@ -2870,8 +3485,7 @@ const RecentDrops: React.FC<{
         console.debug('[RecentDrops] entity:deleted event:', event.id, event.type);
         // Remove the item immediately from local state
         setItems((prev) => prev.filter((item) => item.id !== event.id));
-        // Also remove from pending items in case it was still pending
-        setPendingItems((prev) => prev.filter((item) => item.id !== event.id));
+        // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
       },
     );
 
@@ -2895,11 +3509,13 @@ const RecentDrops: React.FC<{
           });
         }
 
-        // Perform atomic replacement using the entity from the event
-        // This is our primary mechanism since realtime may not be reliable
+        // Merge entity into items list - pending drops are managed by Zustand pendingDrops
         if (dropId && payload.entity) {
           const entityType = payload.type as 'todo' | 'habit' | 'note';
           const entity = payload.entity;
+
+          // Mark this drop as recently promoted to skip Layout animation jolt
+          markDropAsRecentlyPromoted(dropId);
 
           const realItem: UnifiedDrop = {
             id: entity.id,
@@ -2916,13 +3532,29 @@ const RecentDrops: React.FC<{
             due_time: entity.due_time ?? null,
             noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
             mood: entityType === 'note' ? (entity.mood ?? null) : undefined,
+            time_estimate_minutes: entity.time_estimate_minutes ?? null,
+            // Habit frequency fields
+            frequency: entity.frequency ?? null,
+            cadence: entity.cadence ?? null,
+            target_per_period: entity.target_per_period ?? null,
+            days_active: entity.days_active ?? null,
+            start_date: entity.start_date ?? null,
             // Multi-entity support: extract from views to top level
             is_multi: entity.views?.is_multi === true,
             multi_items: entity.views?.multi_items ?? undefined,
             multi_summary_title: entity.views?.multi_summary_title ?? undefined,
           };
 
-          replacePendingWithReal(dropId, realItem);
+          // Merge into items - pending drops will be automatically removed from Zustand when synced
+          setItems((prev) => {
+            const existingIndex = prev.findIndex((item) => item.id === realItem.id);
+            if (existingIndex >= 0) {
+              const updated = [...prev];
+              updated[existingIndex] = realItem;
+              return updated;
+            }
+            return [realItem, ...prev];
+          });
         }
       },
     );
@@ -2993,12 +3625,17 @@ const RecentDrops: React.FC<{
             console.log('🟢 UPDATING TAGS IN STATE:', value);
             return { ...item, tags: value };
           }
+          // CRITICAL: Do NOT update minddrop_stage via field_updated events!
+          // The stage should ONLY be set to 'enriched' via the entity:enriched event
+          // which contains ALL fields at once. If we set 'enriched' here before
+          // time_estimate_minutes arrives, chips animate in without the time estimate.
           if (field === 'minddrop_stage') {
-            console.log('🟣 UPDATING STAGE IN STATE:', value);
-            return {
-              ...item,
-              views: { ...item.views, minddrop_stage: value },
-            };
+            console.log('🟣 IGNORING minddrop_stage via field_updated (wait for entity:enriched)');
+            return item; // Don't update - wait for entity:enriched
+          }
+          if (field === 'time_estimate_minutes') {
+            console.log('⏱️ UPDATING TIME ESTIMATE IN STATE:', value);
+            return { ...item, time_estimate_minutes: value };
           }
 
           return item;
@@ -3013,8 +3650,7 @@ const RecentDrops: React.FC<{
         console.debug('[RecentDrops] ItemCompleted event:', payload.id, payload.type);
         // Remove the item immediately from local state
         setItems((prev) => prev.filter((item) => item.id !== payload.id));
-        // Also remove from pending items in case it was still pending
-        setPendingItems((prev) => prev.filter((item) => item.id !== payload.id));
+        // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
       },
     );
 
@@ -3056,21 +3692,31 @@ const RecentDrops: React.FC<{
       unsubItemCompleted();
       clearInterval(stuckCardInterval);
     };
-  }, [load, removePendingItem, replacePendingWithReal]);
+  }, [load]);
 
-  const handleEdit = async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
-    try {
-      // Synchronous lookup from store
-      const record = getItemById(id);
+  const handleEdit = React.useCallback(
+    async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
+      try {
+        // Synchronous lookup from store
+        const record = getItemById(id);
 
-      if (record && record.type === kind) {
-        overlay.openEdit({
-          record: record as any,
-          spaceId: (record as any).space_id ?? null,
-        });
-        onEdited?.();
-      } else {
-        console.warn('[RecentDrops] handleEdit: record not found or type mismatch', { id, kind });
+        if (record && record.type === kind) {
+          overlay.openEdit({
+            record: record as any,
+            spaceId: (record as any).space_id ?? null,
+          });
+          onEdited?.();
+        } else {
+          console.warn('[RecentDrops] handleEdit: record not found or type mismatch', { id, kind });
+          // Fallback to minimal record if fetch fails
+          overlay.openEdit({
+            record: { id, type: kind } as any,
+            spaceId: null,
+          });
+          onEdited?.();
+        }
+      } catch (error) {
+        console.error('[RecentDrops] handleEdit: failed to fetch record', error);
         // Fallback to minimal record if fetch fails
         overlay.openEdit({
           record: { id, type: kind } as any,
@@ -3078,64 +3724,69 @@ const RecentDrops: React.FC<{
         });
         onEdited?.();
       }
-    } catch (error) {
-      console.error('[RecentDrops] handleEdit: failed to fetch record', error);
-      // Fallback to minimal record if fetch fails
-      overlay.openEdit({
-        record: { id, type: kind } as any,
-        spaceId: null,
-      });
-      onEdited?.();
-    }
-  };
+    },
+    [getItemById, overlay, onEdited],
+  );
 
-  const handleDelete = async (id: string, kind: UnifiedDrop['kind']) => {
-    try {
-      // Find the item being deleted to check for drop_id
-      const itemToDelete = items.find((item) => item.id === id);
-      const dropId = itemToDelete?.drop_id;
-
-      if (dropId) {
-        // Archive all items with this drop_id
-        // Get items from store with same drop_id
+  const handleDelete = React.useCallback(
+    async (id: string, kind: UnifiedDrop['kind']) => {
+      try {
+        // Look up drop_id from store instead of local state to avoid dependency on `items`
         const state = useGremlyStore.getState();
-        const todosToDelete = state.todos.filter((t) => t.drop_id === dropId);
-        const habitsToDelete = state.habits.filter((h) => h.drop_id === dropId);
-        const notesToDelete = state.notes.filter((n) => n.drop_id === dropId);
+        let dropId: string | undefined;
 
-        // Delete each item by type
-        await Promise.all([
-          ...todosToDelete.map((t) => deleteTodo(t.id)),
-          ...habitsToDelete.map((h) => deleteHabit(h.id)),
-          ...notesToDelete.map((n) => deleteNote(n.id)),
-        ]);
-
-        // Remove all items with this drop_id from local state
-        setItems((prev) => prev.filter((item) => item.drop_id !== dropId));
-      } else {
-        // No drop_id: fallback to single-item delete
         if (kind === 'todo') {
-          await deleteTodo(id);
+          dropId = state.todos.find((t) => t.id === id)?.drop_id ?? undefined;
         } else if (kind === 'habit') {
-          await deleteHabit(id);
+          dropId = state.habits.find((h) => h.id === id)?.drop_id ?? undefined;
         } else {
-          await deleteNote(id);
+          dropId = state.notes.find((n) => n.id === id)?.drop_id ?? undefined;
         }
 
-        // Remove only this item from local state
-        setItems((prev) => prev.filter((item) => item.id !== id));
-      }
+        if (dropId) {
+          // Archive all items with this drop_id
+          const todosToDelete = state.todos.filter((t) => t.drop_id === dropId);
+          const habitsToDelete = state.habits.filter((h) => h.drop_id === dropId);
+          const notesToDelete = state.notes.filter((n) => n.drop_id === dropId);
 
-      onDeleted?.();
-    } catch (err) {
-      // optional: error UI
-      console.error('[handleDelete] Failed to delete:', err);
-    }
-  };
+          // Delete each item by type
+          await Promise.all([
+            ...todosToDelete.map((t) => deleteTodo(t.id)),
+            ...habitsToDelete.map((h) => deleteHabit(h.id)),
+            ...notesToDelete.map((n) => deleteNote(n.id)),
+          ]);
+
+          // Remove all items with this drop_id from local state
+          setItems((prev) => prev.filter((item) => item.drop_id !== dropId));
+        } else {
+          // No drop_id: fallback to single-item delete
+          if (kind === 'todo') {
+            await deleteTodo(id);
+          } else if (kind === 'habit') {
+            await deleteHabit(id);
+          } else {
+            await deleteNote(id);
+          }
+
+          // Remove only this item from local state
+          setItems((prev) => prev.filter((item) => item.id !== id));
+        }
+
+        onDeleted?.();
+      } catch (err) {
+        // optional: error UI
+        console.error('[handleDelete] Failed to delete:', err);
+      }
+    },
+    [deleteTodo, deleteHabit, deleteNote, onDeleted],
+  );
 
   // Multi-entity: Keep as note handler
   const handleKeepAsNote = React.useCallback(
     async (noteId: string) => {
+      // Close modal first (modal is at RecentDrops level now)
+      setActiveModalItem(null);
+
       try {
         const noteToUpdate = items.find((item) => item.id === noteId);
         if (!noteToUpdate) return;
@@ -3180,10 +3831,20 @@ const RecentDrops: React.FC<{
               return [newItem, ...withoutOriginal];
             });
 
-            // Run Phase 2 enrichment
-            runPhase2Streaming(newTodo.id, originalText, 'todo', null, repo, (field, value) => {
-              console.log(`[RecentDrops:Phase2:${newTodo.id}] ${field}:`, value);
-            }).catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
+            // Run Phase 2 enrichment (non-streaming)
+            runPhase2(newTodo.id, originalText, 'todo', null, repo)
+              .then((result) => {
+                console.log(`[RecentDrops:Phase2:${newTodo.id}] Complete`, result);
+                // Update local state with ALL enrichment fields so chips animate together
+                if (result) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === newTodo.id ? applyEnrichmentToItem(item, result) : item,
+                    ),
+                  );
+                }
+              })
+              .catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
 
             console.log('[RecentDrops] Converted multi-drop to todo:', newTodo.id);
           }
@@ -3227,10 +3888,20 @@ const RecentDrops: React.FC<{
               return [newItem, ...withoutOriginal];
             });
 
-            // Run Phase 2 enrichment
-            runPhase2Streaming(newHabit.id, originalText, 'habit', null, repo, (field, value) => {
-              console.log(`[RecentDrops:Phase2:${newHabit.id}] ${field}:`, value);
-            }).catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
+            // Run Phase 2 enrichment (non-streaming)
+            runPhase2(newHabit.id, originalText, 'habit', null, repo)
+              .then((result) => {
+                console.log(`[RecentDrops:Phase2:${newHabit.id}] Complete`, result);
+                // Update local state with ALL enrichment fields so chips animate together
+                if (result) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === newHabit.id ? applyEnrichmentToItem(item, result) : item,
+                    ),
+                  );
+                }
+              })
+              .catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
 
             console.log('[RecentDrops] Converted multi-drop to habit:', newHabit.id);
           }
@@ -3276,17 +3947,20 @@ const RecentDrops: React.FC<{
           ),
         );
 
-        // Run Phase 2 enrichment for the note
-        runPhase2Streaming(
-          noteId,
-          originalText,
-          'log',
-          dominantSubtype || 'general',
-          repo,
-          (field, value) => {
-            console.log(`[RecentDrops:Phase2:${noteId}] ${field}:`, value);
-          },
-        ).catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
+        // Run Phase 2 enrichment for the note (non-streaming)
+        runPhase2(noteId, originalText, 'log', dominantSubtype || 'general', repo)
+          .then((result) => {
+            console.log(`[RecentDrops:Phase2:${noteId}] Complete`, result);
+            // Update local state with ALL enrichment fields so chips animate together
+            if (result) {
+              setItems((prev) =>
+                prev.map((item) =>
+                  item.id === noteId ? applyEnrichmentToItem(item, result) : item,
+                ),
+              );
+            }
+          })
+          .catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
 
         console.log('[RecentDrops] Kept multi-drop as note with subtype:', noteSubtype);
       } catch (err) {
@@ -3299,6 +3973,9 @@ const RecentDrops: React.FC<{
   // Multi-entity: Split selected items handler
   const handleSplitSelected = React.useCallback(
     async (noteId: string, selectedItems: MultiDropItem[]) => {
+      // Close modal first (modal is at RecentDrops level now)
+      setActiveModalItem(null);
+
       console.log('[RecentDrops] Splitting multi-drop into', selectedItems.length, 'items');
       console.log(
         '[RecentDrops] Split items detail:',
@@ -3307,6 +3984,8 @@ const RecentDrops: React.FC<{
           bucket: item.bucket,
           subtype: item.subtype,
           habitSubtype: item.habitSubtype,
+          smart_title: item.smart_title,
+          confirmation_message: item.confirmation_message,
         })),
       );
       const noteToSplit = items.find((item) => item.id === noteId);
@@ -3319,10 +3998,13 @@ const RecentDrops: React.FC<{
         const kind: 'todo' | 'habit' | 'note' =
           splitItem.bucket === 'todo' ? 'todo' : splitItem.bucket === 'habit' ? 'habit' : 'note';
 
+        // Use smart_title from Phase 1 if available, fall back to preview_title or raw text
+        const displayTitle = splitItem.smart_title || splitItem.preview_title || splitItem.text;
+
         return {
           id: tempId,
           kind,
-          title: splitItem.preview_title || splitItem.text,
+          title: displayTitle,
           text: splitItem.text,
           created_at: new Date().toISOString(),
           drop_id: `split-${noteId}-${index}`,
@@ -3331,6 +4013,8 @@ const RecentDrops: React.FC<{
             minddrop_stage: 'classified',
             ai_pending: true,
             origin: 'multi_split',
+            // Store confirmation_message for display
+            confirmation_message: splitItem.confirmation_message ?? null,
           },
           labels: [],
           noteSubtype:
@@ -3350,7 +4034,14 @@ const RecentDrops: React.FC<{
         return [...optimisticItems, ...withoutOriginal];
       });
 
-      console.log('[RecentDrops] Added optimistic items, removed original from UI');
+      console.log(
+        '[RecentDrops] Added optimistic items:',
+        optimisticItems.map((o) => ({
+          id: o.id,
+          title: o.title,
+          kind: o.kind,
+        })),
+      );
 
       // 3. Create actual entities in database (async, in background)
       try {
@@ -3361,9 +4052,12 @@ const RecentDrops: React.FC<{
           const subtype: MindDropLogSubtype | null = splitItem.subtype;
           let newEntity: { id: string } | null = null;
 
+          // Use smart_title from Phase 1 if available
+          const entityTitle = splitItem.smart_title || splitItem.preview_title || splitItem.text;
+
           if (splitItem.bucket === 'todo') {
             newEntity = await createTodo({
-              name: splitItem.preview_title || splitItem.text,
+              name: entityTitle,
               body: splitItem.text,
               space_id: spaceId,
               origin: 'catchall',
@@ -3372,12 +4066,13 @@ const RecentDrops: React.FC<{
                 ai_pending: true,
                 origin: 'multi_split',
                 source_drop_id: noteId,
+                confirmation_message: splitItem.confirmation_message ?? null,
               },
             } as any);
           } else if (splitItem.bucket === 'habit') {
             newEntity = await createHabit({
-              name: splitItem.preview_title || splitItem.text,
-              title: splitItem.preview_title || splitItem.text,
+              name: entityTitle,
+              title: entityTitle,
               notes: splitItem.text,
               frequency: 'daily',
               subtype: splitItem.habitSubtype || 'start_habit',
@@ -3388,6 +4083,7 @@ const RecentDrops: React.FC<{
                 ai_pending: true,
                 origin: 'multi_split',
                 source_drop_id: noteId,
+                confirmation_message: splitItem.confirmation_message ?? null,
               },
             } as any);
           } else {
@@ -3399,7 +4095,7 @@ const RecentDrops: React.FC<{
                   ? 'idea'
                   : 'catchall';
             newEntity = await createNote({
-              title: splitItem.preview_title || splitItem.text,
+              title: entityTitle,
               body: splitItem.text,
               subtype: noteSubtype,
               space_id: spaceId,
@@ -3409,6 +4105,7 @@ const RecentDrops: React.FC<{
                 ai_pending: true,
                 origin: 'multi_split',
                 source_drop_id: noteId,
+                confirmation_message: splitItem.confirmation_message ?? null,
               },
             } as any);
           }
@@ -3423,34 +4120,38 @@ const RecentDrops: React.FC<{
               ),
             );
 
-            // Trigger Phase 2 enrichment for the new entity (runs in background)
-            runPhase2Streaming(
-              newEntity.id,
-              splitItem.text,
-              bucket,
-              subtype,
-              repo,
-              (field, value) => {
-                console.log(`[RecentDrops:Phase2:${newEntity!.id}] ${field}:`, value);
-              },
-            ).catch((err) => {
-              console.warn('[RecentDrops:Phase2] Enrichment failed', err);
-              // Reset card state so it doesn't stay stuck in streaming/enriching
-              setItems((prev) =>
-                prev.map((item) =>
-                  item.id === newEntity!.id
-                    ? {
-                        ...item,
-                        views: {
-                          ...item.views,
-                          minddrop_stage: 'enriched',
-                          ai_pending: false,
-                        },
-                      }
-                    : item,
-                ),
-              );
-            });
+            // Trigger Phase 2 enrichment for the new entity (non-streaming)
+            const entityIdForPhase2 = newEntity.id;
+            runPhase2(entityIdForPhase2, splitItem.text, bucket, subtype, repo)
+              .then((result) => {
+                console.log(`[RecentDrops:Phase2:${entityIdForPhase2}] Complete`, result);
+                // Update local state with ALL enrichment fields so chips animate together
+                if (result) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === entityIdForPhase2 ? applyEnrichmentToItem(item, result) : item,
+                    ),
+                  );
+                }
+              })
+              .catch((err) => {
+                console.warn('[RecentDrops:Phase2] Enrichment failed', err);
+                // Reset card state so it doesn't stay stuck in enriching
+                setItems((prev) =>
+                  prev.map((item) =>
+                    item.id === entityIdForPhase2
+                      ? {
+                          ...item,
+                          views: {
+                            ...item.views,
+                            minddrop_stage: 'enriched',
+                            ai_pending: false,
+                          },
+                        }
+                      : item,
+                  ),
+                );
+              });
           }
         }
 
@@ -3507,7 +4208,7 @@ const RecentDrops: React.FC<{
         <View testID="minddrop-recent-list" style={styles.recentList}>
           {loading ? (
             <Text style={styles.recentEmpty}>Loading…</Text>
-          ) : items.length === 0 && pendingItems.length === 0 ? (
+          ) : filteredItems.length === 0 && pendingItems.length === 0 ? (
             <View style={styles.recentEmptyContainer}>
               <Text style={styles.recentEmptyPrimary}>
                 {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
@@ -3523,77 +4224,102 @@ const RecentDrops: React.FC<{
               contentContainerStyle={styles.recentScrollContent}
               showsVerticalScrollIndicator
             >
-              {/* Pending items (optimistic UI) */}
-              {pendingItems.map((item, index) => {
-                const effectiveKind = item.kind;
-                const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
-                const badgeStyleKey =
-                  effectiveKind === 'todo'
-                    ? 'badge_todo'
-                    : effectiveKind === 'habit'
-                      ? 'badge_habit'
-                      : 'badge_note';
-                const isPending = true; // Always pending for optimistic items
-
-                return (
-                  <AnimatedMindDropCard
-                    key={item.id}
-                    item={item}
-                    isPending={isPending}
-                    effectiveKind={effectiveKind}
-                    displayKind={displayKind}
-                    showLegacyUnsortedBadge={undefined}
-                    badgeStyleKey={badgeStyleKey}
-                    c={c}
-                    styles={styles}
-                    mode={themeMode}
-                    handleEdit={() => {}} // No-op for pending
-                    handleDelete={() => {}} // No-op for pending
-                    index={index}
-                  />
+              {/* Combined list: pending items first, then real items (sorted by created_at) */}
+              {/* Using a single loop ensures React maintains component identity when */}
+              {/* a pending item is promoted to a real item (prevents modal from closing) */}
+              {(() => {
+                // Combine pending and real items, mark which list they're from
+                const allItems = [
+                  ...pendingItems.map((item) => ({ ...item, _isPendingList: true as const })),
+                  ...filteredItems.map((item) => ({ ...item, _isPendingList: false as const })),
+                ].sort(
+                  (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
                 );
-              })}
-              {/* Real items from database */}
-              {items.map((item, index) => {
-                const effectiveKind = item.optimisticKind ?? item.kind;
-                const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
-                const showLegacyUnsortedBadge =
-                  !canonicalTypesOn && effectiveKind === 'note' && item.unsorted;
-                const badgeStyleKey =
-                  effectiveKind === 'todo'
-                    ? 'badge_todo'
-                    : effectiveKind === 'habit'
-                      ? 'badge_habit'
-                      : 'badge_note';
 
-                // Get visual state for pending/failed/final rendering
-                const visualState = getMindDropVisualState(item);
-                const isPending = visualState === 'pending';
+                return allItems.map((item) => {
+                  const effectiveKind = item.optimisticKind ?? item.kind;
+                  const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
+                  const showLegacyUnsortedBadge =
+                    !canonicalTypesOn && effectiveKind === 'note' && (item as any).unsorted;
+                  const badgeStyleKey =
+                    effectiveKind === 'todo'
+                      ? 'badge_todo'
+                      : effectiveKind === 'habit'
+                        ? 'badge_habit'
+                        : 'badge_note';
 
-                return (
-                  <AnimatedMindDropCard
-                    key={`${item.kind}:${item.id}`}
-                    item={item}
-                    isPending={isPending}
-                    effectiveKind={effectiveKind}
-                    displayKind={displayKind}
-                    showLegacyUnsortedBadge={showLegacyUnsortedBadge}
-                    badgeStyleKey={badgeStyleKey}
-                    c={c}
-                    styles={styles}
-                    mode={themeMode}
-                    handleEdit={handleEdit}
-                    handleDelete={handleDelete}
-                    index={pendingItems.length + index}
-                    onKeepAsNote={handleKeepAsNote}
-                    onSplitSelected={handleSplitSelected}
-                  />
-                );
-              })}
+                  // Get visual state for pending/failed/final rendering
+                  const visualState = getMindDropVisualState(item);
+                  const isPending = item._isPendingList || visualState === 'pending';
+
+                  // Use drop_id for key to maintain component identity across pending→real transition
+                  const stableKey = item.drop_id || `${item.kind}:${item.id}`;
+
+                  // DEBUG: Log each item render with key info
+                  console.log('[DEBUG:Render] Item in list:', {
+                    stableKey,
+                    itemId: item.id,
+                    dropId: item.drop_id,
+                    isPendingList: item._isPendingList,
+                    kind: item.kind,
+                  });
+
+                  // Use UnifiedCardWrapper for BOTH pending and real items
+                  // This prevents remounting when transitioning (preserves modal state)
+                  return (
+                    <UnifiedCardWrapper
+                      key={stableKey}
+                      itemId={item.id}
+                      dropId={item.drop_id}
+                      isPending={item._isPendingList}
+                    >
+                      <AnimatedMindDropCard
+                        item={item}
+                        isPending={isPending}
+                        effectiveKind={effectiveKind}
+                        displayKind={displayKind}
+                        showLegacyUnsortedBadge={
+                          item._isPendingList ? undefined : showLegacyUnsortedBadge
+                        }
+                        badgeStyleKey={badgeStyleKey}
+                        c={c}
+                        styles={styles}
+                        mode={themeMode}
+                        handleEdit={item._isPendingList ? NOOP_EDIT : handleEdit}
+                        handleDelete={item._isPendingList ? NOOP_DELETE : handleDelete}
+                        onKeepAsNote={handleKeepAsNote}
+                        onSplitSelected={handleSplitSelected}
+                        onOpenModal={handleOpenModal}
+                      />
+                    </UnifiedCardWrapper>
+                  );
+                });
+              })()}
             </AppScrollView>
           )}
         </View>
       ) : null}
+
+      {/* Multi-entity modal lifted to RecentDrops level - survives card remounts */}
+      {currentModalItem && (
+        <MultiSplitModal
+          visible={!!currentModalItem}
+          items={currentModalItem.multi_items || currentModalItem.views?.multi_items || []}
+          summaryTitle={
+            currentModalItem.multi_summary_title ||
+            currentModalItem.views?.multi_summary_title ||
+            'Multiple Items'
+          }
+          originalText={currentModalItem.text || currentModalItem.title || ''}
+          dominantBucket={currentModalItem.views?.dominant_bucket || null}
+          dominantSubtype={currentModalItem.views?.dominant_subtype || null}
+          onClose={() => setActiveModalItem(null)}
+          onKeepAsNote={() => handleKeepAsNote(currentModalItem.id)}
+          onSplitSelected={(selectedItems) =>
+            handleSplitSelected(currentModalItem.id, selectedItems)
+          }
+        />
+      )}
     </View>
   );
 };
@@ -4226,40 +4952,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
   const noopCallback = useCallback(() => {}, []);
 
-  // Ref to hold the addPendingItem callback from RecentDrops component
-  const addPendingItemRef = useRef<
-    | ((params: {
-        dropId: string;
-        text: string;
-        kind: 'todo' | 'habit' | 'note';
-        noteSubtype?: string;
-      }) => void)
-    | null
-  >(null);
-
-  // Ref to hold the removePendingItem callback from RecentDrops component
-  const removePendingItemRef = useRef<((dropId: string) => void) | null>(null);
-
-  // Callback to receive addPendingItem from RecentDrops
-  const handleReceiveAddPendingItem = useCallback(
-    (
-      callback: (params: {
-        dropId: string;
-        text: string;
-        kind: 'todo' | 'habit' | 'note';
-        noteSubtype?: string;
-      }) => void,
-    ) => {
-      addPendingItemRef.current = callback;
-    },
-    [],
-  );
-
-  // Callback to receive removePendingItem from RecentDrops
-  const handleReceiveRemovePendingItem = useCallback((callback: (dropId: string) => void) => {
-    removePendingItemRef.current = callback;
-  }, []);
-
   // Callback to sync "X thoughts organized today" counter with actual Today items count
   const handleTodayCountChange = useCallback(
     (count: number) => {
@@ -4679,24 +5371,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     // Use the same dropId from CatchAllNotepad ref for pending item correlation
     const { dropId } = ensureSubmissionAndDropIds();
 
-    // OPTIMISTIC UI: Add local pending item for instant feedback
-    // This is needed because USE_ZUSTAND_STORE is false - UI reads from local state
-    // Predict kind based on simple heuristics (will be replaced when real entity appears)
-    const lowerText = effectiveText.toLowerCase();
-    const seemsLikeTodo =
-      !hasPhotos &&
-      (/\b(buy|get|call|email|schedule|book|remind|cancel|update|fix|send)\b/.test(lowerText) ||
-        /\b(todo|task|asap|urgent|deadline)\b/.test(lowerText));
-    const seemsLikeHabit =
-      !hasPhotos && /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(lowerText);
-    const probableKind = seemsLikeTodo ? 'todo' : seemsLikeHabit ? 'habit' : 'note';
-
-    addPendingItemRef.current?.({
-      dropId,
-      text: effectiveText,
-      kind: probableKind,
-      noteSubtype: probableKind === 'note' ? 'general' : undefined,
-    });
+    // OPTIMISTIC UI: The new submit flow already adds pending item via addPendingDrop
+    // in useMindDropSubmit hook, so no manual call needed here
 
     const result = await mindDropSubmit(effectiveText, {
       spaceId: null, // CatchAllNotepad is global, no space
@@ -5837,18 +6513,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
       }
 
-      // Don't remove pending item here - let realtime subscription handle the
-      // atomic replacement via replacePendingWithReal. This prevents the "jolt"
-      // where pending card disappears before real card appears.
-      //
-      // The realtime handler will:
-      // 1. Receive the INSERT event from Supabase
-      // 2. Call replacePendingWithReal(drop_id, realItem)
-      // 3. Atomically swap pending→real in the items array
-      //
-      // Fallback: If realtime doesn't fire within 5s, clean up stale pending items
-      // (handled by existing periodic cleanup or user refresh)
-      console.log('[MindDrop][Pipeline] Success - deferring to realtime for atomic replacement', {
+      // With the new optimistic queue system:
+      // - Pending drops are managed by Zustand pendingDrops (auto-removed when synced)
+      // - Real items are merged via entity:created event handler
+      // - No manual pending item cleanup needed here
+      console.log('[MindDrop][Pipeline] Success - entity created via realtime', {
         dropId,
       });
 
@@ -6514,24 +7183,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // NOT automatically when AI finishes classification or prefill.
         // This prevents interrupting the user's flow.
 
-        // OPTIMISTIC UI: Add pending item immediately for instant feedback
-        // Use simple heuristic to predict kind (will be replaced when real entity appears)
-        // For photo drops, default to note (log) kind
-        const lowerText = effectiveText.toLowerCase();
-        const seemsLikeTodo =
-          !hasPhotos &&
-          (/\b(buy|get|call|email|schedule|book|remind|cancel|update|fix|send)\b/.test(lowerText) ||
-            /\b(todo|task|asap|urgent|deadline)\b/.test(lowerText));
-        const seemsLikeHabit =
-          !hasPhotos && /\b(every|daily|weekly|habit|routine|practice|quit|stop)\b/.test(lowerText);
-        const probableKind = seemsLikeTodo ? 'todo' : seemsLikeHabit ? 'habit' : 'note';
-
-        addPendingItemRef.current?.({
-          dropId,
-          text: effectiveText,
-          kind: probableKind,
-          noteSubtype: probableKind === 'note' ? 'general' : undefined,
-        });
+        // OPTIMISTIC UI: The new submit flow already adds pending item via addPendingDrop
+        // in useMindDropSubmit hook, so no manual call needed here
+        // Heuristic prediction happens inside the hook using heuristicClassify
 
         // Capture photos for background upload (they will be cleared from state)
         const photosToUpload = hasPhotos ? [...pendingPhotoUris] : undefined;
@@ -6548,7 +7202,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         resetState();
         setIsSubmitting(false);
 
-        // Show optimistic speech based on predicted kind
+        // Show optimistic speech based on heuristic bucket
+        const heuristicResult = heuristicClassify(effectiveText, {
+          hasAttachments: hasPhotos,
+          spaceId: null,
+        });
+        const probableKind = heuristicResult.bucket;
         const optimisticSpeech =
           probableKind === 'todo'
             ? 'Added as a task.'
@@ -6890,8 +7549,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             onEdited={noopCallback}
             onDeleted={noopCallback}
             onTodayCountChange={handleTodayCountChange}
-            onAddPendingItem={handleReceiveAddPendingItem}
-            onRemovePendingItem={handleReceiveRemovePendingItem}
             initiallyOpen={true}
           />
         </Animated.View>

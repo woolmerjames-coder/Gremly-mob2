@@ -932,8 +932,8 @@ export function callEnrichPhase2Streaming(
         callbacks.onField(data.field, data.value);
       }
 
-      // Handle completion
-      if (data.done) {
+      // Handle completion - either explicit done flag or a response with smart_title (non-streaming fallback)
+      if (data.done || (data.smart_title && !data.field)) {
         isClosed = true;
         // Merge any final fields
         const completeResult: Phase2EnrichmentResult = {

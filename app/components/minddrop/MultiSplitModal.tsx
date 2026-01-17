@@ -9,7 +9,15 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, TouchableOpacity, StyleSheet, Modal, ScrollView, Image } from 'react-native';
+import {
+  View,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  ScrollView,
+  Image,
+  Pressable,
+} from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import type { MultiDropItem } from '../../../lib/minddrop/types';
@@ -89,8 +97,10 @@ export function MultiSplitModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+      {/* Backdrop - only closes when tapped outside the modal content */}
+      <Pressable style={styles.overlay} onPress={onClose}>
+        {/* Modal content - stop propagation so taps inside don't close */}
+        <Pressable style={styles.container} onPress={(e) => e?.stopPropagation?.()}>
           {/* Header */}
           <View style={styles.headerRow}>
             <Image source={require('../../../assets/buttonforHP.png')} style={styles.gremlyIcon} />
@@ -116,7 +126,9 @@ export function MultiSplitModal({
 
                 {/* Item details */}
                 <View style={styles.itemContent}>
-                  <Text style={styles.itemTitle}>{item.preview_title || item.text}</Text>
+                  <Text style={styles.itemTitle}>
+                    {item.smart_title || item.preview_title || item.text}
+                  </Text>
                   <Text style={styles.itemBucket}>
                     {item.bucket === 'todo' ? 'Todo' : item.bucket === 'habit' ? 'Habit' : 'Note'}
                   </Text>
@@ -140,8 +152,8 @@ export function MultiSplitModal({
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </View>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }

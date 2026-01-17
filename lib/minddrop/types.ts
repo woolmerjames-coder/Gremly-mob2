@@ -135,8 +135,14 @@ export interface MultiDropItem {
   /** Subtype for habit items: 'start_habit' | 'break_habit' | null */
   habitSubtype: HabitSubtype | null;
 
-  /** AI-generated 3-5 word preview title */
+  /** AI-generated 3-5 word preview title (from Phase 0, may be raw text) */
   preview_title: string;
+
+  /** Smart title from Phase 1 classification (properly formatted) */
+  smart_title?: string | null;
+
+  /** Confirmation message from Phase 1 classification */
+  confirmation_message?: string | null;
 }
 
 /**
@@ -168,4 +174,10 @@ export interface Phase1Result {
 
   /** Combined title for multi-entity drops (e.g., "Groceries + Running Habit") */
   summary_title?: string;
+
+  /** Early smart title from Phase 1 (enables faster typewriter animation) */
+  smart_title?: string | null;
+
+  /** Early confirmation message from Phase 1 (enables faster typewriter animation) */
+  confirmation_message?: string | null;
 }
