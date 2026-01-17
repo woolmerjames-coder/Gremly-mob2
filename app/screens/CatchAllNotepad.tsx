@@ -4145,12 +4145,12 @@ const RecentDrops: React.FC<{
                 const visualState = getMindDropVisualState(item);
                 const isPending = visualState === 'pending';
 
+                // Use drop_id for key if available to maintain component identity
+                // when transitioning from pending to real (prevents modal from closing)
+                const stableKey = item.drop_id || `${item.kind}:${item.id}`;
+
                 return (
-                  <AnimatedCardSlideDown
-                    key={`${item.kind}:${item.id}`}
-                    itemId={item.id}
-                    dropId={item.drop_id}
-                  >
+                  <AnimatedCardSlideDown key={stableKey} itemId={item.id} dropId={item.drop_id}>
                     <AnimatedMindDropCard
                       item={item}
                       isPending={isPending}
