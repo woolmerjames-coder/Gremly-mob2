@@ -2247,27 +2247,19 @@ const AnimatedMindDropCard = React.memo<{
                 Array.isArray(item.views.people) &&
                 item.views.people.length > 0;
 
-              // CRITICAL: For todos/habits, we must wait for Phase 2 enrichment to complete
-              // before showing chips. This prevents "no deadline yet" flashing before "due Tue".
-              // For notes, they can show immediately since their chip is just the type label.
-              const isNote = effectiveKind === 'note';
+              // CRITICAL: ALL item types must wait for Phase 2 enrichment to complete
+              // before showing ANY chips. This ensures ALL chips (deadline, time estimate,
+              // frequency, mood, people, tags) appear TOGETHER with the same animation.
+              // If we trigger animation early (e.g., when moods arrive but people hasn't),
+              // later chips will just pop in without animation.
               const isEnriched = item.views?.minddrop_stage === 'enriched';
 
-              // Notes: ready when classified (type label doesn't need enrichment)
-              // Todos/Habits: ready ONLY when enriched (due_day, time_estimate, frequency finalized)
-              const hasRealChipData = isNote
-                ? Boolean(
-                    item.views?.minddrop_stage === 'enriched' ||
-                      item.views?.minddrop_stage === 'classified' ||
-                      !item.views?.ai_pending ||
-                      hasMoods ||
-                      hasPeople,
-                  )
-                : Boolean(
-                    isEnriched ||
-                      // Also allow if explicitly no longer pending (fallback for legacy items)
-                      (!item.views?.ai_pending && item.views?.minddrop_stage !== 'classified'),
-                  );
+              // ALL chips animate together - only trigger when enrichment is fully complete
+              const hasRealChipData = Boolean(
+                isEnriched ||
+                  // Fallback for legacy items without stage tracking
+                  (!item.views?.ai_pending && item.views?.minddrop_stage !== 'classified'),
+              );
 
               return (
                 <AnimatedChipsTransition hasRealData={hasRealChipData}>
