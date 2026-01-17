@@ -1268,6 +1268,195 @@ const RealChipsRow: React.FC<{
 };
 
 /**
+ * Row3Chips - UNIFIED chip rendering component for Row 3
+ *
+ * This is the SINGLE source of truth for ALL Row 3 chip rendering.
+ * All chips (context, deadline, frequency, start date, time estimate, mood, people)
+ * are rendered in ONE place so they ALL animate together with blur-to-focus.
+ *
+ * CRITICAL: Returns null until enrichment is complete. This ensures:
+ * 1. All chips appear at the SAME TIME
+ * 2. All chips get the SAME animation
+ * 3. No flickering from partial data
+ */
+const Row3Chips: React.FC<{
+  item: UnifiedDrop;
+  effectiveKind: 'todo' | 'habit' | 'note';
+  styles: any;
+  isMulti?: boolean;
+}> = ({ item, effectiveKind, styles, isMulti = false }) => {
+  // Compute derived state once
+  const isJournal =
+    item.kind === 'note' && (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
+  const isIdea =
+    item.kind === 'note' && (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
+  const isGeneralNote =
+    item.kind === 'note' &&
+    !isJournal &&
+    !isIdea &&
+    (item.noteSubtype === 'catchall' ||
+      item.noteSubtype === 'general' ||
+      item.canonical_type === 'log' ||
+      !item.noteSubtype);
+
+  const hasMoods = isJournal && item.mood && item.mood.length > 0;
+  const hasPeople =
+    item.views?.people && Array.isArray(item.views.people) && item.views.people.length > 0;
+
+  // CRITICAL: ALL item types must wait for Phase 2 enrichment to complete
+  // before showing ANY chips. This ensures ALL chips appear TOGETHER.
+  const isEnriched = item.views?.minddrop_stage === 'enriched';
+  const hasRealChipData = Boolean(
+    isEnriched ||
+      // Fallback for legacy items without stage tracking
+      (!item.views?.ai_pending && item.views?.minddrop_stage !== 'classified'),
+  );
+
+  // Get chip data
+  const contextMeta = getContextualMeta(effectiveKind, item);
+  const contextTestId =
+    effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
+
+  // Build multi-entity type label if needed
+  let multiTypeLabel = '';
+  if (isMulti) {
+    const multiItems: MultiDropItem[] = item.multi_items || item.views?.multi_items || [];
+    const bucketCounts: Record<string, number> = {};
+    for (const mi of multiItems) {
+      const label =
+        mi.bucket === 'todo'
+          ? 'Todo'
+          : mi.bucket === 'habit'
+            ? 'Habit'
+            : mi.subtype === 'journal'
+              ? 'Journal'
+              : mi.subtype === 'idea'
+                ? 'Idea'
+                : 'Note';
+      bucketCounts[label] = (bucketCounts[label] || 0) + 1;
+    }
+    const labels = Object.entries(bucketCounts).map(([label, count]) =>
+      count > 1 ? `${count} ${label}s` : label,
+    );
+    multiTypeLabel = labels.join(' + ') || 'Multiple Items';
+  }
+
+  // Render context chip based on item type
+  const renderContextChip = () => {
+    // Multi-entity: show combined type label
+    if (isMulti) {
+      return (
+        <View style={styles.moodChip}>
+          <Text style={styles.moodChipText}>{multiTypeLabel}</Text>
+        </View>
+      );
+    }
+
+    // Journal: show type + mood chips
+    if (isJournal && contextMeta) {
+      return (
+        <>
+          <View style={styles.moodChip}>
+            <Text style={styles.moodChipText}>{contextMeta}</Text>
+          </View>
+          {hasMoods && (
+            <>
+              {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
+                <React.Fragment key={m}>
+                  {idx === 0 && <Text style={styles.journalSeparator}> </Text>}
+                  <Text style={styles.journalSubtypeLabel}>{MOOD_CONFIG[m]?.label}</Text>
+                  {idx < Math.min(item.mood!.length, 2) - 1 && (
+                    <Text style={styles.journalSeparator}>·</Text>
+                  )}
+                </React.Fragment>
+              ))}
+              {item.mood!.length > 2 && (
+                <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
+              )}
+            </>
+          )}
+        </>
+      );
+    }
+
+    // Idea: show type chip
+    if (isIdea && contextMeta) {
+      return (
+        <View style={styles.moodChip}>
+          <Text style={styles.moodChipText}>{contextMeta}</Text>
+        </View>
+      );
+    }
+
+    // General note: show type chip
+    if (isGeneralNote && contextMeta) {
+      return (
+        <View style={styles.moodChip}>
+          <Text style={styles.moodChipText}>{contextMeta}</Text>
+        </View>
+      );
+    }
+
+    // Todo/Habit: show context pill (deadline/frequency)
+    return contextMeta ? (
+      <View style={styles.recentContextPillContainer}>
+        <Text testID={contextTestId} style={styles.recentContextPill}>
+          {contextMeta}
+        </Text>
+      </View>
+    ) : null;
+  };
+
+  return (
+    <AnimatedChipsTransition hasRealData={hasRealChipData}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {/* Context chip (deadline, frequency, type label, etc.) */}
+        {renderContextChip()}
+
+        {/* Start date chip for habits - before time estimate */}
+        {effectiveKind === 'habit' && (
+          <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
+        )}
+
+        {/* Time estimate chip for todos AND habits */}
+        {(effectiveKind === 'todo' || effectiveKind === 'habit') && item.time_estimate_minutes && (
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              Alert.alert(
+                '⏱️ Time Estimate',
+                effectiveKind === 'habit'
+                  ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
+                  : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                [{ text: 'Got it', style: 'default' }],
+              );
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <View style={styles.timeEstimateChip}>
+              <Clock size={10} color="#888" strokeWidth={2} />
+              <Text style={styles.timeEstimateText}>
+                {formatTimeEstimate(item.time_estimate_minutes)}
+              </Text>
+            </View>
+          </Pressable>
+        )}
+
+        {/* People chip */}
+        {hasPeople && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+            <User size={10} color="#6B8E6B" strokeWidth={2.5} />
+            <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
+              {item.views!.people![0]}
+            </Text>
+          </View>
+        )}
+      </View>
+    </AnimatedChipsTransition>
+  );
+};
+
+/**
  * TypewriterText - Character-by-character reveal animation
  * Creates magical "AI is writing" effect
  * Uses refs to prevent animation restart on parent re-renders
@@ -2279,188 +2468,13 @@ const AnimatedMindDropCard = React.memo<{
 
           {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
           <View style={styles.recentMetaRow}>
-            {/* Left side: ALL chips wrapped in AnimatedChipsTransition for magical fade-in */}
-            {(() => {
-              // Compute hasRealChipData for ALL chip types (not just todos/habits)
-              const isJournal =
-                item.kind === 'note' &&
-                (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
-              const hasMoods = isJournal && item.mood && item.mood.length > 0;
-              const hasPeople =
-                item.views?.people &&
-                Array.isArray(item.views.people) &&
-                item.views.people.length > 0;
-
-              // CRITICAL: ALL item types must wait for Phase 2 enrichment to complete
-              // before showing ANY chips. This ensures ALL chips (deadline, time estimate,
-              // frequency, mood, people, tags) appear TOGETHER with the same animation.
-              // If we trigger animation early (e.g., when moods arrive but people hasn't),
-              // later chips will just pop in without animation.
-              const isEnriched = item.views?.minddrop_stage === 'enriched';
-
-              // ALL chips animate together - only trigger when enrichment is fully complete
-              const hasRealChipData = Boolean(
-                isEnriched ||
-                  // Fallback for legacy items without stage tracking
-                  (!item.views?.ai_pending && item.views?.minddrop_stage !== 'classified'),
-              );
-
-              return (
-                <AnimatedChipsTransition hasRealData={hasRealChipData}>
-                  <View
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}
-                  >
-                    {/* Context chip (due date, frequency, type label, etc.) */}
-                    {(() => {
-                      const contextMeta = getContextualMeta(effectiveKind, item);
-                      const contextTestId =
-                        effectiveKind === 'todo'
-                          ? `minddrop-recent-todo-due-${item.id}`
-                          : undefined;
-
-                      // For idea entries, show plain text label only
-                      const isIdea =
-                        item.kind === 'note' &&
-                        (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
-
-                      if (isJournal && contextMeta) {
-                        return (
-                          <>
-                            <View style={styles.moodChip}>
-                              <Text style={styles.moodChipText}>{contextMeta}</Text>
-                            </View>
-                            {hasMoods && (
-                              <>
-                                {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
-                                  <React.Fragment key={m}>
-                                    {idx === 0 && <Text style={styles.journalSeparator}> </Text>}
-                                    <Text style={styles.journalSubtypeLabel}>
-                                      {MOOD_CONFIG[m]?.label}
-                                    </Text>
-                                    {idx < Math.min(item.mood!.length, 2) - 1 && (
-                                      <Text style={styles.journalSeparator}>·</Text>
-                                    )}
-                                  </React.Fragment>
-                                ))}
-                                {item.mood!.length > 2 && (
-                                  <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
-                                )}
-                              </>
-                            )}
-                          </>
-                        );
-                      }
-
-                      if (isIdea && contextMeta) {
-                        return (
-                          <View style={styles.moodChip}>
-                            <Text style={styles.moodChipText}>{contextMeta}</Text>
-                          </View>
-                        );
-                      }
-
-                      // For general notes, show plain text label only
-                      const isGeneralNote =
-                        item.kind === 'note' &&
-                        !isJournal &&
-                        !isIdea &&
-                        (item.noteSubtype === 'catchall' ||
-                          item.noteSubtype === 'general' ||
-                          item.canonical_type === 'log' ||
-                          !item.noteSubtype);
-
-                      // For multi-entity cards, show combined type label instead of "General Note"
-                      if (isMulti) {
-                        const multiItems: MultiDropItem[] =
-                          item.multi_items || item.views?.multi_items || [];
-                        const bucketCounts: Record<string, number> = {};
-                        for (const mi of multiItems) {
-                          const label =
-                            mi.bucket === 'todo'
-                              ? 'Todo'
-                              : mi.bucket === 'habit'
-                                ? 'Habit'
-                                : mi.subtype === 'journal'
-                                  ? 'Journal'
-                                  : mi.subtype === 'idea'
-                                    ? 'Idea'
-                                    : 'Note';
-                          bucketCounts[label] = (bucketCounts[label] || 0) + 1;
-                        }
-                        const labels = Object.entries(bucketCounts).map(([label, count]) =>
-                          count > 1 ? `${count} ${label}s` : label,
-                        );
-                        const multiTypeLabel = labels.join(' + ') || 'Multiple Items';
-
-                        return (
-                          <View style={styles.moodChip}>
-                            <Text style={styles.moodChipText}>{multiTypeLabel}</Text>
-                          </View>
-                        );
-                      }
-
-                      if (isGeneralNote && contextMeta) {
-                        return (
-                          <View style={styles.moodChip}>
-                            <Text style={styles.moodChipText}>{contextMeta}</Text>
-                          </View>
-                        );
-                      }
-
-                      // Default: regular context pill for todos/habits
-                      return contextMeta ? (
-                        <View style={styles.recentContextPillContainer}>
-                          <Text testID={contextTestId} style={styles.recentContextPill}>
-                            {contextMeta}
-                          </Text>
-                        </View>
-                      ) : null;
-                    })()}
-                    {/* Start date chip for habits - before time estimate */}
-                    {effectiveKind === 'habit' && (
-                      <Text style={styles.recentContextPill}>
-                        {formatStartDate(item.start_date)}
-                      </Text>
-                    )}
-                    {/* Time estimate chip for todos AND habits */}
-                    {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
-                      item.time_estimate_minutes && (
-                        <Pressable
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            Alert.alert(
-                              '⏱️ Time Estimate',
-                              effectiveKind === 'habit'
-                                ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
-                                : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
-                              [{ text: 'Got it', style: 'default' }],
-                            );
-                          }}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <View style={styles.timeEstimateChip}>
-                            <Clock size={10} color="#888" strokeWidth={2} />
-                            <Text style={styles.timeEstimateText}>
-                              {formatTimeEstimate(item.time_estimate_minutes)}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      )}
-                    {/* People chip */}
-                    {hasPeople && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                        <User size={10} color="#6B8E6B" strokeWidth={2.5} />
-                        <Text
-                          style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}
-                        >
-                          {item.views!.people![0]}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </AnimatedChipsTransition>
-              );
-            })()}
+            {/* Left side: ALL chips rendered by unified Row3Chips component */}
+            <Row3Chips
+              item={item}
+              effectiveKind={effectiveKind}
+              styles={styles}
+              isMulti={isMulti}
+            />
             {/* Right side: photo icon + timestamp */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
