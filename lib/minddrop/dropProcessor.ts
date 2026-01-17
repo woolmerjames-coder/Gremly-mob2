@@ -121,7 +121,7 @@ async function runPhase2(
       }
 
       const json = await res.json();
-      
+
       // Validate response has expected fields
       if (!json || typeof json !== 'object') {
         console.log('[DropProcessor] Phase 2 API returned invalid JSON');
@@ -131,8 +131,8 @@ async function runPhase2(
       // Validate and cast time_window to valid values
       const validTimeWindows = ['morning', 'day', 'evening'] as const;
       const rawTimeWindow = json.time_window;
-      const time_window = validTimeWindows.includes(rawTimeWindow) 
-        ? (rawTimeWindow as 'morning' | 'day' | 'evening') 
+      const time_window = validTimeWindows.includes(rawTimeWindow)
+        ? (rawTimeWindow as 'morning' | 'day' | 'evening')
         : null;
 
       return {
@@ -154,11 +154,11 @@ async function runPhase2(
 
   // Race API call against timeout
   const result = await Promise.race([apiPromise, timeoutPromise]);
-  
+
   if (!result) {
     console.log('[DropProcessor] Phase 2 timeout or error');
   }
-  
+
   return result;
 }
 
@@ -168,7 +168,17 @@ async function syncDropToSupabase(
   drop: QueuedDrop,
   enrichment: Phase2MetadataResult | null,
 ): Promise<SyncResult> {
-  const { localId, text, spaceId, source, bucket, subtype, habitSubtype, smartTitle, confirmationMessage } = drop;
+  const {
+    localId,
+    text,
+    spaceId,
+    source,
+    bucket,
+    subtype,
+    habitSubtype,
+    smartTitle,
+    confirmationMessage,
+  } = drop;
 
   const userId = useGremlyStore.getState().userId;
   if (!userId) {
@@ -434,7 +444,11 @@ export async function processDrop(
         multiSegments: initialSegments,
         multiSummary: multiResult.summary || text.substring(0, 60),
         dominantBucket: (multiResult.dominant_bucket || 'log') as 'todo' | 'habit' | 'log',
-        dominantSubtype: (multiResult.dominant_subtype || null) as 'journal' | 'idea' | 'general' | null,
+        dominantSubtype: (multiResult.dominant_subtype || null) as
+          | 'journal'
+          | 'idea'
+          | 'general'
+          | null,
         status: 'classifying', // Still classifying segments
       });
 
@@ -456,7 +470,7 @@ export async function processDrop(
       const classifiedSegments = await Promise.all(
         multiResult.segments.map(async (seg, index) => {
           const phase1 = await runPhase1(seg.text, { hasAttachments: false });
-          
+
           // Update this segment in Zustand as Phase 1 confirms it
           const currentDrop = useGremlyStore.getState().pendingDrops.get(localId);
           if (currentDrop?.multiSegments) {
@@ -471,7 +485,7 @@ export async function processDrop(
               multiSegments: updatedSegments,
             });
           }
-          
+
           return {
             text: seg.text,
             bucket: phase1.bucket,
@@ -546,7 +560,9 @@ export async function processDrop(
       confidence: phase1Result.confidence,
       // Phase 1 now returns early enrichment fields for faster typewriter animation
       ...(phase1Result.smart_title && { smartTitle: phase1Result.smart_title }),
-      ...(phase1Result.confirmation_message && { confirmationMessage: phase1Result.confirmation_message }),
+      ...(phase1Result.confirmation_message && {
+        confirmationMessage: phase1Result.confirmation_message,
+      }),
       status: 'classified', // Clear checkpoint status
     });
 
@@ -577,22 +593,22 @@ export async function processDrop(
     // smart_title and confirmation_message already came from Phase 1
     // =========================================
 
-    const enrichmentResult = await runPhase2(
-      text,
-      phase1Result.bucket,
-      phase1Result.subtype,
-    );
+    const enrichmentResult = await runPhase2(text, phase1Result.bucket, phase1Result.subtype);
 
     console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
 
-    // Update Zustand with metadata fields (time estimate, tags, frequency, etc.)
+    // Update Zustand with ALL metadata fields (time estimate, tags, frequency, people, etc.)
+    // CRITICAL: Set status to 'enriched' so UI knows ALL chip data is ready
+    // This triggers the unified chip animation in Row3Chips
     if (enrichmentResult) {
       useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+        status: 'enriched', // CRITICAL: Mark as fully enriched for chip animation
         tags: enrichmentResult.tags,
         timeEstimateMinutes: enrichmentResult.time_estimate_minutes,
         timeWindow: enrichmentResult.time_window,
         extractedFrequency: enrichmentResult.extracted_frequency,
         extractedDays: enrichmentResult.extracted_days,
+        people: enrichmentResult.people, // Include people for chip rendering
       });
     }
 

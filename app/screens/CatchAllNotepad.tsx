@@ -2677,21 +2677,23 @@ const RecentDrops: React.FC<{
         // Determine visual stage based on status and enrichment fields
         // - pending: no classification yet → show PendingSkeleton
         // - enriching: classified but enrichment fields arriving → show EnrichingSkeleton
-        // - enriched: has smartTitle (Phase 2 done) → trigger reveal animation
+        // - enriched: has ALL enrichment data (Phase 2 fully done) → trigger reveal animation
         // - synced: fully complete
-        const hasEnrichmentFields = !!drop.smartTitle || !!drop.confirmationMessage;
+        //
+        // CRITICAL: Only trigger 'enriched' when FULLY enriched (status === 'enriched' or 'synced')
+        // DO NOT trigger on smartTitle/confirmationMessage alone - those arrive in Phase 1,
+        // but time_estimate and people arrive in Phase 2. If we trigger early, only
+        // some chips animate and the rest pop in without animation.
         const minddropStage =
           drop.status === 'pending'
             ? 'pending'
             : drop.status === 'classifying'
               ? 'classifying' // Multi-drop: Phase 1 running
-              : drop.status === 'enriching' && hasEnrichmentFields
-                ? 'enriched'
+              : drop.status === 'enriched' || drop.status === 'synced'
+                ? 'enriched' // ONLY when fully enriched or synced
                 : drop.status === 'enriching'
-                  ? 'enriching'
-                  : drop.status === 'synced'
-                    ? 'enriched'
-                    : 'pending';
+                  ? 'enriching' // Phase 2 still in progress
+                  : 'pending';
 
         // For multi-drops, use the summary as the title
         const displayTitle =
@@ -2710,9 +2712,10 @@ const RecentDrops: React.FC<{
           tags: drop.tags || [],
           labels: [],
           views: {
-            ai_pending: drop.status !== 'synced',
+            ai_pending: drop.status !== 'synced' && drop.status !== 'enriched',
             minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
+            people: drop.people, // Include people for chip rendering
             // Multi-drop data for UI rendering
             is_multi: drop.isMulti,
             multi_segments: drop.multiSegments,

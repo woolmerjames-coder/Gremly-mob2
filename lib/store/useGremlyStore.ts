@@ -133,7 +133,8 @@ export interface PendingDrop {
   timeWindow?: 'morning' | 'day' | 'evening' | null;
   extractedFrequency?: string | null; // For habits: "3x/week", "daily", etc.
   extractedDays?: number[] | null; // For habits: [1, 3, 5] = Mon, Wed, Fri
-  status: 'pending' | 'classifying' | 'enriching' | 'syncing' | 'synced';
+  people?: string[]; // Extracted people names for chip display
+  status: 'pending' | 'classifying' | 'enriching' | 'enriched' | 'syncing' | 'synced';
   isMulti?: boolean;
   // Multi-drop fields (populated by Phase 0)
   multiSegments?: PendingDropSegment[];
@@ -3269,7 +3270,7 @@ export const useGremlyStore = create<GremlyState>()(
         const updated: PendingDrop = { ...drop, ...enrichment };
         const newPending = new Map(state.pendingDrops);
         newPending.set(localId, updated);
-        
+
         return { pendingDrops: newPending };
       });
     },
