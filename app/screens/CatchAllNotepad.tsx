@@ -2355,20 +2355,7 @@ const AnimatedMindDropCard = React.memo<{
           ) : (
             (() => {
               const confirmationMsg = getConfirmationMessage(effectiveKind, item);
-              const isStreaming =
-                item.views?.minddrop_stage === 'streaming' ||
-                item.views?.minddrop_stage === 'enriching';
-
-              if (isStreaming && confirmationMsg) {
-                return (
-                  <TypewriterText
-                    text={confirmationMsg}
-                    style={styles.recentConfirmation}
-                    duration={Math.min(confirmationMsg.length * 25, 800)}
-                  />
-                );
-              }
-
+              // Always show static text in CompleteCard - TypewriterText is only used in RevealingCard
               return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
             })()
           )}
