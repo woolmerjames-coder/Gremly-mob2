@@ -1305,12 +1305,17 @@ const Row3Chips: React.FC<{
 
   // CRITICAL: ALL item types must wait for Phase 2 enrichment to complete
   // before showing ANY chips. This ensures ALL chips appear TOGETHER.
-  const isEnriched = item.views?.minddrop_stage === 'enriched';
-  const hasRealChipData = Boolean(
-    isEnriched ||
-      // Fallback for legacy items without stage tracking
-      (!item.views?.ai_pending && item.views?.minddrop_stage !== 'classified'),
-  );
+  const minddropStage = item.views?.minddrop_stage;
+  const isEnriched = minddropStage === 'enriched';
+
+  // Fallback for legacy items: ONLY trigger if there's NO stage tracking at all
+  // Don't trigger during 'pending', 'classified', 'streaming', 'enriching' - wait for 'enriched'
+  const isLegacyItem =
+    minddropStage === undefined &&
+    item.views?.ai_pending !== true &&
+    item.views?.ai_failed !== true;
+
+  const hasRealChipData = isEnriched || isLegacyItem;
 
   // Get chip data
   const contextMeta = getContextualMeta(effectiveKind, item);
