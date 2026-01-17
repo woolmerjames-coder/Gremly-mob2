@@ -48,6 +48,20 @@ const readCortexUrl = (): string => {
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
 };
 
+/**
+ * Sanitize views object to ensure schema compliance.
+ * Converts null values to undefined for fields that only accept string | undefined.
+ */
+const sanitizeViews = (views: Record<string, any> | undefined): Record<string, any> => {
+  if (!views) return {};
+  const sanitized = { ...views };
+  // confirmation_message schema is z.string().optional() - no null allowed
+  if (sanitized.confirmation_message === null) {
+    delete sanitized.confirmation_message;
+  }
+  return sanitized;
+};
+
 const readSupabaseAnonKey = (): string => {
   const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
   const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
@@ -287,10 +301,11 @@ export async function runPhase2(
 
       const updatePayload: Record<string, any> = {
         views: {
-          ...entity.views,
+          ...sanitizeViews(entity.views),
           minddrop_stage: 'enriched',
           ai_pending: false,
-          confirmation_message: result.confirmationMessage, // AI-generated Gremly voice
+          // Schema requires string | undefined (not null)
+          confirmation_message: result.confirmationMessage ?? undefined,
           people: result.people?.length > 0 ? result.people : undefined,
         },
         tags: allTags.length > 0 ? allTags : undefined,
@@ -411,7 +426,7 @@ export async function runPhase2(
   try {
     const failurePayload: Record<string, any> = {
       views: {
-        ...entity.views,
+        ...sanitizeViews(entity.views),
         minddrop_stage: 'enrichment_failed',
         ai_failed: true,
         ai_pending: false,
@@ -494,7 +509,7 @@ export async function runPhase2Streaming(
 
   // Set streaming stage for UI animation
   try {
-    const currentViews = entity.views || {};
+    const currentViews = sanitizeViews(entity.views);
     await repo.update({
       id: entityId,
       patch: {
@@ -542,7 +557,7 @@ export async function runPhase2Streaming(
           }
 
           if (field === 'confirmation_message' && value) {
-            const currentViews = entity.views || {};
+            const currentViews = sanitizeViews(entity.views);
             repo
               .update({
                 id: entityId,
@@ -572,8 +587,8 @@ export async function runPhase2Streaming(
               [titleField]: result.smart_title,
               tags: result.tags || [],
               views: {
-                ...(entity.views || {}),
-                confirmation_message: result.confirmation_message,
+                ...sanitizeViews(entity.views),
+                confirmation_message: result.confirmation_message ?? undefined,
                 ai_pending: false,
                 minddrop_stage: 'enriched',
                 people: result.people && result.people.length > 0 ? result.people : undefined,
@@ -708,7 +723,7 @@ export async function runPhase2Streaming(
               patch: {
                 [bucket === 'log' ? 'title' : 'name']: fallbackTitle,
                 views: {
-                  ...(entity.views || {}),
+                  ...sanitizeViews(entity.views),
                   minddrop_stage: 'enrichment_failed',
                   ai_failed: true,
                   ai_pending: false,
