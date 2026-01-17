@@ -1121,10 +1121,33 @@ const AnimatedCardInsert: React.FC<{
  *
  * Uses Reanimated's Layout transition for smooth position animation.
  * The 450ms duration matches CardInsertLayoutAnimation for visual consistency.
+ *
+ * CRITICAL: Skip layout animation on first mount to prevent the "drop down then up"
+ * glitch when a pending item syncs to become a real entity. The item is removed from
+ * pendingItems and added to items, which would trigger an unwanted Layout animation.
  */
 const AnimatedCardSlideDown: React.FC<{
+  itemId: string;
   children: React.ReactNode;
-}> = ({ children }) => {
+}> = ({ itemId, children }) => {
+  // Track if this item has been mounted for a while (skip initial layout animation)
+  const [hasSettled, setHasSettled] = React.useState(false);
+
+  React.useEffect(() => {
+    // Wait a bit before enabling layout animation
+    // This prevents the "drop down then up" glitch when pending→real transition happens
+    const timeout = setTimeout(() => {
+      setHasSettled(true);
+    }, 100);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  // Only apply Layout animation after the item has settled
+  // This prevents animation glitch during pending→real entity transition
+  if (!hasSettled) {
+    return <View>{children}</View>;
+  }
+
   return (
     <Reanimated.View
       layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
@@ -3960,7 +3983,7 @@ const RecentDrops: React.FC<{
                 const isPending = visualState === 'pending';
 
                 return (
-                  <AnimatedCardSlideDown key={`${item.kind}:${item.id}`}>
+                  <AnimatedCardSlideDown key={`${item.kind}:${item.id}`} itemId={item.id}>
                     <AnimatedMindDropCard
                       item={item}
                       isPending={isPending}
