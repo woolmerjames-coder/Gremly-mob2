@@ -601,6 +601,12 @@ export async function processDrop(
     // CRITICAL: Set status to 'enriched' so UI knows ALL chip data is ready
     // This triggers the unified chip animation in Row3Chips
     if (enrichmentResult) {
+      console.log('🟠 [DropProcessor] Phase 2 complete - updating Zustand', {
+        localId,
+        time_estimate: enrichmentResult.time_estimate_minutes,
+        people: enrichmentResult.people,
+        tags: enrichmentResult.tags,
+      });
       useGremlyStore.getState().updatePendingDropEnrichment(localId, {
         status: 'enriched', // CRITICAL: Mark as fully enriched for chip animation
         tags: enrichmentResult.tags,

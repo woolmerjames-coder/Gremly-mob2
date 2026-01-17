@@ -1123,29 +1123,50 @@ const AnimatedCardInsert: React.FC<{
  * The mist effect is achieved by overlaying a semi-transparent white layer
  * that fades out as the chips become visible, creating the illusion of
  * content crystallizing out of fog.
+ *
+ * CRITICAL: Uses module-level chipAnimatedIds Set to persist animation state
+ * across pending→entity transition. The drop_id stays the same, so we track
+ * by that instead of component-level ref which resets on remount.
  */
 const AnimatedChipsTransition: React.FC<{
+  trackingId: string;
   hasRealData: boolean;
   children: React.ReactNode;
-}> = ({ hasRealData, children }) => {
+}> = ({ trackingId, hasRealData, children }) => {
+  // Check if this drop has already animated using module-level Set
+  // This persists across pending→entity transition (drop_id stays the same)
+  const alreadyAnimated = chipAnimatedIds.has(trackingId);
+
   // Use useState to create stable Animated.Values that persist across re-renders
-  // Initialize based on whether data already exists on mount
+  // If already animated, start at final values
   const [animValues] = React.useState(() => ({
     // Chips: start dim and slightly smaller, end fully visible
-    opacity: new Animated.Value(hasRealData ? 1 : 0.3),
-    scale: new Animated.Value(hasRealData ? 1 : 0.98),
+    opacity: new Animated.Value(alreadyAnimated ? 1 : 0.3),
+    scale: new Animated.Value(alreadyAnimated ? 1 : 0.98),
     // Mist overlay: starts visible, fades to invisible
-    mistOpacity: new Animated.Value(hasRealData ? 0 : 0.85),
+    mistOpacity: new Animated.Value(alreadyAnimated ? 0 : 0.85),
   }));
-  // Track animation state for render decisions
-  const [isVisible, setIsVisible] = React.useState(hasRealData);
-  // Use ref to track if we've started animation (to prevent double-trigger)
-  const animationStarted = React.useRef(hasRealData);
+  // Track animation state for render decisions - show immediately if already animated
+  const [isVisible, setIsVisible] = React.useState(alreadyAnimated || hasRealData);
+  // Component-level ref to prevent double-trigger within same mount
+  const animationStarted = React.useRef(alreadyAnimated);
 
   React.useEffect(() => {
+    // DEBUG: Log animation trigger
+    console.log('🔶 [AnimatedChipsTransition] Effect', {
+      trackingId,
+      hasRealData,
+      alreadyAnimated: chipAnimatedIds.has(trackingId),
+      animationStarted: animationStarted.current,
+      isVisible,
+    });
+
     // When real data arrives, animate chips into view with magical reveal
-    if (hasRealData && !animationStarted.current) {
+    // Skip if already animated (tracked by module-level Set)
+    if (hasRealData && !animationStarted.current && !chipAnimatedIds.has(trackingId)) {
+      console.log('🟢 [AnimatedChipsTransition] STARTING ANIMATION', { trackingId });
       animationStarted.current = true;
+      chipAnimatedIds.add(trackingId); // Persist across remounts
       // Start showing the container immediately (animation will run)
       setIsVisible(true);
       Animated.parallel([
@@ -1170,8 +1191,11 @@ const AnimatedChipsTransition: React.FC<{
           useNativeDriver: true,
         }),
       ]).start();
+    } else if (hasRealData && chipAnimatedIds.has(trackingId) && !isVisible) {
+      // Already animated but not visible (e.g., remounted) - show immediately
+      setIsVisible(true);
     }
-  }, [hasRealData, animValues]);
+  }, [trackingId, hasRealData, animValues, isVisible]);
 
   // Fixed minimum height prevents layout jump when chips appear
   const containerStyle: ViewStyle = {
@@ -1306,9 +1330,9 @@ const Row3Chips: React.FC<{
   // CRITICAL: Row 3 chips must wait for Phase 2 to FULLY complete before animating.
   // This is SEPARATE from minddrop_stage which triggers Row 1-2 typewriter earlier.
   //
-  // For pending drops: check chip_data_ready flag (set when status === 'enriched')
-  // For real entities: check minddrop_stage === 'enriched' (set by entity:enriched event)
-  // For legacy items: check that there's no stage tracking at all
+  // For pending drops: chip_data_ready is EXPLICITLY set (false until Phase 2, then true)
+  // For real entities: chip_data_ready is undefined, use minddrop_stage === 'enriched'
+  // For legacy items: no stage tracking at all
   const chipDataReady = item.views?.chip_data_ready === true;
   const minddropStage = item.views?.minddrop_stage;
   const isEntityEnriched = minddropStage === 'enriched';
@@ -1317,7 +1341,30 @@ const Row3Chips: React.FC<{
     item.views?.ai_pending !== true &&
     item.views?.ai_failed !== true;
 
-  const hasRealChipData = chipDataReady || isEntityEnriched || isLegacyItem;
+  // CRITICAL: Check if this is a pending drop (chip_data_ready is explicitly set)
+  // Pending drops: chip_data_ready is false/true - ONLY use chipDataReady
+  // Real entities: chip_data_ready is undefined - use isEntityEnriched
+  const isPendingDrop = item.views?.chip_data_ready !== undefined;
+  const hasRealChipData = isPendingDrop ? chipDataReady : isEntityEnriched || isLegacyItem;
+
+  // CRITICAL: Use drop_id for tracking animation state across pending→entity transition
+  // drop_id is set when pending drop is created and persists when synced to Supabase
+  const trackingId = item.drop_id || item.id;
+
+  // DEBUG: Log chip animation decision
+  console.log('🔷 [Row3Chips] Render', {
+    trackingId,
+    itemId: item.id,
+    isPendingDrop,
+    chipDataReady,
+    minddropStage,
+    isEntityEnriched,
+    isLegacyItem,
+    hasRealChipData,
+    alreadyAnimated: chipAnimatedIds.has(trackingId),
+    time_estimate: item.time_estimate_minutes,
+    people: item.views?.people,
+  });
 
   // Get chip data
   const contextMeta = getContextualMeta(effectiveKind, item);
@@ -1415,7 +1462,7 @@ const Row3Chips: React.FC<{
   };
 
   return (
-    <AnimatedChipsTransition hasRealData={hasRealChipData}>
+    <AnimatedChipsTransition trackingId={trackingId} hasRealData={hasRealChipData}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         {/* Context chip (deadline, frequency, type label, etc.) */}
         {renderContextChip()}
@@ -2187,6 +2234,10 @@ const useGremlyPulse = () => {
 // Module-level Set to track items that have already shown reveal animation
 // Prevents double animation when component remounts or Phase 2 arrives
 const revealedItemIds = new Set<string>();
+
+// Module-level Set to track drops that have already animated their Row 3 chips
+// This persists across pending→entity transition (drop_id stays the same)
+const chipAnimatedIds = new Set<string>();
 
 /**
  * Animated wrapper for Mind Drop card that smoothly transitions
@@ -3309,6 +3360,15 @@ const RecentDrops: React.FC<{
         if (dropId && payload.entity) {
           const entityType = payload.type as 'todo' | 'habit' | 'note';
           const entity = payload.entity;
+
+          // DEBUG: Log entity:created data
+          console.log('🟣 [entity:created] Creating realItem', {
+            entityId: entity.id,
+            minddrop_stage: entity.views?.minddrop_stage,
+            time_estimate: entity.time_estimate_minutes,
+            people: entity.views?.people,
+            chip_data_ready: entity.views?.chip_data_ready,
+          });
 
           const realItem: UnifiedDrop = {
             id: entity.id,
