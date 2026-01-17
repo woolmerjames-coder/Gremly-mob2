@@ -46,6 +46,8 @@ import {
   Keyboard,
   PanResponder,
   PanResponderGestureState,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { AppScrollView } from '../../components/common/AppScrollView';
 import * as ImagePicker from 'expo-image-picker';
@@ -956,6 +958,289 @@ const ShimmerBar: React.FC<{
   );
 };
 
+// Track which items have already been animated in (persists across re-renders)
+const animatedInItemIds = new Set<string>();
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// Custom LayoutAnimation config for smooth card slide-down (Phase 1)
+const CardInsertLayoutAnimation = {
+  duration: 500,
+  create: {
+    type: LayoutAnimation.Types.easeOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+  update: {
+    type: LayoutAnimation.Types.easeOut,
+  },
+};
+
+/**
+ * AnimatedCardInsert - Premium depth emergence animation synced with Phase 0 timing
+ * 
+ * TIMING (synced with Phase 0 multi-detect ~700ms):
+ * 
+ * 0ms    - User taps Drop, pending drop added to Zustand
+ * 0-500ms - PHASE 1: Existing cards slide down via LayoutAnimation
+ * 200ms  - PHASE 2 START: Card begins emerging from depth
+ *          Initial state: scale 0.65, opacity 0.2 (far beneath surface)
+ * 700ms  - Phase 0 returns: bucket + isMulti now known
+ *          Card is at ~scale 0.88, opacity 0.74 (still visibly emerging)
+ *          React re-renders with correct card type (single/multi)
+ * 950ms  - PHASE 2 END: Card reaches full size
+ *          Final state: scale 1.0, opacity 1.0 (fully surfaced)
+ *          Card has "revealed" its true form during emergence
+ * 
+ * The card content updates at 700ms while still scaled down (~0.88),
+ * so the correct type (single/multi) is revealed as the card surfaces.
+ * This creates a seamless "morph" effect - users never see a type switch.
+ * 
+ * Math: Animation starts at 200ms, duration 750ms, ends at 950ms.
+ * At 700ms: (700-200)/750 = 66.7% through animation.
+ * With easeOut(cubic), ~85% of value change completed.
+ * Scale at 700ms: 0.65 + 0.35 * 0.85 ≈ 0.88
+ */
+const AnimatedCardInsert: React.FC<{
+  itemId: string;
+  children: React.ReactNode;
+}> = ({ itemId, children }) => {
+  // Check if this item has already been animated
+  const hasAnimated = animatedInItemIds.has(itemId);
+  
+  console.log('[AnimatedCardInsert] Render', { itemId, hasAnimated, timestamp: Date.now() });
+  
+  // Animation values for depth emergence - start at final state if already animated
+  // scale: 0.65 → 1.0 (rising from deep within the screen)
+  // opacity: 0.2 → 1.0 (emerging through frosted glass layers)
+  const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
+  const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
+  
+  React.useEffect(() => {
+    // Skip animation if already animated
+    if (hasAnimated) return;
+    
+    // Mark as animated immediately to prevent re-triggering
+    animatedInItemIds.add(itemId);
+    
+    // Trigger LayoutAnimation for existing cards to slide down (Phase 1)
+    LayoutAnimation.configureNext(CardInsertLayoutAnimation);
+    
+    // Phase 2: Depth emergence animation
+    // Starts at 200ms so card is mid-emergence when Phase 0 returns at ~700ms
+    const timeout = setTimeout(() => {
+      Animated.parallel([
+        // Scale from 0.65 to 1.0 - rising from deep within the phone
+        Animated.timing(scale, {
+          toValue: 1,
+          duration: 750,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        // Opacity from 0.2 to 1.0 - emerging through glass layers
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 750,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 200);
+    
+    return () => clearTimeout(timeout);
+  }, [itemId, hasAnimated, scale, opacity]);
+  
+  // If already animated, render without wrapper for performance
+  if (hasAnimated) {
+    return <>{children}</>;
+  }
+  
+  return (
+    <Animated.View
+      style={{
+        opacity,
+        transform: [{ scale }],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+};
+
+/**
+ * AnimatedChipsTransition - Handles crossfade from pulsing placeholders to real chips
+ * Used in the "complete" state when Phase 2 data arrives after reveal is done
+ */
+const AnimatedChipsTransition: React.FC<{
+  kind: 'todo' | 'habit' | 'note';
+  hasRealData: boolean;
+  children: React.ReactNode;
+}> = ({ kind, hasRealData, children }) => {
+  const placeholderOpacity = React.useMemo(() => new Animated.Value(hasRealData ? 0 : 1), []);
+  const chipsOpacity = React.useMemo(() => new Animated.Value(hasRealData ? 1 : 0), []);
+  const hasTransitioned = React.useRef(hasRealData);
+
+  React.useEffect(() => {
+    // When real data arrives, crossfade from placeholders to real chips
+    if (hasRealData && !hasTransitioned.current) {
+      hasTransitioned.current = true;
+      Animated.parallel([
+        Animated.timing(placeholderOpacity, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.timing(chipsOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [hasRealData, placeholderOpacity, chipsOpacity]);
+
+  // If data already exists on mount, just show real chips
+  if (hasTransitioned.current && hasRealData) {
+    return <>{children}</>;
+  }
+
+  // Show crossfade transition
+  return (
+    <View style={{ position: 'relative', flexDirection: 'row', alignItems: 'center' }}>
+      {/* Pulsing placeholder chips (fades out when data arrives) */}
+      <Animated.View style={{ opacity: placeholderOpacity, position: 'absolute', left: 0 }}>
+        <PulsingPlaceholderChips kind={kind} />
+      </Animated.View>
+      {/* Real chips (fades in when data arrives) */}
+      <Animated.View style={{ opacity: chipsOpacity, flexDirection: 'row', alignItems: 'center' }}>
+        {children}
+      </Animated.View>
+    </View>
+  );
+};
+
+/**
+ * PulsingPlaceholderChips - Placeholder chips that pulse while waiting for Phase 2 data
+ * Shows after Phase 1 completes (smartTitle exists) but before Phase 2 data arrives
+ */
+const PulsingPlaceholderChips: React.FC<{
+  kind: 'todo' | 'habit' | 'note';
+}> = ({ kind }) => {
+  const pulseAnim = React.useMemo(() => new Animated.Value(0.4), []);
+
+  React.useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 0.7,
+          duration: 750,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0.4,
+          duration: 750,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulseAnim]);
+
+  // Different chip configs based on kind
+  const chips =
+    kind === 'todo'
+      ? [
+          { width: 50, color: 'rgba(191, 216, 192, 0.5)' }, // Due date placeholder
+          { width: 38, color: 'rgba(156, 166, 224, 0.15)' }, // Time estimate placeholder
+        ]
+      : kind === 'habit'
+        ? [
+            { width: 55, color: 'rgba(191, 216, 192, 0.5)' }, // Start date placeholder
+            { width: 38, color: 'rgba(156, 166, 224, 0.15)' }, // Time estimate placeholder
+          ]
+        : [
+            { width: 60, color: 'rgba(46, 85, 64, 0.08)' }, // Context placeholder
+          ];
+
+  return (
+    <Animated.View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        opacity: pulseAnim,
+      }}
+    >
+      {chips.map((chip, idx) => (
+        <View
+          key={idx}
+          style={{
+            width: chip.width,
+            height: 18,
+            borderRadius: 6,
+            backgroundColor: chip.color,
+          }}
+        />
+      ))}
+    </Animated.View>
+  );
+};
+
+/**
+ * RealChipsRow - Renders actual chips for Row 3 (due date, time estimate, tags)
+ * No animation - just static render. Parent handles fade-in.
+ */
+const RealChipsRow: React.FC<{
+  item: UnifiedDrop;
+  effectiveKind: 'todo' | 'habit' | 'note';
+  styles: any;
+  onReady: () => void;
+}> = ({ item, effectiveKind, styles, onReady }) => {
+  // Trigger onReady after a short delay to sync with crossfade
+  React.useEffect(() => {
+    const timeout = setTimeout(onReady, 200);
+    return () => clearTimeout(timeout);
+  }, [onReady]);
+
+  // Get contextual meta (due date for todo, start date for habit, etc.)
+  const contextMeta = getContextualMeta(effectiveKind, item);
+  const timeEstimate = formatTimeEstimate(item.time_estimate_minutes);
+
+  // For todos and habits, show chips
+  if (effectiveKind === 'todo' || effectiveKind === 'habit') {
+    return (
+      <>
+        {contextMeta && (
+          <View style={styles.recentContextPillContainer}>
+            <Text style={styles.recentContextPill}>{contextMeta}</Text>
+          </View>
+        )}
+        {timeEstimate && (
+          <View style={styles.timeEstimateChip}>
+            <Text style={styles.timeEstimateText}>{timeEstimate}</Text>
+          </View>
+        )}
+      </>
+    );
+  }
+
+  // For notes, just show context if available
+  if (contextMeta) {
+    return (
+      <View style={styles.recentContextPillContainer}>
+        <Text style={styles.recentContextPill}>{contextMeta}</Text>
+      </View>
+    );
+  }
+
+  return null;
+};
+
 /**
  * TypewriterText - Character-by-character reveal animation
  * Creates magical "AI is writing" effect
@@ -1122,9 +1407,9 @@ const PendingSkeleton: React.FC<{
         <ShimmerBar width="45%" height={14} />
       </View>
 
-      {/* Row 3: Context skeleton + Organizing indicator */}
+      {/* Row 3: Pulsing placeholder chips + Organizing indicator */}
       <View style={styles.recentMetaRow}>
-        <ShimmerBar width={70} height={12} />
+        <PulsingPlaceholderChips kind={effectiveKind} />
         <Text
           style={[styles.recentMetaTime, { fontStyle: 'italic', color: '#6B7280', minWidth: 75 }]}
         >
@@ -1274,9 +1559,9 @@ const EnrichingSkeleton: React.FC<{
         <ShimmerBar width="40%" height={14} />
       </View>
 
-      {/* Row 3: Context shimmer + timestamp */}
+      {/* Row 3: Pulsing placeholder chips + timestamp */}
       <View style={styles.recentMetaRow}>
-        <ShimmerBar width={60} height={12} />
+        <PulsingPlaceholderChips kind={effectiveKind} />
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
     </Animated.View>
@@ -1306,27 +1591,40 @@ const RevealingCard: React.FC<{
   // This prevents Phase 2 updates from restarting the typewriter animation
   const initialTitleRef = React.useRef(item.title || item.text || '—');
   const initialConfirmationRef = React.useRef(getConfirmationMessage(effectiveKind, item));
-  const initialContextRef = React.useRef(getContextualMeta(effectiveKind, item));
 
-  // Use the frozen initial values
+  // Use the frozen initial values (Row 3 chips don't need freezing - they crossfade, not typewrite)
   const titleText = initialTitleRef.current;
   const confirmationText = initialConfirmationRef.current;
-  const contextMeta = initialContextRef.current;
 
   // Memoize callbacks to prevent re-renders
   const handleLine1Done = React.useCallback(() => setLine1Done(true), []);
   const handleLine2Done = React.useCallback(() => setLine2Done(true), []);
   const handleLine3Done = React.useCallback(() => setLine3Done(true), []);
 
-  // Shimmer fade-out animation
+  // Row 1 & 2: Shimmer fade-out / text fade-in (starts immediately)
   const shimmerOpacity = React.useMemo(() => new Animated.Value(1), []);
   const textOpacity = React.useMemo(() => new Animated.Value(0), []);
+
+  // Row 3: Separate animation - pulsing chips fade out, real chips fade in
+  // This starts AFTER Row 2 typewriter is done AND Phase 2 data arrives
+  const row3PlaceholderOpacity = React.useMemo(() => new Animated.Value(1), []);
+  const row3ChipsOpacity = React.useMemo(() => new Animated.Value(0), []);
+  const row3CrossfadeStarted = React.useRef(false);
+
+  // Check if Phase 2 data is available (for todos/habits: time estimate or frequency)
+  // For notes: always ready (no chips needed)
+  const hasPhase2Data =
+    effectiveKind === 'note' ||
+    item.time_estimate_minutes != null ||
+    item.frequency != null ||
+    item.cadence != null ||
+    (item.tags && item.tags.length > 0);
 
   // Settle pulse animation
   const settleScale = React.useMemo(() => new Animated.Value(1), []);
   const settleShadow = React.useMemo(() => new Animated.Value(0), []);
 
-  // Start crossfade immediately
+  // Start Row 1 & 2 crossfade immediately
   React.useEffect(() => {
     Animated.parallel([
       Animated.timing(shimmerOpacity, {
@@ -1341,6 +1639,28 @@ const RevealingCard: React.FC<{
       }),
     ]).start();
   }, [shimmerOpacity, textOpacity]);
+
+  // Start Row 3 crossfade when Row 2 is done AND Phase 2 data has arrived
+  React.useEffect(() => {
+    if (line2Done && hasPhase2Data && !row3CrossfadeStarted.current) {
+      row3CrossfadeStarted.current = true;
+      Animated.parallel([
+        Animated.timing(row3PlaceholderOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(row3ChipsOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        // Mark Row 3 as done after crossfade completes
+        setLine3Done(true);
+      });
+    }
+  }, [line2Done, hasPhase2Data, row3PlaceholderOpacity, row3ChipsOpacity]);
 
   // Trigger settle animation when all lines complete
   React.useEffect(() => {
@@ -1438,27 +1758,17 @@ const RevealingCard: React.FC<{
         </Animated.View>
       </View>
 
-      {/* Row 3: Contextual info + timestamp */}
+      {/* Row 3: Chips crossfade (pulsing placeholders → real chips) + timestamp */}
+      {/* NO typewriter on Row 3 - crossfade starts after Row 2 typewriter completes */}
       <View style={styles.recentMetaRow}>
-        <View style={{ position: 'relative', flex: 1 }}>
-          {/* Shimmer layer (fades out) */}
-          <Animated.View style={{ opacity: shimmerOpacity, position: 'absolute', left: 0 }}>
-            <ShimmerBar width={60} height={12} />
+        <View style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          {/* Pulsing placeholder chips (fades out after Row 2 done) */}
+          <Animated.View style={{ opacity: row3PlaceholderOpacity, position: 'absolute', left: 0 }}>
+            <PulsingPlaceholderChips kind={effectiveKind} />
           </Animated.View>
-          {/* Text layer (fades in, typewriter) */}
-          <Animated.View style={{ opacity: textOpacity }}>
-            {contextMeta ? (
-              <TypewriterText
-                text={contextMeta}
-                style={styles.recentContextPill}
-                duration={250}
-                delay={250}
-                onComplete={handleLine3Done}
-              />
-            ) : (
-              // No context meta - mark as done immediately after delay
-              <DelayedCallback delay={300} onComplete={handleLine3Done} />
-            )}
+          {/* Real chips (fades in after Row 2 done) */}
+          <Animated.View style={{ opacity: row3ChipsOpacity, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <RealChipsRow item={item} effectiveKind={effectiveKind} styles={styles} onReady={() => {}} />
           </Animated.View>
         </View>
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
@@ -1625,8 +1935,10 @@ const revealedItemIds = new Set<string>();
 /**
  * Animated wrapper for Mind Drop card that smoothly transitions
  * from pending skeleton to final content when AI enrichment completes
+ * 
+ * MEMOIZED to prevent re-renders when other cards update
  */
-const AnimatedMindDropCard: React.FC<{
+const AnimatedMindDropCard = React.memo<{
   item: UnifiedDrop;
   isPending: boolean;
   effectiveKind: 'note' | 'todo' | 'habit';
@@ -1642,7 +1954,7 @@ const AnimatedMindDropCard: React.FC<{
   // Multi-entity handlers passed from parent
   onKeepAsNote?: (id: string) => void;
   onSplitSelected?: (id: string, selectedItems: MultiDropItem[]) => void;
-}> = ({
+}>(({
   item,
   isPending,
   effectiveKind,
@@ -1664,17 +1976,6 @@ const AnimatedMindDropCard: React.FC<{
 
   // Gremly pulse animation for multi-entity cards (always called, conditionally used)
   const gremlyPulseScale = useGremlyPulse();
-
-  // DEBUG: Log multi status
-  if (item.kind === 'note') {
-    console.log('[AnimatedMindDropCard:Multi]', {
-      id: item.id,
-      title: item.title?.substring(0, 30),
-      is_multi: item.is_multi,
-      views_is_multi: item.views?.is_multi,
-      isMulti,
-    });
-  }
 
   // Get visual state from item
   const itemVisualState = getMindDropVisualState(item);
@@ -1755,50 +2056,57 @@ const AnimatedMindDropCard: React.FC<{
       ? 'complete'
       : itemVisualState;
 
-  // Phase 1: Still creating entity - show raw text with skeleton for secondary fields
-  if (visualState === 'pending') {
-    return (
-      <PendingSkeleton
-        item={item}
-        effectiveKind={effectiveKind}
-        badgeStyleKey={badgeStyleKey}
-        styles={styles}
-        c={c}
-        index={index}
-      />
-    );
+  // MULTI-DROP EARLY RETURN: Show multi-card immediately, even during pending/enriching
+  // Multi-drops have enough info from Phase 0 to render the multi-card shape
+  // This bypasses skeleton states so the multi-card appears at ~2s (Phase 0) not ~5s (Phase 1+2)
+  if (isMulti) {
+    // Fall through to complete card render below (skip skeleton states)
+  } else {
+    // Phase 1: Still creating entity - show raw text with skeleton for secondary fields
+    if (visualState === 'pending') {
+      return (
+        <PendingSkeleton
+          item={item}
+          effectiveKind={effectiveKind}
+          badgeStyleKey={badgeStyleKey}
+          styles={styles}
+          c={c}
+          index={index}
+        />
+      );
+    }
+
+    // Phase 2: Entity exists, enriching in progress - show shimmers + chip/timestamp
+    if (visualState === 'enriching') {
+      return (
+        <EnrichingSkeleton
+          item={item}
+          effectiveKind={effectiveKind}
+          badgeStyleKey={badgeStyleKey}
+          styles={styles}
+          c={c}
+          index={index}
+        />
+      );
+    }
+
+    // Phase 3: Transitioning - crossfade shimmer to typewriter reveal
+    if (visualState === 'revealing') {
+      return (
+        <RevealingCard
+          item={item}
+          effectiveKind={effectiveKind}
+          displayKind={displayKind}
+          badgeStyleKey={badgeStyleKey}
+          styles={styles}
+          c={c}
+          onRevealComplete={handleRevealComplete}
+        />
+      );
+    }
   }
 
-  // Phase 2: Entity exists, enriching in progress - show shimmers + chip/timestamp
-  if (visualState === 'enriching') {
-    return (
-      <EnrichingSkeleton
-        item={item}
-        effectiveKind={effectiveKind}
-        badgeStyleKey={badgeStyleKey}
-        styles={styles}
-        c={c}
-        index={index}
-      />
-    );
-  }
-
-  // Phase 3: Transitioning - crossfade shimmer to typewriter reveal
-  if (visualState === 'revealing') {
-    return (
-      <RevealingCard
-        item={item}
-        effectiveKind={effectiveKind}
-        displayKind={displayKind}
-        badgeStyleKey={badgeStyleKey}
-        styles={styles}
-        c={c}
-        onRevealComplete={handleRevealComplete}
-      />
-    );
-  }
-
-  // Complete or Failed: Show static content
+  // Complete or Failed: Show static content (also used for multi-drops)
   const isFailed = visualState === 'failed';
 
   // Multi-entity handler
@@ -1909,6 +2217,42 @@ const AnimatedMindDropCard: React.FC<{
           {/* Left side: context pill + time estimate grouped together */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             {(() => {
+              // For todos/habits with ai_pending, use animated transition wrapper
+              // This provides smooth crossfade from pulsing placeholders to real chips
+              const isProcessing = item.views?.ai_pending === true;
+              const hasRealChipData = Boolean(
+                item.time_estimate_minutes != null ||
+                item.frequency != null ||
+                item.cadence != null ||
+                (item.tags && item.tags.length > 0)
+              );
+              
+              // Use AnimatedChipsTransition for todos/habits that are still processing
+              // This handles the crossfade when Phase 2 data arrives
+              if ((effectiveKind === 'todo' || effectiveKind === 'habit') && isProcessing) {
+                const contextMeta = getContextualMeta(effectiveKind, item);
+                const contextTestId =
+                  effectiveKind === 'todo' ? `minddrop-recent-todo-due-${item.id}` : undefined;
+                
+                return (
+                  <AnimatedChipsTransition kind={effectiveKind} hasRealData={hasRealChipData}>
+                    {contextMeta && (
+                      <View style={styles.recentContextPillContainer}>
+                        <Text testID={contextTestId} style={styles.recentContextPill}>{contextMeta}</Text>
+                      </View>
+                    )}
+                    {item.time_estimate_minutes && (
+                      <View style={[styles.timeEstimateChip, { marginLeft: 6 }]}>
+                        <Clock size={10} color="#888" strokeWidth={2} />
+                        <Text style={styles.timeEstimateText}>
+                          {formatTimeEstimate(item.time_estimate_minutes)}
+                        </Text>
+                      </View>
+                    )}
+                  </AnimatedChipsTransition>
+                );
+              }
+
               const contextMeta = getContextualMeta(effectiveKind, item);
               // Add testID for todos to support due date badge tests
               const contextTestId =
@@ -2085,7 +2429,40 @@ const AnimatedMindDropCard: React.FC<{
       )}
     </>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison for React.memo - only re-render if THIS card's data changed
+  // Compare by item id and key fields that affect rendering
+  if (prevProps.item.id !== nextProps.item.id) return false;
+  if (prevProps.item.title !== nextProps.item.title) return false;
+  if (prevProps.item.views?.minddrop_stage !== nextProps.item.views?.minddrop_stage) return false;
+  if (prevProps.item.views?.confirmation_message !== nextProps.item.views?.confirmation_message) return false;
+  if (prevProps.item.time_estimate_minutes !== nextProps.item.time_estimate_minutes) return false;
+  if (prevProps.item.frequency !== nextProps.item.frequency) return false; // Habit frequency
+  if (prevProps.item.cadence !== nextProps.item.cadence) return false; // Habit cadence
+  if (prevProps.isPending !== nextProps.isPending) return false;
+  if (prevProps.effectiveKind !== nextProps.effectiveKind) return false;
+  // Tags comparison (shallow array check)
+  const prevTags = prevProps.item.tags || [];
+  const nextTags = nextProps.item.tags || [];
+  if (prevTags.length !== nextTags.length) return false;
+  for (let i = 0; i < prevTags.length; i++) {
+    if (prevTags[i] !== nextTags[i]) return false;
+  }
+  // Multi-drop comparison - re-render when isMulti or segments change
+  if (prevProps.item.is_multi !== nextProps.item.is_multi) return false;
+  const prevSegments = prevProps.item.multi_items || [];
+  const nextSegments = nextProps.item.multi_items || [];
+  if (prevSegments.length !== nextSegments.length) return false;
+  for (let i = 0; i < prevSegments.length; i++) {
+    if (prevSegments[i]?.bucket !== nextSegments[i]?.bucket) return false;
+    // Check preview_title to detect when Phase 1 updates segment titles
+    if (prevSegments[i]?.preview_title !== nextSegments[i]?.preview_title) return false;
+  }
+  return true; // Props are equal, skip re-render
+});
+
+// Display name for debugging
+AnimatedMindDropCard.displayName = 'AnimatedMindDropCard';
 
 /**
  * Get display tags for Recent drops list
@@ -2152,6 +2529,10 @@ function useMaybeGlobalOverlay(): GlobalOverlayController | null {
     throw error;
   }
 }
+
+// Stable no-op callbacks for pending items (avoids inline arrow functions defeating React.memo)
+const NOOP_EDIT = () => {};
+const NOOP_DELETE = () => {};
 
 const RecentDrops: React.FC<{
   overlay: GlobalOverlayController;
@@ -2221,14 +2602,20 @@ const RecentDrops: React.FC<{
         const hasEnrichmentFields = !!drop.smartTitle || !!drop.confirmationMessage;
         const minddropStage =
           drop.status === 'pending' ? 'pending' :
+          drop.status === 'classifying' ? 'classifying' : // Multi-drop: Phase 1 running
           drop.status === 'enriching' && hasEnrichmentFields ? 'enriched' :
           drop.status === 'enriching' ? 'enriching' :
           drop.status === 'synced' ? 'enriched' : 'pending';
 
+        // For multi-drops, use the summary as the title
+        const displayTitle = drop.isMulti && drop.multiSummary
+          ? drop.multiSummary
+          : drop.smartTitle || drop.text.substring(0, 60) + (drop.text.length > 60 ? '…' : '');
+
         return {
           id: drop.localId,
           kind,
-          title: drop.smartTitle || drop.text.substring(0, 60) + (drop.text.length > 60 ? '…' : ''),
+          title: displayTitle,
           text: drop.text,
           created_at: drop.createdAt,
           drop_id: drop.localId,
@@ -2239,9 +2626,24 @@ const RecentDrops: React.FC<{
             ai_pending: drop.status !== 'synced',
             minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
+            // Multi-drop data for UI rendering
+            is_multi: drop.isMulti,
+            multi_segments: drop.multiSegments,
+            multi_summary: drop.multiSummary,
           },
           time_estimate_minutes: drop.timeEstimateMinutes ?? null,
+          frequency: drop.extractedFrequency ?? null, // For habits: "3x/week", "daily", etc.
+          days_active: drop.extractedDays ?? null, // For habits: day numbers for scheduling
           is_multi: drop.isMulti,
+          // Multi-drop fields (from Phase 0, before entity creation)
+          multi_items: drop.multiSegments?.map(seg => ({
+            text: seg.text,
+            bucket: seg.bucket,
+            subtype: seg.subtype ?? null,
+            habitSubtype: null,
+            preview_title: seg.text.substring(0, 40),
+          } satisfies MultiDropItem)),
+          multi_summary_title: drop.multiSummary,
         };
       })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -2285,6 +2687,10 @@ const RecentDrops: React.FC<{
           canonical_type: record.canonical_type ?? null,
           days_active: Array.isArray(record.days_active) ? record.days_active : null,
           time_estimate_minutes: record.time_estimate_minutes ?? null,
+          // Habit frequency fields
+          frequency: record.frequency ?? null,
+          cadence: record.cadence ?? null,
+          target_per_period: record.target_per_period ?? null,
           // Multi-entity support: extract from views to top level
           is_multi: record.views?.is_multi === true,
           multi_items: record.views?.multi_items ?? undefined,
@@ -2337,6 +2743,10 @@ const RecentDrops: React.FC<{
             : (item.days_active ?? null),
           time_estimate_minutes:
             (record as any).time_estimate_minutes ?? item.time_estimate_minutes ?? null,
+          // Habit frequency fields - use record value if present, else preserve existing
+          frequency: (record as any).frequency ?? item.frequency ?? null,
+          cadence: (record as any).cadence ?? item.cadence ?? null,
+          target_per_period: (record as any).target_per_period ?? item.target_per_period ?? null,
           // Multi-entity support: extract from views to top level
           is_multi: views?.is_multi === true,
           multi_items: views?.multi_items ?? item.multi_items ?? undefined,
@@ -2817,6 +3227,12 @@ const RecentDrops: React.FC<{
             noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
             mood: entityType === 'note' ? (entity.mood ?? null) : undefined,
             time_estimate_minutes: entity.time_estimate_minutes ?? null,
+            // Habit frequency fields
+            frequency: entity.frequency ?? null,
+            cadence: entity.cadence ?? null,
+            target_per_period: entity.target_per_period ?? null,
+            days_active: entity.days_active ?? null,
+            start_date: entity.start_date ?? null,
             // Multi-entity support: extract from views to top level
             is_multi: entity.views?.is_multi === true,
             multi_items: entity.views?.multi_items ?? undefined,
@@ -2971,19 +3387,29 @@ const RecentDrops: React.FC<{
     };
   }, [load]);
 
-  const handleEdit = async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
-    try {
-      // Synchronous lookup from store
-      const record = getItemById(id);
+  const handleEdit = React.useCallback(
+    async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
+      try {
+        // Synchronous lookup from store
+        const record = getItemById(id);
 
-      if (record && record.type === kind) {
-        overlay.openEdit({
-          record: record as any,
-          spaceId: (record as any).space_id ?? null,
-        });
-        onEdited?.();
-      } else {
-        console.warn('[RecentDrops] handleEdit: record not found or type mismatch', { id, kind });
+        if (record && record.type === kind) {
+          overlay.openEdit({
+            record: record as any,
+            spaceId: (record as any).space_id ?? null,
+          });
+          onEdited?.();
+        } else {
+          console.warn('[RecentDrops] handleEdit: record not found or type mismatch', { id, kind });
+          // Fallback to minimal record if fetch fails
+          overlay.openEdit({
+            record: { id, type: kind } as any,
+            spaceId: null,
+          });
+          onEdited?.();
+        }
+      } catch (error) {
+        console.error('[RecentDrops] handleEdit: failed to fetch record', error);
         // Fallback to minimal record if fetch fails
         overlay.openEdit({
           record: { id, type: kind } as any,
@@ -2991,60 +3417,62 @@ const RecentDrops: React.FC<{
         });
         onEdited?.();
       }
-    } catch (error) {
-      console.error('[RecentDrops] handleEdit: failed to fetch record', error);
-      // Fallback to minimal record if fetch fails
-      overlay.openEdit({
-        record: { id, type: kind } as any,
-        spaceId: null,
-      });
-      onEdited?.();
-    }
-  };
+    },
+    [getItemById, overlay, onEdited],
+  );
 
-  const handleDelete = async (id: string, kind: UnifiedDrop['kind']) => {
-    try {
-      // Find the item being deleted to check for drop_id
-      const itemToDelete = items.find((item) => item.id === id);
-      const dropId = itemToDelete?.drop_id;
-
-      if (dropId) {
-        // Archive all items with this drop_id
-        // Get items from store with same drop_id
+  const handleDelete = React.useCallback(
+    async (id: string, kind: UnifiedDrop['kind']) => {
+      try {
+        // Look up drop_id from store instead of local state to avoid dependency on `items`
         const state = useGremlyStore.getState();
-        const todosToDelete = state.todos.filter((t) => t.drop_id === dropId);
-        const habitsToDelete = state.habits.filter((h) => h.drop_id === dropId);
-        const notesToDelete = state.notes.filter((n) => n.drop_id === dropId);
-
-        // Delete each item by type
-        await Promise.all([
-          ...todosToDelete.map((t) => deleteTodo(t.id)),
-          ...habitsToDelete.map((h) => deleteHabit(h.id)),
-          ...notesToDelete.map((n) => deleteNote(n.id)),
-        ]);
-
-        // Remove all items with this drop_id from local state
-        setItems((prev) => prev.filter((item) => item.drop_id !== dropId));
-      } else {
-        // No drop_id: fallback to single-item delete
+        let dropId: string | undefined;
+        
         if (kind === 'todo') {
-          await deleteTodo(id);
+          dropId = state.todos.find((t) => t.id === id)?.drop_id ?? undefined;
         } else if (kind === 'habit') {
-          await deleteHabit(id);
+          dropId = state.habits.find((h) => h.id === id)?.drop_id ?? undefined;
         } else {
-          await deleteNote(id);
+          dropId = state.notes.find((n) => n.id === id)?.drop_id ?? undefined;
         }
 
-        // Remove only this item from local state
-        setItems((prev) => prev.filter((item) => item.id !== id));
-      }
+        if (dropId) {
+          // Archive all items with this drop_id
+          const todosToDelete = state.todos.filter((t) => t.drop_id === dropId);
+          const habitsToDelete = state.habits.filter((h) => h.drop_id === dropId);
+          const notesToDelete = state.notes.filter((n) => n.drop_id === dropId);
 
-      onDeleted?.();
-    } catch (err) {
-      // optional: error UI
-      console.error('[handleDelete] Failed to delete:', err);
-    }
-  };
+          // Delete each item by type
+          await Promise.all([
+            ...todosToDelete.map((t) => deleteTodo(t.id)),
+            ...habitsToDelete.map((h) => deleteHabit(h.id)),
+            ...notesToDelete.map((n) => deleteNote(n.id)),
+          ]);
+
+          // Remove all items with this drop_id from local state
+          setItems((prev) => prev.filter((item) => item.drop_id !== dropId));
+        } else {
+          // No drop_id: fallback to single-item delete
+          if (kind === 'todo') {
+            await deleteTodo(id);
+          } else if (kind === 'habit') {
+            await deleteHabit(id);
+          } else {
+            await deleteNote(id);
+          }
+
+          // Remove only this item from local state
+          setItems((prev) => prev.filter((item) => item.id !== id));
+        }
+
+        onDeleted?.();
+      } catch (err) {
+        // optional: error UI
+        console.error('[handleDelete] Failed to delete:', err);
+      }
+    },
+    [deleteTodo, deleteHabit, deleteNote, onDeleted],
+  );
 
   // Multi-entity: Keep as note handler
   const handleKeepAsNote = React.useCallback(
@@ -3337,21 +3765,46 @@ const RecentDrops: React.FC<{
             );
 
             // Trigger Phase 2 enrichment for the new entity (runs in background)
+            const entityIdForPhase2 = newEntity.id;
             runPhase2Streaming(
-              newEntity.id,
+              entityIdForPhase2,
               splitItem.text,
               bucket,
               subtype,
               repo,
               (field, value) => {
-                console.log(`[RecentDrops:Phase2:${newEntity!.id}] ${field}:`, value);
+                console.log(`[RecentDrops:Phase2:${entityIdForPhase2}] ${field}:`, value);
               },
-            ).catch((err) => {
+            )
+              .then((result) => {
+                console.log(`[RecentDrops:Phase2:${entityIdForPhase2}] Complete`, result);
+                // Backup update in case event listener didn't catch it
+                if (result) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === entityIdForPhase2
+                        ? {
+                            ...item,
+                            title: result.smart_title || item.title,
+                            tags: result.tags || item.tags,
+                            views: {
+                              ...item.views,
+                              minddrop_stage: 'enriched',
+                              ai_pending: false,
+                              confirmation_message: result.confirmation_message,
+                            },
+                          }
+                        : item,
+                    ),
+                  );
+                }
+              })
+              .catch((err) => {
               console.warn('[RecentDrops:Phase2] Enrichment failed', err);
               // Reset card state so it doesn't stay stuck in streaming/enriching
               setItems((prev) =>
                 prev.map((item) =>
-                  item.id === newEntity!.id
+                  item.id === entityIdForPhase2
                     ? {
                         ...item,
                         views: {
@@ -3437,7 +3890,7 @@ const RecentDrops: React.FC<{
               showsVerticalScrollIndicator
             >
               {/* Pending items (optimistic UI) */}
-              {pendingItems.map((item, index) => {
+              {pendingItems.map((item) => {
                 const effectiveKind = item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
                 const badgeStyleKey =
@@ -3446,28 +3899,27 @@ const RecentDrops: React.FC<{
                     : effectiveKind === 'habit'
                       ? 'badge_habit'
                       : 'badge_note';
-                const isPending = true; // Always pending for optimistic items
 
                 return (
-                  <AnimatedMindDropCard
-                    key={item.id}
-                    item={item}
-                    isPending={isPending}
-                    effectiveKind={effectiveKind}
-                    displayKind={displayKind}
-                    showLegacyUnsortedBadge={undefined}
-                    badgeStyleKey={badgeStyleKey}
-                    c={c}
-                    styles={styles}
-                    mode={themeMode}
-                    handleEdit={() => {}} // No-op for pending
-                    handleDelete={() => {}} // No-op for pending
-                    index={index}
-                  />
+                  <AnimatedCardInsert key={item.id} itemId={item.id}>
+                    <AnimatedMindDropCard
+                      item={item}
+                      isPending={true}
+                      effectiveKind={effectiveKind}
+                      displayKind={displayKind}
+                      showLegacyUnsortedBadge={undefined}
+                      badgeStyleKey={badgeStyleKey}
+                      c={c}
+                      styles={styles}
+                      mode={themeMode}
+                      handleEdit={NOOP_EDIT}
+                      handleDelete={NOOP_DELETE}
+                    />
+                  </AnimatedCardInsert>
                 );
               })}
               {/* Real items from database */}
-              {items.map((item, index) => {
+              {items.map((item) => {
                 const effectiveKind = item.optimisticKind ?? item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
                 const showLegacyUnsortedBadge =
@@ -3497,7 +3949,6 @@ const RecentDrops: React.FC<{
                     mode={themeMode}
                     handleEdit={handleEdit}
                     handleDelete={handleDelete}
-                    index={pendingItems.length + index}
                     onKeepAsNote={handleKeepAsNote}
                     onSplitSelected={handleSplitSelected}
                   />

@@ -417,10 +417,61 @@ export async function processDrop(
         segmentCount: multiResult.segments.length,
       });
 
-      // Run Phase 1 on each segment for accurate classification
+      // Build initial segments with Phase 0 data (likelyBucket before Phase 1 confirmation)
+      const initialSegments = multiResult.segments.map((seg) => ({
+        text: seg.text,
+        bucket: (seg.likely_bucket || 'log') as 'todo' | 'habit' | 'log',
+        subtype: (seg.likely_subtype || null) as 'journal' | 'idea' | 'general' | null,
+        likelyBucket: seg.likely_bucket,
+        likelySubtype: seg.likely_subtype,
+        confirmed: false, // Not yet confirmed by Phase 1
+      }));
+
+      // IMMEDIATELY update Zustand with ALL multi-card info so UI shows multi-shape right away
+      // This happens at ~700ms when Phase 0 returns
+      useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+        isMulti: true,
+        multiSegments: initialSegments,
+        multiSummary: multiResult.summary || text.substring(0, 60),
+        dominantBucket: (multiResult.dominant_bucket || 'log') as 'todo' | 'habit' | 'log',
+        dominantSubtype: (multiResult.dominant_subtype || null) as 'journal' | 'idea' | 'general' | null,
+        status: 'classifying', // Still classifying segments
+      });
+
+      console.log('[DropProcessor] Multi-drop Zustand update complete', {
+        localId,
+        elapsed: Date.now() - startTime,
+        segmentCount: initialSegments.length,
+      });
+
+      // Fire callback IMMEDIATELY so UI knows this is multi (~700ms)
+      callbacks?.onPhase0Complete?.(localId, true);
+
+      console.log('[DropProcessor] Phase 0 complete callback fired (multi)', {
+        localId,
+        elapsed: Date.now() - startTime,
+      });
+
+      // THEN run Phase 1 on each segment for accurate classification (async, ~2s more)
       const classifiedSegments = await Promise.all(
-        multiResult.segments.map(async (seg) => {
+        multiResult.segments.map(async (seg, index) => {
           const phase1 = await runPhase1(seg.text, { hasAttachments: false });
+          
+          // Update this segment in Zustand as Phase 1 confirms it
+          const currentDrop = useGremlyStore.getState().pendingDrops.get(localId);
+          if (currentDrop?.multiSegments) {
+            const updatedSegments = [...currentDrop.multiSegments];
+            updatedSegments[index] = {
+              ...updatedSegments[index],
+              bucket: phase1.bucket,
+              subtype: phase1.subtype,
+              confirmed: true, // Now confirmed by Phase 1
+            };
+            useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+              multiSegments: updatedSegments,
+            });
+          }
+          
           return {
             text: seg.text,
             bucket: phase1.bucket,
@@ -429,6 +480,16 @@ export async function processDrop(
           };
         }),
       );
+
+      console.log('[DropProcessor] Phase 1 segments complete', {
+        localId,
+        elapsed: Date.now() - startTime,
+      });
+
+      // Update status to enriching now that Phase 1 is done
+      useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+        status: 'enriching',
+      });
 
       // CHECKPOINT 1 (for multi): Save multi-detection results before sync
       await updateDrop(localId, {
@@ -439,8 +500,6 @@ export async function processDrop(
         dominantSubtype: multiResult.dominant_subtype as LogSubtype | null,
         status: 'classified', // Clear checkpoint status
       });
-
-      callbacks?.onPhase0Complete?.(localId, true);
 
       // Sync multi-drop
       const syncResult = await syncMultiDropToSupabase({
@@ -508,7 +567,6 @@ export async function processDrop(
         earlyEnrichment.confirmationMessage = phase1Result.confirmation_message;
       }
       useGremlyStore.getState().updatePendingDropEnrichment(localId, earlyEnrichment);
-      console.log('[DropProcessor] Phase 1 early enrichment', { localId, fields: Object.keys(earlyEnrichment) });
     }
 
     callbacks?.onPhase1Complete?.(localId, phase1Result.bucket);
@@ -527,12 +585,14 @@ export async function processDrop(
 
     console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
 
-    // Update Zustand with metadata fields (time estimate, tags, etc.)
+    // Update Zustand with metadata fields (time estimate, tags, frequency, etc.)
     if (enrichmentResult) {
       useGremlyStore.getState().updatePendingDropEnrichment(localId, {
         tags: enrichmentResult.tags,
         timeEstimateMinutes: enrichmentResult.time_estimate_minutes,
         timeWindow: enrichmentResult.time_window,
+        extractedFrequency: enrichmentResult.extracted_frequency,
+        extractedDays: enrichmentResult.extracted_days,
       });
     }
 

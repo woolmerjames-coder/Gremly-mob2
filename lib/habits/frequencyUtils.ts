@@ -165,8 +165,25 @@ export function parseFrequencyString(frequency: string | null | undefined): Freq
 export function getFrequencyDisplayLabel(
   cadence: string | null | undefined,
   targetPerPeriod: number | null | undefined,
-  _frequencyString?: string | null, // Ignored - kept for backwards compatibility
+  frequencyString?: string | null, // Raw frequency string from Phase 2 enrichment (e.g., "3x/week", "daily")
 ): string {
+  // If we have a raw frequency string AND no canonical cadence, use the frequency string
+  // This is the case for pending drops where Phase 2 returned extracted_frequency but
+  // cadence/target_per_period aren't set yet
+  if (frequencyString && !cadence) {
+    // Normalize common frequency strings to proper display format
+    const lower = frequencyString.toLowerCase().trim();
+    if (lower === 'daily' || lower === '1x/day' || lower === 'every day') return 'Daily';
+    if (lower === 'weekly' || lower === '1x/week' || lower === 'every week') return 'Weekly';
+    if (lower === 'monthly' || lower === '1x/month' || lower === 'every month') return 'Monthly';
+    // Return the raw string if it's already formatted (e.g., "3x/week", "2x/day")
+    if (frequencyString.includes('/') || frequencyString.includes('x')) {
+      return frequencyString;
+    }
+    // Otherwise capitalize first letter
+    return frequencyString.charAt(0).toUpperCase() + frequencyString.slice(1);
+  }
+
   const normalizedCadence = normalizeCadence(cadence);
   const target = targetPerPeriod ?? 1;
 

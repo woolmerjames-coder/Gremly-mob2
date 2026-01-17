@@ -108,6 +108,17 @@ export interface HabitProgressRow {
 }
 
 // --- Pending Drop Types (for optimistic Mind Drop queue) ---
+
+/** Segment info for multi-entity drops */
+export interface PendingDropSegment {
+  text: string;
+  bucket: 'todo' | 'habit' | 'log';
+  subtype?: 'journal' | 'idea' | 'general' | null;
+  likelyBucket?: string; // From Phase 0 (before Phase 1 confirmation)
+  likelySubtype?: string; // From Phase 0
+  confirmed?: boolean; // True after Phase 1 confirms the bucket
+}
+
 export interface PendingDrop {
   localId: string;
   text: string;
@@ -120,8 +131,15 @@ export interface PendingDrop {
   confirmationMessage?: string | null;
   timeEstimateMinutes?: number | null;
   timeWindow?: 'morning' | 'day' | 'evening' | null;
+  extractedFrequency?: string | null; // For habits: "3x/week", "daily", etc.
+  extractedDays?: number[] | null; // For habits: [1, 3, 5] = Mon, Wed, Fri
   status: 'pending' | 'classifying' | 'enriching' | 'syncing' | 'synced';
   isMulti?: boolean;
+  // Multi-drop fields (populated by Phase 0)
+  multiSegments?: PendingDropSegment[];
+  multiSummary?: string; // Summary title for the multi-card
+  dominantBucket?: 'todo' | 'habit' | 'log';
+  dominantSubtype?: 'journal' | 'idea' | 'general' | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3243,16 +3261,16 @@ export const useGremlyStore = create<GremlyState>()(
     updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => {
       set((state) => {
         const drop = state.pendingDrops.get(localId);
-        if (!drop) return state;
+        if (!drop) {
+          console.warn('[GremlyStore] updatePendingDropEnrichment: drop not found', { localId });
+          return state;
+        }
 
         const updated: PendingDrop = { ...drop, ...enrichment };
         const newPending = new Map(state.pendingDrops);
         newPending.set(localId, updated);
+        
         return { pendingDrops: newPending };
-      });
-      console.log('[GremlyStore] Updated pending drop enrichment', {
-        localId,
-        fields: Object.keys(enrichment),
       });
     },
 
