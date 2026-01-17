@@ -241,9 +241,6 @@ export function useMindDropSubmit(): {
               testLogger.step('phase1_complete', { localId, bucket: classifiedBucket });
             }
           },
-          onPhase2Field: (localId, field, value) => {
-            console.log('[MindDrop:Background] Phase 2 field', { localId, field });
-          },
           onPhase2Complete: (localId) => {
             console.log('[MindDrop:Background] Phase 2 complete', { localId });
             if (testEnabled) {

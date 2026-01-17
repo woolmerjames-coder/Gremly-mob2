@@ -100,7 +100,7 @@ export function MultiSplitModal({
       {/* Backdrop - only closes when tapped outside the modal content */}
       <Pressable style={styles.overlay} onPress={onClose}>
         {/* Modal content - stop propagation so taps inside don't close */}
-        <Pressable style={styles.container} onPress={(e) => e.stopPropagation()}>
+        <Pressable style={styles.container} onPress={(e) => e?.stopPropagation?.()}>
           {/* Header */}
           <View style={styles.headerRow}>
             <Image source={require('../../../assets/buttonforHP.png')} style={styles.gremlyIcon} />
