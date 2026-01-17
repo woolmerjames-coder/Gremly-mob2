@@ -1069,15 +1069,16 @@ const AnimatedCardInsert: React.FC<{
 };
 
 /**
- * AnimatedChipsTransition - Magical fade-in reveal for Phase 2 metadata chips
+ * AnimatedChipsTransition - Magical blur-to-sharp reveal for Phase 2 metadata chips
  *
- * When Phase 2 data arrives, ALL chips dissolve into view together with a slow,
- * intentional animation that feels like emerging through mist or fog.
+ * When Phase 2 data arrives, ALL chips "emerge from mist" together:
+ * - Start: opacity 0.3, scale 0.98, with frosted mist overlay
+ * - End: opacity 1, scale 1.0, mist fades away
+ * - Duration: 550ms ease-out
  *
- * - No placeholder bars - the space stays empty until data arrives
- * - All chips animate in TOGETHER (not staggered)
- * - Animation: opacity 0→1, scale 0.97→1.0, duration 550ms ease-out
- * - Fixed minimum height prevents card from jumping when chips appear
+ * The mist effect is achieved by overlaying a semi-transparent white layer
+ * that fades out as the chips become visible, creating the illusion of
+ * content crystallizing out of fog.
  */
 const AnimatedChipsTransition: React.FC<{
   hasRealData: boolean;
@@ -1086,8 +1087,11 @@ const AnimatedChipsTransition: React.FC<{
   // Use useState to create stable Animated.Values that persist across re-renders
   // Initialize based on whether data already exists on mount
   const [animValues] = React.useState(() => ({
-    opacity: new Animated.Value(hasRealData ? 1 : 0),
-    scale: new Animated.Value(hasRealData ? 1 : 0.97),
+    // Chips: start dim and slightly smaller, end fully visible
+    opacity: new Animated.Value(hasRealData ? 1 : 0.3),
+    scale: new Animated.Value(hasRealData ? 1 : 0.98),
+    // Mist overlay: starts visible, fades to invisible
+    mistOpacity: new Animated.Value(hasRealData ? 0 : 0.85),
   }));
   // Track animation state for render decisions
   const [isVisible, setIsVisible] = React.useState(hasRealData);
@@ -1101,6 +1105,7 @@ const AnimatedChipsTransition: React.FC<{
       // Start showing the container immediately (animation will run)
       setIsVisible(true);
       Animated.parallel([
+        // Chips fade in and scale up
         Animated.timing(animValues.opacity, {
           toValue: 1,
           duration: 550,
@@ -1109,6 +1114,13 @@ const AnimatedChipsTransition: React.FC<{
         }),
         Animated.timing(animValues.scale, {
           toValue: 1,
+          duration: 550,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        // Mist clears away
+        Animated.timing(animValues.mistOpacity, {
+          toValue: 0,
           duration: 550,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
@@ -1129,19 +1141,35 @@ const AnimatedChipsTransition: React.FC<{
     return <View style={containerStyle} />;
   }
 
-  // Render chips with animation
+  // Render chips with animation + mist overlay
   return (
-    <Animated.View
-      style={[
-        containerStyle,
-        {
+    <View style={[containerStyle, { position: 'relative' }]}>
+      {/* Chips layer - animated opacity and scale */}
+      <Animated.View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
           opacity: animValues.opacity,
           transform: [{ scale: animValues.scale }],
-        },
-      ]}
-    >
-      {children}
-    </Animated.View>
+        }}
+      >
+        {children}
+      </Animated.View>
+      {/* Mist overlay - fades out to reveal sharp chips */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: -2,
+          left: -4,
+          right: -4,
+          bottom: -2,
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          opacity: animValues.mistOpacity,
+          borderRadius: 8,
+        }}
+      />
+    </View>
   );
 };
 
@@ -1558,7 +1586,10 @@ const RevealingCard: React.FC<{
 
   // Row 3: Chips fade in with magical slow reveal (no placeholders)
   // This starts AFTER Row 2 typewriter is done AND Phase 2 data arrives
-  const row3ChipsOpacity = React.useMemo(() => new Animated.Value(0), []);
+  // Chips start at 0.3 opacity for soft emergence effect
+  const row3ChipsOpacity = React.useMemo(() => new Animated.Value(0.3), []);
+  // Mist overlay starts visible and fades out to reveal sharp chips
+  const row3MistOpacity = React.useMemo(() => new Animated.Value(0.85), []);
   const row3CrossfadeStarted = React.useRef(false);
 
   // Check if Phase 2 data is available (for todos/habits: time estimate or frequency)
@@ -1591,21 +1622,29 @@ const RevealingCard: React.FC<{
   }, [shimmerOpacity, textOpacity]);
 
   // Start Row 3 fade-in when Row 2 is done AND Phase 2 data has arrived
-  // Magical slow reveal: 550ms ease-out with scale animation
+  // Magical slow reveal: 550ms ease-out with scale animation and mist fade
   React.useEffect(() => {
     if (line2Done && hasPhase2Data && !row3CrossfadeStarted.current) {
       row3CrossfadeStarted.current = true;
-      Animated.timing(row3ChipsOpacity, {
-        toValue: 1,
-        duration: 550,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start(() => {
+      Animated.parallel([
+        Animated.timing(row3ChipsOpacity, {
+          toValue: 1,
+          duration: 550,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(row3MistOpacity, {
+          toValue: 0,
+          duration: 550,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
         // Mark Row 3 as done after animation completes
         setLine3Done(true);
       });
     }
-  }, [line2Done, hasPhase2Data, row3ChipsOpacity]);
+  }, [line2Done, hasPhase2Data, row3ChipsOpacity, row3MistOpacity]);
 
   // Trigger settle animation when all lines complete
   React.useEffect(() => {
@@ -1706,27 +1745,46 @@ const RevealingCard: React.FC<{
       {/* Row 3: Chips fade in (no placeholders) + timestamp */}
       {/* Chips fade in after Row 2 typewriter completes */}
       <View style={styles.recentMetaRow}>
-        <Animated.View
-          style={{
-            opacity: row3ChipsOpacity,
-            transform: [
-              {
-                scale: row3ChipsOpacity.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }),
-              },
-            ],
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            minHeight: 20,
-          }}
-        >
-          <RealChipsRow
-            item={item}
-            effectiveKind={effectiveKind}
-            styles={styles}
-            onReady={() => {}}
+        <View style={{ position: 'relative' }}>
+          <Animated.View
+            style={{
+              opacity: row3ChipsOpacity,
+              transform: [
+                {
+                  scale: row3ChipsOpacity.interpolate({
+                    inputRange: [0.3, 1],
+                    outputRange: [0.98, 1],
+                  }),
+                },
+              ],
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              minHeight: 20,
+            }}
+          >
+            <RealChipsRow
+              item={item}
+              effectiveKind={effectiveKind}
+              styles={styles}
+              onReady={() => {}}
+            />
+          </Animated.View>
+          {/* Mist overlay - fades out to reveal sharp chips */}
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: -2,
+              left: -4,
+              right: -4,
+              bottom: -2,
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
+              opacity: row3MistOpacity,
+              borderRadius: 8,
+            }}
           />
-        </Animated.View>
+        </View>
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
     </Animated.View>
