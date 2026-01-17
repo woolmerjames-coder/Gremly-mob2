@@ -1012,14 +1012,17 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 // Custom LayoutAnimation config for smooth card slide-down (Phase 1)
+// Made slower and more intentional so users clearly see cards "making room"
 const CardInsertLayoutAnimation = {
-  duration: 500,
+  duration: 450,
   create: {
     type: LayoutAnimation.Types.easeOut,
     property: LayoutAnimation.Properties.opacity,
   },
   update: {
-    type: LayoutAnimation.Types.easeOut,
+    // Spring animation for visible, bouncy slide-down effect
+    type: LayoutAnimation.Types.spring,
+    springDamping: 0.85, // Lower = more bouncy (0.85 = subtle bounce at end)
   },
 };
 
@@ -1109,6 +1112,25 @@ const AnimatedCardInsert: React.FC<{
     >
       {children}
     </Animated.View>
+  );
+};
+
+/**
+ * AnimatedCardSlideDown - Wrapper for existing cards to animate their position
+ * when new cards are inserted above them.
+ *
+ * Uses Reanimated's Layout transition for smooth position animation.
+ * The 450ms duration matches CardInsertLayoutAnimation for visual consistency.
+ */
+const AnimatedCardSlideDown: React.FC<{
+  children: React.ReactNode;
+}> = ({ children }) => {
+  return (
+    <Reanimated.View
+      layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+    >
+      {children}
+    </Reanimated.View>
   );
 };
 
@@ -3938,22 +3960,23 @@ const RecentDrops: React.FC<{
                 const isPending = visualState === 'pending';
 
                 return (
-                  <AnimatedMindDropCard
-                    key={`${item.kind}:${item.id}`}
-                    item={item}
-                    isPending={isPending}
-                    effectiveKind={effectiveKind}
-                    displayKind={displayKind}
-                    showLegacyUnsortedBadge={showLegacyUnsortedBadge}
-                    badgeStyleKey={badgeStyleKey}
-                    c={c}
-                    styles={styles}
-                    mode={themeMode}
-                    handleEdit={handleEdit}
-                    handleDelete={handleDelete}
-                    onKeepAsNote={handleKeepAsNote}
-                    onSplitSelected={handleSplitSelected}
-                  />
+                  <AnimatedCardSlideDown key={`${item.kind}:${item.id}`}>
+                    <AnimatedMindDropCard
+                      item={item}
+                      isPending={isPending}
+                      effectiveKind={effectiveKind}
+                      displayKind={displayKind}
+                      showLegacyUnsortedBadge={showLegacyUnsortedBadge}
+                      badgeStyleKey={badgeStyleKey}
+                      c={c}
+                      styles={styles}
+                      mode={themeMode}
+                      handleEdit={handleEdit}
+                      handleDelete={handleDelete}
+                      onKeepAsNote={handleKeepAsNote}
+                      onSplitSelected={handleSplitSelected}
+                    />
+                  </AnimatedCardSlideDown>
                 );
               })}
             </AppScrollView>
