@@ -612,6 +612,7 @@ export async function processDrop(
         tags: enrichmentResult.tags,
         timeEstimateMinutes: enrichmentResult.time_estimate_minutes,
         timeWindow: enrichmentResult.time_window,
+        extractedDate: enrichmentResult.extracted_date, // For deadline chip
         extractedFrequency: enrichmentResult.extracted_frequency,
         extractedDays: enrichmentResult.extracted_days,
         people: enrichmentResult.people, // Include people for chip rendering

@@ -131,6 +131,7 @@ export interface PendingDrop {
   confirmationMessage?: string | null;
   timeEstimateMinutes?: number | null;
   timeWindow?: 'morning' | 'day' | 'evening' | null;
+  extractedDate?: string | null; // For todos: extracted due date
   extractedFrequency?: string | null; // For habits: "3x/week", "daily", etc.
   extractedDays?: number[] | null; // For habits: [1, 3, 5] = Mon, Wed, Fri
   people?: string[]; // Extracted people names for chip display

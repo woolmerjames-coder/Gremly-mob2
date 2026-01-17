@@ -1152,19 +1152,9 @@ const AnimatedChipsTransition: React.FC<{
   const animationStarted = React.useRef(alreadyAnimated);
 
   React.useEffect(() => {
-    // DEBUG: Log animation trigger
-    console.log('🔶 [AnimatedChipsTransition] Effect', {
-      trackingId,
-      hasRealData,
-      alreadyAnimated: chipAnimatedIds.has(trackingId),
-      animationStarted: animationStarted.current,
-      isVisible,
-    });
-
     // When real data arrives, animate chips into view with magical reveal
     // Skip if already animated (tracked by module-level Set)
     if (hasRealData && !animationStarted.current && !chipAnimatedIds.has(trackingId)) {
-      console.log('🟢 [AnimatedChipsTransition] STARTING ANIMATION', { trackingId });
       animationStarted.current = true;
       chipAnimatedIds.add(trackingId); // Persist across remounts
       // Start showing the container immediately (animation will run)
@@ -1242,56 +1232,6 @@ const AnimatedChipsTransition: React.FC<{
 };
 
 /**
- * RealChipsRow - Renders actual chips for Row 3 (due date, time estimate, tags)
- * No animation - just static render. Parent handles fade-in.
- */
-const RealChipsRow: React.FC<{
-  item: UnifiedDrop;
-  effectiveKind: 'todo' | 'habit' | 'note';
-  styles: any;
-  onReady: () => void;
-}> = ({ item, effectiveKind, styles, onReady }) => {
-  // Trigger onReady after a short delay to sync with crossfade
-  React.useEffect(() => {
-    const timeout = setTimeout(onReady, 200);
-    return () => clearTimeout(timeout);
-  }, [onReady]);
-
-  // Get contextual meta (due date for todo, start date for habit, etc.)
-  const contextMeta = getContextualMeta(effectiveKind, item);
-  const timeEstimate = formatTimeEstimate(item.time_estimate_minutes);
-
-  // For todos and habits, show chips
-  if (effectiveKind === 'todo' || effectiveKind === 'habit') {
-    return (
-      <>
-        {contextMeta && (
-          <View style={styles.recentContextPillContainer}>
-            <Text style={styles.recentContextPill}>{contextMeta}</Text>
-          </View>
-        )}
-        {timeEstimate && (
-          <View style={styles.timeEstimateChip}>
-            <Text style={styles.timeEstimateText}>{timeEstimate}</Text>
-          </View>
-        )}
-      </>
-    );
-  }
-
-  // For notes, just show context if available
-  if (contextMeta) {
-    return (
-      <View style={styles.recentContextPillContainer}>
-        <Text style={styles.recentContextPill}>{contextMeta}</Text>
-      </View>
-    );
-  }
-
-  return null;
-};
-
-/**
  * Row3Chips - UNIFIED chip rendering component for Row 3
  *
  * This is the SINGLE source of truth for ALL Row 3 chip rendering.
@@ -1350,21 +1290,6 @@ const Row3Chips: React.FC<{
   // CRITICAL: Use drop_id for tracking animation state across pending→entity transition
   // drop_id is set when pending drop is created and persists when synced to Supabase
   const trackingId = item.drop_id || item.id;
-
-  // DEBUG: Log chip animation decision
-  console.log('🔷 [Row3Chips] Render', {
-    trackingId,
-    itemId: item.id,
-    isPendingDrop,
-    chipDataReady,
-    minddropStage,
-    isEntityEnriched,
-    isLegacyItem,
-    hasRealChipData,
-    alreadyAnimated: chipAnimatedIds.has(trackingId),
-    time_estimate: item.time_estimate_minutes,
-    people: item.views?.people,
-  });
 
   // Get chip data
   const contextMeta = getContextualMeta(effectiveKind, item);
@@ -1851,10 +1776,12 @@ const RevealingCard: React.FC<{
   c: any;
   onRevealComplete: () => void;
 }> = ({ item, effectiveKind, displayKind, badgeStyleKey, styles, c, onRevealComplete }) => {
+  // CRITICAL: Use drop_id for tracking - persists across pending→entity transition
+  const trackingId = item.drop_id || item.id;
+
   // Track completion of each line
   const [line1Done, setLine1Done] = React.useState(false);
   const [line2Done, setLine2Done] = React.useState(false);
-  const [line3Done, setLine3Done] = React.useState(false);
 
   // CRITICAL: Capture initial values so they don't change during animation
   // This prevents Phase 2 updates from restarting the typewriter animation
@@ -1865,30 +1792,10 @@ const RevealingCard: React.FC<{
   // Memoize callbacks to prevent re-renders
   const handleLine1Done = React.useCallback(() => setLine1Done(true), []);
   const handleLine2Done = React.useCallback(() => setLine2Done(true), []);
-  const handleLine3Done = React.useCallback(() => setLine3Done(true), []);
 
   // Row 1 & 2: Shimmer fade-out / text fade-in (starts immediately)
   const shimmerOpacity = React.useMemo(() => new Animated.Value(1), []);
   const textOpacity = React.useMemo(() => new Animated.Value(0), []);
-
-  // Row 3: Chips fade in with magical slow reveal (no placeholders)
-  // This starts AFTER Row 2 typewriter is done AND Phase 2 data arrives
-  // Chips start at 0.3 opacity for soft emergence effect
-  const row3ChipsOpacity = React.useMemo(() => new Animated.Value(0.3), []);
-  // Mist overlay starts visible and fades out to reveal sharp chips
-  const row3MistOpacity = React.useMemo(() => new Animated.Value(0.85), []);
-  const row3CrossfadeStarted = React.useRef(false);
-
-  // Check if Phase 2 data is available
-  // CRITICAL: Use minddrop_stage as the definitive signal that enrichment is complete.
-  // This prevents chips from showing intermediate values then changing (e.g., "no deadline yet" → "due Tue").
-  // For notes: ready immediately (their chip is just the type label, no enrichment needed)
-  // For todos/habits: must wait for 'enriched' stage
-  const hasPhase2Data =
-    effectiveKind === 'note' ||
-    item.views?.minddrop_stage === 'enriched' ||
-    // Fallback for legacy items without stage tracking
-    (!item.views?.ai_pending && item.views?.minddrop_stage !== 'classified');
 
   // Settle pulse animation
   const settleScale = React.useMemo(() => new Animated.Value(1), []);
@@ -1910,34 +1817,10 @@ const RevealingCard: React.FC<{
     ]).start();
   }, [shimmerOpacity, textOpacity]);
 
-  // Start Row 3 fade-in when Row 2 is done AND Phase 2 data has arrived
-  // Magical slow reveal: 550ms ease-out with scale animation and mist fade
+  // Trigger settle animation when Row 1 & 2 typewriter complete
+  // Row 3 chips have their own animation via AnimatedChipsTransition
   React.useEffect(() => {
-    if (line2Done && hasPhase2Data && !row3CrossfadeStarted.current) {
-      row3CrossfadeStarted.current = true;
-      Animated.parallel([
-        Animated.timing(row3ChipsOpacity, {
-          toValue: 1,
-          duration: 550,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(row3MistOpacity, {
-          toValue: 0,
-          duration: 550,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        // Mark Row 3 as done after animation completes
-        setLine3Done(true);
-      });
-    }
-  }, [line2Done, hasPhase2Data, row3ChipsOpacity, row3MistOpacity]);
-
-  // Trigger settle animation when all lines complete
-  React.useEffect(() => {
-    if (line1Done && line2Done && line3Done) {
+    if (line1Done && line2Done) {
       // Subtle pulse: scale up slightly, glow, then settle
       Animated.sequence([
         Animated.parallel([
@@ -1970,7 +1853,7 @@ const RevealingCard: React.FC<{
         onRevealComplete();
       });
     }
-  }, [line1Done, line2Done, line3Done, settleScale, settleShadow, onRevealComplete]);
+  }, [line1Done, line2Done, settleScale, settleShadow, onRevealComplete]);
 
   // Animated shadow for settle effect
   const animatedShadowOpacity = settleShadow.interpolate({
@@ -2031,49 +1914,9 @@ const RevealingCard: React.FC<{
         </Animated.View>
       </View>
 
-      {/* Row 3: Chips fade in (no placeholders) + timestamp */}
-      {/* Chips fade in after Row 2 typewriter completes */}
+      {/* Row 3: Chips (use Row3Chips with AnimatedChipsTransition) + timestamp */}
       <View style={styles.recentMetaRow}>
-        <View style={{ position: 'relative' }}>
-          <Animated.View
-            style={{
-              opacity: row3ChipsOpacity,
-              transform: [
-                {
-                  scale: row3ChipsOpacity.interpolate({
-                    inputRange: [0.3, 1],
-                    outputRange: [0.98, 1],
-                  }),
-                },
-              ],
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              minHeight: 20,
-            }}
-          >
-            <RealChipsRow
-              item={item}
-              effectiveKind={effectiveKind}
-              styles={styles}
-              onReady={() => {}}
-            />
-          </Animated.View>
-          {/* Mist overlay - fades out to reveal sharp chips */}
-          <Animated.View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              top: -2,
-              left: -4,
-              right: -4,
-              bottom: -2,
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              opacity: row3MistOpacity,
-              borderRadius: 8,
-            }}
-          />
-        </View>
+        <Row3Chips item={item} effectiveKind={effectiveKind} styles={styles} />
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
     </Animated.View>
@@ -2316,11 +2159,13 @@ const AnimatedMindDropCard = React.memo<{
         return;
       }
 
-      // For first render: if item is already complete and was created recently (within 30s),
+      // For first render: if item is already complete/streaming and was created recently (within 30s),
       // trigger reveal animation since user just submitted it
       if (isFirstRender.current) {
         isFirstRender.current = false;
-        if (itemVisualState === 'complete') {
+        // Streaming = Phase 1 done, title ready for typewriter
+        // Complete = Phase 2 done, all data ready
+        if (itemVisualState === 'complete' || itemVisualState === 'streaming') {
           const createdAt = new Date(item.created_at).getTime();
           const ageMs = Date.now() - createdAt;
           if (ageMs < 30000) {
@@ -2340,7 +2185,10 @@ const AnimatedMindDropCard = React.memo<{
       }
 
       // Normal transition detection
-      if ((prev === 'enriching' || prev === 'pending') && itemVisualState === 'complete') {
+      // Trigger reveal when Phase 1 completes (streaming) or Phase 2 completes (complete)
+      const isNowReadyForReveal = itemVisualState === 'complete' || itemVisualState === 'streaming';
+      const wasNotReady = prev === 'enriching' || prev === 'pending';
+      if (wasNotReady && isNowReadyForReveal) {
         // Mark as revealing IMMEDIATELY to prevent duplicate animations on sync
         revealedItemIds.add(trackingId);
         // Start revealing animation
@@ -2362,9 +2210,10 @@ const AnimatedMindDropCard = React.memo<{
     }, [trackingId]);
 
     // Determine actual visual state
+    // 'streaming' = Phase 1 done, treat like 'complete' for card rendering (chips will wait for chip_data_ready)
     const visualState: MindDropVisualState = isRevealing
       ? 'revealing'
-      : revealComplete || itemVisualState === 'complete'
+      : revealComplete || itemVisualState === 'complete' || itemVisualState === 'streaming'
         ? 'complete'
         : itemVisualState;
 
@@ -2729,12 +2578,12 @@ const RecentDrops: React.FC<{
 
         // Determine visual stage based on status and enrichment fields
         // - pending: no classification yet → show PendingSkeleton
-        // - enriching: classified but enrichment fields arriving → show EnrichingSkeleton
-        // - streaming: smartTitle/confirmationMessage arrived → trigger typewriter reveal (Row 1-2)
-        // - synced: fully complete
+        // - enriching: classified but Phase 2 in progress → show EnrichingSkeleton
+        // - streaming: Phase 1 done, show title/confirmation with typewriter, chips wait for Phase 2
+        // - enriched: Phase 2 complete → all data ready
         //
-        // NOTE: Row 1-2 (title, confirmation) typewriter triggers on 'streaming'/'enriched'
-        // Row 3 chips have their own animation gated by status === 'enriched' (checked in Row3Chips)
+        // CRITICAL: Only report 'enriched' when status === 'enriched' (Phase 2 done)
+        // This ensures chips don't animate until all chip data is available
         const hasEnrichmentFields = !!drop.smartTitle || !!drop.confirmationMessage;
         const minddropStage =
           drop.status === 'pending'
@@ -2742,11 +2591,11 @@ const RecentDrops: React.FC<{
             : drop.status === 'classifying'
               ? 'classifying' // Multi-drop: Phase 1 running
               : drop.status === 'enriching' && hasEnrichmentFields
-                ? 'enriched' // smartTitle arrived → trigger Row 1-2 typewriter
+                ? 'streaming' // Phase 1 done, show typewriter, but chips wait for Phase 2
                 : drop.status === 'enriching'
                   ? 'enriching' // Phase 2 still in progress, no enrichment fields yet
                   : drop.status === 'enriched' || drop.status === 'synced'
-                    ? 'enriched'
+                    ? 'enriched' // Phase 2 FULLY complete - NOW chips can animate
                     : 'pending';
 
         // For multi-drops, use the summary as the title
@@ -2765,6 +2614,9 @@ const RecentDrops: React.FC<{
           noteSubtype,
           tags: drop.tags || [],
           labels: [],
+          // Map extracted date to due_date/due_day for deadline chip
+          due_date: drop.extractedDate ?? null,
+          due_day: drop.extractedDate?.split('T')[0] ?? null,
           views: {
             ai_pending: drop.status !== 'synced' && drop.status !== 'enriched',
             minddrop_stage: minddropStage,
