@@ -1071,8 +1071,9 @@ const AnimatedCardInsert: React.FC<{
     // Mark as animated immediately to prevent re-triggering
     animatedInItemIds.add(itemId);
 
-    // Trigger LayoutAnimation for existing cards to slide down (Phase 1)
-    LayoutAnimation.configureNext(CardInsertLayoutAnimation);
+    // NOTE: LayoutAnimation.configureNext is now called in addPendingDrop (Zustand store)
+    // BEFORE the state change, so existing cards slide down properly.
+    // Calling it here in useEffect would be TOO LATE (layout already changed).
 
     // Phase 2: Depth emergence animation
     // Starts at 200ms so card is mid-emergence when Phase 0 returns at ~700ms
@@ -1115,6 +1116,10 @@ const AnimatedCardInsert: React.FC<{
   );
 };
 
+// Module-level Set to track drop_ids that recently transitioned from pending→real
+// These items should NOT have Layout animation enabled initially to avoid jolt
+const recentlyPromotedDropIds = new Set<string>();
+
 /**
  * AnimatedCardSlideDown - Wrapper for existing cards to animate their position
  * when new cards are inserted above them.
@@ -1122,37 +1127,50 @@ const AnimatedCardInsert: React.FC<{
  * Uses Reanimated's Layout transition for smooth position animation.
  * The 450ms duration matches CardInsertLayoutAnimation for visual consistency.
  *
- * CRITICAL: Only enable Layout animation after card content is fully settled (2 seconds).
- * This prevents the "jump/bump" when chips appear or other content changes happen.
- * Cards only animate their position when OTHER cards are inserted/removed, not when
- * their own content changes.
+ * CRITICAL: We use a smart delay system to prevent jolts:
+ * 1. Items that just transitioned from pending→real skip Layout initially
+ * 2. Items wait 500ms after mount before enabling Layout animation
+ *
+ * This prevents the "jolt" when pending items are removed and real items appear,
+ * while still allowing smooth slide-down when NEW cards are inserted.
  */
 const AnimatedCardSlideDown: React.FC<{
   itemId: string;
+  dropId?: string | null;
   children: React.ReactNode;
-}> = ({ itemId, children }) => {
-  // Track if this item's content has fully settled (all enrichment complete)
-  // Use a longer delay (2s) to ensure chips, typewriter, and all transitions are done
-  const [hasSettled, setHasSettled] = React.useState(false);
+}> = ({ itemId, dropId, children }) => {
+  // Track if this item's layout animation is enabled
+  const [layoutEnabled, setLayoutEnabled] = React.useState(false);
 
   React.useEffect(() => {
-    // Wait 2 seconds after mount before enabling layout animation
-    // This ensures all Phase 1/2 enrichment, chip animations, and content updates are complete
-    // Only AFTER this point will the card animate its position for sibling changes
-    const timeout = setTimeout(() => {
-      setHasSettled(true);
-    }, 2000);
-    return () => clearTimeout(timeout);
-  }, []);
+    // Check if this item just transitioned from pending
+    // If so, we need to skip Layout animation to avoid the jolt
+    const wasRecentlyPromoted = dropId && recentlyPromotedDropIds.has(dropId);
 
-  // Before settling, render without Layout animation
-  // This prevents jumps during content updates (chips appearing, etc.)
-  if (!hasSettled) {
+    if (wasRecentlyPromoted) {
+      // Remove from set after checking (one-time skip)
+      recentlyPromotedDropIds.delete(dropId);
+      // Use longer delay for recently promoted items
+      const timeout = setTimeout(() => {
+        setLayoutEnabled(true);
+      }, 2000);
+      return () => clearTimeout(timeout);
+    }
+
+    // For normal items, enable Layout after a short delay
+    // This prevents any initial mount jitter
+    const timeout = setTimeout(() => {
+      setLayoutEnabled(true);
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [itemId, dropId]);
+
+  // Before Layout is enabled, render without animation
+  if (!layoutEnabled) {
     return <View>{children}</View>;
   }
 
-  // After settling, enable Layout animation for position changes
-  // Now this card will smoothly slide when NEW cards are inserted above it
+  // After enabled, use Reanimated Layout for smooth position animation
   return (
     <Reanimated.View
       layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
@@ -1160,6 +1178,13 @@ const AnimatedCardSlideDown: React.FC<{
       {children}
     </Reanimated.View>
   );
+};
+
+// Export function to mark a drop as recently promoted (called from entity:created handler)
+export const markDropAsRecentlyPromoted = (dropId: string) => {
+  recentlyPromotedDropIds.add(dropId);
+  // Auto-cleanup after 5 seconds
+  setTimeout(() => recentlyPromotedDropIds.delete(dropId), 5000);
 };
 
 /**
@@ -3251,6 +3276,9 @@ const RecentDrops: React.FC<{
           const entityType = payload.type as 'todo' | 'habit' | 'note';
           const entity = payload.entity;
 
+          // Mark this drop as recently promoted to skip Layout animation jolt
+          markDropAsRecentlyPromoted(dropId);
+
           // DEBUG: Log entity:created data
           console.log('🟣 [entity:created] Creating realItem', {
             entityId: entity.id,
@@ -3988,7 +4016,11 @@ const RecentDrops: React.FC<{
                 const isPending = visualState === 'pending';
 
                 return (
-                  <AnimatedCardSlideDown key={`${item.kind}:${item.id}`} itemId={item.id}>
+                  <AnimatedCardSlideDown
+                    key={`${item.kind}:${item.id}`}
+                    itemId={item.id}
+                    dropId={item.drop_id}
+                  >
                     <AnimatedMindDropCard
                       item={item}
                       isPending={isPending}
