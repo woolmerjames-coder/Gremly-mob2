@@ -1592,14 +1592,16 @@ const RevealingCard: React.FC<{
   const row3MistOpacity = React.useMemo(() => new Animated.Value(0.85), []);
   const row3CrossfadeStarted = React.useRef(false);
 
-  // Check if Phase 2 data is available (for todos/habits: time estimate or frequency)
-  // For notes: always ready (no chips needed)
+  // Check if Phase 2 data is available
+  // CRITICAL: Use minddrop_stage as the definitive signal that enrichment is complete.
+  // This prevents chips from showing intermediate values then changing (e.g., "no deadline yet" → "due Tue").
+  // For notes: ready immediately (their chip is just the type label, no enrichment needed)
+  // For todos/habits: must wait for 'enriched' stage
   const hasPhase2Data =
     effectiveKind === 'note' ||
-    item.time_estimate_minutes != null ||
-    item.frequency != null ||
-    item.cadence != null ||
-    (item.tags && item.tags.length > 0);
+    item.views?.minddrop_stage === 'enriched' ||
+    // Fallback for legacy items without stage tracking
+    (!item.views?.ai_pending && item.views?.minddrop_stage !== 'classified');
 
   // Settle pulse animation
   const settleScale = React.useMemo(() => new Animated.Value(1), []);
@@ -2244,20 +2246,28 @@ const AnimatedMindDropCard = React.memo<{
                 item.views?.people &&
                 Array.isArray(item.views.people) &&
                 item.views.people.length > 0;
-              const hasRealChipData = Boolean(
-                item.time_estimate_minutes != null ||
-                  item.frequency != null ||
-                  item.cadence != null ||
-                  (item.tags && item.tags.length > 0) ||
-                  item.due_date ||
-                  item.due_day ||
-                  hasMoods ||
-                  hasPeople ||
-                  // For notes/journals/ideas, they have immediate chip data (type label)
-                  item.views?.minddrop_stage === 'enriched' ||
-                  item.views?.minddrop_stage === 'classified' ||
-                  !item.views?.ai_pending,
-              );
+
+              // CRITICAL: For todos/habits, we must wait for Phase 2 enrichment to complete
+              // before showing chips. This prevents "no deadline yet" flashing before "due Tue".
+              // For notes, they can show immediately since their chip is just the type label.
+              const isNote = effectiveKind === 'note';
+              const isEnriched = item.views?.minddrop_stage === 'enriched';
+
+              // Notes: ready when classified (type label doesn't need enrichment)
+              // Todos/Habits: ready ONLY when enriched (due_day, time_estimate, frequency finalized)
+              const hasRealChipData = isNote
+                ? Boolean(
+                    item.views?.minddrop_stage === 'enriched' ||
+                      item.views?.minddrop_stage === 'classified' ||
+                      !item.views?.ai_pending ||
+                      hasMoods ||
+                      hasPeople,
+                  )
+                : Boolean(
+                    isEnriched ||
+                      // Also allow if explicitly no longer pending (fallback for legacy items)
+                      (!item.views?.ai_pending && item.views?.minddrop_stage !== 'classified'),
+                  );
 
               return (
                 <AnimatedChipsTransition hasRealData={hasRealChipData}>
