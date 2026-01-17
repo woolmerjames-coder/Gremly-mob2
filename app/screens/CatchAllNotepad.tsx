@@ -83,7 +83,7 @@ import type {
   LogSubtype as MindDropLogSubtype,
 } from '../../lib/minddrop/types';
 import { heuristicClassify } from '../../lib/minddrop/heuristicClassify';
-import { runPhase2Streaming } from '../../lib/minddrop/phase2';
+import { runPhase2 } from '../../lib/minddrop/phase2';
 import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTheme } from '../../src/theme/useTheme';
@@ -3551,10 +3551,31 @@ const RecentDrops: React.FC<{
               return [newItem, ...withoutOriginal];
             });
 
-            // Run Phase 2 enrichment
-            runPhase2Streaming(newTodo.id, originalText, 'todo', null, repo, (field, value) => {
-              console.log(`[RecentDrops:Phase2:${newTodo.id}] ${field}:`, value);
-            }).catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
+            // Run Phase 2 enrichment (non-streaming)
+            runPhase2(newTodo.id, originalText, 'todo', null, repo)
+              .then((result) => {
+                console.log(`[RecentDrops:Phase2:${newTodo.id}] Complete`, result);
+                // runPhase2 handles entity updates internally, but update local state too
+                if (result) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === newTodo.id
+                        ? {
+                            ...item,
+                            tags: result.tags || item.tags,
+                            time_estimate_minutes: result.timeEstimateMinutes,
+                            views: {
+                              ...item.views,
+                              minddrop_stage: 'enriched',
+                              ai_pending: false,
+                            },
+                          }
+                        : item,
+                    ),
+                  );
+                }
+              })
+              .catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
 
             console.log('[RecentDrops] Converted multi-drop to todo:', newTodo.id);
           }
@@ -3598,10 +3619,30 @@ const RecentDrops: React.FC<{
               return [newItem, ...withoutOriginal];
             });
 
-            // Run Phase 2 enrichment
-            runPhase2Streaming(newHabit.id, originalText, 'habit', null, repo, (field, value) => {
-              console.log(`[RecentDrops:Phase2:${newHabit.id}] ${field}:`, value);
-            }).catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
+            // Run Phase 2 enrichment (non-streaming)
+            runPhase2(newHabit.id, originalText, 'habit', null, repo)
+              .then((result) => {
+                console.log(`[RecentDrops:Phase2:${newHabit.id}] Complete`, result);
+                if (result) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === newHabit.id
+                        ? {
+                            ...item,
+                            tags: result.tags || item.tags,
+                            frequency: result.extractedFrequency,
+                            views: {
+                              ...item.views,
+                              minddrop_stage: 'enriched',
+                              ai_pending: false,
+                            },
+                          }
+                        : item,
+                    ),
+                  );
+                }
+              })
+              .catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
 
             console.log('[RecentDrops] Converted multi-drop to habit:', newHabit.id);
           }
@@ -3647,17 +3688,29 @@ const RecentDrops: React.FC<{
           ),
         );
 
-        // Run Phase 2 enrichment for the note
-        runPhase2Streaming(
-          noteId,
-          originalText,
-          'log',
-          dominantSubtype || 'general',
-          repo,
-          (field, value) => {
-            console.log(`[RecentDrops:Phase2:${noteId}] ${field}:`, value);
-          },
-        ).catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
+        // Run Phase 2 enrichment for the note (non-streaming)
+        runPhase2(noteId, originalText, 'log', dominantSubtype || 'general', repo)
+          .then((result) => {
+            console.log(`[RecentDrops:Phase2:${noteId}] Complete`, result);
+            if (result) {
+              setItems((prev) =>
+                prev.map((item) =>
+                  item.id === noteId
+                    ? {
+                        ...item,
+                        tags: result.tags || item.tags,
+                        views: {
+                          ...item.views,
+                          minddrop_stage: 'enriched',
+                          ai_pending: false,
+                        },
+                      }
+                    : item,
+                ),
+              );
+            }
+          })
+          .catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
 
         console.log('[RecentDrops] Kept multi-drop as note with subtype:', noteSubtype);
       } catch (err) {
@@ -3794,34 +3847,24 @@ const RecentDrops: React.FC<{
               ),
             );
 
-            // Trigger Phase 2 enrichment for the new entity (runs in background)
+            // Trigger Phase 2 enrichment for the new entity (non-streaming)
             const entityIdForPhase2 = newEntity.id;
-            runPhase2Streaming(
-              entityIdForPhase2,
-              splitItem.text,
-              bucket,
-              subtype,
-              repo,
-              (field, value) => {
-                console.log(`[RecentDrops:Phase2:${entityIdForPhase2}] ${field}:`, value);
-              },
-            )
+            runPhase2(entityIdForPhase2, splitItem.text, bucket, subtype, repo)
               .then((result) => {
                 console.log(`[RecentDrops:Phase2:${entityIdForPhase2}] Complete`, result);
-                // Backup update in case event listener didn't catch it
+                // Update local state with enrichment results
                 if (result) {
                   setItems((prev) =>
                     prev.map((item) =>
                       item.id === entityIdForPhase2
                         ? {
                             ...item,
-                            title: result.smart_title || item.title,
                             tags: result.tags || item.tags,
+                            time_estimate_minutes: result.timeEstimateMinutes,
                             views: {
                               ...item.views,
                               minddrop_stage: 'enriched',
                               ai_pending: false,
-                              confirmation_message: result.confirmation_message,
                             },
                           }
                         : item,
@@ -3831,7 +3874,7 @@ const RecentDrops: React.FC<{
               })
               .catch((err) => {
                 console.warn('[RecentDrops:Phase2] Enrichment failed', err);
-                // Reset card state so it doesn't stay stuck in streaming/enriching
+                // Reset card state so it doesn't stay stuck in enriching
                 setItems((prev) =>
                   prev.map((item) =>
                     item.id === entityIdForPhase2

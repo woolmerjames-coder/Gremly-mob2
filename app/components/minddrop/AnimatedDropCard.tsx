@@ -31,7 +31,7 @@ import { ShimmerPlaceholder } from './ShimmerPlaceholder';
 import { MultiSplitModal } from './MultiSplitModal';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useRepo } from '../../../providers/RepoProvider';
-import { runPhase2Streaming } from '../../../lib/minddrop/phase2';
+import { runPhase2 } from '../../../lib/minddrop/phase2';
 import type { MultiDropItem, MindDropBucket, LogSubtype } from '../../../lib/minddrop/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -367,23 +367,14 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
               } as any);
             }
 
-            // Trigger Phase 2 enrichment for the new entity (runs in background)
+            // Trigger Phase 2 enrichment for the new entity (non-streaming)
             if (newEntity?.id) {
-              runPhase2Streaming(
-                newEntity.id,
-                splitItem.text,
-                bucket,
-                subtype,
-                repo,
-                (field, value) => {
-                  console.log(`[AnimatedDropCard:Phase2:${newEntity!.id}] ${field}:`, value);
-                },
-              )
+              runPhase2(newEntity.id, splitItem.text, bucket, subtype, repo)
                 .then((enrichment) => {
                   if (enrichment) {
                     console.log('[AnimatedDropCard:Phase2] Enrichment complete', {
                       entityId: newEntity!.id,
-                      smartTitle: enrichment.smart_title?.substring(0, 30),
+                      tags: enrichment.tags?.length,
                     });
                   }
                 })
