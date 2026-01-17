@@ -616,6 +616,7 @@ export async function processDrop(
         extractedFrequency: enrichmentResult.extracted_frequency,
         extractedDays: enrichmentResult.extracted_days,
         people: enrichmentResult.people, // Include people for chip rendering
+        mood: enrichmentResult.mood, // Include mood for journal chip rendering
       });
     }
 

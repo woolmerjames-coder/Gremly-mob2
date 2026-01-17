@@ -135,6 +135,7 @@ export interface PendingDrop {
   extractedFrequency?: string | null; // For habits: "3x/week", "daily", etc.
   extractedDays?: number[] | null; // For habits: [1, 3, 5] = Mon, Wed, Fri
   people?: string[]; // Extracted people names for chip display
+  mood?: string[] | null; // For journals: extracted mood tags
   status: 'pending' | 'classifying' | 'enriching' | 'enriched' | 'syncing' | 'synced';
   isMulti?: boolean;
   // Multi-drop fields (populated by Phase 0)

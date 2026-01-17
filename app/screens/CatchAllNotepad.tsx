@@ -2620,6 +2620,7 @@ const RecentDrops: React.FC<{
           time_estimate_minutes: drop.timeEstimateMinutes ?? null,
           frequency: drop.extractedFrequency ?? null, // For habits: "3x/week", "daily", etc.
           days_active: drop.extractedDays ?? null, // For habits: day numbers for scheduling
+          mood: drop.mood ? (drop.mood as unknown as Mood[]) : null, // For journals: mood chips
           is_multi: drop.isMulti,
           // Multi-drop fields (from Phase 0, before entity creation)
           multi_items: drop.multiSegments?.map(
