@@ -10,7 +10,15 @@
  */
 
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
-import { View, Pressable, StyleSheet, Text as RNText } from 'react-native';
+import {
+  View,
+  Pressable,
+  StyleSheet,
+  Text as RNText,
+  LayoutAnimation,
+  Platform,
+  UIManager,
+} from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -18,6 +26,7 @@ import Animated, {
   withDelay,
   withRepeat,
   withSequence,
+  withSpring,
   Easing,
   FadeIn,
   SlideInDown,
@@ -25,6 +34,11 @@ import Animated, {
   cancelAnimation,
 } from 'react-native-reanimated';
 import { Clock, Camera, Lock } from 'lucide-react-native';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 import { getDateService } from '../../../lib/date';
 import { ShimmerPlaceholder } from './ShimmerPlaceholder';
@@ -254,6 +268,83 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     // Check for multi-entity drops (flag may be at top level or in views)
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Multi-drop bounce animation
+    // When a card transitions to multi-drop, do a celebratory bounce
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const bounceScale = useSharedValue(1);
+    // Track if we've already animated this card becoming multi-drop
+    // Use a ref that tracks the item ID to handle component reuse
+    const hasAnimatedMultiRef = useRef<string | null>(null);
+
+    useEffect(() => {
+      // Trigger bounce when isMulti is true AND we haven't animated this specific item yet
+      if (isMulti && hasAnimatedMultiRef.current !== item.id) {
+        hasAnimatedMultiRef.current = item.id;
+
+        // More pronounced bounce: 1.0 → 1.10 → 0.96 → 1.0
+        bounceScale.value = withSequence(
+          withTiming(1.1, { duration: 180, easing: Easing.out(Easing.back(2)) }),
+          withTiming(0.96, { duration: 140, easing: Easing.inOut(Easing.ease) }),
+          withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
+        );
+      }
+    }, [isMulti, item.id, bounceScale]);
+
+    const bounceStyle = useAnimatedStyle(() => ({
+      transform: [{ scale: bounceScale.value }],
+    }));
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Track content changes that could cause height jolt
+    // Animate layout when multi_items or segments update
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const prevMultiItemsCountRef = useRef(item.multi_items?.length ?? 0);
+    const multiItemsCount = item.multi_items?.length ?? 0;
+
+    useEffect(() => {
+      // If multi_items count changed, something updated (Phase 1 titles arriving)
+      if (multiItemsCount !== prevMultiItemsCountRef.current) {
+        console.log('[MultiDrop] 📊 multi_items count changed', {
+          id: item.id,
+          prev: prevMultiItemsCountRef.current,
+          now: multiItemsCount,
+        });
+        // Configure smooth layout animation for any height changes
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        prevMultiItemsCountRef.current = multiItemsCount;
+      }
+    }, [multiItemsCount, item.id]);
+
+    // Also track when confirmation message or title changes (Phase 1 updates)
+    const prevTitleRef = useRef(item.title);
+    const prevConfirmRef = useRef(item.confirmationMessage);
+
+    useEffect(() => {
+      if (
+        item.title !== prevTitleRef.current ||
+        item.confirmationMessage !== prevConfirmRef.current
+      ) {
+        console.log('[MultiDrop] 📝 Card content updated', {
+          id: item.id,
+          titleChanged: item.title !== prevTitleRef.current,
+          confirmChanged: item.confirmationMessage !== prevConfirmRef.current,
+        });
+        // Smooth any resulting layout changes
+        LayoutAnimation.configureNext({
+          duration: 250,
+          update: {
+            type: LayoutAnimation.Types.easeInEaseOut,
+            property: LayoutAnimation.Properties.scaleY,
+          },
+        });
+        prevTitleRef.current = item.title;
+        prevConfirmRef.current = item.confirmationMessage;
+      }
+    }, [item.title, item.confirmationMessage, item.id]);
+
     // DEBUG: Log multi status for notes
     if (item.kind === 'note') {
       console.log('[AnimatedDropCard:Multi]', {
@@ -448,99 +539,102 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     return (
       <Animated.View
         entering={SlideInDown.duration(280).delay(staggerDelay).easing(Easing.out(Easing.cubic))}
-        layout={Layout.duration(200).easing(Easing.inOut(Easing.ease))}
+        layout={Layout.duration(300).easing(Easing.inOut(Easing.ease))}
         style={localStyles.cardWrapper}
       >
-        <Pressable
-          testID={`minddrop-card-${item.id}`}
-          style={parentStyles.recentCard}
-          onPress={handleCardPress}
-          accessibilityRole="button"
-          accessibilityLabel={`Edit ${displayTitle}`}
-        >
-          {/* Row 1: Title (left) + Kind badge (right) */}
-          <View style={parentStyles.recentTopRow}>
-            <Animated.Text
-              numberOfLines={1}
-              style={[
-                parentStyles.recentTitle,
-                titleAnimatedStyle,
-                item.isPending && !isAITitleReady && localStyles.draftTitle,
-              ]}
-            >
-              {displayTitle || '—'}
-            </Animated.Text>
-            <View style={parentStyles.recentTopRight}>
-              {item.kind === 'note' && item.isPrivate && <Lock size={12} color="#777" />}
-              <RNText
+        {/* Inner view for bounce animation - separate from layout animation */}
+        <Animated.View style={bounceStyle}>
+          <Pressable
+            testID={`minddrop-card-${item.id}`}
+            style={parentStyles.recentCard}
+            onPress={handleCardPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Edit ${displayTitle}`}
+          >
+            {/* Row 1: Title (left) + Kind badge (right) */}
+            <View style={parentStyles.recentTopRow}>
+              <Animated.Text
+                numberOfLines={1}
                 style={[
-                  parentStyles.recentCategoryPill,
-                  parentStyles[badgeStyleKey],
-                  isMulti && localStyles.multiBadge,
+                  parentStyles.recentTitle,
+                  titleAnimatedStyle,
+                  item.isPending && !isAITitleReady && localStyles.draftTitle,
                 ]}
               >
-                {kindLabel}
-              </RNText>
-            </View>
-          </View>
-
-          {/* Row 2: Confirmation message or skeleton */}
-          {isMulti ? (
-            <RNText style={localStyles.multiHint}>Tap to decide what to do</RNText>
-          ) : item.confirmationMessage ? (
-            <Animated.View style={confirmationStyle}>
-              <TypewriterText
-                text={item.confirmationMessage}
-                style={parentStyles.recentConfirmation}
-                characterDelay={25}
-              />
-            </Animated.View>
-          ) : (
-            !item.isEnriched &&
-            item.isPending && (
-              <View style={localStyles.confirmationSkeleton}>
-                <ShimmerPlaceholder width="60%" height={14} borderRadius={4} />
+                {displayTitle || '—'}
+              </Animated.Text>
+              <View style={parentStyles.recentTopRight}>
+                {item.kind === 'note' && item.isPrivate && <Lock size={12} color="#777" />}
+                <RNText
+                  style={[
+                    parentStyles.recentCategoryPill,
+                    parentStyles[badgeStyleKey],
+                    isMulti && localStyles.multiBadge,
+                  ]}
+                >
+                  {kindLabel}
+                </RNText>
               </View>
-            )
-          )}
+            </View>
 
-          {/* Row 3: Meta row - context + time estimate + timestamp */}
-          <Animated.View style={[parentStyles.recentMetaRow, metaStyle]}>
-            {/* Left side: context chips */}
-            <View style={localStyles.metaLeft}>
-              {/* Due date chip for todos */}
-              {item.kind === 'todo' && (item.dueDate || item.dueDay) && (
-                <View style={localStyles.contextPill}>
-                  <RNText style={localStyles.contextPillText}>
-                    {formatDueDate(item.dueDate || item.dueDay)}
-                  </RNText>
+            {/* Row 2: Confirmation message or skeleton */}
+            {isMulti ? (
+              <RNText style={localStyles.multiHint}>Tap to decide what to do</RNText>
+            ) : item.confirmationMessage ? (
+              <Animated.View style={confirmationStyle}>
+                <TypewriterText
+                  text={item.confirmationMessage}
+                  style={parentStyles.recentConfirmation}
+                  characterDelay={25}
+                />
+              </Animated.View>
+            ) : (
+              !item.isEnriched &&
+              item.isPending && (
+                <View style={localStyles.confirmationSkeleton}>
+                  <ShimmerPlaceholder width="60%" height={14} borderRadius={4} />
                 </View>
-              )}
+              )
+            )}
 
-              {/* Time estimate chip */}
-              {item.timeEstimate && (
-                <View style={localStyles.timeChip}>
-                  <Clock size={10} color="#888" strokeWidth={2} />
-                  <RNText style={localStyles.timeText}>~{item.timeEstimate}m</RNText>
-                </View>
-              )}
-
-              {/* Tags (first 2) */}
-              {item.tags &&
-                item.tags.slice(0, 2).map((tag) => (
-                  <View key={tag} style={localStyles.tagChip}>
-                    <RNText style={localStyles.tagText}>{tag}</RNText>
+            {/* Row 3: Meta row - context + time estimate + timestamp */}
+            <Animated.View style={[parentStyles.recentMetaRow, metaStyle]}>
+              {/* Left side: context chips */}
+              <View style={localStyles.metaLeft}>
+                {/* Due date chip for todos */}
+                {item.kind === 'todo' && (item.dueDate || item.dueDay) && (
+                  <View style={localStyles.contextPill}>
+                    <RNText style={localStyles.contextPillText}>
+                      {formatDueDate(item.dueDate || item.dueDay)}
+                    </RNText>
                   </View>
-                ))}
-            </View>
+                )}
 
-            {/* Right side: photo icon + timestamp */}
-            <View style={localStyles.metaRight}>
-              {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
-              <RNText style={parentStyles.recentMetaTime}>{relativeTime(item.createdAt)}</RNText>
-            </View>
-          </Animated.View>
-        </Pressable>
+                {/* Time estimate chip */}
+                {item.timeEstimate && (
+                  <View style={localStyles.timeChip}>
+                    <Clock size={10} color="#888" strokeWidth={2} />
+                    <RNText style={localStyles.timeText}>~{item.timeEstimate}m</RNText>
+                  </View>
+                )}
+
+                {/* Tags (first 2) */}
+                {item.tags &&
+                  item.tags.slice(0, 2).map((tag) => (
+                    <View key={tag} style={localStyles.tagChip}>
+                      <RNText style={localStyles.tagText}>{tag}</RNText>
+                    </View>
+                  ))}
+              </View>
+
+              {/* Right side: photo icon + timestamp */}
+              <View style={localStyles.metaRight}>
+                {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
+                <RNText style={parentStyles.recentMetaTime}>{relativeTime(item.createdAt)}</RNText>
+              </View>
+            </Animated.View>
+          </Pressable>
+        </Animated.View>
 
         {/* Multi-entity split modal */}
         <MultiSplitModal

@@ -101,6 +101,7 @@ import Reanimated, {
   withTiming,
   withRepeat,
   withSequence,
+  withSpring,
   cancelAnimation,
   Easing as ReanimatedEasing,
 } from 'react-native-reanimated';
@@ -2157,6 +2158,10 @@ const revealedItemIds = new Set<string>();
 // This persists across pending→entity transition (drop_id stays the same)
 const chipAnimatedIds = new Set<string>();
 
+// Module-level Set to track drops that have already shown multi-drop bounce animation
+// Uses drop_id for stability across pending→synced transition
+const multiBounceAnimatedIds = new Set<string>();
+
 /**
  * Animated wrapper for Mind Drop card that smoothly transitions
  * from pending skeleton to final content when AI enrichment completes
@@ -2199,6 +2204,36 @@ const AnimatedMindDropCard = React.memo<{
     // Check for multi-entity drops
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
     const [multiModalVisible, setMultiModalVisible] = React.useState(false);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Multi-drop bounce animation
+    // When a card transitions to multi-drop, do a celebratory bounce
+    // Uses drop_id (stable across pending→synced) to prevent duplicate animations
+    // ─────────────────────────────────────────────────────────────────────────
+    const bounceScale = useSharedValue(1);
+
+    // Use drop_id for tracking (stable across pending→entity transition)
+    // Falls back to item.id for items without drop_id
+    const bounceTrackingId = item.drop_id || item.id;
+
+    React.useEffect(() => {
+      // Trigger bounce when isMulti is true AND we haven't animated this drop yet
+      // Uses module-level Set to persist across component remounts
+      if (isMulti && !multiBounceAnimatedIds.has(bounceTrackingId)) {
+        multiBounceAnimatedIds.add(bounceTrackingId);
+
+        // Pronounced bounce: 1.0 → 1.10 → 0.96 → 1.0
+        bounceScale.value = withSequence(
+          withTiming(1.1, { duration: 180 }),
+          withTiming(0.96, { duration: 140 }),
+          withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
+        );
+      }
+    }, [isMulti, bounceTrackingId, bounceScale]);
+
+    const bounceStyle = useAnimatedStyle(() => ({
+      transform: [{ scale: bounceScale.value }],
+    }));
 
     // Gremly pulse animation for multi-entity cards (always called, conditionally used)
     const gremlyPulseScale = useGremlyPulse();
@@ -2371,86 +2406,88 @@ const AnimatedMindDropCard = React.memo<{
     };
 
     return (
-      <>
-        <Pressable
-          key={`${item.kind}:${item.id}`}
-          testID={`minddrop-recent-${item.kind}-${item.id}`}
-          style={[styles.recentCard, isMulti && { backgroundColor: '#F4F9F4' }]}
-          onPress={handleCardPress}
-          accessibilityRole="button"
-          accessibilityLabel={
-            isMulti
-              ? 'Tap to decide what to do with multiple items'
-              : `Edit ${item.title || item.text || 'item'}`
-          }
-        >
-          {/* Row 1: Title (left) + Chip (right) */}
-          <View style={styles.recentTopRow}>
-            <Text numberOfLines={1} style={styles.recentTitle}>
-              {isMulti
-                ? item.multi_summary_title ||
-                  item.views?.multi_summary_title ||
-                  item.title ||
-                  'Multiple Items'
-                : item.title || item.text || '—'}
-            </Text>
-            <View style={styles.recentTopRight}>
-              {effectiveKind === 'note' && (item as any)?.private === true && (
-                <Lock size={12} color="#777" />
-              )}
-              <Text
-                style={[
-                  styles.recentCategoryPill,
-                  styles[badgeStyleKey],
-                  isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
-                ]}
-              >
-                {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
+      <React.Fragment>
+        <Reanimated.View style={bounceStyle}>
+          <Pressable
+            key={`${item.kind}:${item.id}`}
+            testID={`minddrop-recent-${item.kind}-${item.id}`}
+            style={[styles.recentCard, isMulti && { backgroundColor: '#F4F9F4' }]}
+            onPress={handleCardPress}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isMulti
+                ? 'Tap to decide what to do with multiple items'
+                : `Edit ${item.title || item.text || 'item'}`
+            }
+          >
+            {/* Row 1: Title (left) + Chip (right) */}
+            <View style={styles.recentTopRow}>
+              <Text numberOfLines={1} style={styles.recentTitle}>
+                {isMulti
+                  ? item.multi_summary_title ||
+                    item.views?.multi_summary_title ||
+                    item.title ||
+                    'Multiple Items'
+                  : item.title || item.text || '—'}
               </Text>
+              <View style={styles.recentTopRight}>
+                {effectiveKind === 'note' && (item as any)?.private === true && (
+                  <Lock size={12} color="#777" />
+                )}
+                <Text
+                  style={[
+                    styles.recentCategoryPill,
+                    styles[badgeStyleKey],
+                    isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
+                  ]}
+                >
+                  {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
+                </Text>
+              </View>
             </View>
-          </View>
 
-          {/* Row 2: Confirmation message or multi hint */}
-          {isMulti ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
-              <Animated.Image
-                source={require('../../assets/buttonforHP.png')}
-                style={{
-                  width: 26,
-                  height: 26,
-                  marginRight: 8,
-                  borderRadius: 13,
-                  transform: [{ scale: gremlyPulseScale }],
-                }}
+            {/* Row 2: Confirmation message or multi hint */}
+            {isMulti ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+                <Animated.Image
+                  source={require('../../assets/buttonforHP.png')}
+                  style={{
+                    width: 26,
+                    height: 26,
+                    marginRight: 8,
+                    borderRadius: 13,
+                    transform: [{ scale: gremlyPulseScale }],
+                  }}
+                />
+                <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
+                  Should I split these? Tap to decide.
+                </Text>
+              </View>
+            ) : (
+              (() => {
+                const confirmationMsg = getConfirmationMessage(effectiveKind, item);
+                // Always show static text in CompleteCard - TypewriterText is only used in RevealingCard
+                return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
+              })()
+            )}
+
+            {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
+            <View style={styles.recentMetaRow}>
+              {/* Left side: ALL chips rendered by unified Row3Chips component */}
+              <Row3Chips
+                item={item}
+                effectiveKind={effectiveKind}
+                styles={styles}
+                isMulti={isMulti}
               />
-              <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
-                Should I split these? Tap to decide.
-              </Text>
+              {/* Right side: photo icon + timestamp */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
+                <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+              </View>
             </View>
-          ) : (
-            (() => {
-              const confirmationMsg = getConfirmationMessage(effectiveKind, item);
-              // Always show static text in CompleteCard - TypewriterText is only used in RevealingCard
-              return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
-            })()
-          )}
-
-          {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
-          <View style={styles.recentMetaRow}>
-            {/* Left side: ALL chips rendered by unified Row3Chips component */}
-            <Row3Chips
-              item={item}
-              effectiveKind={effectiveKind}
-              styles={styles}
-              isMulti={isMulti}
-            />
-            {/* Right side: photo icon + timestamp */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
-              <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
-            </View>
-          </View>
-        </Pressable>
+          </Pressable>
+        </Reanimated.View>
 
         {/* Multi-entity split modal */}
         {isMulti && (
@@ -2468,7 +2505,7 @@ const AnimatedMindDropCard = React.memo<{
             onSplitSelected={handleSplitSelected}
           />
         )}
-      </>
+      </React.Fragment>
     );
   },
   (prevProps, nextProps) => {
@@ -2595,6 +2632,9 @@ const RecentDrops: React.FC<{
   initiallyOpen = true,
   eagerLoad = false,
 }) => {
+  // DEBUG: Log every RecentDrops render with timestamp
+  console.log('[RecentDrops] 🔄 Render', { timestamp: Date.now() });
+
   // Direct store access - no adapter
   const deleteNote = useGremlyStore((s) => s.deleteNote);
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
@@ -2609,6 +2649,59 @@ const RecentDrops: React.FC<{
 
   // Pending drops from Zustand (optimistic queue system)
   const pendingDropsMap = useGremlyStore((s) => s.pendingDrops);
+
+  // Configure smooth layout animation when pending drops content changes
+  // This prevents jolt when Phase 1 data (smart titles) arrive for segments
+  // BUT we skip animation when:
+  // - Drops are just being removed (promoted to entity)
+  // - A drop just became multi (bounce animation handles that)
+  const prevPendingDropsVersionRef = React.useRef<string>('');
+  const prevPendingDropsCountRef = React.useRef<number>(0);
+  const prevMultiIdsRef = React.useRef<Set<string>>(new Set());
+  React.useLayoutEffect(() => {
+    const currentDrops = Array.from(pendingDropsMap.values());
+    const currentCount = currentDrops.length;
+
+    // Track which drops are multi
+    const currentMultiIds = new Set(currentDrops.filter((d) => d.isMulti).map((d) => d.localId));
+
+    // Check if any drop just became multi (bounce animation handles this)
+    const newlyMulti = [...currentMultiIds].some((id) => !prevMultiIdsRef.current.has(id));
+
+    // Create a "version" string based on segment count and titles
+    // This detects meaningful changes that could affect card height
+    const version = currentDrops
+      .map(
+        (d) =>
+          `${d.localId}:${d.multiSegments?.length ?? 0}:${d.multiSegments?.[0]?.smartTitle ?? ''}`,
+      )
+      .join('|');
+
+    // Only animate if:
+    // 1. Version changed (content changed)
+    // 2. Not initial mount
+    // 3. Count didn't decrease (drop wasn't removed/promoted)
+    // 4. No drop just became multi (bounce handles that transition)
+    const contentChanged = version !== prevPendingDropsVersionRef.current;
+    const notInitialMount = prevPendingDropsVersionRef.current !== '';
+    const notRemoval = currentCount >= prevPendingDropsCountRef.current;
+
+    if (contentChanged && notInitialMount && notRemoval && !newlyMulti) {
+      console.log('[CatchAllNotepad] 🔄 Pending drops data changed, configuring layout animation');
+      LayoutAnimation.configureNext({
+        duration: 200,
+        update: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          // Use opacity instead of scaleY to avoid conflict with bounce animation
+          property: LayoutAnimation.Properties.opacity,
+        },
+      });
+    }
+
+    prevPendingDropsVersionRef.current = version;
+    prevPendingDropsCountRef.current = currentCount;
+    prevMultiIdsRef.current = currentMultiIds;
+  }, [pendingDropsMap]);
 
   // Synchronous lookups from store
   const getItemById = React.useCallback(
@@ -2727,6 +2820,18 @@ const RecentDrops: React.FC<{
       })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [pendingDropsMap]);
+
+  // Get drop_ids of all pending items to filter out duplicates from real items
+  const pendingDropIds = React.useMemo(() => {
+    return new Set(pendingItems.map((p) => p.drop_id).filter(Boolean));
+  }, [pendingItems]);
+
+  // Filter real items to exclude any that still have a pending version
+  // This prevents the "jolt" when a pending item is promoted to a real entity
+  const filteredItems = React.useMemo(() => {
+    if (pendingDropIds.size === 0) return items;
+    return items.filter((item) => !item.drop_id || !pendingDropIds.has(item.drop_id));
+  }, [items, pendingDropIds]);
 
   const rangeLabel = showOlder ? 'Earlier' : 'Today';
   const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
@@ -3980,7 +4085,7 @@ const RecentDrops: React.FC<{
         <View testID="minddrop-recent-list" style={styles.recentList}>
           {loading ? (
             <Text style={styles.recentEmpty}>Loading…</Text>
-          ) : items.length === 0 && pendingItems.length === 0 ? (
+          ) : filteredItems.length === 0 && pendingItems.length === 0 ? (
             <View style={styles.recentEmptyContainer}>
               <Text style={styles.recentEmptyPrimary}>
                 {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
@@ -4008,7 +4113,7 @@ const RecentDrops: React.FC<{
                       : 'badge_note';
 
                 return (
-                  <AnimatedCardInsert key={item.id} itemId={item.id}>
+                  <AnimatedCardInsert key={item.drop_id || item.id} itemId={item.id}>
                     <AnimatedMindDropCard
                       item={item}
                       isPending={true}
@@ -4025,8 +4130,8 @@ const RecentDrops: React.FC<{
                   </AnimatedCardInsert>
                 );
               })}
-              {/* Real items from database */}
-              {items.map((item) => {
+              {/* Real items from database (filtered to exclude pending duplicates) */}
+              {filteredItems.map((item) => {
                 const effectiveKind = item.optimisticKind ?? item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
                 const showLegacyUnsortedBadge =
