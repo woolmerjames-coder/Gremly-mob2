@@ -1189,6 +1189,118 @@ export const markDropAsRecentlyPromoted = (dropId: string) => {
 };
 
 /**
+ * UnifiedCardWrapper - Single wrapper for both pending and real items.
+ *
+ * CRITICAL: Using a single component prevents React from remounting children
+ * when an item transitions from pending to real. This preserves modal state.
+ *
+ * - isPending=true: Apply depth emergence animation (scale + opacity)
+ * - isPending=false: Apply slide-down animation via Reanimated Layout
+ */
+const UnifiedCardWrapper: React.FC<{
+  itemId: string;
+  dropId?: string | null;
+  isPending: boolean;
+  children: React.ReactNode;
+}> = ({ itemId, dropId, isPending, children }) => {
+  // DEBUG: Track wrapper mount/unmount
+  React.useEffect(() => {
+    console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
+    return () => {
+      console.log('[DEBUG:Wrapper] UnifiedCardWrapper UNMOUNTED:', { itemId, dropId });
+    };
+  }, []);
+
+  // DEBUG: Track isPending changes
+  React.useEffect(() => {
+    console.log('[DEBUG:Wrapper] isPending changed:', { itemId, dropId, isPending });
+  }, [isPending, itemId, dropId]);
+
+  // Track animation state - starts true if was pending, then transitions
+  const [wasPending, setWasPending] = React.useState(isPending);
+  const [layoutEnabled, setLayoutEnabled] = React.useState(false);
+
+  // Animation values for depth emergence (pending items)
+  const hasAnimated = animatedInItemIds.has(itemId);
+  const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
+  const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
+
+  // Handle pending→real transition
+  React.useEffect(() => {
+    if (wasPending && !isPending) {
+      // Item just transitioned from pending to real
+      // Mark that transition happened so we can skip Layout animation
+      if (dropId) {
+        recentlyPromotedDropIds.add(dropId);
+      }
+      setWasPending(false);
+    }
+  }, [isPending, wasPending, dropId]);
+
+  // Pending item animation (depth emergence)
+  React.useEffect(() => {
+    if (!isPending || hasAnimated) return;
+
+    animatedInItemIds.add(itemId);
+
+    const timeout = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(scale, {
+          toValue: 1,
+          duration: 750,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 750,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 200);
+
+    return () => clearTimeout(timeout);
+  }, [itemId, isPending, hasAnimated, scale, opacity]);
+
+  // Real item Layout animation (slide-down)
+  React.useEffect(() => {
+    if (isPending) return;
+
+    const wasRecentlyPromoted = dropId && recentlyPromotedDropIds.has(dropId);
+    const delay = wasRecentlyPromoted ? 2000 : 500;
+
+    if (wasRecentlyPromoted && dropId) {
+      recentlyPromotedDropIds.delete(dropId);
+    }
+
+    const timeout = setTimeout(() => {
+      setLayoutEnabled(true);
+    }, delay);
+    return () => clearTimeout(timeout);
+  }, [isPending, dropId]);
+
+  // Pending items: use Animated.View with scale/opacity
+  if (isPending && !hasAnimated) {
+    return <Animated.View style={{ opacity, transform: [{ scale }] }}>{children}</Animated.View>;
+  }
+
+  // Real items with Layout enabled: use Reanimated.View
+  if (!isPending && layoutEnabled) {
+    return (
+      <Reanimated.View
+        layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
+      >
+        {children}
+      </Reanimated.View>
+    );
+  }
+
+  // Default: plain View (pending after animation, or real before Layout enabled)
+  return <View>{children}</View>;
+};
+
+/**
  * AnimatedChipsTransition - Magical blur-to-sharp reveal for Phase 2 metadata chips
  *
  * When Phase 2 data arrives, ALL chips "emerge from mist" together:
@@ -2184,6 +2296,8 @@ const AnimatedMindDropCard = React.memo<{
   // Multi-entity handlers passed from parent
   onKeepAsNote?: (id: string) => void;
   onSplitSelected?: (id: string, selectedItems: MultiDropItem[]) => void;
+  // Callback to open modal at parent level (modal lives in RecentDrops, not here)
+  onOpenModal?: (item: UnifiedDrop) => void;
 }>(
   ({
     item,
@@ -2200,10 +2314,25 @@ const AnimatedMindDropCard = React.memo<{
     index = 0,
     onKeepAsNote,
     onSplitSelected,
+    onOpenModal,
   }) => {
     // Check for multi-entity drops
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
-    const [multiModalVisible, setMultiModalVisible] = React.useState(false);
+
+    // DEBUG: Track component mount/unmount
+    React.useEffect(() => {
+      console.log('[DEBUG:AnimatedMindDropCard] MOUNTED:', {
+        itemId: item.id,
+        dropId: item.drop_id,
+        isMulti,
+      });
+      return () => {
+        console.log('[DEBUG:AnimatedMindDropCard] UNMOUNTED:', {
+          itemId: item.id,
+          dropId: item.drop_id,
+        });
+      };
+    }, []); // Empty deps = only on mount/unmount
 
     // ─────────────────────────────────────────────────────────────────────────
     // Multi-drop bounce animation
@@ -2380,132 +2509,100 @@ const AnimatedMindDropCard = React.memo<{
     // Complete or Failed: Show static content (also used for multi-drops)
     const isFailed = visualState === 'failed';
 
-    // Multi-entity handler
+    // Multi-entity handler - opens modal at parent level
     const handleCardPress = () => {
       if (isMulti) {
-        setMultiModalVisible(true);
+        // Modal lives in RecentDrops - just tell parent to open it
+        if (onOpenModal) {
+          onOpenModal(item);
+        }
         return;
       }
       handleEdit(item.id, item.kind, item.unsorted);
     };
 
-    // Multi-entity keep as note handler
-    const handleKeepAsNote = () => {
-      setMultiModalVisible(false);
-      if (onKeepAsNote) {
-        onKeepAsNote(item.id);
-      }
-    };
-
-    // Multi-entity split handler
-    const handleSplitSelected = (selectedItems: MultiDropItem[]) => {
-      setMultiModalVisible(false);
-      if (onSplitSelected) {
-        onSplitSelected(item.id, selectedItems);
-      }
-    };
-
     return (
-      <React.Fragment>
-        <Reanimated.View style={bounceStyle}>
-          <Pressable
-            key={`${item.kind}:${item.id}`}
-            testID={`minddrop-recent-${item.kind}-${item.id}`}
-            style={[styles.recentCard, isMulti && { backgroundColor: '#F4F9F4' }]}
-            onPress={handleCardPress}
-            accessibilityRole="button"
-            accessibilityLabel={
-              isMulti
-                ? 'Tap to decide what to do with multiple items'
-                : `Edit ${item.title || item.text || 'item'}`
-            }
-          >
-            {/* Row 1: Title (left) + Chip (right) */}
-            <View style={styles.recentTopRow}>
-              <Text numberOfLines={1} style={styles.recentTitle}>
-                {isMulti
-                  ? item.multi_summary_title ||
-                    item.views?.multi_summary_title ||
-                    item.title ||
-                    'Multiple Items'
-                  : item.title || item.text || '—'}
+      <Reanimated.View style={bounceStyle}>
+        <Pressable
+          key={`${item.kind}:${item.id}`}
+          testID={`minddrop-recent-${item.kind}-${item.id}`}
+          style={[styles.recentCard, isMulti && { backgroundColor: '#F4F9F4' }]}
+          onPress={handleCardPress}
+          accessibilityRole="button"
+          accessibilityLabel={
+            isMulti
+              ? 'Tap to decide what to do with multiple items'
+              : `Edit ${item.title || item.text || 'item'}`
+          }
+        >
+          {/* Row 1: Title (left) + Chip (right) */}
+          <View style={styles.recentTopRow}>
+            <Text numberOfLines={1} style={styles.recentTitle}>
+              {isMulti
+                ? item.multi_summary_title ||
+                  item.views?.multi_summary_title ||
+                  item.title ||
+                  'Multiple Items'
+                : item.title || item.text || '—'}
+            </Text>
+            <View style={styles.recentTopRight}>
+              {effectiveKind === 'note' && (item as any)?.private === true && (
+                <Lock size={12} color="#777" />
+              )}
+              <Text
+                style={[
+                  styles.recentCategoryPill,
+                  styles[badgeStyleKey],
+                  isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
+                ]}
+              >
+                {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
               </Text>
-              <View style={styles.recentTopRight}>
-                {effectiveKind === 'note' && (item as any)?.private === true && (
-                  <Lock size={12} color="#777" />
-                )}
-                <Text
-                  style={[
-                    styles.recentCategoryPill,
-                    styles[badgeStyleKey],
-                    isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
-                  ]}
-                >
-                  {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
-                </Text>
-              </View>
             </View>
+          </View>
 
-            {/* Row 2: Confirmation message or multi hint */}
-            {isMulti ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
-                <Animated.Image
-                  source={require('../../assets/buttonforHP.png')}
-                  style={{
-                    width: 26,
-                    height: 26,
-                    marginRight: 8,
-                    borderRadius: 13,
-                    transform: [{ scale: gremlyPulseScale }],
-                  }}
-                />
-                <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
-                  Should I split these? Tap to decide.
-                </Text>
-              </View>
-            ) : (
-              (() => {
-                const confirmationMsg = getConfirmationMessage(effectiveKind, item);
-                // Always show static text in CompleteCard - TypewriterText is only used in RevealingCard
-                return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
-              })()
-            )}
-
-            {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
-            <View style={styles.recentMetaRow}>
-              {/* Left side: ALL chips rendered by unified Row3Chips component */}
-              <Row3Chips
-                item={item}
-                effectiveKind={effectiveKind}
-                styles={styles}
-                isMulti={isMulti}
+          {/* Row 2: Confirmation message or multi hint */}
+          {isMulti ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+              <Animated.Image
+                source={require('../../assets/buttonforHP.png')}
+                style={{
+                  width: 26,
+                  height: 26,
+                  marginRight: 8,
+                  borderRadius: 13,
+                  transform: [{ scale: gremlyPulseScale }],
+                }}
               />
-              {/* Right side: photo icon + timestamp */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
-                <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
-              </View>
+              <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
+                Should I split these? Tap to decide.
+              </Text>
             </View>
-          </Pressable>
-        </Reanimated.View>
+          ) : (
+            (() => {
+              const confirmationMsg = getConfirmationMessage(effectiveKind, item);
+              // Always show static text in CompleteCard - TypewriterText is only used in RevealingCard
+              return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
+            })()
+          )}
 
-        {/* Multi-entity split modal */}
-        {isMulti && (
-          <MultiSplitModal
-            visible={multiModalVisible}
-            items={item.multi_items || item.views?.multi_items || []}
-            summaryTitle={
-              item.multi_summary_title || item.views?.multi_summary_title || 'Multiple Items'
-            }
-            originalText={item.text || item.title || ''}
-            dominantBucket={item.views?.dominant_bucket || null}
-            dominantSubtype={item.views?.dominant_subtype || null}
-            onClose={() => setMultiModalVisible(false)}
-            onKeepAsNote={handleKeepAsNote}
-            onSplitSelected={handleSplitSelected}
-          />
-        )}
-      </React.Fragment>
+          {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
+          <View style={styles.recentMetaRow}>
+            {/* Left side: ALL chips rendered by unified Row3Chips component */}
+            <Row3Chips
+              item={item}
+              effectiveKind={effectiveKind}
+              styles={styles}
+              isMulti={isMulti}
+            />
+            {/* Right side: photo icon + timestamp */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
+              <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
+            </View>
+          </View>
+        </Pressable>
+      </Reanimated.View>
     );
   },
   (prevProps, nextProps) => {
@@ -2719,6 +2816,16 @@ const RecentDrops: React.FC<{
   const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
   const canonicalTypesOn = env.feature.canonicalTypes;
 
+  // Modal state lifted from AnimatedMindDropCard to prevent remount issues
+  // Modal stays visible even when card remounts due to pending→real transition
+  const [activeModalItem, setActiveModalItem] = React.useState<UnifiedDrop | null>(null);
+
+  // Handler to open modal from child card
+  const handleOpenModal = React.useCallback((item: UnifiedDrop) => {
+    console.log('[RecentDrops] Opening modal for item:', item.id, item.drop_id);
+    setActiveModalItem(item);
+  }, []);
+
   // Transform pending drops from Zustand Map to UnifiedDrop array
   const pendingItems = React.useMemo((): UnifiedDrop[] => {
     const drops = Array.from(pendingDropsMap.values());
@@ -2832,6 +2939,18 @@ const RecentDrops: React.FC<{
     if (pendingDropIds.size === 0) return items;
     return items.filter((item) => !item.drop_id || !pendingDropIds.has(item.drop_id));
   }, [items, pendingDropIds]);
+
+  // Keep modal item synced with latest version from items/pendingItems
+  // (in case Phase 1 updates segments while modal is open)
+  const currentModalItem = React.useMemo(() => {
+    if (!activeModalItem) return null;
+    // Find the current version of this item by drop_id or id in both lists
+    const dropId = activeModalItem.drop_id || activeModalItem.id;
+    const fromPending = pendingItems.find((i) => (i.drop_id || i.id) === dropId);
+    if (fromPending) return fromPending;
+    const fromItems = items.find((i) => (i.drop_id || i.id) === dropId);
+    return fromItems || activeModalItem;
+  }, [activeModalItem, pendingItems, items]);
 
   const rangeLabel = showOlder ? 'Earlier' : 'Today';
   const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
@@ -3665,6 +3784,9 @@ const RecentDrops: React.FC<{
   // Multi-entity: Keep as note handler
   const handleKeepAsNote = React.useCallback(
     async (noteId: string) => {
+      // Close modal first (modal is at RecentDrops level now)
+      setActiveModalItem(null);
+
       try {
         const noteToUpdate = items.find((item) => item.id === noteId);
         if (!noteToUpdate) return;
@@ -3851,6 +3973,9 @@ const RecentDrops: React.FC<{
   // Multi-entity: Split selected items handler
   const handleSplitSelected = React.useCallback(
     async (noteId: string, selectedItems: MultiDropItem[]) => {
+      // Close modal first (modal is at RecentDrops level now)
+      setActiveModalItem(null);
+
       console.log('[RecentDrops] Splitting multi-drop into', selectedItems.length, 'items');
       console.log(
         '[RecentDrops] Split items detail:',
@@ -4099,80 +4224,102 @@ const RecentDrops: React.FC<{
               contentContainerStyle={styles.recentScrollContent}
               showsVerticalScrollIndicator
             >
-              {/* Pending items (optimistic UI) */}
-              {pendingItems.map((item) => {
-                const effectiveKind = item.kind;
-                const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
-                const badgeStyleKey =
-                  effectiveKind === 'todo'
-                    ? 'badge_todo'
-                    : effectiveKind === 'habit'
-                      ? 'badge_habit'
-                      : 'badge_note';
-
-                return (
-                  <AnimatedCardInsert key={item.drop_id || item.id} itemId={item.id}>
-                    <AnimatedMindDropCard
-                      item={item}
-                      isPending={true}
-                      effectiveKind={effectiveKind}
-                      displayKind={displayKind}
-                      showLegacyUnsortedBadge={undefined}
-                      badgeStyleKey={badgeStyleKey}
-                      c={c}
-                      styles={styles}
-                      mode={themeMode}
-                      handleEdit={NOOP_EDIT}
-                      handleDelete={NOOP_DELETE}
-                    />
-                  </AnimatedCardInsert>
+              {/* Combined list: pending items first, then real items (sorted by created_at) */}
+              {/* Using a single loop ensures React maintains component identity when */}
+              {/* a pending item is promoted to a real item (prevents modal from closing) */}
+              {(() => {
+                // Combine pending and real items, mark which list they're from
+                const allItems = [
+                  ...pendingItems.map((item) => ({ ...item, _isPendingList: true as const })),
+                  ...filteredItems.map((item) => ({ ...item, _isPendingList: false as const })),
+                ].sort(
+                  (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
                 );
-              })}
-              {/* Real items from database (filtered to exclude pending duplicates) */}
-              {filteredItems.map((item) => {
-                const effectiveKind = item.optimisticKind ?? item.kind;
-                const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
-                const showLegacyUnsortedBadge =
-                  !canonicalTypesOn && effectiveKind === 'note' && item.unsorted;
-                const badgeStyleKey =
-                  effectiveKind === 'todo'
-                    ? 'badge_todo'
-                    : effectiveKind === 'habit'
-                      ? 'badge_habit'
-                      : 'badge_note';
 
-                // Get visual state for pending/failed/final rendering
-                const visualState = getMindDropVisualState(item);
-                const isPending = visualState === 'pending';
+                return allItems.map((item) => {
+                  const effectiveKind = item.optimisticKind ?? item.kind;
+                  const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
+                  const showLegacyUnsortedBadge =
+                    !canonicalTypesOn && effectiveKind === 'note' && (item as any).unsorted;
+                  const badgeStyleKey =
+                    effectiveKind === 'todo'
+                      ? 'badge_todo'
+                      : effectiveKind === 'habit'
+                        ? 'badge_habit'
+                        : 'badge_note';
 
-                // Use drop_id for key if available to maintain component identity
-                // when transitioning from pending to real (prevents modal from closing)
-                const stableKey = item.drop_id || `${item.kind}:${item.id}`;
+                  // Get visual state for pending/failed/final rendering
+                  const visualState = getMindDropVisualState(item);
+                  const isPending = item._isPendingList || visualState === 'pending';
 
-                return (
-                  <AnimatedCardSlideDown key={stableKey} itemId={item.id} dropId={item.drop_id}>
-                    <AnimatedMindDropCard
-                      item={item}
-                      isPending={isPending}
-                      effectiveKind={effectiveKind}
-                      displayKind={displayKind}
-                      showLegacyUnsortedBadge={showLegacyUnsortedBadge}
-                      badgeStyleKey={badgeStyleKey}
-                      c={c}
-                      styles={styles}
-                      mode={themeMode}
-                      handleEdit={handleEdit}
-                      handleDelete={handleDelete}
-                      onKeepAsNote={handleKeepAsNote}
-                      onSplitSelected={handleSplitSelected}
-                    />
-                  </AnimatedCardSlideDown>
-                );
-              })}
+                  // Use drop_id for key to maintain component identity across pending→real transition
+                  const stableKey = item.drop_id || `${item.kind}:${item.id}`;
+
+                  // DEBUG: Log each item render with key info
+                  console.log('[DEBUG:Render] Item in list:', {
+                    stableKey,
+                    itemId: item.id,
+                    dropId: item.drop_id,
+                    isPendingList: item._isPendingList,
+                    kind: item.kind,
+                  });
+
+                  // Use UnifiedCardWrapper for BOTH pending and real items
+                  // This prevents remounting when transitioning (preserves modal state)
+                  return (
+                    <UnifiedCardWrapper
+                      key={stableKey}
+                      itemId={item.id}
+                      dropId={item.drop_id}
+                      isPending={item._isPendingList}
+                    >
+                      <AnimatedMindDropCard
+                        item={item}
+                        isPending={isPending}
+                        effectiveKind={effectiveKind}
+                        displayKind={displayKind}
+                        showLegacyUnsortedBadge={
+                          item._isPendingList ? undefined : showLegacyUnsortedBadge
+                        }
+                        badgeStyleKey={badgeStyleKey}
+                        c={c}
+                        styles={styles}
+                        mode={themeMode}
+                        handleEdit={item._isPendingList ? NOOP_EDIT : handleEdit}
+                        handleDelete={item._isPendingList ? NOOP_DELETE : handleDelete}
+                        onKeepAsNote={handleKeepAsNote}
+                        onSplitSelected={handleSplitSelected}
+                        onOpenModal={handleOpenModal}
+                      />
+                    </UnifiedCardWrapper>
+                  );
+                });
+              })()}
             </AppScrollView>
           )}
         </View>
       ) : null}
+
+      {/* Multi-entity modal lifted to RecentDrops level - survives card remounts */}
+      {currentModalItem && (
+        <MultiSplitModal
+          visible={!!currentModalItem}
+          items={currentModalItem.multi_items || currentModalItem.views?.multi_items || []}
+          summaryTitle={
+            currentModalItem.multi_summary_title ||
+            currentModalItem.views?.multi_summary_title ||
+            'Multiple Items'
+          }
+          originalText={currentModalItem.text || currentModalItem.title || ''}
+          dominantBucket={currentModalItem.views?.dominant_bucket || null}
+          dominantSubtype={currentModalItem.views?.dominant_subtype || null}
+          onClose={() => setActiveModalItem(null)}
+          onKeepAsNote={() => handleKeepAsNote(currentModalItem.id)}
+          onSplitSelected={(selectedItems) =>
+            handleSplitSelected(currentModalItem.id, selectedItems)
+          }
+        />
+      )}
     </View>
   );
 };

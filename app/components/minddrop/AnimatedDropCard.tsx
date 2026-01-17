@@ -360,6 +360,30 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     // Multi-entity modal visibility state
     const [multiModalVisible, setMultiModalVisible] = useState(false);
 
+    // DEBUG: Track modal state changes
+    useEffect(() => {
+      console.log('[DEBUG:Modal] State changed:', {
+        itemId: item.id,
+        dropId: (item as any).drop_id,
+        multiModalVisible,
+      });
+    }, [multiModalVisible, item.id]);
+
+    // DEBUG: Track component mount/unmount
+    useEffect(() => {
+      console.log('[DEBUG:Mount] AnimatedDropCard MOUNTED:', {
+        itemId: item.id,
+        dropId: (item as any).drop_id,
+        title: item.title?.substring(0, 30),
+      });
+      return () => {
+        console.log('[DEBUG:Unmount] AnimatedDropCard UNMOUNTED:', {
+          itemId: item.id,
+          dropId: (item as any).drop_id,
+        });
+      };
+    }, []); // Empty deps = only on mount/unmount
+
     // Repo for Phase 2 enrichment
     const repo = useRepo();
 
