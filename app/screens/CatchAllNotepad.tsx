@@ -1303,19 +1303,21 @@ const Row3Chips: React.FC<{
   const hasPeople =
     item.views?.people && Array.isArray(item.views.people) && item.views.people.length > 0;
 
-  // CRITICAL: ALL item types must wait for Phase 2 enrichment to complete
-  // before showing ANY chips. This ensures ALL chips appear TOGETHER.
+  // CRITICAL: Row 3 chips must wait for Phase 2 to FULLY complete before animating.
+  // This is SEPARATE from minddrop_stage which triggers Row 1-2 typewriter earlier.
+  //
+  // For pending drops: check chip_data_ready flag (set when status === 'enriched')
+  // For real entities: check minddrop_stage === 'enriched' (set by entity:enriched event)
+  // For legacy items: check that there's no stage tracking at all
+  const chipDataReady = item.views?.chip_data_ready === true;
   const minddropStage = item.views?.minddrop_stage;
-  const isEnriched = minddropStage === 'enriched';
-
-  // Fallback for legacy items: ONLY trigger if there's NO stage tracking at all
-  // Don't trigger during 'pending', 'classified', 'streaming', 'enriching' - wait for 'enriched'
+  const isEntityEnriched = minddropStage === 'enriched';
   const isLegacyItem =
     minddropStage === undefined &&
     item.views?.ai_pending !== true &&
     item.views?.ai_failed !== true;
 
-  const hasRealChipData = isEnriched || isLegacyItem;
+  const hasRealChipData = chipDataReady || isEntityEnriched || isLegacyItem;
 
   // Get chip data
   const contextMeta = getContextualMeta(effectiveKind, item);
@@ -2677,23 +2679,24 @@ const RecentDrops: React.FC<{
         // Determine visual stage based on status and enrichment fields
         // - pending: no classification yet → show PendingSkeleton
         // - enriching: classified but enrichment fields arriving → show EnrichingSkeleton
-        // - enriched: has ALL enrichment data (Phase 2 fully done) → trigger reveal animation
+        // - streaming: smartTitle/confirmationMessage arrived → trigger typewriter reveal (Row 1-2)
         // - synced: fully complete
         //
-        // CRITICAL: Only trigger 'enriched' when FULLY enriched (status === 'enriched' or 'synced')
-        // DO NOT trigger on smartTitle/confirmationMessage alone - those arrive in Phase 1,
-        // but time_estimate and people arrive in Phase 2. If we trigger early, only
-        // some chips animate and the rest pop in without animation.
+        // NOTE: Row 1-2 (title, confirmation) typewriter triggers on 'streaming'/'enriched'
+        // Row 3 chips have their own animation gated by status === 'enriched' (checked in Row3Chips)
+        const hasEnrichmentFields = !!drop.smartTitle || !!drop.confirmationMessage;
         const minddropStage =
           drop.status === 'pending'
             ? 'pending'
             : drop.status === 'classifying'
               ? 'classifying' // Multi-drop: Phase 1 running
-              : drop.status === 'enriched' || drop.status === 'synced'
-                ? 'enriched' // ONLY when fully enriched or synced
+              : drop.status === 'enriching' && hasEnrichmentFields
+                ? 'enriched' // smartTitle arrived → trigger Row 1-2 typewriter
                 : drop.status === 'enriching'
-                  ? 'enriching' // Phase 2 still in progress
-                  : 'pending';
+                  ? 'enriching' // Phase 2 still in progress, no enrichment fields yet
+                  : drop.status === 'enriched' || drop.status === 'synced'
+                    ? 'enriched'
+                    : 'pending';
 
         // For multi-drops, use the summary as the title
         const displayTitle =
@@ -2716,6 +2719,9 @@ const RecentDrops: React.FC<{
             minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
             people: drop.people, // Include people for chip rendering
+            // Flag for Row3Chips: only animate chips when Phase 2 is FULLY complete
+            // This is separate from minddrop_stage which triggers Row 1-2 typewriter earlier
+            chip_data_ready: drop.status === 'enriched' || drop.status === 'synced',
             // Multi-drop data for UI rendering
             is_multi: drop.isMulti,
             multi_segments: drop.multiSegments,
