@@ -106,25 +106,23 @@ const TODO_PRESETS: Record<string, PresetConfig> = {
 };
 
 const HABIT_PRESETS: Record<string, PresetConfig> = {
-  stay_consistent: {
-    label: 'Stay consistent',
-    prompt: 'Help me stay consistent with this habit',
-    icon: Target,
+  setup: {
+    label: 'Help me set this up',
+    prompt:
+      'Help me design this habit properly - what should it look like, when should I do it, how long should it take, and what will make it stick?',
+    icon: Sparkles,
   },
-  whats_blocking: {
-    label: "What's blocking me?",
-    prompt: "What might be getting in the way of this habit? Let's troubleshoot.",
+  why_skipping: {
+    label: 'Why do I keep skipping?',
+    prompt:
+      "I've been struggling to stay consistent with this habit. Help me figure out what's getting in the way.",
     icon: AlertCircle,
   },
-  approach: {
-    label: 'Better approach',
-    prompt: 'Is there a better way to approach this habit?',
+  make_easier: {
+    label: 'Make it easier',
+    prompt:
+      'Help me find ways to lower the friction for this habit - maybe stack it with something, reduce the scope, or find a better trigger.',
     icon: Compass,
-  },
-  think_through: {
-    label: 'Think through',
-    prompt: 'Help me think through why this habit matters to me',
-    icon: Lightbulb,
   },
 };
 
@@ -259,6 +257,7 @@ export function EntityChatScreen({
   const updateStreamingContent = useGremlyStore((s) => s.updateEntityChatStreamingContent);
   const finalizeStreamingMessage = useGremlyStore((s) => s.finalizeEntityChatStreamingMessage);
   const saveEntityChatNote = useGremlyStore((s) => s.saveEntityChatNote);
+  const accountCreatedAt = useGremlyStore((s) => s.accountCreatedAt);
 
   // ─── Get Entity ────────────────────────────────────────────────────────────
   const entity = useMemo(() => {
@@ -364,6 +363,7 @@ export function EntityChatScreen({
           messages: requestMessages,
           preset,
           sweepContext,
+          accountCreatedAt,
         };
 
         // Track accumulated content for updates
@@ -470,6 +470,7 @@ export function EntityChatScreen({
       storedMessages,
       spaceName,
       sweepContext,
+      accountCreatedAt,
     ],
   );
 

@@ -207,6 +207,7 @@ interface GremlyState {
   gremlyAgeLastIncrementedAt: string | null;
   dayBoundaryHour: number;
   onboardingCompletedAt: string | null;
+  accountCreatedAt: string | null;
   firstDropCompletedAt: string | null;
   firstTodayVisitCompletedAt: string | null;
   todayRitualDay: string | null;
@@ -454,6 +455,7 @@ const initialState = {
   gremlyAgeLastIncrementedAt: null as string | null,
   dayBoundaryHour: 0,
   onboardingCompletedAt: null as string | null,
+  accountCreatedAt: null as string | null,
   firstDropCompletedAt: null as string | null,
   firstTodayVisitCompletedAt: null as string | null,
   todayRitualDay: null as string | null,
@@ -524,7 +526,7 @@ export const useGremlyStore = create<GremlyState>()(
           supabase
             .from('cortex_preferences')
             .select(
-              'last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at',
+              'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at',
             )
             .eq('owner_id', userId)
             .maybeSingle(),
@@ -626,6 +628,7 @@ export const useGremlyStore = create<GremlyState>()(
             (cortexPrefs?.gremly_age_last_incremented_at as string) ?? null,
           dayBoundaryHour,
           onboardingCompletedAt: effectiveOnboardingCompleted,
+          accountCreatedAt: (cortexPrefs?.created_at as string) ?? null,
           firstDropCompletedAt: (cortexPrefs?.first_drop_completed_at as string) ?? null,
           firstTodayVisitCompletedAt:
             (cortexPrefs?.first_today_visit_completed_at as string) ?? null,
@@ -709,6 +712,7 @@ export const useGremlyStore = create<GremlyState>()(
         gremlyAgeLastIncrementedAt: null,
         dayBoundaryHour: 0,
         onboardingCompletedAt: null,
+        accountCreatedAt: null,
         todayRitualDay: null,
         todayDropsCount: 0,
         todaySweepsCount: 0,

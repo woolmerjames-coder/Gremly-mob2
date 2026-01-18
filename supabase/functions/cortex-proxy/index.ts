@@ -34,6 +34,26 @@ function bad(status: number, msg: string, detail?: unknown) {
   });
 }
 
+function buildBirthdayContext(accountCreatedAt: string | null): string {
+  if (!accountCreatedAt) return '';
+
+  const birthDate = new Date(accountCreatedAt);
+  const today = new Date();
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysTogether = Math.floor((today.getTime() - birthDate.getTime()) / msPerDay);
+
+  const birthDateStr = birthDate.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  return `\n=== RELATIONSHIP ===
+You were born on ${birthDateStr} (when this user created their account).
+You've been companions for ${daysTogether} day${daysTogether === 1 ? '' : 's'}.
+Use this naturally if relevant—anniversaries, reflecting on progress, etc.—but don't force it.`;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return bad(405, 'method_not_allowed');
   if (!OPENAI_API_KEY) return bad(500, 'server_misconfigured');
@@ -515,6 +535,238 @@ Return ONLY valid JSON:
         200,
       );
     }
+  }
+
+  // --- ENTITY CHAT (streaming SSE for entity overlays/sweep) ---
+  if (type === 'entity-chat') {
+    const key = OPENAI_API_KEY;
+    const { entity, messages, preset, sweepContext, accountCreatedAt, stream } = body;
+
+    if (!entity || !messages) {
+      return bad(400, 'missing_entity_or_messages');
+    }
+
+    // Build birthday context
+    const birthdayContext = buildBirthdayContext(accountCreatedAt ?? null);
+
+    // Build entity context for prompt
+    const entityTypeLabel =
+      entity.type === 'todo' ? 'To-Do' : entity.type === 'habit' ? 'Habit' : 'Note';
+    let entityDetails = `Type: ${entityTypeLabel}\nTitle: ${entity.title}`;
+    if (entity.body) entityDetails += `\nDetails: ${entity.body}`;
+    if (entity.tags?.length) entityDetails += `\nTags: ${entity.tags.join(', ')}`;
+    if (entity.due_date) entityDetails += `\nDue: ${entity.due_date}`;
+    if (entity.frequency) entityDetails += `\nFrequency: ${entity.frequency}`;
+    if (entity.time_estimate) entityDetails += `\nTime estimate: ${entity.time_estimate} minutes`;
+    if (entity.space_name) entityDetails += `\nSpace: ${entity.space_name}`;
+    if (entity.days_since_created !== undefined)
+      entityDetails += `\nCreated: ${entity.days_since_created} days ago`;
+
+    // Build sweep context if available
+    let sweepDetails = '';
+    if (sweepContext) {
+      sweepDetails = `\n\n=== SWEEP CONTEXT ===
+This item is being reviewed during Evening Sweep.
+Times moved: ${sweepContext.times_moved}
+Days unscheduled: ${sweepContext.days_unscheduled}
+Overdue: ${sweepContext.is_overdue ? 'Yes' : 'No'}`;
+    }
+
+    // Build the full system prompt
+    const entityChatSystemPrompt = `You are Gremly—an AI-powered thinking partner. You're helping the user think through a specific ${entityTypeLabel.toLowerCase()}.
+
+=== YOUR ROLE ===
+- Help them think through this item clearly
+- Be warm, practical, and concise
+- Give one focused response (50-150 words ideal)
+- Don't offer multiple options (causes decision fatigue)
+- Match their energy—if they're brief, be brief back
+
+=== ENTITY CONTEXT ===
+${entityDetails}${sweepDetails}${birthdayContext}
+
+=== RESPONSE STYLE ===
+- Be helpful and direct
+- If they're stuck, help unstick them
+- If they're exploring, explore with them
+- Don't be preachy or lecture-y
+- One question max per response`;
+
+    const fullMessages: ChatMessage[] = [
+      { role: 'system', content: entityChatSystemPrompt },
+      ...messages.map((m: { role: string; content: string }) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
+    ];
+
+    const t0 = Date.now();
+
+    // Non-streaming response
+    if (!stream) {
+      try {
+        const res = await withTimeout(
+          fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o',
+              messages: fullMessages,
+              temperature: 0.7,
+              max_completion_tokens: 500,
+            }),
+          }),
+          TIMEOUT_MS,
+        );
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.log('[EntityChat] API error:', res.status, errorText);
+          return bad(res.status, 'upstream_error', errorText);
+        }
+
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content ?? '';
+        const latency_ms = Date.now() - t0;
+
+        console.log('[EntityChat] Response:', {
+          contentLength: content.length,
+          latency_ms,
+          preset,
+        });
+
+        return new Response(
+          JSON.stringify({
+            content,
+            saveable: { detected: false },
+            latency_ms,
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      } catch (e) {
+        const isTimeout = (e as Error)?.message === 'timeout';
+        console.log('[EntityChat] Error:', isTimeout ? 'timeout' : String(e));
+        return bad(isTimeout ? 504 : 500, (e as Error).message || 'error');
+      }
+    }
+
+    // Streaming response (SSE)
+    const encoder = new TextEncoder();
+    const readableStream = new ReadableStream({
+      async start(controller) {
+        let fullContent = '';
+        let firstChunkLogged = false;
+
+        try {
+          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o',
+              messages: fullMessages,
+              temperature: 0.7,
+              max_completion_tokens: 500,
+              stream: true,
+            }),
+          });
+
+          console.log('[EntityChat:Streaming] OpenAI response status:', openaiRes.status);
+
+          if (!openaiRes.ok) {
+            const errorText = await openaiRes.text();
+            console.log('[EntityChat:Streaming] API error:', openaiRes.status, errorText);
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ error: 'upstream_error' })}\n\n`),
+            );
+            controller.close();
+            return;
+          }
+
+          const reader = openaiRes.body?.getReader();
+          if (!reader) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ error: 'no_reader' })}\n\n`),
+            );
+            controller.close();
+            return;
+          }
+
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed === 'data: [DONE]') continue;
+
+              if (!firstChunkLogged) {
+                console.log('[EntityChat:Streaming] First raw chunk:', trimmed.slice(0, 500));
+                firstChunkLogged = true;
+              }
+
+              if (trimmed.startsWith('data: ')) {
+                try {
+                  const json = JSON.parse(trimmed.slice(6));
+                  const delta = json.choices?.[0]?.delta?.content;
+                  if (delta) {
+                    fullContent += delta;
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta })}\n\n`));
+                  }
+                } catch {
+                  // Ignore parse errors for individual chunks
+                }
+              }
+            }
+          }
+
+          // Send completion message
+          const latency_ms = Date.now() - t0;
+          console.log('[EntityChat:Streaming] Complete:', {
+            contentLength: fullContent.length,
+            latency_ms,
+            preset,
+          });
+
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                done: true,
+                full_content: fullContent,
+                saveable: { detected: false },
+                latency_ms,
+              })}\n\n`,
+            ),
+          );
+          controller.close();
+        } catch (e) {
+          console.log('[EntityChat:Streaming] Error:', String(e));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(e) })}\n\n`));
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(readableStream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
   }
 
   return bad(400, 'invalid_type');

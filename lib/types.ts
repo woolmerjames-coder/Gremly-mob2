@@ -622,8 +622,9 @@ export interface EntityChatMessage {
       | 'whats_blocking'
       | 'action_steps'
       | 'expand'
-      | 'stay_consistent'
-      | 'approach';
+      | 'setup'
+      | 'why_skipping'
+      | 'make_easier';
     is_contextual_opener?: boolean;
     has_saveable_content?: boolean;
     isStreaming?: boolean; // True for temp streaming message
@@ -668,8 +669,9 @@ export type EntityChatPreset =
   | 'whats_blocking'
   | 'action_steps'
   | 'expand'
-  | 'stay_consistent'
-  | 'approach';
+  | 'setup' // NEW: habit setup
+  | 'why_skipping' // NEW: habit troubleshooting
+  | 'make_easier'; // NEW: habit optimization
 
 /**
  * Request payload for entity chat to Cortex
@@ -698,6 +700,7 @@ export interface EntityChatRequest {
     days_unscheduled: number;
     is_overdue: boolean;
   };
+  accountCreatedAt?: string | null;
 }
 
 /**

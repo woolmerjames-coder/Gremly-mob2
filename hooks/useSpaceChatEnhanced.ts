@@ -57,6 +57,7 @@ import { incrementTurnCount, addKeyTopic, ChatContext } from '../lib/chat/rollin
 import { SaveableResult } from '../lib/chat/saveableTypes';
 import { ChatMessageForResolution, ThisResolution } from '../lib/chat/thisResolver';
 import { SaveThisIntent } from '../lib/chat/metaIntents';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -234,11 +235,12 @@ export function useSpaceChatEnhanced({
   const cooldown = useSaveableCooldown();
   const buttonState = useSaveButtonState();
   const metaIntent = useMetaIntentHandler();
+  const accountCreatedAt = useGremlyStore((state) => state.accountCreatedAt);
 
   // Build system prompt from context (includes space context if provided)
   const systemPrompt = useMemo(
-    () => buildSpaceChatSystemPrompt(context, spaceName, spaceContext),
-    [context, spaceName, spaceContext],
+    () => buildSpaceChatSystemPrompt(context, spaceName, spaceContext, accountCreatedAt),
+    [context, spaceName, spaceContext, accountCreatedAt],
   );
 
   // ─────────────────────────────────────────────────────────────────────────
