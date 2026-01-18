@@ -35,23 +35,33 @@ function bad(status: number, msg: string, detail?: unknown) {
 }
 
 function buildBirthdayContext(accountCreatedAt: string | null): string {
-  if (!accountCreatedAt) return '';
-
-  const birthDate = new Date(accountCreatedAt);
   const today = new Date();
-  const msPerDay = 1000 * 60 * 60 * 24;
-  const daysTogether = Math.floor((today.getTime() - birthDate.getTime()) / msPerDay);
-
-  const birthDateStr = birthDate.toLocaleDateString('en-US', {
+  const todayStr = today.toLocaleDateString('en-US', {
+    weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
   });
 
-  return `\n=== RELATIONSHIP ===
-You were born on ${birthDateStr} (when this user created their account).
-You've been companions for ${daysTogether} day${daysTogether === 1 ? '' : 's'}.
-Use this naturally if relevant—anniversaries, reflecting on progress, etc.—but don't force it.`;
+  let context = `\n=== DATE & RELATIONSHIP ===\n`;
+  context += `Today is ${todayStr}.\n`;
+
+  if (accountCreatedAt) {
+    const birthDate = new Date(accountCreatedAt);
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const daysTogether = Math.floor((today.getTime() - birthDate.getTime()) / msPerDay);
+
+    const birthDateStr = birthDate.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+
+    context += `You were born on ${birthDateStr} (when this user created their account).\n`;
+    context += `You've been companions for ${daysTogether} day${daysTogether === 1 ? '' : 's'}.`;
+  }
+
+  return context;
 }
 
 Deno.serve(async (req) => {
