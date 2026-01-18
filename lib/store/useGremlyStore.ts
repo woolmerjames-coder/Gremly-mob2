@@ -974,6 +974,9 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) return;
 
+      // Don't overwrite if already set
+      if (get().firstTodayVisitCompletedAt) return;
+
       const now = new Date().toISOString();
 
       const { error } = await supabase

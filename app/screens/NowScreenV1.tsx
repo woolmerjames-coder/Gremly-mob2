@@ -63,6 +63,7 @@ import {
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useActionToast } from '../../src/hooks/useActionToast';
+import { getTodayEmptyState, getTodayEmptyStateContent } from '../../lib/today/getTodayEmptyState';
 import type { LogItem } from '../../lib/notes/useRecentLogs';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type {
@@ -1094,6 +1095,9 @@ function TodayFocusList({
   const isAllComplete =
     progressPercent === 100 && hasAnyTodayWork && !optimisticQuickAdd && !leavingCard;
 
+  const emptyState = getTodayEmptyState();
+  const emptyContent = getTodayEmptyStateContent(emptyState);
+
   return (
     <ScrollView
       style={styles.listContainer}
@@ -1108,10 +1112,8 @@ function TodayFocusList({
 
       {hasNoItems && (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Nothing planned for today.</Text>
-          <Text style={styles.emptySubtext}>
-            Enjoy the calm, or add something from Mind Drop or Sweep.
-          </Text>
+          <Text style={styles.emptyText}>{emptyContent.title}</Text>
+          <Text style={styles.emptySubtext}>{emptyContent.subtitle}</Text>
         </View>
       )}
 
