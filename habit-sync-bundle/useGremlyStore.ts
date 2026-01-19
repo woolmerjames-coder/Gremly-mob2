@@ -1586,8 +1586,7 @@ export const useGremlyStore = create<GremlyState>()(
       if (!userId) throw new Error('Not authenticated');
 
       const occurredDay = dateIso.split('T')[0]; // Ensure YYYY-MM-DD format
-      const occurredAt = `${occurredDay}T12:00:00.000Z`; // Use noon UTC on the target day
-      const now = new Date().toISOString(); // For last_checked_in_at only
+      const now = new Date().toISOString();
 
       // Check if already completed for this date
       const existing = get().habitProgress.find(
@@ -1604,14 +1603,14 @@ export const useGremlyStore = create<GremlyState>()(
         id: tempId,
         habit_id: habitId,
         owner_id: userId,
-        occurred_at: occurredAt,
+        occurred_at: now,
         occurred_day: occurredDay,
         count: 1,
         occurrence_index: null,
       };
       set((state) => ({
         habitProgress: [...state.habitProgress, newProgressRow],
-        // Also update last_checked_in_at on the habit (use current time)
+        // Also update last_checked_in_at on the habit
         habits: state.habits.map((h) => (h.id === habitId ? { ...h, last_checked_in_at: now } : h)),
       }));
 
@@ -1622,7 +1621,7 @@ export const useGremlyStore = create<GremlyState>()(
           habit_id: habitId,
           owner_id: userId,
           occurred_day: occurredDay,
-          occurred_at: occurredAt,
+          occurred_at: now,
           count: 1,
         })
         .then(({ error }) => {
