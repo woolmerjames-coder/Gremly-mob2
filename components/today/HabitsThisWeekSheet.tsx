@@ -15,7 +15,6 @@ import { Text } from '../../ui';
 import { HabitWeeklyRowV2 } from './HabitWeeklyRowV2';
 import { useRolling7DayHabitStats } from '../../lib/today/hooks/useRolling7DayHabitStats';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useRepo } from '../../providers/RepoProvider';
 import { BRAND } from '../../design/brand';
 
 interface HabitsThisWeekSheetProps {
@@ -25,8 +24,9 @@ interface HabitsThisWeekSheetProps {
 
 export function HabitsThisWeekSheet({ visible, onClose }: HabitsThisWeekSheetProps) {
   const habits = useGremlyStore((s) => s.habits);
+  const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
+  const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
   const stats = useRolling7DayHabitStats(habits);
-  const repo = useRepo();
 
   // Summary counts
   const onTrackCount = useMemo(
@@ -48,13 +48,12 @@ export function HabitsThisWeekSheet({ visible, onClose }: HabitsThisWeekSheetPro
   const handleToggleDay = useCallback(
     async (habitId: string, date: string, newState: boolean) => {
       if (newState) {
-        await repo.completeHabitForDateSilent(habitId, date);
+        await logHabitCompletionForDate(habitId, date);
       } else {
-        await repo.removeHabitCompletionSilent(habitId, date);
+        await removeHabitCompletionForDate(habitId, date);
       }
-      // Zustand will update, component will re-render
     },
-    [repo],
+    [logHabitCompletionForDate, removeHabitCompletionForDate],
   );
 
   const handlePressRow = useCallback(
