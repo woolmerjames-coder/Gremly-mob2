@@ -34,6 +34,7 @@ import * as Haptics from 'expo-haptics';
 
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { callEntityChatStreaming } from '../../lib/cortex/CortexClient';
+import { toChecklistItems } from '../../lib/chat/extractChecklist';
 import { ChatComposer } from './ChatComposer';
 import { ChatBubble } from './ChatBubble';
 import SaveButton from './SaveButton';
@@ -279,6 +280,9 @@ export function EntityChatScreen({
   // ─── Local State ───────────────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(false);
   const [lastSaveable, setLastSaveable] = useState<EntityChatResponse['saveable'] | null>(null);
+  const [lastSaveSuggestion, setLastSaveSuggestion] = useState<
+    EntityChatResponse['save_suggestion'] | null
+  >(null);
   const [lastAssistantMessageId, setLastAssistantMessageId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'initial' | 'loading' | 'confirmed'>('initial');
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
@@ -393,11 +397,20 @@ export function EntityChatScreen({
               apiSaveable: response.saveable,
             });
 
-            // Use liberal saveable detection
-            const shouldShowSave = isContentSaveable(response.content, response.saveable);
+            // Debug log for save_suggestion
+            console.log('[DEBUG] save_suggestion =', response.save_suggestion);
+
+            // Use liberal saveable detection OR save_suggestion from Worker
+            const apiSuggestsSave = response.saveable?.detected === true;
+            const workerSuggestsSave = response.save_suggestion?.should_suggest_save === true;
+            const shouldShowSave =
+              apiSuggestsSave ||
+              workerSuggestsSave ||
+              isContentSaveable(response.content, response.saveable);
             console.log('[EntityChatScreen] Saveable detection:', {
               shouldShowSave,
               apiDetected: response.saveable?.detected,
+              workerSuggestsSave,
             });
 
             // Finalize the streaming message (removes isStreaming flag, persists to DB)
@@ -405,7 +418,7 @@ export function EntityChatScreen({
               has_saveable_content: shouldShowSave,
             });
 
-            // Track saveable content for SaveButton (use liberal detection)
+            // Track saveable content for SaveButton
             if (shouldShowSave) {
               // Use API saveable if available, otherwise create a basic one
               const saveableData = response.saveable?.detected
@@ -414,8 +427,10 @@ export function EntityChatScreen({
               console.log('[EntityChatScreen] Setting saveable state:', {
                 saveableData,
                 msgId,
+                hasSaveSuggestion: response.save_suggestion != null,
               });
               setLastSaveable(saveableData);
+              setLastSaveSuggestion(response.save_suggestion ?? null);
               setLastAssistantMessageId(msgId);
               setSaveState('initial');
             }
@@ -544,16 +559,47 @@ export function EntityChatScreen({
 
       setSaveState('loading');
 
-      // Always save as plain note first - user can convert to checklist later
       // Get the full content from the last assistant message
       const messages = getEntityChat(entityId, entityType)?.messages ?? [];
       const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-      const content = lastAssistant?.content ?? 'Saved from chat';
+      const fallbackContent = lastAssistant?.content ?? 'Saved from chat';
+
+      // Use save_suggestion for better formatting if available
+      // Otherwise fall back to raw assistant message content
+      let content = fallbackContent;
+      let isChecklist = false;
+      let checklistItems: Array<{ id: string; label: string; completed: boolean }> | undefined;
+
+      if (lastSaveSuggestion) {
+        console.log('[EntityChatScreen] Using save_suggestion for content formatting:', {
+          hasTitle: !!lastSaveSuggestion.title,
+          hasContent: !!lastSaveSuggestion.content,
+          hasChecklistItems: !!lastSaveSuggestion.checklist_items?.length,
+        });
+
+        // Use save_suggestion content if available (may be better formatted)
+        if (lastSaveSuggestion.content) {
+          content = lastSaveSuggestion.content;
+        }
+
+        // If save_suggestion indicates checklist with items, use them
+        if (lastSaveSuggestion.checklist_items?.length) {
+          isChecklist = true;
+          // Convert string[] to proper checklist format
+          checklistItems = toChecklistItems(lastSaveSuggestion.checklist_items);
+          // For checklists, format content as bullet list if not already
+          if (!content.includes('- ') && !content.includes('• ')) {
+            content = lastSaveSuggestion.checklist_items
+              .map((item: string) => `- ${item}`)
+              .join('\n');
+          }
+        }
+      }
 
       const noteData = {
         content,
-        is_checklist: false, // Always false on initial save
-        checklist_items: undefined, // Never auto-create
+        is_checklist: isChecklist,
+        checklist_items: checklistItems,
         source_message_id: lastAssistantMessageId || '',
       };
 
@@ -571,12 +617,20 @@ export function EntityChatScreen({
         setSaveState('initial'); // Reset on error
       }
     },
-    [entityId, entityType, saveEntityChatNote, lastAssistantMessageId, getEntityChat],
+    [
+      entityId,
+      entityType,
+      saveEntityChatNote,
+      lastAssistantMessageId,
+      getEntityChat,
+      lastSaveSuggestion,
+    ],
   );
 
   // ─── Handle Dismiss Saveable ───────────────────────────────────────────────
   const handleDismissSaveable = useCallback(() => {
     setLastSaveable(null);
+    setLastSaveSuggestion(null);
     setLastAssistantMessageId(null);
     setSaveState('initial');
   }, []);

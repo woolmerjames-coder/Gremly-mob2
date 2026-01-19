@@ -4508,7 +4508,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     return (
       <ScrollView
+        style={{ flex: 1 }}
         keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled={true}
+        scrollEnabled={true}
+        bounces={true}
+        showsVerticalScrollIndicator={true}
         contentContainerStyle={{
           paddingHorizontal: 20,
           paddingBottom: 24,
@@ -4861,22 +4866,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         behavior={Platform.select({ ios: 'padding', android: undefined })}
         keyboardVerticalOffset={0}
       >
-        <Pressable
+        <View
           style={{
             flex: 1,
             justifyContent: 'flex-end',
             alignSelf: 'stretch',
           }}
-          onPress={() => {
-            // First tap: dismiss keyboard if open
-            // Second tap: close overlay
-            if (keyboardHeight > 0) {
-              Keyboard.dismiss();
-              return;
-            }
-            onClose?.();
-          }}
         >
+          {/* Backdrop tap area - only the visible backdrop above the sheet */}
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              // First tap: dismiss keyboard if open
+              // Second tap: close overlay
+              if (keyboardHeight > 0) {
+                Keyboard.dismiss();
+                return;
+              }
+              onClose?.();
+            }}
+          />
           {/* Bottom-anchored sheet: max 90% of viewport (or less when keyboard open), rounded top corners */}
           <RNAnimated.View
             style={{
@@ -4891,11 +4900,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               const availableHeight = screenHeight - keyboardHeight - insets.top - 20; // 20px buffer
               const dynamicSheetHeight = Math.min(SHEET_MAX_H, availableHeight);
               return (
-                <Pressable
-                  onPress={() => {
-                    // Capture taps inside sheet - don't close, just dismiss keyboard
-                    Keyboard.dismiss();
-                  }}
+                <View
                   style={{
                     width: '100%',
                     alignSelf: 'stretch',
@@ -5188,16 +5193,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Box>
 
                   {/* View/Edit Mode Content Container with Crossfade Animation */}
-                  <View style={{ flex: 1, position: 'relative' }}>
+                  <View style={{ flex: 1 }}>
                     {/* View Mode Content - Read-only display */}
-                    <Reanimated.View style={[viewModeStyle, { flex: isViewMode ? 1 : 0 }]}>
-                      {isViewMode && renderViewModeContent()}
-                    </Reanimated.View>
+                    {isViewMode && <View style={{ flex: 1 }}>{renderViewModeContent()}</View>}
 
                     {/* Edit/Create Mode Content - Interactive form */}
-                    <Reanimated.View style={[editModeStyle, { flex: !isViewMode ? 1 : 0 }]}>
-                      {!isViewMode && (
+                    {!isViewMode && (
+                      <Reanimated.View style={[editModeStyle, { flex: 1 }]}>
                         <ScrollView
+                          style={{ flex: 1 }}
                           keyboardShouldPersistTaps="handled"
                           keyboardDismissMode="on-drag"
                           onScrollBeginDrag={() => {
@@ -6992,8 +6996,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             {/* Tag row hidden at Level-1; lands in Phase 3 */}
                           </Box>
                         </ScrollView>
-                      )}
-                    </Reanimated.View>
+                      </Reanimated.View>
+                    )}
                   </View>
 
                   <Modal visible={showDateModal} transparent animationType="fade">
@@ -8878,11 +8882,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       )}
                     </Box>
                   </View>
-                </Pressable>
+                </View>
               );
             })()}
           </RNAnimated.View>
-        </Pressable>
+        </View>
 
         {/* Fullscreen image modal (Phase L5 - multi-photo support) */}
         <Modal visible={selectedPhotoIndex !== null} transparent animationType="fade">

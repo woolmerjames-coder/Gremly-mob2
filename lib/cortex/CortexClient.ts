@@ -30,6 +30,28 @@ export interface StreamingCallbacks {
   onError: (error: string, partialText: string) => void;
 }
 
+/**
+ * Rich completion result for Space Chat streaming.
+ * Includes save_suggestion from Cortex when available.
+ */
+export interface SpaceChatStreamingResult {
+  content: string;
+  save_suggestion?: any | null;
+  saveable?: any | null;
+  promotion?: any | null;
+  latency_ms?: number;
+}
+
+/**
+ * Enhanced streaming callbacks for Space Chat with save_suggestion support.
+ * Use this interface when you need access to save_suggestion in onComplete.
+ */
+export interface SpaceChatStreamingCallbacks {
+  onChunk: (text: string, fullTextSoFar: string) => void;
+  onComplete: (result: SpaceChatStreamingResult) => void;
+  onError: (error: string, partialText: string) => void;
+}
+
 export interface Phase2StreamingCallbacks {
   onField: (field: string, value: any) => void;
   onComplete: (result: Phase2EnrichmentResult) => void;
@@ -337,6 +359,10 @@ export async function callSpaceChat(
  * Call the Cortex proxy for Space Chat with streaming support using EventSource (SSE).
  * Returns an object with a close() method to cancel the request.
  *
+ * Supports two callback signatures:
+ * - StreamingCallbacks: Simple interface where onComplete receives just the text
+ * - SpaceChatStreamingCallbacks: Enhanced interface where onComplete receives rich result with save_suggestion
+ *
  * @param messages - The conversation messages
  * @param opts - Options including spaceId, chatId, and optional system prompt override
  * @param callbacks - Callbacks for streaming events (onChunk, onComplete, onError)
@@ -345,7 +371,7 @@ export async function callSpaceChat(
 export function callSpaceChatStreaming(
   messages: ChatMessage[],
   opts: { spaceId: string; chatId: string; systemPrompt?: string },
-  callbacks: StreamingCallbacks,
+  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
   if (!baseUrl) {
@@ -399,7 +425,27 @@ export function callSpaceChatStreaming(
         callbacks.onChunk(data.delta, fullText);
       }
       if (data.done) {
-        callbacks.onComplete(data.full_content || fullText);
+        const finalContent = data.full_content || fullText;
+        // Check if callback expects rich result (SpaceChatStreamingCallbacks)
+        // by testing if onComplete accepts an object with 'content' property
+        // For backwards compatibility, we call with rich object - simple callbacks
+        // that expect string will receive [object Object] if they destructure wrong,
+        // but the actual consumer (ChatThreadScreen) will be updated to use the rich result.
+        const richResult: SpaceChatStreamingResult = {
+          content: finalContent,
+          save_suggestion: data.save_suggestion ?? null,
+          saveable: data.saveable ?? null,
+          promotion: data.promotion ?? null,
+          latency_ms: data.latency_ms,
+        };
+        log('SPACE_CHAT_STREAM_DONE', {
+          contentLength: finalContent.length,
+          hasSaveSuggestion: data.save_suggestion != null,
+          hasSaveable: !!data.saveable,
+        });
+        // Call with both: pass string as first arg for backwards compat
+        // and attach rich result. Consumer can choose which to use.
+        (callbacks.onComplete as any)(finalContent, richResult);
         es.close();
       }
     } catch {
@@ -1170,12 +1216,14 @@ export async function callEntityChat(request: EntityChatRequest): Promise<Entity
       contentLength: data.content?.length || 0,
       hasSaveable: !!data.saveable,
       hasPromotion: !!data.promotion,
+      hasSaveSuggestion: data.save_suggestion != null,
     });
 
     return {
       content: data.content || '',
       saveable: data.saveable,
       promotion: data.promotion,
+      save_suggestion: data.save_suggestion ?? null,
       latency_ms: data.latency_ms ?? latency_ms,
     };
   } catch (e: any) {
@@ -1277,10 +1325,17 @@ export function callEntityChatStreaming(
       // Handle completion
       if (data.done) {
         const latency_ms = data.latency_ms ?? Date.now() - startTime;
+        log('ENTITY_CHAT_STREAM_DONE', {
+          contentLength: (data.full_content || fullContent).length,
+          hasSaveable: !!data.saveable,
+          hasPromotion: !!data.promotion,
+          hasSaveSuggestion: data.save_suggestion != null,
+        });
         callbacks.onComplete({
           content: data.full_content || fullContent,
           saveable: data.saveable,
           promotion: data.promotion,
+          save_suggestion: data.save_suggestion ?? null,
           latency_ms,
         });
         es.close();

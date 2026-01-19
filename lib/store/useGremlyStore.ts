@@ -551,6 +551,15 @@ export const useGremlyStore = create<GremlyState>()(
         if (spacesRes.error) throw spacesRes.error;
         if (tagsRes.error) throw tagsRes.error;
         if (progressRes.error) throw progressRes.error;
+
+        console.log('[GremlyStore] habit_progress query:', {
+          sinceDate,
+          count: progressRes.data?.length,
+          sample: progressRes.data
+            ?.slice(0, 5)
+            .map((p) => ({ occurred_day: p.occurred_day, habit_id: p.habit_id })),
+        });
+
         // Log but don't throw for chats/milestones/dailyBrief/sweep prefs
         if (chatsRes.error) console.warn('[GremlyStore] space_chats fetch error:', chatsRes.error);
         if (milestonesRes.error)

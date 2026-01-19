@@ -718,6 +718,8 @@ export interface EntityChatResponse {
     suggested: boolean;
     reason?: string;
   };
+  /** Save suggestion payload from Cortex (if any) */
+  save_suggestion?: any | null;
   latency_ms: number;
 }
 

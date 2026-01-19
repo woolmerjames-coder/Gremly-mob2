@@ -122,6 +122,15 @@ export function useRolling7DayHabitStats(habits: Habit[]): Rolling7DayHabitStats
           habitProgress.filter((p) => p.habit_id === habit.id).map((p) => p.occurred_day),
         );
 
+        console.log(
+          '[DEBUG] habit:',
+          habit.name,
+          'completionSet:',
+          Array.from(completionSet),
+          'rolling7Days:',
+          rolling7Days.map((d) => d.date),
+        );
+
         // Build days array
         const days = rolling7Days.map((day) => ({
           ...day,
