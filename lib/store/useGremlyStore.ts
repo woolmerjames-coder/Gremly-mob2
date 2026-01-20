@@ -550,7 +550,7 @@ export const useGremlyStore = create<GremlyState>()(
           supabase
             .from('cortex_preferences')
             .select(
-              'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at',
+              'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at',
             )
             .eq('owner_id', userId)
             .maybeSingle(),
