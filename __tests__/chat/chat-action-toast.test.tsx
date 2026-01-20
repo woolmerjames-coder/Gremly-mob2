@@ -126,6 +126,7 @@ jest.mock('../../lib/cortex/router', () => ({
 const mockEmitChatEvent = jest.fn();
 jest.mock('../../app/lib/chat/events', () => ({
   emitChatEvent: (...args: any[]) => mockEmitChatEvent(...args),
+  subscribeToChatEvents: jest.fn(() => jest.fn()), // Returns unsubscribe function
 }));
 
 // Mock repo/auth providers

@@ -203,6 +203,12 @@ jest.mock('expo-av', () => ({
       Promise.resolve({ status: 'granted', granted: true, canAskAgain: true, expires: 'never' }),
     ),
   },
+  Video: jest.fn(() => null),
+  ResizeMode: {
+    CONTAIN: 'contain',
+    COVER: 'cover',
+    STRETCH: 'stretch',
+  },
 }));
 
 // Mock expo-file-system/legacy
