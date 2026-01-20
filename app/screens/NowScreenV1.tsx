@@ -66,6 +66,7 @@ import { useActionToast } from '../../src/hooks/useActionToast';
 import { getTodayEmptyState, getTodayEmptyStateContent } from '../../lib/today/getTodayEmptyState';
 import type { LogItem } from '../../lib/notes/useRecentLogs';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import type {
   NowLockedItem,
   NowActiveItem,
@@ -509,6 +510,22 @@ export default function NowScreenV1() {
   const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
 
+  // Track if we should reopen habits modal after overlay closes
+  const [shouldReopenWeekModal, setShouldReopenWeekModal] = useState(false);
+  const { state: overlayState } = useGlobalOverlay();
+
+  // Reopen habits modal when overlay closes (if we came from there)
+  useEffect(() => {
+    if (shouldReopenWeekModal && !overlayState.visible) {
+      // Small delay to let overlay animation finish
+      const timer = setTimeout(() => {
+        setWeekVisible(true);
+        setShouldReopenWeekModal(false);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldReopenWeekModal, overlayState.visible]);
+
   // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
   const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
     id: string;
@@ -802,6 +819,7 @@ export default function NowScreenV1() {
         weeklySummaries={nowData.weeklySummaries}
         allHabits={allActiveHabits}
         onClose={() => setWeekVisible(false)}
+        onOpenOverlay={() => setShouldReopenWeekModal(true)}
       />
 
       <OverwhelmSelectSheet
