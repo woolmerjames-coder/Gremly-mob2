@@ -11,10 +11,16 @@ import {
   ScrollView,
   Pressable,
   StyleSheet,
+  Image,
 } from 'react-native';
 import { LayoutGrid, BookOpen, Settings } from 'lucide-react-native';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
+import { BRAND } from '../../design/brand';
+
+// Mascot image for age badge
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 
 export type HubV1TypeFilter = 'todo' | 'habit' | 'note' | 'space';
 export type HubV1TimeRange = 'week' | 'month' | '3months' | 'all';
@@ -46,6 +52,7 @@ export interface HubHeaderProps {
   status: HubV1StatusFilter;
   onStatusChange: (status: HubV1StatusFilter) => void;
   onSettingsPress?: () => void;
+  gremlyAge?: number;
 }
 
 export default function HubHeader({
@@ -60,6 +67,7 @@ export default function HubHeader({
   status,
   onStatusChange,
   onSettingsPress,
+  gremlyAge,
 }: HubHeaderProps) {
   const isJournalView = hubView === 'journals';
 
@@ -68,18 +76,32 @@ export default function HubHeader({
       {/* Header */}
       <View style={styles.headerRow}>
         <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
-        {onSettingsPress && (
-          <TouchableOpacity
-            onPress={onSettingsPress}
-            style={styles.settingsButton}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            testID="hub-settings-button"
-            accessibilityLabel="Settings"
-            accessibilityRole="button"
-          >
-            <Settings size={24} color={colors.gray600} />
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerRight}>
+          {/* Age badge: mascot + age number */}
+          {gremlyAge !== undefined && (
+            <View style={styles.ageBadge}>
+              <Image
+                source={GREMLY_MASCOT}
+                style={styles.ageMascot}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
+              <Text style={styles.ageNumber}>{gremlyAge}</Text>
+            </View>
+          )}
+          {onSettingsPress && (
+            <TouchableOpacity
+              onPress={onSettingsPress}
+              style={styles.settingsButton}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              testID="hub-settings-button"
+              accessibilityLabel="Settings"
+              accessibilityRole="button"
+            >
+              <Settings size={24} color={colors.gray600} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Search Input */}
@@ -362,6 +384,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  ageBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: BRAND.colors.linenCream,
+    borderRadius: BRAND.radius.pill,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingLeft: 4,
+  },
+  ageMascot: {
+    width: 24,
+    height: 24,
+  },
+  ageNumber: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
   },
   settingsButton: {
     padding: spacing.sm,

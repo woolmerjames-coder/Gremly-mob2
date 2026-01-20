@@ -7517,57 +7517,49 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     return (
       <View style={styles.mainContainer} {...panResponder.panHandlers}>
-        {/* Header Row: Mascot + MindDrop title (left) ... Logout (right) */}
-        <View
-          style={[
-            styles.headerRow,
-            {
-              paddingTop: insets.top + 16,
-            },
-          ]}
-          testID="minddrop-header"
-        >
-          {/* Left group: Age + Mascot + MindDrop title */}
-          <View style={styles.headerLeftGroup}>
-            {/* Tappable age display */}
-            <Pressable
-              onPress={() => setShowRitualProgress(true)}
-              style={styles.ritualAgePressable}
-            >
-              <Text style={styles.ritualAgeNumber}>{gremlyAge}</Text>
-              <Text style={styles.ritualAgeLabel}>age</Text>
-            </Pressable>
-            <Pressable onPress={() => setShowHelp(true)} accessibilityLabel="Help">
-              <Image
-                source={GREMLY_TOP}
-                style={styles.headerMascot}
-                resizeMode="contain"
-                accessibilityIgnoresInvertColors
-              />
-            </Pressable>
-            <View style={styles.titleImageWrapper}>
-              <Image
-                ref={headerTitleRef}
-                source={MINDDROP_HEADER}
-                style={styles.headerTitleCenter}
-                resizeMode="contain"
-                accessibilityLabel="Mind Drop"
-                accessibilityIgnoresInvertColors
-              />
-              <View style={styles.titleUnderline} />
+        {/* Header: Safe area wrapper + row with mascot, centered title, logout */}
+        <View style={{ paddingTop: insets.top + 16 }} testID="minddrop-header">
+          <View style={styles.headerRow}>
+            {/* Left - Mascot */}
+            <View style={styles.headerLeft}>
+              <Pressable onPress={() => setShowHelp(true)} accessibilityLabel="Help">
+                <Image
+                  source={GREMLY_TOP}
+                  style={styles.headerMascot}
+                  resizeMode="contain"
+                  accessibilityIgnoresInvertColors
+                />
+              </Pressable>
+            </View>
+
+            {/* Center - Title (absolutely positioned to true center) */}
+            <View style={styles.headerCenter} pointerEvents="none">
+              <View style={styles.titleImageWrapper}>
+                <Image
+                  ref={headerTitleRef}
+                  source={MINDDROP_HEADER}
+                  style={styles.headerTitleCenter}
+                  resizeMode="contain"
+                  accessibilityLabel="Mind Drop"
+                  accessibilityIgnoresInvertColors
+                />
+                <View style={styles.titleUnderline} />
+              </View>
+            </View>
+
+            {/* Right - Logout button */}
+            <View style={styles.headerRight}>
+              <Pressable
+                accessibilityLabel="Sign out"
+                accessibilityRole="button"
+                onPress={handleSignOutPress}
+                hitSlop={12}
+                style={styles.logoutBtn}
+              >
+                <LogOut size={18} color="#6A6F76" />
+              </Pressable>
             </View>
           </View>
-
-          {/* Right side: Logout button (aligned to top) */}
-          <Pressable
-            accessibilityLabel="Sign out"
-            accessibilityRole="button"
-            onPress={handleSignOutPress}
-            hitSlop={12}
-            style={styles.logoutBtn}
-          >
-            <LogOut size={18} color="#6A6F76" />
-          </Pressable>
         </View>
 
         {/* Gremly speech slot - fixed height container, always present to prevent layout shift */}
@@ -7926,12 +7918,27 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
 
     headerRow: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 12,
       paddingBottom: 4,
-      position: 'relative', // For absolute positioning of speech bubble
+      position: 'relative',
       // paddingTop is set dynamically via insets.top in the component
+    },
+    headerLeft: {
+      zIndex: 1, // ensure mascot is tappable above centered title
+    },
+    headerCenter: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerRight: {
+      zIndex: 1, // ensure logout is tappable above centered title
     },
     headerLeftGroup: {
       flexDirection: 'row',
@@ -7967,7 +7974,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     titleImageWrapper: {
       position: 'relative',
-      marginLeft: 8,
+      alignItems: 'center',
     },
     headerTitleCenter: {
       height: 64,
