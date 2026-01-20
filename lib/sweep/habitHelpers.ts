@@ -280,6 +280,29 @@ export function getLastCompletionDate(
 }
 
 /**
+ * Format "Last: X days ago" text from a YYYY-MM-DD date string.
+ * Uses DateService for timezone-safe date calculations.
+ *
+ * @param dateStr - YYYY-MM-DD date string (from occurred_day)
+ * @returns Formatted string like "Last: yesterday" or null if no date
+ */
+export function formatLastCompletedAt(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+
+  try {
+    const today = ds().today();
+    const daysAgo = ds().daysBetween(dateStr, today);
+
+    // Don't show "Last:" for today - habit was just completed
+    if (daysAgo <= 0) return null;
+    if (daysAgo === 1) return 'Last: yesterday';
+    return `Last: ${daysAgo} days ago`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check if a habit needs start date setup.
  * Needs setup if no start_date AND not explicitly confirmed to start immediately.
  */

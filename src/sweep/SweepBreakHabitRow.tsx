@@ -27,6 +27,7 @@ import { BRAND } from '../../design/brand';
 import { Icon } from '../../design-system/Icon';
 import { Flame, RefreshCw, Calendar, Shield } from 'lucide-react-native';
 import { useSweepHabitGesture } from '../habits/useSweepHabitGesture';
+import { formatLastCompletedAt } from '../../lib/sweep/habitHelpers';
 
 // Gremly avatar for the center of the circle
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -66,29 +67,6 @@ export interface SweepBreakHabitRowProps {
 
   // Show divider below?
   showDivider?: boolean;
-}
-
-/**
- * Calculate "X days ago" from an ISO date string
- */
-function getDaysAgoText(isoDate: string | null | undefined): string | null {
-  if (!isoDate) return null;
-
-  try {
-    const date = new Date(isoDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    date.setHours(0, 0, 0, 0);
-
-    const diffTime = today.getTime() - date.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return 'Last: today';
-    if (diffDays === 1) return 'Last: yesterday';
-    return `Last: ${diffDays} days ago`;
-  } catch {
-    return null;
-  }
 }
 
 export function SweepBreakHabitRow({
@@ -233,8 +211,8 @@ export function SweepBreakHabitRow({
     return null;
   }, [cadence, streakDays, completedThisPeriod, targetPerPeriod, isAheadOfTarget]);
 
-  // "Last: X days ago" text
-  const lastCompletedText = getDaysAgoText(lastCompletedAt);
+  // "Last: X days ago" text - uses DateService for timezone-safe calculation
+  const lastCompletedText = formatLastCompletedAt(lastCompletedAt);
 
   return (
     <View style={[styles.container, showDivider && styles.withDivider]}>
