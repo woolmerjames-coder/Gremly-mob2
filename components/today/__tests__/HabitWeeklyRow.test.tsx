@@ -59,6 +59,7 @@ describe('HabitWeeklyRow', () => {
     ],
     todayIndex: 6,
     onToggleDay: jest.fn(),
+    startDate: '2025-12-01', // Required to render the weekly dots
   };
 
   beforeEach(() => {
@@ -96,10 +97,10 @@ describe('HabitWeeklyRow', () => {
       expect(screen.getByText('Up to date')).toBeTruthy();
     });
 
-    it('renders status label "Needs update" for needs_attention status', () => {
+    it('renders status label "Needs check-in" for needs_attention status', () => {
       render(<HabitWeeklyRow {...defaultProps} status="needs_attention" />);
 
-      expect(screen.getByText('Needs update')).toBeTruthy();
+      expect(screen.getByText('Needs check-in')).toBeTruthy();
     });
 
     it('renders 7 dots for each day', () => {
@@ -265,14 +266,11 @@ describe('HabitWeeklyRow', () => {
   });
 
   describe('check-in button', () => {
-    it('calls onCheckIn when check-in button is pressed (if rendered)', () => {
-      const onCheckIn = jest.fn();
-      render(<HabitWeeklyRow {...defaultProps} onCheckIn={onCheckIn} />);
-
-      // The component may or may not render a visible check-in button
-      // depending on status. This test validates the callback is wired up.
-      // The actual button visibility is controlled by component logic.
-      expect(onCheckIn).not.toHaveBeenCalled(); // Not called on mount
+    // Note: onCheckIn prop was removed from HabitWeeklyRowProps
+    // Check-in functionality is now handled through onToggleDay or external hooks
+    it.skip('calls onCheckIn when check-in button is pressed (if rendered)', () => {
+      // Skipped: onCheckIn prop no longer exists on HabitWeeklyRowProps
+      // Check-in is handled through toggle day functionality
     });
   });
 

@@ -77,6 +77,7 @@ const overlayStub = {
   },
   openCreate: jest.fn(),
   openEdit: jest.fn(),
+  openView: jest.fn(),
   close: jest.fn(),
 };
 

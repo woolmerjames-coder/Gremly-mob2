@@ -76,6 +76,7 @@ jest.mock('../contexts/OverlayContext', () => ({
     },
     openEdit: jest.fn(),
     openCreate: jest.fn(),
+    openView: jest.fn(),
     close: jest.fn(),
   }),
 }));
@@ -91,6 +92,7 @@ const overlayStub = {
   },
   openEdit: jest.fn(),
   openCreate: jest.fn(),
+  openView: jest.fn(),
   close: jest.fn(),
 };
 

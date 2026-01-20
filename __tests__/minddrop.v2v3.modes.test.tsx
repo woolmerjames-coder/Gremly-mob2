@@ -119,6 +119,7 @@ jest.mock('../providers/CortexProvider', () => ({
 const mockOverlayController = {
   openCreate: jest.fn(),
   openEdit: jest.fn(),
+  openView: jest.fn(),
   close: jest.fn(),
 };
 
