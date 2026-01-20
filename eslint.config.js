@@ -19,6 +19,8 @@ module.exports = [
       '**/*.legacy.tsx',
       'legacy/**', // Exclude legacy from linting unless explicitly configured
       'minddrop-voice-bundle/**', // Copied bundle with stale imports
+      'aging-system-bundle/**', // Documentation bundle with stale imports
+      'habit-sync-bundle/**', // Copied bundle with stale imports
       'scripts/**', // Dev scripts
       'date-audit/**', // Temporary audit folder
     ],

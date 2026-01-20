@@ -119,7 +119,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock, Camera, Clock, LogOut, User } from 'lucide-react-native';
+import { Lock, Camera, Clock, LogOut, User, ChevronDown } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -148,7 +148,6 @@ import RitualProgressIndicator from '../../components/ritual/RitualProgressIndic
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import FirstDropSpotlight from '../../components/onboarding/FirstDropSpotlight';
-import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import {
   filterAndNormalizeTags,
   normalizeTags,
@@ -2721,6 +2720,7 @@ const RecentDrops: React.FC<{
   onEdited?: () => void;
   onDeleted?: () => void;
   onTodayCountChange?: (count: number) => void; // Callback to sync counter with actual Today items
+  onDropCountsChange?: (todayCount: number, olderCount: number) => void; // Callback for empty state logic
   refreshSignal?: number; // bump to force reload after submit
   initiallyOpen?: boolean;
   eagerLoad?: boolean;
@@ -2729,6 +2729,7 @@ const RecentDrops: React.FC<{
   onEdited,
   onDeleted,
   onTodayCountChange,
+  onDropCountsChange,
   refreshSignal,
   initiallyOpen = true,
   eagerLoad = false,
@@ -2817,8 +2818,46 @@ const RecentDrops: React.FC<{
   const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
-  const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
+  const [todayCount, setTodayCount] = React.useState(0); // Track today's drop count for toggle label
+  const [olderCount, setOlderCount] = React.useState(0); // Track older drops count
+  const [filter, setFilter] = React.useState<'today' | 'older'>('today'); // Filter selection
   const canonicalTypesOn = env.feature.canonicalTypes;
+
+  // Animated chevron rotation
+  const chevronRotation = useSharedValue(1); // 1 = expanded (pointing down), 0 = collapsed (pointing up)
+  const chevronAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 180}deg` }],
+  }));
+
+  // Toggle open state with chevron animation
+  const handleChevronPress = React.useCallback(() => {
+    setOpen((v) => {
+      const newOpen = !v;
+      chevronRotation.value = withTiming(newOpen ? 1 : 0, { duration: 200 });
+      return newOpen;
+    });
+  }, [chevronRotation]);
+
+  // Show filter picker (Today / Older)
+  const handleFilterPress = React.useCallback(() => {
+    const options = ['Today', 'Older', 'Cancel'];
+    const cancelButtonIndex = 2;
+
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        options,
+        cancelButtonIndex,
+        title: 'Show drops from',
+      },
+      (buttonIndex) => {
+        if (buttonIndex === 0) {
+          setFilter('today');
+        } else if (buttonIndex === 1) {
+          setFilter('older');
+        }
+      },
+    );
+  }, []);
 
   // Modal state lifted from AnimatedMindDropCard to prevent remount issues
   // Modal stays visible even when card remounts due to pending→real transition
@@ -2955,9 +2994,6 @@ const RecentDrops: React.FC<{
     const fromItems = items.find((i) => (i.drop_id || i.id) === dropId);
     return fromItems || activeModalItem;
   }, [activeModalItem, pendingItems, items]);
-
-  const rangeLabel = showOlder ? 'Earlier' : 'Today';
-  const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
 
   /**
    * Helper to merge a DB record into the local items state
@@ -3314,15 +3350,17 @@ const RecentDrops: React.FC<{
         return Number.isFinite(ts) && ts >= todayCutoff; // "Today"
       });
 
-      if (!showOlder) {
-        // Today only
+      // Calculate older items (last 3 days, excluding today)
+      const olderItems = unified.filter((i) => {
+        const ts = new Date(i.created_at).getTime();
+        return Number.isFinite(ts) && ts >= olderCutoff && ts < todayCutoff;
+      });
+
+      // Filter based on selection
+      if (filter === 'today') {
         unified = todayItems;
       } else {
-        // Show older: last 3 days (spec Section 5.3)
-        unified = unified.filter((i) => {
-          const ts = new Date(i.created_at).getTime();
-          return Number.isFinite(ts) && ts >= olderCutoff;
-        });
+        unified = olderItems;
       }
 
       unified = unified
@@ -3330,6 +3368,8 @@ const RecentDrops: React.FC<{
         .slice(0, 25); // keep snappy; scroll handles overflow
 
       setItems(unified);
+      setTodayCount(todayItems.length); // Update today count for toggle label
+      setOlderCount(olderItems.length); // Update older count for toggle label
 
       // Log loaded items with their visual states for debugging
       const visualStates = unified.map((item) => ({
@@ -3350,12 +3390,20 @@ const RecentDrops: React.FC<{
       // Notify parent of today count (for "X thoughts organized today" counter)
       // This ensures the counter always matches the actual number of items in Today section
       onTodayCountChange?.(todayItems.length);
+
+      // Notify parent of both counts for empty state logic
+      onDropCountsChange?.(todayItems.length, olderItems.length);
     } finally {
       if (!isTest) setLoading(false);
     }
-  }, [showOlder, onTodayCountChange]);
+  }, [filter, onTodayCountChange, onDropCountsChange]);
 
   useEffect(() => {
+    // Reset to 'today' view when refresh signal changes (new drop added)
+    // This ensures users see their newly added drop
+    if (typeof refreshSignal === 'number' && refreshSignal > 0) {
+      setFilter('today');
+    }
     void load();
   }, [load, refreshSignal]);
 
@@ -4194,56 +4242,76 @@ const RecentDrops: React.FC<{
     [items, createTodo, createHabit, createNote, archiveNote, repo],
   );
 
+  // Derive hasTodayDrops - includes pending items
+  const hasTodayDrops = todayCount > 0 || pendingItems.length > 0;
+
+  // Determine what to show: empty state only when no today drops AND viewing 'today' filter
+  const showingOlder = filter === 'older';
+  const showEmptyState = !hasTodayDrops && !showingOlder && !loading;
+  const showDropsList = hasTodayDrops || showingOlder;
+
+  // Handler for "Show older drops" link in empty state
+  const handleShowOlderFromEmpty = React.useCallback(() => {
+    setFilter('older');
+    setOpen(true);
+  }, []);
+
   return (
     <View style={styles.recentRoot}>
-      <View style={styles.recentHeaderRow}>
-        <Pressable
-          testID="minddrop-recent-toggle"
-          onPress={() => setOpen((v) => !v)}
-          style={styles.recentHeaderBtn}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Toggle recent drops"
-          accessibilityState={{ expanded: open }}
-        >
-          <View style={styles.recentHeaderLeft}>
-            <Text style={styles.recentHeaderText}>Recent drops</Text>
-            <Text style={styles.recentHeaderCaret}>{open ? '↑' : '↓'}</Text>
-          </View>
-        </Pressable>
+      {/* Two-zone toggle: show when there are today drops OR viewing older */}
+      {showDropsList && (
+        <View style={styles.recentToggleRow}>
+          {/* Tap zone 1: Filter picker (Today/Older) */}
+          <Pressable
+            testID="minddrop-recent-filter"
+            onPress={handleFilterPress}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Show ${filter === 'today' ? 'today' : 'older'} drops. Tap to change.`}
+          >
+            <Text style={styles.recentToggleText}>
+              {filter === 'today'
+                ? `Today${todayCount > 0 ? ` (${todayCount})` : ''}`
+                : `Older${olderCount > 0 ? ` (${olderCount})` : ''}`}
+            </Text>
+          </Pressable>
 
-        <View style={styles.recentHeaderCenter} pointerEvents="none">
-          <Text testID="minddrop-recent-range" style={styles.recentRangeLabel}>
-            {rangeLabel}
-          </Text>
+          {/* Tap zone 2: Collapse/expand chevron */}
+          <Pressable
+            testID="minddrop-recent-chevron"
+            onPress={handleChevronPress}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Toggle recent drops"
+            accessibilityState={{ expanded: open }}
+            style={styles.recentChevronBtn}
+          >
+            <Reanimated.View style={chevronAnimatedStyle}>
+              <ChevronDown size={18} color={c.mossGreen} />
+            </Reanimated.View>
+          </Pressable>
         </View>
+      )}
 
-        <Pressable
-          testID="minddrop-recent-range-action"
-          onPress={() => setShowOlder((v) => !v)}
-          style={styles.recentHeaderLink}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={showOlder ? "Show only today's drops" : 'Show older drops'}
-        >
-          <Text style={styles.recentHeaderLinkText}>{rangeActionLabel}</Text>
-        </Pressable>
-      </View>
-
-      {open ? (
+      {/* Empty state: show when no today drops and viewing 'today' filter */}
+      {showEmptyState ? (
+        <View style={styles.emptyStateContainer}>
+          <Text style={styles.emptyStateTitle}>New day! Ready for anything.</Text>
+          {olderCount > 0 && (
+            <Pressable onPress={handleShowOlderFromEmpty} style={styles.showOlderLink}>
+              <Text style={styles.showOlderText}>Show older drops ({olderCount})</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : open ? (
         <View testID="minddrop-recent-list" style={styles.recentList}>
           {loading ? (
             <Text style={styles.recentEmpty}>Loading…</Text>
           ) : filteredItems.length === 0 && pendingItems.length === 0 ? (
             <View style={styles.recentEmptyContainer}>
               <Text style={styles.recentEmptyPrimary}>
-                {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
+                {filter === 'today' ? 'No drops today yet.' : 'No older drops.'}
               </Text>
-              {!showOlder && (
-                <Text style={styles.recentEmptySecondary}>
-                  What's on your mind? Drop it here — tasks, ideas, worries, anything.
-                </Text>
-              )}
             </View>
           ) : (
             <AppScrollView
@@ -4620,24 +4688,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const markFirstDropComplete = useGremlyStore((s) => s.markFirstDropComplete);
 
-  // Age-up celebration state
-  const [showAgeUpCelebration, setShowAgeUpCelebration] = useState(false);
-  const [celebrationAge, setCelebrationAge] = useState(0);
-
-  // Subscribe to gremlyAge changes to trigger celebration modal
-  useEffect(() => {
-    const unsub = useGremlyStore.subscribe(
-      (state) => state.gremlyAge,
-      (newAge, oldAge) => {
-        if (newAge > oldAge) {
-          setCelebrationAge(newAge);
-          setShowAgeUpCelebration(true);
-        }
-      },
-    );
-    return unsub;
-  }, []);
-
   // Synchronous lookups from store
   const getItemById = useCallback(
     (id: string) => selectItemById(useGremlyStore.getState(), id),
@@ -4988,6 +5038,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     },
     [testOrganizedTodayOverride],
   );
+
+  // Track drop counts for empty state logic (header mascot opacity, toggle visibility)
+  const [hasTodayDrops, setHasTodayDrops] = useState(false);
+  const [hasOlderDrops, setHasOlderDrops] = useState(false);
+  const handleDropCountsChange = useCallback((todayCount: number, olderCount: number) => {
+    setHasTodayDrops(todayCount > 0);
+    setHasOlderDrops(olderCount > 0);
+  }, []);
 
   const isProcessing = isSubmitting || isThinking;
 
@@ -7498,70 +7556,40 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     return (
       <View style={styles.mainContainer} {...panResponder.panHandlers}>
-        {/* Header Row: Mascot + MindDrop title (left) ... Logout (right) */}
-        <View
-          style={[
-            styles.headerRow,
-            {
-              paddingTop: insets.top + 16,
-            },
-          ]}
-          testID="minddrop-header"
-        >
-          {/* Left group: Age + Mascot + MindDrop title */}
-          <View style={styles.headerLeftGroup}>
-            {/* Tappable age display */}
-            <Pressable
-              onPress={() => setShowRitualProgress(true)}
-              style={styles.ritualAgePressable}
-            >
-              <Text style={styles.ritualAgeNumber}>{gremlyAge}</Text>
-              <Text style={styles.ritualAgeLabel}>age</Text>
-            </Pressable>
-            <Pressable onPress={() => setShowHelp(true)} accessibilityLabel="Help">
-              <Image
-                source={GREMLY_TOP}
-                style={styles.headerMascot}
-                resizeMode="contain"
-                accessibilityIgnoresInvertColors
-              />
-            </Pressable>
-            <View style={styles.titleImageWrapper}>
-              <Image
-                ref={headerTitleRef}
-                source={MINDDROP_HEADER}
-                style={styles.headerTitleCenter}
-                resizeMode="contain"
-                accessibilityLabel="Mind Drop"
-                accessibilityIgnoresInvertColors
-              />
-              <View style={styles.titleUnderline} />
+        {/* Header: Safe area wrapper + row with mascot, centered title, logout */}
+        <View style={{ paddingTop: insets.top + 16 }} testID="minddrop-header">
+          <View style={styles.headerRow}>
+            {/* Left - Empty spacer (Gremly now lives on input field) */}
+            <View style={styles.headerLeft} />
+
+            {/* Center - Title (absolutely positioned to true center) */}
+            <View style={styles.headerCenter} pointerEvents="none">
+              <View style={styles.titleImageWrapper}>
+                <Image
+                  ref={headerTitleRef}
+                  source={MINDDROP_HEADER}
+                  style={styles.headerTitleCenter}
+                  resizeMode="contain"
+                  accessibilityLabel="Mind Drop"
+                  accessibilityIgnoresInvertColors
+                />
+                <View style={styles.titleUnderline} />
+              </View>
+            </View>
+
+            {/* Right - Logout button */}
+            <View style={styles.headerRight}>
+              <Pressable
+                accessibilityLabel="Sign out"
+                accessibilityRole="button"
+                onPress={handleSignOutPress}
+                hitSlop={12}
+                style={styles.logoutBtn}
+              >
+                <LogOut size={18} color="#6A6F76" />
+              </Pressable>
             </View>
           </View>
-
-          {/* Right side: Logout button (aligned to top) */}
-          <Pressable
-            accessibilityLabel="Sign out"
-            accessibilityRole="button"
-            onPress={handleSignOutPress}
-            hitSlop={12}
-            style={styles.logoutBtn}
-          >
-            <LogOut size={18} color="#6A6F76" />
-          </Pressable>
-        </View>
-
-        {/* Gremly speech slot - fixed height container, always present to prevent layout shift */}
-        <View style={styles.gremlySpeechSlot}>
-          {gremlySpeech && (
-            <Reanimated.View
-              style={styles.gremlySpeechContainer}
-              entering={FadeIn.duration(200)}
-              exiting={FadeOut.duration(150)}
-            >
-              <TypewriterText text={gremlySpeech} style={styles.gremlySpeechText} />
-            </Reanimated.View>
-          )}
         </View>
 
         {/* Scrollable Recent Drops in the middle - fades when input is focused */}
@@ -7575,6 +7603,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             onEdited={noopCallback}
             onDeleted={noopCallback}
             onTodayCountChange={handleTodayCountChange}
+            onDropCountsChange={handleDropCountsChange}
             initiallyOpen={true}
           />
         </Animated.View>
@@ -7582,6 +7611,29 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         {/* Fixed bottom section: input + chips + button + stats */}
         <View style={[styles.fixedTopSection, keyboardVisible && { paddingBottom: 12 }]}>
           <View style={styles.inputBlock}>
+            {/* Gremly speech - positioned above input, to left of Gremly */}
+            {gremlySpeech && (
+              <Reanimated.View
+                style={styles.gremlyMessageContainer}
+                entering={FadeIn.duration(200)}
+                exiting={FadeOut.duration(150)}
+              >
+                <TypewriterText text={gremlySpeech} style={styles.gremlyMessage} />
+              </Reanimated.View>
+            )}
+            {/* Gremly perched on input - always visible */}
+            <Pressable
+              onPress={() => setShowHelp(true)}
+              accessibilityLabel="Help"
+              style={styles.inputGremly}
+            >
+              <Image
+                source={GREMLY_TOP}
+                style={{ width: 95, height: 95 }}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
+            </Pressable>
             <MindDropInput
               value={note}
               onChangeText={handleChangeText}
@@ -7767,6 +7819,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     recentRefresh,
     noopCallback,
     handleTodayCountChange,
+    handleDropCountsChange,
+    hasTodayDrops,
     overlay,
     inputDynHeight,
     handleInfoOpen,
@@ -7788,12 +7842,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   return (
     <View style={styles.root} testID="minddrop-screen">
       {ActionToast}
-
-      <AgeUpCelebrationModal
-        visible={showAgeUpCelebration}
-        newAge={celebrationAge}
-        onDismiss={() => setShowAgeUpCelebration(false)}
-      />
 
       <RitualProgressPopover
         visible={showRitualProgress}
@@ -7913,12 +7961,29 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
 
     headerRow: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 12,
       paddingBottom: 4,
-      position: 'relative', // For absolute positioning of speech bubble
+      position: 'relative',
       // paddingTop is set dynamically via insets.top in the component
+    },
+    headerLeft: {
+      zIndex: 1, // ensure mascot is tappable above centered title
+      width: 64, // Maintain original mascot width for balanced layout
+      height: 64, // Maintain original mascot height for consistent header spacing
+    },
+    headerCenter: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerRight: {
+      zIndex: 1, // ensure logout is tappable above centered title
     },
     headerLeftGroup: {
       flexDirection: 'row',
@@ -7954,7 +8019,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     titleImageWrapper: {
       position: 'relative',
-      marginLeft: 8,
+      alignItems: 'center',
     },
     headerTitleCenter: {
       height: 64,
@@ -7983,24 +8048,22 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       fontFamily: 'Inter-Medium',
       color: '#2E5540',
     },
-    gremlySpeechSlot: {
-      height: 20, // Exactly one line of text (matches lineHeight)
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginTop: -9,
-      marginBottom: -9,
+    // Gremly message - positioned above input, to left of Gremly
+    gremlyMessageContainer: {
+      position: 'absolute',
+      bottom: 100, // Above the input field, level with Gremly's head
+      left: 0,
+      right: 110, // Leave space for Gremly on the right
+      zIndex: 15,
     },
-    gremlySpeechContainer: {
-      paddingHorizontal: 24,
-      alignItems: 'center',
-    },
-    gremlySpeechText: {
+    gremlyMessage: {
+      fontSize: 15,
+      fontStyle: 'italic',
+      fontWeight: '600',
+      color: c.mossGreen,
+      textAlign: 'right', // Flows toward Gremly
+      lineHeight: 22,
       fontFamily: 'Inter-Medium',
-      fontSize: 14,
-      color: '#2E5540',
-      lineHeight: 20,
-      textAlign: 'center',
-      transform: [{ translateY: 4 }],
     },
 
     contextPrompt: {
@@ -8015,6 +8078,14 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       position: 'relative',
       marginTop: 10, // Spacing after recent drops (divider removed)
       marginBottom: 0,
+    },
+    inputGremly: {
+      position: 'absolute',
+      top: -50, // Head peeks above input field, body overlaps camera area
+      right: 0, // Flush with right edge
+      width: 95,
+      height: 95,
+      zIndex: 10,
     },
     inputContainer: {
       width: '100%',
@@ -8314,59 +8385,25 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
 
     // Phase 5A: recentRoot now fills scrollableSection container
     recentRoot: {
-      marginTop: 20,
+      marginTop: 8,
       flex: 1, // Takes full height of scrollableSection
     },
-    recentHeaderRow: {
+    // Simplified toggle row: "Today (count)" with chevron - minimal chrome
+    recentToggleRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: space,
-    },
-    recentHeaderBtn: {
-      flex: 1,
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
       paddingVertical: 8,
-      alignItems: 'flex-start',
-      justifyContent: 'center',
     },
-    recentHeaderLeft: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    recentHeaderText: {
-      color: c.sageMist,
-      fontSize: 16,
+    recentToggleText: {
+      color: c.mossGreen,
+      fontSize: 15,
       fontWeight: '600',
       fontFamily: 'Inter-Medium',
     },
-    recentHeaderCaret: {
-      color: c.mutedText,
-      fontSize: 12,
-      fontFamily: 'Inter-Medium',
-      marginTop: 2,
-    },
-    recentHeaderCenter: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    recentRangeLabel: {
-      color: c.mossGreen,
-      fontSize: 13,
-      fontFamily: 'Inter-Medium',
-      letterSpacing: 0.2,
-    },
-    recentHeaderLink: {
-      flex: 1,
-      alignItems: 'flex-end',
-      justifyContent: 'center',
-      paddingVertical: 8,
-    },
-    recentHeaderLinkText: {
-      color: c.mossGreen,
-      fontSize: 13,
-      fontFamily: 'Inter-Medium',
-      textDecorationLine: 'underline',
+    recentChevronBtn: {
+      padding: 4,
     },
     // Phase 5A: recentList now takes remaining vertical space for scrolling
     recentList: {
@@ -8592,22 +8629,49 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       paddingBottom: 10,
     },
     recentEmptyContainer: {
+      flex: 1,
+      justifyContent: 'center',
       alignItems: 'center',
-      paddingTop: 4,
-      paddingBottom: 10,
+      paddingHorizontal: 32,
     },
     recentEmptyPrimary: {
-      fontSize: 14,
+      fontSize: 17,
+      fontWeight: '600',
+      color: c.charcoalInk,
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    recentEmptySecondary: {
+      fontSize: 15,
       fontWeight: '400',
       color: c.mutedText,
       textAlign: 'center',
+      lineHeight: 22,
     },
-    recentEmptySecondary: {
-      fontSize: 13,
-      fontWeight: '400',
-      color: 'rgba(34, 34, 34, 0.45)',
+    // Empty state styles (centered text when no today drops)
+    emptyStateContainer: {
+      flex: 1,
+      justifyContent: 'center', // Vertically centered
+      alignItems: 'center',
+      paddingHorizontal: 32,
+      marginBottom: 100, // Push up from true center (~40% from top)
+    },
+    emptyStateTitle: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: c.charcoalInk,
       textAlign: 'center',
-      marginTop: 2,
+      marginBottom: 8,
+    },
+    showOlderLink: {
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+    },
+    showOlderText: {
+      fontSize: 14,
+      color: c.mossGreen,
+      fontWeight: '500',
+      textAlign: 'center',
     },
     // Skeleton styles for pending state
     titleSkeletonContainer: {

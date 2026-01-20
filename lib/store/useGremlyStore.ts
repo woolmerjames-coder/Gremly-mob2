@@ -20,6 +20,7 @@ import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
+import celebrationController from '../../app/features/celebration/CelebrationController';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
@@ -224,12 +225,14 @@ interface GremlyState {
   todayDropsCount: number;
   todaySweepsCount: number;
   todayRitualCompletedAt: string | null;
+  todayAgeCelebrationShownAt: string | null;
 
   // Ritual actions
   ensureCurrentRitualDay: () => string;
   incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
   incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
   checkAndIncrementAge: () => Promise<{ didAgeUp: boolean; newAge: number }>;
+  markAgeCelebrationShown: () => void;
   setDayBoundaryHour: (hour: number) => Promise<void>;
   setOnboardingCompletedAt: (timestamp: string) => Promise<void>;
   markOnboardingComplete: () => Promise<void>;
@@ -482,6 +485,7 @@ const initialState = {
   todayDropsCount: 0,
   todaySweepsCount: 0,
   todayRitualCompletedAt: null as string | null,
+  todayAgeCelebrationShownAt: null as string | null,
   pendingDrops: new Map<string, PendingDrop>(),
 };
 
@@ -546,7 +550,7 @@ export const useGremlyStore = create<GremlyState>()(
           supabase
             .from('cortex_preferences')
             .select(
-              'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at',
+              'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at',
             )
             .eq('owner_id', userId)
             .maybeSingle(),
@@ -809,6 +813,7 @@ export const useGremlyStore = create<GremlyState>()(
           todayDropsCount: 0,
           todaySweepsCount: 0,
           todayRitualCompletedAt: null, // CRITICAL: allows aging to happen again
+          todayAgeCelebrationShownAt: null, // Reset celebration flag for new day
         });
 
         // Clear commitment on all todos - they need to re-decide each day
@@ -948,15 +953,31 @@ export const useGremlyStore = create<GremlyState>()(
       const result = data?.[0] ?? { did_age_up: false, new_age: get().gremlyAge };
 
       if (result.did_age_up) {
+        // Check if celebration should show (hasn't been shown today)
+        const shouldShowCelebration = !get().todayAgeCelebrationShownAt;
+
         set({
           gremlyAge: result.new_age,
           gremlyAgeLastIncrementedAt: new Date().toISOString(),
           todayRitualCompletedAt: new Date().toISOString(),
+          // Mark celebration as shown in the same atomic update
+          ...(shouldShowCelebration && { todayAgeCelebrationShownAt: new Date().toISOString() }),
         });
+
+        // Trigger celebration via controller (App.tsx will render the modal)
+        if (shouldShowCelebration) {
+          celebrationController.showAgeUpCelebration(result.new_age);
+        }
+
         console.log('[GremlyStore] Gremly aged up to', result.new_age);
+        return { didAgeUp: true, newAge: result.new_age };
       }
 
       return { didAgeUp: result.did_age_up, newAge: result.new_age };
+    },
+
+    markAgeCelebrationShown: () => {
+      set({ todayAgeCelebrationShownAt: new Date().toISOString() });
     },
 
     setDayBoundaryHour: async (hour: number) => {
@@ -1441,8 +1462,8 @@ export const useGremlyStore = create<GremlyState>()(
 
       const now = new Date();
       const nowIso = now.toISOString();
-      // Use LOCAL date for occurred_day to match filtering logic
-      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      // Use DateService for consistent local date across the app
+      const todayDate = getDateService().getCurrentDate();
       const prevHabit = get().habits.find((h) => h.id === id);
 
       // 1. OPTIMISTIC UPDATE - update habit's last_completed_at
@@ -1545,9 +1566,8 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      // Use LOCAL date for occurred_day to match filtering logic
-      const now = new Date();
-      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      // Use DateService for consistent local date across the app
+      const todayDate = getDateService().getCurrentDate();
       const prevHabit = get().habits.find((h) => h.id === id);
 
       // 1. OPTIMISTIC UPDATE
@@ -1625,9 +1645,8 @@ export const useGremlyStore = create<GremlyState>()(
      * This is the single action that should be called from UI toggle handlers.
      */
     toggleHabitToday: async (id: string) => {
-      // Use LOCAL date for occurred_day to match filtering logic
-      const now = new Date();
-      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      // Use DateService for consistent local date across the app
+      const todayDate = getDateService().getCurrentDate();
 
       const isDoneToday = get().habitProgress.some(
         (p) => p.habit_id === id && p.occurred_day === todayDate,

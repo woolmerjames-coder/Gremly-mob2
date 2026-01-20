@@ -22,6 +22,8 @@
     "minddrop-voice-bundle/**/*",
     // Exclude habit-sync-bundle - standalone bundle with broken relative imports
     "habit-sync-bundle/**/*",
+    // Exclude aging-system-bundle - standalone bundle with broken relative imports
+    "aging-system-bundle/**/*",
     // Exclude date-audit - temporary audit folder with stale imports
     "date-audit/**/*"
   ]

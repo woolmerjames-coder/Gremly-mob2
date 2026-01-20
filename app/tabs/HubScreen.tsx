@@ -15,6 +15,7 @@ import {
   Pressable,
   Modal,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -32,6 +33,7 @@ import {
   Archive,
   Search,
   Settings,
+  Wrench,
 } from 'lucide-react-native';
 
 import { useAuth } from '../../providers/AuthProvider';
@@ -46,6 +48,8 @@ import UnsortedReviewSheet, { type UnsortedItem } from '../../components/Unsorte
 import PeopleList, { type PersonWithCounts } from '../../components/people/PeopleList';
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
+import { BRAND } from '../../design/brand';
+import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import type { AppRecord, Space, Person, Tag, Todo, Habit, Note } from '../../lib/types';
@@ -188,11 +192,15 @@ export default function HubScreen() {
   const updateNote = useGremlyStore((s) => s.updateNote);
   const storeIsLoading = useGremlyStore((s) => s.isLoading);
   const storeIsInitialized = useGremlyStore((s) => s.isInitialized);
+  const gremlyAge = useGremlyStore((s) => s.gremlyAge);
+  const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
+  const todaySweepsCount = useGremlyStore((s) => s.todaySweepsCount);
 
   // ═══════════════════════════════════════════════════════════════════
   // UI STATE (local to this screen)
   // ═══════════════════════════════════════════════════════════════════
   const [error, setError] = useState<string | null>(null);
+  const [showRitualProgress, setShowRitualProgress] = useState(false);
   const [tab, setTab] = useState<Tab>('Habits');
   const [scope, setScope] = useState<ScopeOption>({ type: 'everywhere', label: 'Everywhere' });
   const [search, setSearch] = useState('');
@@ -850,6 +858,15 @@ export default function HubScreen() {
   const renderHubV1 = () => {
     return (
       <SafeAreaView style={styles.safe} testID="hub-screen">
+        {/* Ritual Progress Popover */}
+        <RitualProgressPopover
+          visible={showRitualProgress}
+          onDismiss={() => setShowRitualProgress(false)}
+          gremlyAge={gremlyAge}
+          dropsCount={todayDropsCount}
+          sweepsCount={todaySweepsCount}
+        />
+
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: spacing['2xl'] }}
@@ -858,16 +875,46 @@ export default function HubScreen() {
           {/* Header */}
           <View style={hubV1Styles.headerRow}>
             <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
-            <TouchableOpacity
-              onPress={handleOpenNotificationSettings}
-              style={hubV1Styles.settingsButton}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              testID="hub-settings-button"
-              accessibilityLabel="Notification Settings"
-              accessibilityRole="button"
-            >
-              <Settings size={24} color={colors.gray600} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              {/* Age badge: mascot + age number - tappable for ritual progress */}
+              <TouchableOpacity
+                style={hubV1Styles.ageBadge}
+                onPress={() => setShowRitualProgress(true)}
+                activeOpacity={0.7}
+                accessibilityLabel={`Gremly age ${gremlyAge}. Tap to see ritual progress.`}
+                accessibilityRole="button"
+              >
+                <Image
+                  source={require('../../assets/mascot/gremly-mascot.png')}
+                  style={hubV1Styles.ageMascot}
+                  resizeMode="contain"
+                  accessibilityIgnoresInvertColors
+                />
+                <Text style={hubV1Styles.ageNumber}>{gremlyAge}</Text>
+              </TouchableOpacity>
+              {__DEV__ && (
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('DevTools')}
+                  style={hubV1Styles.settingsButton}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  testID="hub-dev-tools-button"
+                  accessibilityLabel="Dev Tools"
+                  accessibilityRole="button"
+                >
+                  <Wrench size={24} color={colors.gray600} />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={handleOpenNotificationSettings}
+                style={hubV1Styles.settingsButton}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                testID="hub-settings-button"
+                accessibilityLabel="Notification Settings"
+                accessibilityRole="button"
+              >
+                <Settings size={24} color={colors.gray600} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Search Input */}
@@ -1933,6 +1980,25 @@ const hubV1Styles = StyleSheet.create({
   settingsButton: {
     padding: spacing.sm,
     marginTop: spacing.sm,
+  },
+  ageBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: BRAND.colors.sageMist,
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginTop: spacing.sm,
+  },
+  ageMascot: {
+    width: 28,
+    height: 28,
+  },
+  ageNumber: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
   },
   // View Toggle (All Items | Journal View)
   viewToggleContainer: {

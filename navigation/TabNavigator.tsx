@@ -5,11 +5,11 @@ import HubScreen from '../app/tabs/HubScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 
-// Tab bar icon images
-import TODAY_ICON from '../assets/todayicon-bg.png';
-import MINDDROP_ICON from '../assets/minddropicon-bg.png';
-import SPACES_ICON from '../assets/spacesicon-bg.png';
-import HUB_ICON from '../assets/hubicon-bg.png';
+// Tab bar icon images (v1.20 brand refresh)
+import TODAY_ICON from '../assets/todayicon1.20.png';
+import MINDDROP_ICON from '../assets/minddropicon1.20.png';
+import SPACES_ICON from '../assets/spacesicon1.20.png';
+import HUB_ICON from '../assets/hubicon1.20.png';
 
 /**
  * Tab navigator param list for type safety

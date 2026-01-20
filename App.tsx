@@ -1,9 +1,9 @@
 import 'react-native-gesture-handler'; // must be first
 import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useColorScheme, Linking, View, Keyboard } from 'react-native';
+import { useColorScheme, Linking, View, Keyboard, Alert } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
@@ -27,6 +27,8 @@ import {
   getInitialNotification,
 } from './src/utils/notifications';
 import { eventBus } from './lib/events';
+import celebrationController from './app/features/celebration/CelebrationController';
+import AgeUpCelebrationModal from './components/ritual/AgeUpCelebrationModal';
 
 // Prevent the splash screen from auto-hiding before app is ready
 SplashScreen.preventAutoHideAsync();
@@ -35,6 +37,29 @@ export default function App() {
   const { fontsLoaded, fontsError } = useBrandFonts();
   const scheme = useColorScheme();
   const bootProbeRan = useRef(false);
+
+  // Age-up celebration state - rendered at root level to work over navigation modals
+  const [ageUpState, setAgeUpState] = useState<{ visible: boolean; age: number }>({
+    visible: false,
+    age: 0,
+  });
+
+  // Subscribe to age-up celebration events
+  useEffect(() => {
+    const unsubscribe = celebrationController.subscribe((payload) => {
+      if (payload.kind === 'age_up' && payload.age !== undefined) {
+        if (__DEV__) {
+          console.log('[App] Age-up celebration received, showing modal for age:', payload.age);
+        }
+        setAgeUpState({ visible: true, age: payload.age });
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleAgeUpDismiss = useCallback(() => {
+    setAgeUpState({ visible: false, age: 0 });
+  }, []);
 
   // Derive app readiness from fonts (no setState needed)
   const appIsReady = fontsLoaded || fontsError;
@@ -167,6 +192,13 @@ export default function App() {
           </DsToggleProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
+
+      {/* Age-up celebration modal - always mounted, visibility controlled by prop */}
+      <AgeUpCelebrationModal
+        visible={ageUpState.visible}
+        newAge={ageUpState.age}
+        onDismiss={handleAgeUpDismiss}
+      />
     </View>
   );
 }

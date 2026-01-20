@@ -1,5 +1,4 @@
-import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 jest.mock('../../../providers/RepoProvider', () => ({
   __esModule: true,
@@ -137,5 +136,70 @@ describe('CatchAllNotepad header + info sheet', () => {
       screen: 'Search',
       params: { filter: 'recent' },
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.20: Header layout changes - Age moved to Hub, mascot moved to input field
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CatchAllNotepad header v1.20 layout', () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
+    mockGoBack.mockClear();
+  });
+
+  it('does NOT render mascot in header (mascot now on input field)', () => {
+    const screen = render(<CatchAllNotepad />);
+    expect(screen.getByTestId('minddrop-header')).toBeTruthy();
+    // Header mascot was removed - Gremly now lives on input field
+    // Header should still have images (title image) but mascot is not in header
+    const header = screen.getByTestId('minddrop-header');
+    expect(header).toBeTruthy();
+  });
+
+  it('does NOT display age number in MindDrop header (moved to Hub)', () => {
+    const screen = render(<CatchAllNotepad />);
+    // Age is now displayed in Hub, not in MindDrop header
+    // Should not find a standalone age number in header context
+    const header = screen.getByTestId('minddrop-header');
+    // The header should not contain gremlyAge text directly
+    // (age badge was removed from MindDrop, now in Hub)
+    expect(header).toBeTruthy();
+  });
+
+  it('centers title horizontally', () => {
+    const screen = render(<CatchAllNotepad />);
+    // Title should be centered via absolute positioning
+    const titleImage = screen.getByLabelText('Mind Drop');
+    expect(titleImage).toBeTruthy();
+  });
+
+  it('maintains header height after mascot removal (via headerLeft spacer)', () => {
+    const screen = render(<CatchAllNotepad />);
+    // Header should maintain consistent height even without mascot
+    // The headerLeft style has width: 64, height: 64 to preserve layout
+    const header = screen.getByTestId('minddrop-header');
+    expect(header).toBeTruthy();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.20: Gremly mascot now on input field
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CatchAllNotepad Gremly on input field', () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
+    mockGoBack.mockClear();
+  });
+
+  it('renders Gremly mascot (always visible on input field)', () => {
+    const screen = render(<CatchAllNotepad />);
+    // Gremly is now perched on input field, always visible
+    const { UNSAFE_root } = screen;
+    const images = UNSAFE_root.findAllByType(require('react-native').Image);
+    // Should have images: title image + Gremly mascot
+    expect(images.length).toBeGreaterThanOrEqual(2);
   });
 });

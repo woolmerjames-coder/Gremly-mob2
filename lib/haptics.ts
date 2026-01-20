@@ -18,7 +18,8 @@ export type HapticType =
   | 'success'
   | 'warning'
   | 'error'
-  | 'selection';
+  | 'selection'
+  | 'celebration';
 
 // ============================================================================
 // HAPTIC FEEDBACK FUNCTIONS
@@ -122,6 +123,34 @@ export async function triggerSelection(): Promise<void> {
   }
 }
 
+/**
+ * Trigger celebration haptic pattern
+ * Bold, multi-pulse pattern for major achievements (like Duolingo)
+ * Pattern: heavy → pause → heavy → pause → success
+ */
+export async function triggerCelebration(): Promise<void> {
+  try {
+    // First heavy impact
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    // Short pause
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Second heavy impact
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    // Slightly longer pause
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    // Final success notification (the "payoff")
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch (error) {
+    if (__DEV__) {
+      console.warn('[Haptics] Celebration pattern failed:', error);
+    }
+  }
+}
+
 // ============================================================================
 // SEMANTIC TRIGGER
 // ============================================================================
@@ -146,6 +175,8 @@ export async function triggerHaptic(type: HapticType): Promise<void> {
       return triggerError();
     case 'selection':
       return triggerSelection();
+    case 'celebration':
+      return triggerCelebration();
   }
 }
 
@@ -202,6 +233,7 @@ export const haptics = {
   warning: triggerWarning,
   error: triggerError,
   selection: triggerSelection,
+  celebration: triggerCelebration,
   // Component helpers
   buttonPress,
   primaryButtonPress,

@@ -2,6 +2,9 @@
  * Phase 10.9: CelebrationProvider
  * Renders celebration UI components in response to celebration events.
  * Subscribes to CelebrationController and shows MicroCelebrate/ConfettiCanvas.
+ *
+ * NOTE: AgeUpCelebrationModal is rendered at App.tsx level to avoid
+ * conflicts with navigation modals (like DevTools).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -44,6 +47,11 @@ export function CelebrationProvider({ children }: { children: React.ReactNode })
         case 'mascot':
           // Mascot celebration is handled by Mascot component directly
           // via overlay_success event - no UI rendering needed here
+          break;
+
+        case 'age_up':
+          // Age-up celebration is handled at App.tsx level
+          // to avoid conflicts with navigation modals
           break;
       }
     });
