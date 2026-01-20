@@ -186,7 +186,7 @@ export function NowWeekPopup({
           onClose();
           // Tell parent to reopen modal when overlay closes
           onOpenOverlay?.();
-          overlayController.openEdit({ record: fullHabit as any });
+          overlayController.openView({ record: fullHabit as any });
         } else {
           console.warn('[NowWeekPopup] Habit not found or type mismatch:', habitId);
         }

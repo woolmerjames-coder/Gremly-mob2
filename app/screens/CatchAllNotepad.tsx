@@ -2689,11 +2689,15 @@ function getDisplayKindForDrop(item: UnifiedDrop, canonicalTypesOn: boolean): st
 }
 
 type OverlayContextValue = ReturnType<typeof useGlobalOverlay>;
-type GlobalOverlayController = Pick<OverlayContextValue, 'openCreate' | 'openEdit' | 'close'>;
+type GlobalOverlayController = Pick<
+  OverlayContextValue,
+  'openCreate' | 'openEdit' | 'openView' | 'close'
+>;
 
 const noopOverlayController: GlobalOverlayController = {
   openCreate: () => {},
   openEdit: () => {},
+  openView: () => {},
   close: () => {},
 };
 
@@ -3701,27 +3705,49 @@ const RecentDrops: React.FC<{
         const record = getItemById(id);
 
         if (record && record.type === kind) {
-          overlay.openEdit({
-            record: record as any,
-            spaceId: (record as any).space_id ?? null,
-          });
+          // Open habits in view mode, others in edit mode
+          if (kind === 'habit') {
+            overlay.openView({
+              record: record as any,
+              spaceId: (record as any).space_id ?? null,
+            });
+          } else {
+            overlay.openEdit({
+              record: record as any,
+              spaceId: (record as any).space_id ?? null,
+            });
+          }
           onEdited?.();
         } else {
           console.warn('[RecentDrops] handleEdit: record not found or type mismatch', { id, kind });
           // Fallback to minimal record if fetch fails
-          overlay.openEdit({
-            record: { id, type: kind } as any,
-            spaceId: null,
-          });
+          if (kind === 'habit') {
+            overlay.openView({
+              record: { id, type: kind } as any,
+              spaceId: null,
+            });
+          } else {
+            overlay.openEdit({
+              record: { id, type: kind } as any,
+              spaceId: null,
+            });
+          }
           onEdited?.();
         }
       } catch (error) {
         console.error('[RecentDrops] handleEdit: failed to fetch record', error);
         // Fallback to minimal record if fetch fails
-        overlay.openEdit({
-          record: { id, type: kind } as any,
-          spaceId: null,
-        });
+        if (kind === 'habit') {
+          overlay.openView({
+            record: { id, type: kind } as any,
+            spaceId: null,
+          });
+        } else {
+          overlay.openEdit({
+            record: { id, type: kind } as any,
+            spaceId: null,
+          });
+        }
         onEdited?.();
       }
     },

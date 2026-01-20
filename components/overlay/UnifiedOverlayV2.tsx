@@ -131,6 +131,9 @@ import {
 import { MakeActionableButton } from './MakeActionableButton';
 import { ChecklistView } from './ChecklistView';
 
+// Habit View Mode
+import HabitViewMode from './HabitViewMode';
+
 // Entity Chat
 import { EntityChatButton, EntityChatScreen, EntityNotesSection, EntityNotesModal } from '../chat';
 import { ChecklistProgress } from './ChecklistProgress';
@@ -1083,9 +1086,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     conversionMeta,
   } = props;
 
-  // Derive view mode flag - used throughout to guard edit vs view functionality
-  // This avoids TypeScript narrowing issues in nested conditionals
-  const isViewMode = mode === 'view';
+  // NOTE: isViewMode is now derived above with displayMode state for habits
 
   // Extract full entity from props (passed by OverlayHost in edit mode)
   const fullEntity = (props as any).entity ?? null;
@@ -1105,6 +1106,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const deleteLogPhoto = useGremlyStore((s) => s.deleteLogPhoto);
   const updateLogPhotoPosition = useGremlyStore((s) => s.updateLogPhotoPosition);
   const listLogPhotos = useGremlyStore((s) => s.listLogPhotos);
+
+  // Habit progress for view mode
+  const habitProgressForView = useGremlyStore((s) => s.habitProgress);
+  const completeHabit = useGremlyStore((s) => s.completeHabit);
+  const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
+  const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
 
   // Spaces from selector (replaces repo.listSpaces)
   const storeSpaces = useActiveSpaces();
@@ -1193,6 +1200,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Track previous entity ID to detect entity changes
   const prevEntityIdRef = useRef<string | null>(null);
   const currentEntityId = (initialEntity as any)?.id ?? null;
+
+  // Local display mode for habits - allows toggling between view/edit within the overlay
+  // Track if we started in view mode so we can show a back button
+  const startedInViewMode = mode === 'view' && baseType === 'habit';
+  const [displayMode, setDisplayMode] = useState<'view' | 'edit'>(
+    startedInViewMode ? 'view' : 'edit',
+  );
+
+  // Derive effective view mode - use local state for habits, prop for others
+  const isViewMode = baseType === 'habit' ? displayMode === 'view' : mode === 'view';
 
   // Entity Chat: get store selectors and derive entityType
   const getEntityChatMessageCount = useGremlyStore((s) => s.getEntityChatMessageCount);
@@ -1694,11 +1711,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       editAutoPrefillRanRef.current = false;
       hasLoadedEditTagsRef.current = false;
       aiTitlePersistedRef.current = false;
+
+      // Reset displayMode based on incoming mode prop and baseType
+      const newStartedInView = mode === 'view' && baseType === 'habit';
+      setDisplayMode(newStartedInView ? 'view' : 'edit');
     }
 
     // Always update the ref to track current entity
     prevEntityIdRef.current = currentEntityId;
-  }, [visible, currentEntityId]);
+  }, [visible, currentEntityId, mode, baseType]);
 
   async function canEnableCommitment(): Promise<boolean> {
     try {
@@ -4483,6 +4504,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [onClose]);
 
   // ============================================================================
+  // HABIT VIEW MODE HANDLERS
+  // ============================================================================
+  const handleLogHabitToday = useCallback(() => {
+    const habitId = fullEntity?.id || (initialEntity as any)?.id;
+    if (habitId) {
+      completeHabit(habitId);
+    }
+  }, [fullEntity, initialEntity, completeHabit]);
+
+  const handleLogHabitDate = useCallback(
+    (dateIso: string) => {
+      const habitId = fullEntity?.id || (initialEntity as any)?.id;
+      if (habitId) {
+        logHabitCompletionForDate(habitId, dateIso);
+      }
+    },
+    [fullEntity, initialEntity, logHabitCompletionForDate],
+  );
+
+  const handleRemoveHabitDate = useCallback(
+    (dateIso: string) => {
+      const habitId = fullEntity?.id || (initialEntity as any)?.id;
+      if (habitId) {
+        removeHabitCompletionForDate(habitId, dateIso);
+      }
+    },
+    [fullEntity, initialEntity, removeHabitCompletionForDate],
+  );
+
+  // ============================================================================
   // VIEW MODE CONTENT RENDERER
   // ============================================================================
   // Renders a read-optimized display layout for viewing entities
@@ -5103,11 +5154,40 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Pressable>
                           )}
 
+                        {/* Back to View button - only for habits when in edit mode and started in view */}
+                        {baseType === 'habit' && displayMode === 'edit' && startedInViewMode ? (
+                          <Pressable
+                            onPress={() => setDisplayMode('view')}
+                            accessibilityRole="button"
+                            accessibilityLabel="Back to view"
+                            style={({ pressed }) => ({
+                              paddingHorizontal: 12,
+                              paddingVertical: 8,
+                              borderRadius: 999,
+                              opacity: pressed ? 0.6 : 1,
+                            })}
+                          >
+                            <Text
+                              style={{
+                                color: colorMode === 'dark' ? '#FFFFFF' : '#666666',
+                                fontSize: 14,
+                                fontWeight: '500',
+                              }}
+                            >
+                              ← View
+                            </Text>
+                          </Pressable>
+                        ) : null}
+
                         {/* Header Edit button - view mode only */}
                         {isViewMode && fullEntity ? (
                           <Pressable
                             onPress={() => {
-                              if (initialEntity && (initialEntity as any).id) {
+                              if (baseType === 'habit') {
+                                // For habits, toggle local displayMode
+                                setDisplayMode('edit');
+                              } else if (initialEntity && (initialEntity as any).id) {
+                                // For other types, reopen in edit mode
                                 globalOverlay.openEdit({
                                   record: initialEntity as any,
                                   spaceId: initialSpaceId,
@@ -5195,7 +5275,25 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   {/* View/Edit Mode Content Container with Crossfade Animation */}
                   <View style={{ flex: 1 }}>
                     {/* View Mode Content - Read-only display */}
-                    {isViewMode && <View style={{ flex: 1 }}>{renderViewModeContent()}</View>}
+                    {isViewMode && (
+                      <View style={{ flex: 1 }}>
+                        {baseType === 'habit' && (fullEntity || initialEntity?.id) ? (
+                          <HabitViewMode
+                            habit={
+                              (fullEntity ||
+                                storeHabits.find((h) => h.id === (initialEntity as any)?.id)) as any
+                            }
+                            habitProgress={habitProgressForView}
+                            spaceName={spaces.find((s) => s.id === state.spaceId)?.name}
+                            onLogToday={handleLogHabitToday}
+                            onLogDate={handleLogHabitDate}
+                            onRemoveDate={handleRemoveHabitDate}
+                          />
+                        ) : (
+                          renderViewModeContent()
+                        )}
+                      </View>
+                    )}
 
                     {/* Edit/Create Mode Content - Interactive form */}
                     {!isViewMode && (
@@ -9268,7 +9366,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 function headerFor(base: BaseType, mode: 'create' | 'edit' | 'view', title?: string) {
   // Phase 6b: Show entity title in edit mode instead of generic "Edit"
   if ((mode === 'edit' || mode === 'view') && title) return title;
-  if (mode === 'edit' || mode === 'view') return 'Edit'; // Fallback if no title available
+  if (mode === 'view') return base === 'habit' ? 'Habit Progress' : 'View';
+  if (mode === 'edit') return 'Edit';
   return base === 'log' ? 'New Log' : base === 'todo' ? 'New To-Do' : 'New Habit';
 }
 

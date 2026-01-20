@@ -264,7 +264,13 @@ export default function TaskHabitStack() {
         }
 
         const spaceId = 'space_id' in record ? (record.space_id ?? undefined) : undefined;
-        overlay.openEdit({ record, spaceId });
+
+        // Open habits in view mode, todos in edit mode
+        if (record.type === 'habit') {
+          overlay.openView({ record, spaceId });
+        } else {
+          overlay.openEdit({ record, spaceId });
+        }
       } catch (error) {
         console.error('[TaskHabitStack] Failed to open overlay for entry:', entry, error);
       }
