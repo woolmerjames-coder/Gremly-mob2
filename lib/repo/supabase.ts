@@ -2815,8 +2815,13 @@ export class SupabaseRepo implements IRepo {
     });
   }
 
-  /** Enable commitment for an item (max 3 total). Optionally set note. */
-  async addCommitment(id: string, type: 'habit' | 'todo', note?: string | null): Promise<void> {
+  /** Enable commitment for an item (max 3 total). Optionally set note and duration (for habits). */
+  async addCommitment(
+    id: string,
+    type: 'habit' | 'todo',
+    note?: string | null,
+    commitmentDurationDays?: number,
+  ): Promise<void> {
     const current = await this.countActiveCommitments();
     if (current >= 3) {
       throw new Error('MAX_COMMITMENTS_REACHED');
@@ -2824,13 +2829,27 @@ export class SupabaseRepo implements IRepo {
     const startedAt = new Date().toISOString();
     const table = type === 'habit' ? 'habits' : 'todos';
 
+    // For habits, calculate commitment_until date
+    let commitmentUntil: string | null = null;
+    if (type === 'habit' && commitmentDurationDays) {
+      const today = dateService.getCurrentDate();
+      commitmentUntil = dateService.addDays(today, commitmentDurationDays - 1);
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      commitment: true,
+      commitment_started_at: startedAt,
+      ...(note !== undefined ? { commitment_note: note } : {}),
+    };
+
+    // Add commitment_until for habits with duration
+    if (type === 'habit' && commitmentUntil) {
+      updatePayload.commitment_until = commitmentUntil;
+    }
+
     const { error } = await supabase
       .from(table)
-      .update({
-        commitment: true,
-        commitment_started_at: startedAt,
-        ...(note !== undefined ? { commitment_note: note } : {}),
-      })
+      .update(updatePayload)
       .eq('id', id)
       .eq('owner_id', this.ensureUserId());
 

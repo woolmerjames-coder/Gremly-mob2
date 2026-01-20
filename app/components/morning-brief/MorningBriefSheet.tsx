@@ -20,7 +20,6 @@ import {
   Modal,
   Pressable,
   Image,
-  ScrollView,
   LayoutRectangle,
   InteractionManager,
 } from 'react-native';
@@ -35,6 +34,7 @@ import {
   TapGestureHandler,
   TapGestureHandlerStateChangeEvent,
   TouchableOpacity,
+  ScrollView,
 } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -46,14 +46,33 @@ import Animated, {
 import { BRAND } from '../../../design/brand';
 import { useMorningBrief } from '../../../lib/today/hooks/useMorningBrief';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
-import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import {
+  useGremlyStore,
+  isHabitLockedIn,
+  type HabitProgressRow,
+} from '../../../lib/store/useGremlyStore';
+import {
+  getMonthlyProgress,
+  isHabitCompletedToday,
+  getFrequencyLabel,
+} from '../../../lib/sweep/habitHelpers';
 import { useLockedItems, useTodayHabits } from '../../../lib/store/selectors';
 import { MiniSweepGate } from './MiniSweepGate';
-import { Clock, Sunrise, Sun, Moon } from 'lucide-react-native';
+import {
+  Clock,
+  Sunrise,
+  Sun,
+  Moon,
+  Lock,
+  ChevronDown,
+  ChevronUp,
+  Check,
+} from 'lucide-react-native';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { useNowQuickAdd } from '../../../lib/now/useNowQuickAdd';
 import { OverlayHost } from '../../../components/OverlayHost';
 import { triggerMedium, triggerSuccess } from '../../../lib/haptics';
+import { dateService } from '../../../lib/date/DateService';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires -- React Native image import
 const GREMLY_FACE = require('../../../assets/buttonforHP.png');
@@ -122,6 +141,74 @@ function formatBucketTime(minutes: number): string {
   return `~${hours}h ${mins}m`;
 }
 
+/**
+ * Calculate days remaining for a habit lock-in.
+ * Returns null if habit is not locked in or expired.
+ */
+function getLockInDaysRemaining(habit: { commitment_until?: string | null }): number | null {
+  if (!habit.commitment_until) return null;
+  const today = dateService.getCurrentDate();
+  if (habit.commitment_until < today) return null; // Expired
+  return dateService.daysBetween(today, habit.commitment_until);
+}
+
+/**
+ * Get rolling 7-day progress for a habit (today - 6 days to today).
+ * This matches the "Habits this week" modal calculation.
+ */
+function getRolling7DayProgress(habitId: string, habitProgress: HabitProgressRow[]): number {
+  const today = dateService.getCurrentDate();
+  const weekStart = dateService.addDays(today, -6); // 7 days including today
+  return habitProgress.filter(
+    (p) => p.habit_id === habitId && p.occurred_day >= weekStart && p.occurred_day <= today,
+  ).length;
+}
+
+/**
+ * Get second line info for a habit card showing progress and frequency.
+ * Uses rolling 7-day calculation to match "Habits this week" modal.
+ */
+function getHabitSecondLine(
+  habit: { id: string; cadence?: 'daily' | 'weekly' | 'monthly'; target_per_period?: number },
+  habitProgress: HabitProgressRow[],
+): { leftText: string; isAhead: boolean; frequencyText: string } {
+  const cadence = habit.cadence ?? 'daily';
+  const target = habit.target_per_period ?? 1;
+  const frequencyText = getFrequencyLabel({ cadence, target_per_period: target });
+
+  if (cadence === 'daily') {
+    const isAhead = isHabitCompletedToday(habit.id, habitProgress);
+    return {
+      leftText: isAhead ? 'Ahead' : '',
+      isAhead,
+      frequencyText,
+    };
+  }
+
+  if (cadence === 'weekly') {
+    // Use rolling 7-day progress to match "Habits this week" modal
+    const progress = getRolling7DayProgress(habit.id, habitProgress);
+    const isAhead = progress >= target;
+    return {
+      leftText: isAhead ? 'Ahead' : `${progress}/${target} this week`,
+      isAhead,
+      frequencyText,
+    };
+  }
+
+  if (cadence === 'monthly') {
+    const progress = getMonthlyProgress(habit.id, habitProgress);
+    const isAhead = progress >= target;
+    return {
+      leftText: isAhead ? 'Ahead' : `${progress}/${target} this month`,
+      isAhead,
+      frequencyText,
+    };
+  }
+
+  return { leftText: '', isAhead: false, frequencyText };
+}
+
 // Draggable task card component
 interface DraggableTaskCardProps {
   task: TaskItem & { timeEstimate?: number | null };
@@ -130,6 +217,10 @@ interface DraggableTaskCardProps {
   onDragEnd: (x: number, y: number) => void;
   onTap: (taskId: string) => void;
   isDragging: boolean;
+  /** Habit second line info (progress + frequency) - only for habits */
+  habitSecondLine?: { leftText: string; isAhead: boolean; frequencyText: string };
+  /** Days remaining for habit lock-in (only for locked habits) */
+  lockInDaysRemaining?: number | null;
 }
 
 function DraggableTaskCard({
@@ -139,7 +230,10 @@ function DraggableTaskCard({
   onDragEnd,
   onTap,
   isDragging,
+  habitSecondLine,
+  lockInDaysRemaining,
 }: DraggableTaskCardProps) {
+  const isAhead = habitSecondLine?.isAhead ?? false;
   const panRef = useRef<PanGestureHandler>(null);
   const longPressRef = useRef<LongPressGestureHandler>(null);
   const tapRef = useRef<TapGestureHandler>(null);
@@ -198,7 +292,7 @@ function DraggableTaskCard({
         <LongPressGestureHandler
           ref={longPressRef}
           onHandlerStateChange={handleLongPressStateChange}
-          minDurationMs={200}
+          minDurationMs={300}
           simultaneousHandlers={panRef}
         >
           <Animated.View>
@@ -207,18 +301,73 @@ function DraggableTaskCard({
               onGestureEvent={handlePanGesture}
               onHandlerStateChange={handlePanStateChange}
               simultaneousHandlers={longPressRef}
-              activeOffsetX={[-15, 15]}
-              activeOffsetY={[-15, 15]}
-              failOffsetY={[-25, 25]}
+              activeOffsetX={[-20, 20]}
+              activeOffsetY={[-20, 20]}
             >
-              <Animated.View style={[styles.taskCard, isDragging && styles.taskCardDragging]}>
+              <Animated.View
+                style={[
+                  styles.taskCard,
+                  isDragging && styles.taskCardDragging,
+                  isAhead && styles.taskCardMuted,
+                ]}
+              >
+                {/* Avatar - centered vertically */}
                 <Image source={GREMLY_FACE} style={styles.gremlyHandle} />
-                <View style={styles.taskInfo}>
-                  <Text style={styles.taskName} numberOfLines={1}>
-                    {task.name}
-                  </Text>
-                  <Text style={styles.taskType}>{task.type === 'habit' ? 'Habit' : 'To-do'}</Text>
+                {/* Content column: title row + optional second line */}
+                <View style={styles.taskCardContent}>
+                  {/* Row 1: Name, lock-in badge */}
+                  <View style={styles.taskCardFirstLine}>
+                    <View style={styles.taskInfo}>
+                      <Text
+                        style={[styles.taskName, isAhead && styles.taskNameMuted]}
+                        numberOfLines={1}
+                      >
+                        {task.name}
+                      </Text>
+                    </View>
+                    {lockInDaysRemaining != null && (
+                      <View style={styles.lockInBadge}>
+                        <Lock size={10} color={BRAND.colors.mossGreen} />
+                        <Text style={styles.lockInBadgeText}>
+                          {lockInDaysRemaining === 0
+                            ? 'Until tonight'
+                            : lockInDaysRemaining === 1
+                              ? '1 day left'
+                              : `${lockInDaysRemaining} days left`}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  {/* Row 2: Habit progress + frequency (habits only) */}
+                  {habitSecondLine && (
+                    <View style={styles.habitSecondLine}>
+                      {habitSecondLine.leftText ? (
+                        <>
+                          {habitSecondLine.isAhead && (
+                            <Check
+                              size={10}
+                              color={BRAND.colors.mossGreen}
+                              style={styles.aheadCheckIcon}
+                            />
+                          )}
+                          <Text
+                            style={[
+                              styles.habitSecondLineText,
+                              habitSecondLine.isAhead && styles.habitSecondLineAhead,
+                            ]}
+                          >
+                            {habitSecondLine.leftText}
+                          </Text>
+                          <Text style={styles.habitSecondLineSeparator}>·</Text>
+                        </>
+                      ) : null}
+                      <Text style={styles.habitSecondLineText}>
+                        {habitSecondLine.frequencyText}
+                      </Text>
+                    </View>
+                  )}
                 </View>
+                {/* Time estimate - centered vertically on right */}
                 {formatTimeEstimate(task.timeEstimate) && (
                   <View style={styles.timeEstimate}>
                     <Clock size={12} color={BRAND.colors.inkMuted} />
@@ -313,13 +462,25 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   // Store commitment actions (with optimistic Zustand updates)
   const addCommitment = useGremlyStore((s) => s.addCommitment);
   const removeCommitment = useGremlyStore((s) => s.removeCommitment);
+  const dismissHabitForToday = useGremlyStore((s) => s.dismissHabitForToday);
+  const updateTodo = useGremlyStore((s) => s.updateTodo);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
 
   // Locked items from selectors (single source of truth)
   const rawLockedItems = useLockedItems();
 
-  // Candidates: active todos due today + daily habits
+  // Get dismissed habit IDs from today's brief
+  const dailyBrief = useGremlyStore((s) => s.dailyBrief);
+  const dismissedHabitIds = useMemo(
+    () => dailyBrief?.dismissed_habit_ids ?? [],
+    [dailyBrief?.dismissed_habit_ids],
+  );
+
+  // Candidates: active todos due today + daily habits (excluding dismissed)
   const todos = useGremlyStore((s) => s.todos);
+  const habitProgress = useGremlyStore((s) => s.habitProgress);
   const todayHabitsFromSelector = useTodayHabits();
+
   const candidates = useMemo(() => {
     const todayDate = getTodayDateString();
 
@@ -339,16 +500,19 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         timeWindow: t.time_window,
       }));
 
-    const todayHabits = todayHabitsFromSelector.map((h) => ({
-      id: h.id,
-      type: 'habit' as const,
-      name: h.name || 'Untitled',
-      timeEstimate: h.time_estimate_minutes,
-      timeWindow: h.time_window,
-    }));
+    // Filter out dismissed habits
+    const todayHabits = todayHabitsFromSelector
+      .filter((h) => !dismissedHabitIds.includes(h.id))
+      .map((h) => ({
+        id: h.id,
+        type: 'habit' as const,
+        name: h.name || 'Untitled',
+        timeEstimate: h.time_estimate_minutes,
+        timeWindow: h.time_window,
+      }));
 
     return [...todayTodos, ...todayHabits];
-  }, [todos, todayHabitsFromSelector]);
+  }, [todos, todayHabitsFromSelector, dismissedHabitIds]);
 
   // Assignment state: maps task ID to bucket
   const [assignments, setAssignments] = useState<Map<string, Bucket>>(new Map());
@@ -356,6 +520,10 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   const [bucketOrders, setBucketOrders] = useState<Map<Bucket, string[]>>(new Map());
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  // Duration picker state for habit lock-in
+  const [showDurationPicker, setShowDurationPicker] = useState(false);
+  const [pendingLockInHabitId, setPendingLockInHabitId] = useState<string | null>(null);
 
   // Track which items were originally locked (from Zustand) vs newly assigned
   const originalLockedIdsRef = useRef<Set<string>>(new Set());
@@ -521,6 +689,13 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     // Skip re-initialization if we're in the process of closing
     if (isClosingRef.current) return;
 
+    // Debug: Log sequences loaded on mount
+    console.log('[MorningBrief] Loaded sequences on mount:', {
+      morning: morningSequence,
+      day: daySequence,
+      evening: eveningSequence,
+    });
+
     // Capture original locked IDs at modal open time
     originalLockedIdsRef.current = new Set(rawLockedItems.map((item) => item.id));
 
@@ -660,6 +835,36 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     [candidates, assignments],
   );
 
+  // Section groupings for unorganized items
+  const [habitsExpanded, setHabitsExpanded] = useState(true);
+  const { lockedInTasks, taskTasks, habitTasks } = useMemo(() => {
+    const locked: TaskItem[] = [];
+    const tasks: TaskItem[] = [];
+    const habits: TaskItem[] = [];
+
+    for (const item of unorganizedTasks) {
+      if (item.type === 'todo') {
+        // Check if todo is locked in (commitment === true)
+        const todo = todos.find((t) => t.id === item.id);
+        if (todo?.commitment === true) {
+          locked.push(item);
+        } else {
+          tasks.push(item);
+        }
+      } else {
+        // Habit - check if locked in using commitment_until
+        const habit = todayHabitsFromSelector.find((h) => h.id === item.id);
+        if (habit && isHabitLockedIn(habit)) {
+          locked.push(item);
+        } else {
+          habits.push(item);
+        }
+      }
+    }
+
+    return { lockedInTasks: locked, taskTasks: tasks, habitTasks: habits };
+  }, [unorganizedTasks, todos, todayHabitsFromSelector]);
+
   const getOrderedBucketItems = useCallback(
     (bucket: Bucket): TaskItem[] => {
       const order = bucketOrders.get(bucket) || [];
@@ -707,7 +912,14 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
       // 2. Add commitments for NEW lock-in items (not originally locked)
       for (const item of lockInItems) {
         if (!originalLockedIds.has(item.id)) {
-          await addCommitment(item.id, item.type, null);
+          if (item.type === 'habit') {
+            // Default to 7 days for habits dragged into lock-in
+            // (Habits locked via tap go through duration picker instead)
+            await addCommitment(item.id, item.type, null, 7);
+          } else {
+            // Todos don't have duration
+            await addCommitment(item.id, item.type, null);
+          }
         }
       }
 
@@ -715,6 +927,19 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
       const mSeq = morningItems.map((item) => ({ id: item.id, type: item.type }));
       const dSeq = dayItems.map((item) => ({ id: item.id, type: item.type }));
       const eSeq = eveningItems.map((item) => ({ id: item.id, type: item.type }));
+
+      // Debug: Log all state to trace why sequences are empty
+      console.log('[MorningBrief] Done pressed - full state debug:', {
+        assignments: Object.fromEntries(assignments),
+        bucketOrders: Object.fromEntries(bucketOrders),
+        candidateIds: candidates.map((c) => c.id),
+        morningItems: morningItems.map((i) => i.id),
+        dayItems: dayItems.map((i) => i.id),
+        eveningItems: eveningItems.map((i) => i.id),
+        mSeq,
+        dSeq,
+        eSeq,
+      });
 
       await saveBrief({
         morning_sequence: mSeq,
@@ -746,6 +971,8 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   // Assign a task to a bucket
   const handleAssignToBucket = useCallback(
     (taskId: string, bucket: Bucket) => {
+      console.log('[MorningBrief] handleAssignToBucket called:', { taskId, bucket });
+
       setAssignments((prev) => {
         const next = new Map(prev);
         if (bucket === 'lock-in') {
@@ -758,6 +985,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
           }
         }
         next.set(taskId, bucket);
+        console.log('[MorningBrief] assignments updated:', Object.fromEntries(next));
         return next;
       });
 
@@ -777,6 +1005,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         // Add to new bucket
         const currentOrder = next.get(bucket) || [];
         next.set(bucket, [...currentOrder, taskId]);
+        console.log('[MorningBrief] bucketOrders updated:', Object.fromEntries(next));
         return next;
       });
 
@@ -791,6 +1020,9 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   // Remove a task from its bucket
   const handleRemoveFromBucket = useCallback(
     (taskId: string) => {
+      // Get the current bucket before removing
+      const currentBucket = assignments.get(taskId);
+
       // If this was an originally locked item, remove the commitment (fire and forget)
       if (originalLockedIdsRef.current.has(taskId)) {
         const item = rawLockedItems.find((i) => i.id === taskId);
@@ -799,6 +1031,26 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
           // Fire and forget - don't await
           removeCommitment(taskId, itemType).catch((error) => {
             console.error('[MorningBrief] Failed to remove commitment:', error);
+          });
+        }
+      }
+
+      // If removing from a time-based bucket, reset the time_window on the entity to 'any'
+      // Note: habits.time_window has a NOT NULL constraint, so use 'any' instead of null
+      if (currentBucket === 'morning' || currentBucket === 'day' || currentBucket === 'evening') {
+        // Find if it's a todo or habit and update accordingly
+        const todo = todos.find((t) => t.id === taskId);
+        const habit = todayHabitsFromSelector.find((h) => h.id === taskId);
+
+        if (todo) {
+          // Clear time_window on todo (todos allow null)
+          updateTodo(taskId, { time_window: null }).catch((error) => {
+            console.error('[MorningBrief] Failed to clear todo time_window:', error);
+          });
+        } else if (habit) {
+          // Reset time_window on habit to 'any' (habits require non-null)
+          updateHabit(taskId, { time_window: 'any' }).catch((error) => {
+            console.error('[MorningBrief] Failed to reset habit time_window:', error);
           });
         }
       }
@@ -825,10 +1077,19 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
         return next;
       });
     },
-    [rawLockedItems, removeCommitment],
+    [
+      assignments,
+      rawLockedItems,
+      removeCommitment,
+      todos,
+      todayHabitsFromSelector,
+      updateTodo,
+      updateHabit,
+    ],
   );
 
   const handleTap = useCallback((taskId: string) => {
+    console.log('[MorningBrief] handleTap called - opening bucket selector:', { taskId });
     setSelectedTaskId(taskId);
   }, []);
 
@@ -848,6 +1109,12 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   }, []);
 
   const handleDragStart = useCallback((task: TaskItem, x: number, y: number) => {
+    console.log('[MorningBrief] handleDragStart called:', {
+      taskId: task.id,
+      taskName: task.name,
+      x,
+      y,
+    });
     setDraggingTask(task);
     setDragPos({ x, y });
   }, []);
@@ -875,8 +1142,10 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
   const handleDragEnd = useCallback(
     (x: number, y: number) => {
+      console.log('[MorningBrief] handleDragEnd called:', { x, y, draggingTask: draggingTask?.id });
       if (draggingTask) {
         const bucket = detectBucketAtPosition(x, y);
+        console.log('[MorningBrief] Detected bucket at position:', { bucket, x, y });
         if (bucket) {
           handleAssignToBucket(draggingTask.id, bucket);
           if (bucket === 'lock-in') {
@@ -884,6 +1153,11 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
           } else {
             triggerMedium();
           }
+        } else {
+          console.log(
+            '[MorningBrief] No bucket detected - bucketLayouts:',
+            Object.fromEntries(bucketLayouts.current),
+          );
         }
       }
       setDraggingTask(null);
@@ -1123,17 +1397,104 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                     <Text style={styles.emptyStateText}>All tasks scheduled!</Text>
                   </View>
                 ) : (
-                  unorganizedTasks.map((task) => (
-                    <DraggableTaskCard
-                      key={task.id}
-                      task={task}
-                      onDragStart={handleDragStart}
-                      onDragMove={handleDragMove}
-                      onDragEnd={handleDragEnd}
-                      onTap={handleTap}
-                      isDragging={draggingTask?.id === task.id}
-                    />
-                  ))
+                  <>
+                    {/* Locked In Section */}
+                    {lockedInTasks.length > 0 && (
+                      <View style={styles.itemSection}>
+                        <View style={styles.sectionHeader}>
+                          <Lock size={14} color={BRAND.colors.mossGreen} />
+                          <Text style={styles.sectionTitle}>Locked In</Text>
+                          <Text style={styles.sectionCount}>{lockedInTasks.length}</Text>
+                        </View>
+                        {lockedInTasks.map((task) => {
+                          // For habits, calculate days remaining on lock-in and second line
+                          let lockInDaysRemaining: number | null = null;
+                          let habitSecondLine:
+                            | { leftText: string; isAhead: boolean; frequencyText: string }
+                            | undefined;
+                          if (task.type === 'habit') {
+                            const habit = todayHabitsFromSelector.find((h) => h.id === task.id);
+                            if (habit) {
+                              lockInDaysRemaining = getLockInDaysRemaining(habit);
+                              habitSecondLine = getHabitSecondLine(habit, habitProgress);
+                            }
+                          }
+                          return (
+                            <DraggableTaskCard
+                              key={task.id}
+                              task={task}
+                              onDragStart={handleDragStart}
+                              onDragMove={handleDragMove}
+                              onDragEnd={handleDragEnd}
+                              onTap={handleTap}
+                              isDragging={draggingTask?.id === task.id}
+                              lockInDaysRemaining={lockInDaysRemaining}
+                              habitSecondLine={habitSecondLine}
+                            />
+                          );
+                        })}
+                      </View>
+                    )}
+
+                    {/* Todos Section */}
+                    {taskTasks.length > 0 && (
+                      <View style={styles.itemSection}>
+                        <View style={styles.sectionHeader}>
+                          <Text style={styles.sectionTitle}>Todos</Text>
+                          <Text style={styles.sectionCount}>{taskTasks.length}</Text>
+                        </View>
+                        {taskTasks.map((task) => (
+                          <DraggableTaskCard
+                            key={task.id}
+                            task={task}
+                            onDragStart={handleDragStart}
+                            onDragMove={handleDragMove}
+                            onDragEnd={handleDragEnd}
+                            onTap={handleTap}
+                            isDragging={draggingTask?.id === task.id}
+                          />
+                        ))}
+                      </View>
+                    )}
+
+                    {/* Habits Section - collapsible */}
+                    {habitTasks.length > 0 && (
+                      <View style={styles.itemSection}>
+                        <Pressable
+                          style={styles.sectionHeader}
+                          onPress={() => setHabitsExpanded(!habitsExpanded)}
+                        >
+                          <Text style={styles.sectionTitle}>Habits</Text>
+                          <Text style={styles.sectionCount}>{habitTasks.length}</Text>
+                          {habitsExpanded ? (
+                            <ChevronUp size={16} color={BRAND.colors.inkMuted} />
+                          ) : (
+                            <ChevronDown size={16} color={BRAND.colors.inkMuted} />
+                          )}
+                        </Pressable>
+                        {habitsExpanded &&
+                          habitTasks.map((task) => {
+                            // Look up full habit to get cadence and target for second line
+                            const fullHabit = todayHabitsFromSelector.find((h) => h.id === task.id);
+                            const secondLine = fullHabit
+                              ? getHabitSecondLine(fullHabit, habitProgress)
+                              : undefined;
+                            return (
+                              <DraggableTaskCard
+                                key={task.id}
+                                task={task}
+                                onDragStart={handleDragStart}
+                                onDragMove={handleDragMove}
+                                onDragEnd={handleDragEnd}
+                                onTap={handleTap}
+                                isDragging={draggingTask?.id === task.id}
+                                habitSecondLine={secondLine}
+                              />
+                            );
+                          })}
+                      </View>
+                    )}
+                  </>
                 )}
               </ScrollView>
             </View>
@@ -1236,7 +1597,18 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
                     <Pressable
                       style={styles.pickerOption}
-                      onPress={() => handleAssignToBucket(selectedTaskId, 'lock-in')}
+                      onPress={() => {
+                        const item = candidates.find((c) => c.id === selectedTaskId);
+                        if (item?.type === 'habit') {
+                          // Show duration picker for habits
+                          setPendingLockInHabitId(selectedTaskId);
+                          setShowDurationPicker(true);
+                          setSelectedTaskId(null);
+                        } else {
+                          // Immediate lock-in for todos
+                          handleAssignToBucket(selectedTaskId, 'lock-in');
+                        }
+                      }}
                     >
                       <Text style={styles.pickerOptionIcon}>◇</Text>
                       <Text style={styles.pickerOptionText}>Lock In</Text>
@@ -1281,6 +1653,19 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                       <Text style={styles.pickerOptionText}>Evening</Text>
                     </Pressable>
 
+                    {/* Not today - only for habits */}
+                    {candidates.find((c) => c.id === selectedTaskId)?.type === 'habit' && (
+                      <Pressable
+                        style={styles.notTodayButton}
+                        onPress={async () => {
+                          await dismissHabitForToday(selectedTaskId);
+                          setSelectedTaskId(null);
+                        }}
+                      >
+                        <Text style={styles.notTodayButtonText}>Not today</Text>
+                      </Pressable>
+                    )}
+
                     <Pressable style={styles.pickerCancel} onPress={() => setSelectedTaskId(null)}>
                       <Text style={styles.pickerCancelText}>Cancel</Text>
                     </Pressable>
@@ -1296,6 +1681,82 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
               onSubmit={handleQuickAddSubmit}
               onPressManualAdd={handleQuickAddManual}
             />
+
+            {/* Duration Picker for Habit Lock-In */}
+            {showDurationPicker && pendingLockInHabitId && (
+              <View style={styles.durationPickerOverlay}>
+                <View style={styles.durationPickerSheet}>
+                  <Text style={styles.durationPickerTitle}>Lock in for how long?</Text>
+                  <Text style={styles.durationPickerSubtitle}>
+                    Helps build the habit, then it flows naturally
+                  </Text>
+
+                  <View style={styles.durationOptions}>
+                    <Pressable
+                      style={styles.durationOption}
+                      onPress={async () => {
+                        if (!pendingLockInHabitId) return;
+                        await addCommitment(pendingLockInHabitId, 'habit', null, 1);
+                        handleAssignToBucket(pendingLockInHabitId, 'lock-in');
+                        setShowDurationPicker(false);
+                        setPendingLockInHabitId(null);
+                      }}
+                    >
+                      <Text style={styles.durationOptionText}>Just today</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.durationOption}
+                      onPress={async () => {
+                        if (!pendingLockInHabitId) return;
+                        await addCommitment(pendingLockInHabitId, 'habit', null, 3);
+                        handleAssignToBucket(pendingLockInHabitId, 'lock-in');
+                        setShowDurationPicker(false);
+                        setPendingLockInHabitId(null);
+                      }}
+                    >
+                      <Text style={styles.durationOptionText}>3 days</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.durationOption}
+                      onPress={async () => {
+                        if (!pendingLockInHabitId) return;
+                        await addCommitment(pendingLockInHabitId, 'habit', null, 7);
+                        handleAssignToBucket(pendingLockInHabitId, 'lock-in');
+                        setShowDurationPicker(false);
+                        setPendingLockInHabitId(null);
+                      }}
+                    >
+                      <Text style={styles.durationOptionText}>1 week</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.durationOption}
+                      onPress={async () => {
+                        if (!pendingLockInHabitId) return;
+                        await addCommitment(pendingLockInHabitId, 'habit', null, 14);
+                        handleAssignToBucket(pendingLockInHabitId, 'lock-in');
+                        setShowDurationPicker(false);
+                        setPendingLockInHabitId(null);
+                      }}
+                    >
+                      <Text style={styles.durationOptionText}>2 weeks</Text>
+                    </Pressable>
+                  </View>
+
+                  <Pressable
+                    style={styles.durationCancelButton}
+                    onPress={() => {
+                      setShowDurationPicker(false);
+                      setPendingLockInHabitId(null);
+                    }}
+                  >
+                    <Text style={styles.durationCancelText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
 
             {/* Drag overlay */}
             {draggingTask && (
@@ -1392,6 +1853,30 @@ const styles = StyleSheet.create({
   taskListContent: {
     paddingBottom: 16,
   },
+  // Section styles for grouped items
+  itemSection: {
+    marginBottom: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  sectionCount: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    marginLeft: 'auto',
+    marginRight: 4,
+  },
   bottomSection: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -1438,6 +1923,11 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     marginRight: 12,
+    alignSelf: 'center',
+  },
+  taskCardContent: {
+    flex: 1,
+    flexDirection: 'column',
   },
   taskInfo: {
     flex: 1,
@@ -1446,7 +1936,52 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: BRAND.colors.charcoalInk,
-    marginBottom: 2,
+  },
+  taskNameMuted: {
+    color: BRAND.colors.inkMuted,
+  },
+  taskCardMuted: {
+    opacity: 0.6,
+  },
+  taskCardFirstLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  habitSecondLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  habitSecondLineText: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+  },
+  habitSecondLineAhead: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
+  },
+  habitSecondLineSeparator: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    marginHorizontal: 6,
+  },
+  aheadCheckIcon: {
+    marginRight: 4,
+  },
+  lockInBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(95, 145, 100, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  lockInBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
   taskType: {
     fontSize: 11,
@@ -1455,7 +1990,9 @@ const styles = StyleSheet.create({
   timeEstimate: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'center',
     gap: 4,
+    marginLeft: 8,
   },
   timeEstimateText: {
     fontSize: 11,
@@ -1765,6 +2302,21 @@ const styles = StyleSheet.create({
     color: BRAND.colors.mossGreen,
     fontWeight: '500',
   },
+  notTodayButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  notTodayButtonText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
+  },
   // Gremly Instructions
   gremlyRow: {
     flexDirection: 'row',
@@ -1796,6 +2348,64 @@ const styles = StyleSheet.create({
   },
   gremlyTextOptional: {
     fontStyle: 'italic',
+    color: BRAND.colors.inkMuted,
+  },
+  // Duration picker for habit lock-in
+  durationPickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  durationPickerSheet: {
+    backgroundColor: BRAND.colors.linenCream,
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 24,
+    width: '85%',
+    maxWidth: 320,
+  },
+  durationPickerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  durationPickerSubtitle: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  durationOptions: {
+    gap: 10,
+  },
+  durationOption: {
+    backgroundColor: BRAND.colors.sageMist,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  durationOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+  },
+  durationCancelButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  durationCancelText: {
+    fontSize: 15,
+    fontWeight: '500',
     color: BRAND.colors.inkMuted,
   },
   actionRow: {

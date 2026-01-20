@@ -868,7 +868,11 @@ export function UnifiedCreateOverlay({
             setSelectedType('habit');
             initializeTags(formData.details.tags ?? [], 'habit');
             if (COMMITMENTS_FEATURE_ENABLED) {
-              setCommitmentEnabled(Boolean(entity.commitment && !entity.commitment_archived_at));
+              // Habit uses commitment_until (date string), not commitment boolean
+              const isLockedIn =
+                entity.commitment_until != null &&
+                entity.commitment_until >= dateService.getCurrentDate();
+              setCommitmentEnabled(Boolean(isLockedIn && !entity.commitment_archived_at));
               setCommitmentNote(entity.commitment_note ?? '');
               setCommitmentNoteDraft(entity.commitment_note ?? '');
             } else {
@@ -1427,10 +1431,13 @@ export function UnifiedCreateOverlay({
                 ? habitNotes
                 : todoNotes;
           const trimmedNote = noteSource.trim();
+          // For habits, use 7-day default duration. TODO: Add duration picker
+          const durationDays = selectedType === 'habit' ? 7 : undefined;
           await repo.addCommitment(
             initialEntityId,
             selectedType,
             trimmedNote.length > 0 ? trimmedNote : null,
+            durationDays,
           );
           setCommitmentEnabled(true);
           setCommitmentNote(trimmedNote);
@@ -2179,7 +2186,14 @@ export function UnifiedCreateOverlay({
               try {
                 const count = await repo.countActiveCommitments();
                 if (count < 3) {
-                  await repo.addCommitment(created.id, created.type as 'habit' | 'todo');
+                  // For habits, use 7-day default duration
+                  const durationDays = created.type === 'habit' ? 7 : undefined;
+                  await repo.addCommitment(
+                    created.id,
+                    created.type as 'habit' | 'todo',
+                    undefined,
+                    durationDays,
+                  );
                   if (__DEV__) console.log('[AutoCommitment][applied]', created.id);
                   emitCommitmentsChanged();
                 }
@@ -2264,7 +2278,14 @@ export function UnifiedCreateOverlay({
             try {
               const count = await repo.countActiveCommitments();
               if (count < 3) {
-                await repo.addCommitment(result.id, result.type as 'habit' | 'todo');
+                // For habits, use 7-day default duration
+                const durationDays = result.type === 'habit' ? 7 : undefined;
+                await repo.addCommitment(
+                  result.id,
+                  result.type as 'habit' | 'todo',
+                  undefined,
+                  durationDays,
+                );
                 if (__DEV__) console.log('[AutoCommitment][applied]', result.id);
                 emitCommitmentsChanged();
               }

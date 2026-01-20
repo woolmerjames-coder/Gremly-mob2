@@ -1,5 +1,5 @@
 import { createSelector } from 'reselect';
-import { useGremlyStore, type HabitProgressRow } from './useGremlyStore';
+import { useGremlyStore, isHabitLockedIn, type HabitProgressRow } from './useGremlyStore';
 import type { Todo, Habit, Note, Space } from '../types';
 import type {
   SweepCandidate,
@@ -528,10 +528,13 @@ export const selectLockedTodos = createSelector([selectActiveTodos], (todos): To
 });
 
 /** Todos with commitment = true (locked in) AND due today - includes completed for sweep celebration */
-export const selectLockedTodosIncludingCompleted = createSelector([selectTodos], (todos): Todo[] => {
-  const today = getTodayDayString();
-  return todos.filter((t) => t.commitment === true && !t.archived && t.due_day === today);
-});
+export const selectLockedTodosIncludingCompleted = createSelector(
+  [selectTodos],
+  (todos): Todo[] => {
+    const today = getTodayDayString();
+    return todos.filter((t) => t.commitment === true && !t.archived && t.due_day === today);
+  },
+);
 
 /** Undated todos (no due_day, for triage) */
 export const selectUndatedTodos = createSelector([selectActiveTodos], (todos): Todo[] =>
@@ -570,21 +573,21 @@ export const selectArchivedTodos = createSelector([selectTodos], (todos): Todo[]
 // TODAY PAGE COMBINED SELECTORS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Locked items for Today (todos + habits with commitment = true) - excludes completed */
+/** Locked items for Today (todos with commitment = true, habits with valid commitment_until) - excludes completed */
 export const selectTodayLockedItems = createSelector(
   [selectLockedTodos, selectHabitsDueToday],
   (lockedTodos, habitsDueToday): (Todo | Habit)[] => {
-    const lockedHabits = habitsDueToday.filter((h) => h.commitment === true);
+    const lockedHabits = habitsDueToday.filter((h) => isHabitLockedIn(h));
     return [...lockedTodos, ...lockedHabits];
   },
 );
 
-/** Locked items including completed - for Sweep celebration (todos + habits with commitment = true) */
+/** Locked items including completed - for Sweep celebration (todos with commitment = true, habits with valid commitment_until) */
 export const selectTodayLockedItemsIncludingCompleted = createSelector(
   [selectLockedTodosIncludingCompleted, selectHabits],
   (lockedTodos, habits): (Todo | Habit)[] => {
     // Include locked habits that are active (not archived), even if completed today
-    const lockedHabits = habits.filter((h) => h.commitment === true && !h.archived);
+    const lockedHabits = habits.filter((h) => isHabitLockedIn(h) && !h.archived);
     return [...lockedTodos, ...lockedHabits];
   },
 );
@@ -599,7 +602,7 @@ export const selectTodayActiveItems = createSelector(
     const activeTodos = todosDueToday.filter((t) => !lockedIds.has(t.id));
 
     // Habits due today that aren't locked
-    const activeHabits = habitsDueToday.filter((h) => h.commitment !== true);
+    const activeHabits = habitsDueToday.filter((h) => !isHabitLockedIn(h));
 
     return [...activeTodos, ...activeHabits];
   },
@@ -686,7 +689,7 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
  * and habits that need start date confirmation.
  *
  * Sort order:
- * 1. Locked-in items first (commitment = true)
+ * 1. Locked-in items first (todos: commitment = true, habits: valid commitment_until)
  * 2. Overdue todos
  * 3. Due today todos
  * 4. Unconfirmed habits
@@ -840,7 +843,7 @@ export const selectSweepCandidatesUnified = createSelector(
     // Process unconfirmed habits
     for (const habit of unconfirmedHabits) {
       // Skip locked-in habits - handled in Lock-In Checkpoint
-      if (habit.commitment === true) {
+      if (isHabitLockedIn(habit)) {
         console.log('[SweepSelector] Filtered out locked-in habit:', {
           id: habit.id.slice(0, 8),
           name: habit.name?.slice(0, 20),

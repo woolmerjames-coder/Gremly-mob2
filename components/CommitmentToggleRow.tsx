@@ -141,7 +141,14 @@ const CommitmentToggleRow: React.FC<CommitmentToggleRowProps> = ({ entity, onCha
           }
 
           const trimmed = noteDraft.trim();
-          await repo.addCommitment(entity.id, entity.type, trimmed.length ? trimmed : null);
+          // For habits, use 7-day default duration. TODO: Add duration picker
+          const durationDays = entity.type === 'habit' ? 7 : undefined;
+          await repo.addCommitment(
+            entity.id,
+            entity.type,
+            trimmed.length ? trimmed : null,
+            durationDays,
+          );
           setCommitmentEnabled(true);
           setNote(trimmed);
           setNoteDraft(trimmed);
