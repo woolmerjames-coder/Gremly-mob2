@@ -21,6 +21,7 @@ import Animated, {
   interpolateColor,
   Extrapolation,
   cancelAnimation,
+  runOnJS,
 } from 'react-native-reanimated';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
