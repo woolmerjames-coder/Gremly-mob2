@@ -1462,8 +1462,8 @@ export const useGremlyStore = create<GremlyState>()(
 
       const now = new Date();
       const nowIso = now.toISOString();
-      // Use LOCAL date for occurred_day to match filtering logic
-      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      // Use DateService for consistent local date across the app
+      const todayDate = getDateService().getCurrentDate();
       const prevHabit = get().habits.find((h) => h.id === id);
 
       // 1. OPTIMISTIC UPDATE - update habit's last_completed_at
@@ -1566,9 +1566,8 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      // Use LOCAL date for occurred_day to match filtering logic
-      const now = new Date();
-      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      // Use DateService for consistent local date across the app
+      const todayDate = getDateService().getCurrentDate();
       const prevHabit = get().habits.find((h) => h.id === id);
 
       // 1. OPTIMISTIC UPDATE
@@ -1646,9 +1645,8 @@ export const useGremlyStore = create<GremlyState>()(
      * This is the single action that should be called from UI toggle handlers.
      */
     toggleHabitToday: async (id: string) => {
-      // Use LOCAL date for occurred_day to match filtering logic
-      const now = new Date();
-      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      // Use DateService for consistent local date across the app
+      const todayDate = getDateService().getCurrentDate();
 
       const isDoneToday = get().habitProgress.some(
         (p) => p.habit_id === id && p.occurred_day === todayDate,
