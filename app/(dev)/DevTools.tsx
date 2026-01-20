@@ -8,6 +8,7 @@
 import React, { useState } from 'react';
 import { View, ScrollView, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { Text } from '../../ui/Text';
 import { Button } from '../../design-system/Button';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -15,6 +16,7 @@ import celebrationController from '../features/celebration/CelebrationController
 import { colors, spacing, radii } from '../../theme/tokens';
 
 export default function DevTools() {
+  const navigation = useNavigation();
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
   const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
   const todaySweepsCount = useGremlyStore((s) => s.todaySweepsCount);
@@ -26,32 +28,32 @@ export default function DevTools() {
    */
   const handleTriggerAgeUpCelebration = () => {
     const displayAge = gremlyAge + 1;
-    celebrationController.showAgeUpCelebration(displayAge);
 
-    setLastAction(`✅ Triggered age-up celebration for age ${displayAge} (store unchanged)`);
-    setTimeout(() => setLastAction(null), 5000);
+    // Dismiss DevTools modal first
+    navigation.goBack();
+
+    // Small delay to let the modal dismiss, then trigger celebration
+    setTimeout(() => {
+      celebrationController.showAgeUpCelebration(displayAge);
+    }, 300);
   };
 
   /**
    * Reset gremlyAge to 0 for testing
    */
   const handleResetGremlyAge = () => {
-    Alert.alert(
-      'Reset Gremly Age',
-      'This will reset Gremly\'s age to 0. Are you sure?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: () => {
-            useGremlyStore.setState({ gremlyAge: 0 });
-            setLastAction('✅ Reset gremlyAge to 0');
-            setTimeout(() => setLastAction(null), 5000);
-          },
+    Alert.alert('Reset Gremly Age', "This will reset Gremly's age to 0. Are you sure?", [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Reset',
+        style: 'destructive',
+        onPress: () => {
+          useGremlyStore.setState({ gremlyAge: 0 });
+          setLastAction('✅ Reset gremlyAge to 0');
+          setTimeout(() => setLastAction(null), 5000);
         },
-      ]
-    );
+      },
+    ]);
   };
 
   /**
@@ -59,9 +61,13 @@ export default function DevTools() {
    * This does NOT modify the actual gremlyAge in the store.
    */
   const handleSetMilestone = (age: number) => {
-    celebrationController.showAgeUpCelebration(age);
-    setLastAction(`✅ Triggered milestone celebration at age ${age} (store unchanged)`);
-    setTimeout(() => setLastAction(null), 5000);
+    // Dismiss DevTools modal first
+    navigation.goBack();
+
+    // Small delay to let the modal dismiss, then trigger celebration
+    setTimeout(() => {
+      celebrationController.showAgeUpCelebration(age);
+    }, 300);
   };
 
   return (
@@ -87,15 +93,21 @@ export default function DevTools() {
           </Text>
           <View style={styles.stateRow}>
             <Text variant="body">Gremly Age:</Text>
-            <Text variant="body" style={styles.stateValue}>{gremlyAge}</Text>
+            <Text variant="body" style={styles.stateValue}>
+              {gremlyAge}
+            </Text>
           </View>
           <View style={styles.stateRow}>
             <Text variant="body">Today's Drops:</Text>
-            <Text variant="body" style={styles.stateValue}>{todayDropsCount}</Text>
+            <Text variant="body" style={styles.stateValue}>
+              {todayDropsCount}
+            </Text>
           </View>
           <View style={styles.stateRow}>
             <Text variant="body">Today's Sweeps:</Text>
-            <Text variant="body" style={styles.stateValue}>{todaySweepsCount}</Text>
+            <Text variant="body" style={styles.stateValue}>
+              {todaySweepsCount}
+            </Text>
           </View>
         </View>
 

@@ -2,41 +2,52 @@
  * AgeUpCelebrationModal Component
  *
  * Celebrates when Gremly ages up after completing a daily ritual.
- * Shows a supportive message based on the milestone reached.
- *
- * Ritual: Drop 3 thoughts + Sweep 3 cards = Gremly ages by 1 day
+ * Uses absolute-positioned overlay instead of Modal to avoid iOS modal stacking issues.
  *
  * Animation Flow:
- * 1. Backdrop fades to sage green (400ms)
- * 2. Modal slides up from bottom with spring (after 400ms delay)
- * 3. Looping celebration video plays
- * 4. User taps "Nice!" - modal slides down, backdrop fades out
+ * 1. Backdrop fades to sage green (300ms)
+ * 2. Celebration haptic pattern fires (drumroll during pause)
+ * 3. 400ms pause (anticipation builds)
+ * 4. Card slides up from bottom with spring
+ * 5. User taps "Nice!" or backdrop
+ * 6. Light haptic, card slides down quickly (250ms)
+ * 7. Backdrop fades out, onDismiss called
  */
 
-import React, { useEffect } from 'react';
-import { View, StyleSheet, Modal, TouchableOpacity, Pressable } from 'react-native';
+/* eslint-disable react-hooks/immutability */
+// Reanimated shared values require .value mutation - this is the correct pattern
+
+import React, { useEffect, useRef, useCallback } from 'react';
+import { View, StyleSheet, TouchableOpacity, Pressable, Dimensions } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  withDelay,
+  Easing,
+  runOnJS,
+} from 'react-native-reanimated';
 import { Video, ResizeMode } from 'expo-av';
 import { Text } from '../../ui';
 import { Sparkles } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
-import { triggerHeavy, triggerSuccess, triggerLight } from '../../lib/haptics';
+import { triggerCelebration, triggerLight } from '../../lib/haptics';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Celebration video (looping dancing gremlin)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const CELEBRATION_VIDEO = require('../../assets/mascot/gremly_celebration_loop.mp4');
 
 interface AgeUpCelebrationModalProps {
-  /** Whether the modal is visible */
   visible: boolean;
-  /** Gremly's new age after aging up */
   newAge: number;
-  /** Callback when user dismisses the modal */
   onDismiss: () => void;
 }
 
 /**
  * Get a milestone message for each day up to 100.
- * Returns null for ages over 100 to keep the modal clean and quick.
  */
 const getMilestoneMessage = (age: number): string | null => {
   const messages: Record<number, string> = {
@@ -141,13 +152,11 @@ const getMilestoneMessage = (age: number): string | null => {
     99: "Ninety nine. One. More. Day. Gremly can't even.",
     100: "One hundred. A hundred days together. Gremly's not crying, Gremly's just really proud. Of you, of us, of all of it. Thank you.",
   };
-
   return messages[age] ?? null;
 };
 
 /**
  * Get a special title for milestone ages.
- * Returns default "Gremly got older" for non-milestone days.
  */
 const getMilestoneTitle = (age: number): string => {
   switch (age) {
@@ -182,90 +191,156 @@ export default function AgeUpCelebrationModal({
   onDismiss,
 }: AgeUpCelebrationModalProps) {
   const message = getMilestoneMessage(newAge);
+  const isClosingRef = useRef(false);
+  const hasAnimatedInRef = useRef(false);
 
-  // Trigger haptics when modal becomes visible
+  // Animation shared values
+  const backdropOpacity = useSharedValue(0);
+  const cardTranslateY = useSharedValue(SCREEN_HEIGHT);
+  const cardScale = useSharedValue(0.9);
+
+  // Animated styles
+  const backdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: backdropOpacity.value,
+  }));
+
+  const cardAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: cardTranslateY.value }, { scale: cardScale.value }],
+  }));
+
+  // Run entrance animation
+  const animateIn = useCallback(() => {
+    // Backdrop fades in (300ms)
+    backdropOpacity.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.ease) });
+
+    // Card slides up after 400ms pause with spring
+    cardTranslateY.value = withDelay(400, withSpring(0, { damping: 20, stiffness: 90 }));
+    cardScale.value = withDelay(400, withSpring(1, { damping: 20, stiffness: 90 }));
+  }, [backdropOpacity, cardTranslateY, cardScale]);
+
+  // Run exit animation then call onDismiss
+  const animateOut = useCallback(() => {
+    // Card slides down
+    cardTranslateY.value = withTiming(SCREEN_HEIGHT, {
+      duration: 250,
+      easing: Easing.in(Easing.cubic),
+    });
+    cardScale.value = withTiming(0.9, { duration: 250 });
+
+    // Backdrop fades out, then call onDismiss
+    backdropOpacity.value = withTiming(
+      0,
+      { duration: 200, easing: Easing.out(Easing.ease) },
+      (finished) => {
+        if (finished) {
+          runOnJS(onDismiss)();
+        }
+      },
+    );
+  }, [backdropOpacity, cardTranslateY, cardScale, onDismiss]);
+
+  // Handle visibility changes
   useEffect(() => {
-    if (visible) {
-      triggerHeavy();
-      // Trigger success haptic after a short delay
-      const timer = setTimeout(() => {
-        triggerSuccess();
-      }, 500);
-      return () => clearTimeout(timer);
+    if (visible && !hasAnimatedInRef.current) {
+      if (__DEV__) {
+        console.log('[AgeUpCelebrationModal] Starting entrance animation');
+      }
+      hasAnimatedInRef.current = true;
+      isClosingRef.current = false;
+
+      // Reset to initial positions
+      backdropOpacity.value = 0;
+      cardTranslateY.value = SCREEN_HEIGHT;
+      cardScale.value = 0.9;
+
+      // Trigger celebration haptic pattern (fires during the green backdrop pause)
+      triggerCelebration();
+
+      // Start entrance animation after a frame
+      requestAnimationFrame(() => {
+        animateIn();
+      });
     }
-  }, [visible]);
+
+    if (!visible) {
+      hasAnimatedInRef.current = false;
+    }
+  }, [visible, animateIn, backdropOpacity, cardTranslateY, cardScale]);
 
   // Handle dismiss
-  const handleDismiss = () => {
-    triggerLight();
-    onDismiss();
-  };
+  const handleDismiss = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
 
-  // Don't render anything if not visible
+    if (__DEV__) {
+      console.log('[AgeUpCelebrationModal] Starting exit animation');
+    }
+
+    triggerLight();
+    animateOut();
+  }, [animateOut]);
+
+  // Don't render if not visible
   if (!visible) {
     return null;
   }
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={handleDismiss}
-      statusBarTranslucent
-    >
-      <View style={styles.backdrop}>
+    <View style={styles.fullScreenOverlay} pointerEvents="box-none">
+      <Animated.View style={[styles.backdrop, backdropAnimatedStyle]}>
         <Pressable style={styles.backdropPressable} onPress={handleDismiss}>
-          <View style={styles.modalContainer}>
-            <Pressable onPress={(e) => e.stopPropagation()}>
-              {/* Title */}
-              <Text style={styles.title}>{getMilestoneTitle(newAge)}</Text>
+          <Animated.View style={[styles.cardContainer, cardAnimatedStyle]}>
+            <Pressable style={styles.cardPressable} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.card}>
+                {/* Title */}
+                <Text style={styles.title}>{getMilestoneTitle(newAge)}</Text>
 
-              {/* Celebration Video - only render when visible */}
-              <View style={styles.mascotContainer}>
-                <Video
-                  source={CELEBRATION_VIDEO}
-                  style={styles.mascotVideo}
-                  resizeMode={ResizeMode.CONTAIN}
-                  shouldPlay={true}
-                  isLooping={true}
-                  isMuted={true}
-                  onError={(error) => {
-                    if (__DEV__) {
-                      console.warn('[AgeUpCelebrationModal] Video error:', error);
-                    }
-                  }}
-                />
-              </View>
-
-              {/* Age display */}
-              <View style={styles.ageRow}>
-                <View style={styles.ageDivider} />
-                <View style={styles.ageContent}>
-                  <Sparkles size={20} color={BRAND.colors.goldenPear} />
-                  <Text style={styles.ageNumber}>{newAge}</Text>
+                {/* Celebration Video */}
+                <View style={styles.mascotContainer}>
+                  <Video
+                    source={CELEBRATION_VIDEO}
+                    style={styles.mascotVideo}
+                    resizeMode={ResizeMode.CONTAIN}
+                    shouldPlay={visible}
+                    isLooping
+                    isMuted
+                  />
                 </View>
-                <View style={styles.ageDivider} />
+
+                {/* Age display */}
+                <View style={styles.ageRow}>
+                  <View style={styles.ageDivider} />
+                  <View style={styles.ageContent}>
+                    <Sparkles size={20} color={BRAND.colors.goldenPear} />
+                    <Text style={styles.ageNumber}>{newAge}</Text>
+                  </View>
+                  <View style={styles.ageDivider} />
+                </View>
+
+                {/* Message */}
+                {message && <Text style={styles.message}>{message}</Text>}
+
+                {/* Dismiss button */}
+                <TouchableOpacity style={styles.button} onPress={handleDismiss} activeOpacity={0.8}>
+                  <Text style={styles.buttonText}>Nice!</Text>
+                </TouchableOpacity>
               </View>
-
-              {/* Message (only shown for milestone ages) */}
-              {message && <Text style={styles.message}>{message}</Text>}
-
-              {/* Dismiss button */}
-              <TouchableOpacity style={styles.button} onPress={handleDismiss} activeOpacity={0.8}>
-                <Text style={styles.buttonText}>Nice!</Text>
-              </TouchableOpacity>
             </Pressable>
-          </View>
+          </Animated.View>
         </Pressable>
-      </View>
-    </Modal>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  fullScreenOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
+    elevation: 9999,
+  },
   backdrop: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: BRAND.colors.sageMist,
     justifyContent: 'center',
     alignItems: 'center',
@@ -277,12 +352,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
-  modalContainer: {
+  cardContainer: {
+    width: '100%',
+    maxWidth: 320,
+    alignItems: 'center',
+  },
+  cardPressable: {
+    width: '100%',
+  },
+  card: {
     backgroundColor: '#F9F8F4',
     borderRadius: BRAND.radius.xl,
     padding: 24,
     width: '100%',
-    maxWidth: 320,
+    alignItems: 'center',
   },
   title: {
     fontFamily: 'PlusJakartaSans-Bold',

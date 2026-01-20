@@ -148,7 +148,6 @@ import RitualProgressIndicator from '../../components/ritual/RitualProgressIndic
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import FirstDropSpotlight from '../../components/onboarding/FirstDropSpotlight';
-import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import {
   filterAndNormalizeTags,
   normalizeTags,
@@ -4620,24 +4619,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const markFirstDropComplete = useGremlyStore((s) => s.markFirstDropComplete);
 
-  // Age-up celebration state
-  const [showAgeUpCelebration, setShowAgeUpCelebration] = useState(false);
-  const [celebrationAge, setCelebrationAge] = useState(0);
-
-  // Subscribe to gremlyAge changes to trigger celebration modal
-  useEffect(() => {
-    const unsub = useGremlyStore.subscribe(
-      (state) => state.gremlyAge,
-      (newAge, oldAge) => {
-        if (newAge > oldAge) {
-          setCelebrationAge(newAge);
-          setShowAgeUpCelebration(true);
-        }
-      },
-    );
-    return unsub;
-  }, []);
-
   // Synchronous lookups from store
   const getItemById = useCallback(
     (id: string) => selectItemById(useGremlyStore.getState(), id),
@@ -7788,12 +7769,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   return (
     <View style={styles.root} testID="minddrop-screen">
       {ActionToast}
-
-      <AgeUpCelebrationModal
-        visible={showAgeUpCelebration}
-        newAge={celebrationAge}
-        onDismiss={() => setShowAgeUpCelebration(false)}
-      />
 
       <RitualProgressPopover
         visible={showRitualProgress}

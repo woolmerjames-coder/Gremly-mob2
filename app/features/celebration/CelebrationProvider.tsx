@@ -2,14 +2,16 @@
  * Phase 10.9: CelebrationProvider
  * Renders celebration UI components in response to celebration events.
  * Subscribes to CelebrationController and shows MicroCelebrate/ConfettiCanvas.
+ *
+ * NOTE: AgeUpCelebrationModal is rendered at App.tsx level to avoid
+ * conflicts with navigation modals (like DevTools).
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import celebrationController from './CelebrationController';
 import { MicroCelebrate } from './MicroCelebrate';
 import { ConfettiCanvas } from './ConfettiCanvas';
-import AgeUpCelebrationModal from '../../../components/ritual/AgeUpCelebrationModal';
 import type { CelebrationKind } from './CelebrationController';
 
 type CelebrationState = {
@@ -18,19 +20,9 @@ type CelebrationState = {
   visible: boolean;
 };
 
-type AgeUpState = {
-  visible: boolean;
-  age: number;
-};
-
 export function CelebrationProvider({ children }: { children: React.ReactNode }) {
   const [micro, setMicro] = useState<CelebrationState>({ kind: null, visible: false });
   const [confetti, setConfetti] = useState<CelebrationState>({ kind: null, visible: false });
-  const [ageUp, setAgeUp] = useState<AgeUpState>({ visible: false, age: 0 });
-
-  const handleAgeUpDismiss = useCallback(() => {
-    setAgeUp({ visible: false, age: 0 });
-  }, []);
 
   useEffect(() => {
     // Subscribe to celebration controller events
@@ -58,11 +50,8 @@ export function CelebrationProvider({ children }: { children: React.ReactNode })
           break;
 
         case 'age_up':
-          // Age-up celebration triggered via showAgeUpCelebration()
-          // This is primarily for testing - does NOT modify store
-          if (payload.age !== undefined) {
-            setAgeUp({ visible: true, age: payload.age });
-          }
+          // Age-up celebration is handled at App.tsx level
+          // to avoid conflicts with navigation modals
           break;
       }
     });
@@ -79,16 +68,6 @@ export function CelebrationProvider({ children }: { children: React.ReactNode })
 
       {/* Confetti animation */}
       {confetti.visible && <ConfettiCanvas />}
-
-      {/* Age-up celebration modal (for testing via showAgeUpCelebration) */}
-      {/* Only render when visible to prevent Video component issues */}
-      {ageUp.visible && (
-        <AgeUpCelebrationModal
-          visible={ageUp.visible}
-          newAge={ageUp.age}
-          onDismiss={handleAgeUpDismiss}
-        />
-      )}
     </View>
   );
 }

@@ -20,6 +20,7 @@ import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
+import celebrationController from '../../app/features/celebration/CelebrationController';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
@@ -224,12 +225,14 @@ interface GremlyState {
   todayDropsCount: number;
   todaySweepsCount: number;
   todayRitualCompletedAt: string | null;
+  todayAgeCelebrationShownAt: string | null;
 
   // Ritual actions
   ensureCurrentRitualDay: () => string;
   incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
   incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
   checkAndIncrementAge: () => Promise<{ didAgeUp: boolean; newAge: number }>;
+  markAgeCelebrationShown: () => void;
   setDayBoundaryHour: (hour: number) => Promise<void>;
   setOnboardingCompletedAt: (timestamp: string) => Promise<void>;
   markOnboardingComplete: () => Promise<void>;
@@ -482,6 +485,7 @@ const initialState = {
   todayDropsCount: 0,
   todaySweepsCount: 0,
   todayRitualCompletedAt: null as string | null,
+  todayAgeCelebrationShownAt: null as string | null,
   pendingDrops: new Map<string, PendingDrop>(),
 };
 
@@ -809,6 +813,7 @@ export const useGremlyStore = create<GremlyState>()(
           todayDropsCount: 0,
           todaySweepsCount: 0,
           todayRitualCompletedAt: null, // CRITICAL: allows aging to happen again
+          todayAgeCelebrationShownAt: null, // Reset celebration flag for new day
         });
 
         // Clear commitment on all todos - they need to re-decide each day
@@ -948,15 +953,31 @@ export const useGremlyStore = create<GremlyState>()(
       const result = data?.[0] ?? { did_age_up: false, new_age: get().gremlyAge };
 
       if (result.did_age_up) {
+        // Check if celebration should show (hasn't been shown today)
+        const shouldShowCelebration = !get().todayAgeCelebrationShownAt;
+
         set({
           gremlyAge: result.new_age,
           gremlyAgeLastIncrementedAt: new Date().toISOString(),
           todayRitualCompletedAt: new Date().toISOString(),
+          // Mark celebration as shown in the same atomic update
+          ...(shouldShowCelebration && { todayAgeCelebrationShownAt: new Date().toISOString() }),
         });
+
+        // Trigger celebration via controller (App.tsx will render the modal)
+        if (shouldShowCelebration) {
+          celebrationController.showAgeUpCelebration(result.new_age);
+        }
+
         console.log('[GremlyStore] Gremly aged up to', result.new_age);
+        return { didAgeUp: true, newAge: result.new_age };
       }
 
       return { didAgeUp: result.did_age_up, newAge: result.new_age };
+    },
+
+    markAgeCelebrationShown: () => {
+      set({ todayAgeCelebrationShownAt: new Date().toISOString() });
     },
 
     setDayBoundaryHour: async (hour: number) => {
