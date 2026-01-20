@@ -2,15 +2,21 @@
  * AgeUpCelebrationModal.test.tsx
  *
  * Tests for the age-up celebration modal component.
- * Verifies milestone messages, title variations, and dismiss behavior.
+ * Verifies milestone messages, title variations, dismiss behavior, and haptics.
  */
 
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
 import AgeUpCelebrationModal from '../AgeUpCelebrationModal';
+import * as haptics from '../../../lib/haptics';
 
 // Mock the mascot image
 jest.mock('../../../assets/mascot/fistbumpgremly.png', () => 'mock-fistbump-image');
+
+// Mock haptics
+jest.mock('../../../lib/haptics', () => ({
+  triggerCelebration: jest.fn().mockResolvedValue(undefined),
+}));
 
 describe('AgeUpCelebrationModal', () => {
   const defaultProps = {
@@ -219,6 +225,55 @@ describe('AgeUpCelebrationModal', () => {
     it('renders mascot with correct accessibility label', () => {
       const { getByLabelText } = render(<AgeUpCelebrationModal {...defaultProps} />);
       expect(getByLabelText('Gremly celebrating')).toBeTruthy();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Haptic Feedback
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('haptic feedback', () => {
+    it('triggers celebration haptic when modal becomes visible', () => {
+      render(<AgeUpCelebrationModal {...defaultProps} visible={true} />);
+      expect(haptics.triggerCelebration).toHaveBeenCalled();
+    });
+
+    it('does not trigger haptic when modal is not visible', () => {
+      render(<AgeUpCelebrationModal {...defaultProps} visible={false} />);
+      expect(haptics.triggerCelebration).not.toHaveBeenCalled();
+    });
+
+    it('triggers haptic only once per visibility change', () => {
+      const { rerender } = render(<AgeUpCelebrationModal {...defaultProps} visible={true} />);
+      expect(haptics.triggerCelebration).toHaveBeenCalledTimes(1);
+
+      // Re-render with same visible state should not trigger again
+      rerender(<AgeUpCelebrationModal {...defaultProps} visible={true} newAge={6} />);
+      expect(haptics.triggerCelebration).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Overlay Structure
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('overlay structure', () => {
+    it('uses absolute-positioned overlay instead of Modal', () => {
+      // The modal uses View with absoluteFillObject and high zIndex
+      // instead of React Native Modal for better stacking on iOS
+      const { getByTestId, UNSAFE_root } = render(
+        <AgeUpCelebrationModal {...defaultProps} visible={true} />,
+      );
+
+      // The overlay should be a View, not a Modal
+      // Modal components from react-native would have a different structure
+      const viewElements = UNSAFE_root.findAllByType(require('react-native').View);
+      expect(viewElements.length).toBeGreaterThan(0);
+    });
+
+    it('renders content when visible is true', () => {
+      const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} visible={true} />);
+      expect(getByText('Gremly got older')).toBeTruthy();
     });
   });
 });

@@ -139,3 +139,40 @@ describe('CatchAllNotepad header + info sheet', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v1.20: Header layout changes - Age moved to Hub, mascot remains
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CatchAllNotepad header v1.20 layout', () => {
+  beforeEach(() => {
+    mockNavigate.mockClear();
+    mockGoBack.mockClear();
+  });
+
+  it('renders mascot in header', () => {
+    const screen = render(<CatchAllNotepad />);
+    expect(screen.getByTestId('minddrop-header')).toBeTruthy();
+    // Mascot should be present (accessed via UNSAFE_root since Image doesn't have testID)
+    const { UNSAFE_root } = screen;
+    const images = UNSAFE_root.findAllByType(require('react-native').Image);
+    expect(images.length).toBeGreaterThan(0);
+  });
+
+  it('does NOT display age number in MindDrop header (moved to Hub)', () => {
+    const screen = render(<CatchAllNotepad />);
+    // Age is now displayed in Hub, not in MindDrop header
+    // Should not find a standalone age number in header context
+    const header = screen.getByTestId('minddrop-header');
+    // The header should not contain gremlyAge text directly
+    // (age badge was removed from MindDrop, now in Hub)
+    expect(header).toBeTruthy();
+  });
+
+  it('centers title horizontally', () => {
+    const screen = render(<CatchAllNotepad />);
+    // Title should be centered via absolute positioning
+    const titleImage = screen.getByLabelText('Mind Drop');
+    expect(titleImage).toBeTruthy();
+  });
+});

@@ -140,4 +140,76 @@ describe('CelebrationController', () => {
       expect(messages[6]).toBe(messages[0]);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // v1.20: Age-Up Celebration Tests
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('showAgeUpCelebration (v1.20)', () => {
+    it('emits age_up celebration with correct age', () => {
+      listener.mockClear();
+      celebrationController.showAgeUpCelebration(7);
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'age_up',
+          age: 7,
+        }),
+      );
+    });
+
+    it('emits age_up for first-day user (age 1)', () => {
+      listener.mockClear();
+      celebrationController.showAgeUpCelebration(1);
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'age_up',
+          age: 1,
+        }),
+      );
+    });
+
+    it('emits age_up for veteran user (large age)', () => {
+      listener.mockClear();
+      celebrationController.showAgeUpCelebration(365);
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'age_up',
+          age: 365,
+        }),
+      );
+    });
+
+    it('age_up is not rate limited', () => {
+      listener.mockClear();
+
+      // Multiple age-up celebrations should all emit
+      celebrationController.showAgeUpCelebration(1);
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      celebrationController.showAgeUpCelebration(2);
+      expect(listener).toHaveBeenCalledTimes(2);
+
+      celebrationController.showAgeUpCelebration(3);
+      expect(listener).toHaveBeenCalledTimes(3);
+    });
+
+    it('payload kind is exactly age_up', () => {
+      listener.mockClear();
+      celebrationController.showAgeUpCelebration(10);
+
+      const call = listener.mock.calls[0][0] as CelebrationPayload;
+      expect(call.kind).toBe('age_up');
+    });
+
+    it('includes age in payload', () => {
+      listener.mockClear();
+      celebrationController.showAgeUpCelebration(42);
+
+      const call = listener.mock.calls[0][0] as CelebrationPayload;
+      expect(call.age).toBe(42);
+    });
+  });
 });

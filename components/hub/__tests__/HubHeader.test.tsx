@@ -176,4 +176,46 @@ describe('HubHeader', () => {
       expect(journalsTab.props.accessibilityState.selected).toBe(true);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // v1.20: gremlyAge prop tests
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('gremlyAge prop (v1.20)', () => {
+    it('renders age badge when gremlyAge is provided', () => {
+      const { getByText } = render(<HubHeader {...defaultProps} gremlyAge={7} />);
+      expect(getByText('7')).toBeTruthy();
+    });
+
+    it('does not render age badge when gremlyAge is undefined', () => {
+      const { queryByText } = render(<HubHeader {...defaultProps} gremlyAge={undefined} />);
+      // No age number should be visible
+      expect(queryByText('7')).toBeNull();
+      expect(queryByText('0')).toBeNull();
+    });
+
+    it('renders mascot image in age badge', () => {
+      const { UNSAFE_root } = render(<HubHeader {...defaultProps} gremlyAge={5} />);
+      const images = UNSAFE_root.findAllByType(require('react-native').Image);
+      // Should have at least one image (the mascot)
+      expect(images.length).toBeGreaterThan(0);
+    });
+
+    it('age badge shows correct age value', () => {
+      const { getByText, rerender } = render(<HubHeader {...defaultProps} gremlyAge={3} />);
+      expect(getByText('3')).toBeTruthy();
+
+      rerender(<HubHeader {...defaultProps} gremlyAge={15} />);
+      expect(getByText('15')).toBeTruthy();
+    });
+
+    it('age badge renders alongside settings button', () => {
+      const onSettingsPress = jest.fn();
+      const { getByText, getByTestId } = render(
+        <HubHeader {...defaultProps} gremlyAge={10} onSettingsPress={onSettingsPress} />,
+      );
+      expect(getByText('10')).toBeTruthy();
+      expect(getByTestId('hub-settings-button')).toBeTruthy();
+    });
+  });
 });
