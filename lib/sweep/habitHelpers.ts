@@ -115,6 +115,15 @@ export interface HabitWithMeta {
   isCompletedForPeriod: boolean;
   isCompletedToday: boolean;
   isAheadOfTarget: boolean; // True if completedThisPeriod >= targetPerPeriod (for weekly/monthly)
+
+  // Break habit identification
+  isBreakHabit: boolean;
+
+  // Last completion tracking
+  lastCompletedAt: string | null;
+
+  // Setup state
+  needsStartDate: boolean;
 }
 
 export interface GroupedHabits {
@@ -122,6 +131,7 @@ export interface GroupedHabits {
   weekly: HabitWithMeta[];
   monthly: HabitWithMeta[];
   completed: HabitWithMeta[]; // Habits that have met their target for the period
+  needsSetup: HabitWithMeta[]; // Habits without start_date that need setup
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -185,38 +195,13 @@ export function getHabitStreak(habitId: string, habitProgress: HabitProgressRow[
 
   // Start counting from today (if completed) or yesterday
   let streak = 0;
-  let checkDate = today;
 
   // If today is completed, include it and start checking yesterday
   if (completedSet.has(today)) {
     streak = 1;
-    checkDate = getDateStringDaysAgo(1);
-  } else {
-    // Today not completed - start from yesterday
-    checkDate = getDateStringDaysAgo(1);
   }
 
-  // Count consecutive days going backwards
-  let daysBack = completedSet.has(today) ? 1 : 0;
-  while (daysBack < 365) {
-    // Safety limit
-    const dateToCheck = getDateStringDaysAgo(daysBack + (completedSet.has(today) ? 1 : 0));
-
-    // Actually, let's simplify:
-    // Start from the day before today (or today if completed) and go back
-    const checkDateStr = getDateStringDaysAgo(streak + (completedSet.has(today) ? 0 : 1));
-
-    if (completedSet.has(checkDateStr)) {
-      streak++;
-      daysBack++;
-    } else {
-      break;
-    }
-
-    if (daysBack > 365) break; // Safety
-  }
-
-  // Cleaner approach: iterate backwards from yesterday
+  // Count consecutive days going backwards from yesterday
   streak = completedSet.has(today) ? 1 : 0;
   for (let i = 1; i <= 365; i++) {
     const dateStr = getDateStringDaysAgo(i);
@@ -279,6 +264,30 @@ export function isHabitCompletedToday(habitId: string, habitProgress: HabitProgr
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Get the last completion date for a habit.
+ * Returns the most recent occurred_day or null if no completions.
+ */
+export function getLastCompletionDate(
+  habitId: string,
+  habitProgress: HabitProgressRow[],
+): string | null {
+  const completions = habitProgress
+    .filter((p) => p.habit_id === habitId)
+    .map((p) => p.occurred_day)
+    .sort((a, b) => b.localeCompare(a)); // Most recent first
+
+  return completions.length > 0 ? completions[0] : null;
+}
+
+/**
+ * Check if a habit needs start date setup.
+ * Needs setup if no start_date AND not explicitly confirmed to start immediately.
+ */
+export function habitNeedsStartDate(habit: Habit): boolean {
+  return !habit.start_date && !habit.start_date_confirmed;
+}
+
+/**
  * Generate human-readable frequency label.
  *
  * @deprecated Use getFrequencyDisplayLabel from frequencyUtils.ts directly
@@ -313,6 +322,7 @@ export function groupHabitsForSweep(
     weekly: [],
     monthly: [],
     completed: [],
+    needsSetup: [],
   };
 
   for (const habit of habits) {
@@ -345,6 +355,11 @@ export function groupHabitsForSweep(
     // Track if habit is ahead of target (for weekly/monthly habits)
     const isAheadOfTarget = cadence !== 'daily' && completedThisPeriod >= targetPerPeriod;
 
+    // Compute new fields
+    const isBreakHabit = habit.subtype === 'break_habit';
+    const lastCompletedAt = getLastCompletionDate(habit.id, habitProgress);
+    const needsStartDate = habitNeedsStartDate(habit);
+
     const habitWithMeta: HabitWithMeta = {
       habit,
       cadence,
@@ -355,12 +370,18 @@ export function groupHabitsForSweep(
       isCompletedForPeriod,
       isCompletedToday,
       isAheadOfTarget,
+      isBreakHabit,
+      lastCompletedAt,
+      needsStartDate,
     };
 
     // Sort into appropriate group
-    // Key change: Only move to "completed" if completed TODAY
-    // Habits that are "ahead" for the period but not done today stay visible
-    if (isCompletedToday) {
+    // Habits needing setup go to needsSetup section (can't be completed yet)
+    if (needsStartDate) {
+      result.needsSetup.push(habitWithMeta);
+    } else if (isCompletedToday) {
+      // Key change: Only move to "completed" if completed TODAY
+      // Habits that are "ahead" for the period but not done today stay visible
       result.completed.push(habitWithMeta);
     } else {
       // Safety check: ensure cadence is a valid key
@@ -392,6 +413,7 @@ export function isHabitsEmpty(grouped: GroupedHabits): boolean {
     grouped.daily.length === 0 &&
     grouped.weekly.length === 0 &&
     grouped.monthly.length === 0 &&
-    grouped.completed.length === 0
+    grouped.completed.length === 0 &&
+    grouped.needsSetup.length === 0
   );
 }

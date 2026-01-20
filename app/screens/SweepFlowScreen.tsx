@@ -88,7 +88,7 @@ import {
 } from '../../lib/store/selectors';
 
 // Sweep habit components and helpers
-import { SweepHabitRow } from '../../components/sweep/SweepHabitRow';
+import { SweepHabitRow } from '../../src/sweep/SweepHabitRow';
 import {
   groupHabitsForSweep,
   getOpenHabitsCount,
@@ -823,6 +823,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
       weekly: filterSection(groupedHabits.weekly, 'weekly'),
       monthly: filterSection(groupedHabits.monthly, 'monthly'),
       completed: visuallyCompleted,
+      needsSetup: groupedHabits.needsSetup,
     };
   }, [groupedHabits, sessionUncompletions, isHabitVisuallyCompleted, pendingMoves]);
 
@@ -874,6 +875,8 @@ function SweepHabitsStep({ onContinue }: StepProps) {
           isCompleted={isHabitVisuallyCompleted(item.habit.id, item.isCompletedToday)}
           onToggle={handleToggle}
           showDivider={index < array.length - 1}
+          isBreakHabit={item.isBreakHabit}
+          lastCompletedAt={item.lastCompletedAt}
         />
       </Reanimated.View>
     ),
@@ -993,6 +996,60 @@ function SweepHabitsStep({ onContinue }: StepProps) {
                         </Text>
                         <Icon
                           name="RotateCcw"
+                          size="xs"
+                          color={BRAND.colors.inkMuted}
+                          strokeWidth={2}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  </Reanimated.View>
+                ))}
+              </View>
+            )}
+
+            {/* Needs Setup Section */}
+            {displaySections.needsSetup.length > 0 && (
+              <View style={styles.habitsNeedsSetupSection}>
+                <View style={styles.habitsSectionHeader}>
+                  <View style={styles.habitsSectionLine} />
+                  <Text style={styles.habitsNeedsSetupTitle}>Needs setup</Text>
+                  <View style={styles.habitsSectionLine} />
+                </View>
+                <Text style={styles.needsSetupSubtext}>Set a start date to begin tracking</Text>
+                {displaySections.needsSetup.map((item, index) => (
+                  <Reanimated.View
+                    key={item.habit.id}
+                    entering={FadeIn.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
+                    layout={Layout.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
+                  >
+                    <TouchableOpacity
+                      style={[
+                        styles.needsSetupHabitRow,
+                        index < displaySections.needsSetup.length - 1 &&
+                          styles.needsSetupHabitRowBorder,
+                      ]}
+                      onPress={() => {
+                        // TODO: Open habit overlay for editing
+                        // e.g., openOverlay({ type: 'habit', id: item.habit.id, mode: 'edit' })
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.needsSetupHabitInfo}>
+                        <Text style={styles.needsSetupHabitName} numberOfLines={1}>
+                          {item.habit.name}
+                        </Text>
+                        <Text style={styles.needsSetupHabitFrequency}>{item.frequencyLabel}</Text>
+                      </View>
+                      <View style={styles.needsSetupBadge}>
+                        <Icon
+                          name="Calendar"
+                          size="xs"
+                          color={BRAND.colors.goldenPear}
+                          strokeWidth={2}
+                        />
+                        <Text style={styles.needsSetupBadgeText}>Set date</Text>
+                        <Icon
+                          name="ChevronRight"
                           size="xs"
                           color={BRAND.colors.inkMuted}
                           strokeWidth={2}
@@ -3852,6 +3909,65 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1,
     paddingHorizontal: 12,
+  },
+  // Needs Setup Section styles
+  habitsNeedsSetupSection: {
+    marginTop: 24,
+    opacity: 0.8,
+  },
+  habitsNeedsSetupTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: BRAND.colors.goldenPear,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginHorizontal: 12,
+  },
+  needsSetupSubtext: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  needsSetupHabitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  needsSetupHabitRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.colors.borderSubtle,
+  },
+  needsSetupHabitInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  needsSetupHabitName: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 2,
+  },
+  needsSetupHabitFrequency: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+  },
+  needsSetupBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  needsSetupBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.goldenPear,
   },
   completedHabitRow: {
     flexDirection: 'row',
