@@ -744,7 +744,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 // Split on whitespace boundaries to buffer words
                 wordBufferRef.current.push(...delta.split(/(?<=\s)/));
               },
-              onComplete: async (finalText) => {
+              onComplete: async (finalText: string, richResult?: { save_suggestion?: any }) => {
                 stopWordFlushInterval();
                 const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
                 streamingMessageIdRef.current = null;
@@ -752,21 +752,27 @@ export default function ChatThreadScreen({ route }: Props) {
                 mascot.replying();
 
                 // Run saveable detection on completed message
+                // Pass save_suggestion from Cortex when available
                 if (finalizedMessage?.id) {
                   try {
+                    const saveSuggestion = richResult?.save_suggestion ?? null;
                     console.log(
                       '[ChatThread] Running saveable detection for:',
                       finalizedMessage.id,
+                      'hasSaveSuggestion:',
+                      saveSuggestion != null,
                     );
                     const result = spaceChatEnhanced.runSaveableDetection(
                       finalText,
                       trimmedText,
                       finalizedMessage.id,
+                      saveSuggestion,
                     );
                     console.log('[ChatThread] Saveable detection result:', {
                       messageId: finalizedMessage.id,
                       isSaveable: result?.isSaveable,
                       suggestedType: result?.suggestedType,
+                      usedSaveSuggestion: saveSuggestion != null,
                     });
                     if (result?.isSaveable && result.suggestedType) {
                       const typeMap: Record<string, 'todo' | 'habit' | 'note'> = {
@@ -779,11 +785,14 @@ export default function ChatThreadScreen({ route }: Props) {
                       console.log('[ChatThread] Updating message with saveable:', {
                         messageId: finalizedMessage.id,
                         type: typeMap[result.suggestedType] || 'note',
+                        hasTitle: !!result.prefill?.title,
+                        hasPrefill: !!result.prefill,
                       });
                       updateMessage(finalizedMessage.id, {
                         saveable: {
                           type: typeMap[result.suggestedType] || 'note',
                           title: result.prefill?.title || '',
+                          prefillData: result.prefill || {},
                         },
                         saveableDismissed: false,
                       });
@@ -1076,69 +1085,127 @@ export default function ChatThreadScreen({ route }: Props) {
           typeof classification.title,
         );
 
+        // ────────────────────────────────────────────────────────────────────
+        // POST-RULE: Override to NOTE unless clearly single todo/habit
+        // ────────────────────────────────────────────────────────────────────
+        let finalType = classification.type;
+        let finalSubtype = classification.subtype;
+        let overrideReason: string | null = null;
+
+        if (classification.type === 'todo') {
+          // Check for multiple items in assistant response
+          const bulletCount = (assistantMessage.match(/^[\s]*[-•*]\s+.+$/gm) || []).length;
+          const numberedCount = (assistantMessage.match(/^[\s]*\d+[.)]\s+.+$/gm) || []).length;
+          const hasMultipleItems = bulletCount > 1 || numberedCount > 1 || classification.hasList;
+
+          // Check if user explicitly asked for a task/todo
+          const explicitTaskRequest =
+            /\b(remind me|add (a |this )?(to[- ]?do|task)|schedule|set a reminder|put on my list)\b/i.test(
+              userMessageContent,
+            );
+
+          if (hasMultipleItems) {
+            finalType = 'log';
+            finalSubtype = 'general';
+            overrideReason = 'multiple_items_detected';
+          } else if (!explicitTaskRequest && classification.confidence < 0.85) {
+            // Not explicitly requested and not high confidence → default to note
+            finalType = 'log';
+            finalSubtype = 'general';
+            overrideReason = 'no_explicit_task_request_low_confidence';
+          }
+        }
+
+        if (classification.type === 'habit') {
+          // Check if user explicitly asked for a habit
+          const explicitHabitRequest =
+            /\b(every\s*(day|week|morning|evening|night)|daily|weekly|habit|routine|regularly|each\s*(day|week))\b/i.test(
+              userMessageContent,
+            );
+
+          if (!explicitHabitRequest && classification.confidence < 0.85) {
+            finalType = 'log';
+            finalSubtype = 'general';
+            overrideReason = 'no_explicit_habit_request_low_confidence';
+          }
+        }
+
+        console.log('[SpaceChatSave] finalTypeDecision', {
+          modelType: classification.type,
+          overriddenType: finalType,
+          reason: overrideReason,
+        });
+
+        // Use overridden type for entity creation
+        const effectiveClassification = {
+          ...classification,
+          type: finalType as 'habit' | 'todo' | 'log',
+          subtype: finalSubtype,
+        };
+
         // 4. Create the item based on classification type
         let result: { id: string } | null = null;
         const basePayload = {
           space_id: spaceId || null,
           origin: 'space_chat' as const,
-          tags: classification.tags || [],
+          tags: effectiveClassification.tags || [],
         };
 
-        if (classification.type === 'habit') {
+        if (effectiveClassification.type === 'habit') {
           const habitPayload = {
             ...basePayload,
-            name: classification.title,
+            name: effectiveClassification.title,
             notes: assistantMessage,
-            frequency: classification.frequency || 'daily',
-            subtype: (classification.subtype === 'break_habit' ? 'break_habit' : 'start_habit') as
-              | 'start_habit'
-              | 'break_habit',
-            time_estimate_minutes: classification.timeEstimateMinutes || undefined,
+            frequency: effectiveClassification.frequency || 'daily',
+            subtype: (effectiveClassification.subtype === 'break_habit'
+              ? 'break_habit'
+              : 'start_habit') as 'start_habit' | 'break_habit',
+            time_estimate_minutes: effectiveClassification.timeEstimateMinutes || undefined,
           };
           console.log('[Chat] Creating habit with:', {
-            title: classification.title,
-            name: classification.title,
-            frequency: classification.frequency,
-            subtype: classification.subtype,
+            title: effectiveClassification.title,
+            name: effectiveClassification.title,
+            frequency: effectiveClassification.frequency,
+            subtype: effectiveClassification.subtype,
             fullPayload: habitPayload,
           });
           result = await createHabit(habitPayload);
-        } else if (classification.type === 'todo') {
+        } else if (effectiveClassification.type === 'todo') {
           result = await createTodo({
             ...basePayload,
-            name: classification.title,
+            name: effectiveClassification.title,
             body: assistantMessage,
-            time_estimate_minutes: classification.timeEstimateMinutes || undefined,
+            time_estimate_minutes: effectiveClassification.timeEstimateMinutes || undefined,
           });
         } else {
           // log type - save as note
           result = await createNote({
             ...basePayload,
-            title: classification.title,
+            title: effectiveClassification.title,
             body: assistantMessage,
           });
         }
 
         if (result?.id) {
-          console.log('[Chat] Save successful:', result.id, classification.type);
+          console.log('[Chat] Save successful:', result.id, effectiveClassification.type);
 
           // 5. Update button state to 'saved'
-          spaceChatEnhanced.setSaved(result.id, classification.type);
+          spaceChatEnhanced.setSaved(result.id, effectiveClassification.type);
 
           // 6. Update the message's saveable metadata for the saved card display
           // savedItemId will be persisted to Supabase via saveable_json
           updateMessage(message.id, {
             saveable: {
               type:
-                classification.type === 'todo'
+                effectiveClassification.type === 'todo'
                   ? 'todo'
-                  : classification.type === 'habit'
+                  : effectiveClassification.type === 'habit'
                     ? 'habit'
                     : 'note',
-              title: classification.title,
+              title: effectiveClassification.title,
               isSaving: false,
               savedItemId: result.id,
-              savedItemType: classification.type,
+              savedItemType: effectiveClassification.type,
             },
           });
         } else {

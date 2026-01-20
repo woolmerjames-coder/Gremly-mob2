@@ -1212,7 +1212,7 @@ export default function HubScreen() {
                       if (item.type === 'todo') {
                         overlayController.openEdit({ record: item.raw as Todo });
                       } else if (item.type === 'habit') {
-                        overlayController.openEdit({ record: item.raw as Habit });
+                        overlayController.openView({ record: item.raw as Habit });
                       } else if (item.type === 'journal') {
                         overlayController.openEdit({ record: item.raw as Note });
                       }
@@ -1337,7 +1337,7 @@ export default function HubScreen() {
                       if (item.type === 'todo') {
                         overlayController.openEdit({ record: item as Todo });
                       } else if (item.type === 'habit') {
-                        overlayController.openEdit({ record: item as Habit });
+                        overlayController.openView({ record: item as Habit });
                       } else if (item.type === 'note') {
                         overlayController.openEdit({ record: item as Note });
                       }

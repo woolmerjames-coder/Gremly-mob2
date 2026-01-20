@@ -57,6 +57,7 @@ import { incrementTurnCount, addKeyTopic, ChatContext } from '../lib/chat/rollin
 import { SaveableResult } from '../lib/chat/saveableTypes';
 import { ChatMessageForResolution, ThisResolution } from '../lib/chat/thisResolver';
 import { SaveThisIntent } from '../lib/chat/metaIntents';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -102,6 +103,8 @@ export interface UseSpaceChatEnhancedReturn {
     assistantMessage: string,
     userMessage: string,
     messageId: string,
+    /** Optional save_suggestion from Cortex - takes precedence over heuristic */
+    saveSuggestion?: any | null,
   ) => SaveableResult | null;
 
   // Save button state
@@ -234,11 +237,12 @@ export function useSpaceChatEnhanced({
   const cooldown = useSaveableCooldown();
   const buttonState = useSaveButtonState();
   const metaIntent = useMetaIntentHandler();
+  const accountCreatedAt = useGremlyStore((state) => state.accountCreatedAt);
 
   // Build system prompt from context (includes space context if provided)
   const systemPrompt = useMemo(
-    () => buildSpaceChatSystemPrompt(context, spaceName, spaceContext),
-    [context, spaceName, spaceContext],
+    () => buildSpaceChatSystemPrompt(context, spaceName, spaceContext, accountCreatedAt),
+    [context, spaceName, spaceContext, accountCreatedAt],
   );
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -300,15 +304,80 @@ export function useSpaceChatEnhanced({
 
   /**
    * Run saveable detection after assistant responds.
-   * Uses a simple client-side heuristic instead of an API call.
+   * Uses save_suggestion from Cortex when available, otherwise falls back to client-side heuristic.
    */
   const runSaveableDetection = useCallback(
-    (assistantMessage: string, userMessage: string, messageId: string): SaveableResult | null => {
+    (
+      assistantMessage: string,
+      userMessage: string,
+      messageId: string,
+      saveSuggestion?: any | null,
+    ): SaveableResult | null => {
       console.log('[useSpaceChatEnhanced] runSaveableDetection called', {
         messageId,
         assistantLength: assistantMessage?.length,
         userMessage: userMessage?.slice(0, 50),
+        hasSaveSuggestion: saveSuggestion != null,
       });
+
+      // If Cortex returned a save_suggestion, use it directly
+      if (saveSuggestion != null) {
+        console.log('[useSpaceChatEnhanced] Using Cortex save_suggestion:', saveSuggestion);
+
+        // Map Cortex save_suggestion to SaveableResult
+        // Behavior rules:
+        // 1) Default to NOTE unless explicitly todo/habit or clearly single todo/habit
+        // 2) Multiple todos = NOTE (user can convert later)
+        // 3) Only ONE item per save suggestion
+        let suggestedType: SaveableResult['suggestedType'] = 'log-general';
+
+        const ssType = saveSuggestion.type?.toLowerCase();
+        const ssSubtype = saveSuggestion.subtype?.toLowerCase();
+
+        // Only use todo if it's clearly a SINGLE actionable task
+        if (ssType === 'todo' && !saveSuggestion.hasList && !saveSuggestion.has_list) {
+          suggestedType = 'todo';
+        }
+        // Only use habit if it's clearly a repeating behavior
+        else if (ssType === 'habit') {
+          suggestedType = 'habit';
+        }
+        // For logs, map subtype
+        else if (ssType === 'log' || ssType === 'note') {
+          if (ssSubtype === 'idea') {
+            suggestedType = 'log-idea';
+          } else if (ssSubtype === 'journal') {
+            suggestedType = 'log-journal';
+          } else {
+            suggestedType = 'log-general';
+          }
+        }
+
+        const result: SaveableResult = {
+          isSaveable: true,
+          confidence: saveSuggestion.confidence ?? 0.9,
+          suggestedType,
+          prefill: {
+            title: saveSuggestion.title || '',
+            content: saveSuggestion.content || assistantMessage,
+            tags: saveSuggestion.tags || [],
+            frequency: saveSuggestion.frequency || null,
+            dueDate: saveSuggestion.dueDate || saveSuggestion.due_date || null,
+          },
+          detectedAt: new Date().toISOString(),
+          messageId,
+        };
+
+        console.log('[useSpaceChatEnhanced] Mapped save_suggestion to SaveableResult:', {
+          suggestedType: result.suggestedType,
+          hasTitle: !!result.prefill.title,
+        });
+
+        buttonState.showSaveButton(messageId, result);
+        cooldown.markSaveShown();
+
+        return result;
+      }
 
       // Detect conversation mode from user message
       const mode = detectConversationMode(userMessage);

@@ -7,6 +7,7 @@
 
 import { ChatContext } from './rollingContext';
 import { SpaceContext, formatSpaceContextForPrompt } from './buildSpaceContext';
+import { buildBirthdayContext } from './buildBirthdayContext';
 
 // ============================================================================
 // CORE PERSONA
@@ -174,8 +175,15 @@ export function buildSpaceChatSystemPrompt(
   context: ChatContext,
   spaceName?: string,
   spaceContext?: SpaceContext | null,
+  accountCreatedAt?: string | null,
 ): string {
   let prompt = GREMLY_SPACE_CHAT_PERSONA;
+
+  // Add birthday/relationship context
+  const birthdayContext = buildBirthdayContext(accountCreatedAt ?? null);
+  if (birthdayContext) {
+    prompt += `\n\n${birthdayContext}`;
+  }
 
   // Add running summary if available
   if (context.runningSummary && context.runningSummary.trim()) {

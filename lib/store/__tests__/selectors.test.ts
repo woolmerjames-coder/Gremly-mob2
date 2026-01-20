@@ -703,11 +703,11 @@ describe('selectSweepCandidatesUnified', () => {
       expect(todoIds).toContain('t2'); // Not locked - included
     });
 
-    it('excludes habits with commitment=true from sweep candidates', () => {
+    it('excludes habits with commitment_until from sweep candidates', () => {
       const state = makeState({
         habits: [
-          makeHabit({ id: 'h1', commitment: true, start_date_confirmed: false }), // Locked-in - excluded
-          makeHabit({ id: 'h2', commitment: false, start_date_confirmed: false }), // Not locked - included
+          makeHabit({ id: 'h1', commitment_until: '2025-12-31', start_date_confirmed: false }), // Locked-in - excluded
+          makeHabit({ id: 'h2', start_date_confirmed: false }), // Not locked - included
         ],
       });
 
@@ -1202,7 +1202,12 @@ describe('selectLockedTodos', () => {
   it('excludes completed todos even if commitment is true', () => {
     const state = makeState({
       todos: [
-        makeTodo({ id: 't1', commitment: true, completed_at: '2025-12-15T10:00:00Z', due_day: '2025-12-15' }),
+        makeTodo({
+          id: 't1',
+          commitment: true,
+          completed_at: '2025-12-15T10:00:00Z',
+          due_day: '2025-12-15',
+        }),
         makeTodo({ id: 't2', commitment: true, completed_at: null, due_day: '2025-12-15' }),
       ],
     });
@@ -1244,8 +1249,8 @@ describe('selectTodayLockedItems', () => {
         makeTodo({ id: 't2', commitment: false, due_day: '2025-12-15' }),
       ],
       habits: [
-        makeHabit({ id: 'h1', commitment: true, cadence: 'daily' }),
-        makeHabit({ id: 'h2', commitment: false, cadence: 'daily' }),
+        makeHabit({ id: 'h1', commitment_until: '2025-12-31', cadence: 'daily' }),
+        makeHabit({ id: 'h2', cadence: 'daily' }),
       ],
       habitProgress: [], // No completions today
     });
@@ -1260,9 +1265,19 @@ describe('selectTodayLockedItems', () => {
     const state = makeState({
       todos: [],
       habits: [
-        makeHabit({ id: 'h1', commitment: true, cadence: 'daily' }),
-        makeHabit({ id: 'h2', commitment: true, cadence: 'weekly', days_active: [1] }), // Monday - today is Monday Dec 15
-        makeHabit({ id: 'h3', commitment: true, cadence: 'weekly', days_active: [3] }), // Wednesday - not today
+        makeHabit({ id: 'h1', commitment_until: '2025-12-31', cadence: 'daily' }),
+        makeHabit({
+          id: 'h2',
+          commitment_until: '2025-12-31',
+          cadence: 'weekly',
+          days_active: [1],
+        }), // Monday - today is Monday Dec 15
+        makeHabit({
+          id: 'h3',
+          commitment_until: '2025-12-31',
+          cadence: 'weekly',
+          days_active: [3],
+        }), // Wednesday - not today
       ],
       habitProgress: [],
     });
@@ -1274,7 +1289,7 @@ describe('selectTodayLockedItems', () => {
   });
 
   it('excludes habits already completed today', () => {
-    const habit = makeHabit({ id: 'h1', commitment: true, cadence: 'daily' });
+    const habit = makeHabit({ id: 'h1', commitment_until: '2025-12-31', cadence: 'daily' });
     const state = makeState({
       todos: [],
       habits: [habit],
@@ -1305,8 +1320,8 @@ describe('selectTodayActiveItems', () => {
         makeTodo({ id: 't2', commitment: false, due_day: '2025-12-15' }),
       ],
       habits: [
-        makeHabit({ id: 'h1', commitment: true, cadence: 'daily' }),
-        makeHabit({ id: 'h2', commitment: false, cadence: 'daily' }),
+        makeHabit({ id: 'h1', commitment_until: '2025-12-31', cadence: 'daily' }),
+        makeHabit({ id: 'h2', cadence: 'daily' }),
       ],
       habitProgress: [],
     });

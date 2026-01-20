@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Text, Box, Button } from '../../../ui';
 import { useRepo } from '../../../providers/RepoProvider';
-import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
 import { dateService } from '../../../lib/date/DateService';
 import {
   selectItemById,
@@ -175,7 +175,7 @@ export default function TaskHabitStack() {
       name: h.name,
       space_id: h.space_id,
       tags: h.tags,
-      commitment: h.commitment,
+      commitment: isHabitLockedIn(h),
       progress_today: habitProgressToday.get(h.id) ?? 0,
       target_count: h.target_per_day ?? 1,
     }));
@@ -264,7 +264,13 @@ export default function TaskHabitStack() {
         }
 
         const spaceId = 'space_id' in record ? (record.space_id ?? undefined) : undefined;
-        overlay.openEdit({ record, spaceId });
+
+        // Open habits in view mode, todos in edit mode
+        if (record.type === 'habit') {
+          overlay.openView({ record, spaceId });
+        } else {
+          overlay.openEdit({ record, spaceId });
+        }
       } catch (error) {
         console.error('[TaskHabitStack] Failed to open overlay for entry:', entry, error);
       }

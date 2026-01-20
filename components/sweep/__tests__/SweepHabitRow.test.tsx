@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { render } from '@testing-library/react-native';
-import { SweepHabitRow, SweepHabitRowProps } from '../SweepHabitRow';
+import { SweepHabitRow, SweepHabitRowProps } from '../../../src/sweep/SweepHabitRow';
 
 // Mock expo-haptics
 jest.mock('expo-haptics', () => ({

@@ -1,32 +1,33 @@
 /**
- * SweepHabitRow - Swipe-to-complete habit row for Evening Sweep
+ * SweepBuildHabitRow - Swipe-to-complete habit row for build habits in Evening Sweep
  *
  * Features:
  * - Gremly avatar slides left → right on track
- * - Snaps to complete at 80% threshold
+ * - Snaps to complete at 75% threshold
  * - Haptic feedback + bounce animation on completion
  * - Displays streak (daily) or progress (weekly/monthly)
+ * - Shows "Last: X days ago" for tracking
  * - No card background - uses divider lines
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { View, StyleSheet, Image } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withTiming,
   runOnJS,
   interpolate,
   interpolateColor,
   Extrapolation,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { Icon } from '../../design-system/Icon';
 import { Flame, RefreshCw, Calendar, Trophy } from 'lucide-react-native';
+import { useSweepHabitGesture } from '../../src/habits/useSweepHabitGesture';
+import { formatLastCompletedAt } from '../../lib/sweep/habitHelpers';
 
 // Gremly avatar for the slider
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -39,29 +40,7 @@ const GREMLY_SIZE = 40;
 const COMPLETE_THRESHOLD = 0.75; // 75% of track = complete
 const SNAP_THRESHOLD = 0.5; // 50% = will snap to complete on release
 
-// Confirmation messages - shown when habit is completed
-const CONFIRM_MESSAGES = [
-  'BOOM',
-  'Smashed it',
-  'Another one',
-  'Done',
-  'Nailed it',
-  'Got it',
-  'Crushed it',
-];
-
-// Bonus messages - shown when completing a habit already ahead of target
-const BONUS_MESSAGES = [
-  'BONUS!',
-  'Extra credit',
-  'Overachiever',
-  'Going hard',
-  'Legend',
-  'Above & beyond',
-  'On fire 🔥',
-];
-
-export interface SweepHabitRowProps {
+export interface SweepBuildHabitRowProps {
   id: string;
   name: string;
   cadence: 'daily' | 'weekly' | 'monthly';
@@ -79,6 +58,9 @@ export interface SweepHabitRowProps {
   // Frequency display text (e.g., "Every day", "3x per week")
   frequencyLabel: string;
 
+  // Last time user completed this habit - ISO date
+  lastCompletedAt?: string | null;
+
   // Is this habit visually completed? (controlled by parent)
   isCompleted: boolean;
 
@@ -89,7 +71,7 @@ export interface SweepHabitRowProps {
   showDivider?: boolean;
 }
 
-export function SweepHabitRow({
+export function SweepBuildHabitRow({
   id,
   name,
   cadence,
@@ -98,25 +80,34 @@ export function SweepHabitRow({
   targetPerPeriod = 1,
   isAheadOfTarget = false,
   frequencyLabel,
+  lastCompletedAt,
   isCompleted,
   onToggle,
   showDivider = true,
-}: SweepHabitRowProps) {
+}: SweepBuildHabitRowProps) {
   // Calculate the max drag distance (track width minus gremly size)
   const maxDrag = TRACK_WIDTH - GREMLY_SIZE - 8; // 8px padding
 
-  // Shared value for drag position
+  // Use shared gesture hook
+  const {
+    confirmMessage,
+    isCompletedState,
+    triggerHaptic,
+    handleComplete,
+    handleUncomplete,
+    confirmTextAnimatedStyle,
+    checkAnimatedStyle,
+  } = useSweepHabitGesture({
+    id,
+    isCompleted,
+    onToggle,
+    isAheadOfTarget,
+    isBreakHabit: false,
+  });
+
+  // Shared value for drag position (maps to progress 0-1)
   const translateX = useSharedValue(isCompleted ? maxDrag : 0);
   const hasTriggeredHaptic = useSharedValue(false);
-  const isCompletedState = useSharedValue(isCompleted);
-
-  // Confirmation animation
-  const confirmTextOpacity = useSharedValue(0);
-  const confirmTextScale = useSharedValue(0.8);
-  const checkScale = useSharedValue(0);
-
-  // Random confirmation message
-  const [confirmMessage, setConfirmMessage] = useState('');
 
   // Update position if isCompleted prop changes
   React.useEffect(() => {
@@ -124,52 +115,7 @@ export function SweepHabitRow({
       damping: 20,
       stiffness: 300,
     });
-    isCompletedState.value = isCompleted;
-  }, [isCompleted, maxDrag, translateX, isCompletedState]);
-
-  // Haptic feedback
-  const triggerHaptic = useCallback((type: 'light' | 'medium' | 'success') => {
-    if (type === 'success') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else if (type === 'medium') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } else {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-  }, []);
-
-  // Handle toggle - updates visuals and notifies parent
-  const handleToggle = useCallback(
-    (completed: boolean) => {
-      if (completed) {
-        // Completing - show confirmation
-        triggerHaptic('success');
-
-        // Use bonus messages if already ahead of target
-        const messages = isAheadOfTarget ? BONUS_MESSAGES : CONFIRM_MESSAGES;
-        const msg = messages[Math.floor(Math.random() * messages.length)];
-        setConfirmMessage(msg);
-
-        confirmTextOpacity.value = 0;
-        confirmTextScale.value = 0.8;
-        confirmTextOpacity.value = withTiming(1, { duration: 200 });
-        confirmTextScale.value = withSpring(1, { damping: 12, stiffness: 200 });
-
-        checkScale.value = 0;
-        checkScale.value = withSpring(1, { damping: 10, stiffness: 300 });
-      } else {
-        // Uncompleting - hide confirmation
-        triggerHaptic('light');
-
-        confirmTextOpacity.value = withTiming(0, { duration: 150 });
-        checkScale.value = withTiming(0, { duration: 150 });
-        setConfirmMessage('');
-      }
-
-      onToggle(id, completed);
-    },
-    [id, onToggle, triggerHaptic, confirmTextOpacity, confirmTextScale, checkScale, isAheadOfTarget],
-  );
+  }, [isCompleted, maxDrag, translateX]);
 
   // Pan gesture for dragging Gremly
   const panGesture = Gesture.Pan()
@@ -190,7 +136,7 @@ export function SweepHabitRow({
         hasTriggeredHaptic.value = false;
       }
     })
-    .onEnd((event) => {
+    .onEnd(() => {
       const progress = translateX.value / maxDrag;
 
       if (progress >= SNAP_THRESHOLD) {
@@ -201,8 +147,7 @@ export function SweepHabitRow({
           overshootClamping: false,
         });
         if (!isCompletedState.value) {
-          isCompletedState.value = true;
-          runOnJS(handleToggle)(true);
+          runOnJS(handleComplete)();
         }
       } else {
         // Snap back to start
@@ -211,8 +156,7 @@ export function SweepHabitRow({
           stiffness: 400,
         });
         if (isCompletedState.value) {
-          isCompletedState.value = false;
-          runOnJS(handleToggle)(false);
+          runOnJS(handleUncomplete)();
         }
       }
       hasTriggeredHaptic.value = false;
@@ -243,17 +187,6 @@ export function SweepHabitRow({
       backgroundColor,
     };
   });
-
-  // Confirmation text animation
-  const animatedConfirmTextStyle = useAnimatedStyle(() => ({
-    opacity: confirmTextOpacity.value,
-    transform: [{ scale: confirmTextScale.value }],
-  }));
-
-  // Checkmark animation
-  const animatedCheckStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: checkScale.value }],
-  }));
 
   // Animated style for Gremly scale (bounces at threshold)
   const animatedGremlyScaleStyle = useAnimatedStyle(() => {
@@ -291,6 +224,9 @@ export function SweepHabitRow({
     return null;
   }, [cadence, streakDays, completedThisPeriod, targetPerPeriod, isAheadOfTarget]);
 
+  // "Last: X days ago" text - uses DateService for timezone-safe calculation
+  const lastCompletedText = formatLastCompletedAt(lastCompletedAt);
+
   return (
     <View style={[styles.container, showDivider && styles.withDivider]}>
       {/* Slider Track */}
@@ -300,12 +236,12 @@ export function SweepHabitRow({
           <Animated.View style={[styles.trackFill, animatedTrackFillStyle]} />
 
           {/* Confirmation text - appears in filled green area */}
-          <Animated.View style={[styles.confirmTextContainer, animatedConfirmTextStyle]}>
+          <Animated.View style={[styles.confirmTextContainer, confirmTextAnimatedStyle]}>
             <Text style={styles.confirmText}>{confirmMessage}</Text>
           </Animated.View>
 
           {/* Success checkmark at end */}
-          <Animated.View style={[styles.successCheck, animatedCheckStyle]}>
+          <Animated.View style={[styles.successCheck, checkAnimatedStyle]}>
             <Icon name="Check" size="sm" color="#FFFFFF" strokeWidth={3} />
           </Animated.View>
 
@@ -327,6 +263,7 @@ export function SweepHabitRow({
             {name}
           </Text>
           <Text style={styles.frequencyLabel}>{frequencyLabel}</Text>
+          {lastCompletedText && <Text style={styles.lastCompletedText}>{lastCompletedText}</Text>}
         </View>
 
         {/* Metadata (streak or progress) */}
@@ -342,12 +279,25 @@ export function SweepHabitRow({
               <Flame size={12} color={BRAND.colors.goldenPear} strokeWidth={2.5} />
             )}
             {metadataDisplay.iconType === 'refresh' && (
-              <RefreshCw size={12} color={metadataDisplay.isAhead ? BRAND.colors.goldenPear : BRAND.colors.mossGreen} strokeWidth={2.5} />
+              <RefreshCw
+                size={12}
+                color={metadataDisplay.isAhead ? BRAND.colors.goldenPear : BRAND.colors.mossGreen}
+                strokeWidth={2.5}
+              />
             )}
             {metadataDisplay.iconType === 'calendar' && (
-              <Calendar size={12} color={metadataDisplay.isAhead ? BRAND.colors.goldenPear : BRAND.colors.mossGreen} strokeWidth={2.5} />
+              <Calendar
+                size={12}
+                color={metadataDisplay.isAhead ? BRAND.colors.goldenPear : BRAND.colors.mossGreen}
+                strokeWidth={2.5}
+              />
             )}
-            <Text style={[styles.metadataText, (metadataDisplay.isStreak || metadataDisplay.isAhead) && styles.metadataStreak]}>
+            <Text
+              style={[
+                styles.metadataText,
+                (metadataDisplay.isStreak || metadataDisplay.isAhead) && styles.metadataStreak,
+              ]}
+            >
               {metadataDisplay.text}
             </Text>
           </View>
@@ -446,6 +396,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: BRAND.colors.inkMuted,
   },
+  lastCompletedText: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+    marginTop: 2,
+  },
   metadataContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -477,4 +432,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default SweepHabitRow;
+export default SweepBuildHabitRow;

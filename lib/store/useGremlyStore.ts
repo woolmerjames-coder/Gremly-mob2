@@ -28,6 +28,16 @@ const STORE_EVENT_SOURCE = 'gremly-store';
 let eventBusUnsubscribe: (() => void) | null = null;
 
 /**
+ * Check if a habit is currently locked in based on commitment_until date.
+ * A habit is locked in if commitment_until is set and >= today's date.
+ */
+export function isHabitLockedIn(habit: Habit): boolean {
+  if (!habit.commitment_until) return false;
+  const today = getDateService().getCurrentDate();
+  return habit.commitment_until >= today;
+}
+
+/**
  * Sanitize payload before sending to Supabase.
  * - Strips app-only fields that don't exist in DB
  * - Renames camelCase fields to snake_case DB columns
@@ -207,6 +217,7 @@ interface GremlyState {
   gremlyAgeLastIncrementedAt: string | null;
   dayBoundaryHour: number;
   onboardingCompletedAt: string | null;
+  accountCreatedAt: string | null;
   firstDropCompletedAt: string | null;
   firstTodayVisitCompletedAt: string | null;
   todayRitualDay: string | null;
@@ -320,11 +331,21 @@ interface GremlyState {
   fetchTodayBrief: () => Promise<void>;
   saveBrief: (input: DailyBriefInput) => Promise<void>;
   clearBrief: () => Promise<void>;
+  /** Dismiss a habit from Morning Brief for today only ("Not today" action) */
+  dismissHabitForToday: (habitId: string) => Promise<void>;
+  /** Undo dismissal - bring habit back to Morning Brief */
+  undismissHabitForToday: (habitId: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // COMMITMENT MUTATIONS (with optimistic Zustand updates)
   // ═══════════════════════════════════════════════════════════════════
-  addCommitment: (id: string, type: 'todo' | 'habit', note?: string | null) => Promise<void>;
+  addCommitment: (
+    id: string,
+    type: 'todo' | 'habit',
+    note?: string | null,
+    /** Duration in days for habit lock-in (1, 3, 7, or 14). Only used for habits. */
+    commitmentDurationDays?: number,
+  ) => Promise<void>;
   removeCommitment: (id: string, type: 'todo' | 'habit', reason?: string | null) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
@@ -454,6 +475,7 @@ const initialState = {
   gremlyAgeLastIncrementedAt: null as string | null,
   dayBoundaryHour: 0,
   onboardingCompletedAt: null as string | null,
+  accountCreatedAt: null as string | null,
   firstDropCompletedAt: null as string | null,
   firstTodayVisitCompletedAt: null as string | null,
   todayRitualDay: null as string | null,
@@ -524,7 +546,7 @@ export const useGremlyStore = create<GremlyState>()(
           supabase
             .from('cortex_preferences')
             .select(
-              'last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at',
+              'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at',
             )
             .eq('owner_id', userId)
             .maybeSingle(),
@@ -549,6 +571,15 @@ export const useGremlyStore = create<GremlyState>()(
         if (spacesRes.error) throw spacesRes.error;
         if (tagsRes.error) throw tagsRes.error;
         if (progressRes.error) throw progressRes.error;
+
+        console.log('[GremlyStore] habit_progress query:', {
+          sinceDate,
+          count: progressRes.data?.length,
+          sample: progressRes.data
+            ?.slice(0, 5)
+            .map((p) => ({ occurred_day: p.occurred_day, habit_id: p.habit_id })),
+        });
+
         // Log but don't throw for chats/milestones/dailyBrief/sweep prefs
         if (chatsRes.error) console.warn('[GremlyStore] space_chats fetch error:', chatsRes.error);
         if (milestonesRes.error)
@@ -626,6 +657,7 @@ export const useGremlyStore = create<GremlyState>()(
             (cortexPrefs?.gremly_age_last_incremented_at as string) ?? null,
           dayBoundaryHour,
           onboardingCompletedAt: effectiveOnboardingCompleted,
+          accountCreatedAt: (cortexPrefs?.created_at as string) ?? null,
           firstDropCompletedAt: (cortexPrefs?.first_drop_completed_at as string) ?? null,
           firstTodayVisitCompletedAt:
             (cortexPrefs?.first_today_visit_completed_at as string) ?? null,
@@ -709,6 +741,7 @@ export const useGremlyStore = create<GremlyState>()(
         gremlyAgeLastIncrementedAt: null,
         dayBoundaryHour: 0,
         onboardingCompletedAt: null,
+        accountCreatedAt: null,
         todayRitualDay: null,
         todayDropsCount: 0,
         todaySweepsCount: 0,
@@ -760,6 +793,7 @@ export const useGremlyStore = create<GremlyState>()(
     /**
      * Ensures we're tracking the current ritual day.
      * If the day has rolled over, resets daily progress to allow fresh aging.
+     * Also clears todo commitments (they reset daily, unlike habits which are date-based).
      * Returns the current ritual day string.
      */
     ensureCurrentRitualDay: () => {
@@ -776,6 +810,52 @@ export const useGremlyStore = create<GremlyState>()(
           todaySweepsCount: 0,
           todayRitualCompletedAt: null, // CRITICAL: allows aging to happen again
         });
+
+        // Clear commitment on all todos - they need to re-decide each day
+        // Note: Habits use commitment_until which is date-based and self-expiring
+        const todos = get().todos;
+        const todosToReset = todos.filter((t) => t.commitment === true && !t.archived);
+
+        if (todosToReset.length > 0) {
+          console.log(
+            '[ensureCurrentRitualDay] Clearing commitment on',
+            todosToReset.length,
+            'todos',
+          );
+
+          // Optimistic update - clear commitment in local state immediately
+          set((state) => ({
+            todos: state.todos.map((t) =>
+              t.commitment === true && !t.archived
+                ? { ...t, commitment: false, commitment_started_at: null }
+                : t,
+            ),
+          }));
+
+          // Fire and forget - persist to database asynchronously
+          // Don't block the UI waiting for this
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('todos')
+              .update({ commitment: false, commitment_started_at: null })
+              .eq('owner_id', userId)
+              .in(
+                'id',
+                todosToReset.map((t) => t.id),
+              )
+              .then(({ error }) => {
+                if (error) {
+                  console.error(
+                    '[ensureCurrentRitualDay] Failed to clear todo commitments:',
+                    error,
+                  );
+                } else {
+                  console.log('[ensureCurrentRitualDay] ✅ Cleared todo commitments in database');
+                }
+              });
+          }
+        }
       } else if (!todayRitualDay) {
         // First time - just set the day
         set({ todayRitualDay: currentRitualDay });
@@ -969,6 +1049,9 @@ export const useGremlyStore = create<GremlyState>()(
     markFirstTodayVisitComplete: async () => {
       const userId = get().userId;
       if (!userId) return;
+
+      // Don't overwrite if already set
+      if (get().firstTodayVisitCompletedAt) return;
 
       const now = new Date().toISOString();
 
@@ -1570,7 +1653,8 @@ export const useGremlyStore = create<GremlyState>()(
       if (!userId) throw new Error('Not authenticated');
 
       const occurredDay = dateIso.split('T')[0]; // Ensure YYYY-MM-DD format
-      const now = new Date().toISOString();
+      const occurredAt = `${occurredDay}T12:00:00.000Z`; // Use noon UTC on the target day
+      const now = new Date().toISOString(); // For last_checked_in_at only
 
       // Check if already completed for this date
       const existing = get().habitProgress.find(
@@ -1587,14 +1671,14 @@ export const useGremlyStore = create<GremlyState>()(
         id: tempId,
         habit_id: habitId,
         owner_id: userId,
-        occurred_at: now,
+        occurred_at: occurredAt,
         occurred_day: occurredDay,
         count: 1,
         occurrence_index: null,
       };
       set((state) => ({
         habitProgress: [...state.habitProgress, newProgressRow],
-        // Also update last_checked_in_at on the habit
+        // Also update last_checked_in_at on the habit (use current time)
         habits: state.habits.map((h) => (h.id === habitId ? { ...h, last_checked_in_at: now } : h)),
       }));
 
@@ -1605,7 +1689,7 @@ export const useGremlyStore = create<GremlyState>()(
           habit_id: habitId,
           owner_id: userId,
           occurred_day: occurredDay,
-          occurred_at: now,
+          occurred_at: occurredAt,
           count: 1,
         })
         .then(({ error }) => {
@@ -2559,6 +2643,7 @@ export const useGremlyStore = create<GremlyState>()(
         morning_sequence: input.morning_sequence ?? [],
         day_sequence: input.day_sequence ?? [],
         evening_sequence: input.evening_sequence ?? [],
+        dismissed_habit_ids: input.dismissed_habit_ids ?? existingBrief?.dismissed_habit_ids ?? [],
         completed_at: input.completed_at ?? now,
         updated_at: now,
       };
@@ -2567,6 +2652,7 @@ export const useGremlyStore = create<GremlyState>()(
       const optimisticBrief: DailyBrief = {
         id: existingBrief?.id ?? `temp_${Date.now()}`,
         ...payload,
+        dismissed_habit_ids: payload.dismissed_habit_ids,
         created_at: existingBrief?.created_at ?? now,
       };
       set({ dailyBrief: optimisticBrief });
@@ -2638,11 +2724,108 @@ export const useGremlyStore = create<GremlyState>()(
       }
     },
 
+    dismissHabitForToday: async (habitId: string) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const today = getDateService().getCurrentDate();
+      const brief = get().dailyBrief;
+
+      // If no brief for today exists, create one first via saveBrief
+      if (!brief || brief.date !== today) {
+        await get().saveBrief({
+          morning_sequence: [],
+          day_sequence: [],
+          evening_sequence: [],
+          dismissed_habit_ids: [habitId],
+        });
+        return;
+      }
+
+      // Add habitId to dismissed_habit_ids if not already there
+      const currentDismissed = brief.dismissed_habit_ids ?? [];
+      if (currentDismissed.includes(habitId)) {
+        return; // Already dismissed
+      }
+
+      const updatedDismissed = [...currentDismissed, habitId];
+
+      // Optimistic update
+      set({
+        dailyBrief: {
+          ...brief,
+          dismissed_habit_ids: updatedDismissed,
+        },
+      });
+
+      // Persist to Supabase
+      try {
+        const { error } = await supabase
+          .from('daily_briefs')
+          .update({ dismissed_habit_ids: updatedDismissed })
+          .eq('id', brief.id);
+
+        if (error) throw error;
+
+        console.log('[GremlyStore] ✅ Dismissed habit for today:', habitId);
+      } catch (error) {
+        console.error('[GremlyStore] ❌ dismissHabitForToday failed:', error);
+        // Rollback
+        set({ dailyBrief: brief });
+        throw error;
+      }
+    },
+
+    undismissHabitForToday: async (habitId: string) => {
+      const userId = get().userId;
+      if (!userId) throw new Error('Not authenticated');
+
+      const brief = get().dailyBrief;
+      if (!brief) return; // No brief = nothing to undo
+
+      const currentDismissed = brief.dismissed_habit_ids ?? [];
+      if (!currentDismissed.includes(habitId)) {
+        return; // Not dismissed, nothing to do
+      }
+
+      const updatedDismissed = currentDismissed.filter((id) => id !== habitId);
+
+      // Optimistic update
+      set({
+        dailyBrief: {
+          ...brief,
+          dismissed_habit_ids: updatedDismissed,
+        },
+      });
+
+      // Persist to Supabase
+      try {
+        const { error } = await supabase
+          .from('daily_briefs')
+          .update({ dismissed_habit_ids: updatedDismissed })
+          .eq('id', brief.id);
+
+        if (error) throw error;
+
+        console.log('[GremlyStore] ✅ Undismissed habit for today:', habitId);
+      } catch (error) {
+        console.error('[GremlyStore] ❌ undismissHabitForToday failed:', error);
+        // Rollback
+        set({ dailyBrief: brief });
+        throw error;
+      }
+    },
+
     // ═══════════════════════════════════════════════════════════════════
     // COMMITMENT MUTATIONS (with optimistic Zustand updates)
     // ═══════════════════════════════════════════════════════════════════
 
-    addCommitment: async (id: string, type: 'todo' | 'habit', note?: string | null) => {
+    addCommitment: async (
+      id: string,
+      type: 'todo' | 'habit',
+      note?: string | null,
+      commitmentDurationDays?: number,
+    ) => {
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
@@ -2664,12 +2847,18 @@ export const useGremlyStore = create<GremlyState>()(
           ),
         }));
       } else {
+        // Habit: calculate commitment_until date
+        const ds = getDateService();
+        const today = ds.getCurrentDate(); // YYYY-MM-DD
+        const durationDays = commitmentDurationDays ?? 7; // Default to 7 days
+        const commitmentUntil = ds.addDays(today, durationDays);
+
         set((state) => ({
           habits: state.habits.map((h) =>
             h.id === id
               ? {
                   ...h,
-                  commitment: true,
+                  commitment_until: commitmentUntil,
                   commitment_started_at: startedAt,
                   commitment_note: note ?? null,
                 }
@@ -2679,19 +2868,42 @@ export const useGremlyStore = create<GremlyState>()(
       }
 
       // 2. Persist to Supabase directly
-      const { error } = await supabase
-        .from(table)
-        .update({
-          commitment: true,
-          commitment_started_at: startedAt,
-          ...(note !== undefined ? { commitment_note: note } : {}),
-        })
-        .eq('id', id)
-        .eq('owner_id', userId);
+      if (type === 'todo') {
+        const { error } = await supabase
+          .from(table)
+          .update({
+            commitment: true,
+            commitment_started_at: startedAt,
+            ...(note !== undefined ? { commitment_note: note } : {}),
+          })
+          .eq('id', id)
+          .eq('owner_id', userId);
 
-      if (error) {
-        console.error('[GremlyStore] addCommitment failed:', error);
-        throw new Error(`COMMITMENT_SET_FAILED: ${error.message}`);
+        if (error) {
+          console.error('[GremlyStore] addCommitment failed:', error);
+          throw new Error(`COMMITMENT_SET_FAILED: ${error.message}`);
+        }
+      } else {
+        // Habit: persist commitment_until
+        const ds = getDateService();
+        const today = ds.getCurrentDate();
+        const durationDays = commitmentDurationDays ?? 7;
+        const commitmentUntil = ds.addDays(today, durationDays);
+
+        const { error } = await supabase
+          .from(table)
+          .update({
+            commitment_until: commitmentUntil,
+            commitment_started_at: startedAt,
+            ...(note !== undefined ? { commitment_note: note } : {}),
+          })
+          .eq('id', id)
+          .eq('owner_id', userId);
+
+        if (error) {
+          console.error('[GremlyStore] addCommitment failed:', error);
+          throw new Error(`COMMITMENT_SET_FAILED: ${error.message}`);
+        }
       }
     },
 
@@ -2717,12 +2929,13 @@ export const useGremlyStore = create<GremlyState>()(
           ),
         }));
       } else {
+        // Habit: set commitment_until to null
         set((state) => ({
           habits: state.habits.map((h) =>
             h.id === id
               ? {
                   ...h,
-                  commitment: false,
+                  commitment_until: null,
                   commitment_archived_at: archivedAt,
                   commitment_note: reason ?? h.commitment_note,
                 }
@@ -2732,19 +2945,37 @@ export const useGremlyStore = create<GremlyState>()(
       }
 
       // 2. Persist to Supabase directly
-      const { error } = await supabase
-        .from(table)
-        .update({
-          commitment: false,
-          commitment_archived_at: archivedAt,
-          ...(reason ? { commitment_note: reason } : {}),
-        })
-        .eq('id', id)
-        .eq('owner_id', userId);
+      if (type === 'todo') {
+        const { error } = await supabase
+          .from(table)
+          .update({
+            commitment: false,
+            commitment_archived_at: archivedAt,
+            ...(reason ? { commitment_note: reason } : {}),
+          })
+          .eq('id', id)
+          .eq('owner_id', userId);
 
-      if (error) {
-        console.error('[GremlyStore] removeCommitment failed:', error);
-        throw new Error(`COMMITMENT_REMOVE_FAILED: ${error.message}`);
+        if (error) {
+          console.error('[GremlyStore] removeCommitment failed:', error);
+          throw new Error(`COMMITMENT_REMOVE_FAILED: ${error.message}`);
+        }
+      } else {
+        // Habit: set commitment_until to null
+        const { error } = await supabase
+          .from(table)
+          .update({
+            commitment_until: null,
+            commitment_archived_at: archivedAt,
+            ...(reason ? { commitment_note: reason } : {}),
+          })
+          .eq('id', id)
+          .eq('owner_id', userId);
+
+        if (error) {
+          console.error('[GremlyStore] removeCommitment failed:', error);
+          throw new Error(`COMMITMENT_REMOVE_FAILED: ${error.message}`);
+        }
       }
     },
 

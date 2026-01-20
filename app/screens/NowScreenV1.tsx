@@ -63,8 +63,10 @@ import {
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useActionToast } from '../../src/hooks/useActionToast';
+import { getTodayEmptyState, getTodayEmptyStateContent } from '../../lib/today/getTodayEmptyState';
 import type { LogItem } from '../../lib/notes/useRecentLogs';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import type {
   NowLockedItem,
   NowActiveItem,
@@ -508,6 +510,22 @@ export default function NowScreenV1() {
   const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
 
+  // Track if we should reopen habits modal after overlay closes
+  const [shouldReopenWeekModal, setShouldReopenWeekModal] = useState(false);
+  const { state: overlayState } = useGlobalOverlay();
+
+  // Reopen habits modal when overlay closes (if we came from there)
+  useEffect(() => {
+    if (shouldReopenWeekModal && !overlayState.visible) {
+      // Small delay to let overlay animation finish
+      const timer = setTimeout(() => {
+        setWeekVisible(true);
+        setShouldReopenWeekModal(false);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldReopenWeekModal, overlayState.visible]);
+
   // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
   const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
     id: string;
@@ -801,6 +819,7 @@ export default function NowScreenV1() {
         weeklySummaries={nowData.weeklySummaries}
         allHabits={allActiveHabits}
         onClose={() => setWeekVisible(false)}
+        onOpenOverlay={() => setShouldReopenWeekModal(true)}
       />
 
       <OverwhelmSelectSheet
@@ -1094,6 +1113,9 @@ function TodayFocusList({
   const isAllComplete =
     progressPercent === 100 && hasAnyTodayWork && !optimisticQuickAdd && !leavingCard;
 
+  const emptyState = getTodayEmptyState();
+  const emptyContent = getTodayEmptyStateContent(emptyState);
+
   return (
     <ScrollView
       style={styles.listContainer}
@@ -1108,10 +1130,8 @@ function TodayFocusList({
 
       {hasNoItems && (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Nothing planned for today.</Text>
-          <Text style={styles.emptySubtext}>
-            Enjoy the calm, or add something from Mind Drop or Sweep.
-          </Text>
+          <Text style={styles.emptyText}>{emptyContent.title}</Text>
+          <Text style={styles.emptySubtext}>{emptyContent.subtitle}</Text>
         </View>
       )}
 

@@ -78,7 +78,8 @@ export interface Habit {
   last_checked_in_at?: string | null; // ISO 8601 - when user last reviewed this habit
   period_start_at?: string | null;
 
-  commitment?: boolean;
+  /** Date when lock-in expires (ISO date string YYYY-MM-DD). Null means not locked in. */
+  commitment_until?: string | null;
   commitment_started_at?: string | null;
   commitment_note?: string | null;
   commitment_archived_at?: string | null;
@@ -583,6 +584,9 @@ export interface DailyBrief {
   /** Timestamp when brief was completed (null = not completed) */
   completed_at: string | null;
 
+  /** Habit IDs the user dismissed with "Not today" - hidden from Morning Brief for this day only */
+  dismissed_habit_ids: string[];
+
   created_at: string;
   updated_at: string;
 }
@@ -599,6 +603,8 @@ export interface DailyBriefInput {
   day_sequence?: SequencedItem[];
   evening_sequence?: SequencedItem[];
   completed_at?: string | null;
+  /** Habit IDs dismissed with "Not today" - defaults to [] */
+  dismissed_habit_ids?: string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -622,8 +628,9 @@ export interface EntityChatMessage {
       | 'whats_blocking'
       | 'action_steps'
       | 'expand'
-      | 'stay_consistent'
-      | 'approach';
+      | 'setup'
+      | 'why_skipping'
+      | 'make_easier';
     is_contextual_opener?: boolean;
     has_saveable_content?: boolean;
     isStreaming?: boolean; // True for temp streaming message
@@ -668,8 +675,9 @@ export type EntityChatPreset =
   | 'whats_blocking'
   | 'action_steps'
   | 'expand'
-  | 'stay_consistent'
-  | 'approach';
+  | 'setup' // NEW: habit setup
+  | 'why_skipping' // NEW: habit troubleshooting
+  | 'make_easier'; // NEW: habit optimization
 
 /**
  * Request payload for entity chat to Cortex
@@ -698,6 +706,7 @@ export interface EntityChatRequest {
     days_unscheduled: number;
     is_overdue: boolean;
   };
+  accountCreatedAt?: string | null;
 }
 
 /**
@@ -715,6 +724,8 @@ export interface EntityChatResponse {
     suggested: boolean;
     reason?: string;
   };
+  /** Save suggestion payload from Cortex (if any) */
+  save_suggestion?: any | null;
   latency_ms: number;
 }
 

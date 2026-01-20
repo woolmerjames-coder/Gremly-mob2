@@ -10,6 +10,7 @@ import CompletedItemsModal from '../../components/today/v3/CompletedItemsModal';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useCommitments } from '../../lib/today/hooks/useCommitments';
 import { useTodayTodos, useTodayHabits, useCompletedToday } from '../../lib/store/selectors';
+import { isHabitLockedIn } from '../../lib/store/useGremlyStore';
 import {
   getTodayCompletionSummary,
   type TodayMergedEntry,
@@ -68,7 +69,7 @@ export default function TodayV3View() {
         name: h.name,
         space_id: h.space_id,
         tags: h.tags ?? [],
-        commitment: h.commitment,
+        commitment: isHabitLockedIn(h),
       })),
     ],
     [todayTodos, todayHabits],

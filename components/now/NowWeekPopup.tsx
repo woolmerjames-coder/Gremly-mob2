@@ -59,6 +59,8 @@ interface NowWeekPopupProps {
   onToggleDay?: (habitId: string, dateISO: string, newState: boolean) => void;
   /** Called to refresh data after toggle */
   onRefresh?: () => void;
+  /** Called when opening overlay - parent should reopen modal when overlay closes */
+  onOpenOverlay?: () => void;
 }
 
 /**
@@ -133,6 +135,7 @@ export function NowWeekPopup({
   onClose,
   onToggleDay,
   onRefresh: _onRefresh,
+  onOpenOverlay,
 }: NowWeekPopupProps) {
   const repo = useRepo();
   const overlayController = useUnifiedOverlayController();
@@ -144,6 +147,33 @@ export function NowWeekPopup({
   const [isLoading, setIsLoading] = useState(false);
   // Store the initial sort order to prevent rows from jumping when toggled
   const [sortOrder, setSortOrder] = useState<string[] | null>(null);
+  // Track if user has checked in this session
+  const [hasCheckedInToday, setHasCheckedInToday] = useState(false);
+  // Hide success message after delay
+  const [showCheckInBar, setShowCheckInBar] = useState(true);
+
+  // Hide check-in bar after showing success message
+  useEffect(() => {
+    if (hasCheckedInToday) {
+      // Show success message briefly, then hide
+      const timer = setTimeout(() => {
+        setShowCheckInBar(false);
+      }, 2000); // Show "Checked in for today" for 2s before hiding
+
+      return () => clearTimeout(timer);
+    }
+    // Reset showCheckInBar when hasCheckedInToday becomes false (handled by resetting both together)
+  }, [hasCheckedInToday]);
+
+  // Reset check-in state when modal opens
+  useEffect(() => {
+    if (visible) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHasCheckedInToday(false);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowCheckInBar(true);
+    }
+  }, [visible]);
 
   // Open habit in unified overlay (same save path as Today/NOW)
   const openHabitDetail = useCallback(
@@ -154,7 +184,9 @@ export function NowWeekPopup({
         if (fullHabit && fullHabit.type === 'habit') {
           // Close this popup first, then open the overlay
           onClose();
-          overlayController.openEdit({ record: fullHabit as any });
+          // Tell parent to reopen modal when overlay closes
+          onOpenOverlay?.();
+          overlayController.openView({ record: fullHabit as any });
         } else {
           console.warn('[NowWeekPopup] Habit not found or type mismatch:', habitId);
         }
@@ -162,15 +194,7 @@ export function NowWeekPopup({
         console.error('[NowWeekPopup] Failed to fetch habit for editing:', error);
       }
     },
-    [repo, overlayController, onClose],
-  );
-
-  // Handle check-in button press
-  const handleCheckIn = useCallback(
-    async (habitId: string) => {
-      await checkInHabit(habitId);
-    },
-    [checkInHabit],
+    [repo, overlayController, onClose, onOpenOverlay],
   );
 
   // Week date range - rolling 7 days ending today (matches useWeeklyHabitStats)
@@ -331,6 +355,23 @@ export function NowWeekPopup({
   // Compute stats when visible
   const summaryStats = visible ? computeSummaryStats() : { upToDate: 0, total: 0 };
 
+  // Compute habits needing check-in
+  const habitsNeedingCheckIn = useMemo(() => {
+    return weeklyStats.filter((stat) => {
+      const habit = allHabits?.find((h) => h.id === stat.id);
+      return getCheckInStatus(habit) === 'needs_attention';
+    });
+  }, [weeklyStats, allHabits]);
+  const needsCheckInCount = habitsNeedingCheckIn.length;
+
+  // Handle bulk check-in for all habits needing attention
+  const handleCheckInAll = useCallback(async () => {
+    for (const stat of habitsNeedingCheckIn) {
+      await checkInHabit(stat.id);
+    }
+    setHasCheckedInToday(true);
+  }, [habitsNeedingCheckIn, checkInHabit]);
+
   // Get dynamic day labels from first habit's stats (rolling 7 days)
   // dayLabels is an array of short day names like ['Th', 'Fr', 'Sa', 'Su', 'Mo', 'Tu', 'We']
   const dayLabels = useMemo(() => {
@@ -400,9 +441,6 @@ export function NowWeekPopup({
             </TouchableOpacity>
           </Box>
 
-          {/* Helper text */}
-          <Text style={styles.helperText}>Tap circles to log · Confirm to mark reviewed</Text>
-
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
             {/* ─── SHARED DAY HEADER ROW ─── */}
             {/* Dynamic day labels from rolling 7-day view, today highlighted in green */}
@@ -449,7 +487,6 @@ export function NowWeekPopup({
                       showDivider={index < weeklyStats.length - 1}
                       isBreakingHabit={habit?.subtype === 'break_habit'}
                       streakDays={computeStreak(stat.dayDots)}
-                      onCheckIn={handleCheckIn}
                       startDate={habit?.start_date}
                     />
                   );
@@ -461,6 +498,26 @@ export function NowWeekPopup({
               </Text>
             )}
           </ScrollView>
+
+          {/* Bottom check-in bar */}
+          {showCheckInBar && (needsCheckInCount > 0 || hasCheckedInToday) && (
+            <View>
+              {!hasCheckedInToday ? (
+                <View style={styles.checkInBar}>
+                  <Text style={styles.checkInBarText}>
+                    Check in on {needsCheckInCount} habit{needsCheckInCount > 1 ? 's' : ''}
+                  </Text>
+                  <TouchableOpacity style={styles.checkInBarButton} onPress={handleCheckInAll}>
+                    <Text style={styles.checkInBarButtonText}>All good for now</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.checkInBarSuccess}>
+                  <Text style={styles.checkInBarSuccessText}>✓ Checked in for today</Text>
+                </View>
+              )}
+            </View>
+          )}
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
@@ -473,13 +530,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
-  // Sheet opens high enough to show 3-4 full habit rows without clipping the bottom row
+  // Full screen sheet with space for status bar
   sheet: {
     backgroundColor: '#FFFFFF',
+    flex: 1,
+    marginTop: 50, // Leave space for status bar area
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    maxHeight: '85%',
-    minHeight: 400,
   },
   header: {
     flexDirection: 'row',
@@ -512,7 +569,7 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: 16,
     paddingTop: 8, // Tighter top padding since header row provides spacing
-    paddingBottom: 32, // Extra padding for home indicator and to prevent clipping
+    paddingBottom: 80, // Add space for bottom check-in bar
   },
   // ─── SHARED DAY HEADER ROW ───
   // Single row of M T W T F S S labels above all habit rows
@@ -551,12 +608,42 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: 24,
   },
-  helperText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: INK_SUBTLE,
-    textAlign: 'center',
+  checkInBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_SUBTLE,
+    backgroundColor: '#FFFDF7',
+  },
+  checkInBarText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: CHARCOAL_INK,
+  },
+  checkInBarButton: {
+    backgroundColor: MOSS_GREEN,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  checkInBarButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
+  },
+  checkInBarSuccess: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_SUBTLE,
+    alignItems: 'center',
+  },
+  checkInBarSuccessText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: MOSS_GREEN,
   },
 });

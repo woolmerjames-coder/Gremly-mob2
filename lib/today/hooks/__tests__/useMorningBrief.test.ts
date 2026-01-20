@@ -40,6 +40,7 @@ describe('useMorningBrief', () => {
     day_sequence: [],
     evening_sequence: [],
     completed_at: null,
+    dismissed_habit_ids: [],
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };

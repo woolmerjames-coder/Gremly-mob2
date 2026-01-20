@@ -279,7 +279,13 @@ export interface IRepo {
       commitment_note?: string | null;
     }>
   >;
-  addCommitment(id: ID, type: 'habit' | 'todo', note?: string | null): Promise<void>;
+  addCommitment(
+    id: ID,
+    type: 'habit' | 'todo',
+    note?: string | null,
+    /** Duration in days for habit lock-in (1, 3, 7, or 14). Only used for habits. */
+    commitmentDurationDays?: number,
+  ): Promise<void>;
   removeCommitment(id: ID, type: 'habit' | 'todo', reason?: string | null): Promise<void>;
   countActiveCommitments(): Promise<number>;
 

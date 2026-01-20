@@ -57,8 +57,6 @@ export interface HabitWeeklyRowProps {
   isBreakingHabit?: boolean;
   /** Current streak in days (for breaking habits) */
   streakDays?: number;
-  /** Called when user taps check-in button */
-  onCheckIn?: (habitId: string) => void;
   /** ISO date string when habit started (YYYY-MM-DD) */
   startDate?: string | null;
 }
@@ -89,7 +87,7 @@ function getStatusLabel(status: HabitStatus): { text: string; color: string } {
     case 'done_for_week':
       return { text: 'Up to date', color: MOSS_GREEN };
     case 'needs_attention':
-      return { text: 'Needs update', color: GOLDEN_PEAR };
+      return { text: 'Needs check-in', color: GOLDEN_PEAR };
     default:
       return { text: 'Up to date', color: MOSS_GREEN };
   }
@@ -176,7 +174,6 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
   showDivider = true,
   isBreakingHabit = false,
   streakDays,
-  onCheckIn,
   startDate,
 }: HabitWeeklyRowProps) {
   // Track optimistic state for each day
@@ -216,11 +213,18 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
 
   // Get status label text and color
   const statusInfo = getStatusLabel(status);
+  // Override status when no start_date is set
+  const displayStatus = !startDate ? { text: 'Set up needed', color: GOLDEN_PEAR } : statusInfo;
 
   return (
     <View style={styles.row}>
       {/* Left accent bar - color reflects habit status */}
-      <View style={[styles.accentBar, { backgroundColor: getAccentColor(status) }]} />
+      <View
+        style={[
+          styles.accentBar,
+          { backgroundColor: !startDate ? GOLDEN_PEAR : getAccentColor(status) },
+        ]}
+      />
 
       {/* Content */}
       <View style={styles.content}>
@@ -255,32 +259,53 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
           {/* Right: Frequency + Status stacked */}
           <View style={styles.rightColumn}>
             <Text style={styles.frequency}>{displayFrequency}</Text>
-            <Text style={[styles.statusLabel, { color: statusInfo.color }]}>{statusInfo.text}</Text>
+            <Text style={[styles.statusLabel, { color: displayStatus.color }]}>
+              {displayStatus.text}
+            </Text>
           </View>
         </Pressable>
 
         {/* ─── DOTS ROW ONLY ─── */}
         {/* Day labels removed - now in shared header in NowWeekPopup */}
-        <View style={styles.dotsRow}>
-          {dayDots.map((dotState, index) => {
-            const dateISO = dayDates[index];
-            const optimistic = optimisticDots[dateISO];
-            const effectiveState = optimistic ?? dotState;
-            const isCompleted = effectiveState === 'done';
-            const isToday = index === todayIndex;
-            const isFuture = dotState === 'future';
+        {!startDate ? (
+          // No start date - show banner prompting user to set one
+          <Pressable style={styles.pickStartDateBanner} onPress={onPressHeader}>
+            <Text style={styles.pickStartDateText}>Tap to pick a start date</Text>
+          </Pressable>
+        ) : (
+          // Has start date - show dots row
+          <View style={styles.dotsRow}>
+            {dayDots.map((dotState, index) => {
+              const dateISO = dayDates[index];
+              const optimistic = optimisticDots[dateISO];
+              const effectiveState = optimistic ?? dotState;
+              const isCompleted = effectiveState === 'done';
+              const isToday = index === todayIndex;
+              const isFuture = dotState === 'future';
 
-            // Check if this day is before habit started
-            const isBeforeStart = startDate && dateISO < startDate;
+              // Check if this day is before habit started
+              const isBeforeStart = startDate && dateISO < startDate;
 
-            if (isBeforeStart) {
-              // Show empty placeholder to maintain spacing
-              return <View key={dateISO} style={{ width: DOT_SIZE, height: DOT_SIZE }} />;
-            }
+              if (isBeforeStart) {
+                // Show empty placeholder to maintain spacing
+                return <View key={dateISO} style={{ width: DOT_SIZE, height: DOT_SIZE }} />;
+              }
 
-            if (isBreakingHabit) {
+              if (isBreakingHabit) {
+                return (
+                  <BreakingDot
+                    key={dateISO}
+                    isCompleted={isCompleted}
+                    isToday={isToday}
+                    isFuture={isFuture}
+                    onPress={() => handleDotPress(dateISO, !isCompleted)}
+                    size={DOT_SIZE}
+                  />
+                );
+              }
+
               return (
-                <BreakingDot
+                <GremlyDot
                   key={dateISO}
                   isCompleted={isCompleted}
                   isToday={isToday}
@@ -289,25 +314,9 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
                   size={DOT_SIZE}
                 />
               );
-            }
-
-            return (
-              <GremlyDot
-                key={dateISO}
-                isCompleted={isCompleted}
-                isToday={isToday}
-                isFuture={isFuture}
-                onPress={() => handleDotPress(dateISO, !isCompleted)}
-                size={DOT_SIZE}
-              />
-            );
-          })}
-          {statusInfo.text === 'Needs update' && onCheckIn && (
-            <Pressable style={styles.confirmButton} onPress={() => onCheckIn(habitId)}>
-              <Text style={styles.confirmButtonText}>Confirm</Text>
-            </Pressable>
-          )}
-        </View>
+            })}
+          </View>
+        )}
       </View>
 
       {/* Divider */}
@@ -403,26 +412,25 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: GOLDEN_PEAR,
   },
-  // Confirm button (inline with dots)
-  confirmButton: {
-    marginLeft: 8,
-    paddingHorizontal: 12,
-    backgroundColor: SAGE_MIST,
-    borderRadius: 14,
-    height: DOT_SIZE,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  confirmButtonText: {
-    fontSize: 11,
-    fontFamily: 'Inter-SemiBold',
-    color: MOSS_GREEN,
-  },
   // Started label for new habits
   startedLabel: {
     fontSize: 11,
     fontFamily: 'Inter-Regular',
     color: INK_SUBTLE,
+  },
+  // Pick start date banner for habits without start_date
+  pickStartDateBanner: {
+    backgroundColor: SAGE_MIST,
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  pickStartDateText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: MOSS_GREEN,
   },
   // Bottom divider between rows
   divider: {

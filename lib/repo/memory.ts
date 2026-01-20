@@ -1198,7 +1198,12 @@ export class MemoryRepo implements IRepo {
       }));
   }
 
-  async addCommitment(id: ID, type: 'habit' | 'todo', note?: string | null): Promise<void> {
+  async addCommitment(
+    id: ID,
+    type: 'habit' | 'todo',
+    note?: string | null,
+    commitmentDurationDays?: number,
+  ): Promise<void> {
     const idx = this.data.findIndex(
       (row) => row.id === id && row.type === type && row.owner_id === this.currentUserId,
     );
@@ -1225,6 +1230,14 @@ export class MemoryRepo implements IRepo {
     }
 
     const now = nowIso();
+
+    // For habits, calculate commitment_until date
+    let commitmentUntil: string | null = null;
+    if (type === 'habit' && commitmentDurationDays) {
+      const today = dateService.getCurrentDate();
+      commitmentUntil = dateService.addDays(today, commitmentDurationDays - 1);
+    }
+
     const updated = {
       ...record,
       commitment: true,
@@ -1232,11 +1245,12 @@ export class MemoryRepo implements IRepo {
       commitment_note: note ?? null,
       commitment_archived_at: null,
       updated_at: now,
+      ...(type === 'habit' && commitmentUntil ? { commitment_until: commitmentUntil } : {}),
     } as AppRecord;
 
     this.commit(updated);
     this.data[idx] = updated;
-    console.log('[REPO_COMMITMENT_ADD]', { id, type });
+    console.log('[REPO_COMMITMENT_ADD]', { id, type, commitmentDurationDays });
   }
 
   async removeCommitment(id: ID, type: 'habit' | 'todo', reason?: string | null): Promise<void> {
