@@ -119,7 +119,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock, Camera, Clock, LogOut, User } from 'lucide-react-native';
+import { Lock, Camera, Clock, LogOut, User, ChevronDown } from 'lucide-react-native';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -2816,8 +2816,46 @@ const RecentDrops: React.FC<{
   const [open, setOpen] = React.useState(initiallyOpen); // open by default for inline confirmation
   const [loading, setLoading] = React.useState(false);
   const [items, setItems] = React.useState<UnifiedDrop[]>([]);
-  const [showOlder, setShowOlder] = React.useState(false); // Today-only by default
+  const [todayCount, setTodayCount] = React.useState(0); // Track today's drop count for toggle label
+  const [olderCount, setOlderCount] = React.useState(0); // Track older drops count
+  const [filter, setFilter] = React.useState<'today' | 'older'>('today'); // Filter selection
   const canonicalTypesOn = env.feature.canonicalTypes;
+
+  // Animated chevron rotation
+  const chevronRotation = useSharedValue(1); // 1 = expanded (pointing down), 0 = collapsed (pointing up)
+  const chevronAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 180}deg` }],
+  }));
+
+  // Toggle open state with chevron animation
+  const handleChevronPress = React.useCallback(() => {
+    setOpen((v) => {
+      const newOpen = !v;
+      chevronRotation.value = withTiming(newOpen ? 1 : 0, { duration: 200 });
+      return newOpen;
+    });
+  }, [chevronRotation]);
+
+  // Show filter picker (Today / Older)
+  const handleFilterPress = React.useCallback(() => {
+    const options = ['Today', 'Older', 'Cancel'];
+    const cancelButtonIndex = 2;
+
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        options,
+        cancelButtonIndex,
+        title: 'Show drops from',
+      },
+      (buttonIndex) => {
+        if (buttonIndex === 0) {
+          setFilter('today');
+        } else if (buttonIndex === 1) {
+          setFilter('older');
+        }
+      },
+    );
+  }, []);
 
   // Modal state lifted from AnimatedMindDropCard to prevent remount issues
   // Modal stays visible even when card remounts due to pending→real transition
@@ -2954,9 +2992,6 @@ const RecentDrops: React.FC<{
     const fromItems = items.find((i) => (i.drop_id || i.id) === dropId);
     return fromItems || activeModalItem;
   }, [activeModalItem, pendingItems, items]);
-
-  const rangeLabel = showOlder ? 'Earlier' : 'Today';
-  const rangeActionLabel = showOlder ? 'Back to today' : 'Show older';
 
   /**
    * Helper to merge a DB record into the local items state
@@ -3313,15 +3348,17 @@ const RecentDrops: React.FC<{
         return Number.isFinite(ts) && ts >= todayCutoff; // "Today"
       });
 
-      if (!showOlder) {
-        // Today only
+      // Calculate older items (last 3 days, excluding today)
+      const olderItems = unified.filter((i) => {
+        const ts = new Date(i.created_at).getTime();
+        return Number.isFinite(ts) && ts >= olderCutoff && ts < todayCutoff;
+      });
+
+      // Filter based on selection
+      if (filter === 'today') {
         unified = todayItems;
       } else {
-        // Show older: last 3 days (spec Section 5.3)
-        unified = unified.filter((i) => {
-          const ts = new Date(i.created_at).getTime();
-          return Number.isFinite(ts) && ts >= olderCutoff;
-        });
+        unified = olderItems;
       }
 
       unified = unified
@@ -3329,6 +3366,8 @@ const RecentDrops: React.FC<{
         .slice(0, 25); // keep snappy; scroll handles overflow
 
       setItems(unified);
+      setTodayCount(todayItems.length); // Update today count for toggle label
+      setOlderCount(olderItems.length); // Update older count for toggle label
 
       // Log loaded items with their visual states for debugging
       const visualStates = unified.map((item) => ({
@@ -3352,7 +3391,7 @@ const RecentDrops: React.FC<{
     } finally {
       if (!isTest) setLoading(false);
     }
-  }, [showOlder, onTodayCountChange]);
+  }, [filter, onTodayCountChange]);
 
   useEffect(() => {
     void load();
@@ -4195,37 +4234,36 @@ const RecentDrops: React.FC<{
 
   return (
     <View style={styles.recentRoot}>
-      <View style={styles.recentHeaderRow}>
+      {/* Two-zone toggle: text for filter picker, chevron for collapse */}
+      <View style={styles.recentToggleRow}>
+        {/* Tap zone 1: Filter picker (Today/Older) */}
         <Pressable
-          testID="minddrop-recent-toggle"
-          onPress={() => setOpen((v) => !v)}
-          style={styles.recentHeaderBtn}
+          testID="minddrop-recent-filter"
+          onPress={handleFilterPress}
           hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Show ${filter === 'today' ? 'today' : 'older'} drops. Tap to change.`}
+        >
+          <Text style={styles.recentToggleText}>
+            {filter === 'today'
+              ? `Today${todayCount > 0 ? ` (${todayCount})` : ''}`
+              : `Older${olderCount > 0 ? ` (${olderCount})` : ''}`}
+          </Text>
+        </Pressable>
+
+        {/* Tap zone 2: Collapse/expand chevron */}
+        <Pressable
+          testID="minddrop-recent-chevron"
+          onPress={handleChevronPress}
+          hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Toggle recent drops"
           accessibilityState={{ expanded: open }}
+          style={styles.recentChevronBtn}
         >
-          <View style={styles.recentHeaderLeft}>
-            <Text style={styles.recentHeaderText}>Recent drops</Text>
-            <Text style={styles.recentHeaderCaret}>{open ? '↑' : '↓'}</Text>
-          </View>
-        </Pressable>
-
-        <View style={styles.recentHeaderCenter} pointerEvents="none">
-          <Text testID="minddrop-recent-range" style={styles.recentRangeLabel}>
-            {rangeLabel}
-          </Text>
-        </View>
-
-        <Pressable
-          testID="minddrop-recent-range-action"
-          onPress={() => setShowOlder((v) => !v)}
-          style={styles.recentHeaderLink}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={showOlder ? "Show only today's drops" : 'Show older drops'}
-        >
-          <Text style={styles.recentHeaderLinkText}>{rangeActionLabel}</Text>
+          <Reanimated.View style={chevronAnimatedStyle}>
+            <ChevronDown size={18} color={c.mossGreen} />
+          </Reanimated.View>
         </Pressable>
       </View>
 
@@ -4236,9 +4274,9 @@ const RecentDrops: React.FC<{
           ) : filteredItems.length === 0 && pendingItems.length === 0 ? (
             <View style={styles.recentEmptyContainer}>
               <Text style={styles.recentEmptyPrimary}>
-                {showOlder ? 'No drops yet.' : "Gremly's ready when you are."}
+                {filter === 'today' ? "Gremly's ready when you are." : 'No older drops.'}
               </Text>
-              {!showOlder && (
+              {filter === 'today' && (
                 <Text style={styles.recentEmptySecondary}>
                   What's on your mind? Drop it here — tasks, ideas, worries, anything.
                 </Text>
@@ -8292,56 +8330,22 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       marginTop: 20,
       flex: 1, // Takes full height of scrollableSection
     },
-    recentHeaderRow: {
+    // Simplified toggle row: "Today (count)" with chevron - minimal chrome
+    recentToggleRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: space,
-    },
-    recentHeaderBtn: {
-      flex: 1,
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
       paddingVertical: 8,
-      alignItems: 'flex-start',
-      justifyContent: 'center',
     },
-    recentHeaderLeft: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    recentHeaderText: {
-      color: c.sageMist,
-      fontSize: 16,
+    recentToggleText: {
+      color: c.mossGreen,
+      fontSize: 15,
       fontWeight: '600',
       fontFamily: 'Inter-Medium',
     },
-    recentHeaderCaret: {
-      color: c.mutedText,
-      fontSize: 12,
-      fontFamily: 'Inter-Medium',
-      marginTop: 2,
-    },
-    recentHeaderCenter: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    recentRangeLabel: {
-      color: c.mossGreen,
-      fontSize: 13,
-      fontFamily: 'Inter-Medium',
-      letterSpacing: 0.2,
-    },
-    recentHeaderLink: {
-      flex: 1,
-      alignItems: 'flex-end',
-      justifyContent: 'center',
-      paddingVertical: 8,
-    },
-    recentHeaderLinkText: {
-      color: c.mossGreen,
-      fontSize: 13,
-      fontFamily: 'Inter-Medium',
-      textDecorationLine: 'underline',
+    recentChevronBtn: {
+      padding: 4,
     },
     // Phase 5A: recentList now takes remaining vertical space for scrolling
     recentList: {
