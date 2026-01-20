@@ -16,6 +16,7 @@ import TabNavigator from './TabNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
 import RecentItems from '../app/(dev)/RecentItems';
+import DevTools from '../app/(dev)/DevTools';
 import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import SweepFlowScreen from '../app/screens/SweepFlowScreen';
@@ -33,6 +34,7 @@ export type RootStackParamList = {
   Tabs: undefined;
   DSPreview: undefined;
   DevLogin: undefined;
+  DevTools: undefined;
   RecentItems: undefined;
   SpaceDetail: { id: string };
   CatchAllNotepad: undefined;
@@ -162,6 +164,13 @@ export default function RootNavigator() {
               name="SweepTest"
               component={SweepTestScreen}
               options={{ title: 'Sweep Test Mode', presentation: 'modal', headerShown: false }}
+            />
+          )}
+          {__DEV__ && (
+            <Stack.Screen
+              name="DevTools"
+              component={DevTools}
+              options={{ title: 'Dev Tools', presentation: 'modal', headerShown: true }}
             />
           )}
         </>

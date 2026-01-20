@@ -9,15 +9,13 @@ import * as Haptics from 'expo-haptics';
 import { getEnv } from '../../../lib/env';
 import { subscribeToCelebrationEvents, type CelebrationEvent } from './celebrationBus';
 
-export type CelebrationKind = 'micro' | 'confetti' | 'mascot' | 'age_up';
+export type CelebrationKind = 'micro' | 'confetti' | 'mascot';
 
 export interface CelebrationPayload {
   kind: CelebrationKind;
   message?: string;
   itemType?: 'todo' | 'note' | 'habit';
   streakCount?: number;
-  /** Age value for age_up celebrations */
-  age?: number;
 }
 
 type CelebrationListener = (payload: CelebrationPayload) => void;
@@ -196,24 +194,6 @@ class CelebrationController {
         console.error('[CelebrationController] Listener error:', error);
       }
     });
-  }
-
-  /**
-   * Trigger age-up celebration modal for testing.
-   * This does NOT modify the actual gremlyAge in the store.
-   * @param age - The age to display in the modal
-   */
-  showAgeUpCelebration(age: number): void {
-    const payload: CelebrationPayload = {
-      kind: 'age_up',
-      age,
-    };
-
-    this.emit(payload);
-
-    if (__DEV__) {
-      console.log('[Celebration] Age-up celebration triggered for age:', age);
-    }
   }
 
   cleanup(): void {

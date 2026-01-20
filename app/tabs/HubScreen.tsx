@@ -32,6 +32,7 @@ import {
   Archive,
   Search,
   Settings,
+  Wrench,
 } from 'lucide-react-native';
 
 import { useAuth } from '../../providers/AuthProvider';
@@ -858,16 +859,30 @@ export default function HubScreen() {
           {/* Header */}
           <View style={hubV1Styles.headerRow}>
             <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
-            <TouchableOpacity
-              onPress={handleOpenNotificationSettings}
-              style={hubV1Styles.settingsButton}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              testID="hub-settings-button"
-              accessibilityLabel="Notification Settings"
-              accessibilityRole="button"
-            >
-              <Settings size={24} color={colors.gray600} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              {__DEV__ && (
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('DevTools')}
+                  style={hubV1Styles.settingsButton}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  testID="hub-dev-tools-button"
+                  accessibilityLabel="Dev Tools"
+                  accessibilityRole="button"
+                >
+                  <Wrench size={24} color={colors.gray600} />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={handleOpenNotificationSettings}
+                style={hubV1Styles.settingsButton}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                testID="hub-settings-button"
+                accessibilityLabel="Notification Settings"
+                accessibilityRole="button"
+              >
+                <Settings size={24} color={colors.gray600} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Search Input */}
