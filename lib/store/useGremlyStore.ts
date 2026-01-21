@@ -21,6 +21,12 @@ import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
 import celebrationController from '../../app/features/celebration/CelebrationController';
+import {
+  calendarClient,
+  type CalendarEvent,
+  type CalendarConnectionStatus,
+  type CalendarProvider,
+} from '../calendar/CalendarClient';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
@@ -444,6 +450,21 @@ interface GremlyState {
     noteId: string,
   ) => Promise<void>;
   clearEntityChat: (entityId: string, entityType: 'todo' | 'habit' | 'note') => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CALENDAR INTEGRATION
+  // ═══════════════════════════════════════════════════════════════════
+  calendarConnections: CalendarConnectionStatus[];
+  calendarEvents: Map<string, CalendarEvent[]>; // Key is YYYY-MM-DD
+  calendarLoading: boolean;
+  calendarLastFetched: string | null;
+
+  // Calendar actions
+  refreshCalendarConnections: () => Promise<void>;
+  fetchCalendarEventsForRange: (startDate: string, endDate: string) => Promise<void>;
+  connectCalendar: (provider: CalendarProvider) => Promise<{ success: boolean; error?: string }>;
+  disconnectCalendar: (provider: CalendarProvider) => Promise<void>;
+  clearCalendarEvents: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -487,6 +508,11 @@ const initialState = {
   todayRitualCompletedAt: null as string | null,
   todayAgeCelebrationShownAt: null as string | null,
   pendingDrops: new Map<string, PendingDrop>(),
+  // Calendar integration
+  calendarConnections: [] as CalendarConnectionStatus[],
+  calendarEvents: new Map<string, CalendarEvent[]>(),
+  calendarLoading: false,
+  calendarLastFetched: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2996,6 +3022,106 @@ export const useGremlyStore = create<GremlyState>()(
           throw new Error(`COMMITMENT_REMOVE_FAILED: ${error.message}`);
         }
       }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CALENDAR INTEGRATION ACTIONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    refreshCalendarConnections: async () => {
+      try {
+        const connections = await calendarClient.getConnectionStatus();
+        set({ calendarConnections: connections });
+      } catch (error) {
+        console.error('[GremlyStore] refreshCalendarConnections failed:', error);
+      }
+    },
+
+    fetchCalendarEventsForRange: async (startDate: string, endDate: string) => {
+      set({ calendarLoading: true });
+
+      try {
+        const events = await calendarClient.getEvents(startDate, endDate);
+
+        // Group events by date (YYYY-MM-DD from startAt)
+        const eventsByDate = new Map<string, CalendarEvent[]>(get().calendarEvents);
+
+        for (const event of events) {
+          // Extract date from ISO timestamp
+          const dateKey = event.startAt.slice(0, 10); // YYYY-MM-DD
+
+          const existing = eventsByDate.get(dateKey) || [];
+          // Avoid duplicates by checking event ID
+          const alreadyExists = existing.some((e) => e.id === event.id);
+          if (!alreadyExists) {
+            eventsByDate.set(dateKey, [...existing, event]);
+          }
+        }
+
+        set({
+          calendarEvents: eventsByDate,
+          calendarLoading: false,
+          calendarLastFetched: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error('[GremlyStore] fetchCalendarEventsForRange failed:', error);
+        set({ calendarLoading: false });
+      }
+    },
+
+    connectCalendar: async (provider: CalendarProvider) => {
+      try {
+        let result: { success: boolean; error?: string };
+
+        if (provider === 'outlook') {
+          result = await calendarClient.connectOutlook();
+        } else {
+          // Google not yet implemented
+          result = { success: false, error: 'Google Calendar not yet supported' };
+        }
+
+        if (result.success) {
+          // Refresh connections to get updated status
+          await get().refreshCalendarConnections();
+        }
+
+        return result;
+      } catch (error) {
+        console.error('[GremlyStore] connectCalendar failed:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    },
+
+    disconnectCalendar: async (provider: CalendarProvider) => {
+      try {
+        const result = await calendarClient.disconnect(provider);
+
+        if (result.success) {
+          // Remove provider from connections
+          set({
+            calendarConnections: get().calendarConnections.filter((c) => c.provider !== provider),
+          });
+
+          // Clear events from that provider
+          const eventsByDate = new Map<string, CalendarEvent[]>();
+          for (const [date, events] of get().calendarEvents) {
+            const filtered = events.filter((e) => e.provider !== provider);
+            if (filtered.length > 0) {
+              eventsByDate.set(date, filtered);
+            }
+          }
+          set({ calendarEvents: eventsByDate });
+        }
+      } catch (error) {
+        console.error('[GremlyStore] disconnectCalendar failed:', error);
+      }
+    },
+
+    clearCalendarEvents: () => {
+      set({
+        calendarEvents: new Map(),
+        calendarLastFetched: null,
+      });
     },
 
     // ═══════════════════════════════════════════════════════════════════

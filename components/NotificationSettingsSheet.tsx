@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius } from '../design/tokens';
 import { BRAND } from '../design/brand';
 import DayBoundaryPicker from './settings/DayBoundaryPicker';
+import CalendarConnectionsCard from './settings/CalendarConnectionsCard';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 
 export interface NotificationSettingsPayload {
@@ -201,6 +202,11 @@ function NotificationSettingsSheetContent({ sheetId, payload }: NotificationSett
             Choose when your ritual day resets. Night owls might prefer 3am or later.
           </Text>
           <DayBoundaryPicker value={localDayBoundary} onChange={setLocalDayBoundary} />
+        </View>
+
+        {/* Calendar Connections Section */}
+        <View style={styles.section}>
+          <CalendarConnectionsCard />
         </View>
 
         {/* Save Button */}

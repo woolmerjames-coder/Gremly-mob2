@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowFocusRow } from '../../components/now/NowFocusRow';
+import { NowCalendarEventRow } from '../../components/now/NowCalendarEventRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
 import { RolledOverSection, RecentDropsSection, SweepPill } from '../../components/now';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
@@ -74,6 +75,7 @@ import type {
   NowCompletedItem,
 } from '../../lib/now/nowTypes';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
+import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space } from '../../lib/types';
 import { eventBus } from '../../lib/events';
@@ -258,12 +260,31 @@ export default function NowScreenV1() {
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
 
+  // Calendar integration
+  const calendarEvents = useGremlyStore((s) => s.calendarEvents);
+  const fetchCalendarEvents = useGremlyStore((s) => s.fetchCalendarEventsForRange);
+
   // Morning Brief - sequences and brief state
   const { hasCompletedBriefToday, brief } = useMorningBrief();
   const [isBriefSheetVisible, setBriefSheetVisible] = useState(false);
 
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
+
+  // Fetch calendar events on mount (today + 7 days)
+  useEffect(() => {
+    if (!isInitialized) return;
+    const dateService = getDateService();
+    const today = dateService.getCurrentDate();
+    const weekFromNow = dateService.addDays(today, 7);
+    fetchCalendarEvents(today, weekFromNow);
+  }, [isInitialized, fetchCalendarEvents]);
+
+  // Get today's calendar events
+  const todayCalendarEvents = useMemo(() => {
+    const todayStr = getDateService().getCurrentDate();
+    return calendarEvents.get(todayStr) || [];
+  }, [calendarEvents]);
 
   // Auto-open Morning Brief on first open of the day (skip for brand new users)
   useEffect(() => {
@@ -776,6 +797,7 @@ export default function NowScreenV1() {
           bottomInset={insets.bottom}
           brief={brief}
           lockedItemIds={lockedItemIds}
+          calendarEvents={todayCalendarEvents}
         />
       </View>
 
@@ -1035,6 +1057,7 @@ type TodayFocusListProps = {
     evening_sequence?: { id: string }[];
   } | null;
   lockedItemIds?: Set<string>;
+  calendarEvents?: CalendarEvent[];
 };
 
 function TodayFocusList({
@@ -1052,6 +1075,7 @@ function TodayFocusList({
   bottomInset,
   brief,
   lockedItemIds,
+  calendarEvents = [],
 }: TodayFocusListProps) {
   // Track leaving card for exit animation
   const [leavingCard, setLeavingCard] = useState<{ id: string; title: string } | null>(null);
@@ -1132,6 +1156,36 @@ function TodayFocusList({
         <View style={styles.emptyState}>
           <Text style={styles.emptyText}>{emptyContent.title}</Text>
           <Text style={styles.emptySubtext}>{emptyContent.subtitle}</Text>
+        </View>
+      )}
+
+      {/* Calendar events section */}
+      {calendarEvents.length > 0 && (
+        <View style={styles.calendarSection}>
+          <Text style={styles.calendarSectionLabel}>Calendar</Text>
+          {calendarEvents.map((event, index) => (
+            <NowCalendarEventRow
+              key={event.id}
+              event={{
+                id: event.id,
+                type: 'calendar_event',
+                title: event.title,
+                time: event.isAllDay ? null : new Date(event.startAt).toTimeString().slice(0, 5),
+                endTime: event.isAllDay ? null : new Date(event.endAt).toTimeString().slice(0, 5),
+                isCompleted: false,
+                isOverdue: false,
+                isExternal: true,
+                provider: event.provider,
+                location: event.location,
+                space: null,
+                milestone: null,
+                tags: [],
+                raw: event,
+              }}
+              isFirst={index === 0}
+              isLast={index === calendarEvents.length - 1}
+            />
+          ))}
         </View>
       )}
 
@@ -1382,5 +1436,22 @@ const styles = StyleSheet.create({
   // Spacing for Overdue and Recent Drops sections
   sectionSpacing: {
     marginTop: 16,
+  },
+  // Calendar events section
+  calendarSection: {
+    marginBottom: 16,
+    borderRadius: 10,
+    backgroundColor: 'rgba(156, 166, 224, 0.06)', // Subtle periwinkle tint
+    overflow: 'hidden',
+  },
+  calendarSectionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9CA6E0', // Periwinkle smoke
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });

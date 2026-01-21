@@ -57,7 +57,8 @@
           "icon": "./assets/mascot/ios_gremly_icon.png",
           "color": "#BFD8C0"
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "extra": {
       "EXPO_PUBLIC_MIND_DROP_V2": "process.env.EXPO_PUBLIC_MIND_DROP_V2",
