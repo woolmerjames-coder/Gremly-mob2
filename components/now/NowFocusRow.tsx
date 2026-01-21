@@ -451,7 +451,6 @@ export function NowFocusRow({
               numberOfLines={1}
               style={[
                 styles.title,
-                isLocked && styles.titleLocked,
                 (isFuture || isFlexible) && styles.titleDimmed,
                 showStrikethrough && styles.titleCompleted,
               ]}
@@ -497,20 +496,6 @@ export function NowFocusRow({
               )}
             </View>
           </View>
-
-          {/* Middle: Status label (vertically centered) */}
-          {(isLocked || timeBlock) && (
-            <View style={styles.statusContainer}>
-              <Text style={[styles.statusText, isLocked && styles.statusTextLocked]}>
-                {isLocked
-                  ? 'Locked in'
-                  : timeBlock
-                    ? (TIME_BLOCK_LABELS[timeBlock] ?? timeBlock)
-                    : null}
-              </Text>
-              {isLocked && <Text style={styles.statusDiamond}>◇</Text>}
-            </View>
-          )}
 
           {/* Right: Checkbox (vertically centered) */}
           <TouchableOpacity
@@ -574,9 +559,9 @@ const styles = StyleSheet.create({
   rowContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingLeft: 16,
-    paddingRight: 8,
+    paddingVertical: 9,
+    paddingLeft: 12,
+    paddingRight: 0,
   },
   leftContent: {
     flex: 1,
@@ -585,11 +570,8 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: '#0E1116', // charcoalInk - consistent for all items
     marginBottom: 4,
-  },
-  titleLocked: {
-    color: '#2E5540',
   },
   titleDimmed: {
     opacity: 0.5,
@@ -597,27 +579,6 @@ const styles = StyleSheet.create({
   titleCompleted: {
     textDecorationLine: 'line-through',
     opacity: 0.5,
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    width: 80,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: '#888',
-    textTransform: 'capitalize',
-  },
-  statusTextLocked: {
-    color: '#2E5540',
-    fontWeight: '600',
-  },
-  statusDiamond: {
-    fontSize: 10,
-    color: '#2E5540',
   },
   chipsRow: {
     flexDirection: 'row',
@@ -627,16 +588,17 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)', // Muted gray - informational, not attention-grabbing
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 3,
     gap: 3,
   },
   chipTodo: {
-    backgroundColor: '#E8E4F0', // Periwinkle smoke
+    // No override - use base muted style
   },
   chipHabit: {
-    backgroundColor: '#E0EBE4', // Sage mist
+    // No override - use base muted style
   },
   chipIcon: {
     marginRight: 2,
@@ -644,7 +606,7 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 10,
     fontWeight: '500',
-    color: '#555',
+    color: '#555555', // Darker gray for better contrast
     lineHeight: 12,
   },
   chipTextStreak: {
@@ -655,6 +617,7 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 'auto',
   },
   checkbox: {
     width: 22,

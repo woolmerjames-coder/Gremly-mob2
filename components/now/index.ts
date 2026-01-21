@@ -19,3 +19,5 @@ export { OverwhelmButton } from './OverwhelmButton';
 export { RolledOverSection } from './RolledOverSection';
 export { RecentDropsSection } from './RecentDropsSection';
 export { SweepPill } from './SweepPill';
+export { TimeBlockSection } from './TimeBlockSection';
+export { CalendarHint } from './CalendarHint';
