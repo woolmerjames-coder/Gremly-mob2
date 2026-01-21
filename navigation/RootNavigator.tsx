@@ -27,6 +27,7 @@ import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
 import { ListsScreen } from '../app/screens/ListsScreen';
 import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
 import SweepTestScreen from '../app/screens/SweepTestScreen';
+import CalendarScreen from '../app/screens/CalendarScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -44,6 +45,7 @@ export type RootStackParamList = {
   Lists: undefined;
   Sweep: { initialStep?: number; initialCardIndex?: number } | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;
+  CalendarScreen: undefined;
   SweepTest: undefined; // DEV only
 };
 
@@ -135,6 +137,14 @@ export default function RootNavigator() {
             name="ArchivedItems"
             component={ArchivedItemsScreen}
             options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="CalendarScreen"
+            component={CalendarScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
           />
           <Stack.Screen
             name="DSPreview"

@@ -711,11 +711,8 @@ export default function NowScreenV1() {
 
   // Handle calendar hint press - navigate to CalendarScreen
   const handleCalendarHintPress = useCallback(() => {
-    console.log('[NowScreen] Navigate to Calendar Screen');
-    // TODO: navigation.navigate('CalendarScreen')
-    // For now, open Progress popup as placeholder
-    setProgressVisible(true);
-  }, []);
+    navigation.navigate('CalendarScreen');
+  }, [navigation]);
 
   // Use today's logs count from store selectors
   const capturesCount = logsToday;
