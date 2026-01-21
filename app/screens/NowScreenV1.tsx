@@ -80,6 +80,9 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space } from '../../lib/types';
 import { eventBus } from '../../lib/events';
 
+// Stable empty array to avoid creating new references in selectors
+const EMPTY_CALENDAR_EVENTS: CalendarEvent[] = [];
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPE TRANSFORMERS - Convert raw store types to Now screen types
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -260,9 +263,20 @@ export default function NowScreenV1() {
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
 
-  // Calendar integration
-  const calendarEvents = useGremlyStore((s) => s.calendarEvents);
+  // Calendar integration - access today's events from the Record
+  const todayStr = useMemo(() => getDateService().getCurrentDate(), []);
+  const todayCalendarEvents = useGremlyStore(
+    useCallback((s) => s.calendarEvents[todayStr] ?? EMPTY_CALENDAR_EVENTS, [todayStr]),
+  );
   const fetchCalendarEvents = useGremlyStore((s) => s.fetchCalendarEventsForRange);
+
+  // Debug: log calendar events selector result
+  console.log(
+    '[NowScreen] todayCalendarEvents:',
+    todayCalendarEvents.length,
+    'for date:',
+    todayStr,
+  );
 
   // Morning Brief - sequences and brief state
   const { hasCompletedBriefToday, brief } = useMorningBrief();
@@ -273,18 +287,14 @@ export default function NowScreenV1() {
 
   // Fetch calendar events on mount (today + 7 days)
   useEffect(() => {
+    console.log('[NowScreen] Calendar useEffect, isInitialized:', isInitialized);
     if (!isInitialized) return;
     const dateService = getDateService();
     const today = dateService.getCurrentDate();
     const weekFromNow = dateService.addDays(today, 7);
+    console.log('[NowScreen] Fetching calendar:', today, 'to', weekFromNow);
     fetchCalendarEvents(today, weekFromNow);
   }, [isInitialized, fetchCalendarEvents]);
-
-  // Get today's calendar events
-  const todayCalendarEvents = useMemo(() => {
-    const todayStr = getDateService().getCurrentDate();
-    return calendarEvents.get(todayStr) || [];
-  }, [calendarEvents]);
 
   // Auto-open Morning Brief on first open of the day (skip for brand new users)
   useEffect(() => {

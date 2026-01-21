@@ -32,7 +32,7 @@ export async function exchangeOutlookCode(
   const { code, redirectUri, codeVerifier } = params;
 
   try {
-    // Exchange code for tokens
+    // Exchange code for tokens (public client - no client_secret, PKCE provides security)
     const tokenResponse = await fetch(MICROSOFT_TOKEN_URL, {
       method: 'POST',
       headers: {
@@ -40,7 +40,6 @@ export async function exchangeOutlookCode(
       },
       body: new URLSearchParams({
         client_id: env.AZURE_CLIENT_ID,
-        client_secret: env.AZURE_CLIENT_SECRET,
         code,
         redirect_uri: redirectUri,
         grant_type: 'authorization_code',
@@ -113,6 +112,7 @@ export async function refreshOutlookToken(
   }
 
   try {
+    // Public client - no client_secret needed for refresh
     const tokenResponse = await fetch(MICROSOFT_TOKEN_URL, {
       method: 'POST',
       headers: {
@@ -120,7 +120,6 @@ export async function refreshOutlookToken(
       },
       body: new URLSearchParams({
         client_id: env.AZURE_CLIENT_ID,
-        client_secret: env.AZURE_CLIENT_SECRET,
         refresh_token: token.refresh_token,
         grant_type: 'refresh_token',
       }),

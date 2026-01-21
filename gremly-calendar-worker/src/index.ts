@@ -52,16 +52,25 @@ export default {
       // POST /auth/outlook/exchange - Exchange auth code for tokens
       if (path === '/auth/outlook/exchange' && request.method === 'POST') {
         const body = (await request.json()) as {
-          code: string;
-          redirectUri: string;
-          codeVerifier: string;
+          code?: string;
+          redirectUri?: string;
+          redirect_uri?: string;
+          codeVerifier?: string;
+          code_verifier?: string;
         };
 
-        if (!body.code || !body.redirectUri || !body.codeVerifier) {
-          return error('Missing required fields: code, redirectUri, codeVerifier');
+        // Support both camelCase and snake_case field names
+        const code = body.code;
+        const redirectUri = body.redirectUri || body.redirect_uri;
+        const codeVerifier = body.codeVerifier || body.code_verifier;
+
+        if (!code || !redirectUri || !codeVerifier) {
+          return error(
+            'Missing required fields: code, redirectUri/redirect_uri, codeVerifier/code_verifier',
+          );
         }
 
-        const result = await exchangeOutlookCode(body, userId, env);
+        const result = await exchangeOutlookCode({ code, redirectUri, codeVerifier }, userId, env);
 
         if (!result.success) {
           return error(result.error || 'Exchange failed', 400);

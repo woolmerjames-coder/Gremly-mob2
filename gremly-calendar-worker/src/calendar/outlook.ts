@@ -13,15 +13,16 @@ const MICROSOFT_GRAPH_URL = 'https://graph.microsoft.com/v1.0';
  * Transform Microsoft Graph event to our CalendarEvent format
  */
 function transformEvent(event: MSGraphEvent): CalendarEvent {
-  // Microsoft returns times in the calendar's timezone
-  // We need to handle this properly
+  // Microsoft returns times in UTC (timeZone: "UTC")
+  // We append 'Z' to indicate UTC so JavaScript Date parses correctly
+  // The client will then convert to local timezone for display/keying
   const startAt = event.isAllDay
     ? `${event.start.dateTime.split('T')[0]}T00:00:00Z`
-    : new Date(event.start.dateTime + 'Z').toISOString();
+    : `${event.start.dateTime.replace(/\.\d+$/, '')}Z`;
 
   const endAt = event.isAllDay
     ? `${event.end.dateTime.split('T')[0]}T23:59:59Z`
-    : new Date(event.end.dateTime + 'Z').toISOString();
+    : `${event.end.dateTime.replace(/\.\d+$/, '')}Z`;
 
   return {
     id: `outlook-${event.id}`,
@@ -99,6 +100,12 @@ export async function fetchOutlookEvents(
     }
 
     const data: MSGraphCalendarResponse = await response.json();
+
+    // Debug: log raw Microsoft response to see timezone info
+    if (data.value.length > 0) {
+      console.log('[Outlook] Raw first event:', JSON.stringify(data.value[0]));
+    }
+
     const events = data.value.map(transformEvent);
 
     // Update last synced timestamp

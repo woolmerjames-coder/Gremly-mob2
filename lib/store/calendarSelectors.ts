@@ -10,6 +10,9 @@ import { getDateService } from '../date';
 import type { Todo, Habit, Note, Space } from '../types';
 import type { CalendarEvent } from '../calendar/CalendarClient';
 
+// Stable empty array to avoid creating new references on each render
+const EMPTY_CALENDAR_EVENTS: CalendarEvent[] = [];
+
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════
@@ -126,7 +129,7 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
   const habits = useGremlyStore((s) => s.habits);
   const notes = useGremlyStore((s) => s.notes);
   const spaces = useGremlyStore((s) => s.spaces);
-  const calendarEvents = useGremlyStore((s) => s.calendarEvents.get(dateStr) || []);
+  const calendarEvents = useGremlyStore((s) => s.calendarEvents[dateStr] ?? EMPTY_CALENDAR_EVENTS);
 
   const items: CalendarItem[] = [];
 

@@ -455,7 +455,7 @@ interface GremlyState {
   // CALENDAR INTEGRATION
   // ═══════════════════════════════════════════════════════════════════
   calendarConnections: CalendarConnectionStatus[];
-  calendarEvents: Map<string, CalendarEvent[]>; // Key is YYYY-MM-DD
+  calendarEvents: Record<string, CalendarEvent[]>; // Key is YYYY-MM-DD
   calendarLoading: boolean;
   calendarLastFetched: string | null;
 
@@ -510,7 +510,7 @@ const initialState = {
   pendingDrops: new Map<string, PendingDrop>(),
   // Calendar integration
   calendarConnections: [] as CalendarConnectionStatus[],
-  calendarEvents: new Map<string, CalendarEvent[]>(),
+  calendarEvents: {} as Record<string, CalendarEvent[]>,
   calendarLoading: false,
   calendarLastFetched: null as string | null,
 };
@@ -3038,26 +3038,39 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     fetchCalendarEventsForRange: async (startDate: string, endDate: string) => {
+      console.log('[GremlyStore] fetchCalendarEventsForRange called:', startDate, 'to', endDate);
       set({ calendarLoading: true });
 
       try {
         const events = await calendarClient.getEvents(startDate, endDate);
+        console.log('[GremlyStore] calendarClient.getEvents returned:', events.length, 'events');
 
         // Group events by date (YYYY-MM-DD from startAt)
-        const eventsByDate = new Map<string, CalendarEvent[]>(get().calendarEvents);
+        const eventsByDate: Record<string, CalendarEvent[]> = { ...get().calendarEvents };
 
         for (const event of events) {
-          // Extract date from ISO timestamp
-          const dateKey = event.startAt.slice(0, 10); // YYYY-MM-DD
+          // Extract local date from UTC datetime
+          // Worker returns ISO strings with Z suffix (UTC), new Date() converts to local
+          const eventDate = new Date(event.startAt);
+          const dateKey = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
+          console.log(
+            '[GremlyStore] Event:',
+            event.title,
+            'startAt:',
+            event.startAt,
+            '-> dateKey:',
+            dateKey,
+          );
 
-          const existing = eventsByDate.get(dateKey) || [];
+          const existing = eventsByDate[dateKey] || [];
           // Avoid duplicates by checking event ID
           const alreadyExists = existing.some((e) => e.id === event.id);
           if (!alreadyExists) {
-            eventsByDate.set(dateKey, [...existing, event]);
+            eventsByDate[dateKey] = [...existing, event];
           }
         }
 
+        console.log('[GremlyStore] eventsByDate keys:', Object.keys(eventsByDate));
         set({
           calendarEvents: eventsByDate,
           calendarLoading: false,
@@ -3103,11 +3116,11 @@ export const useGremlyStore = create<GremlyState>()(
           });
 
           // Clear events from that provider
-          const eventsByDate = new Map<string, CalendarEvent[]>();
-          for (const [date, events] of get().calendarEvents) {
+          const eventsByDate: Record<string, CalendarEvent[]> = {};
+          for (const [date, events] of Object.entries(get().calendarEvents)) {
             const filtered = events.filter((e) => e.provider !== provider);
             if (filtered.length > 0) {
-              eventsByDate.set(date, filtered);
+              eventsByDate[date] = filtered;
             }
           }
           set({ calendarEvents: eventsByDate });
@@ -3119,7 +3132,7 @@ export const useGremlyStore = create<GremlyState>()(
 
     clearCalendarEvents: () => {
       set({
-        calendarEvents: new Map(),
+        calendarEvents: {},
         calendarLastFetched: null,
       });
     },
