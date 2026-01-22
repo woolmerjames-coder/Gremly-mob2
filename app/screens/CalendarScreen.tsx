@@ -741,7 +741,9 @@ export default function CalendarScreen() {
           !blockHasContent('anytime') &&
           completedItems.length === 0 && (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>Nothing scheduled</Text>
+              <Text style={styles.emptyEmoji}>🌿</Text>
+              <Text style={styles.emptyTitle}>Nothing scheduled</Text>
+              <Text style={styles.emptySubtext}>Enjoy the open day</Text>
             </View>
           )}
 
@@ -846,10 +848,20 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 60,
+    paddingVertical: 80,
   },
-  emptyText: {
-    fontSize: 16,
+  emptyEmoji: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.charcoalInk,
+    marginBottom: 4,
+  },
+  emptySubtext: {
+    fontSize: 14,
     color: COLORS.inkMuted,
   },
   completedSection: {
