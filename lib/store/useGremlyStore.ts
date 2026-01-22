@@ -1697,7 +1697,7 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const occurredDay = dateIso.split('T')[0]; // Ensure YYYY-MM-DD format
+      const occurredDay = getDateService().extractDateFromIso(dateIso) ?? dateIso.split('T')[0];
       const occurredAt = `${occurredDay}T12:00:00.000Z`; // Use noon UTC on the target day
       const now = new Date().toISOString(); // For last_checked_in_at only
 
@@ -1761,7 +1761,7 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const occurredDay = dateIso.split('T')[0]; // Ensure YYYY-MM-DD format
+      const occurredDay = getDateService().extractDateFromIso(dateIso) ?? dateIso.split('T')[0];
 
       // Find the record to remove
       const toRemove = get().habitProgress.find(
