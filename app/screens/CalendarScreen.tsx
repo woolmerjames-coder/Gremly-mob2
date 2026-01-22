@@ -121,18 +121,9 @@ function CalendarTodoRow({ todo, onPress, isLast }: CalendarTodoRowProps) {
       style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}
       onPress={onPress}
     >
-      <View style={sectionStyles.itemContent}>
-        <Text style={sectionStyles.itemTitle} numberOfLines={1}>
-          {todo.name}
-        </Text>
-        <View style={sectionStyles.chipRow}>
-          {todo.time_estimate_minutes && (
-            <View style={sectionStyles.chip}>
-              <Text style={sectionStyles.chipText}>~{todo.time_estimate_minutes} min</Text>
-            </View>
-          )}
-        </View>
-      </View>
+      <Text style={sectionStyles.itemTitle} numberOfLines={1}>
+        {todo.name}
+      </Text>
     </Pressable>
   );
 }
@@ -149,18 +140,9 @@ function CalendarHabitRow({ habit, onPress, isLast }: CalendarHabitRowProps) {
       style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}
       onPress={onPress}
     >
-      <View style={sectionStyles.itemContent}>
-        <Text style={sectionStyles.itemTitle} numberOfLines={1}>
-          {habit.name}
-        </Text>
-        <View style={sectionStyles.chipRow}>
-          {habit.cadence && (
-            <View style={sectionStyles.chip}>
-              <Text style={sectionStyles.chipText}>{habit.cadence}</Text>
-            </View>
-          )}
-        </View>
-      </View>
+      <Text style={sectionStyles.itemTitle} numberOfLines={1}>
+        {habit.name}
+      </Text>
     </Pressable>
   );
 }
@@ -350,9 +332,6 @@ const sectionStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  itemContent: {
-    flex: 1,
-  },
   itemTitle: {
     fontSize: 15,
     fontWeight: '500',
@@ -361,22 +340,6 @@ const sectionStyles = StyleSheet.create({
   itemTitleCompleted: {
     textDecorationLine: 'line-through',
     color: COLORS.inkMuted,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 4,
-  },
-  chip: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  chipText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#555555',
   },
   checkboxPressable: {
     padding: 4,
