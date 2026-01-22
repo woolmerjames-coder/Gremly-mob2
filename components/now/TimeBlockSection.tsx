@@ -1,22 +1,32 @@
 /**
- * TimeBlockSection - A time block section with icon+label on left, items on right
+ * TimeBlockSection - A time block section with colored accent bar + text header
  *
- * Renders a horizontal section for grouping items by time of day (morning, afternoon, etc.)
+ * Renders a section for grouping items by time of day (morning, afternoon, etc.)
  * Includes optional calendar hint showing upcoming events.
+ *
+ * Style matches CalendarScreen: accent bar + uppercase label header.
  */
 
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { Sunrise, Sun, Sunset, Clock, Lock, Calendar, ChevronRight } from 'lucide-react-native';
-import { BRAND } from '../../design/brand';
+import { Calendar, ChevronRight } from 'lucide-react-native';
 
-// Time block configuration with colors and icons
-const TIME_BLOCK_CONFIG = {
-  locked: { label: 'Locked In', Icon: Lock, color: '#6B8F71' }, // sage green
-  morning: { label: 'Morning', Icon: Sunrise, color: '#F59E0B' },
-  afternoon: { label: 'Afternoon', Icon: Sun, color: '#F97316' },
-  evening: { label: 'Evening', Icon: Sunset, color: '#8B5CF6' },
-  anytime: { label: 'Any time', Icon: Clock, color: '#666666' },
+// Section colors matching CalendarScreen
+const SECTION_COLORS = {
+  locked: '#6B8F71', // Sage green
+  morning: '#D4A574', // Muted warm tan
+  afternoon: '#C9956C', // Muted terracotta
+  evening: '#A89BC9', // Muted lavender
+  anytime: '#999999', // Gray
+} as const;
+
+// Section labels
+const SECTION_LABELS = {
+  locked: 'LOCKED IN',
+  morning: 'MORNING',
+  afternoon: 'AFTERNOON',
+  evening: 'EVENING',
+  anytime: 'ANY TIME',
 } as const;
 
 type TimeBlock = 'locked' | 'morning' | 'afternoon' | 'evening' | 'anytime';
@@ -43,59 +53,52 @@ export function TimeBlockSection({
   onCalendarHintPress,
   children,
 }: TimeBlockSectionProps) {
-  const config = TIME_BLOCK_CONFIG[block];
-  const IconComponent = config.Icon;
+  const color = SECTION_COLORS[block];
+  const label = SECTION_LABELS[block];
 
   return (
     <View style={styles.container}>
-      {/* Divider - hidden for first section */}
-      {!isFirst && <View style={styles.divider} />}
+      {/* Section divider - heavier line between sections, hidden for first */}
+      {!isFirst && <View style={styles.sectionDivider} />}
 
-      <View style={styles.contentRow}>
-        {/* Left column: icon, label */}
-        <View style={styles.leftColumn}>
-          {/* Icon container with tinted background */}
-          <View style={[styles.iconContainer, { backgroundColor: `${config.color}15` }]}>
-            <IconComponent size={16} color={config.color} strokeWidth={2} />
-          </View>
+      {/* Section header with colored accent bar */}
+      <View style={styles.sectionHeaderRow}>
+        <View style={[styles.sectionHeaderAccent, { backgroundColor: color }]} />
+        <Text style={[styles.sectionHeader, { color }]}>{label}</Text>
+      </View>
 
-          {/* Label */}
-          <Text style={[styles.label, { color: config.color }]}>{config.label}</Text>
-        </View>
+      {/* Calendar hint - shown below header, above items */}
+      {calendarHint && calendarHint.count > 0 && (
+        <Pressable
+          style={styles.calendarHint}
+          onPress={onCalendarHintPress}
+          accessibilityRole="button"
+          accessibilityLabel={`${calendarHint.count} calendar events`}
+        >
+          <Calendar size={14} color="#999999" strokeWidth={2} />
+          <Text style={styles.calendarHintText}>
+            {calendarHint.count} event{calendarHint.count !== 1 ? 's' : ''}
+            {calendarHint.times.length > 0 && ` (${calendarHint.times.slice(0, 2).join(', ')})`}
+          </Text>
+          <ChevronRight size={12} color="#CCCCCC" strokeWidth={2} />
+        </Pressable>
+      )}
 
-        {/* Right column: calendar hint + children (item rows) */}
-        <View style={styles.rightColumn}>
-          {/* Calendar hint row - shown at top */}
-          {calendarHint && calendarHint.count > 0 && (
-            <Pressable
-              style={styles.calendarHint}
-              onPress={onCalendarHintPress}
-              accessibilityRole="button"
-              accessibilityLabel={`${calendarHint.count} calendar events`}
-            >
-              <Calendar size={14} color="#999999" strokeWidth={2} />
-              <Text style={styles.calendarHintText}>
-                {calendarHint.count} event{calendarHint.count !== 1 ? 's' : ''}
-                {calendarHint.times.length > 0 && ` (${calendarHint.times.slice(0, 2).join(', ')})`}
-              </Text>
-              <ChevronRight size={12} color="#CCCCCC" strokeWidth={2} />
-            </Pressable>
-          )}
+      {/* Empty state for current block with no items and no events */}
+      {React.Children.count(children) === 0 && !calendarHint && isCurrent && (
+        <Text style={styles.emptyText}>Nothing scheduled</Text>
+      )}
 
-          {/* Empty state for current block with no items and no events */}
-          {React.Children.count(children) === 0 && !calendarHint && isCurrent && (
-            <Text style={styles.emptyText}>Nothing scheduled</Text>
-          )}
-
-          {/* Render children with dividers between items */}
-          {React.Children.toArray(children).map((child, index, arr) => (
-            <React.Fragment key={index}>
-              {child}
-              {/* Add divider if not last item */}
-              {index < arr.length - 1 && <View style={styles.itemDivider} />}
-            </React.Fragment>
-          ))}
-        </View>
+      {/* Items content area */}
+      <View style={styles.itemsContainer}>
+        {/* Render children with dividers between items */}
+        {React.Children.toArray(children).map((child, index, arr) => (
+          <React.Fragment key={index}>
+            {child}
+            {/* Add divider if not last item */}
+            {index < arr.length - 1 && <View style={styles.itemDivider} />}
+          </React.Fragment>
+        ))}
       </View>
     </View>
   );
@@ -105,46 +108,29 @@ const styles = StyleSheet.create({
   container: {
     // Transparent background - sits on linen cream
   },
-  divider: {
+  sectionDivider: {
     height: 1.5,
-    backgroundColor: '#D5D2CC', // Darker than item divider - marks new section
-    marginLeft: 16,
-    marginRight: 4, // Align with item dividers (rightColumn paddingRight)
+    backgroundColor: '#D5D2CC', // Heavier divider between sections
+    marginHorizontal: 16,
   },
-  contentRow: {
+  sectionHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'stretch', // Makes left column match right column height
-  },
-  leftColumn: {
-    width: 64,
     alignItems: 'center',
-    justifyContent: 'center', // Centers content vertically within stretched height
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
-  iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+  sectionHeaderAccent: {
+    width: 3,
+    height: 16,
+    borderRadius: 1.5,
+    marginRight: 10,
   },
-  label: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 5,
-    textAlign: 'center',
-  },
-  rightColumn: {
-    flex: 1,
-    paddingRight: 4,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#666666',
-    paddingVertical: 12,
-  },
-  itemDivider: {
-    height: 1,
-    backgroundColor: '#EDEAE5', // Lighter than section divider - subtle separation
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   calendarHint: {
     flexDirection: 'row',
@@ -153,7 +139,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    marginTop: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: 'rgba(0, 0, 0, 0.06)',
     gap: 8,
@@ -163,6 +150,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888888',
     fontWeight: '500',
+  },
+  itemsContainer: {
+    // Items are full-width now (no left column)
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#666666',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  itemDivider: {
+    height: 1,
+    backgroundColor: '#EDEAE5', // Lighter than section divider - subtle separation
+    marginLeft: 16, // Align with content edge
   },
 });
 
