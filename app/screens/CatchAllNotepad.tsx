@@ -7625,7 +7625,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 entering={FadeIn.duration(200)}
                 exiting={FadeOut.duration(150)}
               >
-                <TypewriterText text={gremlySpeech} style={styles.gremlyMessage} />
+                <View style={styles.gremlyMessageBackdrop}>
+                  <TypewriterText text={gremlySpeech} style={styles.gremlyMessage} />
+                </View>
               </Reanimated.View>
             )}
             {/* Gremly perched on input - always visible */}
@@ -8062,6 +8064,13 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       left: 0,
       right: 110, // Leave space for Gremly on the right
       zIndex: 15,
+    },
+    gremlyMessageBackdrop: {
+      backgroundColor: c.linenCream,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 12,
+      alignSelf: 'flex-end', // Aligns to right since text is right-aligned
     },
     gremlyMessage: {
       fontSize: 15,
