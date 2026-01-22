@@ -553,19 +553,17 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
-    marginLeft: 16,
+    backgroundColor: '#EDEAE5', // Match TimeBlockSection item divider color
+    marginHorizontal: 16, // Align with section content
   },
   rowContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 9,
-    paddingLeft: 12,
-    paddingRight: 0,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
   leftContent: {
     flex: 1,
-    marginRight: 8,
   },
   title: {
     fontSize: 14,
