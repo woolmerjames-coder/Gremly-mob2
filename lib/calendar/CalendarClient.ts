@@ -77,11 +77,9 @@ const getAzureClientId = (): string => {
   return env.azureClientId || '';
 };
 
-// Logging helper
+// Logging helper - always log for debugging OAuth issues
 const log = (...args: unknown[]) => {
-  if (__DEV__) {
-    console.log('[CalendarClient]', ...args);
-  }
+  console.log('[CalendarClient]', ...args);
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -212,15 +210,27 @@ class CalendarClient {
    */
   async connectOutlook(): Promise<{ success: boolean; error?: string }> {
     const clientId = getAzureClientId();
+    const workerUrl = getCalendarWorkerUrl();
 
     if (!clientId) {
       log('ERROR', 'Missing EXPO_PUBLIC_AZURE_CLIENT_ID');
-      return { success: false, error: 'Azure client not configured' };
+      return {
+        success: false,
+        error: 'Azure Client ID not configured. Check EXPO_PUBLIC_AZURE_CLIENT_ID.',
+      };
+    }
+
+    if (!workerUrl) {
+      log('ERROR', 'Missing EXPO_PUBLIC_CALENDAR_WORKER_URL');
+      return {
+        success: false,
+        error: 'Calendar Worker URL not configured. Check EXPO_PUBLIC_CALENDAR_WORKER_URL.',
+      };
     }
 
     if (!this.supabaseToken) {
       log('ERROR', 'No Supabase token - user must be logged in');
-      return { success: false, error: 'Not authenticated' };
+      return { success: false, error: 'Not authenticated. Please log in again.' };
     }
 
     try {
