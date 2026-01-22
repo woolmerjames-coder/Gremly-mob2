@@ -4242,8 +4242,15 @@ const RecentDrops: React.FC<{
     [items, createTodo, createHabit, createNote, archiveNote, repo],
   );
 
-  // Derive hasTodayDrops - includes pending items
-  const hasTodayDrops = todayCount > 0 || pendingItems.length > 0;
+  // Derive hasTodayDrops from reactive items state (not todayCount which can be stale)
+  const hasTodayDrops = React.useMemo(() => {
+    if (pendingItems.length > 0) return true;
+    const todayCutoff = startOfTodayLocal().getTime();
+    return items.some((item) => {
+      const ts = new Date(item.created_at).getTime();
+      return Number.isFinite(ts) && ts >= todayCutoff;
+    });
+  }, [items, pendingItems]);
 
   // Determine what to show: empty state only when no today drops AND viewing 'today' filter
   const showingOlder = filter === 'older';
