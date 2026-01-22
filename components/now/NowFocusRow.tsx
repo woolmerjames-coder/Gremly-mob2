@@ -556,13 +556,13 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: '#EDEAE5', // Match TimeBlockSection item divider color
-    marginHorizontal: 16, // Align with section content
+    marginHorizontal: 12, // Align with section content
   },
   rowContent: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 6,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
   },
   leftContent: {
     flex: 1,

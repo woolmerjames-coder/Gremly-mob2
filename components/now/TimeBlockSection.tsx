@@ -54,12 +54,12 @@ const styles = StyleSheet.create({
   sectionDivider: {
     height: 1.5,
     backgroundColor: '#D5D2CC',
-    marginHorizontal: 16,
+    marginHorizontal: 12,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingTop: 16,
     paddingBottom: 8,
   },
