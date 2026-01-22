@@ -97,3 +97,49 @@ export function isTimeBlockPast(block: TimeBlock): boolean {
   const currentIndex = order.indexOf(current);
   return blockIndex < currentIndex;
 }
+
+/**
+ * Infer time window from item name and explicit time window.
+ * Looks for keywords like "Morning", "Evening" in the name.
+ * Returns a normalized time window string.
+ */
+export function inferTimeWindow(item: {
+  name: string;
+  timeWindow?: string | null;
+  dueTime?: string | null;
+}): string {
+  // If explicitly set and not 'any', use it
+  if (item.timeWindow && item.timeWindow !== 'any') {
+    return item.timeWindow;
+  }
+
+  // Infer from name (case-insensitive)
+  const nameLower = item.name.toLowerCase();
+
+  if (nameLower.includes('morning')) {
+    return 'morning';
+  }
+  if (nameLower.includes('evening') || nameLower.includes('night')) {
+    return 'evening';
+  }
+  if (nameLower.includes('afternoon')) {
+    return 'afternoon';
+  }
+  if (nameLower.includes('midday') || nameLower.includes('noon') || nameLower.includes('lunch')) {
+    return 'midday';
+  }
+
+  // Default to 'any' for daily/anytime items
+  return 'any';
+}
+
+/**
+ * Map inferred time window to a TimeBlock
+ * Handles 'midday' -> 'afternoon' and 'any' -> 'anytime' mappings
+ */
+export function timeWindowToBlock(timeWindow: string): TimeBlock {
+  if (timeWindow === 'morning') return 'morning';
+  if (timeWindow === 'afternoon' || timeWindow === 'midday') return 'afternoon';
+  if (timeWindow === 'evening') return 'evening';
+  return 'anytime';
+}

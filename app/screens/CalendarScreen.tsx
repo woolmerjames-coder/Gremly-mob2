@@ -4,10 +4,11 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import {
+  X,
   ChevronLeft,
   ChevronRight,
   Calendar,
@@ -17,10 +18,16 @@ import {
   ChevronUp,
   RotateCcw,
 } from 'lucide-react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { CalendarMonthPicker } from '../../components/calendar/CalendarMonthPicker';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { getDateService } from '../../lib/date';
-import { getTimeBlockForHour, type TimeBlock } from '../../lib/now/timeBlockHelpers';
+import {
+  getTimeBlockForHour,
+  inferTimeWindow,
+  timeWindowToBlock,
+  type TimeBlock,
+} from '../../lib/now/timeBlockHelpers';
 import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 import type { Todo, Habit } from '../../lib/types';
 
@@ -32,6 +39,14 @@ const COLORS = {
   inkMuted: '#666666',
   divider: '#E8E6E1',
   sectionDivider: '#D5D2CC',
+};
+
+// Section accent colors
+const SECTION_COLORS: Record<TimeBlock, string> = {
+  morning: '#D4A574', // muted warm tan
+  afternoon: '#C9956C', // muted terracotta
+  evening: '#A89BC9', // muted lavender
+  anytime: '#999999', // gray
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -98,14 +113,18 @@ function CalendarEventRow({ event, isLast }: CalendarEventRowProps) {
 interface CalendarTodoRowProps {
   todo: Todo;
   onToggle: () => void;
+  onPress: () => void;
   isLast?: boolean;
 }
 
-function CalendarTodoRow({ todo, onToggle, isLast }: CalendarTodoRowProps) {
+function CalendarTodoRow({ todo, onToggle, onPress, isLast }: CalendarTodoRowProps) {
   const isCompleted = !!todo.completed_at;
 
   return (
-    <View style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}>
+    <Pressable
+      style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}
+      onPress={onPress}
+    >
       <View style={sectionStyles.itemContent}>
         <Text
           style={[sectionStyles.itemTitle, isCompleted && sectionStyles.itemTitleCompleted]}
@@ -121,14 +140,20 @@ function CalendarTodoRow({ todo, onToggle, isLast }: CalendarTodoRowProps) {
           )}
         </View>
       </View>
-      <Pressable onPress={onToggle} style={sectionStyles.checkboxPressable}>
+      <Pressable
+        onPress={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        style={sectionStyles.checkboxPressable}
+      >
         {isCompleted ? (
           <CheckSquare size={22} color={COLORS.mossGreen} />
         ) : (
           <Square size={22} color={COLORS.inkMuted} />
         )}
       </Pressable>
-    </View>
+    </Pressable>
   );
 }
 
@@ -136,12 +161,22 @@ interface CalendarHabitRowProps {
   habit: Habit;
   isCompleted: boolean;
   onToggle: () => void;
+  onPress: () => void;
   isLast?: boolean;
 }
 
-function CalendarHabitRow({ habit, isCompleted, onToggle, isLast }: CalendarHabitRowProps) {
+function CalendarHabitRow({
+  habit,
+  isCompleted,
+  onToggle,
+  onPress,
+  isLast,
+}: CalendarHabitRowProps) {
   return (
-    <View style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}>
+    <Pressable
+      style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}
+      onPress={onPress}
+    >
       <View style={sectionStyles.itemContent}>
         <Text
           style={[sectionStyles.itemTitle, isCompleted && sectionStyles.itemTitleCompleted]}
@@ -157,14 +192,20 @@ function CalendarHabitRow({ habit, isCompleted, onToggle, isLast }: CalendarHabi
           )}
         </View>
       </View>
-      <Pressable onPress={onToggle} style={sectionStyles.checkboxPressable}>
+      <Pressable
+        onPress={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        style={sectionStyles.checkboxPressable}
+      >
         {isCompleted ? (
           <CheckSquare size={22} color={COLORS.mossGreen} />
         ) : (
           <Square size={22} color={COLORS.inkMuted} />
         )}
       </Pressable>
-    </View>
+    </Pressable>
   );
 }
 
@@ -174,6 +215,7 @@ function CalendarHabitRow({ habit, isCompleted, onToggle, isLast }: CalendarHabi
 
 interface CalendarScreenSectionProps {
   title: string;
+  block: TimeBlock;
   events: CalendarEvent[];
   todos: Todo[];
   habits: Habit[];
@@ -181,10 +223,13 @@ interface CalendarScreenSectionProps {
   selectedDate: string;
   onToggleTodo: (id: string) => void;
   onToggleHabit: (id: string) => void;
+  onPressTodo: (todo: Todo) => void;
+  onPressHabit: (habit: Habit) => void;
 }
 
 function CalendarScreenSection({
   title,
+  block,
   events,
   todos,
   habits,
@@ -192,6 +237,8 @@ function CalendarScreenSection({
   selectedDate,
   onToggleTodo,
   onToggleHabit,
+  onPressTodo,
+  onPressHabit,
 }: CalendarScreenSectionProps) {
   // Helper to check if habit is completed on selected date
   const isHabitCompleted = useCallback(
@@ -205,7 +252,12 @@ function CalendarScreenSection({
 
   return (
     <View style={sectionStyles.section}>
-      <Text style={sectionStyles.sectionHeader}>{title}</Text>
+      <View style={sectionStyles.sectionHeaderRow}>
+        <View
+          style={[sectionStyles.sectionHeaderAccent, { backgroundColor: SECTION_COLORS[block] }]}
+        />
+        <Text style={[sectionStyles.sectionHeader, { color: SECTION_COLORS[block] }]}>{title}</Text>
+      </View>
 
       {/* Calendar events */}
       {events.map((event, idx) => (
@@ -222,6 +274,7 @@ function CalendarScreenSection({
           key={todo.id}
           todo={todo}
           onToggle={() => onToggleTodo(todo.id)}
+          onPress={() => onPressTodo(todo)}
           isLast={idx === todos.length - 1 && habits.length === 0}
         />
       ))}
@@ -233,6 +286,7 @@ function CalendarScreenSection({
           habit={habit}
           isCompleted={isHabitCompleted(habit.id)}
           onToggle={() => onToggleHabit(habit.id)}
+          onPress={() => onPressHabit(habit)}
           isLast={idx === habits.length - 1}
         />
       ))}
@@ -244,14 +298,24 @@ const sectionStyles = StyleSheet.create({
   section: {
     paddingTop: 12,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  sectionHeaderAccent: {
+    width: 3,
+    height: 16,
+    borderRadius: 1.5,
+    marginRight: 10,
+  },
   sectionHeader: {
     fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.inkMuted,
+    fontWeight: '700',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
   },
   row: {
     flexDirection: 'row',
@@ -389,6 +453,7 @@ export default function CalendarScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const dateService = getDateService();
+  const overlayController = useUnifiedOverlayController();
 
   // Selected date state - starts with today
   const [selectedDate, setSelectedDate] = useState(() => dateService.getCurrentDate());
@@ -487,30 +552,35 @@ export default function CalendarScreen() {
       blocks[block].events.push(event);
     }
 
-    // Group todos by time_window or due_time
+    // Group todos using inferTimeWindow (same logic as Today's Focus)
     for (const todo of todosForDate) {
       if (todo.completed_at) continue; // Skip completed
-      const timeWindow = todo.time_window as TimeBlock | undefined;
-      if (timeWindow && blocks[timeWindow]) {
-        blocks[timeWindow].todos.push(todo);
-      } else if (todo.due_time) {
-        // Parse due_time to get hour and determine block
+
+      // If has specific due_time, use hour-based assignment
+      if (todo.due_time) {
         const hour = parseInt(todo.due_time.split(':')[0], 10);
         const block = getTimeBlockForHour(hour);
         blocks[block].todos.push(todo);
       } else {
-        blocks.anytime.todos.push(todo);
+        // Use inferTimeWindow for items without specific time
+        const timeWindow = inferTimeWindow({
+          name: todo.name,
+          timeWindow: todo.time_window,
+          dueTime: todo.due_time,
+        });
+        const block = timeWindowToBlock(timeWindow);
+        blocks[block].todos.push(todo);
       }
     }
 
-    // Group habits by time_window
+    // Group habits using inferTimeWindow
     for (const habit of habitsForDate) {
-      const timeWindow = habit.time_window as TimeBlock | undefined;
-      if (timeWindow && blocks[timeWindow]) {
-        blocks[timeWindow].habits.push(habit);
-      } else {
-        blocks.anytime.habits.push(habit);
-      }
+      const timeWindow = inferTimeWindow({
+        name: habit.name,
+        timeWindow: habit.time_window,
+      });
+      const block = timeWindowToBlock(timeWindow);
+      blocks[block].habits.push(habit);
     }
 
     return blocks;
@@ -615,12 +685,31 @@ export default function CalendarScreen() {
     [habitProgress, selectedDate, completeHabit, uncompleteHabit],
   );
 
+  // Handle item press - open overlay
+  const handlePressTodo = useCallback(
+    (todo: Todo) => {
+      overlayController.openEdit({
+        record: { id: todo.id, type: 'todo' } as any,
+      });
+    },
+    [overlayController],
+  );
+
+  const handlePressHabit = useCallback(
+    (habit: Habit) => {
+      overlayController.openEdit({
+        record: { id: habit.id, type: 'habit' } as any,
+      });
+    },
+    [overlayController],
+  );
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.headerButton}>
-          <ChevronLeft size={24} color={COLORS.charcoalInk} />
+        <Pressable onPress={() => navigation.goBack()} style={styles.closeButton}>
+          <X size={24} color={COLORS.charcoalInk} />
         </Pressable>
 
         <Pressable onPress={handlePreviousDay} style={styles.headerButton}>
@@ -660,6 +749,7 @@ export default function CalendarScreen() {
         {blockHasContent('morning') && (
           <CalendarScreenSection
             title="MORNING"
+            block="morning"
             events={groupedData.morning.events}
             todos={groupedData.morning.todos}
             habits={groupedData.morning.habits}
@@ -667,6 +757,8 @@ export default function CalendarScreen() {
             selectedDate={selectedDate}
             onToggleTodo={handleToggleTodo}
             onToggleHabit={handleToggleHabit}
+            onPressTodo={handlePressTodo}
+            onPressHabit={handlePressHabit}
           />
         )}
 
@@ -674,6 +766,7 @@ export default function CalendarScreen() {
         {blockHasContent('afternoon') && (
           <CalendarScreenSection
             title="AFTERNOON"
+            block="afternoon"
             events={groupedData.afternoon.events}
             todos={groupedData.afternoon.todos}
             habits={groupedData.afternoon.habits}
@@ -681,6 +774,8 @@ export default function CalendarScreen() {
             selectedDate={selectedDate}
             onToggleTodo={handleToggleTodo}
             onToggleHabit={handleToggleHabit}
+            onPressTodo={handlePressTodo}
+            onPressHabit={handlePressHabit}
           />
         )}
 
@@ -688,6 +783,7 @@ export default function CalendarScreen() {
         {blockHasContent('evening') && (
           <CalendarScreenSection
             title="EVENING"
+            block="evening"
             events={groupedData.evening.events}
             todos={groupedData.evening.todos}
             habits={groupedData.evening.habits}
@@ -695,6 +791,8 @@ export default function CalendarScreen() {
             selectedDate={selectedDate}
             onToggleTodo={handleToggleTodo}
             onToggleHabit={handleToggleHabit}
+            onPressTodo={handlePressTodo}
+            onPressHabit={handlePressHabit}
           />
         )}
 
@@ -702,6 +800,7 @@ export default function CalendarScreen() {
         {blockHasContent('anytime') && (
           <CalendarScreenSection
             title="ANY TIME"
+            block="anytime"
             events={groupedData.anytime.events}
             todos={groupedData.anytime.todos}
             habits={groupedData.anytime.habits}
@@ -709,6 +808,8 @@ export default function CalendarScreen() {
             selectedDate={selectedDate}
             onToggleTodo={handleToggleTodo}
             onToggleHabit={handleToggleHabit}
+            onPressTodo={handlePressTodo}
+            onPressHabit={handlePressHabit}
           />
         )}
 
@@ -761,42 +862,12 @@ export default function CalendarScreen() {
       </ScrollView>
 
       {/* Date picker modal */}
-      {isDatePickerVisible &&
-        (Platform.OS === 'ios' ? (
-          <View style={styles.datePickerOverlay}>
-            <View style={styles.datePickerContainer}>
-              <View style={styles.datePickerHeader}>
-                <Pressable onPress={() => setDatePickerVisible(false)}>
-                  <Text style={styles.datePickerDoneText}>Done</Text>
-                </Pressable>
-              </View>
-              <DateTimePicker
-                value={new Date(selectedDate + 'T12:00:00')}
-                mode="date"
-                display="spinner"
-                onChange={(event, date) => {
-                  if (date) {
-                    const dateStr = dateService.toLocalDate(date);
-                    setSelectedDate(dateStr);
-                  }
-                }}
-              />
-            </View>
-          </View>
-        ) : (
-          <DateTimePicker
-            value={new Date(selectedDate + 'T12:00:00')}
-            mode="date"
-            display="default"
-            onChange={(event, date) => {
-              setDatePickerVisible(false);
-              if (date && event.type !== 'dismissed') {
-                const dateStr = dateService.toLocalDate(date);
-                setSelectedDate(dateStr);
-              }
-            }}
-          />
-        ))}
+      <CalendarMonthPicker
+        visible={isDatePickerVisible}
+        selectedDate={selectedDate}
+        onSelectDate={(date) => setSelectedDate(date)}
+        onClose={() => setDatePickerVisible(false)}
+      />
     </View>
   );
 }
@@ -814,6 +885,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.divider,
+  },
+  closeButton: {
+    padding: 8,
   },
   headerButton: {
     padding: 8,
@@ -903,33 +977,6 @@ const styles = StyleSheet.create({
   undoText: {
     fontSize: 13,
     fontWeight: '500',
-    color: COLORS.mossGreen,
-  },
-  // Date picker styles
-  datePickerOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  datePickerContainer: {
-    backgroundColor: COLORS.linenCream,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    overflow: 'hidden',
-  },
-  datePickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.divider,
-  },
-  datePickerDoneText: {
-    fontSize: 16,
-    fontWeight: '600',
     color: COLORS.mossGreen,
   },
 });
