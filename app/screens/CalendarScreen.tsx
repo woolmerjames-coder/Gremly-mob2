@@ -556,21 +556,14 @@ export default function CalendarScreen() {
     for (const todo of todosForDate) {
       if (todo.completed_at) continue; // Skip completed
 
-      // If has specific due_time, use hour-based assignment
-      if (todo.due_time) {
-        const hour = parseInt(todo.due_time.split(':')[0], 10);
-        const block = getTimeBlockForHour(hour);
-        blocks[block].todos.push(todo);
-      } else {
-        // Use inferTimeWindow for items without specific time
-        const timeWindow = inferTimeWindow({
-          name: todo.name,
-          timeWindow: todo.time_window,
-          dueTime: todo.due_time,
-        });
-        const block = timeWindowToBlock(timeWindow);
-        blocks[block].todos.push(todo);
-      }
+      // inferTimeWindow handles: explicit time_window, due_time hour, or name inference
+      const timeWindow = inferTimeWindow({
+        name: todo.name,
+        timeWindow: todo.time_window,
+        dueTime: todo.due_time,
+      });
+      const block = timeWindowToBlock(timeWindow);
+      blocks[block].todos.push(todo);
     }
 
     // Group habits using inferTimeWindow

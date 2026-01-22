@@ -99,7 +99,7 @@ export function isTimeBlockPast(block: TimeBlock): boolean {
 }
 
 /**
- * Infer time window from item name and explicit time window.
+ * Infer time window from item name, explicit time window, or due time.
  * Looks for keywords like "Morning", "Evening" in the name.
  * Returns a normalized time window string.
  */
@@ -108,38 +108,64 @@ export function inferTimeWindow(item: {
   timeWindow?: string | null;
   dueTime?: string | null;
 }): string {
-  // If explicitly set and not 'any', use it
+  // 1. If explicit time_window is set and not 'any', use it
   if (item.timeWindow && item.timeWindow !== 'any') {
     return item.timeWindow;
   }
 
-  // Infer from name (case-insensitive)
+  // 2. If due_time is set, derive from hour
+  if (item.dueTime) {
+    const hour = parseInt(item.dueTime.split(':')[0], 10);
+    if (!isNaN(hour)) {
+      if (hour >= 5 && hour < 12) return 'morning';
+      if (hour >= 12 && hour < 17) return 'afternoon';
+      if (hour >= 17 && hour < 21) return 'evening';
+    }
+  }
+
+  // 3. Infer from name (case-insensitive)
   const nameLower = item.name.toLowerCase();
 
-  if (nameLower.includes('morning')) {
+  if (nameLower.includes('morning') || nameLower.includes('breakfast')) {
     return 'morning';
   }
-  if (nameLower.includes('evening') || nameLower.includes('night')) {
-    return 'evening';
-  }
-  if (nameLower.includes('afternoon')) {
+  if (
+    nameLower.includes('afternoon') ||
+    nameLower.includes('lunch') ||
+    nameLower.includes('midday') ||
+    nameLower.includes('noon')
+  ) {
     return 'afternoon';
   }
-  if (nameLower.includes('midday') || nameLower.includes('noon') || nameLower.includes('lunch')) {
-    return 'midday';
+  if (
+    nameLower.includes('evening') ||
+    nameLower.includes('night') ||
+    nameLower.includes('dinner')
+  ) {
+    return 'evening';
   }
 
-  // Default to 'any' for daily/anytime items
+  // 4. Default to 'any' for daily/anytime items
   return 'any';
 }
 
 /**
  * Map inferred time window to a TimeBlock
- * Handles 'midday' -> 'afternoon' and 'any' -> 'anytime' mappings
+ * Handles various time window strings to TimeBlock mapping
  */
 export function timeWindowToBlock(timeWindow: string): TimeBlock {
-  if (timeWindow === 'morning') return 'morning';
-  if (timeWindow === 'afternoon' || timeWindow === 'midday') return 'afternoon';
-  if (timeWindow === 'evening') return 'evening';
-  return 'anytime';
+  switch (timeWindow) {
+    case 'morning':
+      return 'morning';
+    case 'midday':
+    case 'afternoon':
+      return 'afternoon';
+    case 'evening':
+    case 'night':
+      return 'evening';
+    case 'any':
+    case 'anytime':
+    default:
+      return 'anytime';
+  }
 }
