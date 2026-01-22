@@ -445,61 +445,56 @@ export function NowFocusRow({
         {!isFirst && <View style={styles.divider} />}
 
         <TouchableOpacity style={styles.rowContent} onPress={onPress} activeOpacity={0.7}>
-          {/* Left: Title + Chips inline */}
+          {/* Left: Title only - gets maximum space */}
           <View style={styles.leftContent}>
-            <View style={styles.titleRow}>
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.title,
-                  (isFuture || isFlexible) && styles.titleDimmed,
-                  showStrikethrough && styles.titleCompleted,
-                ]}
-              >
-                {item.name}
-              </Text>
-              <View style={styles.chips}>
-                {/* Todo: time estimate chip */}
-                {item.type === 'todo' && (
-                  <View style={[styles.chip, styles.chipTodo]}>
-                    <Text style={styles.chipText}>
-                      {timeEstimateLabel ? `~${timeEstimateLabel}` : 'No time estimate'}
-                    </Text>
-                  </View>
-                )}
-
-                {/* Habit: frequency chip */}
-                {item.type === 'habit' && frequencyLabel && (
-                  <View style={[styles.chip, styles.chipHabit]}>
-                    <Text style={styles.chipText}>{frequencyLabel}</Text>
-                  </View>
-                )}
-
-                {/* Habit: progress chip (e.g., "5/7 this week") */}
-                {item.type === 'habit' && habitMetadata && habitMetadata.label && (
-                  <View style={[styles.chip, styles.chipHabit]}>
-                    {MetadataIcon && (
-                      <MetadataIcon
-                        size={11}
-                        color={habitMetadata.icon === 'Flame' ? '#D4A017' : '#666'}
-                        style={styles.chipIcon}
-                      />
-                    )}
-                    <Text
-                      style={[
-                        styles.chipText,
-                        habitMetadata.icon === 'Flame' && styles.chipTextStreak,
-                      ]}
-                    >
-                      {habitMetadata.label}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </View>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.title,
+                (isFuture || isFlexible) && styles.titleDimmed,
+                showStrikethrough && styles.titleCompleted,
+              ]}
+            >
+              {item.name}
+            </Text>
           </View>
 
-          {/* Right: Checkbox (vertically centered) */}
+          {/* Middle: Chips - positioned next to checkbox */}
+          <View style={styles.chips}>
+            {/* Todo: time estimate chip - only show if estimate exists */}
+            {item.type === 'todo' && timeEstimateLabel && (
+              <View style={[styles.chip, styles.chipTodo]}>
+                <Text style={styles.chipText}>~{timeEstimateLabel}</Text>
+              </View>
+            )}
+
+            {/* Habit: frequency chip */}
+            {item.type === 'habit' && frequencyLabel && (
+              <View style={[styles.chip, styles.chipHabit]}>
+                <Text style={styles.chipText}>{frequencyLabel}</Text>
+              </View>
+            )}
+
+            {/* Habit: progress chip (e.g., "5/7 this week") */}
+            {item.type === 'habit' && habitMetadata && habitMetadata.label && (
+              <View style={[styles.chip, styles.chipHabit]}>
+                {MetadataIcon && (
+                  <MetadataIcon
+                    size={11}
+                    color={habitMetadata.icon === 'Flame' ? '#D4A017' : '#666'}
+                    style={styles.chipIcon}
+                  />
+                )}
+                <Text
+                  style={[styles.chipText, habitMetadata.icon === 'Flame' && styles.chipTextStreak]}
+                >
+                  {habitMetadata.label}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Right: Checkbox */}
           <TouchableOpacity
             onPress={handleToggleComplete}
             style={styles.checkboxTouchArea}
@@ -566,19 +561,12 @@ const styles = StyleSheet.create({
   },
   leftContent: {
     flex: 1,
-    marginRight: 12, // Small gap before checkbox
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
+    marginRight: 12, // Small gap before chips
   },
   title: {
     fontSize: 15,
     fontWeight: '500',
     color: '#0E1116', // charcoalInk - consistent for all items
-    flexShrink: 1, // Allow title to shrink if needed
-    marginRight: 8,
   },
   titleDimmed: {
     opacity: 0.5,
@@ -590,7 +578,7 @@ const styles = StyleSheet.create({
   chips: {
     flexDirection: 'row',
     gap: 6,
-    flexShrink: 0, // Chips don't shrink
+    marginLeft: 'auto',
   },
   chip: {
     flexDirection: 'row',
@@ -620,11 +608,10 @@ const styles = StyleSheet.create({
     color: '#D4A017',
   },
   checkboxTouchArea: {
-    width: 44,
+    width: 32,
     height: 36,
     justifyContent: 'center',
     alignItems: 'flex-end',
-    marginLeft: 'auto',
     marginRight: -8, // Push to right edge
   },
   checkbox: {
