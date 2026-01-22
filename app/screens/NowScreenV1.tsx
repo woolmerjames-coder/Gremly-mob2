@@ -371,6 +371,17 @@ export default function NowScreenV1() {
     return lockedTodoCount + activeTodoCount;
   }, [rawLockedItems, activeItems]);
 
+  // Calculate remaining time estimate for incomplete todos
+  const remainingMinutes = useMemo(() => {
+    const allItems = [...rawLockedItems, ...activeItems];
+    return allItems
+      .filter((item) => !('cadence' in item)) // Only todos
+      .reduce((sum, item) => {
+        const todo = item as Todo;
+        return sum + (todo.time_estimate_minutes ?? 0);
+      }, 0);
+  }, [rawLockedItems, activeItems]);
+
   // Sweep count (unified includes todos, notes, and unconfirmed habits)
   const sweepCandidateCount = useSweepCountUnified();
 
@@ -760,6 +771,7 @@ export default function NowScreenV1() {
         capturesCount={recentLogsCount}
         habitsUpToDate={habitsUpToDate.upToDate}
         habitsTotal={habitsUpToDate.total}
+        remainingMinutes={remainingMinutes}
         calendarEvents={todayCalendarEvents}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}

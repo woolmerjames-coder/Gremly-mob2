@@ -59,6 +59,8 @@ interface NowHeaderProps {
   habitsUpToDate: number;
   /** Total number of building habits */
   habitsTotal: number;
+  /** Remaining time estimate in minutes for incomplete todos */
+  remainingMinutes?: number;
   /** Calendar events for today */
   calendarEvents?: CalendarEvent[];
   onPressProgress?: () => void;
@@ -110,6 +112,7 @@ export function NowHeader({
   capturesCount,
   habitsUpToDate,
   habitsTotal,
+  remainingMinutes = 0,
   calendarEvents = [],
   onPressProgress,
   onPressWeek,
@@ -132,6 +135,10 @@ export function NowHeader({
 
   // Build habits label (e.g., "3/5 up to date")
   const habitsLabel = `${habitsUpToDate}/${habitsTotal} up to date`;
+
+  // Task progress for calendar card
+  const progressPercent = totalTasksToday > 0 ? (totalCompletedToday / totalTasksToday) * 100 : 0;
+  const remainingHours = remainingMinutes > 0 ? (remainingMinutes / 60).toFixed(1) : null;
 
   // Build notes count text
   const notesCountText = capturesCount === 0 ? '0' : `${capturesCount}`;
@@ -197,6 +204,19 @@ export function NowHeader({
             {/* Calendar summary */}
             <Text style={styles.calendarSummaryLine1}>{calendarLine1}</Text>
             {calendarLine2 && <Text style={styles.calendarSummaryLine2}>{calendarLine2}</Text>}
+
+            {/* Task progress bar */}
+            {totalTasksToday > 0 && (
+              <View style={styles.taskProgressRow}>
+                <View style={styles.taskProgressTrack}>
+                  <View style={[styles.taskProgressFill, { width: `${progressPercent}%` }]} />
+                </View>
+                <Text style={styles.taskProgressText}>
+                  {totalCompletedToday}/{totalTasksToday} done
+                  {remainingHours && ` · ~${remainingHours}h left`}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -371,6 +391,29 @@ const useStyles = makeStyles((t) => ({
     fontWeight: '400',
     color: INK_SUBTLE,
     marginTop: 4,
+  },
+  // Task progress bar in calendar card
+  taskProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  taskProgressTrack: {
+    flex: 1,
+    height: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    borderRadius: 2,
+  },
+  taskProgressFill: {
+    height: '100%',
+    backgroundColor: MOSS_GREEN,
+    borderRadius: 2,
+  },
+  taskProgressText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: INK_SUBTLE,
   },
   // Habits card (top of right column)
   habitsCard: {
