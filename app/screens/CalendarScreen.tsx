@@ -21,6 +21,7 @@ import {
 import { CalendarMonthPicker } from '../../components/calendar/CalendarMonthPicker';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
 import { getDateService } from '../../lib/date';
 import {
   getTimeBlockForHour,
@@ -526,6 +527,13 @@ export default function CalendarScreen() {
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // MORNING BRIEF DATA (for matching Today's Focus time blocks)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const { brief } = useMorningBrief();
+  const today = dateService.getCurrentDate();
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // GROUP ITEMS BY TIME BLOCK
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -544,6 +552,11 @@ export default function CalendarScreen() {
       anytime: { events: [], todos: [], habits: [] },
     };
 
+    // Build sets of IDs from brief sequences (for O(1) lookup)
+    const morningIds = new Set(brief?.morning_sequence?.map((s) => s.id) || []);
+    const dayIds = new Set(brief?.day_sequence?.map((s) => s.id) || []);
+    const eveningIds = new Set(brief?.evening_sequence?.map((s) => s.id) || []);
+
     // Group calendar events by start time
     for (const event of calendarEvents) {
       const startDate = new Date(event.startAt);
@@ -552,32 +565,76 @@ export default function CalendarScreen() {
       blocks[block].events.push(event);
     }
 
-    // Group todos using inferTimeWindow (same logic as Today's Focus)
+    // Group todos - check brief sequences first (today only), then fallback to inferTimeWindow
     for (const todo of todosForDate) {
       if (todo.completed_at) continue; // Skip completed
 
-      // inferTimeWindow handles: explicit time_window, due_time hour, or name inference
-      const timeWindow = inferTimeWindow({
-        name: todo.name,
-        timeWindow: todo.time_window,
-        dueTime: todo.due_time,
-      });
-      const block = timeWindowToBlock(timeWindow);
+      let block: TimeBlock;
+
+      // Priority 1: Brief sequences (today only) - matches Today's Focus behavior
+      if (selectedDate === today && brief) {
+        if (morningIds.has(todo.id)) {
+          block = 'morning';
+        } else if (dayIds.has(todo.id)) {
+          block = 'afternoon';
+        } else if (eveningIds.has(todo.id)) {
+          block = 'evening';
+        } else {
+          // Priority 2: Fallback to inferTimeWindow
+          const timeWindow = inferTimeWindow({
+            name: todo.name,
+            timeWindow: todo.time_window,
+            dueTime: todo.due_time,
+          });
+          block = timeWindowToBlock(timeWindow);
+        }
+      } else {
+        // Not today - only use inferTimeWindow
+        const timeWindow = inferTimeWindow({
+          name: todo.name,
+          timeWindow: todo.time_window,
+          dueTime: todo.due_time,
+        });
+        block = timeWindowToBlock(timeWindow);
+      }
+
       blocks[block].todos.push(todo);
     }
 
-    // Group habits using inferTimeWindow
+    // Group habits - same pattern: brief sequences first, then inferTimeWindow
     for (const habit of habitsForDate) {
-      const timeWindow = inferTimeWindow({
-        name: habit.name,
-        timeWindow: habit.time_window,
-      });
-      const block = timeWindowToBlock(timeWindow);
+      let block: TimeBlock;
+
+      // Priority 1: Brief sequences (today only)
+      if (selectedDate === today && brief) {
+        if (morningIds.has(habit.id)) {
+          block = 'morning';
+        } else if (dayIds.has(habit.id)) {
+          block = 'afternoon';
+        } else if (eveningIds.has(habit.id)) {
+          block = 'evening';
+        } else {
+          // Priority 2: Fallback to inferTimeWindow
+          const timeWindow = inferTimeWindow({
+            name: habit.name,
+            timeWindow: habit.time_window,
+          });
+          block = timeWindowToBlock(timeWindow);
+        }
+      } else {
+        // Not today - only use inferTimeWindow
+        const timeWindow = inferTimeWindow({
+          name: habit.name,
+          timeWindow: habit.time_window,
+        });
+        block = timeWindowToBlock(timeWindow);
+      }
+
       blocks[block].habits.push(habit);
     }
 
     return blocks;
-  }, [calendarEvents, todosForDate, habitsForDate]);
+  }, [calendarEvents, todosForDate, habitsForDate, selectedDate, today, brief]);
 
   // Helper to check if block has any content
   const blockHasContent = useCallback(
