@@ -36,6 +36,28 @@ jest.mock('expo-constants', () => ({
   expoConfig: null,
 }));
 
+// Mock expo-auth-session to avoid expo-modules-core EventEmitter issues
+jest.mock('expo-auth-session', () => ({
+  AuthRequest: jest.fn().mockImplementation(() => ({
+    codeVerifier: 'test-code-verifier',
+    promptAsync: jest.fn().mockResolvedValue({
+      type: 'success',
+      params: { code: 'test-auth-code' },
+    }),
+  })),
+  ResponseType: {
+    Code: 'code',
+  },
+  makeRedirectUri: jest.fn(() => 'exp://localhost:19000'),
+}));
+
+// Mock expo-web-browser to avoid expo-modules-core EventEmitter issues
+jest.mock('expo-web-browser', () => ({
+  maybeCompleteAuthSession: jest.fn(),
+  openBrowserAsync: jest.fn(),
+  openAuthSessionAsync: jest.fn(),
+}));
+
 // Mock Supabase client globally to avoid channel subscription errors
 jest.mock('./lib/supabase/client', () => ({
   supabase: {

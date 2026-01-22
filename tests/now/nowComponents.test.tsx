@@ -110,8 +110,8 @@ describe('NowHeader', () => {
         capturesCount={3}
       />,
     );
-    // Check for card titles
-    expect(screen.getByText("Today's Progress")).toBeTruthy();
+    // Check for card titles (Calendar, Habits, Your Notes)
+    expect(screen.getByText('Calendar')).toBeTruthy();
     expect(screen.getByText('Habits')).toBeTruthy();
     expect(screen.getByText('Your Notes')).toBeTruthy();
   });

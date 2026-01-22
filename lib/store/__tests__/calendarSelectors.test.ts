@@ -103,6 +103,7 @@ function setupMockStore(data: {
   habits?: Habit[];
   notes?: Note[];
   spaces?: Space[];
+  calendarEvents?: Record<string, unknown[]>;
 }) {
   mockUseGremlyStore.mockImplementation((selector: any) => {
     const state = {
@@ -110,6 +111,7 @@ function setupMockStore(data: {
       habits: data.habits || [],
       notes: data.notes || [],
       spaces: data.spaces || [],
+      calendarEvents: data.calendarEvents || {},
     };
     return selector(state);
   });

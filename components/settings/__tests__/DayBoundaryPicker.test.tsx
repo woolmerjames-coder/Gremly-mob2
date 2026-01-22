@@ -11,7 +11,7 @@ import DayBoundaryPicker from '../DayBoundaryPicker';
 
 describe('DayBoundaryPicker', () => {
   const defaultProps = {
-    value: 4,
+    value: 5,
     onChange: jest.fn(),
   };
 
@@ -24,24 +24,18 @@ describe('DayBoundaryPicker', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('rendering', () => {
-    it('renders the label', () => {
-      const { getByText } = render(<DayBoundaryPicker {...defaultProps} />);
-      expect(getByText('Day starts at')).toBeTruthy();
-    });
-
     it('renders all boundary options', () => {
       const { getByText } = render(<DayBoundaryPicker {...defaultProps} />);
       expect(getByText('Midnight')).toBeTruthy();
       expect(getByText('3:00 AM')).toBeTruthy();
-      expect(getByText('4:00 AM')).toBeTruthy();
       expect(getByText('5:00 AM')).toBeTruthy();
     });
 
-    it('renders exactly 4 options', () => {
+    it('renders exactly 3 options', () => {
       const { getAllByRole } = render(<DayBoundaryPicker {...defaultProps} />);
       // Each option has accessibilityRole="radio"
       const radioButtons = getAllByRole('radio');
-      expect(radioButtons).toHaveLength(4);
+      expect(radioButtons).toHaveLength(3);
     });
   });
 
@@ -51,15 +45,15 @@ describe('DayBoundaryPicker', () => {
 
   describe('selection state', () => {
     it('marks the current value as selected', () => {
-      const { getAllByRole } = render(<DayBoundaryPicker {...defaultProps} value={4} />);
+      const { getAllByRole } = render(<DayBoundaryPicker {...defaultProps} value={5} />);
       const radioButtons = getAllByRole('radio');
 
-      // Find the 4:00 AM option (index 2 in the options array)
+      // Find the 5:00 AM option (index 2 in the options array)
       const selectedOption = radioButtons.find(
         (btn) => btn.props.accessibilityState?.selected === true,
       );
       expect(selectedOption).toBeTruthy();
-      expect(selectedOption?.props.accessibilityLabel).toBe('Day starts at 4:00 AM');
+      expect(selectedOption?.props.accessibilityLabel).toBe('Day starts at 5:00 AM');
     });
 
     it('marks midnight as selected when value is 0', () => {
@@ -93,7 +87,7 @@ describe('DayBoundaryPicker', () => {
     });
 
     it('only one option is selected at a time', () => {
-      const { getAllByRole } = render(<DayBoundaryPicker {...defaultProps} value={4} />);
+      const { getAllByRole } = render(<DayBoundaryPicker {...defaultProps} value={5} />);
       const radioButtons = getAllByRole('radio');
 
       const selectedOptions = radioButtons.filter(
@@ -126,19 +120,16 @@ describe('DayBoundaryPicker', () => {
       fireEvent.press(getByText('3:00 AM'));
       expect(onChange).toHaveBeenLastCalledWith(3);
 
-      fireEvent.press(getByText('4:00 AM'));
-      expect(onChange).toHaveBeenLastCalledWith(4);
-
       fireEvent.press(getByText('5:00 AM'));
       expect(onChange).toHaveBeenLastCalledWith(5);
     });
 
     it('calls onChange even when pressing already selected option', () => {
       const onChange = jest.fn();
-      const { getByText } = render(<DayBoundaryPicker value={4} onChange={onChange} />);
+      const { getByText } = render(<DayBoundaryPicker value={5} onChange={onChange} />);
 
-      fireEvent.press(getByText('4:00 AM'));
-      expect(onChange).toHaveBeenCalledWith(4);
+      fireEvent.press(getByText('5:00 AM'));
+      expect(onChange).toHaveBeenCalledWith(5);
     });
   });
 
@@ -191,7 +182,6 @@ describe('DayBoundaryPicker', () => {
       const labels = radioButtons.map((btn) => btn.props.accessibilityLabel);
       expect(labels).toContain('Day starts at Midnight');
       expect(labels).toContain('Day starts at 3:00 AM');
-      expect(labels).toContain('Day starts at 4:00 AM');
       expect(labels).toContain('Day starts at 5:00 AM');
     });
 

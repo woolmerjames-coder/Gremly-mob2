@@ -32,13 +32,12 @@ describe('ritualDay', () => {
       expect(DAY_BOUNDARY_OPTIONS).toEqual([
         { value: 0, label: 'Midnight' },
         { value: 3, label: '3:00 AM' },
-        { value: 4, label: '4:00 AM' },
         { value: 5, label: '5:00 AM' },
       ]);
     });
 
-    it('has 4 options', () => {
-      expect(DAY_BOUNDARY_OPTIONS).toHaveLength(4);
+    it('has 3 options', () => {
+      expect(DAY_BOUNDARY_OPTIONS).toHaveLength(3);
     });
   });
 
@@ -53,11 +52,11 @@ describe('ritualDay', () => {
 
     it('returns predefined labels for known options', () => {
       expect(getDayBoundaryLabel(3)).toBe('3:00 AM');
-      expect(getDayBoundaryLabel(4)).toBe('4:00 AM');
       expect(getDayBoundaryLabel(5)).toBe('5:00 AM');
     });
 
-    it('generates AM labels for hours 1-11', () => {
+    it('generates labels for hours not in predefined options', () => {
+      expect(getDayBoundaryLabel(4)).toBe('4:00 AM');
       expect(getDayBoundaryLabel(1)).toBe('1:00 AM');
       expect(getDayBoundaryLabel(6)).toBe('6:00 AM');
       expect(getDayBoundaryLabel(11)).toBe('11:00 AM');
