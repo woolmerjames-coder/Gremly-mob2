@@ -15,6 +15,8 @@ import {
   ChevronDown,
   ChevronUp,
   RotateCcw,
+  Circle,
+  Repeat,
 } from 'lucide-react-native';
 import { CalendarMonthPicker } from '../../components/calendar/CalendarMonthPicker';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -121,6 +123,7 @@ function CalendarTodoRow({ todo, onPress, isLast }: CalendarTodoRowProps) {
       style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}
       onPress={onPress}
     >
+      <Circle size={14} color="#999999" style={sectionStyles.itemIcon} />
       <Text style={sectionStyles.itemTitle} numberOfLines={1}>
         {todo.name}
       </Text>
@@ -140,6 +143,7 @@ function CalendarHabitRow({ habit, onPress, isLast }: CalendarHabitRowProps) {
       style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}
       onPress={onPress}
     >
+      <Repeat size={14} color="#6B8F71" style={sectionStyles.itemIcon} />
       <Text style={sectionStyles.itemTitle} numberOfLines={1}>
         {habit.name}
       </Text>
@@ -332,7 +336,11 @@ const sectionStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  itemIcon: {
+    marginRight: 12,
+  },
   itemTitle: {
+    flex: 1,
     fontSize: 15,
     fontWeight: '500',
     color: COLORS.charcoalInk,
