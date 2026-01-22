@@ -17,7 +17,12 @@ import {
   RotateCcw,
   Circle,
   Repeat,
+  Sunrise,
+  Sun,
+  Sunset,
+  Clock,
 } from 'lucide-react-native';
+import type { LucideIcon } from 'lucide-react-native';
 import { CalendarMonthPicker } from '../../components/calendar/CalendarMonthPicker';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
@@ -42,12 +47,12 @@ const COLORS = {
   sectionDivider: '#D5D2CC',
 };
 
-// Section accent colors
-const SECTION_COLORS: Record<TimeBlock, string> = {
-  morning: '#D4A574', // muted warm tan
-  afternoon: '#C9956C', // muted terracotta
-  evening: '#A89BC9', // muted lavender
-  anytime: '#999999', // gray
+// Section config with icons
+const SECTION_CONFIG: Record<TimeBlock, { label: string; color: string; Icon: LucideIcon }> = {
+  morning: { label: 'MORNING', color: '#D4A574', Icon: Sunrise },
+  afternoon: { label: 'AFTERNOON', color: '#C9956C', Icon: Sun },
+  evening: { label: 'EVENING', color: '#A89BC9', Icon: Sunset },
+  anytime: { label: 'ANY TIME', color: '#999999', Icon: Clock },
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -177,13 +182,14 @@ function CalendarScreenSection({
   const isEmpty = events.length === 0 && todos.length === 0 && habits.length === 0;
   if (isEmpty) return null;
 
+  const { label, color, Icon } = SECTION_CONFIG[block];
+
   return (
     <View style={sectionStyles.section}>
       <View style={sectionStyles.sectionHeaderRow}>
-        <View
-          style={[sectionStyles.sectionHeaderAccent, { backgroundColor: SECTION_COLORS[block] }]}
-        />
-        <Text style={[sectionStyles.sectionHeader, { color: SECTION_COLORS[block] }]}>{title}</Text>
+        <View style={[sectionStyles.sectionHeaderAccent, { backgroundColor: color }]} />
+        <Icon size={16} color={color} style={sectionStyles.sectionIcon} />
+        <Text style={[sectionStyles.sectionHeader, { color }]}>{label}</Text>
       </View>
 
       {/* Calendar events */}
@@ -234,6 +240,9 @@ const sectionStyles = StyleSheet.create({
     height: 16,
     borderRadius: 1.5,
     marginRight: 10,
+  },
+  sectionIcon: {
+    marginRight: 6,
   },
   sectionHeader: {
     fontSize: 12,
