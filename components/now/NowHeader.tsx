@@ -163,7 +163,7 @@ export function NowHeader({
   // Format calendar summary text
   const calendarLine1 =
     eventCount > 0
-      ? `${eventCount} event${eventCount !== 1 ? 's' : ''} · ${totalHours} hrs blocked`
+      ? `${eventCount} event${eventCount !== 1 ? 's' : ''} · ${totalHours} hrs`
       : 'No events today';
   const calendarLine2 =
     upcomingEvent && minutesUntil !== null && minutesUntil > 0
@@ -213,7 +213,6 @@ export function NowHeader({
                 </View>
                 <Text style={styles.taskProgressText}>
                   {totalCompletedToday}/{totalTasksToday} done
-                  {remainingHours && ` · ~${remainingHours}h left`}
                 </Text>
               </View>
             )}
@@ -401,14 +400,14 @@ const useStyles = makeStyles((t) => ({
   },
   taskProgressTrack: {
     flex: 1,
-    height: 4,
+    height: 12,
     backgroundColor: 'rgba(0, 0, 0, 0.08)',
-    borderRadius: 2,
+    borderRadius: 6,
   },
   taskProgressFill: {
     height: '100%',
     backgroundColor: MOSS_GREEN,
-    borderRadius: 2,
+    borderRadius: 6,
   },
   taskProgressText: {
     fontSize: 11,
