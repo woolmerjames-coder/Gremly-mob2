@@ -1,11 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-const COLORS = {
-  divider: '#E8E6E1',
-  sectionDivider: '#D5D2CC',
-};
-
 const SECTION_COLORS: Record<string, string> = {
   locked: '#6B8F71', // Sage green
   morning: '#D4A574', // Muted warm tan
@@ -64,7 +59,7 @@ const styles = StyleSheet.create({
   },
   sectionDivider: {
     height: 1.5,
-    backgroundColor: COLORS.sectionDivider,
+    backgroundColor: '#D5D2CC',
     marginHorizontal: 16,
   },
   headerRow: {
