@@ -1281,6 +1281,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             updateTodo(decision.candidateId, {
               due_day: toDayString(decision.dueDate),
               skipped_in_sweep_at: null,
+              resurface_at: null, // Clear reminder so it doesn't keep resurfacing
             } as any),
           );
         } else if (decision.candidateKind === 'habit' && decision.startDate) {
@@ -3829,8 +3830,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    marginTop: 20,
-    marginBottom: 8,
+    marginTop: 12,
+    marginBottom: 4,
     backgroundColor: BRAND.colors.linenCream,
   },
   streakText: {
@@ -4165,21 +4166,21 @@ const styles = StyleSheet.create({
   // SweepSummaryStep styles
   summaryScrollContent: {
     flexGrow: 1,
-    paddingBottom: 24,
+    paddingBottom: 12,
   },
   summaryTitle: {
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 8,
+    marginTop: 4,
+    marginBottom: 4,
   },
   summarySubtext: {
     fontSize: 16,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 12,
   },
   tomorrowSection: {
-    marginTop: 24,
+    marginTop: 12,
     width: '100%',
   },
   tomorrowHeader: {
@@ -4187,12 +4188,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   summaryMascotContainer: {
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 16,
+    marginTop: 4,
+    marginBottom: 8,
   },
   summaryMascotImage: {
     width: 140,
@@ -4221,7 +4222,7 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: BRAND.colors.borderSubtle,
     alignSelf: 'center',
-    marginVertical: 10,
+    marginVertical: 6,
   },
   summaryStatsContainer: {
     backgroundColor: BRAND.colors.surface,
