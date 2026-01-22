@@ -561,7 +561,7 @@ const styles = StyleSheet.create({
   rowContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 16,
   },
   leftContent: {
@@ -621,11 +621,11 @@ const styles = StyleSheet.create({
   },
   checkboxTouchArea: {
     width: 44,
-    height: 44,
+    height: 36,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     marginLeft: 'auto',
-    marginRight: -4, // Push closer to edge
+    marginRight: -8, // Push to right edge
   },
   checkbox: {
     width: 22,
