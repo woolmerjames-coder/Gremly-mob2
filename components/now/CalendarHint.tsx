@@ -27,12 +27,12 @@ export function CalendarHint({ eventCount, times, onPress }: CalendarHintProps) 
       accessibilityRole="button"
       accessibilityLabel={`${eventLabel}${timesLabel}`}
     >
-      <Calendar size={14} color="#999999" strokeWidth={2} />
+      <Calendar size={14} color="#999999" style={styles.icon} />
       <Text style={styles.text}>
         {eventLabel}
         {timesLabel}
       </Text>
-      <ChevronRight size={12} color="#CCCCCC" strokeWidth={2} />
+      <ChevronRight size={16} color="#CCCCCC" style={styles.chevron} />
     </Pressable>
   );
 }
@@ -41,24 +41,23 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
+    paddingHorizontal: 16,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.06)',
-    gap: 8,
+    // No background, no border - subtle muted row
   },
   pressed: {
     opacity: 0.7,
   },
+  icon: {
+    marginRight: 8,
+  },
   text: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 13,
     color: '#888888', // Muted gray
-    fontWeight: '500',
+  },
+  chevron: {
+    marginLeft: 8,
   },
 });
 
