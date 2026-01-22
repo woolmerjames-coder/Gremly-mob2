@@ -1267,10 +1267,16 @@ function TodayFocusList({
       {shouldRenderBlock('morning') && (
         <TimeBlockSection
           block="morning"
-          isCurrent={currentTimeBlock === 'morning'}
           isFirst={getIsFirst()}
-          calendarHint={getCalendarHint('morning') ?? undefined}
-          onCalendarHintPress={onCalendarHintPress}
+          calendarHint={
+            getCalendarHint('morning') && (
+              <CalendarHint
+                eventCount={getCalendarHint('morning')!.count}
+                times={getCalendarHint('morning')!.times}
+                onPress={onCalendarHintPress}
+              />
+            )
+          }
         >
           {itemsByBlock.morning.map((item, index) => (
             <NowFocusRow
@@ -1290,10 +1296,16 @@ function TodayFocusList({
       {shouldRenderBlock('afternoon') && (
         <TimeBlockSection
           block="afternoon"
-          isCurrent={currentTimeBlock === 'afternoon'}
           isFirst={getIsFirst()}
-          calendarHint={getCalendarHint('afternoon') ?? undefined}
-          onCalendarHintPress={onCalendarHintPress}
+          calendarHint={
+            getCalendarHint('afternoon') && (
+              <CalendarHint
+                eventCount={getCalendarHint('afternoon')!.count}
+                times={getCalendarHint('afternoon')!.times}
+                onPress={onCalendarHintPress}
+              />
+            )
+          }
         >
           {itemsByBlock.afternoon.map((item, index) => (
             <NowFocusRow
@@ -1313,10 +1325,16 @@ function TodayFocusList({
       {shouldRenderBlock('evening') && (
         <TimeBlockSection
           block="evening"
-          isCurrent={currentTimeBlock === 'evening'}
           isFirst={getIsFirst()}
-          calendarHint={getCalendarHint('evening') ?? undefined}
-          onCalendarHintPress={onCalendarHintPress}
+          calendarHint={
+            getCalendarHint('evening') && (
+              <CalendarHint
+                eventCount={getCalendarHint('evening')!.count}
+                times={getCalendarHint('evening')!.times}
+                onPress={onCalendarHintPress}
+              />
+            )
+          }
         >
           {itemsByBlock.evening.map((item, index) => (
             <NowFocusRow
