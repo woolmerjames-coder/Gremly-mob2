@@ -449,6 +449,7 @@ export default function CalendarScreen() {
 
   const { brief } = useMorningBrief();
   const today = dateService.getCurrentDate();
+  const isToday = selectedDate === today;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // GROUP ITEMS BY TIME BLOCK
@@ -655,6 +656,11 @@ export default function CalendarScreen() {
 
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>{formattedDate}</Text>
+          {isToday && (
+            <View style={styles.todayBadge}>
+              <Text style={styles.todayBadgeText}>Today</Text>
+            </View>
+          )}
           <Pressable onPress={() => setDatePickerVisible(true)} style={styles.calendarButton}>
             <Calendar size={18} color={COLORS.mossGreen} />
           </Pressable>
@@ -824,6 +830,17 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: COLORS.charcoalInk,
+  },
+  todayBadge: {
+    backgroundColor: '#6B8F71',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  todayBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   calendarButton: {
     padding: 4,
