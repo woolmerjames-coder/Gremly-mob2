@@ -8,20 +8,28 @@
 import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date';
 import type { Todo, Habit, Note, Space } from '../types';
+import type { CalendarEvent } from '../calendar/CalendarClient';
+
+// Stable empty array to avoid creating new references on each render
+const EMPTY_CALENDAR_EVENTS: CalendarEvent[] = [];
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════
 
-export type CalendarItemType = 'todo' | 'habit' | 'journal';
+export type CalendarItemType = 'todo' | 'habit' | 'journal' | 'calendar_event';
 
 export interface CalendarItem {
   id: string;
   type: CalendarItemType;
   title: string;
   time: string | null; // HH:mm or null
+  endTime?: string | null; // For calendar events with duration
   isCompleted: boolean;
   isOverdue: boolean;
+  isExternal?: boolean; // True for calendar events
+  provider?: 'outlook' | 'google';
+  location?: string | null;
   space: {
     id: string;
     name: string;
@@ -33,7 +41,7 @@ export interface CalendarItem {
     progress: { done: number; total: number };
   } | null;
   tags: string[];
-  raw: Todo | Habit | Note; // Original record for overlay
+  raw: Todo | Habit | Note | CalendarEvent; // Original record for overlay
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -121,6 +129,7 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
   const habits = useGremlyStore((s) => s.habits);
   const notes = useGremlyStore((s) => s.notes);
   const spaces = useGremlyStore((s) => s.spaces);
+  const calendarEvents = useGremlyStore((s) => s.calendarEvents[dateStr] ?? EMPTY_CALENDAR_EVENTS);
 
   const items: CalendarItem[] = [];
 
@@ -210,16 +219,47 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
   });
 
   // ─────────────────────────────────────────────────────────────────
+  // EXTERNAL CALENDAR EVENTS: from connected providers
+  // ─────────────────────────────────────────────────────────────────
+  calendarEvents.forEach((event) => {
+    const startTime = event.isAllDay ? null : new Date(event.startAt).toTimeString().slice(0, 5);
+    const endTime = event.isAllDay ? null : new Date(event.endAt).toTimeString().slice(0, 5);
+
+    items.push({
+      id: `cal-${event.provider}-${event.providerEventId}`,
+      type: 'calendar_event',
+      title: event.title,
+      time: startTime,
+      endTime,
+      isCompleted: false,
+      isOverdue: false,
+      isExternal: true,
+      provider: event.provider,
+      location: event.location,
+      space: null,
+      milestone: null,
+      tags: [],
+      raw: event,
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
   // SORT: By time (timed items first), then by type
   // ─────────────────────────────────────────────────────────────────
   items.sort((a, b) => {
-    // Timed items first
+    // All-day calendar events at the very top
+    const aIsAllDayEvent = a.type === 'calendar_event' && !a.time;
+    const bIsAllDayEvent = b.type === 'calendar_event' && !b.time;
+    if (aIsAllDayEvent && !bIsAllDayEvent) return -1;
+    if (!aIsAllDayEvent && bIsAllDayEvent) return 1;
+
+    // Timed items next, sorted by time
     if (a.time && !b.time) return -1;
     if (!a.time && b.time) return 1;
     if (a.time && b.time) return a.time.localeCompare(b.time);
 
-    // Then by type: todos, habits, journals
-    const typeOrder = { todo: 0, habit: 1, journal: 2 };
+    // Then by type: calendar_event, todo, habit, journal
+    const typeOrder = { calendar_event: 0, todo: 1, habit: 2, journal: 3 };
     return typeOrder[a.type] - typeOrder[b.type];
   });
 

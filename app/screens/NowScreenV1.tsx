@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowFocusRow } from '../../components/now/NowFocusRow';
+import { NowCalendarEventRow } from '../../components/now/NowCalendarEventRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
 import { RolledOverSection, RecentDropsSection, SweepPill } from '../../components/now';
 import { NowQuickAddModal } from '../../components/now/NowQuickAddModal';
@@ -74,9 +75,21 @@ import type {
   NowCompletedItem,
 } from '../../lib/now/nowTypes';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
+import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space } from '../../lib/types';
 import { eventBus } from '../../lib/events';
+import { TimeBlockSection } from '../../components/now/TimeBlockSection';
+import { CalendarHint } from '../../components/now/CalendarHint';
+import {
+  getCurrentTimeBlock,
+  groupEventsByTimeBlock,
+  formatEventTimeForHint,
+  type TimeBlock,
+} from '../../lib/now/timeBlockHelpers';
+
+// Stable empty array to avoid creating new references in selectors
+const EMPTY_CALENDAR_EVENTS: CalendarEvent[] = [];
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPE TRANSFORMERS - Convert raw store types to Now screen types
@@ -258,12 +271,38 @@ export default function NowScreenV1() {
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
 
+  // Calendar integration - access today's events from the Record
+  const todayStr = useMemo(() => getDateService().getCurrentDate(), []);
+  const todayCalendarEvents = useGremlyStore(
+    useCallback((s) => s.calendarEvents[todayStr] ?? EMPTY_CALENDAR_EVENTS, [todayStr]),
+  );
+  const fetchCalendarEvents = useGremlyStore((s) => s.fetchCalendarEventsForRange);
+
+  // Debug: log calendar events selector result
+  console.log(
+    '[NowScreen] todayCalendarEvents:',
+    todayCalendarEvents.length,
+    'for date:',
+    todayStr,
+  );
+
   // Morning Brief - sequences and brief state
   const { hasCompletedBriefToday, brief } = useMorningBrief();
   const [isBriefSheetVisible, setBriefSheetVisible] = useState(false);
 
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
+
+  // Fetch calendar events on mount (today + 7 days)
+  useEffect(() => {
+    console.log('[NowScreen] Calendar useEffect, isInitialized:', isInitialized);
+    if (!isInitialized) return;
+    const dateService = getDateService();
+    const today = dateService.getCurrentDate();
+    const weekFromNow = dateService.addDays(today, 7);
+    console.log('[NowScreen] Fetching calendar:', today, 'to', weekFromNow);
+    fetchCalendarEvents(today, weekFromNow);
+  }, [isInitialized, fetchCalendarEvents]);
 
   // Auto-open Morning Brief on first open of the day (skip for brand new users)
   useEffect(() => {
@@ -330,6 +369,17 @@ export default function NowScreenV1() {
     const lockedTodoCount = rawLockedItems.filter((item) => !('cadence' in item)).length;
     const activeTodoCount = activeItems.filter((item) => !('cadence' in item)).length;
     return lockedTodoCount + activeTodoCount;
+  }, [rawLockedItems, activeItems]);
+
+  // Calculate remaining time estimate for incomplete todos
+  const remainingMinutes = useMemo(() => {
+    const allItems = [...rawLockedItems, ...activeItems];
+    return allItems
+      .filter((item) => !('cadence' in item)) // Only todos
+      .reduce((sum, item) => {
+        const todo = item as Todo;
+        return sum + (todo.time_estimate_minutes ?? 0);
+      }, 0);
   }, [rawLockedItems, activeItems]);
 
   // Sweep count (unified includes todos, notes, and unconfirmed habits)
@@ -670,6 +720,11 @@ export default function NowScreenV1() {
     [uncompleteTodo, uncompleteHabit],
   );
 
+  // Handle calendar hint press - navigate to CalendarScreen
+  const handleCalendarHintPress = useCallback(() => {
+    navigation.navigate('CalendarScreen');
+  }, [navigation]);
+
   // Use today's logs count from store selectors
   const capturesCount = logsToday;
 
@@ -716,8 +771,11 @@ export default function NowScreenV1() {
         capturesCount={recentLogsCount}
         habitsUpToDate={habitsUpToDate.upToDate}
         habitsTotal={habitsUpToDate.total}
+        remainingMinutes={remainingMinutes}
+        calendarEvents={todayCalendarEvents}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => setWeekVisible(true)}
+        onCalendarPress={handleCalendarHintPress}
         onNotesPress={handleNotesPress}
         onMascotPress={() => setShowHelp(true)}
       />
@@ -776,6 +834,8 @@ export default function NowScreenV1() {
           bottomInset={insets.bottom}
           brief={brief}
           lockedItemIds={lockedItemIds}
+          calendarEvents={todayCalendarEvents}
+          onCalendarHintPress={handleCalendarHintPress}
         />
       </View>
 
@@ -1035,6 +1095,8 @@ type TodayFocusListProps = {
     evening_sequence?: { id: string }[];
   } | null;
   lockedItemIds?: Set<string>;
+  calendarEvents?: CalendarEvent[];
+  onCalendarHintPress?: () => void;
 };
 
 function TodayFocusList({
@@ -1052,6 +1114,8 @@ function TodayFocusList({
   bottomInset,
   brief,
   lockedItemIds,
+  calendarEvents = [],
+  onCalendarHintPress,
 }: TodayFocusListProps) {
   // Track leaving card for exit animation
   const [leavingCard, setLeavingCard] = useState<{ id: string; title: string } | null>(null);
@@ -1074,14 +1138,11 @@ function TodayFocusList({
     setLeavingCard(null);
   }, []);
 
-  // Helper to get time block for an item
-  const getTimeBlock = (itemId: string): 'morning' | 'day' | 'evening' | null => {
-    if (!brief) return null;
-    if (brief.morning_sequence?.some((i) => i.id === itemId)) return 'morning';
-    if (brief.day_sequence?.some((i) => i.id === itemId)) return 'day';
-    if (brief.evening_sequence?.some((i) => i.id === itemId)) return 'evening';
-    return null;
-  };
+  // Get current time block for highlighting
+  const currentTimeBlock = getCurrentTimeBlock();
+
+  // Group calendar events by time block
+  const eventsByBlock = useMemo(() => groupEventsByTimeBlock(calendarEvents), [calendarEvents]);
 
   // Build flat sorted list: locked items first, then active items sorted by sequence
   const sortedItems = useMemo(() => {
@@ -1107,6 +1168,68 @@ function TodayFocusList({
       (a, b) => getSequencePriority(a.id) - getSequencePriority(b.id),
     );
   }, [activeItems, brief, lockedItems]);
+
+  // Group items by time block using brief sequences
+  const itemsByBlock = useMemo(() => {
+    const morningIds = new Set(brief?.morning_sequence?.map((i) => i.id) || []);
+    const dayIds = new Set(brief?.day_sequence?.map((i) => i.id) || []);
+    const eveningIds = new Set(brief?.evening_sequence?.map((i) => i.id) || []);
+
+    const grouped: Record<TimeBlock, NowActiveItem[]> = {
+      morning: [],
+      afternoon: [],
+      evening: [],
+      anytime: [],
+    };
+
+    for (const item of sortedItems) {
+      if (morningIds.has(item.id)) {
+        grouped.morning.push(item);
+      } else if (dayIds.has(item.id)) {
+        grouped.afternoon.push(item);
+      } else if (eveningIds.has(item.id)) {
+        grouped.evening.push(item);
+      } else {
+        // Use inferTimeWindow for items not in a sequence
+        const timeWindow = inferTimeWindow(item);
+        if (timeWindow === 'morning') grouped.morning.push(item);
+        else if (timeWindow === 'afternoon' || timeWindow === 'midday')
+          grouped.afternoon.push(item);
+        else if (timeWindow === 'evening') grouped.evening.push(item);
+        else grouped.anytime.push(item);
+      }
+    }
+
+    return grouped;
+  }, [sortedItems, brief]);
+
+  // Helper to check if a block should render
+  const shouldRenderBlock = (block: TimeBlock) => {
+    const hasItems = itemsByBlock[block].length > 0;
+    const hasEvents = eventsByBlock[block].length > 0;
+    const isCurrent = block === currentTimeBlock;
+    return hasItems || hasEvents || isCurrent;
+  };
+
+  // Helper to get calendar hint data for a block
+  const getCalendarHint = (block: TimeBlock) => {
+    const events = eventsByBlock[block];
+    if (events.length === 0) return null;
+    return {
+      count: events.length,
+      times: events.map(formatEventTimeForHint),
+    };
+  };
+
+  // Track which section is first for divider logic
+  let isFirstSection = true;
+  const getIsFirst = () => {
+    if (isFirstSection) {
+      isFirstSection = false;
+      return true;
+    }
+    return false;
+  };
 
   const hasNoItems =
     lockedItems.length === 0 && activeItems.length === 0 && !optimisticQuickAdd && !leavingCard;
@@ -1135,33 +1258,126 @@ function TodayFocusList({
         </View>
       )}
 
-      {/* Locked items first */}
-      {lockedItems.map((item, index) => (
-        <NowFocusRow
-          key={item.id}
-          item={item}
-          isCompleted={false}
-          isLocked
-          timeBlock={getTimeBlock(item.id)}
-          isFirst={index === 0}
-          onPress={() => onPressItem?.(item)}
-          onToggleComplete={() => onToggleComplete?.(item)}
-        />
-      ))}
+      {/* Locked In section */}
+      {lockedItems.length > 0 && (
+        <TimeBlockSection block="locked" isFirst={getIsFirst()}>
+          {lockedItems.map((item, index) => (
+            <NowFocusRow
+              key={item.id}
+              item={item}
+              isCompleted={false}
+              isLocked
+              isFirst={index === 0}
+              onPress={() => onPressItem?.(item)}
+              onToggleComplete={() => onToggleComplete?.(item)}
+            />
+          ))}
+        </TimeBlockSection>
+      )}
 
-      {/* Then sorted active items (non-locked) */}
-      {sortedItems.map((item, index) => (
-        <NowFocusRow
-          key={item.id}
-          item={item}
-          isCompleted={false}
-          isLocked={false}
-          timeBlock={getTimeBlock(item.id)}
-          isFirst={lockedItems.length === 0 && index === 0}
-          onPress={() => onPressItem?.(item)}
-          onToggleComplete={() => onToggleComplete?.(item)}
-        />
-      ))}
+      {/* Morning section */}
+      {shouldRenderBlock('morning') && (
+        <TimeBlockSection
+          block="morning"
+          isFirst={getIsFirst()}
+          calendarHint={
+            getCalendarHint('morning') && (
+              <CalendarHint
+                eventCount={getCalendarHint('morning')!.count}
+                times={getCalendarHint('morning')!.times}
+                onPress={onCalendarHintPress}
+              />
+            )
+          }
+        >
+          {itemsByBlock.morning.map((item, index) => (
+            <NowFocusRow
+              key={item.id}
+              item={item}
+              isCompleted={false}
+              isLocked={false}
+              isFirst={index === 0}
+              onPress={() => onPressItem?.(item)}
+              onToggleComplete={() => onToggleComplete?.(item)}
+            />
+          ))}
+        </TimeBlockSection>
+      )}
+
+      {/* Afternoon section */}
+      {shouldRenderBlock('afternoon') && (
+        <TimeBlockSection
+          block="afternoon"
+          isFirst={getIsFirst()}
+          calendarHint={
+            getCalendarHint('afternoon') && (
+              <CalendarHint
+                eventCount={getCalendarHint('afternoon')!.count}
+                times={getCalendarHint('afternoon')!.times}
+                onPress={onCalendarHintPress}
+              />
+            )
+          }
+        >
+          {itemsByBlock.afternoon.map((item, index) => (
+            <NowFocusRow
+              key={item.id}
+              item={item}
+              isCompleted={false}
+              isLocked={false}
+              isFirst={index === 0}
+              onPress={() => onPressItem?.(item)}
+              onToggleComplete={() => onToggleComplete?.(item)}
+            />
+          ))}
+        </TimeBlockSection>
+      )}
+
+      {/* Evening section */}
+      {shouldRenderBlock('evening') && (
+        <TimeBlockSection
+          block="evening"
+          isFirst={getIsFirst()}
+          calendarHint={
+            getCalendarHint('evening') && (
+              <CalendarHint
+                eventCount={getCalendarHint('evening')!.count}
+                times={getCalendarHint('evening')!.times}
+                onPress={onCalendarHintPress}
+              />
+            )
+          }
+        >
+          {itemsByBlock.evening.map((item, index) => (
+            <NowFocusRow
+              key={item.id}
+              item={item}
+              isCompleted={false}
+              isLocked={false}
+              isFirst={index === 0}
+              onPress={() => onPressItem?.(item)}
+              onToggleComplete={() => onToggleComplete?.(item)}
+            />
+          ))}
+        </TimeBlockSection>
+      )}
+
+      {/* Any time section */}
+      {itemsByBlock.anytime.length > 0 && (
+        <TimeBlockSection block="anytime" isFirst={getIsFirst()}>
+          {itemsByBlock.anytime.map((item, index) => (
+            <NowFocusRow
+              key={item.id}
+              item={item}
+              isCompleted={false}
+              isLocked={false}
+              isFirst={index === 0}
+              onPress={() => onPressItem?.(item)}
+              onToggleComplete={() => onToggleComplete?.(item)}
+            />
+          ))}
+        </TimeBlockSection>
+      )}
 
       {/* Optimistic 'Processing...' card appended after active items */}
       {/* Shows active card while processing, or leaving card during exit animation */}

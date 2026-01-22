@@ -15,6 +15,7 @@ import {
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../lib/supabase/client';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { calendarClient } from '../lib/calendar/CalendarClient';
 import { FLAGS } from '../config/flags';
 import useDayBoundaryWatcher from '../lib/today/hooks/useDayBoundaryWatcher';
 import { registerForPushNotifications, savePushToken } from '../src/utils/notifications';
@@ -109,6 +110,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(currentSession);
           setUser(currentSession.user);
           await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(currentSession));
+          // Set CalendarClient token for calendar API calls
+          calendarClient.setSupabaseToken(currentSession.access_token);
           if (__DEV__)
             console.log('[AuthProvider] Session restored, user.id:', currentSession.user.id);
           // Register for push notifications on session restore
@@ -148,6 +151,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(newSession);
       setUser(newSession?.user ?? null);
       setError(null);
+      // Update CalendarClient with current session token
+      calendarClient.setSupabaseToken(newSession?.access_token ?? null);
       if (newSession) {
         await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newSession));
       } else {

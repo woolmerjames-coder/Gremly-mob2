@@ -2466,7 +2466,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 28,
+    marginBottom: 20,
     paddingRight: 40, // Space for edit icon
   },
   chipsRowCompact: {
@@ -2528,7 +2528,7 @@ const styles = StyleSheet.create({
   // Title Section - Hero, airy vertical rhythm
   titleSection: {
     paddingTop: 0,
-    paddingBottom: 8,
+    paddingBottom: 4,
     paddingRight: 44, // Space for edit icon
   },
   titleText: {
@@ -2537,7 +2537,7 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     lineHeight: 34,
     letterSpacing: -0.5,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   // Slightly smaller title when photo is present
   titleTextWithPhoto: {
@@ -2582,9 +2582,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    minHeight: 120,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    minHeight: 100,
     overflow: 'visible',
   },
 
@@ -2631,24 +2631,24 @@ const styles = StyleSheet.create({
 
   rightZone: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
 
   rightZoneHeader: {
     fontSize: 11,
     fontWeight: '500',
     color: BRAND.colors.inkMuted,
-    marginBottom: 8,
+    marginBottom: 4,
   },
 
   optionsList: {
-    gap: 6,
+    gap: 4,
   },
 
   optionItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
     borderRadius: 6,
   },
 

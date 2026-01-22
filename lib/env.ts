@@ -82,6 +82,10 @@ const raw = {
   MASCOT_DEBUG: process.env.EXPO_PUBLIC_MASCOT_DEBUG ?? 'off',
 
   OPENAI_API_KEY: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
+
+  // Calendar integration
+  CALENDAR_WORKER_URL: process.env.EXPO_PUBLIC_CALENDAR_WORKER_URL,
+  AZURE_CLIENT_ID: process.env.EXPO_PUBLIC_AZURE_CLIENT_ID,
 };
 
 /**
@@ -223,6 +227,10 @@ export const env = {
 
   // API keys
   openaiApiKey: raw.OPENAI_API_KEY || null,
+
+  // Calendar integration
+  calendarWorkerUrl: raw.CALENDAR_WORKER_URL || null,
+  azureClientId: raw.AZURE_CLIENT_ID || null,
 } as const;
 
 // Type exports for convenience

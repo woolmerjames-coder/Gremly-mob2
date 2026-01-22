@@ -19,6 +19,7 @@ import { makeStyles } from '../../design/makeStyles';
 import { Icon } from '../../design-system/Icon';
 import { BRAND } from '../../design/brand';
 import GREMLY_CLIPBOARD from '../../assets/mascot/clipboardgremly.png';
+import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -58,8 +59,14 @@ interface NowHeaderProps {
   habitsUpToDate: number;
   /** Total number of building habits */
   habitsTotal: number;
+  /** Remaining time estimate in minutes for incomplete todos */
+  remainingMinutes?: number;
+  /** Calendar events for today */
+  calendarEvents?: CalendarEvent[];
   onPressProgress?: () => void;
   onPressWeek?: () => void;
+  /** Handler for Calendar card press - navigates to CalendarScreen */
+  onCalendarPress?: () => void;
   /** Handler for Your Notes card press - opens YourNotesPopup */
   onNotesPress?: () => void;
   /** Handler for mascot press - opens help */
@@ -105,8 +112,11 @@ export function NowHeader({
   capturesCount,
   habitsUpToDate,
   habitsTotal,
+  remainingMinutes = 0,
+  calendarEvents = [],
   onPressProgress,
   onPressWeek,
+  onCalendarPress,
   onNotesPress,
   onMascotPress,
 }: NowHeaderProps) {
@@ -126,8 +136,39 @@ export function NowHeader({
   // Build habits label (e.g., "3/5 up to date")
   const habitsLabel = `${habitsUpToDate}/${habitsTotal} up to date`;
 
+  // Task progress for calendar card
+  const progressPercent = totalTasksToday > 0 ? (totalCompletedToday / totalTasksToday) * 100 : 0;
+  const remainingHours = remainingMinutes > 0 ? (remainingMinutes / 60).toFixed(1) : null;
+
   // Build notes count text
   const notesCountText = capturesCount === 0 ? '0' : `${capturesCount}`;
+
+  // Calendar summary calculations
+  const eventCount = calendarEvents.length;
+  const totalMinutes = calendarEvents.reduce((sum, event) => {
+    if (event.isAllDay) return sum;
+    const start = new Date(event.startAt);
+    const end = new Date(event.endAt);
+    return sum + (end.getTime() - start.getTime()) / (1000 * 60);
+  }, 0);
+  const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
+
+  // Find next upcoming event
+  const now = new Date();
+  const upcomingEvent = calendarEvents.find((e) => new Date(e.startAt) > now);
+  const minutesUntil = upcomingEvent
+    ? Math.round((new Date(upcomingEvent.startAt).getTime() - now.getTime()) / (1000 * 60))
+    : null;
+
+  // Format calendar summary text
+  const calendarLine1 =
+    eventCount > 0
+      ? `${eventCount} event${eventCount !== 1 ? 's' : ''} · ${totalHours} hrs`
+      : 'No events today';
+  const calendarLine2 =
+    upcomingEvent && minutesUntil !== null && minutesUntil > 0
+      ? `Next: ${upcomingEvent.title.slice(0, 20)}${upcomingEvent.title.length > 20 ? '...' : ''} in ${minutesUntil} min`
+      : null;
 
   return (
     <View style={styles.container}>
@@ -148,9 +189,9 @@ export function NowHeader({
 
       {/* Summary Cards Row: Left (Today) + Right (Habits + Your Notes stacked) */}
       <View style={styles.summaryRow}>
-        {/* Left Column: Today Card */}
+        {/* Left Column: Calendar Card */}
         <View style={styles.leftColumn}>
-          <TouchableOpacity style={styles.todayCard} onPress={onPressProgress} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.todayCard} onPress={onCalendarPress} activeOpacity={0.8}>
             {/* Top row: Calendar + chevron */}
             <View style={styles.cardHeader}>
               <View style={styles.cardTitleRow}>
@@ -160,26 +201,21 @@ export function NowHeader({
               <Icon name="ChevronRight" size="sm" color={INK_SUBTLE} />
             </View>
 
-            {/* Middle row: Today's Progress + fraction */}
-            <View style={styles.progressLabelRow}>
-              <Text style={styles.progressLabel}>Today's Progress</Text>
-              <Text style={styles.progressFraction}>{todayLabel}</Text>
-            </View>
+            {/* Calendar summary */}
+            <Text style={styles.calendarSummaryLine1}>{calendarLine1}</Text>
+            {calendarLine2 && <Text style={styles.calendarSummaryLine2}>{calendarLine2}</Text>}
 
-            {/* Bottom: Progress bar */}
-            <View style={styles.progressBarTrack}>
-              {todayProgress > 0 && (
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    { flex: todayProgress, backgroundColor: progressFillColor },
-                  ]}
-                />
-              )}
-              {todayProgress < 1 && (
-                <View style={[styles.progressBarRemainder, { flex: 1 - todayProgress }]} />
-              )}
-            </View>
+            {/* Task progress bar */}
+            {totalTasksToday > 0 && (
+              <View style={styles.taskProgressRow}>
+                <View style={styles.taskProgressTrack}>
+                  <View style={[styles.taskProgressFill, { width: `${progressPercent}%` }]} />
+                </View>
+                <Text style={styles.taskProgressText}>
+                  {totalCompletedToday}/{totalTasksToday} done
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -341,6 +377,42 @@ const useStyles = makeStyles((t) => ({
     fontSize: 12,
     fontWeight: '600',
     color: '#212121',
+  },
+  // Calendar summary text styles
+  calendarSummaryLine1: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: INK_CHARCOAL,
+    marginTop: 8,
+  },
+  calendarSummaryLine2: {
+    fontSize: 11,
+    fontWeight: '400',
+    color: INK_SUBTLE,
+    marginTop: 4,
+  },
+  // Task progress bar in calendar card
+  taskProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 'auto',
+    gap: 8,
+  },
+  taskProgressTrack: {
+    flex: 1,
+    height: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    borderRadius: 6,
+  },
+  taskProgressFill: {
+    height: '100%',
+    backgroundColor: MOSS_GREEN,
+    borderRadius: 6,
+  },
+  taskProgressText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: INK_SUBTLE,
   },
   // Habits card (top of right column)
   habitsCard: {

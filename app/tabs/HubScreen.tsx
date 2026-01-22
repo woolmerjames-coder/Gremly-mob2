@@ -87,8 +87,6 @@ import {
   filterUnsortedForReview,
 } from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useNotificationPreferences } from '../../hooks/useNotificationPreferences';
-import '../../components/NotificationSettingsSheet'; // Register the sheet
 
 type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
 
@@ -227,33 +225,10 @@ export default function HubScreen() {
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [analyzeJournalCount, setAnalyzeJournalCount] = useState(0);
 
-  // Notification preferences
-  const { preferences: notificationPrefs, savePreferences: saveNotificationPrefs } =
-    useNotificationPreferences();
-
-  // Handler to open notification settings sheet
+  // Handler to open settings screen
   const handleOpenNotificationSettings = useCallback(() => {
-    if (!notificationPrefs) return;
-    SheetManager.show('notification-settings-sheet', {
-      payload: {
-        morningEnabled: notificationPrefs.morningEnabled,
-        morningTime: notificationPrefs.morningTime,
-        eveningEnabled: notificationPrefs.eveningEnabled,
-        eveningTime: notificationPrefs.eveningTime,
-        onSave: async (settings: {
-          morningEnabled: boolean;
-          morningTime: Date;
-          eveningEnabled: boolean;
-          eveningTime: Date;
-        }) => {
-          await saveNotificationPrefs({
-            ...settings,
-            timezone: notificationPrefs.timezone,
-          });
-        },
-      },
-    } as never);
-  }, [notificationPrefs, saveNotificationPrefs]);
+    navigation.navigate('Settings' as never);
+  }, [navigation]);
 
   // ═══════════════════════════════════════════════════════════════════
   // DERIVED DATA FROM STORE

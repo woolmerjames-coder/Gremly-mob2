@@ -11,7 +11,6 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text } from '../../ui';
-import { Clock } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { DAY_BOUNDARY_OPTIONS } from '../../lib/date/ritualDay';
 
@@ -31,12 +30,6 @@ export default function DayBoundaryPicker({
 }: DayBoundaryPickerProps) {
   return (
     <View style={styles.container}>
-      {/* Label row */}
-      <View style={styles.labelRow}>
-        <Clock size={18} color={BRAND.colors.inkSubtle} />
-        <Text style={styles.label}>Day starts at</Text>
-      </View>
-
       {/* Options row */}
       <View style={styles.optionsRow}>
         {DAY_BOUNDARY_OPTIONS.map((option) => {
@@ -76,18 +69,9 @@ const styles = StyleSheet.create({
   container: {
     gap: 12,
   },
-  labelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  label: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
   optionsRow: {
     flexDirection: 'row',
+    justifyContent: 'center',
     flexWrap: 'wrap',
     gap: 8,
   },
