@@ -153,9 +153,9 @@ function NotificationSettingsSheetContent({ sheetId, payload }: NotificationSett
             <DateTimePicker
               value={morningTime}
               mode="time"
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              display={Platform.OS === 'ios' ? 'compact' : 'default'}
               onChange={handleMorningTimeChange}
-              style={styles.timePicker}
+              accentColor={BRAND.colors.mossGreen}
             />
           )}
         </View>
@@ -188,9 +188,9 @@ function NotificationSettingsSheetContent({ sheetId, payload }: NotificationSett
             <DateTimePicker
               value={eveningTime}
               mode="time"
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              display={Platform.OS === 'ios' ? 'compact' : 'default'}
               onChange={handleEveningTimeChange}
-              style={styles.timePicker}
+              accentColor={BRAND.colors.mossGreen}
             />
           )}
         </View>
@@ -282,9 +282,6 @@ const styles = StyleSheet.create({
   },
   timeButtonTextDisabled: {
     color: colors.text.tertiary,
-  },
-  timePicker: {
-    marginTop: spacing.sm,
   },
   saveButton: {
     backgroundColor: colors.deepTeal.DEFAULT,
