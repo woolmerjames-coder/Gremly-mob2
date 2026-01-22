@@ -445,55 +445,57 @@ export function NowFocusRow({
         {!isFirst && <View style={styles.divider} />}
 
         <TouchableOpacity style={styles.rowContent} onPress={onPress} activeOpacity={0.7}>
-          {/* Left: Title + Chips */}
+          {/* Left: Title + Chips inline */}
           <View style={styles.leftContent}>
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.title,
-                (isFuture || isFlexible) && styles.titleDimmed,
-                showStrikethrough && styles.titleCompleted,
-              ]}
-            >
-              {item.name}
-            </Text>
-            <View style={styles.chipsRow}>
-              {/* Todo: time estimate chip */}
-              {item.type === 'todo' && (
-                <View style={[styles.chip, styles.chipTodo]}>
-                  <Text style={styles.chipText}>
-                    {timeEstimateLabel ? `~${timeEstimateLabel}` : 'No time estimate'}
-                  </Text>
-                </View>
-              )}
+            <View style={styles.titleRow}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.title,
+                  (isFuture || isFlexible) && styles.titleDimmed,
+                  showStrikethrough && styles.titleCompleted,
+                ]}
+              >
+                {item.name}
+              </Text>
+              <View style={styles.chips}>
+                {/* Todo: time estimate chip */}
+                {item.type === 'todo' && (
+                  <View style={[styles.chip, styles.chipTodo]}>
+                    <Text style={styles.chipText}>
+                      {timeEstimateLabel ? `~${timeEstimateLabel}` : 'No time estimate'}
+                    </Text>
+                  </View>
+                )}
 
-              {/* Habit: frequency chip */}
-              {item.type === 'habit' && frequencyLabel && (
-                <View style={[styles.chip, styles.chipHabit]}>
-                  <Text style={styles.chipText}>{frequencyLabel}</Text>
-                </View>
-              )}
+                {/* Habit: frequency chip */}
+                {item.type === 'habit' && frequencyLabel && (
+                  <View style={[styles.chip, styles.chipHabit]}>
+                    <Text style={styles.chipText}>{frequencyLabel}</Text>
+                  </View>
+                )}
 
-              {/* Habit: progress chip (e.g., "5/7 this week") */}
-              {item.type === 'habit' && habitMetadata && habitMetadata.label && (
-                <View style={[styles.chip, styles.chipHabit]}>
-                  {MetadataIcon && (
-                    <MetadataIcon
-                      size={11}
-                      color={habitMetadata.icon === 'Flame' ? '#D4A017' : '#666'}
-                      style={styles.chipIcon}
-                    />
-                  )}
-                  <Text
-                    style={[
-                      styles.chipText,
-                      habitMetadata.icon === 'Flame' && styles.chipTextStreak,
-                    ]}
-                  >
-                    {habitMetadata.label}
-                  </Text>
-                </View>
-              )}
+                {/* Habit: progress chip (e.g., "5/7 this week") */}
+                {item.type === 'habit' && habitMetadata && habitMetadata.label && (
+                  <View style={[styles.chip, styles.chipHabit]}>
+                    {MetadataIcon && (
+                      <MetadataIcon
+                        size={11}
+                        color={habitMetadata.icon === 'Flame' ? '#D4A017' : '#666'}
+                        style={styles.chipIcon}
+                      />
+                    )}
+                    <Text
+                      style={[
+                        styles.chipText,
+                        habitMetadata.icon === 'Flame' && styles.chipTextStreak,
+                      ]}
+                    >
+                      {habitMetadata.label}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
 
@@ -565,11 +567,17 @@ const styles = StyleSheet.create({
   leftContent: {
     flex: 1,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
   title: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '500',
     color: '#0E1116', // charcoalInk - consistent for all items
-    marginBottom: 4,
+    flexShrink: 1, // Allow title to shrink if needed
+    marginRight: 8,
   },
   titleDimmed: {
     opacity: 0.5,
@@ -578,10 +586,10 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
     opacity: 0.5,
   },
-  chipsRow: {
+  chips: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
+    gap: 6,
+    flexShrink: 0, // Chips don't shrink
   },
   chip: {
     flexDirection: 'row',
