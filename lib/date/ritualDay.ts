@@ -27,7 +27,6 @@ export interface DayBoundaryOption {
 export const DAY_BOUNDARY_OPTIONS: DayBoundaryOption[] = [
   { value: 0, label: 'Midnight' },
   { value: 3, label: '3:00 AM' },
-  { value: 4, label: '4:00 AM' },
   { value: 5, label: '5:00 AM' },
 ];
 

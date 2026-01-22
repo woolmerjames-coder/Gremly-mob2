@@ -28,6 +28,7 @@ import { ListsScreen } from '../app/screens/ListsScreen';
 import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
 import SweepTestScreen from '../app/screens/SweepTestScreen';
 import CalendarScreen from '../app/screens/CalendarScreen';
+import SettingsScreen from '../app/screens/SettingsScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -46,6 +47,7 @@ export type RootStackParamList = {
   Sweep: { initialStep?: number; initialCardIndex?: number } | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;
   CalendarScreen: undefined;
+  Settings: undefined;
   SweepTest: undefined; // DEV only
 };
 
@@ -141,6 +143,14 @@ export default function RootNavigator() {
           <Stack.Screen
             name="CalendarScreen"
             component={CalendarScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="Settings"
+            component={SettingsScreen}
             options={{
               headerShown: false,
               animation: 'slide_from_right',
