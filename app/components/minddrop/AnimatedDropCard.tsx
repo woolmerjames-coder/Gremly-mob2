@@ -399,23 +399,44 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
       // Close the modal
       setMultiModalVisible(false);
 
-      // Update the note to remove multi status - it becomes a regular note
       try {
+        // Get original text and classification info for enrichment
+        const originalText = item.text || item.title || '';
+        const dominantBucket = (item.views?.dominant_bucket as MindDropBucket) || 'log';
+        const dominantSubtype = (item.views?.dominant_subtype as LogSubtype) || 'general';
+
+        // Update the note to remove multi status - it becomes a regular note
         await updateNote(item.id, {
           views: {
             ...item.views,
             is_multi: false,
             minddrop_stage: 'classified',
+            ai_pending: true, // Mark as pending enrichment
             // Clear multi-specific fields
             multi_items: undefined,
             multi_summary_title: undefined,
           },
         } as any);
-        console.log('[AnimatedDropCard] Kept multi-drop as note:', item.id);
+
+        // Run Phase 2 enrichment (non-streaming)
+        runPhase2(item.id, originalText, dominantBucket, dominantSubtype, repo)
+          .then((result) => {
+            if (result) {
+              console.log(
+                '[AnimatedDropCard:Phase2] Enrichment complete for kept-as-single:',
+                item.id,
+              );
+            }
+          })
+          .catch((err) => {
+            console.warn('[AnimatedDropCard:Phase2] Enrichment failed:', err);
+          });
+
+        console.log('[AnimatedDropCard] Kept multi-drop as single, running Phase 2:', item.id);
       } catch (error) {
         console.error('[AnimatedDropCard] Failed to update note:', error);
       }
-    }, [item.id, item.views, updateNote]);
+    }, [item.id, item.text, item.title, item.views, updateNote, repo]);
 
     // Handle splitting multi-drop into individual entities
     const handleSplitSelected = useCallback(
