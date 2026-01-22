@@ -1,20 +1,14 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Lock, Sunrise, Sun, Sunset, Clock } from 'lucide-react-native';
+import type { LucideIcon } from 'lucide-react-native';
 
-const SECTION_COLORS: Record<string, string> = {
-  locked: '#6B8F71', // Sage green
-  morning: '#D4A574', // Muted warm tan
-  afternoon: '#C9956C', // Muted terracotta
-  evening: '#A89BC9', // Muted lavender
-  anytime: '#999999', // Gray
-};
-
-const SECTION_LABELS: Record<string, string> = {
-  locked: 'LOCKED IN',
-  morning: 'MORNING',
-  afternoon: 'AFTERNOON',
-  evening: 'EVENING',
-  anytime: 'ANY TIME',
+const SECTION_CONFIG: Record<string, { label: string; color: string; Icon: LucideIcon }> = {
+  locked: { label: 'LOCKED IN', color: '#6B8F71', Icon: Lock },
+  morning: { label: 'MORNING', color: '#D4A574', Icon: Sunrise },
+  afternoon: { label: 'AFTERNOON', color: '#C9956C', Icon: Sun },
+  evening: { label: 'EVENING', color: '#A89BC9', Icon: Sunset },
+  anytime: { label: 'ANY TIME', color: '#999999', Icon: Clock },
 };
 
 interface TimeBlockSectionProps {
@@ -30,17 +24,17 @@ export function TimeBlockSection({
   calendarHint,
   children,
 }: TimeBlockSectionProps) {
-  const color = SECTION_COLORS[block];
-  const label = SECTION_LABELS[block];
+  const { label, color, Icon } = SECTION_CONFIG[block];
 
   return (
     <View style={styles.section}>
       {/* Section divider (unless first) */}
       {!isFirst && <View style={styles.sectionDivider} />}
 
-      {/* Header row with accent bar */}
+      {/* Header row with accent bar and icon */}
       <View style={styles.headerRow}>
         <View style={[styles.accent, { backgroundColor: color }]} />
+        <Icon size={16} color={color} style={styles.icon} />
         <Text style={[styles.headerText, { color }]}>{label}</Text>
       </View>
 
@@ -74,6 +68,9 @@ const styles = StyleSheet.create({
     height: 16,
     borderRadius: 1.5,
     marginRight: 10,
+  },
+  icon: {
+    marginRight: 6,
   },
   headerText: {
     fontSize: 12,
