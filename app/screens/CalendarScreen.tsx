@@ -12,8 +12,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
-  Square,
-  CheckSquare,
   ChevronDown,
   ChevronUp,
   RotateCcw,
@@ -113,24 +111,18 @@ function CalendarEventRow({ event, isLast }: CalendarEventRowProps) {
 
 interface CalendarTodoRowProps {
   todo: Todo;
-  onToggle: () => void;
   onPress: () => void;
   isLast?: boolean;
 }
 
-function CalendarTodoRow({ todo, onToggle, onPress, isLast }: CalendarTodoRowProps) {
-  const isCompleted = !!todo.completed_at;
-
+function CalendarTodoRow({ todo, onPress, isLast }: CalendarTodoRowProps) {
   return (
     <Pressable
       style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}
       onPress={onPress}
     >
       <View style={sectionStyles.itemContent}>
-        <Text
-          style={[sectionStyles.itemTitle, isCompleted && sectionStyles.itemTitleCompleted]}
-          numberOfLines={1}
-        >
+        <Text style={sectionStyles.itemTitle} numberOfLines={1}>
           {todo.name}
         </Text>
         <View style={sectionStyles.chipRow}>
@@ -141,48 +133,24 @@ function CalendarTodoRow({ todo, onToggle, onPress, isLast }: CalendarTodoRowPro
           )}
         </View>
       </View>
-      <Pressable
-        onPress={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-        style={sectionStyles.checkboxPressable}
-      >
-        {isCompleted ? (
-          <CheckSquare size={22} color={COLORS.mossGreen} />
-        ) : (
-          <Square size={22} color={COLORS.inkMuted} />
-        )}
-      </Pressable>
     </Pressable>
   );
 }
 
 interface CalendarHabitRowProps {
   habit: Habit;
-  isCompleted: boolean;
-  onToggle: () => void;
   onPress: () => void;
   isLast?: boolean;
 }
 
-function CalendarHabitRow({
-  habit,
-  isCompleted,
-  onToggle,
-  onPress,
-  isLast,
-}: CalendarHabitRowProps) {
+function CalendarHabitRow({ habit, onPress, isLast }: CalendarHabitRowProps) {
   return (
     <Pressable
       style={[sectionStyles.itemRow, !isLast && sectionStyles.rowBorder]}
       onPress={onPress}
     >
       <View style={sectionStyles.itemContent}>
-        <Text
-          style={[sectionStyles.itemTitle, isCompleted && sectionStyles.itemTitleCompleted]}
-          numberOfLines={1}
-        >
+        <Text style={sectionStyles.itemTitle} numberOfLines={1}>
           {habit.name}
         </Text>
         <View style={sectionStyles.chipRow}>
@@ -193,19 +161,6 @@ function CalendarHabitRow({
           )}
         </View>
       </View>
-      <Pressable
-        onPress={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-        style={sectionStyles.checkboxPressable}
-      >
-        {isCompleted ? (
-          <CheckSquare size={22} color={COLORS.mossGreen} />
-        ) : (
-          <Square size={22} color={COLORS.inkMuted} />
-        )}
-      </Pressable>
     </Pressable>
   );
 }
@@ -220,10 +175,6 @@ interface CalendarScreenSectionProps {
   events: CalendarEvent[];
   todos: Todo[];
   habits: Habit[];
-  habitProgress: { habit_id: string; occurred_day: string }[];
-  selectedDate: string;
-  onToggleTodo: (id: string) => void;
-  onToggleHabit: (id: string) => void;
   onPressTodo: (todo: Todo) => void;
   onPressHabit: (habit: Habit) => void;
 }
@@ -234,20 +185,9 @@ function CalendarScreenSection({
   events,
   todos,
   habits,
-  habitProgress,
-  selectedDate,
-  onToggleTodo,
-  onToggleHabit,
   onPressTodo,
   onPressHabit,
 }: CalendarScreenSectionProps) {
-  // Helper to check if habit is completed on selected date
-  const isHabitCompleted = useCallback(
-    (habitId: string) =>
-      habitProgress.some((p) => p.habit_id === habitId && p.occurred_day === selectedDate),
-    [habitProgress, selectedDate],
-  );
-
   const isEmpty = events.length === 0 && todos.length === 0 && habits.length === 0;
   if (isEmpty) return null;
 
@@ -274,7 +214,6 @@ function CalendarScreenSection({
         <CalendarTodoRow
           key={todo.id}
           todo={todo}
-          onToggle={() => onToggleTodo(todo.id)}
           onPress={() => onPressTodo(todo)}
           isLast={idx === todos.length - 1 && habits.length === 0}
         />
@@ -285,8 +224,6 @@ function CalendarScreenSection({
         <CalendarHabitRow
           key={habit.id}
           habit={habit}
-          isCompleted={isHabitCompleted(habit.id)}
-          onToggle={() => onToggleHabit(habit.id)}
           onPress={() => onPressHabit(habit)}
           isLast={idx === habits.length - 1}
         />
@@ -705,36 +642,6 @@ export default function CalendarScreen() {
     [uncompleteTodo, uncompleteHabit],
   );
 
-  // Toggle handlers for todos and habits
-  const completeTodo = useGremlyStore((s) => s.completeTodo);
-  const completeHabit = useGremlyStore((s) => s.completeHabit);
-
-  const handleToggleTodo = useCallback(
-    (id: string) => {
-      const todo = todos.find((t) => t.id === id);
-      if (todo?.completed_at) {
-        uncompleteTodo(id);
-      } else {
-        completeTodo(id);
-      }
-    },
-    [todos, completeTodo, uncompleteTodo],
-  );
-
-  const handleToggleHabit = useCallback(
-    (id: string) => {
-      const isCompleted = habitProgress.some(
-        (p) => p.habit_id === id && p.occurred_day === selectedDate,
-      );
-      if (isCompleted) {
-        uncompleteHabit(id);
-      } else {
-        completeHabit(id);
-      }
-    },
-    [habitProgress, selectedDate, completeHabit, uncompleteHabit],
-  );
-
   // Handle item press - open overlay
   const handlePressTodo = useCallback(
     (todo: Todo) => {
@@ -803,10 +710,6 @@ export default function CalendarScreen() {
             events={groupedData.morning.events}
             todos={groupedData.morning.todos}
             habits={groupedData.morning.habits}
-            habitProgress={habitProgress}
-            selectedDate={selectedDate}
-            onToggleTodo={handleToggleTodo}
-            onToggleHabit={handleToggleHabit}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
           />
@@ -820,10 +723,6 @@ export default function CalendarScreen() {
             events={groupedData.afternoon.events}
             todos={groupedData.afternoon.todos}
             habits={groupedData.afternoon.habits}
-            habitProgress={habitProgress}
-            selectedDate={selectedDate}
-            onToggleTodo={handleToggleTodo}
-            onToggleHabit={handleToggleHabit}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
           />
@@ -837,10 +736,6 @@ export default function CalendarScreen() {
             events={groupedData.evening.events}
             todos={groupedData.evening.todos}
             habits={groupedData.evening.habits}
-            habitProgress={habitProgress}
-            selectedDate={selectedDate}
-            onToggleTodo={handleToggleTodo}
-            onToggleHabit={handleToggleHabit}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
           />
@@ -854,10 +749,6 @@ export default function CalendarScreen() {
             events={groupedData.anytime.events}
             todos={groupedData.anytime.todos}
             habits={groupedData.anytime.habits}
-            habitProgress={habitProgress}
-            selectedDate={selectedDate}
-            onToggleTodo={handleToggleTodo}
-            onToggleHabit={handleToggleHabit}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
           />
