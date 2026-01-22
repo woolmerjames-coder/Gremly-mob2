@@ -45,6 +45,7 @@ import { ShimmerPlaceholder } from './ShimmerPlaceholder';
 import { MultiSplitModal } from './MultiSplitModal';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useRepo } from '../../../providers/RepoProvider';
+import { runPhase1 } from '../../../lib/minddrop/phase1';
 import { runPhase2 } from '../../../lib/minddrop/phase2';
 import type { MultiDropItem, MindDropBucket, LogSubtype } from '../../../lib/minddrop/types';
 
@@ -400,25 +401,55 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
       setMultiModalVisible(false);
 
       try {
-        // Get original text and classification info for enrichment
+        // Get original text for re-classification
         const originalText = item.text || item.title || '';
-        const dominantBucket = (item.views?.dominant_bucket as MindDropBucket) || 'log';
-        const dominantSubtype = (item.views?.dominant_subtype as LogSubtype) || 'general';
 
-        // Update the note to remove multi status - it becomes a regular note
+        // 1. Set initial state - mark as classifying
         await updateNote(item.id, {
           views: {
             ...item.views,
             is_multi: false,
-            minddrop_stage: 'classified',
-            ai_pending: true, // Mark as pending enrichment
-            // Clear multi-specific fields
+            minddrop_stage: 'classifying',
+            ai_pending: true,
             multi_items: undefined,
             multi_summary_title: undefined,
           },
         } as any);
 
-        // Run Phase 2 enrichment (non-streaming)
+        // 2. Run Phase 1 to get smart_title and confirmation_message
+        const phase1Result = await runPhase1(originalText, { hasAttachments: false });
+
+        // Determine the correct title field based on bucket
+        const titleField = phase1Result.bucket === 'log' ? 'title' : 'name';
+        const smartTitle = phase1Result.smart_title || originalText.substring(0, 60);
+
+        // 3. Update with Phase 1 results (title + confirmation message)
+        await updateNote(item.id, {
+          [titleField]: smartTitle,
+          views: {
+            ...item.views,
+            is_multi: false,
+            minddrop_stage: 'classified',
+            ai_pending: true,
+            confirmation_message: phase1Result.confirmation_message || undefined,
+            dominant_bucket: phase1Result.bucket,
+            dominant_subtype: phase1Result.subtype,
+            multi_items: undefined,
+            multi_summary_title: undefined,
+          },
+        } as any);
+
+        console.log('[AnimatedDropCard] Phase 1 complete for kept-as-single:', {
+          id: item.id,
+          bucket: phase1Result.bucket,
+          smartTitle: smartTitle?.substring(0, 30),
+          hasConfirmation: !!phase1Result.confirmation_message,
+        });
+
+        // 4. Run Phase 2 for metadata enrichment (tags, mood, dates, etc.)
+        const dominantBucket = phase1Result.bucket;
+        const dominantSubtype = phase1Result.subtype;
+
         runPhase2(item.id, originalText, dominantBucket, dominantSubtype, repo)
           .then((result) => {
             if (result) {
@@ -431,10 +462,8 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
           .catch((err) => {
             console.warn('[AnimatedDropCard:Phase2] Enrichment failed:', err);
           });
-
-        console.log('[AnimatedDropCard] Kept multi-drop as single, running Phase 2:', item.id);
       } catch (error) {
-        console.error('[AnimatedDropCard] Failed to update note:', error);
+        console.error('[AnimatedDropCard] Failed to process keep-as-single:', error);
       }
     }, [item.id, item.text, item.title, item.views, updateNote, repo]);
 
