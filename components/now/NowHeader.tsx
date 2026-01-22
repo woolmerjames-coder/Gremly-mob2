@@ -395,7 +395,7 @@ const useStyles = makeStyles((t) => ({
   taskProgressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 'auto',
     gap: 8,
   },
   taskProgressTrack: {
