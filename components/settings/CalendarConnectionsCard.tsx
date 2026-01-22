@@ -9,7 +9,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { Text } from '../../ui';
 import { Calendar, Link2, Unlink, Mail } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
@@ -44,10 +44,14 @@ export default function CalendarConnectionsCard() {
     setConnectingProvider(provider);
     try {
       const result = await connectCalendar(provider);
-      if (!result.success && result.error) {
-        console.warn('[CalendarConnections] Connect failed:', result.error);
-        // TODO: Show error toast
+      if (!result.success) {
+        Alert.alert(
+          'Connection Failed',
+          result.error || 'Unknown error occurred. Please try again.',
+        );
       }
+    } catch (error) {
+      Alert.alert('Connection Failed', error instanceof Error ? error.message : 'Unexpected error');
     } finally {
       setConnectingProvider(null);
     }
