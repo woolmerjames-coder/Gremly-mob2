@@ -10,7 +10,7 @@ import {
   View,
   StyleSheet,
   Text,
-  TouchableWithoutFeedback,
+  Pressable,
   TouchableOpacity,
   ScrollView,
   LayoutAnimation,
@@ -26,7 +26,7 @@ import Animated, {
   FadeIn,
   FadeInDown,
 } from 'react-native-reanimated';
-import { Check, Repeat, Lightbulb, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { Check, Repeat, Lightbulb, ChevronDown, ChevronUp, ArrowRight } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 
@@ -251,110 +251,108 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
     setIsExpanded((prev) => !prev);
   }, []);
 
-  // Handle tap to continue
-  const handleTap = useCallback(() => {
-    if (canContinue) {
-      onComplete();
-    } else {
-      onSkip();
-    }
-  }, [canContinue, onComplete, onSkip]);
-
   // Calculate delays for staggered counters
   const getDelay = (index: number) => 400 + index * COUNT_STAGGER;
 
   let counterIndex = 0;
 
   return (
-    <TouchableWithoutFeedback onPress={handleTap}>
-      <View style={styles.container}>
-        <View style={styles.content}>
-          {/* Gremly Mascot */}
-          <Animated.Image
-            source={GREMLY_MASCOT}
-            style={styles.mascot}
-            resizeMode="contain"
-            entering={FadeIn.duration(400)}
-          />
+    <View style={styles.container}>
+      <View style={styles.content}>
+        {/* Gremly Mascot */}
+        <Animated.Image
+          source={GREMLY_MASCOT}
+          style={styles.mascot}
+          resizeMode="contain"
+          entering={FadeIn.duration(400)}
+        />
 
-          {/* Celebration Phrase */}
-          <Animated.Text style={styles.phrase} entering={FadeIn.duration(400).delay(100)}>
-            {phrase}
-          </Animated.Text>
+        {/* Celebration Phrase */}
+        <Animated.Text style={styles.phrase} entering={FadeIn.duration(400).delay(100)}>
+          {phrase}
+        </Animated.Text>
 
-          {/* Subtitle */}
-          <Animated.Text style={styles.subtitle} entering={FadeIn.duration(400).delay(200)}>
-            SINCE YOUR LAST SWEEP
-          </Animated.Text>
+        {/* Subtitle */}
+        <Animated.Text style={styles.subtitle} entering={FadeIn.duration(400).delay(200)}>
+          SINCE YOUR LAST SWEEP
+        </Animated.Text>
 
-          {/* Counters */}
-          <View style={styles.countersContainer}>
-            {counts.todos > 0 && (
-              <AnimatedCounter
-                targetValue={counts.todos}
-                delay={getDelay(counterIndex++)}
-                duration={COUNT_DURATION}
-                icon={<Check size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
-                label={counts.todos === 1 ? 'todo' : 'todos'}
-                onComplete={handleCounterComplete}
-              />
-            )}
-            {counts.habits > 0 && (
-              <AnimatedCounter
-                targetValue={counts.habits}
-                delay={getDelay(counterIndex++)}
-                duration={COUNT_DURATION}
-                icon={<Repeat size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
-                label={counts.habits === 1 ? 'habit' : 'habits'}
-                onComplete={handleCounterComplete}
-              />
-            )}
-            {counts.notes > 0 && (
-              <AnimatedCounter
-                targetValue={counts.notes}
-                delay={getDelay(counterIndex++)}
-                duration={COUNT_DURATION}
-                icon={<Lightbulb size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
-                label={counts.notes === 1 ? 'idea' : 'ideas'}
-                onComplete={handleCounterComplete}
-              />
-            )}
-          </View>
-
-          {/* Expand Button */}
-          {canContinue && (
-            <Animated.View entering={FadeIn.duration(300)}>
-              <TouchableOpacity
-                style={styles.expandButton}
-                onPress={handleToggleExpand}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.expandButtonText}>
-                  {isExpanded ? 'Hide details' : 'See what you did'}
-                </Text>
-                {isExpanded ? (
-                  <ChevronUp size={18} color={BRAND.colors.mossGreen} />
-                ) : (
-                  <ChevronDown size={18} color={BRAND.colors.mossGreen} />
-                )}
-              </TouchableOpacity>
-            </Animated.View>
+        {/* Counters */}
+        <View style={styles.countersContainer}>
+          {counts.todos > 0 && (
+            <AnimatedCounter
+              targetValue={counts.todos}
+              delay={getDelay(counterIndex++)}
+              duration={COUNT_DURATION}
+              icon={<Check size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+              label={counts.todos === 1 ? 'todo' : 'todos'}
+              onComplete={handleCounterComplete}
+            />
           )}
-
-          {/* Expanded Item List */}
-          {isExpanded && (
-            <Animated.View style={styles.expandedContainer} entering={FadeIn.duration(200)}>
-              <ItemList items={completedItems} />
-            </Animated.View>
+          {counts.habits > 0 && (
+            <AnimatedCounter
+              targetValue={counts.habits}
+              delay={getDelay(counterIndex++)}
+              duration={COUNT_DURATION}
+              icon={<Repeat size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+              label={counts.habits === 1 ? 'habit' : 'habits'}
+              onComplete={handleCounterComplete}
+            />
+          )}
+          {counts.notes > 0 && (
+            <AnimatedCounter
+              targetValue={counts.notes}
+              delay={getDelay(counterIndex++)}
+              duration={COUNT_DURATION}
+              icon={<Lightbulb size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+              label={counts.notes === 1 ? 'idea' : 'ideas'}
+              onComplete={handleCounterComplete}
+            />
           )}
         </View>
 
-        {/* Continue Hint */}
-        <Animated.Text style={styles.hint} entering={FadeIn.duration(300).delay(1500)}>
-          {canContinue ? 'tap to continue' : 'tap to skip'}
-        </Animated.Text>
+        {/* Expand Button */}
+        {canContinue && (
+          <Animated.View entering={FadeIn.duration(300)}>
+            <TouchableOpacity
+              style={styles.expandButton}
+              onPress={handleToggleExpand}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.expandButtonText}>
+                {isExpanded ? 'Hide details' : 'See what you did'}
+              </Text>
+              {isExpanded ? (
+                <ChevronUp size={18} color={BRAND.colors.mossGreen} />
+              ) : (
+                <ChevronDown size={18} color={BRAND.colors.mossGreen} />
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+
+        {/* Expanded Item List */}
+        {isExpanded && (
+          <Animated.View style={styles.expandedContainer} entering={FadeIn.duration(200)}>
+            <ItemList items={completedItems} />
+          </Animated.View>
+        )}
       </View>
-    </TouchableWithoutFeedback>
+
+      {/* Continue/Skip Button */}
+      <Animated.View style={styles.buttonContainer} entering={FadeIn.duration(300).delay(1500)}>
+        {canContinue ? (
+          <TouchableOpacity style={styles.continueButton} onPress={onComplete} activeOpacity={0.8}>
+            <Text style={styles.continueButtonText}>Continue</Text>
+            <ArrowRight size={18} color="white" />
+          </TouchableOpacity>
+        ) : (
+          <Pressable style={styles.skipButton} onPress={onSkip}>
+            <Text style={styles.skipButtonText}>Skip</Text>
+          </Pressable>
+        )}
+      </Animated.View>
+    </View>
   );
 };
 
@@ -481,11 +479,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: BRAND.colors.charcoalInk,
   },
-  hint: {
+  buttonContainer: {
     position: 'absolute',
-    bottom: 50,
-    alignSelf: 'center',
-    fontSize: 14,
+    bottom: 40,
+    left: 24,
+    right: 24,
+    alignItems: 'center',
+  },
+  continueButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: BRAND.colors.mossGreen,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 14,
+    gap: 8,
+    minWidth: 180,
+  },
+  continueButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: 'white',
+  },
+  skipButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  skipButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
     color: BRAND.colors.inkMuted,
   },
 });
