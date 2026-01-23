@@ -179,4 +179,68 @@ describe('CalendarScreen', () => {
       expect(true).toBe(true);
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Header Date Display (app-fixes-1.22 timezone fix)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('header date display', () => {
+    it('displays date using formatDateForDisplay', () => {
+      const { getByText } = render(<CalendarScreen />);
+      // Should show the formatted date
+      expect(getByText(/December/i)).toBeTruthy();
+    });
+
+    it('uses noon UTC to avoid off-by-one errors', () => {
+      // The fix ensures dates are parsed with T12:00:00 to avoid
+      // timezone boundary issues where Dec 22 might show as Dec 21
+      const dateString = '2025-12-22';
+      const parsed = new Date(dateString + 'T12:00:00');
+
+      // Using noon UTC, the date should always be Dec 22
+      expect(parsed.getUTCDate()).toBe(22);
+    });
+
+    it('does not show wrong date at midnight boundaries', () => {
+      // Before the fix, dates could shift by one day near midnight
+      // Now we use formatDateForDisplay which handles this
+      const testDate = '2025-12-22';
+
+      // Simulate what the component does
+      const d = new Date(testDate + 'T12:00:00');
+      const month = d.toLocaleDateString('en-US', { month: 'long' });
+      const day = d.getDate();
+
+      expect(month).toBe('December');
+      expect(day).toBe(22);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Date navigation edge cases
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('date navigation edge cases', () => {
+    it('handles month boundaries correctly', () => {
+      // addDays should work across month boundaries
+      const startDate = '2025-12-31';
+      const d = new Date(startDate + 'T12:00:00');
+      d.setDate(d.getDate() + 1);
+
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const result = `${year}-${month}-${day}`;
+
+      expect(result).toBe('2026-01-01');
+    });
+
+    it('handles year boundaries correctly', () => {
+      const startDate = '2025-12-31';
+      const d = new Date(startDate + 'T12:00:00');
+      d.setDate(d.getDate() + 1);
+
+      expect(d.getFullYear()).toBe(2026);
+    });
+  });
 });

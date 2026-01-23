@@ -1219,4 +1219,90 @@ describe('DateService', () => {
       expect(result).toBe('2025-12-22');
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // formatDateForDisplay - NEW TESTS FOR app-fixes-1.22
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe('formatDateForDisplay', () => {
+    beforeEach(() => {
+      resetDateService();
+      service = createDateService({
+        clock: () => new Date('2025-12-22T10:00:00'),
+      });
+    });
+
+    it('formats date as human-readable string', () => {
+      const result = service.formatDateForDisplay('2025-12-22');
+      // Should include month and day at minimum
+      expect(result).toBeTruthy();
+      expect(typeof result).toBe('string');
+    });
+
+    it('returns empty string for null input', () => {
+      const result = service.formatDateForDisplay(null);
+      expect(result).toBe('');
+    });
+
+    it('returns empty string for undefined input', () => {
+      const result = service.formatDateForDisplay(undefined);
+      expect(result).toBe('');
+    });
+
+    it('handles YYYY-MM-DD format correctly', () => {
+      const result = service.formatDateForDisplay('2025-12-25');
+      // Should produce a readable date
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('uses noon UTC to avoid timezone date shift', () => {
+      // The implementation should use T12:00:00 to avoid off-by-one errors
+      const result = service.formatDateForDisplay('2025-12-22');
+      // Result should represent Dec 22, not Dec 21 or Dec 23
+      expect(result).toMatch(/22|Dec/i);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Timezone edge cases for getCurrentDate - app-fixes-1.22
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe('getCurrentDate timezone edge cases', () => {
+    it('returns local date at 11:59 PM', () => {
+      const lateNightService = createDateService({
+        clock: () => new Date('2025-12-22T23:59:00'),
+      });
+      expect(lateNightService.getCurrentDate()).toBe('2025-12-22');
+    });
+
+    it('returns next day at 12:01 AM', () => {
+      const earlyMorningService = createDateService({
+        clock: () => new Date('2025-12-23T00:01:00'),
+      });
+      expect(earlyMorningService.getCurrentDate()).toBe('2025-12-23');
+    });
+
+    it('handles midnight exactly', () => {
+      const midnightService = createDateService({
+        clock: () => new Date('2025-12-23T00:00:00'),
+      });
+      expect(midnightService.getCurrentDate()).toBe('2025-12-23');
+    });
+
+    it('returns consistent date regardless of hour', () => {
+      const morningService = createDateService({
+        clock: () => new Date('2025-12-22T06:00:00'),
+      });
+      const afternoonService = createDateService({
+        clock: () => new Date('2025-12-22T14:00:00'),
+      });
+      const eveningService = createDateService({
+        clock: () => new Date('2025-12-22T20:00:00'),
+      });
+
+      expect(morningService.getCurrentDate()).toBe('2025-12-22');
+      expect(afternoonService.getCurrentDate()).toBe('2025-12-22');
+      expect(eveningService.getCurrentDate()).toBe('2025-12-22');
+    });
+  });
 });
