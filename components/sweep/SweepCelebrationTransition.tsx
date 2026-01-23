@@ -5,7 +5,7 @@
  * Shows totals with fast counting animation, expandable to see details.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -89,8 +89,14 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
 }) => {
   const [displayValue, setDisplayValue] = useState(0);
   const scale = useSharedValue(1);
+  const hasStarted = useRef(false);
+  const hasCompleted = useRef(false);
 
   useEffect(() => {
+    // Prevent re-running if already started
+    if (hasStarted.current) return;
+    hasStarted.current = true;
+
     const startTime = Date.now() + delay;
     const endTime = startTime + duration;
 
@@ -101,17 +107,20 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
         return; // Still waiting for delay
       }
 
-      if (now >= endTime) {
-        setDisplayValue(targetValue);
-        clearInterval(interval);
+      if (now >= endTime || hasCompleted.current) {
+        if (!hasCompleted.current) {
+          hasCompleted.current = true;
+          setDisplayValue(targetValue);
+          clearInterval(interval);
 
-        // Bounce on complete
-        scale.value = withSequence(
-          withSpring(1.15, { damping: 8, stiffness: 400 }),
-          withSpring(1, { damping: 12, stiffness: 300 }),
-        );
-        triggerLight();
-        onComplete?.();
+          // Bounce on complete
+          scale.value = withSequence(
+            withSpring(1.15, { damping: 8, stiffness: 400 }),
+            withSpring(1, { damping: 12, stiffness: 300 }),
+          );
+          triggerLight();
+          onComplete?.();
+        }
         return;
       }
 
@@ -120,19 +129,21 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
       const easedProgress = Easing.out(Easing.cubic)(progress);
       const currentValue = Math.round(easedProgress * targetValue);
 
-      if (currentValue !== displayValue) {
-        setDisplayValue(currentValue);
-      }
-    }, 16); // ~60fps
+      setDisplayValue(currentValue);
+    }, 32); // ~30fps is enough for number display
 
     return () => clearInterval(interval);
-  }, [targetValue, delay, duration, displayValue, scale, onComplete]);
+  }, []); // Empty deps - only run once on mount
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
+  // Don't render if target is 0
   if (targetValue === 0) return null;
+
+  // Fix grammar: singular vs plural
+  const displayLabel = targetValue === 1 ? label.replace(/s$/, '') : label;
 
   return (
     <Animated.View
@@ -141,7 +152,7 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
     >
       <View style={styles.counterIcon}>{icon}</View>
       <Text style={styles.counterValue}>{displayValue}</Text>
-      <Text style={styles.counterLabel}>{label}</Text>
+      <Text style={styles.counterLabel}>{displayLabel}</Text>
     </Animated.View>
   );
 };
