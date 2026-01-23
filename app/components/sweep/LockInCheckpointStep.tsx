@@ -35,7 +35,7 @@ import Animated, {
 import ConfettiCannon from 'react-native-confetti-cannon';
 import { Text } from '../../../ui';
 import { Icon } from '../../../design-system/Icon';
-import { Sparkles } from 'lucide-react-native';
+import { Sparkles, Check } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import * as Haptics from 'expo-haptics';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
@@ -401,54 +401,19 @@ function LockInItemRow({
   isCelebrated,
   index,
 }: LockInItemRowProps) {
-  // Diamond position animation (0 = Archive/left, 1 = Tomorrow/middle, 2 = Done/right)
-  const diamondPosition = useSharedValue(1); // Default to middle (Tomorrow)
+  const isCompleted = decision === 'done';
 
-  useEffect(() => {
-    const positionMap: Record<LockInDecision, number> = {
-      archive: 0,
-      tomorrow: 1,
-      done: 2,
-    };
-    diamondPosition.value = positionMap[decision];
-  }, [decision]);
-
-  const diamondAnimatedStyle = useAnimatedStyle(() => {
-    // Track width = container width - paddingHorizontal (40 total)
-    // Track itself has no margins now, dots are absolutely positioned
-    const containerWidth = SCREEN_WIDTH - 40; // itemRow paddingHorizontal: 20 each side
-    const diamondWidth = 32;
-    const dotWidth = 12;
-
-    // Dot centers are at: 0%, 50%, 100% of track
-    // Diamond should center over each dot
-    const positions = [
-      dotWidth / 2 - diamondWidth / 2, // Archive: center diamond over left dot
-      containerWidth / 2 - diamondWidth / 2, // Tomorrow: exact center
-      containerWidth - dotWidth / 2 - diamondWidth / 2, // Done: center diamond over right dot
-    ];
-
-    return {
-      transform: [
-        {
-          translateX: withSpring(positions[diamondPosition.value], {
-            damping: 20,
-            stiffness: 300,
-            mass: 0.8,
-          }),
-        },
-      ],
-    };
-  });
+  // Diamond scale animation for completion
+  const diamondScale = useSharedValue(1);
 
   // Celebration animations
   const celebrationScale = useSharedValue(1);
   const rowGlow = useSharedValue(0);
 
   useEffect(() => {
-    if (isCelebrated && decision === 'done') {
+    if (isCelebrated && isCompleted) {
       celebrationScale.value = withSequence(
-        withTiming(1.03, { duration: 150 }),
+        withTiming(1.02, { duration: 150 }),
         withSpring(1, { damping: 10 }),
       );
       rowGlow.value = withSequence(
@@ -456,7 +421,23 @@ function LockInItemRow({
         withTiming(0, { duration: 600 }),
       );
     }
-  }, [isCelebrated, decision]);
+  }, [isCelebrated, isCompleted]);
+
+  const handleComplete = () => {
+    if (isCompleted) {
+      // Toggle back to tomorrow (undo)
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onDecisionChange('tomorrow');
+    } else {
+      // Mark as done with bounce animation
+      diamondScale.value = withSequence(
+        withSpring(1.15, { damping: 8, stiffness: 400 }),
+        withSpring(1, { damping: 12, stiffness: 300 }),
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onDecisionChange('done');
+    }
+  };
 
   const rowAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: celebrationScale.value }],
@@ -469,100 +450,82 @@ function LockInItemRow({
         : 'transparent',
   }));
 
+  const diamondAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: diamondScale.value }],
+  }));
+
   return (
     <Animated.View
-      style={[styles.itemRow, rowAnimatedStyle, glowStyle]}
-      entering={SlideInDown.delay(index * 80).duration(400)}
+      style={[styles.itemCard, rowAnimatedStyle, glowStyle]}
+      entering={SlideInDown.delay(index * 60).duration(300)}
     >
-      {/* Item name - NO hint text */}
-      <View style={styles.itemHeader}>
-        <Text style={styles.itemName} numberOfLines={2}>
-          {item.name}
-        </Text>
-      </View>
+      {/* Item name */}
+      <Text style={styles.itemName} numberOfLines={2}>
+        {item.name}
+      </Text>
 
-      {/* Slim Toggle Track with Dots */}
-      <View style={styles.toggleTrackContainer}>
-        {/* Track line */}
-        <View style={styles.toggleTrackLine} />
-
-        {/* Absolutely positioned dots */}
-        <View style={styles.dotArchive} />
-        <View style={styles.dotTomorrow} />
-        <View style={styles.dotDone} />
-
-        {/* Sliding Diamond Indicator */}
-        <Animated.View style={[styles.diamondIndicator, diamondAnimatedStyle]}>
-          <Image source={LOCKIN_ICON} style={styles.diamondIconSmall} resizeMode="contain" />
-        </Animated.View>
-
-        {/* Tappable Areas (invisible, full height for easy tapping) */}
-        <View style={styles.toggleTapAreas}>
+      {/* Actions row */}
+      <View style={styles.actionsRow}>
+        {/* Left side: secondary actions stacked */}
+        <View style={styles.secondaryActions}>
           <TouchableOpacity
-            style={styles.toggleTapArea}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onDecisionChange('archive');
-            }}
-            activeOpacity={0.7}
-            accessibilityLabel={`Archive ${item.name}`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: decision === 'archive' }}
-          />
-          <TouchableOpacity
-            style={styles.toggleTapArea}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onDecisionChange('tomorrow');
             }}
+            style={styles.secondaryButton}
+            disabled={isCompleted}
             activeOpacity={0.7}
-            accessibilityLabel={`Move ${item.name} to tomorrow`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: decision === 'tomorrow' }}
-          />
-          <TouchableOpacity
-            style={styles.toggleTapArea}
-            onPress={() => {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              onDecisionChange('done');
-            }}
-            activeOpacity={0.7}
-            accessibilityLabel={`Mark ${item.name} as done`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: decision === 'done' }}
-          />
-        </View>
-      </View>
+          >
+            <Text
+              style={[
+                styles.secondaryText,
+                decision === 'tomorrow' && styles.secondaryTextActive,
+                isCompleted && styles.secondaryTextDisabled,
+              ]}
+            >
+              Move to tomorrow
+            </Text>
+          </TouchableOpacity>
 
-      {/* Labels below track */}
-      <View style={styles.toggleLabels}>
-        <Text
-          style={[
-            styles.toggleLabel,
-            styles.toggleLabelLeft,
-            decision === 'archive' && styles.toggleLabelActive,
-          ]}
-        >
-          Archive
-        </Text>
-        <Text
-          style={[
-            styles.toggleLabel,
-            styles.toggleLabelCenter,
-            decision === 'tomorrow' && styles.toggleLabelActive,
-          ]}
-        >
-          Tomorrow
-        </Text>
-        <Text
-          style={[
-            styles.toggleLabel,
-            styles.toggleLabelRight,
-            decision === 'done' && styles.toggleLabelActive,
-          ]}
-        >
-          Done ✓
-        </Text>
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              onDecisionChange('archive');
+            }}
+            style={styles.secondaryButton}
+            disabled={isCompleted}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.secondaryText,
+                decision === 'archive' && styles.secondaryTextActive,
+                isCompleted && styles.secondaryTextDisabled,
+              ]}
+            >
+              Archive
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Right side: primary action with diamond */}
+        <TouchableOpacity onPress={handleComplete} style={styles.primaryAction} activeOpacity={0.7}>
+          <Animated.View style={diamondAnimatedStyle}>
+            {isCompleted ? (
+              <View style={styles.diamondFilled}>
+                <View style={{ transform: [{ rotate: '-45deg' }] }}>
+                  <Check size={16} color="white" strokeWidth={3} />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.diamondOutline} />
+            )}
+          </Animated.View>
+          <Text style={[styles.completedText, isCompleted && styles.completedTextActive]}>
+            {isCompleted ? 'Completed ✓' : 'Completed'}
+          </Text>
+        </TouchableOpacity>
       </View>
     </Animated.View>
   );
@@ -662,120 +625,81 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
 
-  itemRow: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+  // New card-based item styles
+  itemCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   itemDivider: {
-    height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
-    marginHorizontal: 20,
-  },
-  itemHeader: {
-    marginBottom: 8,
+    height: 0, // Keep for compatibility but hide
   },
   itemName: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
+    marginBottom: 16,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
 
-  // Toggle track - slim line with dots
-  toggleTrackContainer: {
-    height: 36,
-    justifyContent: 'center',
-    position: 'relative',
+  // Left side - secondary actions
+  secondaryActions: {
+    gap: 8,
   },
-  toggleTrackLine: {
-    position: 'absolute',
-    left: 6,
-    right: 6,
-    top: 16,
-    height: 4,
-    backgroundColor: 'rgba(191, 216, 192, 0.4)',
-    borderRadius: 2,
+  secondaryButton: {
+    paddingVertical: 4,
   },
-  dotArchive: {
-    position: 'absolute',
-    left: 0,
-    top: 12,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: BRAND.colors.sageMist,
+  secondaryText: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
   },
-  dotTomorrow: {
-    position: 'absolute',
-    left: '50%',
-    marginLeft: -6,
-    top: 12,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: BRAND.colors.sageMist,
+  secondaryTextActive: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
   },
-  dotDone: {
-    position: 'absolute',
-    right: 0,
-    top: 12,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: BRAND.colors.sageMist,
+  secondaryTextDisabled: {
+    opacity: 0.4,
   },
-  diamondIndicator: {
-    position: 'absolute',
-    top: 2,
-    left: 0,
+
+  // Right side - primary action
+  primaryAction: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  diamondOutline: {
     width: 32,
     height: 32,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: 8,
-    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: BRAND.colors.mossGreen,
+    borderRadius: 4,
+    transform: [{ rotate: '45deg' }],
+  },
+  diamondFilled: {
+    width: 32,
+    height: 32,
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 4,
+    transform: [{ rotate: '45deg' }],
     alignItems: 'center',
-    shadowColor: BRAND.colors.mossGreen,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: BRAND.colors.sageMist,
+    justifyContent: 'center',
   },
-  diamondIconSmall: {
-    width: 20,
-    height: 20,
-  },
-  toggleTapAreas: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-  },
-  toggleTapArea: {
-    flex: 1,
-  },
-  toggleLabels: {
-    flexDirection: 'row',
-    marginTop: 8,
-  },
-  toggleLabel: {
-    fontSize: 12,
-    fontWeight: '500',
+  completedText: {
+    fontSize: 13,
     color: BRAND.colors.inkMuted,
-    flex: 1,
+    fontWeight: '500',
   },
-  toggleLabelLeft: {
-    textAlign: 'left',
-  },
-  toggleLabelCenter: {
-    textAlign: 'center',
-  },
-  toggleLabelRight: {
-    textAlign: 'right',
-  },
-  toggleLabelActive: {
+  completedTextActive: {
     color: BRAND.colors.mossGreen,
     fontWeight: '700',
   },
