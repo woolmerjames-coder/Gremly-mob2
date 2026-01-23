@@ -1486,10 +1486,13 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const now = new Date();
-      const nowIso = now.toISOString();
       // Use DateService for consistent local date across the app
       const todayDate = getDateService().getCurrentDate();
+      // CRITICAL: occurred_at must derive to same date as occurred_day
+      // Use noon UTC on the local day to avoid timezone boundary issues
+      const occurredAt = `${todayDate}T12:00:00.000Z`;
+      // Keep nowIso for last_completed_at (actual timestamp of action)
+      const nowIso = new Date().toISOString();
       const prevHabit = get().habits.find((h) => h.id === id);
 
       // 1. OPTIMISTIC UPDATE - update habit's last_completed_at
@@ -1505,7 +1508,7 @@ export const useGremlyStore = create<GremlyState>()(
           habit_id: id,
           owner_id: userId,
           occurred_day: todayDate,
-          occurred_at: nowIso,
+          occurred_at: occurredAt,
           count: 1,
         });
 
@@ -1525,7 +1528,7 @@ export const useGremlyStore = create<GremlyState>()(
           id: `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           habit_id: id,
           owner_id: userId,
-          occurred_at: nowIso,
+          occurred_at: occurredAt,
           occurred_day: todayDate,
           count: 1,
           occurrence_index: null,
