@@ -317,19 +317,15 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
         </Text>
       </Animated.View>
 
-      {/* Progress */}
-      <Animated.View style={[styles.progressContainer, contentStyle]}>
-        {doneCount === totalCount && totalCount > 0 ? (
+      {/* Celebration message when all done */}
+      {doneCount === totalCount && totalCount > 0 && (
+        <Animated.View style={[styles.progressContainer, contentStyle]}>
           <View style={styles.progressComplete}>
             <Sparkles size={16} color={BRAND.colors.goldenPear} />
             <Text style={styles.progressTextComplete}>You crushed it!</Text>
           </View>
-        ) : (
-          <Text style={styles.progressText}>
-            {doneCount} of {totalCount} complete
-          </Text>
-        )}
-      </Animated.View>
+        </Animated.View>
+      )}
 
       {/* Items list */}
       <Animated.ScrollView
@@ -466,25 +462,29 @@ function LockInItemRow({
 
       {/* Actions row */}
       <View style={styles.actionsRow}>
-        {/* Left side: secondary actions stacked */}
-        <View style={styles.secondaryActions}>
+        {/* Left side: pill buttons */}
+        <View style={styles.pillButtons}>
           <TouchableOpacity
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onDecisionChange('tomorrow');
             }}
-            style={styles.secondaryButton}
+            style={[
+              styles.pill,
+              decision === 'tomorrow' && styles.pillSelected,
+              isCompleted && styles.pillDisabled,
+            ]}
             disabled={isCompleted}
             activeOpacity={0.7}
           >
             <Text
               style={[
-                styles.secondaryText,
-                decision === 'tomorrow' && styles.secondaryTextActive,
-                isCompleted && styles.secondaryTextDisabled,
+                styles.pillText,
+                decision === 'tomorrow' && styles.pillTextSelected,
+                isCompleted && styles.pillTextDisabled,
               ]}
             >
-              Move to tomorrow
+              Tomorrow
             </Text>
           </TouchableOpacity>
 
@@ -493,15 +493,19 @@ function LockInItemRow({
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
               onDecisionChange('archive');
             }}
-            style={styles.secondaryButton}
+            style={[
+              styles.pill,
+              decision === 'archive' && styles.pillSelected,
+              isCompleted && styles.pillDisabled,
+            ]}
             disabled={isCompleted}
             activeOpacity={0.7}
           >
             <Text
               style={[
-                styles.secondaryText,
-                decision === 'archive' && styles.secondaryTextActive,
-                isCompleted && styles.secondaryTextDisabled,
+                styles.pillText,
+                decision === 'archive' && styles.pillTextSelected,
+                isCompleted && styles.pillTextDisabled,
               ]}
             >
               Archive
@@ -510,20 +514,22 @@ function LockInItemRow({
         </View>
 
         {/* Right side: primary action with diamond */}
-        <TouchableOpacity onPress={handleComplete} style={styles.primaryAction} activeOpacity={0.7}>
+        <TouchableOpacity
+          onPress={handleComplete}
+          style={styles.completedAction}
+          activeOpacity={0.7}
+        >
           <Animated.View style={diamondAnimatedStyle}>
-            {isCompleted ? (
-              <View style={styles.diamondFilled}>
-                <View style={{ transform: [{ rotate: '-45deg' }] }}>
-                  <Check size={16} color="white" strokeWidth={3} />
+            <View style={[styles.diamond, isCompleted && styles.diamondFilled]}>
+              {isCompleted && (
+                <View style={styles.checkContainer}>
+                  <Check size={14} color="white" strokeWidth={3} />
                 </View>
-              </View>
-            ) : (
-              <View style={styles.diamondOutline} />
-            )}
+              )}
+            </View>
           </Animated.View>
           <Text style={[styles.completedText, isCompleted && styles.completedTextActive]}>
-            {isCompleted ? 'Completed ✓' : 'Completed'}
+            Completed
           </Text>
         </TouchableOpacity>
       </View>
@@ -574,7 +580,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
     paddingTop: 120,
-    paddingBottom: 8,
+    paddingBottom: 16,
     gap: 12,
   },
   instructionsMascot: {
@@ -587,24 +593,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: BRAND.colors.charcoalInk,
   },
-  instructionsBold: {
-    fontWeight: '700',
-    color: BRAND.colors.mossGreen,
-  },
-  instructionsItalic: {
-    fontStyle: 'italic',
-    color: BRAND.colors.inkMuted,
-  },
 
-  // Progress
+  // Celebration message
   progressContainer: {
     alignItems: 'center',
     paddingVertical: 8,
-  },
-  progressText: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    fontWeight: '500',
   },
   progressComplete: {
     flexDirection: 'row',
@@ -623,29 +616,31 @@ const styles = StyleSheet.create({
   },
   itemsContent: {
     paddingBottom: 24,
+    paddingTop: 8,
   },
 
-  // New card-based item styles
+  // Compact card-based item styles
   itemCard: {
     backgroundColor: 'white',
     borderRadius: 12,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     marginHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 10,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   itemDivider: {
-    height: 0, // Keep for compatibility but hide
+    height: 0,
   },
   itemName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   actionsRow: {
     flexDirection: 'row',
@@ -653,49 +648,63 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // Left side - secondary actions
-  secondaryActions: {
+  // Pill buttons for Tomorrow/Archive
+  pillButtons: {
+    flexDirection: 'row',
     gap: 8,
   },
-  secondaryButton: {
-    paddingVertical: 4,
+  pill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  secondaryText: {
-    fontSize: 14,
+  pillSelected: {
+    backgroundColor: BRAND.colors.sageMist,
+    borderColor: BRAND.colors.mossGreen,
+  },
+  pillDisabled: {
+    opacity: 0.5,
+  },
+  pillText: {
+    fontSize: 13,
+    fontWeight: '500',
     color: BRAND.colors.inkMuted,
   },
-  secondaryTextActive: {
+  pillTextSelected: {
     color: BRAND.colors.mossGreen,
     fontWeight: '600',
   },
-  secondaryTextDisabled: {
-    opacity: 0.4,
+  pillTextDisabled: {
+    opacity: 0.6,
   },
 
-  // Right side - primary action
-  primaryAction: {
+  // Completed action with diamond
+  completedAction: {
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
-  diamondOutline: {
-    width: 32,
-    height: 32,
+  diamond: {
+    width: 28,
+    height: 28,
     borderWidth: 2,
     borderColor: BRAND.colors.mossGreen,
     borderRadius: 4,
     transform: [{ rotate: '45deg' }],
-  },
-  diamondFilled: {
-    width: 32,
-    height: 32,
-    backgroundColor: BRAND.colors.mossGreen,
-    borderRadius: 4,
-    transform: [{ rotate: '45deg' }],
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  diamondFilled: {
+    backgroundColor: BRAND.colors.mossGreen,
+  },
+  checkContainer: {
+    transform: [{ rotate: '-45deg' }],
+  },
   completedText: {
-    fontSize: 13,
+    fontSize: 12,
     color: BRAND.colors.inkMuted,
     fontWeight: '500',
   },
