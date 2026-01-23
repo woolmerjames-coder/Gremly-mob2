@@ -3337,6 +3337,9 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
     marginTop: 8,
     marginBottom: 2,
+    lineHeight: 36,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   breakdownLabel: {
     fontSize: 13,
