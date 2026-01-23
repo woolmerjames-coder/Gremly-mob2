@@ -150,33 +150,33 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
     // Diamond glows intensely
     iconGlow.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.2, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.2, { duration: 500, easing: Easing.inOut(Easing.ease) }),
       ),
       -1,
       true,
     );
 
-    // Title fades in
-    titleOpacity.value = withDelay(300, withTiming(1, { duration: 400 }));
+    // Title fades in quickly
+    titleOpacity.value = withDelay(100, withTiming(1, { duration: 250 }));
 
-    // After intro, transition
+    // After intro, transition faster
     const timer = setTimeout(() => {
       // Slide header to top
       headerTranslateY.value = withTiming(-250, {
-        duration: 600,
+        duration: 350,
         easing: Easing.inOut(Easing.cubic),
       });
 
       // Stop glow when reaching top
-      iconGlow.value = withDelay(400, withTiming(0, { duration: 300 }));
+      iconGlow.value = withDelay(150, withTiming(0, { duration: 200 }));
 
       // Fade in Gremly + instructions after header settles
-      instructionsOpacity.value = withDelay(500, withTiming(1, { duration: 400 }));
+      instructionsOpacity.value = withDelay(150, withTiming(1, { duration: 250 }));
 
       // Fade in content (items list)
-      contentOpacity.value = withDelay(600, withTiming(1, { duration: 500 }));
-    }, 1600);
+      contentOpacity.value = withDelay(200, withTiming(1, { duration: 300 }));
+    }, 800);
 
     return () => clearTimeout(timer);
   }, [items.length]);
