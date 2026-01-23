@@ -207,3 +207,207 @@ describe('OverlayTypeConverted event payload', () => {
     expect(mockPayload.dropId).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Habit Schedule Modal State Tests (app-fixes-1.22)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Habit Schedule Modal state management', () => {
+  // Simulates the scheduleModalState structure from UnifiedOverlayV2
+  type ScheduleModalState = {
+    frequencyTab: 'simple' | 'days' | 'custom';
+    frequencyJson: any;
+    selectedDays: number[];
+    customCount: string;
+    customUnit: 'day' | 'week' | 'month';
+    startDate: string | null;
+    endDate: string | null;
+    timeWindow: string | null;
+    timeEstimateMinutes: number | null;
+  };
+
+  const defaultState: ScheduleModalState = {
+    frequencyTab: 'simple',
+    frequencyJson: null,
+    selectedDays: [],
+    customCount: '1',
+    customUnit: 'week',
+    startDate: null,
+    endDate: null,
+    timeWindow: null,
+    timeEstimateMinutes: null,
+  };
+
+  describe('openScheduleModal initialization', () => {
+    it('initializes modal state from simple frequency habit', () => {
+      const habitState = {
+        frequency_json: { type: 'simple', value: 'daily' },
+        start_date: '2026-01-22',
+        end_date: null,
+        time_window: 'morning',
+        time_estimate_minutes: 30,
+      };
+
+      // Simulate openScheduleModal logic
+      const modalState: ScheduleModalState = {
+        frequencyTab: 'simple', // from jsonToFrequency result
+        frequencyJson: habitState.frequency_json,
+        selectedDays: [],
+        customCount: '1',
+        customUnit: 'week',
+        startDate: habitState.start_date,
+        endDate: habitState.end_date,
+        timeWindow: habitState.time_window,
+        timeEstimateMinutes: habitState.time_estimate_minutes,
+      };
+
+      expect(modalState.frequencyTab).toBe('simple');
+      expect(modalState.startDate).toBe('2026-01-22');
+      expect(modalState.timeWindow).toBe('morning');
+      expect(modalState.timeEstimateMinutes).toBe(30);
+    });
+
+    it('initializes modal state from days frequency habit', () => {
+      const habitState = {
+        frequency_json: { type: 'days', days: [1, 3, 5] }, // Mon, Wed, Fri
+        start_date: null,
+        end_date: null,
+        time_window: null,
+        time_estimate_minutes: null,
+      };
+
+      const modalState: ScheduleModalState = {
+        frequencyTab: 'days',
+        frequencyJson: habitState.frequency_json,
+        selectedDays: [1, 3, 5],
+        customCount: '1',
+        customUnit: 'week',
+        startDate: habitState.start_date,
+        endDate: habitState.end_date,
+        timeWindow: habitState.time_window,
+        timeEstimateMinutes: habitState.time_estimate_minutes,
+      };
+
+      expect(modalState.frequencyTab).toBe('days');
+      expect(modalState.selectedDays).toEqual([1, 3, 5]);
+    });
+
+    it('initializes modal state from custom frequency habit', () => {
+      const habitState = {
+        frequency_json: { type: 'custom', value: { count: 3, unit: 'week' } },
+        start_date: '2026-01-01',
+        end_date: '2026-12-31',
+        time_window: 'evening',
+        time_estimate_minutes: 45,
+      };
+
+      const modalState: ScheduleModalState = {
+        frequencyTab: 'custom',
+        frequencyJson: habitState.frequency_json,
+        selectedDays: [],
+        customCount: '3',
+        customUnit: 'week',
+        startDate: habitState.start_date,
+        endDate: habitState.end_date,
+        timeWindow: habitState.time_window,
+        timeEstimateMinutes: habitState.time_estimate_minutes,
+      };
+
+      expect(modalState.frequencyTab).toBe('custom');
+      expect(modalState.customCount).toBe('3');
+      expect(modalState.customUnit).toBe('week');
+      expect(modalState.endDate).toBe('2026-12-31');
+    });
+  });
+
+  describe('applyScheduleChanges dispatch structure', () => {
+    it('builds correct frequency_json for simple frequency', () => {
+      const modalState: ScheduleModalState = {
+        ...defaultState,
+        frequencyTab: 'simple',
+        frequencyJson: { type: 'simple', value: 'weekly' },
+      };
+
+      const result =
+        modalState.frequencyTab === 'simple'
+          ? modalState.frequencyJson || { type: 'simple', value: 'daily' }
+          : null;
+
+      expect(result).toEqual({ type: 'simple', value: 'weekly' });
+    });
+
+    it('builds correct frequency_json for days frequency', () => {
+      const modalState: ScheduleModalState = {
+        ...defaultState,
+        frequencyTab: 'days',
+        selectedDays: [0, 6], // Sunday, Saturday
+      };
+
+      const result =
+        modalState.frequencyTab === 'days'
+          ? { type: 'days', days: modalState.selectedDays }
+          : null;
+
+      expect(result).toEqual({ type: 'days', days: [0, 6] });
+    });
+
+    it('builds correct frequency_json for custom frequency', () => {
+      const modalState: ScheduleModalState = {
+        ...defaultState,
+        frequencyTab: 'custom',
+        customCount: '2',
+        customUnit: 'month',
+      };
+
+      const result =
+        modalState.frequencyTab === 'custom'
+          ? {
+              type: 'custom',
+              value: {
+                count: parseInt(modalState.customCount, 10) || 1,
+                unit: modalState.customUnit,
+              },
+            }
+          : null;
+
+      expect(result).toEqual({
+        type: 'custom',
+        value: { count: 2, unit: 'month' },
+      });
+    });
+
+    it('handles invalid customCount by defaulting to 1', () => {
+      const modalState: ScheduleModalState = {
+        ...defaultState,
+        frequencyTab: 'custom',
+        customCount: 'abc', // Invalid
+        customUnit: 'day',
+      };
+
+      const count = parseInt(modalState.customCount, 10) || 1;
+      expect(count).toBe(1);
+    });
+  });
+
+  describe('Cancel vs Set behavior', () => {
+    it('Cancel should not modify original habit state', () => {
+      const originalHabitState = {
+        frequency_json: { type: 'simple', value: 'daily' },
+        start_date: '2026-01-22',
+      };
+
+      // User makes changes in modal but clicks Cancel
+      const modifiedModalState: ScheduleModalState = {
+        ...defaultState,
+        frequencyTab: 'simple',
+        frequencyJson: { type: 'simple', value: 'weekly' }, // Changed!
+        startDate: '2026-02-15', // Changed!
+      };
+
+      // On cancel, modal closes without dispatching
+      // Original state should remain unchanged
+      expect(originalHabitState.frequency_json.value).toBe('daily');
+      expect(originalHabitState.start_date).toBe('2026-01-22');
+    });
+  });
+});

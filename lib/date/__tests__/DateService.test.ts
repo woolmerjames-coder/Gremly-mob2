@@ -1076,7 +1076,51 @@ describe('DateService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // isTimestampWithinDays - NEW TESTS FOR SWEEP BRANCH
+  // formatDateForDisplay - NEW TESTS FOR app-fixes-1.22 BRANCH
+  // ═══════════════════════════════════════════════════════════════════
+
+  describe('formatDateForDisplay', () => {
+    it('returns full format with year: "January 21, 2026"', () => {
+      expect(service.formatDateForDisplay('2026-01-21')).toBe('January 21, 2026');
+    });
+
+    it('returns empty string for null', () => {
+      expect(service.formatDateForDisplay(null)).toBe('');
+    });
+
+    it('returns empty string for undefined', () => {
+      expect(service.formatDateForDisplay(undefined)).toBe('');
+    });
+
+    it('handles December correctly', () => {
+      expect(service.formatDateForDisplay('2025-12-25')).toBe('December 25, 2025');
+    });
+
+    it('handles June correctly', () => {
+      expect(service.formatDateForDisplay('2025-06-15')).toBe('June 15, 2025');
+    });
+
+    it('handles January correctly', () => {
+      expect(service.formatDateForDisplay('2025-01-01')).toBe('January 1, 2025');
+    });
+
+    it('handles February correctly', () => {
+      expect(service.formatDateForDisplay('2025-02-14')).toBe('February 14, 2025');
+    });
+
+    it('does not have timezone offset bug (parses as local date)', () => {
+      // This test ensures we use fromLocalDate, not new Date()
+      // If parsed as UTC, dates near midnight could shift
+      expect(service.formatDateForDisplay('2025-12-22')).toBe('December 22, 2025');
+    });
+
+    it('handles single digit days correctly', () => {
+      expect(service.formatDateForDisplay('2025-03-05')).toBe('March 5, 2025');
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // isTimestampWithinDays (continued)
   // ═══════════════════════════════════════════════════════════════════
 
   describe('isTimestampWithinDays', () => {
