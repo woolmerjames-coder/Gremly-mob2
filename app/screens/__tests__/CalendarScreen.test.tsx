@@ -55,6 +55,11 @@ jest.mock('../../../lib/date', () => ({
       const d = new Date(date + 'T12:00:00');
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     },
+    formatDateForDisplay: (date: string | null | undefined) => {
+      if (!date) return '';
+      const d = new Date(date + 'T12:00:00');
+      return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    },
     isSameDay: (a: string, b: string) => a === b,
     addDays: (date: string, days: number) => {
       const d = new Date(date + 'T12:00:00');

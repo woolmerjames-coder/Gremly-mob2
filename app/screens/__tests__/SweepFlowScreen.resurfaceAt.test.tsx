@@ -20,18 +20,16 @@ type SweepDecision = {
   category?: string | null;
 };
 
-// Helper to simulate the toDayString function
-const toDayString = (date: Date): string => {
-  return date.toISOString().split('T')[0];
-};
-
-// Helper to simulate DateService.toLocalDate
+// Helper to simulate DateService.toLocalDate (timezone-safe)
 const toLocalDate = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+// Alias for toDayString (uses same timezone-safe approach)
+const toDayString = toLocalDate;
 
 describe('SweepFlowScreen resurface_at clearing', () => {
   /**
@@ -74,11 +72,12 @@ describe('SweepFlowScreen resurface_at clearing', () => {
     });
 
     it('should set due_day from dueDate', () => {
+      // Use noon local time to avoid timezone date shift issues
       const decision: SweepDecision = {
         candidateId: 'todo-123',
         candidateKind: 'todo',
         action: 'keep',
-        dueDate: new Date('2026-01-25'),
+        dueDate: new Date(2026, 0, 25, 12, 0, 0), // Jan 25, 2026 at noon local
       };
 
       const payload = buildTodoUpdatePayload(decision);

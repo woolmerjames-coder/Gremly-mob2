@@ -488,8 +488,8 @@ describe('AnimatedDropCard', () => {
         views: {
           is_multi: true,
           multi_items: [
-            { text: 'buy groceries', bucket: 'todo' },
-            { text: 'go to gym', bucket: 'habit' },
+            { text: 'buy groceries', bucket: 'todo', subtype: null, habitSubtype: null, preview_title: 'Buy groceries' },
+            { text: 'go to gym', bucket: 'habit', subtype: null, habitSubtype: 'start_habit', preview_title: 'Go to gym' },
           ],
         },
       });
