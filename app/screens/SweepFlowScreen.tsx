@@ -39,7 +39,18 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
 import { Icon } from '../../design-system/Icon';
-import { Flame, Sparkles, Sprout, CheckCircle, Leaf, Moon } from 'lucide-react-native';
+import {
+  Flame,
+  Sparkles,
+  Sprout,
+  CheckCircle,
+  Leaf,
+  Moon,
+  Check,
+  Lightbulb,
+  Repeat,
+  ArrowRight,
+} from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
@@ -176,6 +187,7 @@ function SweepIntroStep({
 }) {
   const { stats, isLoading } = useSweepIntroStats();
   const gremlyAge = useGremlyStore.getState().gremlyAge;
+  const lastSweepCompletedAt = useGremlyStore((state) => state.lastSweepCompletedAt);
   const candidates = useSweepCandidatesUnified();
 
   // Count items by type
@@ -203,6 +215,25 @@ function SweepIntroStep({
 
   // First time user
   const isFirstTime = stats?.isFirstSweep || gremlyAge === 0;
+
+  // Last sweep text
+  const getLastSweepText = () => {
+    if (!lastSweepCompletedAt) {
+      return 'Your first sweep!';
+    }
+
+    const now = new Date();
+    const last = new Date(lastSweepCompletedAt);
+    const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      return 'Last sweep: earlier today';
+    } else if (diffDays === 1) {
+      return 'Last sweep: yesterday';
+    } else {
+      return `Last sweep: ${diffDays} days ago`;
+    }
+  };
 
   // Edge case: nothing to sweep
   if (totalCount === 0 && !isLoading) {
@@ -241,13 +272,41 @@ function SweepIntroStep({
           : `Clear your mind in ${getTimeEstimate().replace(/~/g, '').trim()}`}
       </Text>
 
-      {/* Breakdown - smaller, muted, optional context */}
-      {totalCount > 0 && <Text style={styles.introBreakdownMuted}>{buildBreakdown()}</Text>}
+      {/* Breakdown Card */}
+      {totalCount > 0 && (
+        <View style={styles.breakdownCard}>
+          {todoCount > 0 && (
+            <View style={styles.breakdownColumn}>
+              <Check size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
+              <Text style={styles.breakdownNumber}>{todoCount}</Text>
+              <Text style={styles.breakdownLabel}>{todoCount === 1 ? 'todo' : 'todos'}</Text>
+            </View>
+          )}
+          {noteCount > 0 && (
+            <View style={styles.breakdownColumn}>
+              <Lightbulb size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
+              <Text style={styles.breakdownNumber}>{noteCount}</Text>
+              <Text style={styles.breakdownLabel}>{noteCount === 1 ? 'idea' : 'ideas'}</Text>
+            </View>
+          )}
+          {habitCount > 0 && (
+            <View style={styles.breakdownColumn}>
+              <Repeat size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
+              <Text style={styles.breakdownNumber}>{habitCount}</Text>
+              <Text style={styles.breakdownLabel}>{habitCount === 1 ? 'habit' : 'habits'}</Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* CTA */}
-      <TouchableOpacity style={styles.introButton} onPress={onStart} activeOpacity={0.8}>
-        <Text style={styles.introButtonText}>Let's do this →</Text>
+      <TouchableOpacity style={styles.primaryButton} onPress={onStart} activeOpacity={0.8}>
+        <Text style={styles.primaryButtonText}>Let's do this</Text>
+        <ArrowRight size={18} color="white" style={{ marginLeft: 8 }} />
       </TouchableOpacity>
+
+      {/* Last sweep footer */}
+      <Text style={styles.lastSweepText}>{getLastSweepText()}</Text>
     </View>
   );
 }
@@ -3253,11 +3312,55 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 24,
   },
-  introBreakdownMuted: {
-    fontSize: 14,
+  breakdownCard: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    marginTop: 24,
+    marginBottom: 32,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    gap: 32,
+  },
+  breakdownColumn: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  breakdownNumber: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    marginTop: 8,
+    marginBottom: 2,
+  },
+  breakdownLabel: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: BRAND.colors.mossGreen,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 14,
+    marginBottom: 24,
+  },
+  primaryButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  lastSweepText: {
+    fontSize: 13,
     color: BRAND.colors.inkSubtle,
     textAlign: 'center',
-    marginBottom: 32,
+    marginTop: 8,
   },
   introButton: {
     backgroundColor: BRAND.colors.sageMist,
