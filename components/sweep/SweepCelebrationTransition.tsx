@@ -1,8 +1,8 @@
 /**
  * SweepCelebrationTransition Component
  *
- * Full-screen transition celebrating completed items since last sweep.
- * Uses Reanimated for smooth 60fps animations on the UI thread.
+ * Quick count-up animation celebrating completed items since last sweep.
+ * Shows totals with fast counting animation, expandable to see details.
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -11,44 +11,36 @@ import {
   StyleSheet,
   Text,
   TouchableWithoutFeedback,
-  Dimensions,
-  SafeAreaView,
+  TouchableOpacity,
+  ScrollView,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withTiming,
   withSpring,
-  withDelay,
   withSequence,
-  withRepeat,
-  runOnJS,
   Easing,
   FadeIn,
-  FadeOut,
+  FadeInDown,
 } from 'react-native-reanimated';
-import { Check, Repeat, Lightbulb } from 'lucide-react-native';
+import { Check, Repeat, Lightbulb, ChevronDown, ChevronUp } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
-import { triggerLight, triggerMedium, triggerSuccess } from '../../lib/haptics';
+import { triggerLight, triggerSuccess } from '../../lib/haptics';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const MAX_ANIMATED_ITEMS = 6;
-const MAX_VISIBLE_TICKS = 6;
-
-// Timing constants (in ms)
-const TIMING = {
-  initialDelay: 800,
-  cardSlideIn: 500,
-  cardVisible: 600,
-  cardFadeOut: 300,
-  tickDelay: 400, // Tick appears this long after card arrives
-  betweenCards: 200, // Pause between cards
-  consolidateDelay: 600,
-  moreTextDuration: 1000,
-};
+// Timing constants
+const COUNT_DURATION = 1200; // Total time to count up all numbers
+const COUNT_STAGGER = 150; // Delay between starting each counter
 
 const CELEBRATION_PHRASES = [
   'Already crushed it',
@@ -75,172 +67,129 @@ interface Props {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Icon Component
+// Animated Counter Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ItemIcon: React.FC<{ type: CompletedItem['type']; size?: number; color?: string }> = ({
-  type,
-  size = 16,
-  color = BRAND.colors.charcoalInk,
-}) => {
-  switch (type) {
-    case 'habit':
-      return <Repeat size={size} color={color} strokeWidth={2} />;
-    case 'note':
-      return <Lightbulb size={size} color={color} strokeWidth={2} />;
-    default:
-      return <Check size={size} color={color} strokeWidth={2} />;
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Animated Card Component
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface AnimatedCardProps {
-  item: CompletedItem;
-  onAnimationComplete: () => void;
-  onTickTime: () => void;
+interface AnimatedCounterProps {
+  targetValue: number;
+  delay: number;
+  duration: number;
+  icon: React.ReactNode;
+  label: string;
+  onComplete?: () => void;
 }
 
-const AnimatedCard: React.FC<AnimatedCardProps> = ({ item, onAnimationComplete, onTickTime }) => {
-  const translateX = useSharedValue(-SCREEN_WIDTH);
-  const opacity = useSharedValue(1);
+const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
+  targetValue,
+  delay,
+  duration,
+  icon,
+  label,
+  onComplete,
+}) => {
+  const [displayValue, setDisplayValue] = useState(0);
   const scale = useSharedValue(1);
 
   useEffect(() => {
-    // Haptic when card appears
-    triggerLight();
+    const startTime = Date.now() + delay;
+    const endTime = startTime + duration;
 
-    // Slide in
-    translateX.value = withTiming(0, {
-      duration: TIMING.cardSlideIn,
-      easing: Easing.out(Easing.cubic),
-    });
+    const interval = setInterval(() => {
+      const now = Date.now();
 
-    // Trigger tick after card is visible
-    const tickTimeout = setTimeout(() => {
-      runOnJS(onTickTime)();
-    }, TIMING.cardSlideIn + TIMING.tickDelay);
+      if (now < startTime) {
+        return; // Still waiting for delay
+      }
 
-    // Fade out after visible duration
-    const fadeTimeout = setTimeout(() => {
-      opacity.value = withTiming(0, { duration: TIMING.cardFadeOut });
-      scale.value = withTiming(0.8, { duration: TIMING.cardFadeOut });
-    }, TIMING.cardSlideIn + TIMING.cardVisible);
+      if (now >= endTime) {
+        setDisplayValue(targetValue);
+        clearInterval(interval);
 
-    // Signal complete
-    const completeTimeout = setTimeout(
-      () => {
-        runOnJS(onAnimationComplete)();
-      },
-      TIMING.cardSlideIn + TIMING.cardVisible + TIMING.cardFadeOut,
-    );
+        // Bounce on complete
+        scale.value = withSequence(
+          withSpring(1.15, { damping: 8, stiffness: 400 }),
+          withSpring(1, { damping: 12, stiffness: 300 }),
+        );
+        triggerLight();
+        onComplete?.();
+        return;
+      }
 
-    return () => {
-      clearTimeout(tickTimeout);
-      clearTimeout(fadeTimeout);
-      clearTimeout(completeTimeout);
-    };
-  }, []);
+      // Calculate progress
+      const progress = (now - startTime) / duration;
+      const easedProgress = Easing.out(Easing.cubic)(progress);
+      const currentValue = Math.round(easedProgress * targetValue);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }, { scale: scale.value }],
-    opacity: opacity.value,
-  }));
+      if (currentValue !== displayValue) {
+        setDisplayValue(currentValue);
+      }
+    }, 16); // ~60fps
 
-  const truncatedName = item.name.length > 40 ? `${item.name.slice(0, 40)}…` : item.name;
-
-  return (
-    <Animated.View style={[styles.card, animatedStyle]}>
-      <View style={styles.cardIcon}>
-        <ItemIcon type={item.type} />
-      </View>
-      <Text style={styles.cardText} numberOfLines={1}>
-        {truncatedName}
-      </Text>
-    </Animated.View>
-  );
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Animated Tick Component
-// ─────────────────────────────────────────────────────────────────────────────
-
-const AnimatedTick: React.FC<{ delay?: number }> = ({ delay = 0 }) => {
-  const scale = useSharedValue(0);
-  const opacity = useSharedValue(0);
-
-  useEffect(() => {
-    scale.value = withDelay(delay, withSpring(1, { damping: 12, stiffness: 200 }));
-    opacity.value = withDelay(delay, withTiming(1, { duration: 150 }));
-  }, []);
+    return () => clearInterval(interval);
+  }, [targetValue, delay, duration, displayValue, scale, onComplete]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-    opacity: opacity.value,
   }));
 
+  if (targetValue === 0) return null;
+
   return (
-    <Animated.View style={[styles.tick, animatedStyle]}>
-      <Check size={24} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+    <Animated.View
+      style={[styles.counterRow, animatedStyle]}
+      entering={FadeInDown.delay(delay).duration(300)}
+    >
+      <View style={styles.counterIcon}>{icon}</View>
+      <Text style={styles.counterValue}>{displayValue}</Text>
+      <Text style={styles.counterLabel}>{label}</Text>
     </Animated.View>
   );
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Consolidated Tick Component (with pulse)
+// Item List Component (for expanded view)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ConsolidatedTick: React.FC<{ count: number; onPulseStart: () => void }> = ({
-  count,
-  onPulseStart,
-}) => {
-  const scale = useSharedValue(0);
-  const pulseScale = useSharedValue(1);
-  const burstOpacity = useSharedValue(0.6);
-  const burstScale = useSharedValue(0.5);
+interface ItemListProps {
+  items: CompletedItem[];
+}
 
-  useEffect(() => {
-    // Haptic on explosion
-    triggerSuccess();
+const ItemList: React.FC<ItemListProps> = ({ items }) => {
+  const todos = items.filter((i) => i.type === 'todo');
+  const habits = items.filter((i) => i.type === 'habit');
+  const notes = items.filter((i) => i.type === 'note');
 
-    // Burst effect
-    burstScale.value = withTiming(1.8, { duration: 400, easing: Easing.out(Easing.cubic) });
-    burstOpacity.value = withTiming(0, { duration: 400 });
+  const renderSection = (
+    sectionItems: CompletedItem[],
+    title: string,
+    sectionIcon: React.ReactNode,
+  ) => {
+    if (sectionItems.length === 0) return null;
 
-    // Main tick springs in
-    scale.value = withSpring(1, { damping: 10, stiffness: 150 }, () => {
-      // Start pulsing after spring completes
-      runOnJS(onPulseStart)();
-      pulseScale.value = withRepeat(
-        withSequence(
-          withTiming(1.1, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-        ),
-        -1, // Infinite
-        false,
-      );
-    });
-  }, []);
-
-  const tickStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value * pulseScale.value }],
-  }));
-
-  const burstStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: burstScale.value }],
-    opacity: burstOpacity.value,
-  }));
+    return (
+      <View style={styles.listSection}>
+        <View style={styles.listSectionHeader}>
+          {sectionIcon}
+          <Text style={styles.listSectionTitle}>{title}</Text>
+        </View>
+        {sectionItems.map((item) => (
+          <View key={item.id} style={styles.listItem}>
+            <Check size={14} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+            <Text style={styles.listItemText} numberOfLines={1}>
+              {item.name}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
 
   return (
-    <View style={styles.consolidatedContainer}>
-      <Animated.View style={[styles.burst, burstStyle]} />
-      <Animated.View style={[styles.consolidatedTick, tickStyle]}>
-        <Check size={44} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-        <Text style={styles.tickCount}>{count}</Text>
-      </Animated.View>
-    </View>
+    <ScrollView style={styles.listContainer} showsVerticalScrollIndicator={false} bounces={false}>
+      {renderSection(todos, 'TODOS', <Check size={14} color={BRAND.colors.inkMuted} />)}
+      {renderSection(habits, 'HABITS', <Repeat size={14} color={BRAND.colors.inkMuted} />)}
+      {renderSection(notes, 'IDEAS', <Lightbulb size={14} color={BRAND.colors.inkMuted} />)}
+    </ScrollView>
   );
 };
 
@@ -256,154 +205,59 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
   const [phrase] = useState(
     () => CELEBRATION_PHRASES[Math.floor(Math.random() * CELEBRATION_PHRASES.length)],
   );
-
-  // Group items by type
-  const groupedItems = useMemo(() => {
-    const todos = completedItems.filter((item) => item.type === 'todo');
-    const habits = completedItems.filter((item) => item.type === 'habit');
-    const notes = completedItems.filter((item) => item.type === 'note');
-
-    // Build ordered sections (only include non-empty)
-    const sections: {
-      type: 'todos' | 'habits' | 'notes';
-      items: CompletedItem[];
-      label: string;
-    }[] = [];
-
-    if (todos.length > 0) {
-      sections.push({
-        type: 'todos',
-        items: todos.slice(0, MAX_ANIMATED_ITEMS),
-        label: todos.length === 1 ? '1 todo done' : `${todos.length} todos done`,
-      });
-    }
-    if (habits.length > 0) {
-      sections.push({
-        type: 'habits',
-        items: habits.slice(0, MAX_ANIMATED_ITEMS),
-        label: habits.length === 1 ? '1 habit logged' : `${habits.length} habits logged`,
-      });
-    }
-    if (notes.length > 0) {
-      sections.push({
-        type: 'notes',
-        items: notes.slice(0, MAX_ANIMATED_ITEMS),
-        label: notes.length === 1 ? '1 idea captured' : `${notes.length} ideas captured`,
-      });
-    }
-
-    return sections;
-  }, [completedItems]);
-
-  // Animation state
-  const [phase, setPhase] = useState<'waiting' | 'cards' | 'more' | 'consolidated' | 'done'>(
-    'waiting',
-  );
-  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
-  const [currentItemIndex, setCurrentItemIndex] = useState(-1);
-  const [sectionLabel, setSectionLabel] = useState<string | null>(null);
-  const [tickCount, setTickCount] = useState(0);
   const [canContinue, setCanContinue] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [completedCounters, setCompletedCounters] = useState(0);
 
-  const totalAnimated = groupedItems.reduce((sum, section) => sum + section.items.length, 0);
-  const remainingCount = completedItems.length - totalAnimated;
-  const totalCount = completedItems.length;
+  // Count by type
+  const counts = useMemo(
+    () => ({
+      todos: completedItems.filter((i) => i.type === 'todo').length,
+      habits: completedItems.filter((i) => i.type === 'habit').length,
+      notes: completedItems.filter((i) => i.type === 'note').length,
+    }),
+    [completedItems],
+  );
 
-  // Start the animation sequence after initial delay
-  useEffect(() => {
-    if (groupedItems.length === 0) {
-      // No items, skip to done - use timeout to avoid sync setState in effect
-      const skipTimeout = setTimeout(() => {
-        setPhase('consolidated');
-      }, 0);
-      return () => clearTimeout(skipTimeout);
-    }
+  const totalCategories = [counts.todos, counts.habits, counts.notes].filter((c) => c > 0).length;
 
-    const timeout = setTimeout(() => {
-      // Start first section
-      setPhase('cards');
-      setSectionLabel(groupedItems[0].label);
-      setCurrentSectionIndex(0);
-
-      // Small delay before first card
-      setTimeout(() => {
-        setCurrentItemIndex(0);
-      }, 400);
-    }, TIMING.initialDelay);
-
-    return () => clearTimeout(timeout);
-  }, [groupedItems]);
-
-  // Handle card animation complete - move to next card or finish
-  const handleCardComplete = useCallback(() => {
-    const currentSection = groupedItems[currentSectionIndex];
-    if (!currentSection) return;
-
-    const nextItemIndex = currentItemIndex + 1;
-
-    if (nextItemIndex < currentSection.items.length) {
-      // More items in this section
-      setTimeout(() => {
-        setCurrentItemIndex(nextItemIndex);
-      }, TIMING.betweenCards);
-    } else {
-      // Section complete, check for next section
-      const nextSectionIndex = currentSectionIndex + 1;
-
-      if (nextSectionIndex < groupedItems.length) {
-        // Move to next section
-        setTimeout(() => {
-          setSectionLabel(groupedItems[nextSectionIndex].label);
-          setCurrentSectionIndex(nextSectionIndex);
-          setCurrentItemIndex(-1);
-
-          // Small delay before cards start
-          setTimeout(() => {
-            setCurrentItemIndex(0);
-          }, 400);
-        }, TIMING.consolidateDelay);
-      } else {
-        // All sections complete
-        setTimeout(() => {
-          setSectionLabel(null);
-          if (remainingCount > 0) {
-            setPhase('more');
-            setTimeout(() => {
-              setPhase('consolidated');
-            }, TIMING.moreTextDuration);
-          } else {
-            setPhase('consolidated');
-          }
-        }, TIMING.consolidateDelay);
+  // Handle counter completion
+  const handleCounterComplete = useCallback(() => {
+    setCompletedCounters((prev) => {
+      const next = prev + 1;
+      if (next >= totalCategories) {
+        triggerSuccess();
+        setCanContinue(true);
       }
-    }
-  }, [currentSectionIndex, currentItemIndex, groupedItems, remainingCount]);
+      return next;
+    });
+  }, [totalCategories]);
 
-  // Handle tick appearance
-  const handleTickTime = useCallback(() => {
-    triggerMedium();
-    setTickCount((prev) => prev + 1);
+  // Handle expand toggle
+  const handleToggleExpand = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    triggerLight();
+    setIsExpanded((prev) => !prev);
   }, []);
 
-  // Handle consolidated tick pulse start
-  const handlePulseStart = useCallback(() => {
-    setPhase('done');
-    setCanContinue(true);
-  }, []);
-
-  // Handle tap
-  const handleTap = () => {
+  // Handle tap to continue
+  const handleTap = useCallback(() => {
     if (canContinue) {
       onComplete();
     } else {
       onSkip();
     }
-  };
+  }, [canContinue, onComplete, onSkip]);
+
+  // Calculate delays for staggered counters
+  const getDelay = (index: number) => 400 + index * COUNT_STAGGER;
+
+  let counterIndex = 0;
 
   return (
     <TouchableWithoutFeedback onPress={handleTap}>
       <View style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
+        <View style={styles.content}>
           {/* Gremly Mascot */}
           <Animated.Image
             source={GREMLY_MASCOT}
@@ -417,74 +271,77 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
             {phrase}
           </Animated.Text>
 
-          {/* Explanatory Text */}
-          <Animated.Text style={styles.explanationText} entering={FadeIn.duration(400).delay(200)}>
+          {/* Subtitle */}
+          <Animated.Text style={styles.subtitle} entering={FadeIn.duration(400).delay(200)}>
             SINCE YOUR LAST SWEEP
           </Animated.Text>
 
-          {/* Section Header */}
-          {sectionLabel && phase === 'cards' && (
-            <Animated.Text
-              key={sectionLabel}
-              style={styles.sectionLabel}
-              entering={FadeIn.duration(300)}
-              exiting={FadeOut.duration(200)}
-            >
-              {sectionLabel}
-            </Animated.Text>
-          )}
+          {/* Counters */}
+          <View style={styles.countersContainer}>
+            {counts.todos > 0 && (
+              <AnimatedCounter
+                targetValue={counts.todos}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<Check size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.todos === 1 ? 'todo' : 'todos'}
+                onComplete={handleCounterComplete}
+              />
+            )}
+            {counts.habits > 0 && (
+              <AnimatedCounter
+                targetValue={counts.habits}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<Repeat size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.habits === 1 ? 'habit' : 'habits'}
+                onComplete={handleCounterComplete}
+              />
+            )}
+            {counts.notes > 0 && (
+              <AnimatedCounter
+                targetValue={counts.notes}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<Lightbulb size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.notes === 1 ? 'idea' : 'ideas'}
+                onComplete={handleCounterComplete}
+              />
+            )}
+          </View>
 
-          {/* Ticks Accumulation Area */}
-          <View style={styles.ticksArea}>
-            {phase !== 'consolidated' && phase !== 'done' && (
-              <View style={styles.ticksRow}>
-                {Array.from({ length: Math.min(tickCount, MAX_VISIBLE_TICKS) }).map((_, idx) => (
-                  <AnimatedTick key={`tick-${idx}`} />
-                ))}
-                {tickCount > MAX_VISIBLE_TICKS && (
-                  <Animated.Text style={styles.tickOverflow} entering={FadeIn.duration(200)}>
-                    +{tickCount - MAX_VISIBLE_TICKS}
-                  </Animated.Text>
+          {/* Expand Button */}
+          {canContinue && (
+            <Animated.View entering={FadeIn.duration(300)}>
+              <TouchableOpacity
+                style={styles.expandButton}
+                onPress={handleToggleExpand}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.expandButtonText}>
+                  {isExpanded ? 'Hide details' : 'See what you did'}
+                </Text>
+                {isExpanded ? (
+                  <ChevronUp size={18} color={BRAND.colors.mossGreen} />
+                ) : (
+                  <ChevronDown size={18} color={BRAND.colors.mossGreen} />
                 )}
-              </View>
-            )}
-
-            {(phase === 'consolidated' || phase === 'done') && (
-              <ConsolidatedTick count={totalCount} onPulseStart={handlePulseStart} />
-            )}
-          </View>
-
-          {/* Card Animation Area */}
-          <View style={styles.cardArea}>
-            {phase === 'cards' &&
-              currentItemIndex >= 0 &&
-              currentSectionIndex < groupedItems.length &&
-              currentItemIndex < groupedItems[currentSectionIndex].items.length && (
-                <AnimatedCard
-                  key={groupedItems[currentSectionIndex].items[currentItemIndex].id}
-                  item={groupedItems[currentSectionIndex].items[currentItemIndex]}
-                  onAnimationComplete={handleCardComplete}
-                  onTickTime={handleTickTime}
-                />
-              )}
-          </View>
-
-          {/* "+X more" text */}
-          {phase === 'more' && (
-            <Animated.Text
-              style={styles.moreText}
-              entering={FadeIn.duration(300)}
-              exiting={FadeOut.duration(300)}
-            >
-              +{remainingCount} more
-            </Animated.Text>
+              </TouchableOpacity>
+            </Animated.View>
           )}
 
-          {/* Skip/Continue Hint */}
-          <Animated.Text style={styles.hint} entering={FadeIn.duration(300).delay(1000)}>
-            {canContinue ? 'tap to continue' : 'tap to skip'}
-          </Animated.Text>
-        </SafeAreaView>
+          {/* Expanded Item List */}
+          {isExpanded && (
+            <Animated.View style={styles.expandedContainer} entering={FadeIn.duration(200)}>
+              <ItemList items={completedItems} />
+            </Animated.View>
+          )}
+        </View>
+
+        {/* Continue Hint */}
+        <Animated.Text style={styles.hint} entering={FadeIn.duration(300).delay(1500)}>
+          {canContinue ? 'tap to continue' : 'tap to skip'}
+        </Animated.Text>
       </View>
     </TouchableWithoutFeedback>
   );
@@ -499,7 +356,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: BRAND.colors.sageMist,
   },
-  safeArea: {
+  content: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -511,13 +368,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   phrase: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
     color: BRAND.colors.charcoalInk,
     textAlign: 'center',
     marginBottom: 8,
   },
-  explanationText: {
+  subtitle: {
     fontSize: 12,
     fontWeight: '500',
     color: BRAND.colors.inkMuted,
@@ -525,99 +382,98 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     marginBottom: 32,
   },
-  ticksArea: {
-    height: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  ticksRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  tick: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  tickOverflow: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: BRAND.colors.mossGreen,
-    marginLeft: 8,
-  },
-  consolidatedContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  burst: {
-    position: 'absolute',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: BRAND.colors.goldenPear,
-  },
-  consolidatedTick: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  tickCount: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: BRAND.colors.charcoalInk,
-  },
-  cardArea: {
-    height: 56,
-    width: SCREEN_WIDTH - 48,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  card: {
-    position: 'absolute',
-    width: SCREEN_WIDTH - 48,
-    height: 52,
+  countersContainer: {
     backgroundColor: 'white',
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    minWidth: 200,
     shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
-  cardIcon: {
-    marginRight: 12,
+  counterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
   },
-  cardText: {
-    flex: 1,
+  counterIcon: {
+    width: 28,
+    alignItems: 'center',
+  },
+  counterValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    marginHorizontal: 8,
+    minWidth: 32,
+    textAlign: 'center',
+  },
+  counterLabel: {
+    fontSize: 16,
+    color: BRAND.colors.inkMuted,
+  },
+  expandButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  expandButtonText: {
     fontSize: 15,
     fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  sectionLabel: {
-    fontSize: 15,
-    fontWeight: '600',
     color: BRAND.colors.mossGreen,
-    textAlign: 'center',
-    marginBottom: 16,
-    textTransform: 'lowercase',
   },
-  moreText: {
-    fontSize: 16,
+  expandedContainer: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    marginTop: 12,
+    maxHeight: 200,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  listContainer: {
+    padding: 16,
+  },
+  listSection: {
+    marginBottom: 16,
+  },
+  listSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  listSectionTitle: {
+    fontSize: 11,
     fontWeight: '600',
+    color: BRAND.colors.inkMuted,
+    letterSpacing: 1,
+  },
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingLeft: 4,
+    gap: 10,
+  },
+  listItemText: {
+    flex: 1,
+    fontSize: 14,
     color: BRAND.colors.charcoalInk,
-    marginBottom: 24,
   },
   hint: {
     position: 'absolute',
     bottom: 50,
+    alignSelf: 'center',
     fontSize: 14,
     color: BRAND.colors.inkMuted,
   },
