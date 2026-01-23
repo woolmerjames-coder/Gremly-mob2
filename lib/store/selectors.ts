@@ -871,27 +871,31 @@ export const selectSweepCandidatesUnified = createSelector(
       meta: computeSweepCardMeta(candidate, spaces),
     }));
 
-    // Sort: locked-in first, then overdue, then due today, then habits, then by createdAt
+    // Sort: overdue → due today → other todos → habits → notes
+    // Within each group, sort by createdAt ascending (oldest first)
     withMeta.sort((a, b) => {
-      // Locked-in items surface first
+      const aKind = a.candidate.kind;
+      const bKind = b.candidate.kind;
+
+      // 1. Locked-in items surface first (within their type)
       if (a.meta.isLockedIn && !b.meta.isLockedIn) return -1;
       if (!a.meta.isLockedIn && b.meta.isLockedIn) return 1;
 
-      // Then overdue
+      // 2. Overdue todos first
       if (a.candidate.isOverdue && !b.candidate.isOverdue) return -1;
       if (!a.candidate.isOverdue && b.candidate.isOverdue) return 1;
 
-      // Then due today
+      // 3. Due today todos next
       if (a.candidate.isDueToday && !b.candidate.isDueToday) return -1;
       if (!a.candidate.isDueToday && b.candidate.isDueToday) return 1;
 
-      // Then habits (needs start date confirmation)
-      const aIsHabit = a.candidate.kind === 'habit';
-      const bIsHabit = b.candidate.kind === 'habit';
-      if (aIsHabit && !bIsHabit) return -1;
-      if (!aIsHabit && bIsHabit) return 1;
+      // 4. Group by kind: todos → habits → notes
+      const kindOrder = { todo: 0, habit: 1, note: 2 };
+      const aOrder = kindOrder[aKind] ?? 2;
+      const bOrder = kindOrder[bKind] ?? 2;
+      if (aOrder !== bOrder) return aOrder - bOrder;
 
-      // Then by createdAt ascending (oldest first)
+      // 5. Within same kind, sort by createdAt ascending (oldest first)
       return (a.candidate.createdAt ?? '').localeCompare(b.candidate.createdAt ?? '');
     });
 

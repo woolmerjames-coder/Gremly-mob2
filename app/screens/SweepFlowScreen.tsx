@@ -65,6 +65,7 @@ import type {
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
+import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -1197,6 +1198,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [chatPresetHint, setChatPresetHint] = useState<string | undefined>();
 
+  // Track which section transitions have been shown
+  const [shownTransitions, setShownTransitions] = useState<Set<'todo' | 'habit' | 'note'>>(
+    new Set(),
+  );
+
   // Track item details for summary display
   const itemDetailsRef = useRef<Map<string, { name: string; kind: 'todo' | 'habit' | 'note' }>>(
     new Map(),
@@ -1238,6 +1244,49 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     const candidate = candidatesWithMeta[currentIndex]?.candidate;
     return candidate ? decisions.get(candidate.id) : undefined;
   }, [decisions, candidatesWithMeta, currentIndex]);
+
+  // Compute section boundaries for transition cards
+  const sectionBoundaries = useMemo(() => {
+    const boundaries: { type: 'todo' | 'habit' | 'note'; startIndex: number; count: number }[] = [];
+    let lastKind: string | null = null;
+    let currentCount = 0;
+
+    candidatesWithMeta.forEach((item, index) => {
+      const kind = item.candidate.kind;
+      if (kind !== lastKind) {
+        if (lastKind !== null && boundaries.length > 0) {
+          boundaries[boundaries.length - 1].count = currentCount;
+        }
+        boundaries.push({ type: kind as 'todo' | 'habit' | 'note', startIndex: index, count: 0 });
+        lastKind = kind;
+        currentCount = 1;
+      } else {
+        currentCount++;
+      }
+    });
+
+    if (boundaries.length > 0) {
+      boundaries[boundaries.length - 1].count = currentCount;
+    }
+
+    return boundaries;
+  }, [candidatesWithMeta]);
+
+  // Check if current index is at a section boundary needing transition
+  const currentTransition = useMemo(() => {
+    const boundary = sectionBoundaries.find((b) => b.startIndex === currentIndex);
+    if (boundary && !shownTransitions.has(boundary.type)) {
+      return boundary;
+    }
+    return null;
+  }, [currentIndex, sectionBoundaries, shownTransitions]);
+
+  // Handler for when user swipes past the transition card
+  const handleTransitionContinue = useCallback(() => {
+    if (currentTransition) {
+      setShownTransitions((prev) => new Set([...prev, currentTransition.type]));
+    }
+  }, [currentTransition]);
 
   /**
    * Batch commit all recorded decisions to the database.
@@ -2248,61 +2297,77 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
       {/* Full-screen Card Area */}
       <View style={styles.decisionCardArea}>
-        <Reanimated.View entering={FadeIn.duration(200)}>
-          <SweepGremlyHeader
-            candidate={currentCandidate}
-            meta={currentCandidateWithMeta.meta}
-            onOpenChat={handleOpenChat}
-          />
-        </Reanimated.View>
-        <SweepCard
-          key={`${currentCandidate.id}-${currentIndex}`}
-          candidate={currentCandidate}
-          meta={currentCandidateWithMeta.meta}
-          index={currentIndex}
-          total={candidatesWithMeta.length}
-          isConverted={convertedCandidate?.animating ?? false}
-          onSkip={handleSkip}
-          onClear={handleClear}
-          onOpenEdit={handleOpenEdit}
-          onConvertToTodo={handleConvertToTodo}
-          onConfirmQuickDate={handleConfirmQuickDate}
-          onConfirmRemindLater={handleConfirmRemindLater}
-          onConfirmCustomDate={handleConfirmCustomDate}
-          onAddToSpace={handleAddToSpace}
-          onConfirmHabitStart={handleConfirmHabitStart}
-          onClose={onClose}
-          hideBottomSaveExit={true}
-          onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
-          previousDecision={currentDecision}
-          onOpenChat={handleOpenChat}
-        />
+        {!currentTransition && (
+          <>
+            <Reanimated.View entering={FadeIn.duration(200)}>
+              <SweepGremlyHeader
+                candidate={currentCandidate}
+                meta={currentCandidateWithMeta.meta}
+                onOpenChat={handleOpenChat}
+              />
+            </Reanimated.View>
+            <SweepCard
+              key={`${currentCandidate.id}-${currentIndex}`}
+              candidate={currentCandidate}
+              meta={currentCandidateWithMeta.meta}
+              index={currentIndex}
+              total={candidatesWithMeta.length}
+              isConverted={convertedCandidate?.animating ?? false}
+              onSkip={handleSkip}
+              onClear={handleClear}
+              onOpenEdit={handleOpenEdit}
+              onConvertToTodo={handleConvertToTodo}
+              onConfirmQuickDate={handleConfirmQuickDate}
+              onConfirmRemindLater={handleConfirmRemindLater}
+              onConfirmCustomDate={handleConfirmCustomDate}
+              onAddToSpace={handleAddToSpace}
+              onConfirmHabitStart={handleConfirmHabitStart}
+              onClose={onClose}
+              hideBottomSaveExit={true}
+              onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
+              previousDecision={currentDecision}
+              onOpenChat={handleOpenChat}
+            />
+          </>
+        )}
       </View>
 
       {/* Bottom section - Progress + Save and exit */}
-      <View style={styles.bottomSection}>
-        {/* Progress + counter */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${((currentIndex + 1) / candidatesWithMeta.length) * 100}%` },
-              ]}
-            />
+      {!currentTransition && (
+        <View style={styles.bottomSection}>
+          {/* Progress + counter */}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${((currentIndex + 1) / candidatesWithMeta.length) * 100}%` },
+                ]}
+              />
+            </View>
+            <Text style={styles.counterText}>
+              {currentIndex + 1} of {candidatesWithMeta.length} items
+            </Text>
           </View>
-          <Text style={styles.counterText}>
-            {currentIndex + 1} of {candidatesWithMeta.length} items
-          </Text>
-        </View>
 
-        {/* Save and exit */}
-        {onClose && (
-          <TouchableOpacity onPress={handleSaveAndExit} style={styles.saveExitButton}>
-            <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+          {/* Save and exit */}
+          {onClose && (
+            <TouchableOpacity onPress={handleSaveAndExit} style={styles.saveExitButton}>
+              <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Section Transition Modal */}
+      <Modal visible={!!currentTransition} animationType="fade" statusBarTranslucent={true}>
+        <SweepSectionTransition
+          sectionType={currentTransition?.type || 'todo'}
+          itemCount={currentTransition?.count || 0}
+          onContinue={handleTransitionContinue}
+          onClose={onClose}
+        />
+      </Modal>
 
       {/* Entity Chat Modal */}
       <Modal
@@ -3171,7 +3236,7 @@ const styles = StyleSheet.create({
   contentDecision: {
     flex: 1,
     paddingHorizontal: 0, // Full-bleed for decision step
-    backgroundColor: BRAND.colors.sageMist, // Match screen background
+    backgroundColor: '#FFFFFF', // White background for decision step
   },
   contentLockIn: {
     flex: 1,
@@ -4004,7 +4069,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: BRAND.colors.linenCream,
   },
-  // SweepDecisionStep styles - Linen Cream background with sage card
+  // SweepDecisionStep styles - White background with sage card
   decisionStepContainer: {
     flex: 1,
     position: 'relative', // For absolute positioned behindCardTextContainer
