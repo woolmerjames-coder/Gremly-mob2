@@ -50,6 +50,8 @@ import {
   Star,
   FileText,
   Clock,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -1404,6 +1406,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [customCount, setCustomCount] = useState('1');
   const [customUnit, setCustomUnit] = useState<'day' | 'week' | 'month'>('week');
+  // Unified Schedule Modal state
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showScheduleStartDatePicker, setShowScheduleStartDatePicker] = useState(false);
+  const [showScheduleEndDatePicker, setShowScheduleEndDatePicker] = useState(false);
+  const [scheduleModalState, setScheduleModalState] = useState({
+    frequencyTab: 'simple' as 'simple' | 'days' | 'custom',
+    frequencyJson: null as any,
+    selectedDays: [] as number[],
+    customCount: '1',
+    customUnit: 'week' as 'day' | 'week' | 'month',
+    startDate: null as string | null,
+    endDate: null as string | null,
+    timeWindow: null as string | null,
+    timeEstimateMinutes: null as number | null,
+  });
   // save error UI
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showSaveToast, setShowSaveToast] = useState(false);
@@ -1736,6 +1753,59 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
     return true;
   }
+
+  // Open unified schedule modal with current habit state
+  const openScheduleModal = useCallback(() => {
+    const currentFreq = jsonToFrequency(state.habit.frequency_json);
+    setScheduleModalState({
+      frequencyTab: currentFreq.mode,
+      frequencyJson: state.habit.frequency_json,
+      selectedDays: currentFreq.mode === 'days' ? currentFreq.days : [],
+      customCount: currentFreq.mode === 'custom' ? String(currentFreq.value.count) : '1',
+      customUnit: currentFreq.mode === 'custom' ? currentFreq.value.unit : 'week',
+      startDate: state.habit.start_date ?? null,
+      endDate: state.habit.end_date ?? null,
+      timeWindow: state.habit.time_window ?? null,
+      timeEstimateMinutes: state.habit.time_estimate_minutes ?? null,
+    });
+    setShowScheduleStartDatePicker(false);
+    setShowScheduleEndDatePicker(false);
+    setShowScheduleModal(true);
+  }, [state.habit]);
+
+  // Apply all schedule changes at once from modal state
+  const applyScheduleChanges = useCallback(() => {
+    // Build frequency_json from modal state
+    let newFrequencyJson;
+    if (scheduleModalState.frequencyTab === 'simple') {
+      newFrequencyJson = scheduleModalState.frequencyJson || { type: 'simple', value: 'daily' };
+    } else if (scheduleModalState.frequencyTab === 'days') {
+      newFrequencyJson = { type: 'days', days: scheduleModalState.selectedDays };
+    } else {
+      newFrequencyJson = {
+        type: 'custom',
+        value: {
+          count: parseInt(scheduleModalState.customCount, 10) || 1,
+          unit: scheduleModalState.customUnit,
+        },
+      };
+    }
+
+    // Dispatch all updates
+    dispatch({ type: 'SET_HABIT_FREQUENCY', frequency_json: newFrequencyJson });
+    dispatch({ type: 'SET_HABIT_START_DATE', date: scheduleModalState.startDate });
+    dispatch({ type: 'SET_HABIT_END_DATE', date: scheduleModalState.endDate });
+    dispatch({
+      type: 'SET_HABIT_TIME_WINDOW',
+      window: scheduleModalState.timeWindow as 'day' | 'any' | 'morning' | 'evening' | null,
+    });
+    dispatch({
+      type: 'SET_HABIT_TIME_ESTIMATE',
+      minutes: scheduleModalState.timeEstimateMinutes,
+    });
+
+    setShowScheduleModal(false);
+  }, [scheduleModalState, dispatch]);
 
   // Sync spaces from store when details panel expands (replaces repo.listSpaces)
   useEffect(() => {
@@ -5376,38 +5446,85 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             })}
                           </View>
 
-                          {/* Build/Break Habit toggle - only for habits */}
+                          {/* Build/Break Habit underline toggle - only for habits */}
                           {baseType === 'habit' && (
                             <View
                               style={{
                                 flexDirection: 'row',
                                 alignItems: 'center',
-                                justifyContent: 'space-between',
                                 marginTop: 0,
-                                marginBottom: 16,
+                                marginBottom: 12,
+                                gap: 20,
                                 paddingHorizontal: 4,
                               }}
                             >
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={{ fontSize: 14 }}>{isBreakHabit ? '↺' : '+'}</Text>
-                                <Text style={{ fontSize: 14, color: '#444', fontWeight: '500' }}>
-                                  {isBreakHabit ? 'Break habit' : 'Build habit'}
-                                </Text>
-                              </View>
-                              <Switch
-                                value={isBreakHabit}
-                                onValueChange={(next) => {
+                              {/* Build option */}
+                              <Pressable
+                                onPress={() => {
                                   dispatch({
                                     type: 'SET_HABIT_SUBTYPE',
-                                    subtype: next ? 'break_habit' : 'start_habit',
+                                    subtype: 'start_habit',
                                   });
                                 }}
-                                trackColor={{
-                                  false: 'rgba(0,0,0,0.12)',
-                                  true: lightTokens.colors.moss,
+                                style={({ pressed }) => ({
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  paddingVertical: 6,
+                                  borderBottomWidth: !isBreakHabit ? 2 : 0,
+                                  borderBottomColor: lightTokens.colors.moss,
+                                  opacity: pressed ? 0.7 : 1,
+                                })}
+                              >
+                                <TrendingUp
+                                  size={14}
+                                  color={!isBreakHabit ? lightTokens.colors.moss : '#999999'}
+                                  strokeWidth={!isBreakHabit ? 2.5 : 2}
+                                />
+                                <Text
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: !isBreakHabit ? '600' : '400',
+                                    color: !isBreakHabit ? lightTokens.colors.moss : '#999999',
+                                  }}
+                                >
+                                  Build
+                                </Text>
+                              </Pressable>
+
+                              {/* Break option */}
+                              <Pressable
+                                onPress={() => {
+                                  dispatch({
+                                    type: 'SET_HABIT_SUBTYPE',
+                                    subtype: 'break_habit',
+                                  });
                                 }}
-                                thumbColor="#FFFFFF"
-                              />
+                                style={({ pressed }) => ({
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  paddingVertical: 6,
+                                  borderBottomWidth: isBreakHabit ? 2 : 0,
+                                  borderBottomColor: lightTokens.colors.moss,
+                                  opacity: pressed ? 0.7 : 1,
+                                })}
+                              >
+                                <TrendingDown
+                                  size={14}
+                                  color={isBreakHabit ? lightTokens.colors.moss : '#999999'}
+                                  strokeWidth={isBreakHabit ? 2.5 : 2}
+                                />
+                                <Text
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: isBreakHabit ? '600' : '400',
+                                    color: isBreakHabit ? lightTokens.colors.moss : '#999999',
+                                  }}
+                                >
+                                  Break
+                                </Text>
+                              </Pressable>
                             </View>
                           )}
 
@@ -6173,45 +6290,74 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     Check-in frequency
                                   </Text>
                                 )}
-                                {/* Frequency + Lock In row (matching todo structure) */}
+
+                                {/* Schedule Summary + Lock In row */}
                                 <View style={styles.dueAndLockRow}>
-                                  {/* Left side: Frequency selector */}
+                                  {/* Left side: Schedule summary pill */}
                                   <View style={styles.dueDateLeft}>
                                     <Pressable
-                                      style={styles.dueDateRow}
-                                      onPress={() => {
-                                        // Initialize modal state from current habit frequency
-                                        const currentFreq = jsonToFrequency(
-                                          state.habit.frequency_json,
-                                        );
-                                        setFrequencyTab(currentFreq.mode);
-                                        if (currentFreq.mode === 'days') {
-                                          setSelectedDays(currentFreq.days);
-                                        } else if (currentFreq.mode === 'custom') {
-                                          setCustomCount(String(currentFreq.value.count));
-                                          setCustomUnit(currentFreq.value.unit);
-                                        }
-                                        setShowFrequencyModal(true);
-                                      }}
+                                      style={({ pressed }) => ({
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        paddingVertical: 10,
+                                        paddingHorizontal: 14,
+                                        paddingRight: 10,
+                                        backgroundColor: pressed
+                                          ? 'rgba(0,0,0,0.06)'
+                                          : 'rgba(0,0,0,0.03)',
+                                        borderRadius: 10,
+                                        marginRight: 12,
+                                        flex: 1,
+                                      })}
+                                      onPress={openScheduleModal}
                                       accessibilityRole="button"
-                                      accessibilityLabel="Set frequency"
+                                      accessibilityLabel="Edit schedule"
                                     >
                                       <Calendar
                                         size={16}
                                         color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'
+                                          colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#888888'
                                         }
-                                        style={styles.dueDateIcon}
+                                        style={{ marginRight: 10 }}
                                       />
-                                      <Text style={styles.dueDateText}>
-                                        {getFrequencyLabel(
-                                          jsonToFrequency(state.habit.frequency_json),
-                                        )}
-                                      </Text>
+
+                                      <View style={{ flex: 1 }}>
+                                        <Text
+                                          style={{
+                                            fontSize: 14,
+                                            fontWeight: '500',
+                                            color: '#333333',
+                                          }}
+                                        >
+                                          Schedule
+                                        </Text>
+                                        <Text
+                                          style={{ fontSize: 12, color: '#888888', marginTop: 2 }}
+                                        >
+                                          {[
+                                            getFrequencyLabel(
+                                              jsonToFrequency(state.habit.frequency_json),
+                                            ),
+                                            state.habit.time_estimate_minutes &&
+                                              `~${state.habit.time_estimate_minutes}m`,
+                                            state.habit.start_date &&
+                                              format(parseISO(state.habit.start_date), 'MMM d'),
+                                          ]
+                                            .filter(Boolean)
+                                            .join(' · ')}
+                                        </Text>
+                                      </View>
+
+                                      <ChevronRight
+                                        size={16}
+                                        color={
+                                          colorMode === 'dark' ? 'rgba(255,255,255,0.4)' : '#AAAAAA'
+                                        }
+                                      />
                                     </Pressable>
                                   </View>
 
-                                  {/* Right side: Lock In toggle (same as todos) */}
+                                  {/* Right side: Lock In toggle */}
                                   {commitmentsOn ? (
                                     <View style={styles.lockInRight}>
                                       <Diamond
@@ -6254,155 +6400,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       />
                                     </View>
                                   ) : null}
-                                </View>
-
-                                {/* Start/End Date row for habits */}
-                                <View style={styles.habitDateRow}>
-                                  {/* Start Date */}
-                                  <Pressable
-                                    style={styles.habitDatePill}
-                                    onPress={() => setShowHabitStartDatePicker(true)}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Set start date"
-                                  >
-                                    <Calendar
-                                      size={14}
-                                      color={
-                                        state.habit.start_date
-                                          ? colorMode === 'dark'
-                                            ? 'rgba(255,255,255,0.7)'
-                                            : '#666666'
-                                          : colorMode === 'dark'
-                                            ? 'rgba(255,255,255,0.5)'
-                                            : '#999999'
-                                      }
-                                    />
-                                    <Text
-                                      style={[
-                                        styles.habitDateText,
-                                        !state.habit.start_date && {
-                                          color:
-                                            colorMode === 'dark'
-                                              ? 'rgba(255,255,255,0.5)'
-                                              : '#999999',
-                                        },
-                                      ]}
-                                    >
-                                      {state.habit.start_date
-                                        ? `Starts ${format(parseISO(state.habit.start_date), 'MMM d')}`
-                                        : 'Start TBD'}
-                                    </Text>
-                                  </Pressable>
-
-                                  {/* End Date (optional) */}
-                                  <Pressable
-                                    style={styles.habitDatePill}
-                                    onPress={() => setShowHabitEndDatePicker(true)}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Set end date"
-                                  >
-                                    <Calendar
-                                      size={14}
-                                      color={
-                                        colorMode === 'dark' ? 'rgba(255,255,255,0.4)' : '#AAAAAA'
-                                      }
-                                    />
-                                    <Text
-                                      style={[
-                                        styles.habitDateText,
-                                        {
-                                          color:
-                                            colorMode === 'dark'
-                                              ? 'rgba(255,255,255,0.4)'
-                                              : '#AAAAAA',
-                                        },
-                                      ]}
-                                    >
-                                      {state.habit.end_date
-                                        ? `Ends ${format(parseISO(state.habit.end_date), 'MMM d')}`
-                                        : 'No end date'}
-                                    </Text>
-                                  </Pressable>
-                                </View>
-
-                                {/* Time Window on its own row */}
-                                <View
-                                  style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    marginTop: 8,
-                                    paddingLeft: 12,
-                                    gap: 8,
-                                  }}
-                                >
-                                  <Pressable
-                                    style={styles.habitDatePill}
-                                    onPress={() => setShowTimeWindowModal(true)}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={
-                                      state.habit.time_window
-                                        ? `Time window: ${state.habit.time_window}`
-                                        : 'Set time window'
-                                    }
-                                  >
-                                    <Text
-                                      style={[
-                                        styles.habitDateText,
-                                        !state.habit.time_window && {
-                                          color:
-                                            colorMode === 'dark'
-                                              ? 'rgba(255,255,255,0.5)'
-                                              : '#999999',
-                                        },
-                                      ]}
-                                    >
-                                      {state.habit.time_window && state.habit.time_window !== 'any'
-                                        ? TIME_WINDOW_OPTIONS.find(
-                                            (o) => o.value === state.habit.time_window,
-                                          )?.label || state.habit.time_window
-                                        : 'Any time'}
-                                    </Text>
-                                  </Pressable>
-
-                                  {/* Time Estimate chip - compact view */}
-                                  <Pressable
-                                    style={styles.habitDatePill}
-                                    onPress={() => setShowTimeEstimateModal(true)}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={
-                                      state.habit.time_estimate_minutes
-                                        ? `Time estimate: ${state.habit.time_estimate_minutes} minutes`
-                                        : 'Set time estimate'
-                                    }
-                                  >
-                                    <Clock
-                                      size={14}
-                                      color={
-                                        state.habit.time_estimate_minutes
-                                          ? colorMode === 'dark'
-                                            ? 'rgba(255,255,255,0.7)'
-                                            : '#666666'
-                                          : colorMode === 'dark'
-                                            ? 'rgba(255,255,255,0.5)'
-                                            : '#999999'
-                                      }
-                                    />
-                                    <Text
-                                      style={[
-                                        styles.habitDateText,
-                                        !state.habit.time_estimate_minutes && {
-                                          color:
-                                            colorMode === 'dark'
-                                              ? 'rgba(255,255,255,0.5)'
-                                              : '#999999',
-                                        },
-                                      ]}
-                                    >
-                                      {state.habit.time_estimate_minutes
-                                        ? `~${state.habit.time_estimate_minutes}m`
-                                        : 'Time'}
-                                    </Text>
-                                  </Pressable>
                                 </View>
                               </Box>
                             ) : null}
@@ -7697,6 +7694,359 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               </Pressable>
                             );
                           })}
+                        </View>
+                      </Pressable>
+                    </Pressable>
+                  </Modal>
+
+                  {/* Unified Schedule Modal for Habits */}
+                  <Modal
+                    visible={showScheduleModal}
+                    transparent
+                    animationType="fade"
+                    onRequestClose={() => setShowScheduleModal(false)}
+                  >
+                    <Pressable
+                      style={{
+                        flex: 1,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                      }}
+                      onPress={() => setShowScheduleModal(false)}
+                    >
+                      <Pressable
+                        style={styles.scheduleModalContent}
+                        onPress={(e) => e.stopPropagation()}
+                      >
+                        <ScrollView showsVerticalScrollIndicator={false}>
+                          {/* Header */}
+                          <Text style={styles.scheduleModalTitle}>Schedule</Text>
+
+                          {/* ===== FREQUENCY SECTION ===== */}
+                          <Text style={styles.scheduleModalSectionLabel}>Frequency</Text>
+                          <View style={styles.scheduleModalSection}>
+                            {/* Frequency tabs: Simple | Days | Custom */}
+                            <View style={styles.frequencyTabRow}>
+                              {(['simple', 'days', 'custom'] as const).map((tab) => (
+                                <Pressable
+                                  key={tab}
+                                  onPress={() =>
+                                    setScheduleModalState((prev) => ({
+                                      ...prev,
+                                      frequencyTab: tab,
+                                    }))
+                                  }
+                                  style={[
+                                    styles.frequencyTab,
+                                    scheduleModalState.frequencyTab === tab &&
+                                      styles.frequencyTabActive,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.frequencyTabText,
+                                      scheduleModalState.frequencyTab === tab &&
+                                        styles.frequencyTabTextActive,
+                                    ]}
+                                  >
+                                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                            </View>
+
+                            {/* Simple frequency options */}
+                            {scheduleModalState.frequencyTab === 'simple' && (
+                              <View style={styles.frequencyOptionsColumn}>
+                                {['daily', 'weekly', 'monthly'].map((freq) => {
+                                  const isSelected =
+                                    scheduleModalState.frequencyJson?.type === 'simple' &&
+                                    scheduleModalState.frequencyJson?.value === freq;
+                                  return (
+                                    <Pressable
+                                      key={freq}
+                                      style={[
+                                        styles.frequencyOption,
+                                        isSelected && styles.frequencyOptionSelected,
+                                      ]}
+                                      onPress={() =>
+                                        setScheduleModalState((prev) => ({
+                                          ...prev,
+                                          frequencyJson: { type: 'simple', value: freq },
+                                        }))
+                                      }
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.frequencyOptionText,
+                                          isSelected && styles.frequencyOptionTextSelected,
+                                        ]}
+                                      >
+                                        {freq.charAt(0).toUpperCase() + freq.slice(1)}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            )}
+
+                            {/* Days frequency options */}
+                            {scheduleModalState.frequencyTab === 'days' && (
+                              <View style={styles.daysGrid}>
+                                {DAY_LABELS.map(({ day, short }) => {
+                                  const isSelected = scheduleModalState.selectedDays.includes(day);
+                                  return (
+                                    <Pressable
+                                      key={day}
+                                      style={[styles.dayChip, isSelected && styles.dayChipSelected]}
+                                      onPress={() =>
+                                        setScheduleModalState((prev) => ({
+                                          ...prev,
+                                          selectedDays: isSelected
+                                            ? prev.selectedDays.filter((d) => d !== day)
+                                            : [...prev.selectedDays, day].sort(),
+                                        }))
+                                      }
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.dayChipText,
+                                          isSelected && styles.dayChipTextSelected,
+                                        ]}
+                                      >
+                                        {short}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            )}
+
+                            {/* Custom frequency options */}
+                            {scheduleModalState.frequencyTab === 'custom' && (
+                              <View style={styles.customFrequencyRow}>
+                                <TextInput
+                                  style={styles.customCountInput}
+                                  value={scheduleModalState.customCount}
+                                  onChangeText={(text) =>
+                                    setScheduleModalState((prev) => ({
+                                      ...prev,
+                                      customCount: text,
+                                    }))
+                                  }
+                                  keyboardType="number-pad"
+                                  maxLength={2}
+                                />
+                                <Text style={styles.customFrequencyLabel}>times per</Text>
+                                <View style={styles.customUnitPicker}>
+                                  {(['day', 'week', 'month'] as const).map((unit) => (
+                                    <Pressable
+                                      key={unit}
+                                      style={[
+                                        styles.customUnitOption,
+                                        scheduleModalState.customUnit === unit &&
+                                          styles.customUnitOptionSelected,
+                                      ]}
+                                      onPress={() =>
+                                        setScheduleModalState((prev) => ({
+                                          ...prev,
+                                          customUnit: unit,
+                                        }))
+                                      }
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.customUnitText,
+                                          scheduleModalState.customUnit === unit &&
+                                            styles.customUnitTextSelected,
+                                        ]}
+                                      >
+                                        {unit}
+                                      </Text>
+                                    </Pressable>
+                                  ))}
+                                </View>
+                              </View>
+                            )}
+                          </View>
+
+                          {/* ===== START DATE SECTION ===== */}
+                          <Text style={styles.scheduleModalSectionLabel}>Start date</Text>
+                          <Pressable
+                            style={styles.scheduleModalDateRow}
+                            onPress={() =>
+                              setShowScheduleStartDatePicker(!showScheduleStartDatePicker)
+                            }
+                          >
+                            <Text style={styles.scheduleModalDateText}>
+                              {scheduleModalState.startDate
+                                ? format(parseISO(scheduleModalState.startDate), 'MMM d, yyyy')
+                                : 'Not set'}
+                            </Text>
+                            <Calendar size={18} color="#666666" />
+                          </Pressable>
+
+                          {/* Inline DateTimePicker for start date */}
+                          {showScheduleStartDatePicker && (
+                            <DateTimePicker
+                              value={
+                                scheduleModalState.startDate
+                                  ? parseISO(scheduleModalState.startDate)
+                                  : new Date()
+                              }
+                              mode="date"
+                              display="inline"
+                              onChange={(event, date) => {
+                                if (date) {
+                                  setScheduleModalState((prev) => ({
+                                    ...prev,
+                                    startDate: format(date, 'yyyy-MM-dd'),
+                                  }));
+                                }
+                                setShowScheduleStartDatePicker(false);
+                              }}
+                              style={{ backgroundColor: 'white' }}
+                            />
+                          )}
+
+                          {/* ===== END DATE SECTION ===== */}
+                          <Text style={styles.scheduleModalSectionLabel}>End date</Text>
+                          <Pressable
+                            style={styles.scheduleModalDateRow}
+                            onPress={() => setShowScheduleEndDatePicker(!showScheduleEndDatePicker)}
+                          >
+                            <Text
+                              style={[
+                                styles.scheduleModalDateText,
+                                !scheduleModalState.endDate && { color: '#999999' },
+                              ]}
+                            >
+                              {scheduleModalState.endDate
+                                ? format(parseISO(scheduleModalState.endDate), 'MMM d, yyyy')
+                                : 'No end date'}
+                            </Text>
+                            <Calendar size={18} color="#666666" />
+                          </Pressable>
+
+                          {showScheduleEndDatePicker && (
+                            <View>
+                              <DateTimePicker
+                                value={
+                                  scheduleModalState.endDate
+                                    ? parseISO(scheduleModalState.endDate)
+                                    : new Date()
+                                }
+                                mode="date"
+                                display="inline"
+                                onChange={(event, date) => {
+                                  if (date) {
+                                    setScheduleModalState((prev) => ({
+                                      ...prev,
+                                      endDate: format(date, 'yyyy-MM-dd'),
+                                    }));
+                                  }
+                                  setShowScheduleEndDatePicker(false);
+                                }}
+                                style={{ backgroundColor: 'white' }}
+                              />
+                              <Pressable
+                                onPress={() => {
+                                  setScheduleModalState((prev) => ({
+                                    ...prev,
+                                    endDate: null,
+                                  }));
+                                  setShowScheduleEndDatePicker(false);
+                                }}
+                                style={{ alignSelf: 'center', paddingVertical: 8 }}
+                              >
+                                <Text style={{ color: '#888888', fontSize: 14 }}>
+                                  Clear end date
+                                </Text>
+                              </Pressable>
+                            </View>
+                          )}
+
+                          {/* ===== TIME OF DAY SECTION ===== */}
+                          <Text style={styles.scheduleModalSectionLabel}>Time of day</Text>
+                          <View style={styles.timeWindowGrid}>
+                            {TIME_WINDOW_OPTIONS.map((option) => {
+                              const isSelected = scheduleModalState.timeWindow === option.value;
+                              return (
+                                <Pressable
+                                  key={option.value ?? 'null'}
+                                  style={[
+                                    styles.timeWindowChip,
+                                    isSelected && styles.timeWindowChipSelected,
+                                  ]}
+                                  onPress={() =>
+                                    setScheduleModalState((prev) => ({
+                                      ...prev,
+                                      timeWindow: option.value,
+                                    }))
+                                  }
+                                >
+                                  <Text
+                                    style={[
+                                      styles.timeWindowChipText,
+                                      isSelected && styles.timeWindowChipTextSelected,
+                                    ]}
+                                  >
+                                    {option.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+
+                          {/* ===== DURATION SECTION ===== */}
+                          <Text style={styles.scheduleModalSectionLabel}>Duration</Text>
+                          <View style={styles.durationGrid}>
+                            {TIME_ESTIMATE_OPTIONS.map((option) => {
+                              const isSelected =
+                                scheduleModalState.timeEstimateMinutes === option.value;
+                              return (
+                                <Pressable
+                                  key={option.value}
+                                  style={[
+                                    styles.durationChip,
+                                    isSelected && styles.durationChipSelected,
+                                  ]}
+                                  onPress={() =>
+                                    setScheduleModalState((prev) => ({
+                                      ...prev,
+                                      timeEstimateMinutes: isSelected ? null : option.value,
+                                    }))
+                                  }
+                                >
+                                  <Text
+                                    style={[
+                                      styles.durationChipText,
+                                      isSelected && styles.durationChipTextSelected,
+                                    ]}
+                                  >
+                                    {option.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </ScrollView>
+
+                        {/* Footer buttons */}
+                        <View style={styles.scheduleModalFooter}>
+                          <Pressable
+                            onPress={() => setShowScheduleModal(false)}
+                            style={styles.scheduleModalCancelButton}
+                          >
+                            <Text style={styles.scheduleModalCancelText}>Cancel</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={applyScheduleChanges}
+                            style={styles.scheduleModalSetButton}
+                          >
+                            <Text style={styles.scheduleModalSetText}>Set</Text>
+                          </Pressable>
                         </View>
                       </Pressable>
                     </Pressable>
@@ -9615,6 +9965,28 @@ const styles = StyleSheet.create({
     color: '#666666',
   },
 
+  /* Schedule Popover styles */
+  schedulePopoverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    minHeight: 44,
+  },
+  schedulePopoverLabel: {
+    fontSize: 14,
+    color: '#333333',
+    fontWeight: '500',
+  },
+  schedulePopoverValue: {
+    fontSize: 14,
+    color: '#666666',
+  },
+  schedulePopoverDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
+
   /* Title actions styling */
   titleActions: {
     flexDirection: 'row',
@@ -9902,5 +10274,233 @@ const styles = StyleSheet.create({
   addMorePhotosText: {
     fontSize: 14,
     color: '#666666',
+  },
+
+  /* ===== Schedule Modal Styles ===== */
+  scheduleModalContent: {
+    backgroundColor: '#FFFDF5',
+    borderRadius: 16,
+    marginHorizontal: 20,
+    padding: 20,
+    maxHeight: '85%',
+  },
+  scheduleModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#222222',
+    marginBottom: 20,
+  },
+  scheduleModalSectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666666',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  scheduleModalSection: {
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: 12,
+    padding: 12,
+  },
+  scheduleModalDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  scheduleModalDateText: {
+    fontSize: 15,
+    color: '#333333',
+  },
+  scheduleModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+  },
+  scheduleModalCancelButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  scheduleModalCancelText: {
+    fontSize: 16,
+    color: '#333333',
+  },
+  scheduleModalSetButton: {
+    backgroundColor: lightTokens.colors.moss,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 10,
+  },
+  scheduleModalSetText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+
+  /* Frequency section styles */
+  frequencyTabRow: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  frequencyTab: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginRight: 8,
+  },
+  frequencyTabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: lightTokens.colors.moss,
+  },
+  frequencyTabText: {
+    fontSize: 14,
+    color: '#999999',
+  },
+  frequencyTabTextActive: {
+    color: '#333333',
+    fontWeight: '600',
+  },
+  frequencyOptionsColumn: {
+    gap: 8,
+  },
+  frequencyOption: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  frequencyOptionSelected: {
+    backgroundColor: lightTokens.colors.moss,
+  },
+  frequencyOptionText: {
+    fontSize: 15,
+    color: '#333333',
+    textAlign: 'center',
+  },
+  frequencyOptionTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+
+  /* Days grid styles */
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  dayChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  dayChipSelected: {
+    backgroundColor: lightTokens.colors.moss,
+  },
+  dayChipText: {
+    fontSize: 13,
+    color: '#333333',
+  },
+  dayChipTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+
+  /* Custom frequency styles */
+  customFrequencyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  customCountInput: {
+    width: 50,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+    textAlign: 'center',
+    fontSize: 16,
+  },
+  customFrequencyLabel: {
+    fontSize: 14,
+    color: '#666666',
+  },
+  customUnitPicker: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  customUnitOption: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  customUnitOptionSelected: {
+    backgroundColor: lightTokens.colors.moss,
+  },
+  customUnitText: {
+    fontSize: 13,
+    color: '#333333',
+  },
+  customUnitTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+
+  /* Time window grid */
+  timeWindowGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  timeWindowChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  timeWindowChipSelected: {
+    backgroundColor: lightTokens.colors.moss,
+  },
+  timeWindowChipText: {
+    fontSize: 13,
+    color: '#333333',
+  },
+  timeWindowChipTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+
+  /* Duration grid */
+  durationGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  durationChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  durationChipSelected: {
+    backgroundColor: lightTokens.colors.moss,
+  },
+  durationChipText: {
+    fontSize: 13,
+    color: '#333333',
+  },
+  durationChipTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
 });
