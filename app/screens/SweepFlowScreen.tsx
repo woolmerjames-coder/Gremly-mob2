@@ -169,14 +169,10 @@ function SweepIntroStep({
   onStart,
   onHelpPress,
   onClose,
-  completedCount = 0,
-  onSeeCompleted,
 }: {
   onStart: () => void;
   onHelpPress?: () => void;
   onClose?: () => void;
-  completedCount?: number;
-  onSeeCompleted?: () => void;
 }) {
   const { stats, isLoading } = useSweepIntroStats();
   const gremlyAge = useGremlyStore.getState().gremlyAge;
@@ -195,16 +191,6 @@ function SweepIntroStep({
     if (totalCount <= 15) return '~ 3 min ~';
     return '~ 5 min ~';
   };
-
-  // Encouraging phrases
-  const phrases = [
-    "Let's clear the path for tomorrow",
-    'Ready when you are',
-    'A few quick decisions ahead',
-    "Let's set up tomorrow for success",
-    "You've got this",
-  ];
-  const [phrase] = useState(() => phrases[Math.floor(Math.random() * phrases.length)]);
 
   // Build breakdown string
   const buildBreakdown = () => {
@@ -231,12 +217,6 @@ function SweepIntroStep({
           Nothing to sweep — you're caught up.{'\n'}Enjoy the mental clarity.
         </Text>
 
-        {completedCount > 0 && (
-          <TouchableOpacity onPress={onSeeCompleted} style={styles.seeCompletedLink}>
-            <Text style={styles.seeCompletedText}>See {completedCount} completed →</Text>
-          </TouchableOpacity>
-        )}
-
         <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
           <Text style={styles.secondaryButtonText}>Back to Today</Text>
         </TouchableOpacity>
@@ -251,32 +231,18 @@ function SweepIntroStep({
         <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotNew} resizeMode="contain" />
       </Pressable>
 
-      {/* Encouraging text */}
-      <Text style={styles.introPhrase}>{isFirstTime ? 'Welcome to Sweep!' : phrase}</Text>
+      {/* Main title - simple and direct */}
+      <Text style={styles.introPhrase}>{isFirstTime ? 'Welcome to Sweep!' : 'A quick sweep'}</Text>
 
-      {isFirstTime && <Text style={styles.introSubphrase}>Let's clear the path for tomorrow.</Text>}
-
-      {/* Divider */}
-      <View style={styles.introDivider} />
-
-      {/* What's ahead */}
-      <Text style={styles.introSectionHeader}>
-        {isFirstTime ? 'Your first sweep:' : "Today's sweep:"}
+      {/* Subtitle with time estimate */}
+      <Text style={styles.introSubtitle}>
+        {isFirstTime
+          ? "Let's clear the path for tomorrow"
+          : `Clear your mind in ${getTimeEstimate().replace(/~/g, '').trim()}`}
       </Text>
 
-      <Text style={styles.introBreakdown}>{buildBreakdown()}</Text>
-
-      <Text style={styles.introTimeEstimate}>{getTimeEstimate()}</Text>
-
-      {/* Divider */}
-      <View style={styles.introDivider} />
-
-      {/* See completed link */}
-      {completedCount > 0 && (
-        <TouchableOpacity onPress={onSeeCompleted} style={styles.seeCompletedLink}>
-          <Text style={styles.seeCompletedText}>See {completedCount} completed →</Text>
-        </TouchableOpacity>
-      )}
+      {/* Breakdown - smaller, muted, optional context */}
+      {totalCount > 0 && <Text style={styles.introBreakdownMuted}>{buildBreakdown()}</Text>}
 
       {/* CTA */}
       <TouchableOpacity style={styles.introButton} onPress={onStart} activeOpacity={0.8}>
@@ -3062,8 +3028,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 onStart={handleIntroStart}
                 onHelpPress={() => setShowInstructionsModal(true)}
                 onClose={handleClose}
-                completedCount={completedItems.length}
-                onSeeCompleted={() => setShowCompletedModal(true)}
               />
               <SweepInstructionsModal
                 visible={showInstructionsModal}
@@ -3282,45 +3246,18 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     includeFontPadding: true,
   },
-  introSubphrase: {
-    fontSize: 16,
+  introSubtitle: {
+    fontSize: 17,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 24,
-  },
-  introDivider: {
-    width: 200,
-    height: 1,
-    backgroundColor: 'rgba(34, 34, 34, 0.1)',
-    marginVertical: 28,
-  },
-  introSectionHeader: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  introBreakdown: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  introTimeEstimate: {
-    fontSize: 15,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-  },
-  seeCompletedLink: {
+    marginTop: 8,
     marginBottom: 24,
-    marginTop: 4,
   },
-  seeCompletedText: {
-    fontSize: 15,
-    color: BRAND.colors.mossGreen,
-    fontWeight: '600',
+  introBreakdownMuted: {
+    fontSize: 14,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    marginBottom: 32,
   },
   introButton: {
     backgroundColor: BRAND.colors.sageMist,
