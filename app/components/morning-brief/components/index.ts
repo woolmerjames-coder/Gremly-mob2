@@ -12,3 +12,4 @@ export { TimeBlockPicker } from './TimeBlockPicker';
 export { TimeBlockSection } from './TimeBlockSection';
 export { OnYourPlateSection } from './OnYourPlateSection';
 export { TimeEstimatePicker } from './TimeEstimatePicker';
+export { EventDurationPicker } from './EventDurationPicker';

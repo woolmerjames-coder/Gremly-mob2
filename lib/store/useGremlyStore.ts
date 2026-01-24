@@ -81,6 +81,30 @@ async function saveHiddenEventsToStorage(data: Record<string, string[]>): Promis
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT DURATION OVERRIDES PERSISTENCE (AsyncStorage - local only)
+// ═══════════════════════════════════════════════════════════════════════════════
+const EVENT_DURATION_OVERRIDES_STORAGE_KEY = 'gremly:eventDurationOverrides';
+
+async function loadEventDurationOverridesFromStorage(): Promise<Record<string, number>> {
+  try {
+    const stored = await AsyncStorage.getItem(EVENT_DURATION_OVERRIDES_STORAGE_KEY);
+    if (!stored) return {};
+    return JSON.parse(stored) as Record<string, number>;
+  } catch (error) {
+    console.error('[GremlyStore] Failed to load event duration overrides:', error);
+    return {};
+  }
+}
+
+async function saveEventDurationOverridesToStorage(data: Record<string, number>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(EVENT_DURATION_OVERRIDES_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('[GremlyStore] Failed to save event duration overrides:', error);
+  }
+}
+
 /**
  * Sanitize payload before sending to Supabase.
  * - Strips app-only fields that don't exist in DB
@@ -497,6 +521,8 @@ interface GremlyState {
   calendarLastFetched: string | null;
   /** Hidden calendar events keyed by date (YYYY-MM-DD) */
   hiddenCalendarEventsByDate: Record<string, string[]>;
+  /** Local duration overrides for calendar events (eventId → minutes) */
+  eventDurationOverrides: Record<string, number>;
 
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
@@ -511,6 +537,9 @@ interface GremlyState {
   hideCalendarEvent: (date: string, eventId: string) => void;
   unhideCalendarEvent: (date: string, eventId: string) => void;
   unhideAllCalendarEventsForDate: (date: string) => void;
+  setEventDurationOverride: (eventId: string, minutes: number) => void;
+  clearEventDurationOverride: (eventId: string) => void;
+  clearAllEventDurationOverrides: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -560,6 +589,7 @@ const initialState = {
   calendarLoading: false,
   calendarLastFetched: null as string | null,
   hiddenCalendarEventsByDate: {} as Record<string, string[]>,
+  eventDurationOverrides: {} as Record<string, number>,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -752,6 +782,12 @@ export const useGremlyStore = create<GremlyState>()(
         const hiddenEvents = await loadHiddenEventsFromStorage();
         if (Object.keys(hiddenEvents).length > 0) {
           set({ hiddenCalendarEventsByDate: hiddenEvents });
+        }
+
+        // Load event duration overrides from AsyncStorage
+        const durationOverrides = await loadEventDurationOverridesFromStorage();
+        if (Object.keys(durationOverrides).length > 0) {
+          set({ eventDurationOverrides: durationOverrides });
         }
 
         console.log('[GremlyStore] ✅ Initialized with', {
@@ -3245,6 +3281,32 @@ export const useGremlyStore = create<GremlyState>()(
         saveHiddenEventsToStorage(rest);
         return { hiddenCalendarEventsByDate: rest };
       });
+    },
+
+    setEventDurationOverride: (eventId: string, minutes: number) => {
+      set((state) => {
+        const updated = {
+          ...state.eventDurationOverrides,
+          [eventId]: minutes,
+        };
+        // Persist to AsyncStorage
+        saveEventDurationOverridesToStorage(updated);
+        return { eventDurationOverrides: updated };
+      });
+    },
+
+    clearEventDurationOverride: (eventId: string) => {
+      set((state) => {
+        const { [eventId]: _, ...rest } = state.eventDurationOverrides;
+        // Persist to AsyncStorage
+        saveEventDurationOverridesToStorage(rest);
+        return { eventDurationOverrides: rest };
+      });
+    },
+
+    clearAllEventDurationOverrides: () => {
+      set({ eventDurationOverrides: {} });
+      saveEventDurationOverridesToStorage({});
     },
 
     // ═══════════════════════════════════════════════════════════════════

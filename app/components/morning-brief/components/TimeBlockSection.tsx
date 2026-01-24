@@ -9,12 +9,14 @@
 
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
-import { Sunrise, Sun, Sunset, Calendar, X, MapPin, Clock } from 'lucide-react-native';
+import { Sunrise, Sun, Sunset, Calendar, X, MapPin, Clock, Pencil } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { formatBlockRemaining } from '../../../../lib/capacity';
 import type { TimeBlockCapacity, TimeBlock } from '../../../../lib/capacity';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
+import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { TaskItem, type TaskItemData } from './TaskItem';
+import { EventDurationPicker } from './EventDurationPicker';
 
 // Colors matching CalendarScreen
 const COLORS = {
@@ -71,11 +73,11 @@ function formatEventTimeCompact(event: CalendarEvent): string {
 /**
  * Calculate event duration string
  */
-function formatEventDuration(event: CalendarEvent): string | null {
+function formatEventDuration(event: CalendarEvent, overrideMinutes?: number): string | null {
   if (event.isAllDay) return null;
   const start = new Date(event.startAt);
   const end = new Date(event.endAt);
-  const mins = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
+  const mins = overrideMinutes ?? Math.round((end.getTime() - start.getTime()) / (1000 * 60));
   if (mins < 60) return `${mins} min`;
   const hrs = Math.floor(mins / 60);
   const remainingMins = mins % 60;
@@ -97,12 +99,25 @@ interface EventDetailPopupProps {
   visible: boolean;
   onClose: () => void;
   onHide: () => void;
+  onEditDuration: () => void;
+  durationOverride?: number;
 }
 
-function EventDetailPopup({ event, visible, onClose, onHide }: EventDetailPopupProps) {
+function EventDetailPopup({
+  event,
+  visible,
+  onClose,
+  onHide,
+  onEditDuration,
+  durationOverride,
+}: EventDetailPopupProps) {
   if (!event) return null;
 
-  const duration = formatEventDuration(event);
+  const originalDuration = formatEventDuration(event);
+  const displayDuration = durationOverride
+    ? formatEventDuration(event, durationOverride)
+    : originalDuration;
+  const hasOverride = durationOverride !== undefined;
   const timeRange = formatEventTimeCompact(event);
 
   return (
@@ -125,7 +140,19 @@ function EventDetailPopup({ event, visible, onClose, onHide }: EventDetailPopupP
               <Clock size={16} color={COLORS.inkMuted} />
               <Text style={popupStyles.detailText}>
                 {timeRange}
-                {duration ? ` (${duration})` : ''}
+                {hasOverride ? (
+                  <>
+                    {' ('}
+                    <Text style={popupStyles.strikethrough}>{originalDuration}</Text>
+                    {' → '}
+                    <Text style={popupStyles.overrideText}>{displayDuration}</Text>
+                    {')'}
+                  </>
+                ) : displayDuration ? (
+                  ` (${displayDuration})`
+                ) : (
+                  ''
+                )}
               </Text>
             </View>
 
@@ -150,8 +177,13 @@ function EventDetailPopup({ event, visible, onClose, onHide }: EventDetailPopupP
 
           {/* Actions */}
           <View style={popupStyles.actions}>
-            <Pressable style={popupStyles.hideButton} onPress={onHide}>
-              <Text style={popupStyles.hideButtonText}>Hide from today</Text>
+            <Pressable style={popupStyles.actionButton} onPress={onEditDuration}>
+              <Pencil size={16} color={COLORS.mossGreen} />
+              <Text style={popupStyles.actionButtonText}>Edit duration</Text>
+            </Pressable>
+            <View style={popupStyles.actionDivider} />
+            <Pressable style={popupStyles.actionButton} onPress={onHide}>
+              <Text style={popupStyles.actionButtonText}>Hide from today</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -206,20 +238,36 @@ const popupStyles = StyleSheet.create({
     color: COLORS.inkSubtle,
     lineHeight: 20,
   },
+  strikethrough: {
+    textDecorationLine: 'line-through',
+    color: COLORS.inkMuted,
+  },
+  overrideText: {
+    color: COLORS.mossGreen,
+    fontWeight: '600',
+  },
   actions: {
     padding: 16,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: COLORS.divider,
   },
-  hideButton: {
-    paddingVertical: 12,
+  actionButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 8,
   },
-  hideButtonText: {
+  actionButtonText: {
     fontSize: 15,
     fontWeight: '500',
     color: COLORS.mossGreen,
+  },
+  actionDivider: {
+    height: 1,
+    backgroundColor: COLORS.divider,
+    marginVertical: 4,
   },
 });
 
@@ -237,6 +285,13 @@ export function TimeBlockSection({
 
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [showEventPopup, setShowEventPopup] = useState(false);
+  const [durationPickerVisible, setDurationPickerVisible] = useState(false);
+  const [durationPickerEvent, setDurationPickerEvent] = useState<CalendarEvent | null>(null);
+
+  // Get overrides and actions from store
+  const eventDurationOverrides = useGremlyStore((s) => s.eventDurationOverrides ?? {});
+  const setEventDurationOverride = useGremlyStore((s) => s.setEventDurationOverride);
+  const clearEventDurationOverride = useGremlyStore((s) => s.clearEventDurationOverride);
 
   if (!config) return null;
 
@@ -261,6 +316,34 @@ export function TimeBlockSection({
     setSelectedEvent(null);
   };
 
+  const handleEditDuration = () => {
+    if (selectedEvent) {
+      setDurationPickerEvent(selectedEvent);
+      setShowEventPopup(false);
+      setDurationPickerVisible(true);
+    }
+  };
+
+  const handleDurationSave = (eventId: string, minutes: number) => {
+    setEventDurationOverride(eventId, minutes);
+  };
+
+  const handleDurationReset = (eventId: string) => {
+    clearEventDurationOverride(eventId);
+  };
+
+  const handleDurationPickerClose = () => {
+    setDurationPickerVisible(false);
+    setDurationPickerEvent(null);
+  };
+
+  // Helper to get original duration in minutes
+  const getOriginalDurationMinutes = (event: CalendarEvent): number => {
+    return Math.round(
+      (new Date(event.endAt).getTime() - new Date(event.startAt).getTime()) / (1000 * 60),
+    );
+  };
+
   return (
     <View style={[styles.section, isPast && styles.sectionPast]}>
       {/* Section Header */}
@@ -275,11 +358,15 @@ export function TimeBlockSection({
 
       {/* Calendar Events - 2 lines only */}
       {visibleEvents.map((event, idx) => {
-        const duration = formatEventDuration(event);
+        const eventId = getEventId(event);
+        const originalMinutes = getOriginalDurationMinutes(event);
+        const overrideMinutes = eventDurationOverrides[eventId];
+        const hasOverride = overrideMinutes !== undefined;
+        const displayMinutes = hasOverride ? overrideMinutes : originalMinutes;
         const isLast = idx === visibleEvents.length - 1 && tasks.length === 0;
         return (
           <Pressable
-            key={getEventId(event)}
+            key={eventId}
             style={[styles.eventRow, !isLast && styles.rowBorder]}
             onPress={() => handleEventPress(event)}
           >
@@ -288,7 +375,21 @@ export function TimeBlockSection({
               {/* Line 1: Time + Duration */}
               <Text style={[styles.eventTime, isPast && styles.textMuted]}>
                 {formatEventTimeCompact(event)}
-                {duration ? `  (${duration})` : ''}
+                {'  ('}
+                {hasOverride ? (
+                  <>
+                    <Text style={styles.durationStrike}>
+                      {formatEventDuration(event, originalMinutes)}
+                    </Text>
+                    {' → '}
+                    <Text style={styles.durationOverride}>
+                      {formatEventDuration(event, displayMinutes)}
+                    </Text>
+                  </>
+                ) : (
+                  formatEventDuration(event, displayMinutes)
+                )}
+                {')'}
               </Text>
               {/* Line 2: Title */}
               <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
@@ -328,6 +429,28 @@ export function TimeBlockSection({
         visible={showEventPopup}
         onClose={() => setShowEventPopup(false)}
         onHide={handleHideEvent}
+        onEditDuration={handleEditDuration}
+        durationOverride={
+          selectedEvent ? eventDurationOverrides[getEventId(selectedEvent)] : undefined
+        }
+      />
+
+      {/* Event Duration Picker */}
+      <EventDurationPicker
+        visible={durationPickerVisible}
+        eventId={durationPickerEvent ? getEventId(durationPickerEvent) : null}
+        eventTitle={durationPickerEvent?.title ?? null}
+        originalDuration={
+          durationPickerEvent ? getOriginalDurationMinutes(durationPickerEvent) : null
+        }
+        currentOverride={
+          durationPickerEvent
+            ? (eventDurationOverrides[getEventId(durationPickerEvent)] ?? null)
+            : null
+        }
+        onClose={handleDurationPickerClose}
+        onSave={handleDurationSave}
+        onReset={handleDurationReset}
       />
     </View>
   );
@@ -389,6 +512,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: COLORS.inkMuted,
     marginBottom: 2,
+  },
+  durationStrike: {
+    textDecorationLine: 'line-through',
+    color: COLORS.inkMuted,
+  },
+  durationOverride: {
+    color: COLORS.mossGreen,
+    fontWeight: '600',
   },
   eventTitle: {
     fontSize: 15,

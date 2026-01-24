@@ -23,6 +23,7 @@ import type { CalendarEvent } from '../calendar/CalendarClient';
 // Stable empty array to prevent unnecessary re-renders
 const EMPTY_EVENTS: CalendarEvent[] = [];
 const EMPTY_HIDDEN: string[] = [];
+const EMPTY_OVERRIDES: Record<string, number> = {};
 
 /**
  * Internal helper: Get stable today string.
@@ -81,16 +82,17 @@ export function useHiddenEventCount(): number {
 
 /**
  * Hook: Get full day capacity breakdown
- * Recalculates when calendar events change
+ * Recalculates when calendar events or duration overrides change
  */
 export function useTodayCapacity(): DayCapacity {
   const events = useTodayCalendarEvents();
+  const eventDurationOverrides = useGremlyStore((s) => s.eventDurationOverrides ?? EMPTY_OVERRIDES);
   const today = useToday();
   const currentHour = useCurrentHour();
 
   return useMemo(
-    () => calculateDayCapacity(events, currentHour, today),
-    [events, currentHour, today],
+    () => calculateDayCapacity(events, currentHour, today, eventDurationOverrides),
+    [events, currentHour, today, eventDurationOverrides],
   );
 }
 
@@ -99,12 +101,13 @@ export function useTodayCapacity(): DayCapacity {
  */
 export function useBlockCapacity(block: TimeBlock): TimeBlockCapacity {
   const events = useTodayCalendarEvents();
+  const eventDurationOverrides = useGremlyStore((s) => s.eventDurationOverrides ?? EMPTY_OVERRIDES);
   const today = useToday();
   const currentHour = useCurrentHour();
 
   return useMemo(
-    () => calculateBlockCapacity(block, events, currentHour, today),
-    [block, events, currentHour, today],
+    () => calculateBlockCapacity(block, events, currentHour, today, eventDurationOverrides),
+    [block, events, currentHour, today, eventDurationOverrides],
   );
 }
 

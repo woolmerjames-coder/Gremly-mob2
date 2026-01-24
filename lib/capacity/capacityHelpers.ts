@@ -48,18 +48,41 @@ export function getTimeBlockBoundary(block: TimeBlock): TimeBlockBoundary {
 }
 
 /**
+ * Get unique event ID for override lookup
+ */
+function getEventId(event: CalendarEvent): string {
+  return `${event.provider}-${event.providerEventId}`;
+}
+
+/**
+ * Get event duration in minutes, using override if set
+ */
+function getEventDuration(event: CalendarEvent, overrides: Record<string, number>): number {
+  const eventId = getEventId(event);
+  if (overrides[eventId] !== undefined) {
+    return overrides[eventId];
+  }
+  // Default: calculate from actual times
+  return Math.round(
+    (new Date(event.endAt).getTime() - new Date(event.startAt).getTime()) / (1000 * 60),
+  );
+}
+
+/**
  * Calculate minutes an event occupies within a specific time block.
  *
  * Handles:
  * - All-day events (return 0 — don't block specific time)
  * - Events partially overlapping the block
  * - Events on different dates (return 0)
+ * - Duration overrides (uses override if set)
  */
 export function getEventMinutesInBlock(
   event: CalendarEvent,
   blockStartHour: number,
   blockEndHour: number,
   currentDate: string, // YYYY-MM-DD
+  durationOverrides: Record<string, number> = {},
 ): number {
   // All-day events don't block specific time slots
   if (event.isAllDay) {
@@ -67,7 +90,8 @@ export function getEventMinutesInBlock(
   }
 
   const eventStart = new Date(event.startAt);
-  const eventEnd = new Date(event.endAt);
+  const eventDuration = getEventDuration(event, durationOverrides);
+  const eventEnd = new Date(eventStart.getTime() + eventDuration * 60 * 1000);
 
   // Build block boundaries as Date objects for currentDate
   const [year, month, day] = currentDate.split('-').map(Number);
@@ -95,6 +119,7 @@ export function calculateBlockCapacity(
   events: CalendarEvent[],
   currentHour: number,
   currentDate: string,
+  durationOverrides: Record<string, number> = {},
 ): TimeBlockCapacity {
   const boundary = TIME_BLOCK_BOUNDARIES[block];
   const { startHour, endHour, icon, label } = boundary;
@@ -115,7 +140,13 @@ export function calculateBlockCapacity(
   let eventCount = 0;
 
   for (const event of events) {
-    const minutes = getEventMinutesInBlock(event, effectiveStartHour, endHour, currentDate);
+    const minutes = getEventMinutesInBlock(
+      event,
+      effectiveStartHour,
+      endHour,
+      currentDate,
+      durationOverrides,
+    );
     if (minutes > 0) {
       calendarMinutes += minutes;
       eventCount += 1;
@@ -147,10 +178,23 @@ export function calculateDayCapacity(
   events: CalendarEvent[],
   currentHour: number,
   currentDate: string,
+  durationOverrides: Record<string, number> = {},
 ): DayCapacity {
-  const morning = calculateBlockCapacity('morning', events, currentHour, currentDate);
-  const day = calculateBlockCapacity('day', events, currentHour, currentDate);
-  const evening = calculateBlockCapacity('evening', events, currentHour, currentDate);
+  const morning = calculateBlockCapacity(
+    'morning',
+    events,
+    currentHour,
+    currentDate,
+    durationOverrides,
+  );
+  const day = calculateBlockCapacity('day', events, currentHour, currentDate, durationOverrides);
+  const evening = calculateBlockCapacity(
+    'evening',
+    events,
+    currentHour,
+    currentDate,
+    durationOverrides,
+  );
 
   return {
     blocks: { morning, day, evening },
