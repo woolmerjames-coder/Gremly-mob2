@@ -28,7 +28,7 @@ export interface CalendarItem {
   isCompleted: boolean;
   isOverdue: boolean;
   isExternal?: boolean; // True for calendar events
-  provider?: 'outlook' | 'google';
+  provider?: 'outlook' | 'google' | 'ics';
   location?: string | null;
   space: {
     id: string;

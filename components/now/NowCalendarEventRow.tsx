@@ -18,9 +18,10 @@ import { BRAND } from '../../design/brand';
 import type { CalendarItem } from '../../lib/store/calendarSelectors';
 
 // Provider accent colors
-const PROVIDER_COLORS = {
+const PROVIDER_COLORS: Record<string, string> = {
   outlook: '#0078D4', // Microsoft blue
   google: '#4285F4', // Google blue
+  ics: '#6B7280', // ICS gray
   default: '#9CA6E0', // Periwinkle smoke fallback
 };
 

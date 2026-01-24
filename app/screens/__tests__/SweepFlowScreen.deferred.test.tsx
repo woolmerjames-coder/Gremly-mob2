@@ -204,6 +204,21 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// Mock SweepSectionTransition to auto-dismiss (calls onContinue immediately)
+jest.mock('../../../src/components/sweep/SweepSectionTransition', () => {
+  const ReactModule = require('react');
+  return {
+    __esModule: true,
+    SweepSectionTransition: ({ onContinue }: { onContinue: () => void }) => {
+      // Auto-continue to skip the transition in tests
+      ReactModule.useEffect(() => {
+        onContinue();
+      }, [onContinue]);
+      return null;
+    },
+  };
+});
+
 import SweepFlowScreen from '../SweepFlowScreen';
 
 const mockNavigation = {

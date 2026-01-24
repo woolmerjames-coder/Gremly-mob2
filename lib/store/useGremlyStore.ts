@@ -463,6 +463,10 @@ interface GremlyState {
   refreshCalendarConnections: () => Promise<void>;
   fetchCalendarEventsForRange: (startDate: string, endDate: string) => Promise<void>;
   connectCalendar: (provider: CalendarProvider) => Promise<{ success: boolean; error?: string }>;
+  connectIcsCalendar: (
+    icsUrl: string,
+    label?: string,
+  ) => Promise<{ success: boolean; error?: string; calendarName?: string }>;
   disconnectCalendar: (provider: CalendarProvider) => Promise<void>;
   clearCalendarEvents: () => void;
 }
@@ -3105,6 +3109,24 @@ export const useGremlyStore = create<GremlyState>()(
       } catch (error) {
         console.error('[GremlyStore] connectCalendar failed:', error);
         return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    },
+
+    connectIcsCalendar: async (icsUrl: string, label?: string) => {
+      try {
+        const result = await calendarClient.connectIcs(icsUrl, label);
+
+        if (result.success) {
+          await get().refreshCalendarConnections();
+        }
+
+        return result;
+      } catch (error) {
+        console.error('[Store] connectIcsCalendar error:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
       }
     },
 

@@ -91,7 +91,7 @@ describe('SweepFlowScreen Intro Visual Breakdown', () => {
     });
 
     it('uses "todos" for count > 1', () => {
-      const count = 3;
+      const count: number = 3;
       const label = count === 1 ? 'todo' : 'todos';
       expect(label).toBe('todos');
     });
@@ -103,7 +103,7 @@ describe('SweepFlowScreen Intro Visual Breakdown', () => {
     });
 
     it('uses "habits" for count > 1', () => {
-      const count = 2;
+      const count: number = 2;
       const label = count === 1 ? 'habit' : 'habits';
       expect(label).toBe('habits');
     });
@@ -115,7 +115,7 @@ describe('SweepFlowScreen Intro Visual Breakdown', () => {
     });
 
     it('uses "ideas" for count > 1', () => {
-      const count = 5;
+      const count: number = 5;
       const label = count === 1 ? 'idea' : 'ideas';
       expect(label).toBe('ideas');
     });

@@ -187,7 +187,7 @@ describe('NowFocusRow', () => {
       it('renders with due day set', () => {
         const itemWithDueDay: NowLockedItem = {
           ...mockLockedItem,
-          due_day: '2026-01-23',
+          dueDay: '2026-01-23',
         };
         render(<NowFocusRow item={itemWithDueDay} />);
 
@@ -201,55 +201,54 @@ describe('NowFocusRow', () => {
       });
     });
 
-    describe('time window chip', () => {
-      it('renders with time_window morning', () => {
-        const itemWithTimeWindow: NowLockedItem = {
+    describe('due day display', () => {
+      it('renders with dueDay in the morning context', () => {
+        const itemWithDueDay: NowLockedItem = {
           ...mockLockedItem,
-          time_window: 'morning',
+          dueDay: '2026-01-23',
         };
-        render(<NowFocusRow item={itemWithTimeWindow} />);
+        render(<NowFocusRow item={itemWithDueDay} />);
 
         expect(screen.getByText('Review project proposal')).toBeTruthy();
       });
 
-      it('renders with time_window afternoon', () => {
-        const itemWithTimeWindow: NowLockedItem = {
+      it('renders with dueDay in the afternoon context', () => {
+        const itemWithDueDay: NowLockedItem = {
           ...mockLockedItem,
-          time_window: 'afternoon',
+          dueDay: '2026-01-24',
         };
-        render(<NowFocusRow item={itemWithTimeWindow} />);
+        render(<NowFocusRow item={itemWithDueDay} />);
 
         expect(screen.getByText('Review project proposal')).toBeTruthy();
       });
 
-      it('renders with time_window evening', () => {
-        const itemWithTimeWindow: NowLockedItem = {
+      it('renders with dueDay in the evening context', () => {
+        const itemWithDueDay: NowLockedItem = {
           ...mockLockedItem,
-          time_window: 'evening',
+          dueDay: '2026-01-25',
         };
-        render(<NowFocusRow item={itemWithTimeWindow} />);
+        render(<NowFocusRow item={itemWithDueDay} />);
 
         expect(screen.getByText('Review project proposal')).toBeTruthy();
       });
     });
 
-    describe('combined chips', () => {
-      it('renders with both due_day and time_window', () => {
+    describe('combined display', () => {
+      it('renders with dueDay and cadence', () => {
         const itemWithBoth: NowLockedItem = {
           ...mockLockedItem,
-          due_day: '2026-01-23',
-          time_window: 'afternoon',
+          dueDay: '2026-01-23',
+          cadence: 'weekly',
         };
         render(<NowFocusRow item={itemWithBoth} />);
 
         expect(screen.getByText('Review project proposal')).toBeTruthy();
       });
 
-      it('renders without any chips', () => {
+      it('renders without any optional fields', () => {
         const itemWithoutChips: NowLockedItem = {
           ...mockLockedItem,
-          due_day: undefined,
-          time_window: undefined,
+          dueDay: undefined,
         };
         render(<NowFocusRow item={itemWithoutChips} />);
 

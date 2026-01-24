@@ -71,11 +71,29 @@ jest.mock('../../../../lib/store/useGremlyStore', () => ({
         locked_in_item_ids: ['todo-1', 'todo-2', 'habit-1'],
       },
       todos: [
-        { id: 'todo-1', title: 'Finish project proposal', type: 'todo', completed_at: null, archived: false },
-        { id: 'todo-2', title: 'Call the dentist', type: 'todo', completed_at: null, archived: false },
+        {
+          id: 'todo-1',
+          title: 'Finish project proposal',
+          type: 'todo',
+          completed_at: null,
+          archived: false,
+        },
+        {
+          id: 'todo-2',
+          title: 'Call the dentist',
+          type: 'todo',
+          completed_at: null,
+          archived: false,
+        },
       ],
       habits: [
-        { id: 'habit-1', name: 'Morning meditation', type: 'habit', last_completed_at: null, archived: false },
+        {
+          id: 'habit-1',
+          name: 'Morning meditation',
+          type: 'habit',
+          last_completed_at: null,
+          archived: false,
+        },
       ],
     };
     return selector(state);
@@ -298,7 +316,7 @@ describe('LockInCheckpointStep', () => {
       const decision: LockInDecision = 'keep';
 
       const isKeepSelected = decision === 'keep';
-      const isDropSelected = decision === 'drop';
+      const isDropSelected = (decision as string) === 'drop';
 
       expect(isKeepSelected).toBe(true);
       expect(isDropSelected).toBe(false);
