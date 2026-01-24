@@ -50,7 +50,7 @@ export function getTimeBlockBoundary(block: TimeBlock): TimeBlockBoundary {
 /**
  * Get unique event ID for override lookup
  */
-function getEventId(event: CalendarEvent): string {
+export function getEventId(event: CalendarEvent): string {
   return `${event.provider}-${event.providerEventId}`;
 }
 
@@ -59,24 +59,37 @@ export type EventTimeOverride = { startAt: string; endAt: string };
 
 /**
  * Get effective event times, using override if set
- * Returns { startAt, endAt } as Date objects
+ * Returns { startAt, endAt, hasOverride }
  */
-function getEffectiveEventTimes(
+export function getEffectiveEventTimes(
   event: CalendarEvent,
   overrides: Record<string, EventTimeOverride> = {},
-): { start: Date; end: Date } {
+): { startAt: Date; endAt: Date; hasOverride: boolean } {
   const eventId = getEventId(event);
   const override = overrides[eventId];
   if (override) {
     return {
-      start: new Date(override.startAt),
-      end: new Date(override.endAt),
+      startAt: new Date(override.startAt),
+      endAt: new Date(override.endAt),
+      hasOverride: true,
     };
   }
   return {
-    start: new Date(event.startAt),
-    end: new Date(event.endAt),
+    startAt: new Date(event.startAt),
+    endAt: new Date(event.endAt),
+    hasOverride: false,
   };
+}
+
+/**
+ * Get effective duration in minutes for an event, considering overrides
+ */
+export function getEffectiveEventDuration(
+  event: CalendarEvent,
+  overrides: Record<string, EventTimeOverride> = {},
+): number {
+  const { startAt, endAt } = getEffectiveEventTimes(event, overrides);
+  return Math.round((endAt.getTime() - startAt.getTime()) / (1000 * 60));
 }
 
 /**
@@ -100,7 +113,7 @@ export function getEventMinutesInBlock(
     return 0;
   }
 
-  const { start: eventStart, end: eventEnd } = getEffectiveEventTimes(event, timeOverrides);
+  const { startAt: eventStart, endAt: eventEnd } = getEffectiveEventTimes(event, timeOverrides);
 
   // Build block boundaries as Date objects for currentDate
   const [year, month, day] = currentDate.split('-').map(Number);
@@ -129,6 +142,7 @@ export function calculateBlockCapacity(
   currentHour: number,
   currentDate: string,
   timeOverrides: Record<string, EventTimeOverride> = {},
+  taskMinutesInBlock: number = 0,
 ): TimeBlockCapacity {
   const boundary = TIME_BLOCK_BOUNDARIES[block];
   const { startHour, endHour, icon, label } = boundary;
@@ -141,29 +155,38 @@ export function calculateBlockCapacity(
     ? endHour // Block is past, no time left
     : Math.max(startHour, currentHour);
 
-  // Total minutes available in this block (from effective start)
-  const totalMinutes = isPast ? 0 : (endHour - effectiveStartHour) * 60;
+  // Total minutes available in this block (full block, not adjusted for current time)
+  const totalMinutes = isPast ? 0 : (endHour - startHour) * 60;
 
   // Calculate calendar minutes consumed
   let calendarMinutes = 0;
   let eventCount = 0;
 
   for (const event of events) {
-    const minutes = getEventMinutesInBlock(
-      event,
-      effectiveStartHour,
-      endHour,
-      currentDate,
-      timeOverrides,
-    );
+    const minutes = getEventMinutesInBlock(event, startHour, endHour, currentDate, timeOverrides);
     if (minutes > 0) {
       calendarMinutes += minutes;
       eventCount += 1;
     }
   }
 
-  // Available = total - calendar (floor at 0)
-  const availableMinutes = Math.max(0, totalMinutes - calendarMinutes);
+  // Available = total - calendar - tasks (floor at 0)
+  const availableMinutes = Math.max(0, totalMinutes - calendarMinutes - taskMinutesInBlock);
+
+  // Debug logging
+  console.log('[Capacity Debug]', {
+    block,
+    startHour,
+    endHour,
+    effectiveStartHour,
+    totalMinutes,
+    calendarMinutes,
+    taskMinutes: taskMinutesInBlock,
+    availableMinutes,
+    eventCount,
+    currentHour,
+    isPast,
+  });
 
   return {
     block,
@@ -174,6 +197,7 @@ export function calculateBlockCapacity(
     effectiveStartHour,
     totalMinutes,
     calendarMinutes,
+    taskMinutes: taskMinutesInBlock,
     availableMinutes,
     isPast,
     eventCount,
@@ -188,6 +212,11 @@ export function calculateDayCapacity(
   currentHour: number,
   currentDate: string,
   timeOverrides: Record<string, EventTimeOverride> = {},
+  taskMinutesByBlock: { morning: number; day: number; evening: number } = {
+    morning: 0,
+    day: 0,
+    evening: 0,
+  },
 ): DayCapacity {
   const morning = calculateBlockCapacity(
     'morning',
@@ -195,14 +224,23 @@ export function calculateDayCapacity(
     currentHour,
     currentDate,
     timeOverrides,
+    taskMinutesByBlock.morning,
   );
-  const day = calculateBlockCapacity('day', events, currentHour, currentDate, timeOverrides);
+  const day = calculateBlockCapacity(
+    'day',
+    events,
+    currentHour,
+    currentDate,
+    timeOverrides,
+    taskMinutesByBlock.day,
+  );
   const evening = calculateBlockCapacity(
     'evening',
     events,
     currentHour,
     currentDate,
     timeOverrides,
+    taskMinutesByBlock.evening,
   );
 
   return {
@@ -210,6 +248,7 @@ export function calculateDayCapacity(
     totalAvailableMinutes:
       morning.availableMinutes + day.availableMinutes + evening.availableMinutes,
     totalCalendarMinutes: morning.calendarMinutes + day.calendarMinutes + evening.calendarMinutes,
+    totalTaskMinutes: morning.taskMinutes + day.taskMinutes + evening.taskMinutes,
     totalEventCount: morning.eventCount + day.eventCount + evening.eventCount,
   };
 }

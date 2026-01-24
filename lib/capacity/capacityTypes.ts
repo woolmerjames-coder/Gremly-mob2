@@ -30,7 +30,9 @@ export interface TimeBlockCapacity {
   totalMinutes: number;
   /** Minutes consumed by calendar events */
   calendarMinutes: number;
-  /** Minutes available for tasks: totalMinutes - calendarMinutes */
+  /** Minutes consumed by assigned tasks */
+  taskMinutes: number;
+  /** Minutes available: totalMinutes - calendarMinutes - taskMinutes */
   availableMinutes: number;
   /** True if current time is past this block's end */
   isPast: boolean;
@@ -49,6 +51,8 @@ export interface DayCapacity {
   totalAvailableMinutes: number;
   /** Sum of calendar event minutes today */
   totalCalendarMinutes: number;
+  /** Sum of assigned task minutes today */
+  totalTaskMinutes: number;
   /** Total calendar events today */
   totalEventCount: number;
 }

@@ -83,18 +83,57 @@ export function useHiddenEventCount(): number {
 
 /**
  * Hook: Get full day capacity breakdown
- * Recalculates when calendar events or time overrides change
+ * Recalculates when calendar events, time overrides, or tasks change
  */
 export function useTodayCapacity(): DayCapacity {
   const events = useTodayCalendarEvents();
   const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
   const today = useToday();
   const currentHour = useCurrentHour();
 
-  return useMemo(
-    () => calculateDayCapacity(events, currentHour, today, eventTimeOverrides),
-    [events, currentHour, today, eventTimeOverrides],
-  );
+  return useMemo(() => {
+    // Calculate task minutes per block
+    const taskMinutesByBlock = { morning: 0, day: 0, evening: 0 };
+
+    // Sum todos assigned to each block
+    todos
+      .filter((t) => !t.archived && !t.completed_at && t.due_day === today)
+      .forEach((todo) => {
+        const minutes = todo.time_estimate_minutes ?? 0;
+        if (todo.time_window === 'morning') {
+          taskMinutesByBlock.morning += minutes;
+        } else if (todo.time_window === 'day') {
+          taskMinutesByBlock.day += minutes;
+        } else if (todo.time_window === 'evening') {
+          taskMinutesByBlock.evening += minutes;
+        }
+        // 'any' or null = flexible, don't count against specific block
+      });
+
+    // Sum habits assigned to each block
+    habits
+      .filter((h) => {
+        if (h.archived) return false;
+        if (!h.start_date || h.start_date > today) return false;
+        if (h.end_date && h.end_date < today) return false;
+        return true;
+      })
+      .forEach((habit) => {
+        const minutes = habit.time_estimate_minutes ?? 0;
+        if (habit.time_window === 'morning') {
+          taskMinutesByBlock.morning += minutes;
+        } else if (habit.time_window === 'day') {
+          taskMinutesByBlock.day += minutes;
+        } else if (habit.time_window === 'evening') {
+          taskMinutesByBlock.evening += minutes;
+        }
+        // 'any' or null = flexible, don't count against specific block
+      });
+
+    return calculateDayCapacity(events, currentHour, today, eventTimeOverrides, taskMinutesByBlock);
+  }, [events, currentHour, today, eventTimeOverrides, todos, habits]);
 }
 
 /**
