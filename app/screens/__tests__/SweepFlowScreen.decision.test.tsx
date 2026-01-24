@@ -189,6 +189,21 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// Mock SweepSectionTransition to auto-dismiss (calls onContinue immediately)
+jest.mock('../../../src/components/sweep/SweepSectionTransition', () => {
+  const ReactModule = require('react');
+  return {
+    __esModule: true,
+    SweepSectionTransition: ({ onContinue }: { onContinue: () => void }) => {
+      // Auto-continue to skip the transition in tests
+      ReactModule.useEffect(() => {
+        onContinue();
+      }, [onContinue]);
+      return null;
+    },
+  };
+});
+
 import SweepFlowScreen from '../SweepFlowScreen';
 
 const mockNavigation = {
@@ -280,8 +295,8 @@ describe('SweepFlowScreen - Decision Step', () => {
     it('renders the intro step first', () => {
       const result = render(<SweepFlowScreen navigation={mockNavigation} />);
 
-      // First-time users see "Welcome to Sweep!", otherwise one of several phrases
-      expect(result.getByText(/Welcome to Sweep|Let's clear|Ready when|A few quick|Let's set up|You've got this/)).toBeTruthy();
+      // First-time users see "Welcome to Sweep!", otherwise "A quick sweep"
+      expect(result.getByText(/Welcome to Sweep|A quick sweep/)).toBeTruthy();
       expect(result.getByText(/Let's do this/)).toBeTruthy();
     });
 

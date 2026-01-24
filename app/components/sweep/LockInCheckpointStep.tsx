@@ -35,7 +35,7 @@ import Animated, {
 import ConfettiCannon from 'react-native-confetti-cannon';
 import { Text } from '../../../ui';
 import { Icon } from '../../../design-system/Icon';
-import { Sparkles } from 'lucide-react-native';
+import { Sparkles, Check } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import * as Haptics from 'expo-haptics';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
@@ -150,33 +150,33 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
     // Diamond glows intensely
     iconGlow.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.2, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 500, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.2, { duration: 500, easing: Easing.inOut(Easing.ease) }),
       ),
       -1,
       true,
     );
 
-    // Title fades in
-    titleOpacity.value = withDelay(300, withTiming(1, { duration: 400 }));
+    // Title fades in quickly
+    titleOpacity.value = withDelay(100, withTiming(1, { duration: 250 }));
 
-    // After intro, transition
+    // After intro, transition faster
     const timer = setTimeout(() => {
       // Slide header to top
       headerTranslateY.value = withTiming(-250, {
-        duration: 600,
+        duration: 350,
         easing: Easing.inOut(Easing.cubic),
       });
 
       // Stop glow when reaching top
-      iconGlow.value = withDelay(400, withTiming(0, { duration: 300 }));
+      iconGlow.value = withDelay(150, withTiming(0, { duration: 200 }));
 
       // Fade in Gremly + instructions after header settles
-      instructionsOpacity.value = withDelay(500, withTiming(1, { duration: 400 }));
+      instructionsOpacity.value = withDelay(150, withTiming(1, { duration: 250 }));
 
       // Fade in content (items list)
-      contentOpacity.value = withDelay(600, withTiming(1, { duration: 500 }));
-    }, 1600);
+      contentOpacity.value = withDelay(200, withTiming(1, { duration: 300 }));
+    }, 800);
 
     return () => clearTimeout(timer);
   }, [items.length]);
@@ -317,19 +317,15 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
         </Text>
       </Animated.View>
 
-      {/* Progress */}
-      <Animated.View style={[styles.progressContainer, contentStyle]}>
-        {doneCount === totalCount && totalCount > 0 ? (
+      {/* Celebration message when all done */}
+      {doneCount === totalCount && totalCount > 0 && (
+        <Animated.View style={[styles.progressContainer, contentStyle]}>
           <View style={styles.progressComplete}>
             <Sparkles size={16} color={BRAND.colors.goldenPear} />
             <Text style={styles.progressTextComplete}>You crushed it!</Text>
           </View>
-        ) : (
-          <Text style={styles.progressText}>
-            {doneCount} of {totalCount} complete
-          </Text>
-        )}
-      </Animated.View>
+        </Animated.View>
+      )}
 
       {/* Items list */}
       <Animated.ScrollView
@@ -401,54 +397,19 @@ function LockInItemRow({
   isCelebrated,
   index,
 }: LockInItemRowProps) {
-  // Diamond position animation (0 = Archive/left, 1 = Tomorrow/middle, 2 = Done/right)
-  const diamondPosition = useSharedValue(1); // Default to middle (Tomorrow)
+  const isCompleted = decision === 'done';
 
-  useEffect(() => {
-    const positionMap: Record<LockInDecision, number> = {
-      archive: 0,
-      tomorrow: 1,
-      done: 2,
-    };
-    diamondPosition.value = positionMap[decision];
-  }, [decision]);
-
-  const diamondAnimatedStyle = useAnimatedStyle(() => {
-    // Track width = container width - paddingHorizontal (40 total)
-    // Track itself has no margins now, dots are absolutely positioned
-    const containerWidth = SCREEN_WIDTH - 40; // itemRow paddingHorizontal: 20 each side
-    const diamondWidth = 32;
-    const dotWidth = 12;
-
-    // Dot centers are at: 0%, 50%, 100% of track
-    // Diamond should center over each dot
-    const positions = [
-      dotWidth / 2 - diamondWidth / 2, // Archive: center diamond over left dot
-      containerWidth / 2 - diamondWidth / 2, // Tomorrow: exact center
-      containerWidth - dotWidth / 2 - diamondWidth / 2, // Done: center diamond over right dot
-    ];
-
-    return {
-      transform: [
-        {
-          translateX: withSpring(positions[diamondPosition.value], {
-            damping: 20,
-            stiffness: 300,
-            mass: 0.8,
-          }),
-        },
-      ],
-    };
-  });
+  // Diamond scale animation for completion
+  const diamondScale = useSharedValue(1);
 
   // Celebration animations
   const celebrationScale = useSharedValue(1);
   const rowGlow = useSharedValue(0);
 
   useEffect(() => {
-    if (isCelebrated && decision === 'done') {
+    if (isCelebrated && isCompleted) {
       celebrationScale.value = withSequence(
-        withTiming(1.03, { duration: 150 }),
+        withTiming(1.02, { duration: 150 }),
         withSpring(1, { damping: 10 }),
       );
       rowGlow.value = withSequence(
@@ -456,7 +417,23 @@ function LockInItemRow({
         withTiming(0, { duration: 600 }),
       );
     }
-  }, [isCelebrated, decision]);
+  }, [isCelebrated, isCompleted]);
+
+  const handleComplete = () => {
+    if (isCompleted) {
+      // Toggle back to tomorrow (undo)
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onDecisionChange('tomorrow');
+    } else {
+      // Mark as done with bounce animation
+      diamondScale.value = withSequence(
+        withSpring(1.15, { damping: 8, stiffness: 400 }),
+        withSpring(1, { damping: 12, stiffness: 300 }),
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onDecisionChange('done');
+    }
+  };
 
   const rowAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: celebrationScale.value }],
@@ -469,100 +446,92 @@ function LockInItemRow({
         : 'transparent',
   }));
 
+  const diamondAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: diamondScale.value }],
+  }));
+
   return (
     <Animated.View
-      style={[styles.itemRow, rowAnimatedStyle, glowStyle]}
-      entering={SlideInDown.delay(index * 80).duration(400)}
+      style={[styles.itemCard, rowAnimatedStyle, glowStyle]}
+      entering={SlideInDown.delay(index * 60).duration(300)}
     >
-      {/* Item name - NO hint text */}
-      <View style={styles.itemHeader}>
-        <Text style={styles.itemName} numberOfLines={2}>
-          {item.name}
-        </Text>
-      </View>
+      {/* Item name */}
+      <Text style={styles.itemName} numberOfLines={2}>
+        {item.name}
+      </Text>
 
-      {/* Slim Toggle Track with Dots */}
-      <View style={styles.toggleTrackContainer}>
-        {/* Track line */}
-        <View style={styles.toggleTrackLine} />
-
-        {/* Absolutely positioned dots */}
-        <View style={styles.dotArchive} />
-        <View style={styles.dotTomorrow} />
-        <View style={styles.dotDone} />
-
-        {/* Sliding Diamond Indicator */}
-        <Animated.View style={[styles.diamondIndicator, diamondAnimatedStyle]}>
-          <Image source={LOCKIN_ICON} style={styles.diamondIconSmall} resizeMode="contain" />
-        </Animated.View>
-
-        {/* Tappable Areas (invisible, full height for easy tapping) */}
-        <View style={styles.toggleTapAreas}>
+      {/* Actions row */}
+      <View style={styles.actionsRow}>
+        {/* Left side: pill buttons */}
+        <View style={styles.pillButtons}>
           <TouchableOpacity
-            style={styles.toggleTapArea}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onDecisionChange('archive');
-            }}
-            activeOpacity={0.7}
-            accessibilityLabel={`Archive ${item.name}`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: decision === 'archive' }}
-          />
-          <TouchableOpacity
-            style={styles.toggleTapArea}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onDecisionChange('tomorrow');
             }}
+            style={[
+              styles.pill,
+              decision === 'tomorrow' && styles.pillSelected,
+              isCompleted && styles.pillDisabled,
+            ]}
+            disabled={isCompleted}
             activeOpacity={0.7}
-            accessibilityLabel={`Move ${item.name} to tomorrow`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: decision === 'tomorrow' }}
-          />
-          <TouchableOpacity
-            style={styles.toggleTapArea}
-            onPress={() => {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              onDecisionChange('done');
-            }}
-            activeOpacity={0.7}
-            accessibilityLabel={`Mark ${item.name} as done`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: decision === 'done' }}
-          />
-        </View>
-      </View>
+          >
+            <Text
+              style={[
+                styles.pillText,
+                decision === 'tomorrow' && styles.pillTextSelected,
+                isCompleted && styles.pillTextDisabled,
+              ]}
+            >
+              Tomorrow
+            </Text>
+          </TouchableOpacity>
 
-      {/* Labels below track */}
-      <View style={styles.toggleLabels}>
-        <Text
-          style={[
-            styles.toggleLabel,
-            styles.toggleLabelLeft,
-            decision === 'archive' && styles.toggleLabelActive,
-          ]}
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              onDecisionChange('archive');
+            }}
+            style={[
+              styles.pill,
+              decision === 'archive' && styles.pillSelected,
+              isCompleted && styles.pillDisabled,
+            ]}
+            disabled={isCompleted}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.pillText,
+                decision === 'archive' && styles.pillTextSelected,
+                isCompleted && styles.pillTextDisabled,
+              ]}
+            >
+              Archive
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Right side: primary action with diamond */}
+        <TouchableOpacity
+          onPress={handleComplete}
+          style={styles.completedAction}
+          activeOpacity={0.7}
         >
-          Archive
-        </Text>
-        <Text
-          style={[
-            styles.toggleLabel,
-            styles.toggleLabelCenter,
-            decision === 'tomorrow' && styles.toggleLabelActive,
-          ]}
-        >
-          Tomorrow
-        </Text>
-        <Text
-          style={[
-            styles.toggleLabel,
-            styles.toggleLabelRight,
-            decision === 'done' && styles.toggleLabelActive,
-          ]}
-        >
-          Done ✓
-        </Text>
+          <Animated.View style={diamondAnimatedStyle}>
+            <View style={[styles.diamond, isCompleted && styles.diamondFilled]}>
+              {isCompleted && (
+                <View style={styles.checkContainer}>
+                  <Check size={14} color="white" strokeWidth={3} />
+                </View>
+              )}
+            </View>
+          </Animated.View>
+          <Text style={[styles.completedText, isCompleted && styles.completedTextActive]}>
+            Completed
+          </Text>
+        </TouchableOpacity>
       </View>
     </Animated.View>
   );
@@ -611,7 +580,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
     paddingTop: 120,
-    paddingBottom: 8,
+    paddingBottom: 16,
     gap: 12,
   },
   instructionsMascot: {
@@ -624,24 +593,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: BRAND.colors.charcoalInk,
   },
-  instructionsBold: {
-    fontWeight: '700',
-    color: BRAND.colors.mossGreen,
-  },
-  instructionsItalic: {
-    fontStyle: 'italic',
-    color: BRAND.colors.inkMuted,
-  },
 
-  // Progress
+  // Celebration message
   progressContainer: {
     alignItems: 'center',
     paddingVertical: 8,
-  },
-  progressText: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    fontWeight: '500',
   },
   progressComplete: {
     flexDirection: 'row',
@@ -660,122 +616,99 @@ const styles = StyleSheet.create({
   },
   itemsContent: {
     paddingBottom: 24,
+    paddingTop: 8,
   },
 
-  itemRow: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+  // Compact card-based item styles
+  itemCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   itemDivider: {
-    height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
-    marginHorizontal: 20,
-  },
-  itemHeader: {
-    marginBottom: 8,
+    height: 0,
   },
   itemName: {
     fontSize: 16,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
+    marginBottom: 12,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
 
-  // Toggle track - slim line with dots
-  toggleTrackContainer: {
-    height: 36,
-    justifyContent: 'center',
-    position: 'relative',
+  // Pill buttons for Tomorrow/Archive
+  pillButtons: {
+    flexDirection: 'row',
+    gap: 8,
   },
-  toggleTrackLine: {
-    position: 'absolute',
-    left: 6,
-    right: 6,
-    top: 16,
-    height: 4,
-    backgroundColor: 'rgba(191, 216, 192, 0.4)',
-    borderRadius: 2,
-  },
-  dotArchive: {
-    position: 'absolute',
-    left: 0,
-    top: 12,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: BRAND.colors.sageMist,
-  },
-  dotTomorrow: {
-    position: 'absolute',
-    left: '50%',
-    marginLeft: -6,
-    top: 12,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: BRAND.colors.sageMist,
-  },
-  dotDone: {
-    position: 'absolute',
-    right: 0,
-    top: 12,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: BRAND.colors.sageMist,
-  },
-  diamondIndicator: {
-    position: 'absolute',
-    top: 2,
-    left: 0,
-    width: 32,
-    height: 32,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: BRAND.colors.mossGreen,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+  pill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
     borderWidth: 1,
-    borderColor: BRAND.colors.sageMist,
+    borderColor: 'transparent',
   },
-  diamondIconSmall: {
-    width: 20,
-    height: 20,
+  pillSelected: {
+    backgroundColor: BRAND.colors.sageMist,
+    borderColor: BRAND.colors.mossGreen,
   },
-  toggleTapAreas: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
+  pillDisabled: {
+    opacity: 0.5,
   },
-  toggleTapArea: {
-    flex: 1,
-  },
-  toggleLabels: {
-    flexDirection: 'row',
-    marginTop: 8,
-  },
-  toggleLabel: {
-    fontSize: 12,
+  pillText: {
+    fontSize: 13,
     fontWeight: '500',
     color: BRAND.colors.inkMuted,
-    flex: 1,
   },
-  toggleLabelLeft: {
-    textAlign: 'left',
+  pillTextSelected: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
   },
-  toggleLabelCenter: {
-    textAlign: 'center',
+  pillTextDisabled: {
+    opacity: 0.6,
   },
-  toggleLabelRight: {
-    textAlign: 'right',
+
+  // Completed action with diamond
+  completedAction: {
+    alignItems: 'center',
+    gap: 4,
   },
-  toggleLabelActive: {
+  diamond: {
+    width: 28,
+    height: 28,
+    borderWidth: 2,
+    borderColor: BRAND.colors.mossGreen,
+    borderRadius: 4,
+    transform: [{ rotate: '45deg' }],
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  diamondFilled: {
+    backgroundColor: BRAND.colors.mossGreen,
+  },
+  checkContainer: {
+    transform: [{ rotate: '-45deg' }],
+  },
+  completedText: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+    fontWeight: '500',
+  },
+  completedTextActive: {
     color: BRAND.colors.mossGreen,
     fontWeight: '700',
   },

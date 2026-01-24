@@ -39,7 +39,18 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Screen, Text, Button } from '../../ui';
 import { Icon } from '../../design-system/Icon';
-import { Flame, Sparkles, Sprout, CheckCircle, Leaf, Moon } from 'lucide-react-native';
+import {
+  Flame,
+  Sparkles,
+  Sprout,
+  CheckCircle,
+  Leaf,
+  Moon,
+  Check,
+  Lightbulb,
+  Repeat,
+  ArrowRight,
+} from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
@@ -65,6 +76,7 @@ import type {
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
+import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
@@ -168,17 +180,14 @@ function SweepIntroStep({
   onStart,
   onHelpPress,
   onClose,
-  completedCount = 0,
-  onSeeCompleted,
 }: {
   onStart: () => void;
   onHelpPress?: () => void;
   onClose?: () => void;
-  completedCount?: number;
-  onSeeCompleted?: () => void;
 }) {
   const { stats, isLoading } = useSweepIntroStats();
   const gremlyAge = useGremlyStore.getState().gremlyAge;
+  const lastSweepCompletedAt = useGremlyStore((state) => state.lastSweepCompletedAt);
   const candidates = useSweepCandidatesUnified();
 
   // Count items by type
@@ -195,16 +204,6 @@ function SweepIntroStep({
     return '~ 5 min ~';
   };
 
-  // Encouraging phrases
-  const phrases = [
-    "Let's clear the path for tomorrow",
-    'Ready when you are',
-    'A few quick decisions ahead',
-    "Let's set up tomorrow for success",
-    "You've got this",
-  ];
-  const [phrase] = useState(() => phrases[Math.floor(Math.random() * phrases.length)]);
-
   // Build breakdown string
   const buildBreakdown = () => {
     const parts: string[] = [];
@@ -216,6 +215,25 @@ function SweepIntroStep({
 
   // First time user
   const isFirstTime = stats?.isFirstSweep || gremlyAge === 0;
+
+  // Last sweep text
+  const getLastSweepText = () => {
+    if (!lastSweepCompletedAt) {
+      return 'Your first sweep!';
+    }
+
+    const now = new Date();
+    const last = new Date(lastSweepCompletedAt);
+    const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      return 'Last sweep: earlier today';
+    } else if (diffDays === 1) {
+      return 'Last sweep: yesterday';
+    } else {
+      return `Last sweep: ${diffDays} days ago`;
+    }
+  };
 
   // Edge case: nothing to sweep
   if (totalCount === 0 && !isLoading) {
@@ -229,12 +247,6 @@ function SweepIntroStep({
         <Text style={styles.introCelebrationSubtitle}>
           Nothing to sweep — you're caught up.{'\n'}Enjoy the mental clarity.
         </Text>
-
-        {completedCount > 0 && (
-          <TouchableOpacity onPress={onSeeCompleted} style={styles.seeCompletedLink}>
-            <Text style={styles.seeCompletedText}>See {completedCount} completed →</Text>
-          </TouchableOpacity>
-        )}
 
         <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
           <Text style={styles.secondaryButtonText}>Back to Today</Text>
@@ -250,37 +262,51 @@ function SweepIntroStep({
         <Image source={GREMLY_SWEEP_INTRO} style={styles.introMascotNew} resizeMode="contain" />
       </Pressable>
 
-      {/* Encouraging text */}
-      <Text style={styles.introPhrase}>{isFirstTime ? 'Welcome to Sweep!' : phrase}</Text>
+      {/* Main title - simple and direct */}
+      <Text style={styles.introPhrase}>{isFirstTime ? 'Welcome to Sweep!' : 'A quick sweep'}</Text>
 
-      {isFirstTime && <Text style={styles.introSubphrase}>Let's clear the path for tomorrow.</Text>}
-
-      {/* Divider */}
-      <View style={styles.introDivider} />
-
-      {/* What's ahead */}
-      <Text style={styles.introSectionHeader}>
-        {isFirstTime ? 'Your first sweep:' : "Today's sweep:"}
+      {/* Subtitle with time estimate */}
+      <Text style={styles.introSubtitle}>
+        {isFirstTime
+          ? "Let's clear the path for tomorrow"
+          : `Clear your mind in ${getTimeEstimate().replace(/~/g, '').trim()}`}
       </Text>
 
-      <Text style={styles.introBreakdown}>{buildBreakdown()}</Text>
-
-      <Text style={styles.introTimeEstimate}>{getTimeEstimate()}</Text>
-
-      {/* Divider */}
-      <View style={styles.introDivider} />
-
-      {/* See completed link */}
-      {completedCount > 0 && (
-        <TouchableOpacity onPress={onSeeCompleted} style={styles.seeCompletedLink}>
-          <Text style={styles.seeCompletedText}>See {completedCount} completed →</Text>
-        </TouchableOpacity>
+      {/* Breakdown Card */}
+      {totalCount > 0 && (
+        <View style={styles.breakdownCard}>
+          {todoCount > 0 && (
+            <View style={styles.breakdownColumn}>
+              <Check size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
+              <Text style={styles.breakdownNumber}>{todoCount}</Text>
+              <Text style={styles.breakdownLabel}>{todoCount === 1 ? 'todo' : 'todos'}</Text>
+            </View>
+          )}
+          {noteCount > 0 && (
+            <View style={styles.breakdownColumn}>
+              <Lightbulb size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
+              <Text style={styles.breakdownNumber}>{noteCount}</Text>
+              <Text style={styles.breakdownLabel}>{noteCount === 1 ? 'idea' : 'ideas'}</Text>
+            </View>
+          )}
+          {habitCount > 0 && (
+            <View style={styles.breakdownColumn}>
+              <Repeat size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
+              <Text style={styles.breakdownNumber}>{habitCount}</Text>
+              <Text style={styles.breakdownLabel}>{habitCount === 1 ? 'habit' : 'habits'}</Text>
+            </View>
+          )}
+        </View>
       )}
 
       {/* CTA */}
-      <TouchableOpacity style={styles.introButton} onPress={onStart} activeOpacity={0.8}>
-        <Text style={styles.introButtonText}>Let's do this →</Text>
+      <TouchableOpacity style={styles.primaryButton} onPress={onStart} activeOpacity={0.8}>
+        <Text style={styles.primaryButtonText}>Let's do this</Text>
+        <ArrowRight size={18} color="white" style={{ marginLeft: 8 }} />
       </TouchableOpacity>
+
+      {/* Last sweep footer */}
+      <Text style={styles.lastSweepText}>{getLastSweepText()}</Text>
     </View>
   );
 }
@@ -1197,6 +1223,11 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [chatPresetHint, setChatPresetHint] = useState<string | undefined>();
 
+  // Track which section transitions have been shown
+  const [shownTransitions, setShownTransitions] = useState<Set<'todo' | 'habit' | 'note'>>(
+    new Set(),
+  );
+
   // Track item details for summary display
   const itemDetailsRef = useRef<Map<string, { name: string; kind: 'todo' | 'habit' | 'note' }>>(
     new Map(),
@@ -1238,6 +1269,49 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     const candidate = candidatesWithMeta[currentIndex]?.candidate;
     return candidate ? decisions.get(candidate.id) : undefined;
   }, [decisions, candidatesWithMeta, currentIndex]);
+
+  // Compute section boundaries for transition cards
+  const sectionBoundaries = useMemo(() => {
+    const boundaries: { type: 'todo' | 'habit' | 'note'; startIndex: number; count: number }[] = [];
+    let lastKind: string | null = null;
+    let currentCount = 0;
+
+    candidatesWithMeta.forEach((item, index) => {
+      const kind = item.candidate.kind;
+      if (kind !== lastKind) {
+        if (lastKind !== null && boundaries.length > 0) {
+          boundaries[boundaries.length - 1].count = currentCount;
+        }
+        boundaries.push({ type: kind as 'todo' | 'habit' | 'note', startIndex: index, count: 0 });
+        lastKind = kind;
+        currentCount = 1;
+      } else {
+        currentCount++;
+      }
+    });
+
+    if (boundaries.length > 0) {
+      boundaries[boundaries.length - 1].count = currentCount;
+    }
+
+    return boundaries;
+  }, [candidatesWithMeta]);
+
+  // Check if current index is at a section boundary needing transition
+  const currentTransition = useMemo(() => {
+    const boundary = sectionBoundaries.find((b) => b.startIndex === currentIndex);
+    if (boundary && !shownTransitions.has(boundary.type)) {
+      return boundary;
+    }
+    return null;
+  }, [currentIndex, sectionBoundaries, shownTransitions]);
+
+  // Handler for when user swipes past the transition card
+  const handleTransitionContinue = useCallback(() => {
+    if (currentTransition) {
+      setShownTransitions((prev) => new Set([...prev, currentTransition.type]));
+    }
+  }, [currentTransition]);
 
   /**
    * Batch commit all recorded decisions to the database.
@@ -1281,6 +1355,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             updateTodo(decision.candidateId, {
               due_day: toDayString(decision.dueDate),
               skipped_in_sweep_at: null,
+              resurface_at: null, // Clear reminder so it doesn't keep resurfacing
             } as any),
           );
         } else if (decision.candidateKind === 'habit' && decision.startDate) {
@@ -2247,61 +2322,77 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
       {/* Full-screen Card Area */}
       <View style={styles.decisionCardArea}>
-        <Reanimated.View entering={FadeIn.duration(200)}>
-          <SweepGremlyHeader
-            candidate={currentCandidate}
-            meta={currentCandidateWithMeta.meta}
-            onOpenChat={handleOpenChat}
-          />
-        </Reanimated.View>
-        <SweepCard
-          key={`${currentCandidate.id}-${currentIndex}`}
-          candidate={currentCandidate}
-          meta={currentCandidateWithMeta.meta}
-          index={currentIndex}
-          total={candidatesWithMeta.length}
-          isConverted={convertedCandidate?.animating ?? false}
-          onSkip={handleSkip}
-          onClear={handleClear}
-          onOpenEdit={handleOpenEdit}
-          onConvertToTodo={handleConvertToTodo}
-          onConfirmQuickDate={handleConfirmQuickDate}
-          onConfirmRemindLater={handleConfirmRemindLater}
-          onConfirmCustomDate={handleConfirmCustomDate}
-          onAddToSpace={handleAddToSpace}
-          onConfirmHabitStart={handleConfirmHabitStart}
-          onClose={onClose}
-          hideBottomSaveExit={true}
-          onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
-          previousDecision={currentDecision}
-          onOpenChat={handleOpenChat}
-        />
+        {!currentTransition && (
+          <>
+            <Reanimated.View entering={FadeIn.duration(200)}>
+              <SweepGremlyHeader
+                candidate={currentCandidate}
+                meta={currentCandidateWithMeta.meta}
+                onOpenChat={handleOpenChat}
+              />
+            </Reanimated.View>
+            <SweepCard
+              key={`${currentCandidate.id}-${currentIndex}`}
+              candidate={currentCandidate}
+              meta={currentCandidateWithMeta.meta}
+              index={currentIndex}
+              total={candidatesWithMeta.length}
+              isConverted={convertedCandidate?.animating ?? false}
+              onSkip={handleSkip}
+              onClear={handleClear}
+              onOpenEdit={handleOpenEdit}
+              onConvertToTodo={handleConvertToTodo}
+              onConfirmQuickDate={handleConfirmQuickDate}
+              onConfirmRemindLater={handleConfirmRemindLater}
+              onConfirmCustomDate={handleConfirmCustomDate}
+              onAddToSpace={handleAddToSpace}
+              onConfirmHabitStart={handleConfirmHabitStart}
+              onClose={onClose}
+              hideBottomSaveExit={true}
+              onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
+              previousDecision={currentDecision}
+              onOpenChat={handleOpenChat}
+            />
+          </>
+        )}
       </View>
 
       {/* Bottom section - Progress + Save and exit */}
-      <View style={styles.bottomSection}>
-        {/* Progress + counter */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${((currentIndex + 1) / candidatesWithMeta.length) * 100}%` },
-              ]}
-            />
+      {!currentTransition && (
+        <View style={styles.bottomSection}>
+          {/* Progress + counter */}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${((currentIndex + 1) / candidatesWithMeta.length) * 100}%` },
+                ]}
+              />
+            </View>
+            <Text style={styles.counterText}>
+              {currentIndex + 1} of {candidatesWithMeta.length} items
+            </Text>
           </View>
-          <Text style={styles.counterText}>
-            {currentIndex + 1} of {candidatesWithMeta.length} items
-          </Text>
-        </View>
 
-        {/* Save and exit */}
-        {onClose && (
-          <TouchableOpacity onPress={handleSaveAndExit} style={styles.saveExitButton}>
-            <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+          {/* Save and exit */}
+          {onClose && (
+            <TouchableOpacity onPress={handleSaveAndExit} style={styles.saveExitButton}>
+              <Text style={styles.saveExitText}>Need a break? Save and exit</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Section Transition Modal */}
+      <Modal visible={!!currentTransition} animationType="fade" statusBarTranslucent={true}>
+        <SweepSectionTransition
+          sectionType={currentTransition?.type || 'todo'}
+          itemCount={currentTransition?.count || 0}
+          onContinue={handleTransitionContinue}
+          onClose={onClose}
+        />
+      </Modal>
 
       {/* Entity Chat Modal */}
       <Modal
@@ -2996,8 +3087,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 onStart={handleIntroStart}
                 onHelpPress={() => setShowInstructionsModal(true)}
                 onClose={handleClose}
-                completedCount={completedItems.length}
-                onSeeCompleted={() => setShowCompletedModal(true)}
               />
               <SweepInstructionsModal
                 visible={showInstructionsModal}
@@ -3170,7 +3259,7 @@ const styles = StyleSheet.create({
   contentDecision: {
     flex: 1,
     paddingHorizontal: 0, // Full-bleed for decision step
-    backgroundColor: BRAND.colors.sageMist, // Match screen background
+    backgroundColor: '#FFFFFF', // White background for decision step
   },
   contentLockIn: {
     flex: 1,
@@ -3216,45 +3305,65 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     includeFontPadding: true,
   },
-  introSubphrase: {
-    fontSize: 16,
+  introSubtitle: {
+    fontSize: 17,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 24,
+    marginTop: 8,
+    marginBottom: 24,
   },
-  introDivider: {
-    width: 200,
-    height: 1,
-    backgroundColor: 'rgba(34, 34, 34, 0.1)',
-    marginVertical: 28,
+  breakdownCard: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    marginTop: 24,
+    marginBottom: 32,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    gap: 32,
   },
-  introSectionHeader: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    marginBottom: 12,
+  breakdownColumn: {
+    alignItems: 'center',
+    flex: 1,
   },
-  introBreakdown: {
-    fontSize: 22,
+  breakdownNumber: {
+    fontSize: 28,
     fontWeight: '700',
     color: BRAND.colors.charcoalInk,
-    textAlign: 'center',
-    marginBottom: 12,
+    marginTop: 8,
+    marginBottom: 2,
+    lineHeight: 36,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
-  introTimeEstimate: {
-    fontSize: 15,
+  breakdownLabel: {
+    fontSize: 13,
     color: BRAND.colors.inkMuted,
-    textAlign: 'center',
   },
-  seeCompletedLink: {
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: BRAND.colors.mossGreen,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 14,
     marginBottom: 24,
-    marginTop: 4,
   },
-  seeCompletedText: {
-    fontSize: 15,
-    color: BRAND.colors.mossGreen,
+  primaryButtonText: {
+    color: 'white',
+    fontSize: 18,
     fontWeight: '600',
+  },
+  lastSweepText: {
+    fontSize: 13,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    marginTop: 8,
   },
   introButton: {
     backgroundColor: BRAND.colors.sageMist,
@@ -3829,8 +3938,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    marginTop: 20,
-    marginBottom: 8,
+    marginTop: 12,
+    marginBottom: 4,
     backgroundColor: BRAND.colors.linenCream,
   },
   streakText: {
@@ -4003,7 +4112,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: BRAND.colors.linenCream,
   },
-  // SweepDecisionStep styles - Linen Cream background with sage card
+  // SweepDecisionStep styles - White background with sage card
   decisionStepContainer: {
     flex: 1,
     position: 'relative', // For absolute positioned behindCardTextContainer
@@ -4165,21 +4274,21 @@ const styles = StyleSheet.create({
   // SweepSummaryStep styles
   summaryScrollContent: {
     flexGrow: 1,
-    paddingBottom: 24,
+    paddingBottom: 12,
   },
   summaryTitle: {
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 8,
+    marginTop: 4,
+    marginBottom: 4,
   },
   summarySubtext: {
     fontSize: 16,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 12,
   },
   tomorrowSection: {
-    marginTop: 24,
+    marginTop: 12,
     width: '100%',
   },
   tomorrowHeader: {
@@ -4187,12 +4296,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   summaryMascotContainer: {
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 16,
+    marginTop: 4,
+    marginBottom: 8,
   },
   summaryMascotImage: {
     width: 140,
@@ -4221,7 +4330,7 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: BRAND.colors.borderSubtle,
     alignSelf: 'center',
-    marginVertical: 10,
+    marginVertical: 6,
   },
   summaryStatsContainer: {
     backgroundColor: BRAND.colors.surface,

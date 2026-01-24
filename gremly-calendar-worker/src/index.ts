@@ -19,6 +19,7 @@ import { extractUserIdFromToken } from './utils/auth';
 import { TokenStorage } from './storage/tokens';
 import { exchangeOutlookCode } from './auth/outlook';
 import { fetchOutlookEvents } from './calendar/outlook';
+import { connectIcsCalendar, fetchIcsEvents } from './calendar/ics';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -79,6 +80,29 @@ export default {
         return json({ success: true, email: result.email });
       }
 
+      // POST /auth/ics/connect - Connect an ICS calendar via URL
+      if (path === '/auth/ics/connect' && request.method === 'POST') {
+        const body = (await request.json()) as {
+          ics_url?: string;
+          icsUrl?: string;
+          label?: string;
+        };
+
+        const icsUrl = body.ics_url || body.icsUrl;
+
+        if (!icsUrl) {
+          return error('Missing required field: ics_url');
+        }
+
+        const result = await connectIcsCalendar(icsUrl, body.label, userId, env);
+
+        if (!result.success) {
+          return error(result.error || 'Failed to connect calendar', 400);
+        }
+
+        return json({ success: true, calendarName: result.calendarName });
+      }
+
       // POST /auth/google/exchange - Exchange auth code for tokens (Phase 4)
       if (path === '/auth/google/exchange' && request.method === 'POST') {
         return error('Google Calendar integration coming soon', 501);
@@ -88,7 +112,7 @@ export default {
       if (path === '/auth/disconnect' && request.method === 'POST') {
         const body = (await request.json()) as { provider: CalendarProvider };
 
-        if (!body.provider || !['outlook', 'google'].includes(body.provider)) {
+        if (!body.provider || !['outlook', 'google', 'ics'].includes(body.provider)) {
           return error('Invalid provider');
         }
 
@@ -142,6 +166,17 @@ export default {
           errors.push('google: Not implemented yet');
         }
 
+        // Fetch from ICS if requested or no specific provider
+        if (!provider || provider === 'ics') {
+          const icsResult = await fetchIcsEvents(userId, startDate, endDate, env);
+          if (icsResult.events.length > 0) {
+            allEvents.push(...icsResult.events);
+          }
+          if (icsResult.error) {
+            errors.push(`ics: ${icsResult.error}`);
+          }
+        }
+
         // Sort all events by start time
         allEvents.sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
@@ -177,6 +212,16 @@ export default {
           email: googleToken?.provider_email || null,
           lastSyncedAt: googleToken?.last_synced_at || null,
           lastError: googleToken?.last_error || null,
+        });
+
+        // Check ICS
+        const icsToken = tokens.find((t) => t.provider === 'ics');
+        connections.push({
+          provider: 'ics',
+          isConnected: !!icsToken && icsToken.is_active,
+          email: icsToken?.provider_email || null,
+          lastSyncedAt: icsToken?.last_synced_at || null,
+          lastError: icsToken?.last_error || null,
         });
 
         return json({ connections });

@@ -2,7 +2,7 @@
  * Shared types for calendar worker
  */
 
-export type CalendarProvider = 'outlook' | 'google';
+export type CalendarProvider = 'outlook' | 'google' | 'ics';
 
 export interface CalendarEvent {
   id: string;
@@ -16,6 +16,7 @@ export interface CalendarEvent {
   description: string | null;
 }
 
+// For ICS calendars: access_token = ics_url, refresh_token = '', provider_email = calendar label/name
 export interface CalendarToken {
   id: string;
   owner_id: string;

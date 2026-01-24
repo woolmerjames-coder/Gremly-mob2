@@ -20,7 +20,7 @@ WebBrowser.maybeCompleteAuthSession();
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export type CalendarProvider = 'outlook' | 'google';
+export type CalendarProvider = 'outlook' | 'google' | 'ics';
 
 export interface CalendarEvent {
   id: string;
@@ -298,6 +298,56 @@ class CalendarClient {
     }
   }
 
+  /**
+   * Connect an ICS calendar by URL.
+   *
+   * @param icsUrl - The ICS calendar URL (must be https://)
+   * @param label - Optional friendly name for the calendar
+   */
+  async connectIcs(
+    icsUrl: string,
+    label?: string,
+  ): Promise<{ success: boolean; error?: string; calendarName?: string }> {
+    if (!this.supabaseToken) {
+      log('ERROR', 'No Supabase token - user must be logged in');
+      return { success: false, error: 'Not authenticated. Please log in again.' };
+    }
+
+    if (!icsUrl.trim()) {
+      return { success: false, error: 'Please enter a calendar URL' };
+    }
+
+    try {
+      const url = new URL(icsUrl.trim());
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return { success: false, error: 'URL must start with http:// or https://' };
+      }
+    } catch {
+      return { success: false, error: 'Invalid URL format' };
+    }
+
+    log('Connecting ICS calendar:', icsUrl);
+
+    const result = await this.post<{ success: boolean; calendarName?: string; error?: string }>(
+      '/auth/ics/connect',
+      {
+        ics_url: icsUrl.trim(),
+        label: label?.trim() || undefined,
+      },
+    );
+
+    if (!result.ok || !result.data?.success) {
+      log('ERROR', 'ICS connect failed:', result.error || result.data?.error);
+      return {
+        success: false,
+        error: result.error || result.data?.error || 'Failed to connect calendar',
+      };
+    }
+
+    log('✅ ICS calendar connected:', result.data.calendarName);
+    return { success: true, calendarName: result.data.calendarName };
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // CALENDAR API METHODS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -345,7 +395,7 @@ class CalendarClient {
   /**
    * Disconnect a calendar provider.
    *
-   * @param provider - Provider to disconnect ('outlook' or 'google')
+   * @param provider - Provider to disconnect ('outlook', 'google', or 'ics')
    */
   async disconnect(provider: CalendarProvider): Promise<{ success: boolean; error?: string }> {
     log('Disconnecting provider:', provider);

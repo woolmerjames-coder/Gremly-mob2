@@ -388,13 +388,9 @@ export default function CalendarScreen() {
 
   // Format date for display: "January 21, 2026"
   const formattedDate = useMemo(() => {
-    const date = new Date(selectedDate);
-    return date.toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  }, [selectedDate]);
+    // Use date service to avoid timezone issues - selectedDate is YYYY-MM-DD
+    return dateService.formatDateForDisplay(selectedDate);
+  }, [selectedDate, dateService]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // DATA FETCHING FOR SELECTED DATE

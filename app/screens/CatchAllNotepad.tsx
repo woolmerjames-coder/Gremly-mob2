@@ -142,7 +142,7 @@ import {
   runMindDropStageBPrefill,
 } from '../../lib/minddrop/pipelineStages';
 import GREMLY_TOP from '../../assets/mascot/gremly-mascot.png';
-import MINDDROP_HEADER from '../../assets/minddrop_header-removebg.png';
+import MINDDROP_HEADER from '../../assets/minddroplogo1.22.png';
 import MascotIcon from '../../components/MascotIcon';
 import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
@@ -8041,7 +8041,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       top: 40, // Moved up closer to text baseline
       width: 108, // ~60% of 180px width
       height: 2,
-      backgroundColor: '#D4A853',
+      backgroundColor: 'rgba(46, 85, 64, 0.5)', // moss green at 50% opacity
       borderRadius: 1,
     },
     countBadge: {

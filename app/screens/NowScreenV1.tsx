@@ -845,7 +845,7 @@ export default function NowScreenV1() {
         pointerEvents="box-none"
       >
         <SweepPill
-          count={sweepCandidateCount + displayRecentDrops.length}
+          count={sweepCandidateCount}
           onPress={() => {
             navigation.navigate('Sweep');
           }}
@@ -1204,11 +1204,11 @@ function TodayFocusList({
   }, [sortedItems, brief]);
 
   // Helper to check if a block should render
+  // Only render if block has items or calendar events - don't show empty blocks
   const shouldRenderBlock = (block: TimeBlock) => {
     const hasItems = itemsByBlock[block].length > 0;
     const hasEvents = eventsByBlock[block].length > 0;
-    const isCurrent = block === currentTimeBlock;
-    return hasItems || hasEvents || isCurrent;
+    return hasItems || hasEvents;
   };
 
   // Helper to get calendar hint data for a block

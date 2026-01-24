@@ -764,6 +764,41 @@ export class DateService {
   }
 
   /**
+   * Format for full display: "January 21, 2026"
+   * Always includes year for clarity.
+   *
+   * ⚠️ IMPORTANT: This parses the YYYY-MM-DD string without timezone conversion.
+   * Using new Date(dateStr) would parse as UTC, causing timezone bugs!
+   */
+  formatDateForDisplay(dateStr: string | null | undefined): string {
+    if (!dateStr) return '';
+
+    const date = this.fromLocalDate(dateStr);
+    if (!date) return '';
+
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    const month = months[date.getMonth()];
+    const dayNum = date.getDate();
+    const year = date.getFullYear();
+
+    return `${month} ${dayNum}, ${year}`;
+  }
+
+  /**
    * Format for overlay display (full): "Monday, December 23"
    */
   formatForOverlay(dateStr: string | null | undefined): string {

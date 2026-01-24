@@ -112,12 +112,14 @@ jest.mock('react-native-reanimated', () => {
     default: {
       View: View, // Use React Native's View for testing
       Text: RN.Text, // Use React Native's Text for testing
+      Image: RN.Image, // Use React Native's Image for testing
       createAnimatedComponent: (Component: unknown) => Component,
     },
     // Animated.View should be a regular View in tests
     Animated: {
       View: View,
       Text: RN.Text,
+      Image: RN.Image,
       ScrollView: RN.ScrollView,
     },
     // Animation entering/exiting helpers

@@ -194,6 +194,189 @@ describe('CalendarClient', () => {
       );
       expect(result.success).toBe(true);
     });
+
+    it('disconnect works for ics provider', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true }),
+      });
+
+      const result = await calendarClient.disconnect('ics');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/disconnect'),
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('ics'),
+        }),
+      );
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ICS Calendar Connection
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('connectIcs', () => {
+    it('returns error when no token is set', async () => {
+      calendarClient.setSupabaseToken(null);
+
+      const result = await calendarClient.connectIcs('https://example.com/cal.ics');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Not authenticated');
+    });
+
+    it('returns error for empty URL', async () => {
+      calendarClient.setSupabaseToken('test-token');
+
+      const result = await calendarClient.connectIcs('');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('enter a calendar URL');
+    });
+
+    it('returns error for whitespace-only URL', async () => {
+      calendarClient.setSupabaseToken('test-token');
+
+      const result = await calendarClient.connectIcs('   ');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('enter a calendar URL');
+    });
+
+    it('returns error for invalid URL format', async () => {
+      calendarClient.setSupabaseToken('test-token');
+
+      const result = await calendarClient.connectIcs('not-a-valid-url');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid URL format');
+    });
+
+    it('returns error for non-http(s) protocols', async () => {
+      calendarClient.setSupabaseToken('test-token');
+
+      const result = await calendarClient.connectIcs('ftp://example.com/cal.ics');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('http:// or https://');
+    });
+
+    it('accepts webcal protocol converted to https', async () => {
+      calendarClient.setSupabaseToken('test-token');
+
+      // webcal:// should fail as it's not http/https
+      const result = await calendarClient.connectIcs('webcal://example.com/cal.ics');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('http:// or https://');
+    });
+
+    it('makes POST request to /auth/ics/connect on valid URL', async () => {
+      calendarClient.setSupabaseToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, calendarName: 'Work Calendar' }),
+      });
+
+      const result = await calendarClient.connectIcs('https://example.com/cal.ics', 'My Calendar');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://test-calendar-worker.example.com/auth/ics/connect',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer test-token',
+          }),
+        }),
+      );
+      expect(result.success).toBe(true);
+      expect(result.calendarName).toBe('Work Calendar');
+    });
+
+    it('passes ics_url and label in request body', async () => {
+      calendarClient.setSupabaseToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, calendarName: 'Test' }),
+      });
+
+      await calendarClient.connectIcs('https://example.com/cal.ics', 'My Label');
+
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call[1].body);
+      expect(body.ics_url).toBe('https://example.com/cal.ics');
+      expect(body.label).toBe('My Label');
+    });
+
+    it('trims URL and label', async () => {
+      calendarClient.setSupabaseToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, calendarName: 'Test' }),
+      });
+
+      await calendarClient.connectIcs('  https://example.com/cal.ics  ', '  My Label  ');
+
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call[1].body);
+      expect(body.ics_url).toBe('https://example.com/cal.ics');
+      expect(body.label).toBe('My Label');
+    });
+
+    it('omits label when empty', async () => {
+      calendarClient.setSupabaseToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, calendarName: 'Test' }),
+      });
+
+      await calendarClient.connectIcs('https://example.com/cal.ics', '');
+
+      const call = mockFetch.mock.calls[0];
+      const body = JSON.parse(call[1].body);
+      expect(body.label).toBeUndefined();
+    });
+
+    it('returns error message on API failure', async () => {
+      calendarClient.setSupabaseToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('Invalid calendar URL'),
+      });
+
+      const result = await calendarClient.connectIcs('https://example.com/cal.ics');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
+
+    it('returns error from response data', async () => {
+      calendarClient.setSupabaseToken('test-token');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ success: false, error: 'URL does not point to a valid calendar' }),
+      });
+
+      const result = await calendarClient.connectIcs('https://example.com/notacal.html');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('valid calendar');
+    });
+
+    it('handles network errors gracefully', async () => {
+      calendarClient.setSupabaseToken('test-token');
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const result = await calendarClient.connectIcs('https://example.com/cal.ics');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
   });
 });
 
