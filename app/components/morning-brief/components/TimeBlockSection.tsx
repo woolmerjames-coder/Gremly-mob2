@@ -7,16 +7,76 @@
  * - Assigned tasks
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
 import { Sunrise, Sun, Sunset, Calendar, X, MapPin, Clock, Pencil } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
-import { formatBlockRemaining } from '../../../../lib/capacity';
+import { formatBlockRemaining, type EventTimeOverride } from '../../../../lib/capacity';
 import type { TimeBlockCapacity, TimeBlock } from '../../../../lib/capacity';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { TaskItem, type TaskItemData } from './TaskItem';
 import { EventDurationPicker } from './EventDurationPicker';
+
+// Stable empty object to prevent re-renders from new object references
+const EMPTY_TIME_OVERRIDES: Record<string, EventTimeOverride> = {};
+
+/**
+ * Helper to calculate duration in minutes from override or event
+ */
+function getDisplayDuration(event: CalendarEvent, override?: EventTimeOverride): number {
+  if (override) {
+    return Math.round(
+      (new Date(override.endAt).getTime() - new Date(override.startAt).getTime()) / (1000 * 60),
+    );
+  }
+  return Math.round(
+    (new Date(event.endAt).getTime() - new Date(event.startAt).getTime()) / (1000 * 60),
+  );
+}
+
+/**
+ * Format hour for display (e.g., 6 -> "6am", 12 -> "12pm")
+ */
+function formatHour(hour: number): string {
+  if (hour === 0) return '12am';
+  if (hour === 12) return '12pm';
+  if (hour < 12) return `${hour}am`;
+  return `${hour - 12}pm`;
+}
+
+/**
+ * Format available minutes for display (e.g., 150 -> "2h 30m")
+ */
+function formatAvailable(mins: number): string {
+  if (mins <= 0) return '0m';
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const remaining = mins % 60;
+  return remaining > 0 ? `${hrs}h ${remaining}m` : `${hrs}h`;
+}
+
+/**
+ * Format event start time for display
+ */
+function formatStartTime(event: CalendarEvent): string {
+  const start = new Date(event.startAt);
+  return start.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+/**
+ * Format duration in minutes to readable string (e.g., 90 -> "1 hr 30 min")
+ */
+function formatDurationMinutes(mins: number): string {
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  const remaining = mins % 60;
+  return remaining > 0 ? `${hrs} hr ${remaining} min` : `${hrs} hr`;
+}
 
 // Colors matching CalendarScreen
 const COLORS = {
@@ -289,17 +349,21 @@ export function TimeBlockSection({
   const [durationPickerEvent, setDurationPickerEvent] = useState<CalendarEvent | null>(null);
 
   // Get overrides and actions from store
-  const eventDurationOverrides = useGremlyStore((s) => s.eventDurationOverrides ?? {});
-  const setEventDurationOverride = useGremlyStore((s) => s.setEventDurationOverride);
-  const clearEventDurationOverride = useGremlyStore((s) => s.clearEventDurationOverride);
+  // IMPORTANT: Access the full object, then use ?? EMPTY_TIME_OVERRIDES to avoid
+  // creating a new object reference on every render which causes infinite loops
+  const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
+  const setEventTimeOverride = useGremlyStore((s) => s.setEventTimeOverride);
+  const clearEventTimeOverride = useGremlyStore((s) => s.clearEventTimeOverride);
+
+  // Memoize visible events to prevent unnecessary recalculations
+  const visibleEvents = useMemo(() => {
+    const hiddenSet = new Set(hiddenEventIds);
+    return events.filter((e) => !e.isAllDay && !hiddenSet.has(getEventId(e)));
+  }, [events, hiddenEventIds]);
 
   if (!config) return null;
 
   const { label, color, Icon } = config;
-
-  // Filter out all-day events and hidden events
-  const hiddenSet = new Set(hiddenEventIds);
-  const visibleEvents = events.filter((e) => !e.isAllDay && !hiddenSet.has(getEventId(e)));
 
   const isEmpty = visibleEvents.length === 0 && tasks.length === 0;
 
@@ -325,11 +389,17 @@ export function TimeBlockSection({
   };
 
   const handleDurationSave = (eventId: string, minutes: number) => {
-    setEventDurationOverride(eventId, minutes);
+    // Find the event to get its start time, then calculate new end time
+    const event = visibleEvents.find((e) => getEventId(e) === eventId);
+    if (event) {
+      const startAt = event.startAt;
+      const newEndAt = new Date(new Date(startAt).getTime() + minutes * 60 * 1000).toISOString();
+      setEventTimeOverride(eventId, startAt, newEndAt);
+    }
   };
 
   const handleDurationReset = (eventId: string) => {
-    clearEventDurationOverride(eventId);
+    clearEventTimeOverride(eventId);
   };
 
   const handleDurationPickerClose = () => {
@@ -344,6 +414,10 @@ export function TimeBlockSection({
     );
   };
 
+  // Format time range from capacity
+  const timeRange = `${formatHour(capacity.startHour)} – ${formatHour(capacity.endHour)}`;
+  const availableDisplay = formatAvailable(availableMinutes);
+
   return (
     <View style={[styles.section, isPast && styles.sectionPast]}>
       {/* Section Header */}
@@ -353,16 +427,19 @@ export function TimeBlockSection({
         <Text style={[styles.sectionHeader, { color: isPast ? COLORS.inkMuted : color }]}>
           {label}
         </Text>
-        {isPast && <Text style={styles.passedText}>· Passed</Text>}
+        <Text style={styles.timeRange}>({timeRange})</Text>
+        <Text style={styles.availableTime}>
+          {isPast ? '· Passed' : `· ${availableDisplay} available`}
+        </Text>
       </View>
 
       {/* Calendar Events - 2 lines only */}
       {visibleEvents.map((event, idx) => {
         const eventId = getEventId(event);
         const originalMinutes = getOriginalDurationMinutes(event);
-        const overrideMinutes = eventDurationOverrides[eventId];
-        const hasOverride = overrideMinutes !== undefined;
-        const displayMinutes = hasOverride ? overrideMinutes : originalMinutes;
+        const override = eventTimeOverrides[eventId];
+        const hasOverride = override !== undefined;
+        const displayMinutes = hasOverride ? getDisplayDuration(event, override) : originalMinutes;
         const isLast = idx === visibleEvents.length - 1 && tasks.length === 0;
         return (
           <Pressable
@@ -374,22 +451,24 @@ export function TimeBlockSection({
             <View style={styles.eventContent}>
               {/* Line 1: Time + Duration */}
               <Text style={[styles.eventTime, isPast && styles.textMuted]}>
-                {formatEventTimeCompact(event)}
-                {'  ('}
                 {hasOverride ? (
+                  // Override: Show start time + duration change
                   <>
+                    {formatStartTime(event)} ·{' '}
                     <Text style={styles.durationStrike}>
-                      {formatEventDuration(event, originalMinutes)}
+                      {formatDurationMinutes(originalMinutes)}
                     </Text>
-                    {' → '}
                     <Text style={styles.durationOverride}>
-                      {formatEventDuration(event, displayMinutes)}
+                      {' → '}
+                      {formatDurationMinutes(displayMinutes)}
                     </Text>
                   </>
                 ) : (
-                  formatEventDuration(event, displayMinutes)
+                  // No override: Show time range + duration
+                  <>
+                    {formatEventTimeCompact(event)} ({formatDurationMinutes(displayMinutes)})
+                  </>
                 )}
-                {')'}
               </Text>
               {/* Line 2: Title */}
               <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
@@ -431,7 +510,9 @@ export function TimeBlockSection({
         onHide={handleHideEvent}
         onEditDuration={handleEditDuration}
         durationOverride={
-          selectedEvent ? eventDurationOverrides[getEventId(selectedEvent)] : undefined
+          selectedEvent && eventTimeOverrides[getEventId(selectedEvent)]
+            ? getDisplayDuration(selectedEvent, eventTimeOverrides[getEventId(selectedEvent)])
+            : undefined
         }
       />
 
@@ -444,8 +525,11 @@ export function TimeBlockSection({
           durationPickerEvent ? getOriginalDurationMinutes(durationPickerEvent) : null
         }
         currentOverride={
-          durationPickerEvent
-            ? (eventDurationOverrides[getEventId(durationPickerEvent)] ?? null)
+          durationPickerEvent && eventTimeOverrides[getEventId(durationPickerEvent)]
+            ? getDisplayDuration(
+                durationPickerEvent,
+                eventTimeOverrides[getEventId(durationPickerEvent)],
+              )
             : null
         }
         onClose={handleDurationPickerClose}
@@ -489,6 +573,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.inkMuted,
     marginLeft: 6,
+  },
+  timeRange: {
+    fontSize: 12,
+    color: COLORS.inkMuted,
+    marginLeft: 4,
+  },
+  availableTime: {
+    fontSize: 12,
+    color: COLORS.inkMuted,
+    marginLeft: 4,
+    flex: 1,
+    textAlign: 'right',
   },
   eventRow: {
     flexDirection: 'row',

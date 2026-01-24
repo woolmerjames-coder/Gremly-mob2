@@ -82,26 +82,30 @@ async function saveHiddenEventsToStorage(data: Record<string, string[]>): Promis
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// EVENT DURATION OVERRIDES PERSISTENCE (AsyncStorage - local only)
+// EVENT TIME OVERRIDES PERSISTENCE (AsyncStorage - local only)
 // ═══════════════════════════════════════════════════════════════════════════════
-const EVENT_DURATION_OVERRIDES_STORAGE_KEY = 'gremly:eventDurationOverrides';
+const EVENT_TIME_OVERRIDES_STORAGE_KEY = 'gremly:eventTimeOverrides';
 
-async function loadEventDurationOverridesFromStorage(): Promise<Record<string, number>> {
+async function loadEventTimeOverridesFromStorage(): Promise<
+  Record<string, { startAt: string; endAt: string }>
+> {
   try {
-    const stored = await AsyncStorage.getItem(EVENT_DURATION_OVERRIDES_STORAGE_KEY);
+    const stored = await AsyncStorage.getItem(EVENT_TIME_OVERRIDES_STORAGE_KEY);
     if (!stored) return {};
-    return JSON.parse(stored) as Record<string, number>;
+    return JSON.parse(stored) as Record<string, { startAt: string; endAt: string }>;
   } catch (error) {
-    console.error('[GremlyStore] Failed to load event duration overrides:', error);
+    console.error('[GremlyStore] Failed to load event time overrides:', error);
     return {};
   }
 }
 
-async function saveEventDurationOverridesToStorage(data: Record<string, number>): Promise<void> {
+async function saveEventTimeOverridesToStorage(
+  data: Record<string, { startAt: string; endAt: string }>,
+): Promise<void> {
   try {
-    await AsyncStorage.setItem(EVENT_DURATION_OVERRIDES_STORAGE_KEY, JSON.stringify(data));
+    await AsyncStorage.setItem(EVENT_TIME_OVERRIDES_STORAGE_KEY, JSON.stringify(data));
   } catch (error) {
-    console.error('[GremlyStore] Failed to save event duration overrides:', error);
+    console.error('[GremlyStore] Failed to save event time overrides:', error);
   }
 }
 
@@ -521,8 +525,8 @@ interface GremlyState {
   calendarLastFetched: string | null;
   /** Hidden calendar events keyed by date (YYYY-MM-DD) */
   hiddenCalendarEventsByDate: Record<string, string[]>;
-  /** Local duration overrides for calendar events (eventId → minutes) */
-  eventDurationOverrides: Record<string, number>;
+  /** Local time overrides for calendar events (eventId → { startAt, endAt }) */
+  eventTimeOverrides: Record<string, { startAt: string; endAt: string }>;
 
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
@@ -537,9 +541,9 @@ interface GremlyState {
   hideCalendarEvent: (date: string, eventId: string) => void;
   unhideCalendarEvent: (date: string, eventId: string) => void;
   unhideAllCalendarEventsForDate: (date: string) => void;
-  setEventDurationOverride: (eventId: string, minutes: number) => void;
-  clearEventDurationOverride: (eventId: string) => void;
-  clearAllEventDurationOverrides: () => void;
+  setEventTimeOverride: (eventId: string, startAt: string, endAt: string) => void;
+  clearEventTimeOverride: (eventId: string) => void;
+  clearAllEventTimeOverrides: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -589,7 +593,7 @@ const initialState = {
   calendarLoading: false,
   calendarLastFetched: null as string | null,
   hiddenCalendarEventsByDate: {} as Record<string, string[]>,
-  eventDurationOverrides: {} as Record<string, number>,
+  eventTimeOverrides: {} as Record<string, { startAt: string; endAt: string }>,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -784,10 +788,17 @@ export const useGremlyStore = create<GremlyState>()(
           set({ hiddenCalendarEventsByDate: hiddenEvents });
         }
 
-        // Load event duration overrides from AsyncStorage
-        const durationOverrides = await loadEventDurationOverridesFromStorage();
-        if (Object.keys(durationOverrides).length > 0) {
-          set({ eventDurationOverrides: durationOverrides });
+        // Load event time overrides from AsyncStorage
+        const timeOverrides = await loadEventTimeOverridesFromStorage();
+        if (Object.keys(timeOverrides).length > 0) {
+          set({ eventTimeOverrides: timeOverrides });
+        }
+
+        // Clean up old duration-only storage key if it exists
+        try {
+          await AsyncStorage.removeItem('gremly:eventDurationOverrides');
+        } catch {
+          // Ignore cleanup errors
         }
 
         console.log('[GremlyStore] ✅ Initialized with', {
@@ -3283,30 +3294,30 @@ export const useGremlyStore = create<GremlyState>()(
       });
     },
 
-    setEventDurationOverride: (eventId: string, minutes: number) => {
+    setEventTimeOverride: (eventId: string, startAt: string, endAt: string) => {
       set((state) => {
         const updated = {
-          ...state.eventDurationOverrides,
-          [eventId]: minutes,
+          ...state.eventTimeOverrides,
+          [eventId]: { startAt, endAt },
         };
         // Persist to AsyncStorage
-        saveEventDurationOverridesToStorage(updated);
-        return { eventDurationOverrides: updated };
+        saveEventTimeOverridesToStorage(updated);
+        return { eventTimeOverrides: updated };
       });
     },
 
-    clearEventDurationOverride: (eventId: string) => {
+    clearEventTimeOverride: (eventId: string) => {
       set((state) => {
-        const { [eventId]: _, ...rest } = state.eventDurationOverrides;
+        const { [eventId]: _, ...rest } = state.eventTimeOverrides;
         // Persist to AsyncStorage
-        saveEventDurationOverridesToStorage(rest);
-        return { eventDurationOverrides: rest };
+        saveEventTimeOverridesToStorage(rest);
+        return { eventTimeOverrides: rest };
       });
     },
 
-    clearAllEventDurationOverrides: () => {
-      set({ eventDurationOverrides: {} });
-      saveEventDurationOverridesToStorage({});
+    clearAllEventTimeOverrides: () => {
+      set({ eventTimeOverrides: {} });
+      saveEventTimeOverridesToStorage({});
     },
 
     // ═══════════════════════════════════════════════════════════════════

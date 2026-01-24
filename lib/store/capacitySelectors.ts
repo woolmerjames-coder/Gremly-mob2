@@ -16,6 +16,7 @@ import {
   calculateBlockCapacity,
   getCapacitySummary,
   getMiniSweepGremlyMessage,
+  type EventTimeOverride,
 } from '../capacity';
 import type { TimeBlock, DayCapacity, TimeBlockCapacity, CapacitySummary } from '../capacity';
 import type { CalendarEvent } from '../calendar/CalendarClient';
@@ -23,7 +24,7 @@ import type { CalendarEvent } from '../calendar/CalendarClient';
 // Stable empty array to prevent unnecessary re-renders
 const EMPTY_EVENTS: CalendarEvent[] = [];
 const EMPTY_HIDDEN: string[] = [];
-const EMPTY_OVERRIDES: Record<string, number> = {};
+const EMPTY_TIME_OVERRIDES: Record<string, EventTimeOverride> = {};
 
 /**
  * Internal helper: Get stable today string.
@@ -82,17 +83,17 @@ export function useHiddenEventCount(): number {
 
 /**
  * Hook: Get full day capacity breakdown
- * Recalculates when calendar events or duration overrides change
+ * Recalculates when calendar events or time overrides change
  */
 export function useTodayCapacity(): DayCapacity {
   const events = useTodayCalendarEvents();
-  const eventDurationOverrides = useGremlyStore((s) => s.eventDurationOverrides ?? EMPTY_OVERRIDES);
+  const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
   const today = useToday();
   const currentHour = useCurrentHour();
 
   return useMemo(
-    () => calculateDayCapacity(events, currentHour, today, eventDurationOverrides),
-    [events, currentHour, today, eventDurationOverrides],
+    () => calculateDayCapacity(events, currentHour, today, eventTimeOverrides),
+    [events, currentHour, today, eventTimeOverrides],
   );
 }
 
@@ -101,13 +102,13 @@ export function useTodayCapacity(): DayCapacity {
  */
 export function useBlockCapacity(block: TimeBlock): TimeBlockCapacity {
   const events = useTodayCalendarEvents();
-  const eventDurationOverrides = useGremlyStore((s) => s.eventDurationOverrides ?? EMPTY_OVERRIDES);
+  const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
   const today = useToday();
   const currentHour = useCurrentHour();
 
   return useMemo(
-    () => calculateBlockCapacity(block, events, currentHour, today, eventDurationOverrides),
-    [block, events, currentHour, today, eventDurationOverrides],
+    () => calculateBlockCapacity(block, events, currentHour, today, eventTimeOverrides),
+    [block, events, currentHour, today, eventTimeOverrides],
   );
 }
 

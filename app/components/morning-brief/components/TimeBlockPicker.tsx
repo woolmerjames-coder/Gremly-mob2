@@ -6,7 +6,7 @@
  * Uses Lucide icons to match CalendarScreen patterns.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, Switch } from 'react-native';
 import { Sunrise, Sun, Sunset, ArrowLeftRight, Diamond, Check } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
@@ -87,11 +87,14 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
   const [lockInOverride, setLockInOverride] = useState<boolean | null>(null);
   const lockIn = lockInOverride ?? task?.isLockedIn ?? false;
 
-  // Reset override when task changes
-  const [prevTaskId, setPrevTaskId] = useState<string | null>(null);
-  if (task?.id !== prevTaskId) {
-    setPrevTaskId(task?.id ?? null);
-    setLockInOverride(null);
+  // Reset override when task changes - using useRef to avoid render-phase setState
+  const prevTaskIdRef = useRef<string | null>(null);
+  if (task?.id !== prevTaskIdRef.current) {
+    prevTaskIdRef.current = task?.id ?? null;
+    // Only reset if we have a new task (not on unmount)
+    if (task?.id && lockInOverride !== null) {
+      setLockInOverride(null);
+    }
   }
 
   const setLockIn = (value: boolean) => setLockInOverride(value);
