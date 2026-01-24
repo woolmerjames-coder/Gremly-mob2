@@ -3,13 +3,26 @@
  *
  * Displays unassigned/flexible tasks in Morning Brief.
  * Tasks here can be tapped to assign to a time block.
+ * Styled to match CalendarScreen section patterns.
  */
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Plus } from 'lucide-react-native';
-import { BRAND } from '../../../../design/brand';
+import { Plus, Clock } from 'lucide-react-native';
 import { TaskItem, type TaskItemData } from './TaskItem';
+
+// Colors matching CalendarScreen exactly
+const COLORS = {
+  linenCream: '#F9F6F1',
+  mossGreen: '#2E5540',
+  charcoalInk: '#0E1116',
+  inkMuted: '#666666',
+  divider: '#E8E6E1',
+  surface: '#FFFFFF',
+};
+
+// Section color for "anytime/flexible" - matches CalendarScreen SECTION_CONFIG
+const SECTION_COLOR = '#999999';
 
 interface OnYourPlateSectionProps {
   tasks: TaskItemData[];
@@ -22,36 +35,45 @@ export function OnYourPlateSection({ tasks, onTaskPress, onAddPress }: OnYourPla
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.title}>On Your Plate</Text>
-          <Text style={styles.count}>· {count} flexible</Text>
-        </View>
+      {/* Section Header - matches CalendarScreen pattern */}
+      <View style={styles.sectionHeaderRow}>
+        <View style={[styles.sectionHeaderAccent, { backgroundColor: SECTION_COLOR }]} />
+        <Clock size={16} color={SECTION_COLOR} style={styles.sectionIcon} />
+        <Text style={[styles.sectionHeader, { color: SECTION_COLOR }]}>ON YOUR PLATE</Text>
+        <Text style={styles.countBadge}>{count} flexible</Text>
+
+        {/* Add Button */}
         <Pressable
           style={styles.addButton}
           onPress={onAddPress}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           testID="morning-brief-add-task"
         >
-          <Plus size={18} color={BRAND.colors.mossGreen} />
+          <Plus size={16} color={COLORS.mossGreen} />
           <Text style={styles.addText}>Add</Text>
         </Pressable>
       </View>
 
       {/* Instructions */}
-      {count > 0 && <Text style={styles.instructions}>Tap to assign, or leave flexible</Text>}
+      {count > 0 && (
+        <Text style={styles.instructions}>Tap to assign to a time block, or leave flexible</Text>
+      )}
 
       {/* Task List */}
-      {tasks.map((task) => (
-        <TaskItem key={task.id} task={task} onPress={onTaskPress} />
+      {tasks.map((task, index) => (
+        <View
+          key={task.id}
+          style={[styles.taskWrapper, index < tasks.length - 1 && styles.taskBorder]}
+        >
+          <TaskItem task={task} onPress={onTaskPress} />
+        </View>
       ))}
 
       {/* Empty State */}
       {count === 0 && (
         <View style={styles.emptyState}>
           <Text style={styles.emptyText}>
-            Nothing here yet! Add a task or check your time blocks above.
+            Nothing flexible right now. Add a task or check your time blocks above.
           </Text>
         </View>
       )}
@@ -61,84 +83,72 @@ export function OnYourPlateSection({ tasks, onTaskPress, onAddPress }: OnYourPla
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 16,
     marginTop: 8,
-    marginBottom: 16,
-    padding: 16,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    ...BRAND.elevation.one,
+    paddingBottom: 16,
   },
-  header: {
+  sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  sectionHeaderAccent: {
+    width: 3,
+    height: 16,
+    borderRadius: 1.5,
+    marginRight: 10,
   },
-  title: {
-    fontSize: 16,
+  sectionIcon: {
+    marginRight: 6,
+  },
+  sectionHeader: {
+    fontSize: 12,
     fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
+    letterSpacing: 0.5,
+    flex: 1,
   },
-  count: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    marginLeft: 4,
+  countBadge: {
+    fontSize: 12,
+    color: COLORS.inkMuted,
+    marginRight: 12,
   },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: BRAND.radius.sm,
-    backgroundColor: BRAND.colors.linenCream,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: COLORS.linenCream,
   },
   addText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: BRAND.colors.mossGreen,
+    color: COLORS.mossGreen,
     marginLeft: 4,
   },
   instructions: {
     fontSize: 13,
-    color: BRAND.colors.inkMuted,
-    marginBottom: 12,
+    color: COLORS.inkMuted,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    fontStyle: 'italic',
   },
-  taskRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    backgroundColor: BRAND.colors.linenCream,
-    borderRadius: BRAND.radius.sm,
-    marginVertical: 4,
+  taskWrapper: {
+    marginHorizontal: 16,
   },
-  taskIcon: {
-    fontSize: 14,
-    color: BRAND.colors.mossGreen,
-    marginRight: 10,
-  },
-  taskTitle: {
-    flex: 1,
-    fontSize: 15,
-    color: BRAND.colors.charcoalInk,
-  },
-  taskEstimate: {
-    fontSize: 13,
-    color: BRAND.colors.inkMuted,
-    marginLeft: 8,
+  taskBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.divider,
   },
   emptyState: {
-    paddingVertical: 20,
+    paddingVertical: 24,
+    paddingHorizontal: 32,
     alignItems: 'center',
   },
   emptyText: {
     fontSize: 14,
-    color: BRAND.colors.inkMuted,
+    color: COLORS.inkMuted,
     textAlign: 'center',
     lineHeight: 20,
   },
