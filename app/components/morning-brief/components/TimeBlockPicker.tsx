@@ -1,18 +1,74 @@
 /**
  * TimeBlockPicker
  *
- * Modal for assigning a task to a time block.
- * Includes option to lock-in the task.
+ * Modal picker for assigning tasks to time blocks.
+ * Includes lock-in toggle option.
+ * Uses Lucide icons to match CalendarScreen patterns.
  */
 
 import React, { useState } from 'react';
-import { View, Text, Pressable, Modal, StyleSheet } from 'react-native';
-import { BRAND } from '../../../../design/brand';
-import { TIME_BLOCK_BOUNDARIES } from '../../../../lib/capacity';
-import type { TimeBlock } from '../../../../lib/capacity';
+import { View, Text, Modal, Pressable, StyleSheet, Switch } from 'react-native';
+import { Sunrise, Sun, Sunset, ArrowLeftRight, Diamond, Check } from 'lucide-react-native';
+import type { LucideIcon } from 'lucide-react-native';
+import { TIME_BLOCK_BOUNDARIES, type TimeBlock } from '../../../../lib/capacity';
 import type { TaskItemData } from './TaskItem';
 
-type TimeBlockOption = TimeBlock | 'flexible';
+// Colors matching CalendarScreen exactly
+const COLORS = {
+  linenCream: '#F9F6F1',
+  mossGreen: '#2E5540',
+  charcoalInk: '#0E1116',
+  inkMuted: '#666666',
+  divider: '#E8E6E1',
+  surface: '#FFFFFF',
+  selectedBg: 'rgba(46, 85, 64, 0.1)', // mossGreen at 10%
+};
+
+// Helper to format hour to 12h string
+function formatHour(hour: number): string {
+  if (hour === 0) return '12am';
+  if (hour === 12) return '12pm';
+  if (hour < 12) return `${hour}am`;
+  return `${hour - 12}pm`;
+}
+
+// Time block config matching CalendarScreen SECTION_CONFIG
+const TIME_BLOCK_OPTIONS: Array<{
+  key: TimeBlock;
+  label: string;
+  timeRange: string;
+  color: string;
+  Icon: LucideIcon;
+}> = [
+  {
+    key: 'morning',
+    label: 'Morning',
+    timeRange: `${formatHour(TIME_BLOCK_BOUNDARIES.morning.startHour)} – ${formatHour(TIME_BLOCK_BOUNDARIES.morning.endHour)}`,
+    color: '#D4A574',
+    Icon: Sunrise,
+  },
+  {
+    key: 'day',
+    label: 'Afternoon',
+    timeRange: `${formatHour(TIME_BLOCK_BOUNDARIES.day.startHour)} – ${formatHour(TIME_BLOCK_BOUNDARIES.day.endHour)}`,
+    color: '#C9956C',
+    Icon: Sun,
+  },
+  {
+    key: 'evening',
+    label: 'Evening',
+    timeRange: `${formatHour(TIME_BLOCK_BOUNDARIES.evening.startHour)} – ${formatHour(TIME_BLOCK_BOUNDARIES.evening.endHour)}`,
+    color: '#A89BC9',
+    Icon: Sunset,
+  },
+];
+
+const FLEXIBLE_OPTION = {
+  key: 'any' as const,
+  label: 'Keep flexible',
+  color: '#999999',
+  Icon: ArrowLeftRight,
+};
 
 interface TimeBlockPickerProps {
   visible: boolean;
@@ -27,51 +83,53 @@ interface TimeBlockPickerProps {
 }
 
 export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockPickerProps) {
-  // Initialize lock toggle from task's current state
-  const [lockIn, setLockIn] = useState(task?.isLockedIn ?? false);
+  // Derive lockIn state from task, use local toggle for user changes
+  const [lockInOverride, setLockInOverride] = useState<boolean | null>(null);
+  const lockIn = lockInOverride ?? task?.isLockedIn ?? false;
 
-  // Reset lock state when task changes
-  React.useEffect(() => {
-    if (task) {
-      setLockIn(task.isLockedIn);
-    }
-  }, [task?.id, task?.isLockedIn]);
+  // Reset override when task changes
+  const [prevTaskId, setPrevTaskId] = useState<string | null>(null);
+  if (task?.id !== prevTaskId) {
+    setPrevTaskId(task?.id ?? null);
+    setLockInOverride(null);
+  }
+
+  const setLockIn = (value: boolean) => setLockInOverride(value);
 
   if (!task) return null;
 
-  const handleSelect = (option: TimeBlockOption) => {
-    const timeWindow = option === 'flexible' ? 'any' : option;
-    onAssign(task.id, task.type, timeWindow, lockIn);
+  // Determine current selection
+  const currentTimeWindow = task.timeWindow;
+  const isFlexible = !currentTimeWindow || currentTimeWindow === 'any';
+
+  const handleSelect = (key: TimeBlock | 'any') => {
+    onAssign(task.id, task.type, key, lockIn);
     onClose();
   };
-
-  // Determine current selection for checkmark
-  const currentTimeWindow = task.timeWindow ?? 'any';
-
-  const timeBlockOptions: { key: TimeBlockOption; icon: string; label: string }[] = [
-    { key: 'morning', icon: TIME_BLOCK_BOUNDARIES.morning.icon, label: 'Morning' },
-    { key: 'day', icon: TIME_BLOCK_BOUNDARIES.day.icon, label: 'Afternoon' },
-    { key: 'evening', icon: TIME_BLOCK_BOUNDARIES.evening.icon, label: 'Evening' },
-  ];
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.container} onPress={(e) => e.stopPropagation()}>
+        <View style={styles.content} onStartShouldSetResponder={() => true}>
           <Text style={styles.title}>Assign to time block</Text>
 
-          {/* Time block options */}
-          {timeBlockOptions.map((option) => {
+          {/* Time Block Options */}
+          {TIME_BLOCK_OPTIONS.map((option) => {
             const isSelected = currentTimeWindow === option.key;
+            const { Icon } = option;
+
             return (
               <Pressable
                 key={option.key}
                 style={[styles.option, isSelected && styles.optionSelected]}
                 onPress={() => handleSelect(option.key)}
               >
-                <Text style={styles.optionIcon}>{option.icon}</Text>
-                <Text style={styles.optionLabel}>{option.label}</Text>
-                {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                <Icon size={20} color={option.color} style={styles.optionIcon} />
+                <View style={styles.optionLabelContainer}>
+                  <Text style={styles.optionLabel}>{option.label}</Text>
+                  <Text style={styles.optionTimeRange}>{option.timeRange}</Text>
+                </View>
+                {isSelected && <Check size={20} color={COLORS.mossGreen} />}
               </Pressable>
             );
           })}
@@ -79,33 +137,40 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
           {/* Divider */}
           <View style={styles.divider} />
 
-          {/* Keep flexible option */}
+          {/* Keep Flexible Option */}
           <Pressable
-            style={[styles.option, currentTimeWindow === 'any' && styles.optionSelected]}
-            onPress={() => handleSelect('flexible')}
+            style={[styles.option, isFlexible && styles.optionSelected]}
+            onPress={() => handleSelect('any')}
           >
-            <Text style={styles.optionIcon}>↔</Text>
-            <Text style={styles.optionLabel}>Keep flexible</Text>
-            {currentTimeWindow === 'any' && <Text style={styles.checkmark}>✓</Text>}
+            <FLEXIBLE_OPTION.Icon
+              size={20}
+              color={FLEXIBLE_OPTION.color}
+              style={styles.optionIcon}
+            />
+            <Text style={styles.optionLabel}>{FLEXIBLE_OPTION.label}</Text>
+            {isFlexible && <Check size={20} color={COLORS.mossGreen} />}
           </Pressable>
 
           {/* Divider */}
           <View style={styles.divider} />
 
-          {/* Lock-in toggle */}
-          <Pressable style={styles.lockRow} onPress={() => setLockIn(!lockIn)}>
-            <Text style={styles.lockIcon}>◇</Text>
-            <Text style={styles.lockLabel}>Lock this in</Text>
-            <View style={[styles.toggle, lockIn && styles.toggleOn]}>
-              <View style={[styles.toggleKnob, lockIn && styles.toggleKnobOn]} />
-            </View>
-          </Pressable>
+          {/* Lock-in Toggle */}
+          <View style={styles.lockInRow}>
+            <Diamond size={20} color={COLORS.mossGreen} style={styles.optionIcon} />
+            <Text style={styles.optionLabel}>Lock this in</Text>
+            <Switch
+              value={lockIn}
+              onValueChange={setLockIn}
+              trackColor={{ false: COLORS.divider, true: COLORS.mossGreen }}
+              thumbColor={COLORS.surface}
+            />
+          </View>
 
-          {/* Cancel button */}
+          {/* Cancel Button */}
           <Pressable style={styles.cancelButton} onPress={onClose}>
             <Text style={styles.cancelText}>Cancel</Text>
           </Pressable>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );
@@ -114,102 +179,70 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 32,
   },
-  container: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.lg,
+  content: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
     padding: 20,
-    width: '80%',
-    maxWidth: 300,
-    ...BRAND.elevation.two,
   },
   title: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-    marginBottom: 16,
+    color: COLORS.charcoalInk,
     textAlign: 'center',
+    marginBottom: 16,
   },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: BRAND.radius.md,
-    marginBottom: 6,
-    backgroundColor: BRAND.colors.linenCream,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginVertical: 2,
   },
   optionSelected: {
-    backgroundColor: BRAND.colors.sageMist,
+    backgroundColor: COLORS.selectedBg,
   },
   optionIcon: {
-    fontSize: 18,
     marginRight: 12,
+  },
+  optionLabelContainer: {
+    flex: 1,
   },
   optionLabel: {
     fontSize: 16,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-    flex: 1,
+    color: COLORS.charcoalInk,
   },
-  checkmark: {
-    fontSize: 16,
-    color: BRAND.colors.mossGreen,
-    fontWeight: '600',
+  optionTimeRange: {
+    fontSize: 13,
+    color: COLORS.inkMuted,
+    marginTop: 2,
   },
   divider: {
-    height: 1,
-    backgroundColor: BRAND.colors.borderSubtle,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: COLORS.divider,
     marginVertical: 8,
   },
-  lockRow: {
+  lockInRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-  },
-  lockIcon: {
-    fontSize: 18,
-    color: BRAND.colors.mossGreen,
-    marginRight: 12,
-  },
-  lockLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-    flex: 1,
-  },
-  toggle: {
-    width: 44,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: BRAND.colors.borderSubtle,
-    padding: 2,
-    justifyContent: 'center',
-  },
-  toggleOn: {
-    backgroundColor: BRAND.colors.mossGreen,
-  },
-  toggleKnob: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: BRAND.colors.surface,
-  },
-  toggleKnobOn: {
-    alignSelf: 'flex-end',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
   cancelButton: {
+    marginTop: 12,
     paddingVertical: 14,
     alignItems: 'center',
-    marginTop: 8,
   },
   cancelText: {
     fontSize: 16,
-    color: BRAND.colors.mossGreen,
-    fontWeight: '500',
+    fontWeight: '600',
+    color: COLORS.mossGreen,
   },
 });

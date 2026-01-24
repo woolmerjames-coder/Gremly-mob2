@@ -11,3 +11,4 @@ export { TaskItem, type TaskItemData } from './TaskItem';
 export { TimeBlockPicker } from './TimeBlockPicker';
 export { TimeBlockSection } from './TimeBlockSection';
 export { OnYourPlateSection } from './OnYourPlateSection';
+export { TimeEstimatePicker } from './TimeEstimatePicker';

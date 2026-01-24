@@ -40,6 +40,8 @@ interface TimeBlockSectionProps {
   events: CalendarEvent[];
   tasks: TaskItemData[];
   onTaskPress: (task: TaskItemData) => void;
+  /** Called when user taps the time estimate */
+  onTimePress?: (task: TaskItemData) => void;
   /** Called when user hides an event from the view */
   onHideEvent?: (eventId: string) => void;
   /** Array of hidden event IDs */
@@ -226,6 +228,7 @@ export function TimeBlockSection({
   events,
   tasks,
   onTaskPress,
+  onTimePress,
   onHideEvent,
   hiddenEventIds = [],
 }: TimeBlockSectionProps) {
@@ -238,7 +241,6 @@ export function TimeBlockSection({
   if (!config) return null;
 
   const { label, color, Icon } = config;
-  const remainingText = formatBlockRemaining(availableMinutes, isPast);
 
   // Filter out all-day events and hidden events
   const hiddenSet = new Set(hiddenEventIds);
@@ -302,7 +304,13 @@ export function TimeBlockSection({
         const isLast = idx === tasks.length - 1;
         return (
           <View key={task.id} style={[styles.taskRow, !isLast && styles.rowBorder]}>
-            <TaskItem task={task} onPress={onTaskPress} showEstimate={true} dimmed={isPast} />
+            <TaskItem
+              task={task}
+              onPress={onTaskPress}
+              onTimePress={onTimePress}
+              showEstimate={true}
+              dimmed={isPast}
+            />
           </View>
         );
       })}

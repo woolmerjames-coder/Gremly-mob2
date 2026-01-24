@@ -27,10 +27,16 @@ const SECTION_COLOR = '#999999';
 interface OnYourPlateSectionProps {
   tasks: TaskItemData[];
   onTaskPress: (task: TaskItemData) => void;
+  onTimePress?: (task: TaskItemData) => void;
   onAddPress: () => void;
 }
 
-export function OnYourPlateSection({ tasks, onTaskPress, onAddPress }: OnYourPlateSectionProps) {
+export function OnYourPlateSection({
+  tasks,
+  onTaskPress,
+  onTimePress,
+  onAddPress,
+}: OnYourPlateSectionProps) {
   const count = tasks.length;
 
   return (
@@ -65,7 +71,7 @@ export function OnYourPlateSection({ tasks, onTaskPress, onAddPress }: OnYourPla
           key={task.id}
           style={[styles.taskWrapper, index < tasks.length - 1 && styles.taskBorder]}
         >
-          <TaskItem task={task} onPress={onTaskPress} />
+          <TaskItem task={task} onPress={onTaskPress} onTimePress={onTimePress} />
         </View>
       ))}
 

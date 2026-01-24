@@ -29,6 +29,7 @@ import {
   TimeBlockSection,
   TimeBlockPicker,
   OnYourPlateSection,
+  TimeEstimatePicker,
   type TaskItemData,
 } from './components';
 
@@ -281,6 +282,33 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   );
 
   // ─────────────────────────────────────────────────────────────────
+  // TIME ESTIMATE PICKER STATE
+  // ─────────────────────────────────────────────────────────────────
+  const [timePickerVisible, setTimePickerVisible] = useState(false);
+  const [timePickerTask, setTimePickerTask] = useState<TaskItemData | null>(null);
+
+  const handleTimePress = useCallback((task: TaskItemData) => {
+    setTimePickerTask(task);
+    setTimePickerVisible(true);
+  }, []);
+
+  const handleTimePickerClose = useCallback(() => {
+    setTimePickerVisible(false);
+    setTimePickerTask(null);
+  }, []);
+
+  const handleTimeSave = useCallback(
+    async (taskId: string, taskType: 'todo' | 'habit', minutes: number | null) => {
+      if (taskType === 'todo') {
+        await updateTodo(taskId, { time_estimate_minutes: minutes });
+      } else {
+        await updateHabit(taskId, { time_estimate_minutes: minutes });
+      }
+    },
+    [updateTodo, updateHabit],
+  );
+
+  // ─────────────────────────────────────────────────────────────────
   // ADD TASK
   // ─────────────────────────────────────────────────────────────────
   const handleAddPress = useCallback(() => {
@@ -311,7 +339,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, saveBrief, today, tasksByBlock, onComplete, onClose]);
+  }, [isSaving, saveBrief, tasksByBlock, onComplete, onClose]);
 
   // ─────────────────────────────────────────────────────────────────
   // RENDER
@@ -349,6 +377,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                 events={getEventsForBlock(calendarEvents, 'morning', today)}
                 tasks={tasksByBlock.morning}
                 onTaskPress={handleTaskPress}
+                onTimePress={handleTimePress}
                 onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
               />
@@ -358,6 +387,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                 events={getEventsForBlock(calendarEvents, 'day', today)}
                 tasks={tasksByBlock.afternoon}
                 onTaskPress={handleTaskPress}
+                onTimePress={handleTimePress}
                 onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
               />
@@ -367,6 +397,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                 events={getEventsForBlock(calendarEvents, 'evening', today)}
                 tasks={tasksByBlock.evening}
                 onTaskPress={handleTaskPress}
+                onTimePress={handleTimePress}
                 onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
               />
@@ -375,6 +406,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
               <OnYourPlateSection
                 tasks={tasksByBlock.flexible}
                 onTaskPress={handleTaskPress}
+                onTimePress={handleTimePress}
                 onAddPress={handleAddPress}
               />
 
@@ -391,6 +423,17 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
               task={selectedTask}
               onClose={handlePickerClose}
               onAssign={handleAssign}
+            />
+
+            {/* Time Estimate Picker */}
+            <TimeEstimatePicker
+              visible={timePickerVisible}
+              taskId={timePickerTask?.id ?? null}
+              taskType={timePickerTask?.type ?? null}
+              taskTitle={timePickerTask?.title ?? null}
+              currentEstimate={timePickerTask?.estimatedMinutes ?? null}
+              onClose={handleTimePickerClose}
+              onSave={handleTimeSave}
             />
           </>
         )}
