@@ -14,6 +14,7 @@ export interface CalendarEvent {
   isAllDay: boolean;
   location: string | null;
   description: string | null;
+  calendarName?: string | null;
 }
 
 // For ICS calendars: access_token = ics_url, refresh_token = '', provider_email = calendar label/name

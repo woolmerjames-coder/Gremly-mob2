@@ -1,6 +1,6 @@
 /**
  * Microsoft Graph Calendar API
- * Fetches calendar events from Outlook
+ * Fetches calendar events from Outlook (including subscribed calendars)
  */
 
 import type { CalendarEvent, MSGraphCalendarResponse, MSGraphEvent, Env } from '../types';
@@ -9,10 +9,25 @@ import { TokenStorage } from '../storage/tokens';
 
 const MICROSOFT_GRAPH_URL = 'https://graph.microsoft.com/v1.0';
 
+interface MSGraphCalendar {
+  id: string;
+  name: string;
+  isDefaultCalendar: boolean;
+  canEdit: boolean;
+  owner?: {
+    name: string;
+    address: string;
+  };
+}
+
+interface MSGraphCalendarsResponse {
+  value: MSGraphCalendar[];
+}
+
 /**
  * Transform Microsoft Graph event to our CalendarEvent format
  */
-function transformEvent(event: MSGraphEvent): CalendarEvent {
+function transformEvent(event: MSGraphEvent, calendarName?: string): CalendarEvent {
   // Microsoft returns times in UTC (timeZone: "UTC")
   // We append 'Z' to indicate UTC so JavaScript Date parses correctly
   // The client will then convert to local timezone for display/keying
@@ -34,6 +49,7 @@ function transformEvent(event: MSGraphEvent): CalendarEvent {
     isAllDay: event.isAllDay,
     location: event.location?.displayName || null,
     description: event.bodyPreview || null,
+    calendarName: calendarName || null,
   };
 }
 
@@ -43,7 +59,73 @@ export interface FetchEventsResult {
 }
 
 /**
- * Fetch calendar events for a date range
+ * Fetch all calendars for the user (including subscribed calendars)
+ */
+async function fetchAllCalendars(accessToken: string): Promise<MSGraphCalendar[]> {
+  const response = await fetch(`${MICROSOFT_GRAPH_URL}/me/calendars`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    console.error('[Outlook] Failed to fetch calendars:', response.status);
+    return [];
+  }
+
+  const data: MSGraphCalendarsResponse = await response.json();
+  console.log(
+    '[Outlook] Found calendars:',
+    data.value.map((c) => ({ name: c.name, isDefault: c.isDefaultCalendar })),
+  );
+  return data.value;
+}
+
+/**
+ * Fetch events from a specific calendar
+ */
+async function fetchEventsFromCalendar(
+  accessToken: string,
+  calendarId: string,
+  calendarName: string,
+  startDate: string,
+  endDate: string,
+): Promise<CalendarEvent[]> {
+  const startDateTime = `${startDate}T00:00:00`;
+  const endDateTime = `${endDate}T23:59:59`;
+
+  const params = new URLSearchParams({
+    startDateTime,
+    endDateTime,
+    $select: 'id,subject,start,end,isAllDay,location,bodyPreview',
+    $orderby: 'start/dateTime',
+    $top: '100',
+  });
+
+  const url = `${MICROSOFT_GRAPH_URL}/me/calendars/${calendarId}/calendarView?${params}`;
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    console.error(
+      `[Outlook] Failed to fetch events from calendar "${calendarName}":`,
+      response.status,
+    );
+    return [];
+  }
+
+  const data: MSGraphCalendarResponse = await response.json();
+  return data.value.map((event) => transformEvent(event, calendarName));
+}
+
+/**
+ * Fetch calendar events for a date range from ALL calendars
  *
  * @param userId - Supabase user ID
  * @param startDate - Start date (YYYY-MM-DD)
@@ -64,56 +146,48 @@ export async function fetchOutlookEvents(
   }
 
   try {
-    // Build the calendar view URL
-    // calendarView returns events that occur within the time range (handles recurring events)
-    const startDateTime = `${startDate}T00:00:00`;
-    const endDateTime = `${endDate}T23:59:59`;
+    console.log('[Outlook] Fetching events from all calendars:', { startDate, endDate });
 
-    const params = new URLSearchParams({
-      startDateTime,
-      endDateTime,
-      $select: 'id,subject,start,end,isAllDay,location,bodyPreview',
-      $orderby: 'start/dateTime',
-      $top: '100', // Max events to fetch
-    });
+    const calendars = await fetchAllCalendars(accessToken);
 
-    const url = `${MICROSOFT_GRAPH_URL}/me/calendarView?${params}`;
-
-    console.log('[Outlook] Fetching events:', { startDate, endDate });
-
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[Outlook] Calendar API error:', response.status, errorText);
-
-      // Record error in storage
-      const storage = new TokenStorage(env);
-      await storage.recordError(userId, 'outlook', `API error: ${response.status}`);
-
-      return { events: [], error: `Calendar API error: ${response.status}` };
+    if (calendars.length === 0) {
+      console.log('[Outlook] No calendars found');
+      return { events: [], error: 'No calendars found' };
     }
 
-    const data: MSGraphCalendarResponse = await response.json();
+    const eventPromises = calendars.map((calendar) =>
+      fetchEventsFromCalendar(accessToken, calendar.id, calendar.name, startDate, endDate),
+    );
 
-    // Debug: log raw Microsoft response to see timezone info
-    if (data.value.length > 0) {
-      console.log('[Outlook] Raw first event:', JSON.stringify(data.value[0]));
-    }
+    const eventsArrays = await Promise.all(eventPromises);
 
-    const events = data.value.map(transformEvent);
+    const allEvents = eventsArrays.flat();
+
+    // Dedupe by providerEventId (events can appear in multiple calendars)
+    const seenIds = new Set<string>();
+    const uniqueEvents = allEvents.filter((event) => {
+      if (seenIds.has(event.providerEventId)) {
+        return false;
+      }
+      seenIds.add(event.providerEventId);
+      return true;
+    });
+
+    // Sort by start time
+    uniqueEvents.sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
     // Update last synced timestamp
     const storage = new TokenStorage(env);
     await storage.updateLastSynced(userId, 'outlook');
 
-    console.log('[Outlook] Fetched events:', events.length);
-    return { events };
+    console.log(
+      '[Outlook] Fetched total events:',
+      uniqueEvents.length,
+      'from',
+      calendars.length,
+      'calendars',
+    );
+    return { events: uniqueEvents };
   } catch (err) {
     console.error('[Outlook] Fetch error:', err);
 
