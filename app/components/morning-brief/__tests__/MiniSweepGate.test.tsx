@@ -8,6 +8,7 @@
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { MiniSweepGate } from '../MiniSweepGate';
+import { getDateService } from '../../../../lib/date';
 import type { Todo } from '../../../../lib/types';
 
 // Mock Zustand store
@@ -48,8 +49,8 @@ function makeTodo(overrides: Partial<Todo> = {}): Todo {
     title: 'Test Todo',
     name: overrides.name || 'Test Todo',
     owner_id: 'user-1',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: getDateService().nowTimestamp(),
+    updated_at: getDateService().nowTimestamp(),
     archived: false,
     ai_placed: false,
     tags: [],

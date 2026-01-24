@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase/client';
 import { getRitualDay } from '../date/ritualDay';
 import type {
@@ -42,6 +43,42 @@ export function isHabitLockedIn(habit: Habit): boolean {
   if (!habit.commitment_until) return false;
   const today = getDateService().getCurrentDate();
   return habit.commitment_until >= today;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HIDDEN EVENTS PERSISTENCE (AsyncStorage - local only, resets daily)
+// ═════════════════════════════════════════════════════════════════════════════
+const HIDDEN_EVENTS_STORAGE_KEY = 'gremly:hiddenCalendarEventsByDate';
+
+async function loadHiddenEventsFromStorage(): Promise<Record<string, string[]>> {
+  try {
+    const stored = await AsyncStorage.getItem(HIDDEN_EVENTS_STORAGE_KEY);
+    if (!stored) return {};
+
+    const parsed = JSON.parse(stored) as Record<string, string[]>;
+
+    // Clean up old dates (only keep today and future)
+    const today = getDateService().getCurrentDate();
+    const cleaned: Record<string, string[]> = {};
+    for (const [date, ids] of Object.entries(parsed)) {
+      if (date >= today) {
+        cleaned[date] = ids;
+      }
+    }
+
+    return cleaned;
+  } catch (error) {
+    console.error('[GremlyStore] Failed to load hidden events:', error);
+    return {};
+  }
+}
+
+async function saveHiddenEventsToStorage(data: Record<string, string[]>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(HIDDEN_EVENTS_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('[GremlyStore] Failed to save hidden events:', error);
+  }
 }
 
 /**
@@ -458,6 +495,8 @@ interface GremlyState {
   calendarEvents: Record<string, CalendarEvent[]>; // Key is YYYY-MM-DD
   calendarLoading: boolean;
   calendarLastFetched: string | null;
+  /** Hidden calendar events keyed by date (YYYY-MM-DD) */
+  hiddenCalendarEventsByDate: Record<string, string[]>;
 
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
@@ -469,6 +508,9 @@ interface GremlyState {
   ) => Promise<{ success: boolean; error?: string; calendarName?: string }>;
   disconnectCalendar: (provider: CalendarProvider) => Promise<void>;
   clearCalendarEvents: () => void;
+  hideCalendarEvent: (date: string, eventId: string) => void;
+  unhideCalendarEvent: (date: string, eventId: string) => void;
+  unhideAllCalendarEventsForDate: (date: string) => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -517,6 +559,7 @@ const initialState = {
   calendarEvents: {} as Record<string, CalendarEvent[]>,
   calendarLoading: false,
   calendarLastFetched: null as string | null,
+  hiddenCalendarEventsByDate: {} as Record<string, string[]>,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -704,6 +747,12 @@ export const useGremlyStore = create<GremlyState>()(
           isInitialized: true,
           lastSyncedAt: new Date(),
         });
+
+        // Load hidden calendar events from AsyncStorage (local-only persistence)
+        const hiddenEvents = await loadHiddenEventsFromStorage();
+        if (Object.keys(hiddenEvents).length > 0) {
+          set({ hiddenCalendarEventsByDate: hiddenEvents });
+        }
 
         console.log('[GremlyStore] ✅ Initialized with', {
           todos: todosRes.data?.length ?? 0,
@@ -3159,6 +3208,42 @@ export const useGremlyStore = create<GremlyState>()(
       set({
         calendarEvents: {},
         calendarLastFetched: null,
+      });
+    },
+
+    hideCalendarEvent: (date: string, eventId: string) => {
+      set((state) => {
+        const current = state.hiddenCalendarEventsByDate[date] ?? [];
+        if (current.includes(eventId)) return state; // Already hidden
+        const updated = {
+          ...state.hiddenCalendarEventsByDate,
+          [date]: [...current, eventId],
+        };
+        // Persist to AsyncStorage (fire and forget)
+        saveHiddenEventsToStorage(updated);
+        return { hiddenCalendarEventsByDate: updated };
+      });
+    },
+
+    unhideCalendarEvent: (date: string, eventId: string) => {
+      set((state) => {
+        const current = state.hiddenCalendarEventsByDate[date] ?? [];
+        const updated = {
+          ...state.hiddenCalendarEventsByDate,
+          [date]: current.filter((id) => id !== eventId),
+        };
+        // Persist to AsyncStorage (fire and forget)
+        saveHiddenEventsToStorage(updated);
+        return { hiddenCalendarEventsByDate: updated };
+      });
+    },
+
+    unhideAllCalendarEventsForDate: (date: string) => {
+      set((state) => {
+        const { [date]: _, ...rest } = state.hiddenCalendarEventsByDate;
+        // Persist to AsyncStorage (fire and forget)
+        saveHiddenEventsToStorage(rest);
+        return { hiddenCalendarEventsByDate: rest };
       });
     },
 
