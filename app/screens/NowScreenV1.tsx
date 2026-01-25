@@ -331,11 +331,21 @@ export default function NowScreenV1() {
   const overdueTodos = useOverdueTodos();
   const recentDrops = useRecentDrops();
 
-  // Derive lockedItemIds from selector result
-  const lockedItemIds = useMemo(
-    () => new Set(rawLockedItems.map((item) => item.id)),
-    [rawLockedItems],
+  // Hidden today items (Not Today feature)
+  const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
+
+  // Filter out hidden items from locked and active lists
+  const lockedItems = useMemo(
+    () => rawLockedItems.filter((item) => !hiddenTodayIds.includes(item.id)),
+    [rawLockedItems, hiddenTodayIds],
   );
+  const visibleActiveItems = useMemo(
+    () => activeItems.filter((item) => !hiddenTodayIds.includes(item.id)),
+    [activeItems, hiddenTodayIds],
+  );
+
+  // Derive lockedItemIds from filtered result
+  const lockedItemIds = useMemo(() => new Set(lockedItems.map((item) => item.id)), [lockedItems]);
 
   // Habits
   const habitsToday = useTodayHabits();
@@ -366,21 +376,21 @@ export default function NowScreenV1() {
   const todayHabitCount = habitsToday.length;
   const todayTodoCount = useMemo(() => {
     // Count todos in locked + active items (not habits)
-    const lockedTodoCount = rawLockedItems.filter((item) => !('cadence' in item)).length;
-    const activeTodoCount = activeItems.filter((item) => !('cadence' in item)).length;
+    const lockedTodoCount = lockedItems.filter((item) => !('cadence' in item)).length;
+    const activeTodoCount = visibleActiveItems.filter((item) => !('cadence' in item)).length;
     return lockedTodoCount + activeTodoCount;
-  }, [rawLockedItems, activeItems]);
+  }, [lockedItems, visibleActiveItems]);
 
   // Calculate remaining time estimate for incomplete todos
   const remainingMinutes = useMemo(() => {
-    const allItems = [...rawLockedItems, ...activeItems];
+    const allItems = [...lockedItems, ...visibleActiveItems];
     return allItems
       .filter((item) => !('cadence' in item)) // Only todos
       .reduce((sum, item) => {
         const todo = item as Todo;
         return sum + (todo.time_estimate_minutes ?? 0);
       }, 0);
-  }, [rawLockedItems, activeItems]);
+  }, [lockedItems, visibleActiveItems]);
 
   // Sweep count (unified includes todos, notes, and unconfirmed habits)
   const sweepCandidateCount = useSweepCountUnified();
@@ -423,10 +433,10 @@ export default function NowScreenV1() {
   const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
   const updateTodo = useGremlyStore((state) => state.updateTodo);
 
-  // Locked items - transform rawLockedItems to Now types
-  // rawLockedItems comes from useLockedItems selector (single source of truth)
+  // Locked items - transform lockedItems to Now types
+  // lockedItems comes from useLockedItems selector, filtered to exclude hidden items
   const displayLockedItems = useMemo((): NowLockedItem[] => {
-    return rawLockedItems.map((item) => {
+    return lockedItems.map((item) => {
       const isTodo = !('cadence' in item);
       const space = spacesMap.get(item.space_id ?? '');
 
@@ -456,17 +466,17 @@ export default function NowScreenV1() {
         };
       }
     });
-  }, [rawLockedItems, spacesMap]);
+  }, [lockedItems, spacesMap]);
 
   // Derived: has any work today
   const hasAnyTodayWork =
-    displayLockedItems.length > 0 || activeItems.length > 0 || completedToday.length > 0;
+    displayLockedItems.length > 0 || visibleActiveItems.length > 0 || completedToday.length > 0;
 
   // Active items - transform to Now types and apply time window sorting
   const displayActiveItems = useMemo(() => {
-    const transformed = activeItems.map((item) => toActiveItem(item, spacesMap));
+    const transformed = visibleActiveItems.map((item) => toActiveItem(item, spacesMap));
     return sortActiveItems(transformed);
-  }, [activeItems, spacesMap]);
+  }, [visibleActiveItems, spacesMap]);
 
   // Sort active items respecting morning brief sequence
   // NOTE: Locked items are handled separately - they appear at the VERY TOP before any time blocks
@@ -638,12 +648,12 @@ export default function NowScreenV1() {
 
   // Handle overwhelm plan submission
   const handleOverwhelmSubmit = useCallback(() => {
-    const selectedItems = [...displayLockedItems, ...activeItems]
+    const selectedItems = [...displayLockedItems, ...visibleActiveItems]
       .filter((item) => overwhelm.selectedIds.includes(item.id))
       .map((item) => ({ id: item.id, title: item.name }));
 
     void overwhelm.requestPlan(selectedItems);
-  }, [overwhelm, displayLockedItems, activeItems]);
+  }, [overwhelm, displayLockedItems, visibleActiveItems]);
 
   // Handle add press - opens quick-add MindDrop modal
   const handleAddPress = useCallback(() => {

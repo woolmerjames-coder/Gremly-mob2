@@ -7,9 +7,9 @@
  * - Quick stats: event count + available time + hidden count
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal, ScrollView, Image } from 'react-native';
-import { X, RotateCcw, Calendar } from 'lucide-react-native';
+import { X, RotateCcw, Calendar, CheckSquare, Repeat } from 'lucide-react-native';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { useTodayCapacity, useHiddenEventCount } from '../../../../lib/store/capacitySelectors';
 import { formatDuration } from '../../../../lib/capacity';
@@ -29,8 +29,12 @@ const COLORS = {
 
 export function MorningBriefHeader() {
   const capacity = useTodayCapacity();
-  const hiddenCount = useHiddenEventCount();
+  const hiddenEventCount = useHiddenEventCount();
+  const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
   const [showHiddenPopup, setShowHiddenPopup] = useState(false);
+
+  // Combined hidden count (events + todos/habits)
+  const totalHiddenCount = hiddenEventCount + hiddenTodayIds.length;
 
   // Format current date/time using central date service
   const now = getDateService().now();
@@ -56,12 +60,12 @@ export function MorningBriefHeader() {
                 ? `No events · ${availableTime} available`
                 : `${eventCount} event${eventCount !== 1 ? 's' : ''} · ${availableTime} available`}
             </Text>
-            {hiddenCount > 0 && (
+            {totalHiddenCount > 0 && (
               <Pressable
                 onPress={() => setShowHiddenPopup(true)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Text style={styles.hiddenLink}>· {hiddenCount} hidden</Text>
+                <Text style={styles.hiddenLink}>· {totalHiddenCount} hidden</Text>
               </Pressable>
             )}
           </View>
@@ -72,43 +76,74 @@ export function MorningBriefHeader() {
         />
       </View>
 
-      {/* Hidden Events Popup - only mount when visible to avoid hook issues */}
+      {/* Hidden Items Popup - shows hidden events and hidden tasks */}
       {showHiddenPopup && (
-        <HiddenEventsPopup visible={showHiddenPopup} onClose={() => setShowHiddenPopup(false)} />
+        <HiddenItemsPopup visible={showHiddenPopup} onClose={() => setShowHiddenPopup(false)} />
       )}
     </View>
   );
 }
 
 /**
- * Popup showing hidden events with option to restore
+ * Popup showing hidden items (events + todos/habits) with option to restore
  */
-interface HiddenEventsPopupProps {
+interface HiddenItemsPopupProps {
   visible: boolean;
   onClose: () => void;
 }
 
-function HiddenEventsPopup({ visible, onClose }: HiddenEventsPopupProps) {
+function HiddenItemsPopup({ visible, onClose }: HiddenItemsPopupProps) {
   const today = getDateService().getCurrentDate();
+
+  // Hidden events
   const allEvents = useGremlyStore((s) => s.calendarEvents[today] ?? []);
-  const hiddenIds = useGremlyStore((s) => s.hiddenCalendarEventsByDate[today] ?? []);
+  const hiddenEventIds = useGremlyStore((s) => s.hiddenCalendarEventsByDate[today] ?? []);
   const unhideCalendarEvent = useGremlyStore((s) => s.unhideCalendarEvent);
   const unhideAllCalendarEventsForDate = useGremlyStore((s) => s.unhideAllCalendarEventsForDate);
 
-  // Get only hidden events
-  const hiddenSet = new Set(hiddenIds);
-  const hiddenEvents = allEvents.filter((e) => hiddenSet.has(`${e.provider}-${e.providerEventId}`));
+  // Hidden todos/habits
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+  const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
+  const unhideForToday = useGremlyStore((s) => s.unhideForToday);
+  const clearHiddenToday = useGremlyStore((s) => s.clearHiddenToday);
 
-  const handleUnhide = (event: CalendarEvent) => {
+  // Get hidden events
+  const hiddenEventSet = new Set(hiddenEventIds);
+  const hiddenEvents = allEvents.filter((e) =>
+    hiddenEventSet.has(`${e.provider}-${e.providerEventId}`),
+  );
+
+  // Get hidden todos and habits
+  const hiddenTodaySet = useMemo(() => new Set(hiddenTodayIds), [hiddenTodayIds]);
+  const hiddenTodos = useMemo(
+    () => todos.filter((t) => hiddenTodaySet.has(t.id)),
+    [todos, hiddenTodaySet],
+  );
+  const hiddenHabits = useMemo(
+    () => habits.filter((h) => hiddenTodaySet.has(h.id)),
+    [habits, hiddenTodaySet],
+  );
+
+  const handleUnhideEvent = (event: CalendarEvent) => {
     unhideCalendarEvent(today, `${event.provider}-${event.providerEventId}`);
   };
 
-  const handleUnhideAll = () => {
+  const handleUnhideAllEvents = () => {
     unhideAllCalendarEventsForDate(today);
-    onClose();
   };
 
-  if (hiddenEvents.length === 0) {
+  const handleUnhideTask = (id: string) => {
+    unhideForToday(id);
+  };
+
+  const handleUnhideAllTasks = () => {
+    clearHiddenToday();
+  };
+
+  const totalHiddenCount = hiddenEvents.length + hiddenTodos.length + hiddenHabits.length;
+
+  if (totalHiddenCount === 0) {
     return null;
   }
 
@@ -118,7 +153,7 @@ function HiddenEventsPopup({ visible, onClose }: HiddenEventsPopupProps) {
         <Pressable style={popupStyles.container} onPress={(e) => e.stopPropagation()}>
           {/* Header */}
           <View style={popupStyles.header}>
-            <Text style={popupStyles.title}>Hidden Events</Text>
+            <Text style={popupStyles.title}>Hidden Items</Text>
             <Pressable onPress={onClose} hitSlop={8}>
               <X size={20} color={COLORS.inkMuted} />
             </Pressable>
@@ -126,31 +161,82 @@ function HiddenEventsPopup({ visible, onClose }: HiddenEventsPopupProps) {
 
           {/* List */}
           <ScrollView style={popupStyles.list}>
-            {hiddenEvents.map((event) => {
-              const eventId = `${event.provider}-${event.providerEventId}`;
-              return (
-                <View key={eventId} style={popupStyles.eventRow}>
-                  <Calendar size={16} color={COLORS.inkMuted} style={popupStyles.eventIcon} />
-                  <Text style={popupStyles.eventTitle} numberOfLines={1}>
-                    {event.title}
-                  </Text>
-                  <Pressable style={popupStyles.restoreButton} onPress={() => handleUnhide(event)}>
-                    <RotateCcw size={14} color={COLORS.mossGreen} />
-                    <Text style={popupStyles.restoreText}>Restore</Text>
-                  </Pressable>
+            {/* Hidden Events Section */}
+            {hiddenEvents.length > 0 && (
+              <>
+                <View style={popupStyles.sectionHeader}>
+                  <Text style={popupStyles.sectionTitle}>Hidden events</Text>
+                  {hiddenEvents.length > 1 && (
+                    <Pressable onPress={handleUnhideAllEvents}>
+                      <Text style={popupStyles.sectionAction}>Restore all</Text>
+                    </Pressable>
+                  )}
                 </View>
-              );
-            })}
-          </ScrollView>
+                {hiddenEvents.map((event) => {
+                  const eventId = `${event.provider}-${event.providerEventId}`;
+                  return (
+                    <View key={eventId} style={popupStyles.itemRow}>
+                      <Calendar size={16} color={COLORS.inkMuted} style={popupStyles.itemIcon} />
+                      <Text style={popupStyles.itemTitle} numberOfLines={1}>
+                        {event.title}
+                      </Text>
+                      <Pressable
+                        style={popupStyles.restoreButton}
+                        onPress={() => handleUnhideEvent(event)}
+                      >
+                        <RotateCcw size={14} color={COLORS.mossGreen} />
+                        <Text style={popupStyles.restoreText}>Restore</Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </>
+            )}
 
-          {/* Restore All */}
-          {hiddenEvents.length > 1 && (
-            <View style={popupStyles.footer}>
-              <Pressable style={popupStyles.restoreAllButton} onPress={handleUnhideAll}>
-                <Text style={popupStyles.restoreAllText}>Restore all</Text>
-              </Pressable>
-            </View>
-          )}
+            {/* Hidden for Today Section (Todos + Habits) */}
+            {(hiddenTodos.length > 0 || hiddenHabits.length > 0) && (
+              <>
+                <View style={popupStyles.sectionHeader}>
+                  <Text style={popupStyles.sectionTitle}>Hidden for today</Text>
+                  {hiddenTodos.length + hiddenHabits.length > 1 && (
+                    <Pressable onPress={handleUnhideAllTasks}>
+                      <Text style={popupStyles.sectionAction}>Restore all</Text>
+                    </Pressable>
+                  )}
+                </View>
+                {hiddenTodos.map((todo) => (
+                  <View key={todo.id} style={popupStyles.itemRow}>
+                    <CheckSquare size={16} color={COLORS.inkMuted} style={popupStyles.itemIcon} />
+                    <Text style={popupStyles.itemTitle} numberOfLines={1}>
+                      {todo.name || 'Untitled'}
+                    </Text>
+                    <Pressable
+                      style={popupStyles.restoreButton}
+                      onPress={() => handleUnhideTask(todo.id)}
+                    >
+                      <RotateCcw size={14} color={COLORS.mossGreen} />
+                      <Text style={popupStyles.restoreText}>Restore</Text>
+                    </Pressable>
+                  </View>
+                ))}
+                {hiddenHabits.map((habit) => (
+                  <View key={habit.id} style={popupStyles.itemRow}>
+                    <Repeat size={16} color={COLORS.inkMuted} style={popupStyles.itemIcon} />
+                    <Text style={popupStyles.itemTitle} numberOfLines={1}>
+                      {habit.name || 'Untitled'}
+                    </Text>
+                    <Pressable
+                      style={popupStyles.restoreButton}
+                      onPress={() => handleUnhideTask(habit.id)}
+                    >
+                      <RotateCcw size={14} color={COLORS.mossGreen} />
+                      <Text style={popupStyles.restoreText}>Restore</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </>
+            )}
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -165,7 +251,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.divider,
     backgroundColor: COLORS.linenCream,
-  },  headerRow: {
+  },
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -236,9 +323,29 @@ const popupStyles = StyleSheet.create({
     color: COLORS.charcoalInk,
   },
   list: {
-    maxHeight: 250,
+    maxHeight: 300,
   },
-  eventRow: {
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: COLORS.linenCream,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.inkMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  sectionAction: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: COLORS.mossGreen,
+  },
+  itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
@@ -246,10 +353,10 @@ const popupStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.divider,
   },
-  eventIcon: {
+  itemIcon: {
     marginRight: 10,
   },
-  eventTitle: {
+  itemTitle: {
     flex: 1,
     fontSize: 15,
     color: COLORS.charcoalInk,
@@ -266,22 +373,6 @@ const popupStyles = StyleSheet.create({
   restoreText: {
     fontSize: 13,
     fontWeight: '500',
-    color: COLORS.mossGreen,
-  },
-  footer: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.divider,
-  },
-  restoreAllButton: {
-    paddingVertical: 12,
-    alignItems: 'center',
-    backgroundColor: COLORS.sageMist,
-    borderRadius: 10,
-  },
-  restoreAllText: {
-    fontSize: 15,
-    fontWeight: '600',
     color: COLORS.mossGreen,
   },
 });

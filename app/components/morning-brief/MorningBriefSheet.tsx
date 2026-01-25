@@ -75,7 +75,13 @@ function getEventsForBlock(
   });
 }
 
-export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAddSubmit, onQuickAddManual }: MorningBriefSheetProps) {
+export function MorningBriefSheet({
+  visible,
+  onClose,
+  onComplete,
+  onQuickAddSubmit,
+  onQuickAddManual,
+}: MorningBriefSheetProps) {
   const insets = useSafeAreaInsets();
   const today = getTodayDateString();
 
@@ -128,6 +134,11 @@ export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAddSubm
   );
   const hideCalendarEvent = useGremlyStore((s) => s.hideCalendarEvent);
 
+  // ─────────────────────────────────────────────────────────────────
+  // HIDDEN TODAY (Not Today - todos/habits hidden for the day)
+  // ─────────────────────────────────────────────────────────────────
+  const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
+
   const handleHideEvent = useCallback(
     (eventId: string) => {
       hideCalendarEvent(today, eventId);
@@ -139,21 +150,25 @@ export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAddSubm
   // TASK DATA TRANSFORMATION
   // ─────────────────────────────────────────────────────────────────
 
-  // Get todos due today
+  // Get todos due today (excluding hidden ones)
   const todayTodos = useMemo(() => {
-    return todos.filter((t) => !t.archived && !t.completed_at && t.due_day === today);
-  }, [todos, today]);
+    return todos.filter(
+      (t) =>
+        !t.archived && !t.completed_at && t.due_day === today && !hiddenTodayIds.includes(t.id),
+    );
+  }, [todos, today, hiddenTodayIds]);
 
-  // Get habits due today (simplified - daily habits with start_date <= today)
+  // Get habits due today (excluding hidden ones)
   const todayHabits = useMemo(() => {
     return habits.filter((h) => {
       if (h.archived) return false;
       if (!h.start_date || h.start_date > today) return false;
       if (h.end_date && h.end_date < today) return false;
+      if (hiddenTodayIds.includes(h.id)) return false;
       // For now, include all active habits
       return true;
     });
-  }, [habits, today]);
+  }, [habits, today, hiddenTodayIds]);
 
   // Transform to TaskItemData
   const transformTodo = useCallback(
@@ -418,9 +433,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAddSubm
                 }}
               />
 
-              {organizeMessage && (
-                <Text style={styles.organizeMessage}>{organizeMessage}</Text>
-              )}
+              {organizeMessage && <Text style={styles.organizeMessage}>{organizeMessage}</Text>}
 
               {/* Thick divider between On Your Plate and Time Blocks */}
               <View style={styles.sectionDivider} />

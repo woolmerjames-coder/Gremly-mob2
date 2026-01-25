@@ -8,7 +8,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, Switch } from 'react-native';
-import { Sunrise, Sun, Sunset, ArrowLeftRight, Diamond, Check } from 'lucide-react-native';
+import { Sunrise, Sun, Sunset, ArrowLeftRight, Diamond, Check, EyeOff } from 'lucide-react-native';
 import { getTimeBlockBoundaries, type TimeBlock } from '../../../../lib/capacity';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import type { TaskItemData } from './TaskItem';
@@ -52,8 +52,9 @@ interface TimeBlockPickerProps {
 }
 
 export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockPickerProps) {
-  // Get time block preferences from store
+  // Get time block preferences and hide action from store
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
+  const hideForToday = useGremlyStore((s) => s.hideForToday);
 
   // Build time block options dynamically from preferences
   const timeBlockOptions = useMemo(() => {
@@ -107,6 +108,11 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
 
   const handleSelect = (key: TimeBlock | 'any') => {
     onAssign(task.id, task.type, key, lockIn);
+    onClose();
+  };
+
+  const handleNotToday = () => {
+    hideForToday(task.id);
     onClose();
   };
 
@@ -168,6 +174,18 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
               thumbColor={COLORS.surface}
             />
           </View>
+
+          {/* Divider */}
+          <View style={styles.divider} />
+
+          {/* Not Today Option */}
+          <Pressable style={styles.option} onPress={handleNotToday}>
+            <EyeOff size={20} color={COLORS.inkMuted} style={styles.optionIcon} />
+            <View style={styles.optionLabelContainer}>
+              <Text style={styles.optionLabel}>Not today</Text>
+              <Text style={styles.optionTimeRange}>Hide from Morning Brief until tomorrow</Text>
+            </View>
+          </Pressable>
 
           {/* Cancel Button */}
           <Pressable style={styles.cancelButton} onPress={onClose}>

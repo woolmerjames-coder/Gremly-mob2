@@ -83,6 +83,46 @@ async function saveHiddenEventsToStorage(data: Record<string, string[]>): Promis
   }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// HIDDEN TODAY ITEMS PERSISTENCE (AsyncStorage - local only, auto-resets daily)
+// ═════════════════════════════════════════════════════════════════════════════
+const HIDDEN_TODAY_STORAGE_KEY = 'gremly:hiddenToday';
+
+interface HiddenTodayData {
+  date: string;
+  ids: string[];
+}
+
+async function loadHiddenTodayFromStorage(): Promise<HiddenTodayData | null> {
+  try {
+    const stored = await AsyncStorage.getItem(HIDDEN_TODAY_STORAGE_KEY);
+    if (!stored) return null;
+
+    const parsed = JSON.parse(stored) as HiddenTodayData;
+    const today = getDateService().getCurrentDate();
+
+    // Only return if the date matches today (auto-reset for new day)
+    if (parsed.date === today) {
+      return parsed;
+    }
+
+    // Stale data - clear it
+    await AsyncStorage.removeItem(HIDDEN_TODAY_STORAGE_KEY);
+    return null;
+  } catch (error) {
+    console.error('[GremlyStore] Failed to load hidden today items:', error);
+    return null;
+  }
+}
+
+async function saveHiddenTodayToStorage(data: HiddenTodayData): Promise<void> {
+  try {
+    await AsyncStorage.setItem(HIDDEN_TODAY_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('[GremlyStore] Failed to save hidden today items:', error);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // EVENT TIME OVERRIDES PERSISTENCE (AsyncStorage - local only)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -562,6 +602,10 @@ interface GremlyState {
   eventTimeOverrides: Record<string, { startAt: string; endAt: string }>;
   /** User-customizable time block boundaries */
   timeBlockPreferences: TimeBlockPreferences;
+  /** IDs of todos/habits hidden from Morning Brief for today only */
+  hiddenTodayIds: string[];
+  /** The date that hiddenTodayIds applies to (for auto-reset) */
+  hiddenTodayDate: string | null;
 
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
@@ -582,6 +626,10 @@ interface GremlyState {
   // Time block preferences actions
   setTimeBlockPreferences: (preferences: TimeBlockPreferences) => void;
   resetTimeBlockPreferences: () => void;
+  // Hidden today (Not Today) actions
+  hideForToday: (id: string) => void;
+  unhideForToday: (id: string) => void;
+  clearHiddenToday: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -633,6 +681,8 @@ const initialState = {
   hiddenCalendarEventsByDate: {} as Record<string, string[]>,
   eventTimeOverrides: {} as Record<string, { startAt: string; endAt: string }>,
   timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES,
+  hiddenTodayIds: [] as string[],
+  hiddenTodayDate: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -837,6 +887,15 @@ export const useGremlyStore = create<GremlyState>()(
         const timeBlockPrefs = await loadTimeBlockPreferencesFromStorage();
         if (timeBlockPrefs) {
           set({ timeBlockPreferences: timeBlockPrefs });
+        }
+
+        // Load hidden today items from AsyncStorage (auto-resets on new day)
+        const hiddenToday = await loadHiddenTodayFromStorage();
+        if (hiddenToday) {
+          set({
+            hiddenTodayIds: hiddenToday.ids,
+            hiddenTodayDate: hiddenToday.date,
+          });
         }
 
         // Clean up old duration-only storage key if it exists
@@ -3417,6 +3476,52 @@ export const useGremlyStore = create<GremlyState>()(
     resetTimeBlockPreferences: () => {
       set({ timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES });
       saveTimeBlockPreferencesToStorage(DEFAULT_TIME_BLOCK_PREFERENCES);
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // HIDDEN TODAY (NOT TODAY) ACTIONS
+    // Hide todos/habits from Morning Brief for today only (auto-resets daily)
+    // ═══════════════════════════════════════════════════════════════════
+
+    hideForToday: (id: string) => {
+      const today = getDateService().getCurrentDate();
+      set((state) => {
+        // If the stored date is not today, start fresh
+        if (state.hiddenTodayDate !== today) {
+          const newData = { date: today, ids: [id] };
+          saveHiddenTodayToStorage(newData);
+          return {
+            hiddenTodayIds: [id],
+            hiddenTodayDate: today,
+          };
+        }
+        // Otherwise add to existing list (if not already there)
+        if (state.hiddenTodayIds.includes(id)) {
+          return state;
+        }
+        const newIds = [...state.hiddenTodayIds, id];
+        saveHiddenTodayToStorage({ date: today, ids: newIds });
+        return {
+          hiddenTodayIds: newIds,
+        };
+      });
+    },
+
+    unhideForToday: (id: string) => {
+      set((state) => {
+        const newIds = state.hiddenTodayIds.filter((i) => i !== id);
+        if (state.hiddenTodayDate) {
+          saveHiddenTodayToStorage({ date: state.hiddenTodayDate, ids: newIds });
+        }
+        return {
+          hiddenTodayIds: newIds,
+        };
+      });
+    },
+
+    clearHiddenToday: () => {
+      set({ hiddenTodayIds: [], hiddenTodayDate: null });
+      AsyncStorage.removeItem(HIDDEN_TODAY_STORAGE_KEY);
     },
 
     // ═══════════════════════════════════════════════════════════════════
