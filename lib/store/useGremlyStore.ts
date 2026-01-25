@@ -449,6 +449,13 @@ interface GremlyState {
   removeCommitment: (id: string, type: 'todo' | 'habit', reason?: string | null) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // ORGANIZE DAY (AI-powered task assignments)
+  // ═══════════════════════════════════════════════════════════════════
+  applyOrganizeAssignments: (
+    assignments: Array<{ taskId: string; block: 'morning' | 'day' | 'evening' }>,
+  ) => void;
+
+  // ═══════════════════════════════════════════════════════════════════
   // BULK/UTILITY
   // ═══════════════════════════════════════════════════════════════════
   refreshFromServer: () => Promise<void>;
@@ -2717,6 +2724,46 @@ export const useGremlyStore = create<GremlyState>()(
       }
 
       return data ?? [];
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ORGANIZE DAY (AI-powered task assignments)
+    // ═══════════════════════════════════════════════════════════════════
+
+    applyOrganizeAssignments: (assignments) => {
+      set((state) => {
+        const updatedTodos = state.todos.map((todo) => {
+          const assignment = assignments.find((a) => a.taskId === todo.id);
+          if (assignment) {
+            return { ...todo, time_window: assignment.block };
+          }
+          return todo;
+        });
+
+        const updatedHabits = state.habits.map((habit) => {
+          const assignment = assignments.find((a) => a.taskId === habit.id);
+          if (assignment) {
+            return { ...habit, time_window: assignment.block };
+          }
+          return habit;
+        });
+
+        return { todos: updatedTodos, habits: updatedHabits };
+      });
+
+      // Persist to Supabase
+      const { todos, habits } = get();
+      assignments.forEach((assignment) => {
+        const todo = todos.find((t) => t.id === assignment.taskId);
+        if (todo) {
+          get().updateTodo(todo.id, { time_window: assignment.block });
+          return;
+        }
+        const habit = habits.find((h) => h.id === assignment.taskId);
+        if (habit) {
+          get().updateHabit(habit.id, { time_window: assignment.block });
+        }
+      });
     },
 
     // ═══════════════════════════════════════════════════════════════════

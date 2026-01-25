@@ -6,6 +6,7 @@
  */
 
 import type { CalendarEvent } from '../calendar/CalendarClient';
+import { getDateService } from '../date';
 import type {
   TimeBlock,
   TimeBlockBoundary,
@@ -357,4 +358,112 @@ export function formatBlockRemaining(minutes: number, isPast: boolean): string {
   if (isPast) return 'Passed';
   if (minutes <= 0) return 'No time left';
   return `${formatDuration(minutes)} remaining`;
+}
+
+/**
+ * Calculate realistic available minutes from current time to block end,
+ * accounting for calendar events in between.
+ *
+ * This is different from block availableMinutes which shows total block capacity.
+ * This calculates what's ACTUALLY usable from RIGHT NOW.
+ */
+export function calculateRealisticAvailableMinutes(
+  block: TimeBlock,
+  events: CalendarEvent[],
+  currentDate: string,
+  timeOverrides: Record<string, EventTimeOverride> = {},
+  timeBlockPreferences: TimeBlockPreferences = DEFAULT_TIME_BLOCK_PREFERENCES,
+): number {
+  const now = getDateService().now();
+  const currentHour = now.getHours();
+  const currentMinutes = now.getMinutes();
+  const currentTotalMinutes = currentHour * 60 + currentMinutes;
+
+  const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
+  const boundary = boundaries[block];
+  const blockStartMinutes = boundary.startHour * 60;
+  const blockEndMinutes = boundary.endHour * 60;
+
+  // If block is in the past, no realistic time available
+  if (currentTotalMinutes >= blockEndMinutes) {
+    return 0;
+  }
+
+  // Effective start is either block start or now, whichever is later
+  const effectiveStartMinutes = Math.max(blockStartMinutes, currentTotalMinutes);
+
+  // Total window we're working with
+  const windowStart = effectiveStartMinutes;
+  const windowEnd = blockEndMinutes;
+
+  if (windowStart >= windowEnd) {
+    return 0;
+  }
+
+  // Get all events that overlap with our window, sorted by start time
+  const relevantEvents: Array<{ start: number; end: number }> = [];
+
+  for (const event of events) {
+    if (event.isAllDay) continue;
+
+    const { startAt, endAt } = getEffectiveEventTimes(event, timeOverrides);
+
+    // Convert event times to minutes since midnight
+    const eventStartMinutes = startAt.getHours() * 60 + startAt.getMinutes();
+    const eventEndMinutes = endAt.getHours() * 60 + endAt.getMinutes();
+
+    // Check if event is on the current date
+    const eventDateStr = `${startAt.getFullYear()}-${String(startAt.getMonth() + 1).padStart(2, '0')}-${String(startAt.getDate()).padStart(2, '0')}`;
+    if (eventDateStr !== currentDate) continue;
+
+    // Check if event overlaps with our window
+    if (eventEndMinutes <= windowStart || eventStartMinutes >= windowEnd) {
+      continue;
+    }
+
+    // Clip event to our window
+    const clippedStart = Math.max(eventStartMinutes, windowStart);
+    const clippedEnd = Math.min(eventEndMinutes, windowEnd);
+
+    if (clippedEnd > clippedStart) {
+      relevantEvents.push({ start: clippedStart, end: clippedEnd });
+    }
+  }
+
+  // Sort events by start time
+  relevantEvents.sort((a, b) => a.start - b.start);
+
+  // Merge overlapping events and calculate gaps
+  const mergedEvents: Array<{ start: number; end: number }> = [];
+  for (const event of relevantEvents) {
+    if (mergedEvents.length === 0) {
+      mergedEvents.push(event);
+    } else {
+      const last = mergedEvents[mergedEvents.length - 1];
+      if (event.start <= last.end) {
+        // Overlapping, extend the last event
+        last.end = Math.max(last.end, event.end);
+      } else {
+        mergedEvents.push(event);
+      }
+    }
+  }
+
+  // Calculate total free time (gaps between events + before first + after last)
+  let freeMinutes = 0;
+  let cursor = windowStart;
+
+  for (const event of mergedEvents) {
+    if (event.start > cursor) {
+      freeMinutes += event.start - cursor;
+    }
+    cursor = Math.max(cursor, event.end);
+  }
+
+  // Add time after last event to window end
+  if (cursor < windowEnd) {
+    freeMinutes += windowEnd - cursor;
+  }
+
+  return Math.max(0, freeMinutes);
 }

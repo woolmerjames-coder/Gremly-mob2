@@ -8,7 +8,7 @@
  */
 
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Modal, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Modal, ScrollView, Image } from 'react-native';
 import { X, RotateCcw, Calendar } from 'lucide-react-native';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { useTodayCapacity, useHiddenEventCount } from '../../../../lib/store/capacitySelectors';
@@ -44,24 +44,32 @@ export function MorningBriefHeader() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Your {dayName}</Text>
-      <Text style={styles.subtitle}>
-        {dateString} · {timeString}
-      </Text>
-      <View style={styles.statsRow}>
-        <Text style={styles.stats}>
-          {eventCount === 0
-            ? `No events · ${availableTime} available`
-            : `${eventCount} event${eventCount !== 1 ? 's' : ''} · ${availableTime} available`}
-        </Text>
-        {hiddenCount > 0 && (
-          <Pressable
-            onPress={() => setShowHiddenPopup(true)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.hiddenLink}>· {hiddenCount} hidden</Text>
-          </Pressable>
-        )}
+      <View style={styles.headerRow}>
+        <View style={styles.headerContent}>
+          <Text style={styles.title}>Your {dayName}</Text>
+          <Text style={styles.subtitle}>
+            {dateString} · {timeString}
+          </Text>
+          <View style={styles.statsRow}>
+            <Text style={styles.stats}>
+              {eventCount === 0
+                ? `No events · ${availableTime} available`
+                : `${eventCount} event${eventCount !== 1 ? 's' : ''} · ${availableTime} available`}
+            </Text>
+            {hiddenCount > 0 && (
+              <Pressable
+                onPress={() => setShowHiddenPopup(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.hiddenLink}>· {hiddenCount} hidden</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+        <Image
+          source={require('../../../../assets/mascot/morningbriefgremly.png')}
+          style={styles.headerMascot}
+        />
       </View>
 
       {/* Hidden Events Popup - only mount when visible to avoid hook issues */}
@@ -157,6 +165,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.divider,
     backgroundColor: COLORS.linenCream,
+  },  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerContent: {
+    flex: 1,
+  },
+  headerMascot: {
+    width: 60,
+    height: 60,
+    marginLeft: 12,
   },
   title: {
     fontSize: 24,

@@ -1,0 +1,246 @@
+/**
+ * Organize Day API
+ *
+ * Calls the cortex worker to get AI-powered task assignments for Morning Brief.
+ */
+
+import Constants from 'expo-constants';
+import type { Todo, Habit } from '../types';
+import type { CalendarEvent } from '../calendar/CalendarClient';
+import type { DayCapacity } from '../capacity';
+import { calculateRealisticAvailableMinutes } from '../capacity';
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+export interface OrganizeDayTask {
+  id: string;
+  title: string;
+  type: 'todo' | 'habit';
+  estimateMinutes: number | null;
+  dueDate: string | null;
+  priority: 'high' | 'medium' | 'low' | null;
+  isLockedIn: boolean;
+  currentBlock: 'morning' | 'day' | 'evening' | null;
+  timeWindowPreference: 'morning' | 'day' | 'evening' | 'any' | null;
+}
+
+export interface OrganizeDayCalendarEvent {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt: string;
+  durationMinutes: number;
+}
+
+export interface OrganizeDayBlock {
+  startHour: number;
+  endHour: number;
+  availableMinutes: number;
+  realisticAvailableMinutes: number;
+}
+
+export interface OrganizeDayRequest {
+  tasks: OrganizeDayTask[];
+  calendarEvents: OrganizeDayCalendarEvent[];
+  blocks: {
+    morning: OrganizeDayBlock;
+    day: OrganizeDayBlock;
+    evening: OrganizeDayBlock;
+  };
+  currentHour: number;
+}
+
+export interface TaskAssignment {
+  taskId: string;
+  block: 'morning' | 'day' | 'evening';
+  reason: string;
+}
+
+export interface TaskOverflow {
+  taskId: string;
+  reason: string;
+}
+
+export interface OrganizeDayResponse {
+  assignments: TaskAssignment[];
+  overflow: TaskOverflow[];
+  summary: string;
+  latency_ms: number;
+  error?: string;
+  detail?: string;
+}
+
+// =============================================================================
+// API CLIENT
+// =============================================================================
+
+const CORTEX_URL =
+  Constants.expoConfig?.extra?.CORTEX_URL ||
+  process.env.EXPO_PUBLIC_CORTEX_URL ||
+  'https://gentle-thunder-5854.woolmerjames.workers.dev';
+
+export async function organizeDay(request: OrganizeDayRequest): Promise<OrganizeDayResponse> {
+  const startTime = Date.now();
+
+  console.log('[organizeDay] Calling API', {
+    tasks: request.tasks.length,
+    events: request.calendarEvents.length,
+    currentHour: request.currentHour,
+  });
+
+  try {
+    const response = await fetch(CORTEX_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'organize-day',
+        ...request,
+      }),
+    });
+
+    if (!response.ok) {
+      console.log('[organizeDay] HTTP error', { status: response.status });
+      return {
+        assignments: [],
+        overflow: request.tasks.map((t) => ({ taskId: t.id, reason: 'API request failed' })),
+        summary: 'Could not reach AI. Tasks left flexible.',
+        latency_ms: Date.now() - startTime,
+        error: `HTTP ${response.status}`,
+      };
+    }
+
+    const data: OrganizeDayResponse = await response.json();
+
+    console.log('[organizeDay] Raw response', JSON.stringify(data, null, 2));
+
+    console.log('[organizeDay] Success', {
+      assigned: data.assignments?.length ?? 0,
+      overflow: data.overflow?.length ?? 0,
+      latency_ms: data.latency_ms,
+    });
+
+    return data;
+  } catch (err) {
+    console.log('[organizeDay] Network error', { error: String(err) });
+    return {
+      assignments: [],
+      overflow: request.tasks.map((t) => ({ taskId: t.id, reason: 'Network error' })),
+      summary: 'Network error. Tasks left flexible.',
+      latency_ms: Date.now() - startTime,
+      error: 'network_error',
+      detail: String(err),
+    };
+  }
+}
+
+// =============================================================================
+// HELPER: Build request from store data
+// =============================================================================
+
+interface BuildRequestParams {
+  todos: Todo[];
+  habits: Habit[];
+  calendarEvents: CalendarEvent[];
+  capacity: DayCapacity;
+  today: string;
+  currentHour: number;
+}
+
+export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDayRequest {
+  const { todos, habits, calendarEvents, capacity, today, currentHour } = params;
+
+  // Convert todos to OrganizeDayTask format
+  const todoTasks: OrganizeDayTask[] = todos
+    .filter((t) => !t.archived && !t.completed_at && t.due_day === today)
+    .map((t) => ({
+      id: t.id,
+      title: t.name || t.title || '',
+      type: 'todo' as const,
+      estimateMinutes: t.time_estimate_minutes ?? null,
+      dueDate: t.due_day ?? null,
+      priority: null, // Todo type doesn't have priority
+      isLockedIn: t.locked_in ?? false,
+      currentBlock: t.time_window && t.time_window !== 'any'
+        ? t.time_window as 'morning' | 'day' | 'evening'
+        : null,
+      timeWindowPreference: t.time_window as 'morning' | 'day' | 'evening' | 'any' | null,
+    }));
+
+  // Convert habits to OrganizeDayTask format
+  const habitTasks: OrganizeDayTask[] = habits
+    .filter((h) => {
+      if (h.archived) return false;
+      if (!h.start_date || h.start_date > today) return false;
+      if (h.end_date && h.end_date < today) return false;
+      return true;
+    })
+    .map((h) => ({
+      id: h.id,
+      title: h.name,
+      type: 'habit' as const,
+      estimateMinutes: h.time_estimate_minutes ?? null,
+      dueDate: null,
+      priority: null,
+      isLockedIn: false,
+      currentBlock: h.time_window && h.time_window !== 'any'
+        ? h.time_window as 'morning' | 'day' | 'evening'
+        : null,
+      timeWindowPreference: h.time_window as 'morning' | 'day' | 'evening' | 'any' | null,
+    }));
+
+  // Convert calendar events
+  const events: OrganizeDayCalendarEvent[] = calendarEvents.map((e) => ({
+    id: `${e.provider}-${e.providerEventId}`,
+    title: e.title,
+    startAt: e.startAt,
+    endAt: e.endAt,
+    durationMinutes: Math.round(
+      (new Date(e.endAt).getTime() - new Date(e.startAt).getTime()) / (1000 * 60)
+    ),
+  }));
+
+  // Calculate realistic available time for each block
+  const realisticMorning = calculateRealisticAvailableMinutes(
+    'morning', calendarEvents, today, {}, undefined
+  );
+  const realisticDay = calculateRealisticAvailableMinutes(
+    'day', calendarEvents, today, {}, undefined
+  );
+  const realisticEvening = calculateRealisticAvailableMinutes(
+    'evening', calendarEvents, today, {}, undefined
+  );
+
+  // Build blocks from capacity (keep original availableMinutes for reference)
+  // but add realisticAvailableMinutes for AI scheduling
+  const blocks = {
+    morning: {
+      startHour: capacity.blocks.morning.startHour,
+      endHour: capacity.blocks.morning.endHour,
+      availableMinutes: capacity.blocks.morning.availableMinutes,
+      realisticAvailableMinutes: realisticMorning,
+    },
+    day: {
+      startHour: capacity.blocks.day.startHour,
+      endHour: capacity.blocks.day.endHour,
+      availableMinutes: capacity.blocks.day.availableMinutes,
+      realisticAvailableMinutes: realisticDay,
+    },
+    evening: {
+      startHour: capacity.blocks.evening.startHour,
+      endHour: capacity.blocks.evening.endHour,
+      availableMinutes: capacity.blocks.evening.availableMinutes,
+      realisticAvailableMinutes: realisticEvening,
+    },
+  };
+
+  return {
+    tasks: [...todoTasks, ...habitTasks],
+    calendarEvents: events,
+    blocks,
+    currentHour,
+  };
+}

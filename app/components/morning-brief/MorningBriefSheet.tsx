@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Modal, StyleSheet, ScrollView } from 'react-native';
+import { View, Modal, StyleSheet, ScrollView, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
@@ -25,11 +25,11 @@ import { MiniSweepGate } from './MiniSweepGate';
 import {
   MorningBriefHeader,
   MorningBriefFooter,
-  GremlySummary,
   TimeBlockSection,
   TimeBlockPicker,
   OnYourPlateSection,
   TimeEstimatePicker,
+  OrganizeButton,
   type TaskItemData,
 } from './components';
 
@@ -37,6 +37,7 @@ interface MorningBriefSheetProps {
   visible: boolean;
   onClose: () => void;
   onComplete?: () => void;
+  onQuickAdd?: () => void;
 }
 
 /**
@@ -70,7 +71,7 @@ function getEventsForBlock(
   });
 }
 
-export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBriefSheetProps) {
+export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAdd }: MorningBriefSheetProps) {
   const insets = useSafeAreaInsets();
   const today = getTodayDateString();
 
@@ -237,7 +238,8 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   // ─────────────────────────────────────────────────────────────────
   const [pickerVisible, setPickerVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskItemData | null>(null);
-
+  // Organize feedback message
+  const [organizeMessage, setOrganizeMessage] = useState<string | null>(null);
   const handleTaskPress = useCallback((task: TaskItemData) => {
     setSelectedTask(task);
     setPickerVisible(true);
@@ -315,9 +317,8 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   // ADD TASK
   // ─────────────────────────────────────────────────────────────────
   const handleAddPress = useCallback(() => {
-    // For now, just log - wire up NowQuickAddModal in integration
-    console.log('[MorningBrief] Add task pressed - wire up NowQuickAddModal');
-  }, []);
+    onQuickAdd?.();
+  }, [onQuickAdd]);
 
   // ─────────────────────────────────────────────────────────────────
   // COMPLETION
@@ -368,6 +369,23 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
             {/* Header */}
             <MorningBriefHeader />
 
+            {/* Organize Button */}
+            <OrganizeButton
+              onComplete={(summary) => {
+                setOrganizeMessage(summary);
+                // Clear after 4 seconds
+                setTimeout(() => setOrganizeMessage(null), 4000);
+              }}
+              onError={(error) => {
+                setOrganizeMessage(error);
+                setTimeout(() => setOrganizeMessage(null), 4000);
+              }}
+            />
+
+            {organizeMessage && (
+              <Text style={styles.organizeMessage}>{organizeMessage}</Text>
+            )}
+
             {/* Scrollable Content */}
             <ScrollView
               style={styles.scrollView}
@@ -385,6 +403,8 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                 hiddenEventIds={hiddenEventIds}
               />
 
+              <View style={styles.blockDivider} />
+
               <TimeBlockSection
                 capacity={capacity.blocks.day}
                 events={getEventsForBlock(calendarEvents, 'day', today, timeBlockPreferences)}
@@ -394,6 +414,8 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                 onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
               />
+
+              <View style={styles.blockDivider} />
 
               <TimeBlockSection
                 capacity={capacity.blocks.evening}
@@ -405,6 +427,8 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                 hiddenEventIds={hiddenEventIds}
               />
 
+              <View style={styles.blockDivider} />
+
               {/* On Your Plate */}
               <OnYourPlateSection
                 tasks={tasksByBlock.flexible}
@@ -412,9 +436,6 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
                 onTimePress={handleTimePress}
                 onAddPress={handleAddPress}
               />
-
-              {/* Gremly Summary */}
-              <GremlySummary taskMinutes={totalTaskMinutes} />
             </ScrollView>
 
             {/* Footer */}
@@ -456,6 +477,20 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingTop: 16,
     paddingBottom: 24,
+  },
+  blockDivider: {
+    height: 3,
+    backgroundColor: '#E5E5E5',
+    marginVertical: 16,
+    marginHorizontal: 16,
+  },
+  organizeMessage: {
+    fontSize: 13,
+    color: '#666666',
+    textAlign: 'center',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    fontStyle: 'italic',
   },
 });
 

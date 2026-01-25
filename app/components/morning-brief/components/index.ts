@@ -13,3 +13,4 @@ export { TimeBlockSection } from './TimeBlockSection';
 export { OnYourPlateSection } from './OnYourPlateSection';
 export { TimeEstimatePicker } from './TimeEstimatePicker';
 export { EventTimePicker } from './EventTimePicker';
+export { OrganizeButton } from './OrganizeButton';

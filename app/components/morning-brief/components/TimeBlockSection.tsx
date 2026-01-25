@@ -9,10 +9,10 @@
 
 import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
-import { Sunrise, Sun, Sunset, Calendar, X, MapPin, Clock } from 'lucide-react-native';
+import { Sunrise, Sun, Sunset, Calendar, X, MapPin, Clock, ChevronUp, ChevronDown } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { getEffectiveEventTimes, type EventTimeOverride } from '../../../../lib/capacity';
-import type { TimeBlockCapacity, TimeBlock } from '../../../../lib/capacity';
+import type { TimeBlockCapacity, TimeBlock, TimeBlockPreferences } from '../../../../lib/capacity';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { TaskItem, type TaskItemData } from './TaskItem';
@@ -318,6 +318,53 @@ export function TimeBlockSection({
   const setEventTimeOverride = useGremlyStore((s) => s.setEventTimeOverride);
   const clearEventTimeOverride = useGremlyStore((s) => s.clearEventTimeOverride);
 
+  // Time block edit state
+  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
+  const setTimeBlockPreferences = useGremlyStore((s) => s.setTimeBlockPreferences);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editStart, setEditStart] = useState(0);
+  const [editEnd, setEditEnd] = useState(0);
+
+  // Map block prop to preference key
+  const blockKey = block === 'morning' ? 'morning' : block === 'day' ? 'day' : 'evening';
+
+  const openTimeBlockEditor = () => {
+    setEditStart(capacity.startHour);
+    setEditEnd(capacity.endHour);
+    setEditModalVisible(true);
+  };
+
+  const saveTimeBlockEdit = () => {
+    const newPrefs = { ...timeBlockPreferences };
+
+    if (blockKey === 'morning') {
+      newPrefs.morning = { startHour: editStart, endHour: editEnd };
+      newPrefs.day = { ...newPrefs.day, startHour: editEnd };
+    } else if (blockKey === 'day') {
+      newPrefs.morning = { ...newPrefs.morning, endHour: editStart };
+      newPrefs.day = { startHour: editStart, endHour: editEnd };
+      newPrefs.evening = { ...newPrefs.evening, startHour: editEnd };
+    } else if (blockKey === 'evening') {
+      newPrefs.day = { ...newPrefs.day, endHour: editStart };
+      newPrefs.evening = { startHour: editStart, endHour: editEnd };
+    }
+
+    setTimeBlockPreferences(newPrefs);
+    setEditModalVisible(false);
+  };
+
+  const getMinStart = (): number => {
+    if (blockKey === 'morning') return 0;
+    if (blockKey === 'day') return timeBlockPreferences.morning.startHour + 1;
+    return timeBlockPreferences.day.startHour + 1;
+  };
+
+  const getMaxEnd = (): number => {
+    if (blockKey === 'morning') return timeBlockPreferences.day.endHour - 1;
+    if (blockKey === 'day') return timeBlockPreferences.evening.endHour - 1;
+    return 23;
+  };
+
   // Memoize visible events to prevent unnecessary recalculations
   const visibleEvents = useMemo(() => {
     const hiddenSet = new Set(hiddenEventIds);
@@ -384,7 +431,9 @@ export function TimeBlockSection({
         <Text style={[styles.sectionHeader, { color: isPast ? COLORS.inkMuted : color }]}>
           {label}
         </Text>
-        <Text style={styles.timeRange}>({timeRange})</Text>
+        <Pressable onPress={openTimeBlockEditor} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={styles.timeRangeTappable}>({timeRange})</Text>
+        </Pressable>
         <Text style={styles.availableTime}>
           {isPast ? '· Passed' : `· ${availableDisplay} available`}
         </Text>
@@ -412,38 +461,40 @@ export function TimeBlockSection({
 
         const isLast = idx === visibleEvents.length - 1 && tasks.length === 0;
         return (
-          <Pressable
-            key={eventId}
-            style={[styles.eventRow, !isLast && styles.rowBorder]}
-            onPress={() => handleEventPress(event)}
-          >
-            <Calendar size={16} color={COLORS.inkMuted} style={styles.eventIcon} />
-            <View style={styles.eventContent}>
-              {/* Line 1: Time + Duration */}
-              <Text style={[styles.eventTime, isPast && styles.textMuted]}>
-                {effectiveTimeRange}{' '}
-                {hasOverride ? (
-                  // Override: Show duration change
-                  <>
-                    <Text style={styles.durationStrike}>
-                      ({formatDurationMinutes(originalMinutes)}
-                    </Text>
-                    <Text style={styles.durationOverride}>
-                      {' → '}
-                      {formatDurationMinutes(effectiveMinutes)})
-                    </Text>
-                  </>
-                ) : (
-                  // No override: Show duration only
-                  <>({formatDurationMinutes(effectiveMinutes)})</>
-                )}
-              </Text>
-              {/* Line 2: Title */}
-              <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
-                {event.title}
-              </Text>
-            </View>
-          </Pressable>
+          <React.Fragment key={eventId}>
+            <Pressable
+              style={styles.eventRow}
+              onPress={() => handleEventPress(event)}
+            >
+              <Calendar size={16} color={COLORS.inkMuted} style={styles.eventIcon} />
+              <View style={styles.eventContent}>
+                {/* Line 1: Time + Duration */}
+                <Text style={[styles.eventTime, isPast && styles.textMuted]}>
+                  {effectiveTimeRange}{' '}
+                  {hasOverride ? (
+                    // Override: Show duration change
+                    <>
+                      <Text style={styles.durationStrike}>
+                        ({formatDurationMinutes(originalMinutes)}
+                      </Text>
+                      <Text style={styles.durationOverride}>
+                        {' → '}
+                        {formatDurationMinutes(effectiveMinutes)})
+                      </Text>
+                    </>
+                  ) : (
+                    // No override: Show duration only
+                    <>({formatDurationMinutes(effectiveMinutes)})</>
+                  )}
+                </Text>
+                {/* Line 2: Title */}
+                <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                  {event.title}
+                </Text>
+              </View>
+            </Pressable>
+            {!isLast && <View style={styles.rowDivider} />}
+          </React.Fragment>
         );
       })}
 
@@ -451,15 +502,18 @@ export function TimeBlockSection({
       {tasks.map((task, idx) => {
         const isLast = idx === tasks.length - 1;
         return (
-          <View key={task.id} style={[styles.taskRow, !isLast && styles.rowBorder]}>
-            <TaskItem
-              task={task}
-              onPress={onTaskPress}
-              onTimePress={onTimePress}
-              showEstimate={true}
-              dimmed={isPast}
-            />
-          </View>
+          <React.Fragment key={task.id}>
+            <View style={styles.taskRow}>
+              <TaskItem
+                task={task}
+                onPress={onTaskPress}
+                onTimePress={onTimePress}
+                showEstimate={true}
+                dimmed={isPast}
+              />
+            </View>
+            {!isLast && <View style={styles.rowDivider} />}
+          </React.Fragment>
         );
       })}
 
@@ -494,6 +548,75 @@ export function TimeBlockSection({
         onSave={handleTimeSave}
         onReset={handleTimeReset}
       />
+
+      {/* Time Block Edit Modal */}
+      <Modal
+        visible={editModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <Pressable style={styles.editOverlay} onPress={() => setEditModalVisible(false)}>
+          <View style={styles.editModal} onStartShouldSetResponder={() => true}>
+            <View style={styles.editModalHeader}>
+              <Text style={styles.editModalTitle}>Edit {label}</Text>
+              <Pressable onPress={() => setEditModalVisible(false)} hitSlop={8}>
+                <X size={20} color={COLORS.inkMuted} />
+              </Pressable>
+            </View>
+
+            <View style={styles.editTimeRow}>
+              <View style={styles.editTimeColumn}>
+                <Text style={styles.editTimeLabel}>Start</Text>
+                <View style={styles.editAdjuster}>
+                  <Pressable
+                    onPress={() => setEditStart(Math.max(getMinStart(), editStart - 1))}
+                    disabled={editStart <= getMinStart()}
+                    style={styles.editAdjusterButton}
+                  >
+                    <ChevronDown size={20} color={editStart <= getMinStart() ? COLORS.divider : COLORS.mossGreen} />
+                  </Pressable>
+                  <Text style={styles.editTimeValue}>{formatHour(editStart)}</Text>
+                  <Pressable
+                    onPress={() => setEditStart(Math.min(editEnd - 1, editStart + 1))}
+                    disabled={editStart >= editEnd - 1}
+                    style={styles.editAdjusterButton}
+                  >
+                    <ChevronUp size={20} color={editStart >= editEnd - 1 ? COLORS.divider : COLORS.mossGreen} />
+                  </Pressable>
+                </View>
+              </View>
+
+              <Text style={styles.editArrow}>→</Text>
+
+              <View style={styles.editTimeColumn}>
+                <Text style={styles.editTimeLabel}>End</Text>
+                <View style={styles.editAdjuster}>
+                  <Pressable
+                    onPress={() => setEditEnd(Math.max(editStart + 1, editEnd - 1))}
+                    disabled={editEnd <= editStart + 1}
+                    style={styles.editAdjusterButton}
+                  >
+                    <ChevronDown size={20} color={editEnd <= editStart + 1 ? COLORS.divider : COLORS.mossGreen} />
+                  </Pressable>
+                  <Text style={styles.editTimeValue}>{formatHour(editEnd)}</Text>
+                  <Pressable
+                    onPress={() => setEditEnd(Math.min(getMaxEnd(), editEnd + 1))}
+                    disabled={editEnd >= getMaxEnd()}
+                    style={styles.editAdjusterButton}
+                  >
+                    <ChevronUp size={20} color={editEnd >= getMaxEnd() ? COLORS.divider : COLORS.mossGreen} />
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+
+            <Pressable style={styles.editSaveButton} onPress={saveTimeBlockEdit}>
+              <Text style={styles.editSaveText}>Save</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -532,11 +655,6 @@ const styles = StyleSheet.create({
     color: COLORS.inkMuted,
     marginLeft: 6,
   },
-  timeRange: {
-    fontSize: 12,
-    color: COLORS.inkMuted,
-    marginLeft: 4,
-  },
   availableTime: {
     fontSize: 12,
     color: COLORS.inkMuted,
@@ -550,9 +668,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  rowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.divider,
+  rowDivider: {
+    height: 1,
+    backgroundColor: '#E5E5E5',
+    marginHorizontal: 16,
   },
   eventIcon: {
     marginTop: 2,
@@ -584,7 +703,7 @@ const styles = StyleSheet.create({
     color: COLORS.inkMuted,
   },
   taskRow: {
-    paddingHorizontal: 0,
+    paddingHorizontal: 16,
   },
   emptyRow: {
     paddingHorizontal: 16,
@@ -594,5 +713,83 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.inkMuted,
     fontStyle: 'italic',
+  },
+  timeRangeTappable: {
+    fontSize: 12,
+    color: COLORS.mossGreen,
+    marginLeft: 4,
+    textDecorationLine: 'underline',
+  },
+  editOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  editModal: {
+    width: '100%',
+    maxWidth: 300,
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 20,
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  editModalTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: COLORS.charcoalInk,
+  },
+  editTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  editTimeColumn: {
+    alignItems: 'center',
+  },
+  editTimeLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.inkMuted,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  editAdjuster: {
+    alignItems: 'center',
+  },
+  editAdjusterButton: {
+    padding: 8,
+  },
+  editTimeValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.charcoalInk,
+    paddingVertical: 4,
+    minWidth: 90,
+    textAlign: 'center',
+  },
+  editArrow: {
+    fontSize: 18,
+    color: COLORS.inkMuted,
+    marginHorizontal: 16,
+    marginTop: 24,
+  },
+  editSaveButton: {
+    backgroundColor: COLORS.mossGreen,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  editSaveText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.surface,
   },
 });

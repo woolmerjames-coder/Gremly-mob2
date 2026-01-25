@@ -941,6 +941,7 @@ export default function NowScreenV1() {
         visible={isBriefSheetVisible}
         onClose={() => setBriefSheetVisible(false)}
         onComplete={markTodayOpened}
+        onQuickAdd={() => setQuickAddVisible(true)}
       />
 
       {/* Help Card */}

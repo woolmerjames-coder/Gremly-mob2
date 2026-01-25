@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.colors.linenCream,
   },
   button: {
-    backgroundColor: BRAND.colors.sageMist,
+    backgroundColor: '#2E5540',
     borderRadius: BRAND.radius.md,
     paddingVertical: 16,
     alignItems: 'center',
@@ -52,6 +52,6 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 17,
     fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
+    color: '#FFFFFF',
   },
 });
