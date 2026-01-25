@@ -8,12 +8,31 @@
 /** Time block identifiers - matches time_window field on todos/habits */
 export type TimeBlock = 'morning' | 'day' | 'evening';
 
+/**
+ * User-customizable time block boundaries
+ * Hours are in 24h format (0-23)
+ */
+export interface TimeBlockPreferences {
+  morning: { startHour: number; endHour: number };
+  day: { startHour: number; endHour: number };
+  evening: { startHour: number; endHour: number };
+}
+
+/**
+ * Default time block boundaries
+ * Used when user hasn't customized
+ */
+export const DEFAULT_TIME_BLOCK_PREFERENCES: TimeBlockPreferences = {
+  morning: { startHour: 6, endHour: 12 },
+  day: { startHour: 12, endHour: 17 },
+  evening: { startHour: 17, endHour: 22 },
+};
+
 /** Configuration for a time block's boundaries */
 export interface TimeBlockBoundary {
   block: TimeBlock;
   startHour: number; // 24-hour format (6 = 6am)
   endHour: number; // 24-hour format (12 = noon)
-  icon: string; // Display emoji
   label: string; // Display name
 }
 
@@ -21,7 +40,6 @@ export interface TimeBlockBoundary {
 export interface TimeBlockCapacity {
   block: TimeBlock;
   label: string;
-  icon: string;
   startHour: number;
   endHour: number;
   /** Adjusted start accounting for current time: max(startHour, currentHour) */

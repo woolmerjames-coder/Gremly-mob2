@@ -88,6 +88,7 @@ export function useHiddenEventCount(): number {
 export function useTodayCapacity(): DayCapacity {
   const events = useTodayCalendarEvents();
   const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
+  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
   const today = useToday();
@@ -132,8 +133,15 @@ export function useTodayCapacity(): DayCapacity {
         // 'any' or null = flexible, don't count against specific block
       });
 
-    return calculateDayCapacity(events, currentHour, today, eventTimeOverrides, taskMinutesByBlock);
-  }, [events, currentHour, today, eventTimeOverrides, todos, habits]);
+    return calculateDayCapacity(
+      events,
+      currentHour,
+      today,
+      eventTimeOverrides,
+      taskMinutesByBlock,
+      timeBlockPreferences,
+    );
+  }, [events, currentHour, today, eventTimeOverrides, todos, habits, timeBlockPreferences]);
 }
 
 /**
@@ -142,12 +150,22 @@ export function useTodayCapacity(): DayCapacity {
 export function useBlockCapacity(block: TimeBlock): TimeBlockCapacity {
   const events = useTodayCalendarEvents();
   const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
+  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
   const today = useToday();
   const currentHour = useCurrentHour();
 
   return useMemo(
-    () => calculateBlockCapacity(block, events, currentHour, today, eventTimeOverrides),
-    [block, events, currentHour, today, eventTimeOverrides],
+    () =>
+      calculateBlockCapacity(
+        block,
+        events,
+        currentHour,
+        today,
+        eventTimeOverrides,
+        0,
+        timeBlockPreferences,
+      ),
+    [block, events, currentHour, today, eventTimeOverrides, timeBlockPreferences],
   );
 }
 

@@ -6,11 +6,11 @@
  * Uses Lucide icons to match CalendarScreen patterns.
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, Switch } from 'react-native';
 import { Sunrise, Sun, Sunset, ArrowLeftRight, Diamond, Check } from 'lucide-react-native';
-import type { LucideIcon } from 'lucide-react-native';
-import { TIME_BLOCK_BOUNDARIES, type TimeBlock } from '../../../../lib/capacity';
+import { getTimeBlockBoundaries, type TimeBlock } from '../../../../lib/capacity';
+import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import type { TaskItemData } from './TaskItem';
 
 // Colors matching CalendarScreen exactly
@@ -32,37 +32,6 @@ function formatHour(hour: number): string {
   return `${hour - 12}pm`;
 }
 
-// Time block config matching CalendarScreen SECTION_CONFIG
-const TIME_BLOCK_OPTIONS: Array<{
-  key: TimeBlock;
-  label: string;
-  timeRange: string;
-  color: string;
-  Icon: LucideIcon;
-}> = [
-  {
-    key: 'morning',
-    label: 'Morning',
-    timeRange: `${formatHour(TIME_BLOCK_BOUNDARIES.morning.startHour)} – ${formatHour(TIME_BLOCK_BOUNDARIES.morning.endHour)}`,
-    color: '#D4A574',
-    Icon: Sunrise,
-  },
-  {
-    key: 'day',
-    label: 'Afternoon',
-    timeRange: `${formatHour(TIME_BLOCK_BOUNDARIES.day.startHour)} – ${formatHour(TIME_BLOCK_BOUNDARIES.day.endHour)}`,
-    color: '#C9956C',
-    Icon: Sun,
-  },
-  {
-    key: 'evening',
-    label: 'Evening',
-    timeRange: `${formatHour(TIME_BLOCK_BOUNDARIES.evening.startHour)} – ${formatHour(TIME_BLOCK_BOUNDARIES.evening.endHour)}`,
-    color: '#A89BC9',
-    Icon: Sunset,
-  },
-];
-
 const FLEXIBLE_OPTION = {
   key: 'any' as const,
   label: 'Keep flexible',
@@ -83,6 +52,37 @@ interface TimeBlockPickerProps {
 }
 
 export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockPickerProps) {
+  // Get time block preferences from store
+  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
+
+  // Build time block options dynamically from preferences
+  const timeBlockOptions = useMemo(() => {
+    const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
+    return [
+      {
+        key: 'morning' as TimeBlock,
+        label: 'Morning',
+        timeRange: `${formatHour(boundaries.morning.startHour)} – ${formatHour(boundaries.morning.endHour)}`,
+        color: '#D4A574',
+        Icon: Sunrise,
+      },
+      {
+        key: 'day' as TimeBlock,
+        label: 'Afternoon',
+        timeRange: `${formatHour(boundaries.day.startHour)} – ${formatHour(boundaries.day.endHour)}`,
+        color: '#C9956C',
+        Icon: Sun,
+      },
+      {
+        key: 'evening' as TimeBlock,
+        label: 'Evening',
+        timeRange: `${formatHour(boundaries.evening.startHour)} – ${formatHour(boundaries.evening.endHour)}`,
+        color: '#A89BC9',
+        Icon: Sunset,
+      },
+    ];
+  }, [timeBlockPreferences]);
+
   // Derive lockIn state from task, use local toggle for user changes
   const [lockInOverride, setLockInOverride] = useState<boolean | null>(null);
   const lockIn = lockInOverride ?? task?.isLockedIn ?? false;
@@ -117,7 +117,7 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
           <Text style={styles.title}>Assign to time block</Text>
 
           {/* Time Block Options */}
-          {TIME_BLOCK_OPTIONS.map((option) => {
+          {timeBlockOptions.map((option) => {
             const isSelected = currentTimeWindow === option.key;
             const { Icon } = option;
 

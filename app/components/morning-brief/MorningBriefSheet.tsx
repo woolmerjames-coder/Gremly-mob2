@@ -18,8 +18,8 @@ import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlySto
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
 import { useTodayCapacity, useTodayCalendarEvents } from '../../../lib/store/capacitySelectors';
-import { TIME_BLOCK_BOUNDARIES } from '../../../lib/capacity';
-import type { TimeBlock } from '../../../lib/capacity';
+import { getTimeBlockBoundaries } from '../../../lib/capacity';
+import type { TimeBlock, TimeBlockPreferences } from '../../../lib/capacity';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 import { MiniSweepGate } from './MiniSweepGate';
 import {
@@ -53,8 +53,10 @@ function getEventsForBlock(
   events: CalendarEvent[],
   block: TimeBlock,
   currentDate: string,
+  timeBlockPreferences: TimeBlockPreferences,
 ): CalendarEvent[] {
-  const boundary = TIME_BLOCK_BOUNDARIES[block];
+  const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
+  const boundary = boundaries[block];
   const [year, month, day] = currentDate.split('-').map(Number);
   const blockStart = new Date(year, month - 1, day, boundary.startHour, 0, 0);
   const blockEnd = new Date(year, month - 1, day, boundary.endHour, 0, 0);
@@ -77,6 +79,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
   // ─────────────────────────────────────────────────────────────────
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
+  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
   const updateTodo = useGremlyStore((s) => s.updateTodo);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const addCommitment = useGremlyStore((s) => s.addCommitment);
@@ -374,7 +377,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
               {/* Time Blocks */}
               <TimeBlockSection
                 capacity={capacity.blocks.morning}
-                events={getEventsForBlock(calendarEvents, 'morning', today)}
+                events={getEventsForBlock(calendarEvents, 'morning', today, timeBlockPreferences)}
                 tasks={tasksByBlock.morning}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
@@ -384,7 +387,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
               <TimeBlockSection
                 capacity={capacity.blocks.day}
-                events={getEventsForBlock(calendarEvents, 'day', today)}
+                events={getEventsForBlock(calendarEvents, 'day', today, timeBlockPreferences)}
                 tasks={tasksByBlock.afternoon}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
@@ -394,7 +397,7 @@ export function MorningBriefSheet({ visible, onClose, onComplete }: MorningBrief
 
               <TimeBlockSection
                 capacity={capacity.blocks.evening}
-                events={getEventsForBlock(calendarEvents, 'evening', today)}
+                events={getEventsForBlock(calendarEvents, 'evening', today, timeBlockPreferences)}
                 tasks={tasksByBlock.evening}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}

@@ -28,6 +28,8 @@ import {
   type CalendarConnectionStatus,
   type CalendarProvider,
 } from '../calendar/CalendarClient';
+import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../capacity';
+import type { TimeBlockPreferences } from '../capacity';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
@@ -106,6 +108,30 @@ async function saveEventTimeOverridesToStorage(
     await AsyncStorage.setItem(EVENT_TIME_OVERRIDES_STORAGE_KEY, JSON.stringify(data));
   } catch (error) {
     console.error('[GremlyStore] Failed to save event time overrides:', error);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TIME BLOCK PREFERENCES PERSISTENCE (AsyncStorage - local only)
+// ═════════════════════════════════════════════════════════════════════════════
+const TIME_BLOCK_PREFERENCES_STORAGE_KEY = 'gremly:timeBlockPreferences';
+
+async function loadTimeBlockPreferencesFromStorage(): Promise<TimeBlockPreferences | null> {
+  try {
+    const stored = await AsyncStorage.getItem(TIME_BLOCK_PREFERENCES_STORAGE_KEY);
+    if (!stored) return null;
+    return JSON.parse(stored) as TimeBlockPreferences;
+  } catch (error) {
+    console.error('[GremlyStore] Failed to load time block preferences:', error);
+    return null;
+  }
+}
+
+async function saveTimeBlockPreferencesToStorage(data: TimeBlockPreferences): Promise<void> {
+  try {
+    await AsyncStorage.setItem(TIME_BLOCK_PREFERENCES_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('[GremlyStore] Failed to save time block preferences:', error);
   }
 }
 
@@ -527,6 +553,8 @@ interface GremlyState {
   hiddenCalendarEventsByDate: Record<string, string[]>;
   /** Local time overrides for calendar events (eventId → { startAt, endAt }) */
   eventTimeOverrides: Record<string, { startAt: string; endAt: string }>;
+  /** User-customizable time block boundaries */
+  timeBlockPreferences: TimeBlockPreferences;
 
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
@@ -544,6 +572,9 @@ interface GremlyState {
   setEventTimeOverride: (eventId: string, startAt: string, endAt: string) => void;
   clearEventTimeOverride: (eventId: string) => void;
   clearAllEventTimeOverrides: () => void;
+  // Time block preferences actions
+  setTimeBlockPreferences: (preferences: TimeBlockPreferences) => void;
+  resetTimeBlockPreferences: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -594,6 +625,7 @@ const initialState = {
   calendarLastFetched: null as string | null,
   hiddenCalendarEventsByDate: {} as Record<string, string[]>,
   eventTimeOverrides: {} as Record<string, { startAt: string; endAt: string }>,
+  timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -792,6 +824,12 @@ export const useGremlyStore = create<GremlyState>()(
         const timeOverrides = await loadEventTimeOverridesFromStorage();
         if (Object.keys(timeOverrides).length > 0) {
           set({ eventTimeOverrides: timeOverrides });
+        }
+
+        // Load time block preferences from AsyncStorage
+        const timeBlockPrefs = await loadTimeBlockPreferencesFromStorage();
+        if (timeBlockPrefs) {
+          set({ timeBlockPreferences: timeBlockPrefs });
         }
 
         // Clean up old duration-only storage key if it exists
@@ -3318,6 +3356,20 @@ export const useGremlyStore = create<GremlyState>()(
     clearAllEventTimeOverrides: () => {
       set({ eventTimeOverrides: {} });
       saveEventTimeOverridesToStorage({});
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // TIME BLOCK PREFERENCES
+    // ═══════════════════════════════════════════════════════════════════
+
+    setTimeBlockPreferences: (preferences) => {
+      set({ timeBlockPreferences: preferences });
+      saveTimeBlockPreferencesToStorage(preferences);
+    },
+
+    resetTimeBlockPreferences: () => {
+      set({ timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES });
+      saveTimeBlockPreferencesToStorage(DEFAULT_TIME_BLOCK_PREFERENCES);
     },
 
     // ═══════════════════════════════════════════════════════════════════

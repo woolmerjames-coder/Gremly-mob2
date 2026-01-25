@@ -12,35 +12,44 @@ import type {
   TimeBlockCapacity,
   DayCapacity,
   CapacitySummary,
+  TimeBlockPreferences,
 } from './capacityTypes';
+import { DEFAULT_TIME_BLOCK_PREFERENCES } from './capacityTypes';
 
 /**
- * Time block boundaries
- * Hardcoded for Phase 2; user-adjustable in Phase 2.5
+ * Get time block boundaries from user preferences
+ * Falls back to defaults if not provided
  */
-export const TIME_BLOCK_BOUNDARIES: Record<TimeBlock, TimeBlockBoundary> = {
-  morning: {
-    block: 'morning',
-    startHour: 6,
-    endHour: 12,
-    icon: '☀️',
-    label: 'Morning',
-  },
-  day: {
-    block: 'day',
-    startHour: 12,
-    endHour: 17,
-    icon: '🌤️',
-    label: 'Afternoon',
-  },
-  evening: {
-    block: 'evening',
-    startHour: 17,
-    endHour: 22,
-    icon: '🌙',
-    label: 'Evening',
-  },
-};
+export function getTimeBlockBoundaries(
+  preferences: TimeBlockPreferences = DEFAULT_TIME_BLOCK_PREFERENCES,
+): Record<TimeBlock, TimeBlockBoundary> {
+  return {
+    morning: {
+      block: 'morning',
+      startHour: preferences.morning.startHour,
+      endHour: preferences.morning.endHour,
+      label: 'Morning',
+    },
+    day: {
+      block: 'day',
+      startHour: preferences.day.startHour,
+      endHour: preferences.day.endHour,
+      label: 'Afternoon',
+    },
+    evening: {
+      block: 'evening',
+      startHour: preferences.evening.startHour,
+      endHour: preferences.evening.endHour,
+      label: 'Evening',
+    },
+  };
+}
+
+/**
+ * Time block boundaries - DEFAULT VALUES
+ * Use getTimeBlockBoundaries(preferences) for user-customized values
+ */
+export const TIME_BLOCK_BOUNDARIES = getTimeBlockBoundaries();
 
 /** Get boundary config for a time block */
 export function getTimeBlockBoundary(block: TimeBlock): TimeBlockBoundary {
@@ -143,9 +152,11 @@ export function calculateBlockCapacity(
   currentDate: string,
   timeOverrides: Record<string, EventTimeOverride> = {},
   taskMinutesInBlock: number = 0,
+  timeBlockPreferences: TimeBlockPreferences = DEFAULT_TIME_BLOCK_PREFERENCES,
 ): TimeBlockCapacity {
-  const boundary = TIME_BLOCK_BOUNDARIES[block];
-  const { startHour, endHour, icon, label } = boundary;
+  const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
+  const boundary = boundaries[block];
+  const { startHour, endHour, label } = boundary;
 
   // Is this block already past?
   const isPast = currentHour >= endHour;
@@ -191,7 +202,6 @@ export function calculateBlockCapacity(
   return {
     block,
     label,
-    icon,
     startHour,
     endHour,
     effectiveStartHour,
@@ -217,6 +227,7 @@ export function calculateDayCapacity(
     day: 0,
     evening: 0,
   },
+  timeBlockPreferences: TimeBlockPreferences = DEFAULT_TIME_BLOCK_PREFERENCES,
 ): DayCapacity {
   const morning = calculateBlockCapacity(
     'morning',
@@ -225,6 +236,7 @@ export function calculateDayCapacity(
     currentDate,
     timeOverrides,
     taskMinutesByBlock.morning,
+    timeBlockPreferences,
   );
   const day = calculateBlockCapacity(
     'day',
@@ -233,6 +245,7 @@ export function calculateDayCapacity(
     currentDate,
     timeOverrides,
     taskMinutesByBlock.day,
+    timeBlockPreferences,
   );
   const evening = calculateBlockCapacity(
     'evening',
@@ -241,6 +254,7 @@ export function calculateDayCapacity(
     currentDate,
     timeOverrides,
     taskMinutesByBlock.evening,
+    timeBlockPreferences,
   );
 
   return {
