@@ -22,6 +22,7 @@ import { getTimeBlockBoundaries } from '../../../lib/capacity';
 import type { TimeBlock, TimeBlockPreferences } from '../../../lib/capacity';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 import { MiniSweepGate } from './MiniSweepGate';
+import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import {
   MorningBriefHeader,
   MorningBriefFooter,
@@ -37,7 +38,10 @@ interface MorningBriefSheetProps {
   visible: boolean;
   onClose: () => void;
   onComplete?: () => void;
-  onQuickAdd?: () => void;
+  /** Handler for quick add text submission */
+  onQuickAddSubmit?: (text: string) => void;
+  /** Handler for 'Prefer to add manually' */
+  onQuickAddManual?: () => void;
 }
 
 /**
@@ -71,7 +75,7 @@ function getEventsForBlock(
   });
 }
 
-export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAdd }: MorningBriefSheetProps) {
+export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAddSubmit, onQuickAddManual }: MorningBriefSheetProps) {
   const insets = useSafeAreaInsets();
   const today = getTodayDateString();
 
@@ -314,16 +318,30 @@ export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAdd }: 
   );
 
   // ─────────────────────────────────────────────────────────────────
-  // ADD TASK
+  // QUICK ADD MODAL (layered on top of Morning Brief)
   // ─────────────────────────────────────────────────────────────────
+  const [isQuickAddVisible, setQuickAddVisible] = useState(false);
+
   const handleAddPress = useCallback(() => {
-    // Close Morning Brief first, then open QuickAdd after a brief delay
-    // This avoids modal layering issues in React Native
-    onClose();
-    setTimeout(() => {
-      onQuickAdd?.();
-    }, 300);
-  }, [onClose, onQuickAdd]);
+    setQuickAddVisible(true);
+  }, []);
+
+  const handleQuickAddClose = useCallback(() => {
+    setQuickAddVisible(false);
+  }, []);
+
+  const handleQuickAddSubmit = useCallback(
+    (text: string) => {
+      setQuickAddVisible(false);
+      onQuickAddSubmit?.(text);
+    },
+    [onQuickAddSubmit],
+  );
+
+  const handleQuickAddManual = useCallback(() => {
+    setQuickAddVisible(false);
+    onQuickAddManual?.();
+  }, [onQuickAddManual]);
 
   // ─────────────────────────────────────────────────────────────────
   // COMPLETION
@@ -463,6 +481,14 @@ export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAdd }: 
               currentEstimate={timePickerTask?.estimatedMinutes ?? null}
               onClose={handleTimePickerClose}
               onSave={handleTimeSave}
+            />
+
+            {/* Quick Add Modal - renders on top of Morning Brief */}
+            <NowQuickAddModal
+              visible={isQuickAddVisible}
+              onClose={handleQuickAddClose}
+              onSubmit={handleQuickAddSubmit}
+              onPressManualAdd={handleQuickAddManual}
             />
           </>
         )}
