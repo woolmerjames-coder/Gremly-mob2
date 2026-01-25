@@ -317,8 +317,13 @@ export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAdd }: 
   // ADD TASK
   // ─────────────────────────────────────────────────────────────────
   const handleAddPress = useCallback(() => {
-    onQuickAdd?.();
-  }, [onQuickAdd]);
+    // Close Morning Brief first, then open QuickAdd after a brief delay
+    // This avoids modal layering issues in React Native
+    onClose();
+    setTimeout(() => {
+      onQuickAdd?.();
+    }, 300);
+  }, [onClose, onQuickAdd]);
 
   // ─────────────────────────────────────────────────────────────────
   // COMPLETION
@@ -369,29 +374,39 @@ export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAdd }: 
             {/* Header */}
             <MorningBriefHeader />
 
-            {/* Organize Button */}
-            <OrganizeButton
-              onComplete={(summary) => {
-                setOrganizeMessage(summary);
-                // Clear after 4 seconds
-                setTimeout(() => setOrganizeMessage(null), 4000);
-              }}
-              onError={(error) => {
-                setOrganizeMessage(error);
-                setTimeout(() => setOrganizeMessage(null), 4000);
-              }}
-            />
-
-            {organizeMessage && (
-              <Text style={styles.organizeMessage}>{organizeMessage}</Text>
-            )}
-
             {/* Scrollable Content */}
             <ScrollView
               style={styles.scrollView}
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
             >
+              {/* On Your Plate - Flexible/Unassigned Tasks */}
+              <OnYourPlateSection
+                tasks={tasksByBlock.flexible}
+                onTaskPress={handleTaskPress}
+                onTimePress={handleTimePress}
+                onAddPress={handleAddPress}
+              />
+
+              {/* Help Me Organize Button */}
+              <OrganizeButton
+                onComplete={(summary) => {
+                  setOrganizeMessage(summary);
+                  setTimeout(() => setOrganizeMessage(null), 4000);
+                }}
+                onError={(error) => {
+                  setOrganizeMessage(error);
+                  setTimeout(() => setOrganizeMessage(null), 4000);
+                }}
+              />
+
+              {organizeMessage && (
+                <Text style={styles.organizeMessage}>{organizeMessage}</Text>
+              )}
+
+              {/* Thick divider between On Your Plate and Time Blocks */}
+              <View style={styles.sectionDivider} />
+
               {/* Time Blocks */}
               <TimeBlockSection
                 capacity={capacity.blocks.morning}
@@ -425,16 +440,6 @@ export function MorningBriefSheet({ visible, onClose, onComplete, onQuickAdd }: 
                 onTimePress={handleTimePress}
                 onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
-              />
-
-              <View style={styles.blockDivider} />
-
-              {/* On Your Plate */}
-              <OnYourPlateSection
-                tasks={tasksByBlock.flexible}
-                onTaskPress={handleTaskPress}
-                onTimePress={handleTimePress}
-                onAddPress={handleAddPress}
               />
             </ScrollView>
 
@@ -483,6 +488,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E5E5',
     marginVertical: 16,
     marginHorizontal: 16,
+  },
+  sectionDivider: {
+    height: 2,
+    backgroundColor: '#E5E5E5',
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
   },
   organizeMessage: {
     fontSize: 13,
