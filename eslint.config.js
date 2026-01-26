@@ -178,4 +178,16 @@ module.exports = [
       '@typescript-eslint/ban-ts-comment': 'off',
     },
   },
+  {
+    // Files using React Native Animated API - incompatible with React Compiler ref rules
+    // These use the standard pattern of useRef(new Animated.Value()).current which the
+    // React Compiler considers "accessing refs during render", but is correct for RN Animated
+    files: [
+      'app/components/morning-brief/components/OrganizeButton.tsx',
+      'app/components/morning-brief/components/TaskItem.tsx',
+    ],
+    rules: {
+      'react-hooks/refs': 'off',
+    },
+  },
 ];

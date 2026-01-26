@@ -22,6 +22,7 @@ import { type QueuedDrop, updateDrop, markFailed, getPendingDrops, dequeue } fro
 import { detectMulti } from './detectMulti';
 import { runPhase1 } from './phase1';
 import type { MindDropBucket, LogSubtype } from './types';
+import { calculateBuffers } from '../planning';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { eventBus } from '../events/EventBus';
 import { supabase } from '../supabase/client';
@@ -43,6 +44,7 @@ export interface Phase2MetadataResult {
   extracted_days: number[] | null;
   people: string[];
   mood: string[] | null;
+  energy_type: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
 }
 
 export interface ProcessingCallbacks {
@@ -135,6 +137,13 @@ async function runPhase2(
         ? (rawTimeWindow as 'morning' | 'day' | 'evening')
         : null;
 
+      // Validate energy_type
+      const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'] as const;
+      const rawEnergyType = json.energy_type;
+      const energy_type = validEnergyTypes.includes(rawEnergyType)
+        ? (rawEnergyType as 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick')
+        : null;
+
       return {
         tags: Array.isArray(json.tags) ? json.tags : [],
         time_estimate_minutes: json.time_estimate_minutes ?? null,
@@ -145,6 +154,7 @@ async function runPhase2(
         extracted_days: json.extracted_days ?? null,
         people: Array.isArray(json.people) ? json.people : [],
         mood: json.mood ?? null,
+        energy_type,
       };
     } catch (err) {
       console.log('[DropProcessor] Phase 2 API error', { error: String(err) });
@@ -207,6 +217,13 @@ async function syncDropToSupabase(
         parsedFields.dueDay ||
         (source === 'today' ? today : null);
 
+      // Calculate buffers based on energy type
+      const buffers = calculateBuffers(
+        enrichment?.energy_type ?? null,
+        smartTitle || text,
+        enrichment?.time_estimate_minutes ?? 30,
+      );
+
       payload = {
         owner_id: userId,
         name: smartTitle || parsedFields.title || text.substring(0, 60),
@@ -217,6 +234,9 @@ async function syncDropToSupabase(
         tags: enrichment?.tags || [],
         time_estimate_minutes: enrichment?.time_estimate_minutes || null,
         time_window: enrichment?.time_window || null,
+        energy_type: enrichment?.energy_type || 'administrative',
+        prep_buffer_minutes: buffers.prep_buffer_minutes,
+        cooldown_buffer_minutes: buffers.cooldown_buffer_minutes,
         due_day: dueDay,
         due_date: dueDay,
         due_time: parsedFields.dueTime || null,
@@ -237,6 +257,13 @@ async function syncDropToSupabase(
         ? parseFrequencyString(enrichment.extracted_frequency)
         : { cadence: 'daily' as const, target_per_period: 1 };
 
+      // Calculate buffers based on energy type
+      const buffers = calculateBuffers(
+        enrichment?.energy_type ?? null,
+        smartTitle || text,
+        enrichment?.time_estimate_minutes ?? 30,
+      );
+
       payload = {
         owner_id: userId,
         name: smartTitle || text.substring(0, 60),
@@ -253,6 +280,9 @@ async function syncDropToSupabase(
         start_date: enrichment?.extracted_start_date || (source === 'today' ? today : null),
         time_window: enrichment?.time_window || 'day', // Default to 'day' to fix NOT NULL constraint
         time_estimate_minutes: enrichment?.time_estimate_minutes || null,
+        energy_type: enrichment?.energy_type || 'administrative',
+        prep_buffer_minutes: buffers.prep_buffer_minutes,
+        cooldown_buffer_minutes: buffers.cooldown_buffer_minutes,
         tags: enrichment?.tags || [],
         views: {
           minddrop_stage: 'enriched',

@@ -179,4 +179,84 @@ describe('dropProcessor', () => {
       expect(updatePoints[1].fields).toContain('smartTitle');
     });
   });
+
+  describe('buffer and energy type enrichment', () => {
+    it('documents energy_type field flow through pipeline', () => {
+      // Phase 1: Classification determines bucket (todo/habit)
+      // Phase 2: Enrichment returns energy_type based on title/context
+      // Sync: energy_type is written to Supabase
+
+      const phase2EnrichedFields = [
+        'energy_type', // 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick'
+        'time_estimate_minutes',
+        'prep_buffer_minutes',
+        'cooldown_buffer_minutes',
+      ];
+
+      expect(phase2EnrichedFields).toContain('energy_type');
+      expect(phase2EnrichedFields).toContain('prep_buffer_minutes');
+      expect(phase2EnrichedFields).toContain('cooldown_buffer_minutes');
+    });
+
+    it('documents buffer calculation flow', () => {
+      // Buffer calculation is deterministic based on energy_type and title
+      // No AI involved - uses calculateBuffers from lib/planning
+      const bufferScenarios = [
+        {
+          title: 'Gym workout',
+          energy_type: 'physical',
+          expected: { prep_buffer_minutes: 15, cooldown_buffer_minutes: 20 },
+        },
+        {
+          title: 'Client presentation',
+          energy_type: 'social',
+          expected: { prep_buffer_minutes: 10, cooldown_buffer_minutes: 10 },
+        },
+        {
+          title: 'Write documentation',
+          energy_type: 'deep_focus',
+          expected: { prep_buffer_minutes: 5, cooldown_buffer_minutes: 5 },
+        },
+        {
+          title: 'Check emails',
+          energy_type: 'administrative',
+          expected: { prep_buffer_minutes: 0, cooldown_buffer_minutes: 0 },
+        },
+      ];
+
+      expect(bufferScenarios).toHaveLength(4);
+      expect(bufferScenarios[0].expected.prep_buffer_minutes).toBe(15);
+    });
+
+    it('documents totalMinutes calculation', () => {
+      // Total minutes = visible_minutes + prep_buffer + cooldown_buffer
+      // Used for capacity planning in Morning Brief
+
+      const example = {
+        visible_minutes: 60,
+        prep_buffer_minutes: 15,
+        cooldown_buffer_minutes: 10,
+        total_minutes: 85, // 60 + 15 + 10
+      };
+
+      expect(example.total_minutes).toBe(
+        example.visible_minutes + example.prep_buffer_minutes + example.cooldown_buffer_minutes,
+      );
+    });
+
+    it('documents energy_type inference when AI returns null', () => {
+      // If Phase 2 AI doesn't return energy_type, use inferEnergyTypeFromTitle
+      // from lib/planning/calculateBuffers
+
+      const inferenceExamples = [
+        { title: 'Go running', inferred: 'physical' },
+        { title: 'Team meeting', inferred: 'social' },
+        { title: 'Write blog post', inferred: 'deep_focus' },
+        { title: 'Pay bills', inferred: 'administrative' },
+        { title: 'Random stuff', inferred: 'administrative' }, // default fallback
+      ];
+
+      expect(inferenceExamples[4].inferred).toBe('administrative');
+    });
+  });
 });

@@ -14,6 +14,8 @@ import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { MiniSweepItemRow } from './MiniSweepItemRow';
 import type { MiniSweepPosition } from './MiniSweepToggle';
 import type { Todo } from '../../../lib/types';
+import { useMiniSweepCalendarContext } from '../../../lib/store/capacitySelectors';
+import { getDateService } from '../../../lib/date';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires -- React Native image import
 const MORNING_BRIEF_GREMLY = require('../../../assets/mascot/morningbriefgremly.png');
@@ -27,17 +29,6 @@ interface MiniSweepGateProps {
   onComplete: () => void;
   /** Called when Skip pressed (no changes saved) */
   onSkip: () => void;
-}
-
-/**
- * Get today's date string in YYYY-MM-DD format (local time)
- */
-function getTodayDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -211,6 +202,9 @@ export function MiniSweepGate({
 }: MiniSweepGateProps) {
   const insets = useSafeAreaInsets();
 
+  // Calendar-aware Gremly message
+  const { gremlyMessage } = useMiniSweepCalendarContext();
+
   // Zustand actions
   const updateTodo = useGremlyStore((s) => s.updateTodo);
   const archiveTodo = useGremlyStore((s) => s.archiveTodo);
@@ -258,7 +252,7 @@ export function MiniSweepGate({
     if (isSaving) return;
     setIsSaving(true);
 
-    const today = getTodayDateString();
+    const today = getDateService().getCurrentDate();
     console.log('[MiniSweepGate] handleSave called. Decisions:', decisions.size);
 
     // Start all updates but don't wait for them
@@ -317,7 +311,7 @@ export function MiniSweepGate({
         <View style={styles.gremlyRow}>
           <Image source={MORNING_BRIEF_GREMLY} style={styles.gremlyImage} resizeMode="contain" />
           <View style={styles.gremlyTextContainer}>
-            <Text style={styles.gremlyTextIntro}>Quick sort, then we plan the day!</Text>
+            <Text style={styles.gremlyTextIntro}>{gremlyMessage}</Text>
             <Text style={styles.gremlyTextInstructions}>
               Slide <Text style={styles.highlightRight}>right</Text> to add to today. Slide{' '}
               <Text style={styles.highlightLeft}>left</Text> to archive. Leave in{' '}

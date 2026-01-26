@@ -15,6 +15,7 @@ import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
 import DayBoundaryPicker from '../../components/settings/DayBoundaryPicker';
 import CalendarConnectionsCard from '../../components/settings/CalendarConnectionsCard';
+import { TimeBlockSettingsSection } from '../../components/settings/TimeBlockSettingsSection';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useNotificationPreferences } from '../../hooks/useNotificationPreferences';
 
@@ -153,6 +154,9 @@ export default function SettingsScreen() {
           </Text>
           <DayBoundaryPicker value={localDayBoundary} onChange={setLocalDayBoundary} />
         </View>
+
+        {/* Time Block Preferences */}
+        <TimeBlockSettingsSection />
 
         {/* Calendar Connections Section */}
         <View style={styles.section}>

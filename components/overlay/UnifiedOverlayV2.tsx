@@ -101,6 +101,7 @@ import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { getEffectiveTags } from '../../lib/tags/getEffectiveTags';
 import { getEffectiveLogSubtype } from '../../lib/logs/getEffectiveLogSubtype';
+import { calculateBuffers } from '../../lib/planning';
 import {
   ALL_MOODS,
   MOOD_CONFIG,
@@ -3724,6 +3725,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         if (__DEV__ && s.spaceId === null) {
           console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
         }
+        // Calculate buffers when time estimate changes
+        const todoBuffers = calculateBuffers(
+          (entity as any)?.energy_type ?? null,
+          canonical.title || canonical.name || '',
+          s.todo.time_estimate_minutes ?? 30,
+        );
         return {
           type: 'todo' as const,
           ...canonical, // Spread canonical fields (title, name, body, tags, tags_meta, canonicalType, labels)
@@ -3733,6 +3740,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           undefined_due: !dueDay, // True if no due date is set
           time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
           time_window: s.todo.time_window ?? null,
+          energy_type: (entity as any)?.energy_type ?? 'administrative',
+          prep_buffer_minutes: todoBuffers.prep_buffer_minutes,
+          cooldown_buffer_minutes: todoBuffers.cooldown_buffer_minutes,
           space_id: resolvedSpaceId,
           origin: 'catchall' as const,
           views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -3764,6 +3774,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (__DEV__ && s.spaceId === null) {
         console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
       }
+      // Calculate buffers when time estimate changes
+      const todoBuffers2 = calculateBuffers(
+        (entity as any)?.energy_type ?? null,
+        effectiveTitle,
+        s.todo.time_estimate_minutes ?? 30,
+      );
       return {
         type: 'todo' as const,
         title: effectiveTitle,
@@ -3775,6 +3791,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         undefined_due: !dueDay, // True if no due date is set
         time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
         time_window: s.todo.time_window ?? null,
+        energy_type: (entity as any)?.energy_type ?? 'administrative',
+        prep_buffer_minutes: todoBuffers2.prep_buffer_minutes,
+        cooldown_buffer_minutes: todoBuffers2.cooldown_buffer_minutes,
         space_id: resolvedSpaceId2,
         origin: 'catchall' as const,
         views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
@@ -3813,6 +3832,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           days_active: daysActiveFromJson,
           isEditing: !!initialEntity,
         });
+        // Calculate buffers when time estimate changes
+        const habitBuffers = calculateBuffers(
+          (entity as any)?.energy_type ?? null,
+          canonical.title || canonical.name || '',
+          s.habit.time_estimate_minutes ?? 30,
+        );
         return {
           type: 'habit' as const,
           ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
@@ -3828,6 +3853,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           end_date: s.habit.end_date ?? null,
           time_window: s.habit.time_window ?? null,
           time_estimate_minutes: s.habit.time_estimate_minutes ?? null,
+          energy_type: (entity as any)?.energy_type ?? 'administrative',
+          prep_buffer_minutes: habitBuffers.prep_buffer_minutes,
+          cooldown_buffer_minutes: habitBuffers.cooldown_buffer_minutes,
           // Commitment fields (only for todos/habits)
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
@@ -3846,6 +3874,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         schedule: s.habit.schedule,
         days_active: daysActiveFromJson2,
       });
+      // Calculate buffers when time estimate changes
+      const habitBuffers2 = calculateBuffers(
+        (entity as any)?.energy_type ?? null,
+        s.habit.title || firstLine(s.habit.notes) || 'Untitled',
+        s.habit.time_estimate_minutes ?? 30,
+      );
       return {
         type: 'habit' as const,
         title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
@@ -3862,6 +3896,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         end_date: s.habit.end_date ?? null,
         time_window: s.habit.time_window ?? null,
         time_estimate_minutes: s.habit.time_estimate_minutes ?? null,
+        energy_type: (entity as any)?.energy_type ?? 'administrative',
+        prep_buffer_minutes: habitBuffers2.prep_buffer_minutes,
+        cooldown_buffer_minutes: habitBuffers2.cooldown_buffer_minutes,
         ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{

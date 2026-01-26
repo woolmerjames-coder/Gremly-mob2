@@ -8,6 +8,7 @@
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { MiniSweepGate } from '../MiniSweepGate';
+import { getDateService } from '../../../../lib/date';
 import type { Todo } from '../../../../lib/types';
 
 // Mock Zustand store
@@ -34,6 +35,15 @@ jest.mock('../../../../contexts/OverlayContext', () => ({
   }),
 }));
 
+// Mock capacitySelectors to avoid needing full store state
+jest.mock('../../../../lib/store/capacitySelectors', () => ({
+  useMiniSweepCalendarContext: () => ({
+    blockedHours: 0,
+    eventCount: 0,
+    gremlyMessage: 'Clear day ahead. Good time to make progress on these.',
+  }),
+}));
+
 // Mock Reanimated
 jest.mock('react-native-reanimated', () => {
   const Reanimated = require('react-native-reanimated/mock');
@@ -48,8 +58,8 @@ function makeTodo(overrides: Partial<Todo> = {}): Todo {
     title: 'Test Todo',
     name: overrides.name || 'Test Todo',
     owner_id: 'user-1',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: getDateService().nowTimestamp(),
+    updated_at: getDateService().nowTimestamp(),
     archived: false,
     ai_placed: false,
     tags: [],
@@ -126,7 +136,7 @@ describe('MiniSweepGate', () => {
         />,
       );
 
-      expect(screen.getByText('Quick sort, then we plan the day!')).toBeTruthy();
+      expect(screen.getByText('Clear day ahead. Good time to make progress on these.')).toBeTruthy();
     });
 
     it('renders rolled over section when items exist', () => {

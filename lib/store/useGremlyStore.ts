@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase/client';
 import { getRitualDay } from '../date/ritualDay';
 import type {
@@ -27,6 +28,8 @@ import {
   type CalendarConnectionStatus,
   type CalendarProvider,
 } from '../calendar/CalendarClient';
+import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../capacity';
+import type { TimeBlockPreferences } from '../capacity';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
@@ -42,6 +45,134 @@ export function isHabitLockedIn(habit: Habit): boolean {
   if (!habit.commitment_until) return false;
   const today = getDateService().getCurrentDate();
   return habit.commitment_until >= today;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HIDDEN EVENTS PERSISTENCE (AsyncStorage - local only, resets daily)
+// ═════════════════════════════════════════════════════════════════════════════
+const HIDDEN_EVENTS_STORAGE_KEY = 'gremly:hiddenCalendarEventsByDate';
+
+async function loadHiddenEventsFromStorage(): Promise<Record<string, string[]>> {
+  try {
+    const stored = await AsyncStorage.getItem(HIDDEN_EVENTS_STORAGE_KEY);
+    if (!stored) return {};
+
+    const parsed = JSON.parse(stored) as Record<string, string[]>;
+
+    // Clean up old dates (only keep today and future)
+    const today = getDateService().getCurrentDate();
+    const cleaned: Record<string, string[]> = {};
+    for (const [date, ids] of Object.entries(parsed)) {
+      if (date >= today) {
+        cleaned[date] = ids;
+      }
+    }
+
+    return cleaned;
+  } catch (error) {
+    console.error('[GremlyStore] Failed to load hidden events:', error);
+    return {};
+  }
+}
+
+async function saveHiddenEventsToStorage(data: Record<string, string[]>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(HIDDEN_EVENTS_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('[GremlyStore] Failed to save hidden events:', error);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HIDDEN TODAY ITEMS PERSISTENCE (AsyncStorage - local only, auto-resets daily)
+// ═════════════════════════════════════════════════════════════════════════════
+const HIDDEN_TODAY_STORAGE_KEY = 'gremly:hiddenToday';
+
+interface HiddenTodayData {
+  date: string;
+  ids: string[];
+}
+
+async function loadHiddenTodayFromStorage(): Promise<HiddenTodayData | null> {
+  try {
+    const stored = await AsyncStorage.getItem(HIDDEN_TODAY_STORAGE_KEY);
+    if (!stored) return null;
+
+    const parsed = JSON.parse(stored) as HiddenTodayData;
+    const today = getDateService().getCurrentDate();
+
+    // Only return if the date matches today (auto-reset for new day)
+    if (parsed.date === today) {
+      return parsed;
+    }
+
+    // Stale data - clear it
+    await AsyncStorage.removeItem(HIDDEN_TODAY_STORAGE_KEY);
+    return null;
+  } catch (error) {
+    console.error('[GremlyStore] Failed to load hidden today items:', error);
+    return null;
+  }
+}
+
+async function saveHiddenTodayToStorage(data: HiddenTodayData): Promise<void> {
+  try {
+    await AsyncStorage.setItem(HIDDEN_TODAY_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('[GremlyStore] Failed to save hidden today items:', error);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT TIME OVERRIDES PERSISTENCE (AsyncStorage - local only)
+// ═══════════════════════════════════════════════════════════════════════════════
+const EVENT_TIME_OVERRIDES_STORAGE_KEY = 'gremly:eventTimeOverrides';
+
+async function loadEventTimeOverridesFromStorage(): Promise<
+  Record<string, { startAt: string; endAt: string }>
+> {
+  try {
+    const stored = await AsyncStorage.getItem(EVENT_TIME_OVERRIDES_STORAGE_KEY);
+    if (!stored) return {};
+    return JSON.parse(stored) as Record<string, { startAt: string; endAt: string }>;
+  } catch (error) {
+    console.error('[GremlyStore] Failed to load event time overrides:', error);
+    return {};
+  }
+}
+
+async function saveEventTimeOverridesToStorage(
+  data: Record<string, { startAt: string; endAt: string }>,
+): Promise<void> {
+  try {
+    await AsyncStorage.setItem(EVENT_TIME_OVERRIDES_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('[GremlyStore] Failed to save event time overrides:', error);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TIME BLOCK PREFERENCES PERSISTENCE (AsyncStorage - local only)
+// ═════════════════════════════════════════════════════════════════════════════
+const TIME_BLOCK_PREFERENCES_STORAGE_KEY = 'gremly:timeBlockPreferences';
+
+async function loadTimeBlockPreferencesFromStorage(): Promise<TimeBlockPreferences | null> {
+  try {
+    const stored = await AsyncStorage.getItem(TIME_BLOCK_PREFERENCES_STORAGE_KEY);
+    if (!stored) return null;
+    return JSON.parse(stored) as TimeBlockPreferences;
+  } catch (error) {
+    console.error('[GremlyStore] Failed to load time block preferences:', error);
+    return null;
+  }
+}
+
+async function saveTimeBlockPreferencesToStorage(data: TimeBlockPreferences): Promise<void> {
+  try {
+    await AsyncStorage.setItem(TIME_BLOCK_PREFERENCES_STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('[GremlyStore] Failed to save time block preferences:', error);
+  }
 }
 
 /**
@@ -358,6 +489,13 @@ interface GremlyState {
   removeCommitment: (id: string, type: 'todo' | 'habit', reason?: string | null) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // ORGANIZE DAY (AI-powered task assignments)
+  // ═══════════════════════════════════════════════════════════════════
+  applyOrganizeAssignments: (
+    assignments: Array<{ taskId: string; block: 'morning' | 'day' | 'evening' }>,
+  ) => void;
+
+  // ═══════════════════════════════════════════════════════════════════
   // BULK/UTILITY
   // ═══════════════════════════════════════════════════════════════════
   refreshFromServer: () => Promise<void>;
@@ -458,6 +596,16 @@ interface GremlyState {
   calendarEvents: Record<string, CalendarEvent[]>; // Key is YYYY-MM-DD
   calendarLoading: boolean;
   calendarLastFetched: string | null;
+  /** Hidden calendar events keyed by date (YYYY-MM-DD) */
+  hiddenCalendarEventsByDate: Record<string, string[]>;
+  /** Local time overrides for calendar events (eventId → { startAt, endAt }) */
+  eventTimeOverrides: Record<string, { startAt: string; endAt: string }>;
+  /** User-customizable time block boundaries */
+  timeBlockPreferences: TimeBlockPreferences;
+  /** IDs of todos/habits hidden from Morning Brief for today only */
+  hiddenTodayIds: string[];
+  /** The date that hiddenTodayIds applies to (for auto-reset) */
+  hiddenTodayDate: string | null;
 
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
@@ -469,6 +617,19 @@ interface GremlyState {
   ) => Promise<{ success: boolean; error?: string; calendarName?: string }>;
   disconnectCalendar: (provider: CalendarProvider) => Promise<void>;
   clearCalendarEvents: () => void;
+  hideCalendarEvent: (date: string, eventId: string) => void;
+  unhideCalendarEvent: (date: string, eventId: string) => void;
+  unhideAllCalendarEventsForDate: (date: string) => void;
+  setEventTimeOverride: (eventId: string, startAt: string, endAt: string) => void;
+  clearEventTimeOverride: (eventId: string) => void;
+  clearAllEventTimeOverrides: () => void;
+  // Time block preferences actions
+  setTimeBlockPreferences: (preferences: TimeBlockPreferences) => void;
+  resetTimeBlockPreferences: () => void;
+  // Hidden today (Not Today) actions
+  hideForToday: (id: string) => void;
+  unhideForToday: (id: string) => void;
+  clearHiddenToday: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -517,6 +678,11 @@ const initialState = {
   calendarEvents: {} as Record<string, CalendarEvent[]>,
   calendarLoading: false,
   calendarLastFetched: null as string | null,
+  hiddenCalendarEventsByDate: {} as Record<string, string[]>,
+  eventTimeOverrides: {} as Record<string, { startAt: string; endAt: string }>,
+  timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES,
+  hiddenTodayIds: [] as string[],
+  hiddenTodayDate: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -704,6 +870,40 @@ export const useGremlyStore = create<GremlyState>()(
           isInitialized: true,
           lastSyncedAt: new Date(),
         });
+
+        // Load hidden calendar events from AsyncStorage (local-only persistence)
+        const hiddenEvents = await loadHiddenEventsFromStorage();
+        if (Object.keys(hiddenEvents).length > 0) {
+          set({ hiddenCalendarEventsByDate: hiddenEvents });
+        }
+
+        // Load event time overrides from AsyncStorage
+        const timeOverrides = await loadEventTimeOverridesFromStorage();
+        if (Object.keys(timeOverrides).length > 0) {
+          set({ eventTimeOverrides: timeOverrides });
+        }
+
+        // Load time block preferences from AsyncStorage
+        const timeBlockPrefs = await loadTimeBlockPreferencesFromStorage();
+        if (timeBlockPrefs) {
+          set({ timeBlockPreferences: timeBlockPrefs });
+        }
+
+        // Load hidden today items from AsyncStorage (auto-resets on new day)
+        const hiddenToday = await loadHiddenTodayFromStorage();
+        if (hiddenToday) {
+          set({
+            hiddenTodayIds: hiddenToday.ids,
+            hiddenTodayDate: hiddenToday.date,
+          });
+        }
+
+        // Clean up old duration-only storage key if it exists
+        try {
+          await AsyncStorage.removeItem('gremly:eventDurationOverrides');
+        } catch {
+          // Ignore cleanup errors
+        }
 
         console.log('[GremlyStore] ✅ Initialized with', {
           todos: todosRes.data?.length ?? 0,
@@ -2586,6 +2786,46 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     // ═══════════════════════════════════════════════════════════════════
+    // ORGANIZE DAY (AI-powered task assignments)
+    // ═══════════════════════════════════════════════════════════════════
+
+    applyOrganizeAssignments: (assignments) => {
+      set((state) => {
+        const updatedTodos = state.todos.map((todo) => {
+          const assignment = assignments.find((a) => a.taskId === todo.id);
+          if (assignment) {
+            return { ...todo, time_window: assignment.block };
+          }
+          return todo;
+        });
+
+        const updatedHabits = state.habits.map((habit) => {
+          const assignment = assignments.find((a) => a.taskId === habit.id);
+          if (assignment) {
+            return { ...habit, time_window: assignment.block };
+          }
+          return habit;
+        });
+
+        return { todos: updatedTodos, habits: updatedHabits };
+      });
+
+      // Persist to Supabase
+      const { todos, habits } = get();
+      assignments.forEach((assignment) => {
+        const todo = todos.find((t) => t.id === assignment.taskId);
+        if (todo) {
+          get().updateTodo(todo.id, { time_window: assignment.block });
+          return;
+        }
+        const habit = habits.find((h) => h.id === assignment.taskId);
+        if (habit) {
+          get().updateHabit(habit.id, { time_window: assignment.block });
+        }
+      });
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
     // BULK/UTILITY
     // ═══════════════════════════════════════════════════════════════════
 
@@ -3160,6 +3400,128 @@ export const useGremlyStore = create<GremlyState>()(
         calendarEvents: {},
         calendarLastFetched: null,
       });
+    },
+
+    hideCalendarEvent: (date: string, eventId: string) => {
+      set((state) => {
+        const current = state.hiddenCalendarEventsByDate[date] ?? [];
+        if (current.includes(eventId)) return state; // Already hidden
+        const updated = {
+          ...state.hiddenCalendarEventsByDate,
+          [date]: [...current, eventId],
+        };
+        // Persist to AsyncStorage (fire and forget)
+        saveHiddenEventsToStorage(updated);
+        return { hiddenCalendarEventsByDate: updated };
+      });
+    },
+
+    unhideCalendarEvent: (date: string, eventId: string) => {
+      set((state) => {
+        const current = state.hiddenCalendarEventsByDate[date] ?? [];
+        const updated = {
+          ...state.hiddenCalendarEventsByDate,
+          [date]: current.filter((id) => id !== eventId),
+        };
+        // Persist to AsyncStorage (fire and forget)
+        saveHiddenEventsToStorage(updated);
+        return { hiddenCalendarEventsByDate: updated };
+      });
+    },
+
+    unhideAllCalendarEventsForDate: (date: string) => {
+      set((state) => {
+        const { [date]: _, ...rest } = state.hiddenCalendarEventsByDate;
+        // Persist to AsyncStorage (fire and forget)
+        saveHiddenEventsToStorage(rest);
+        return { hiddenCalendarEventsByDate: rest };
+      });
+    },
+
+    setEventTimeOverride: (eventId: string, startAt: string, endAt: string) => {
+      set((state) => {
+        const updated = {
+          ...state.eventTimeOverrides,
+          [eventId]: { startAt, endAt },
+        };
+        // Persist to AsyncStorage
+        saveEventTimeOverridesToStorage(updated);
+        return { eventTimeOverrides: updated };
+      });
+    },
+
+    clearEventTimeOverride: (eventId: string) => {
+      set((state) => {
+        const { [eventId]: _, ...rest } = state.eventTimeOverrides;
+        // Persist to AsyncStorage
+        saveEventTimeOverridesToStorage(rest);
+        return { eventTimeOverrides: rest };
+      });
+    },
+
+    clearAllEventTimeOverrides: () => {
+      set({ eventTimeOverrides: {} });
+      saveEventTimeOverridesToStorage({});
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // TIME BLOCK PREFERENCES
+    // ═══════════════════════════════════════════════════════════════════
+
+    setTimeBlockPreferences: (preferences) => {
+      set({ timeBlockPreferences: preferences });
+      saveTimeBlockPreferencesToStorage(preferences);
+    },
+
+    resetTimeBlockPreferences: () => {
+      set({ timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES });
+      saveTimeBlockPreferencesToStorage(DEFAULT_TIME_BLOCK_PREFERENCES);
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // HIDDEN TODAY (NOT TODAY) ACTIONS
+    // Hide todos/habits from Morning Brief for today only (auto-resets daily)
+    // ═══════════════════════════════════════════════════════════════════
+
+    hideForToday: (id: string) => {
+      const today = getDateService().getCurrentDate();
+      set((state) => {
+        // If the stored date is not today, start fresh
+        if (state.hiddenTodayDate !== today) {
+          const newData = { date: today, ids: [id] };
+          saveHiddenTodayToStorage(newData);
+          return {
+            hiddenTodayIds: [id],
+            hiddenTodayDate: today,
+          };
+        }
+        // Otherwise add to existing list (if not already there)
+        if (state.hiddenTodayIds.includes(id)) {
+          return state;
+        }
+        const newIds = [...state.hiddenTodayIds, id];
+        saveHiddenTodayToStorage({ date: today, ids: newIds });
+        return {
+          hiddenTodayIds: newIds,
+        };
+      });
+    },
+
+    unhideForToday: (id: string) => {
+      set((state) => {
+        const newIds = state.hiddenTodayIds.filter((i) => i !== id);
+        if (state.hiddenTodayDate) {
+          saveHiddenTodayToStorage({ date: state.hiddenTodayDate, ids: newIds });
+        }
+        return {
+          hiddenTodayIds: newIds,
+        };
+      });
+    },
+
+    clearHiddenToday: () => {
+      set({ hiddenTodayIds: [], hiddenTodayDate: null });
+      AsyncStorage.removeItem(HIDDEN_TODAY_STORAGE_KEY);
     },
 
     // ═══════════════════════════════════════════════════════════════════
