@@ -9,7 +9,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Pressable, Text, StyleSheet, Image, View, Animated, Easing } from 'react-native';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { useTodayCapacity, useTodayCalendarEvents } from '../../../../lib/store/capacitySelectors';
-import { organizeDay, buildOrganizeDayRequest, type TaskAssignment } from '../../../../lib/api/organizeDay';
+import {
+  organizeDay,
+  buildOrganizeDayRequest,
+  type TaskAssignment,
+} from '../../../../lib/api/organizeDay';
 import { getDateService } from '../../../../lib/date';
 
 const COLORS = {
@@ -28,13 +32,18 @@ interface OrganizeButtonProps {
   onAnimationComplete?: () => void;
 }
 
-export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimationComplete }: OrganizeButtonProps) {
+export function OrganizeButton({
+  onComplete,
+  onError,
+  onAnimationStart,
+  onAnimationComplete,
+}: OrganizeButtonProps) {
   const [phase, setPhase] = useState<OrganizePhase>('idle');
-  
-  // Animation values
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const pulseAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  // Animation values - using refs without destructuring .current to satisfy React Compiler
+  const progressAnimRef = useRef(new Animated.Value(0));
+  const pulseAnimRef = useRef(new Animated.Value(1));
+  const pulseCompositeRef = useRef<Animated.CompositeAnimation | null>(null);
 
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
@@ -49,42 +58,54 @@ export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimat
   // Pulse animation for icon during organizing
   useEffect(() => {
     if (phase === 'organizing') {
-      pulseAnimRef.current = Animated.loop(
+      pulseCompositeRef.current = Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, {
+          Animated.timing(pulseAnimRef.current, {
             toValue: 1.08,
             duration: 750,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
-          Animated.timing(pulseAnim, {
+          Animated.timing(pulseAnimRef.current, {
             toValue: 1,
             duration: 750,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
-        ])
+        ]),
       );
-      pulseAnimRef.current.start();
+      pulseCompositeRef.current.start();
     } else {
-      pulseAnimRef.current?.stop();
-      pulseAnim.setValue(1);
+      pulseCompositeRef.current?.stop();
+      pulseAnimRef.current.setValue(1);
     }
-    
+
     return () => {
-      pulseAnimRef.current?.stop();
+      pulseCompositeRef.current?.stop();
     };
-  }, [phase, pulseAnim]);
+  }, [phase]);
 
   // Count unassigned tasks
   const unassignedCount = React.useMemo(() => {
     const todayTodos = todos.filter(
-      (t) => !t.archived && !t.completed_at && t.due_day === today && 
-             (!t.time_window || t.time_window === 'any')
+      (t) =>
+        !t.archived &&
+        !t.completed_at &&
+        t.due_day === today &&
+        (!t.time_window || t.time_window === 'any'),
     );
 
     console.log('[OrganizeButton] today:', today, 'todayTodos count:', todayTodos.length);
-    console.log('[OrganizeButton] all todos due_days:', todos.slice(0, 10).map(t => ({ title: t.name?.substring(0, 20), due_day: t.due_day, time_window: t.time_window })));
+    console.log(
+      '[OrganizeButton] all todos due_days:',
+      todos
+        .slice(0, 10)
+        .map((t) => ({
+          title: t.name?.substring(0, 20),
+          due_day: t.due_day,
+          time_window: t.time_window,
+        })),
+    );
 
     const activeHabits = habits.filter((h) => {
       if (h.archived) return false;
@@ -101,11 +122,11 @@ export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimat
   }
 
   const startProgressAnimation = () => {
-    progressAnim.setValue(0);
+    progressAnimRef.current.setValue(0);
     setPhase('organizing');
-    
+
     // Animate to 85% over 8 seconds with ease-out
-    Animated.timing(progressAnim, {
+    Animated.timing(progressAnimRef.current, {
       toValue: 0.85,
       duration: 8000,
       easing: Easing.out(Easing.cubic),
@@ -115,8 +136,8 @@ export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimat
 
   const completeProgressAnimation = (callback: () => void) => {
     // Stop current animation and spring to 100%
-    progressAnim.stopAnimation(() => {
-      Animated.timing(progressAnim, {
+    progressAnimRef.current.stopAnimation(() => {
+      Animated.timing(progressAnimRef.current, {
         toValue: 1,
         duration: 300,
         easing: Easing.out(Easing.quad),
@@ -125,7 +146,7 @@ export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimat
         // Brief pause at 100% before completing
         setTimeout(() => {
           setPhase('complete');
-          progressAnim.setValue(0);
+          progressAnimRef.current.setValue(0);
           callback();
         }, 200);
       });
@@ -134,7 +155,7 @@ export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimat
 
   const handlePress = async () => {
     if (phase !== 'idle') return;
-    
+
     startProgressAnimation();
 
     try {
@@ -166,15 +187,15 @@ export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimat
       // Complete progress animation, then trigger card animation
       completeProgressAnimation(() => {
         setPhase('animating');
-        
+
         // Trigger card exit animations
         if (response.assignments.length > 0) {
           onAnimationStart?.(response.assignments);
         }
-        
+
         // Calculate animation duration: base 400ms + 150ms per card staggered
-        const animationDuration = 400 + (response.assignments.length * 150);
-        
+        const animationDuration = 400 + response.assignments.length * 150;
+
         setTimeout(() => {
           // Now actually apply the assignments to Zustand
           if (response.assignments.length > 0) {
@@ -201,7 +222,7 @@ export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimat
   };
 
   // Progress bar width interpolation
-  const progressWidth = progressAnim.interpolate({
+  const progressWidth = progressAnimRef.current.interpolate({
     inputRange: [0, 1],
     outputRange: ['0%', '100%'],
   });
@@ -210,19 +231,11 @@ export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimat
   if (phase === 'organizing' || phase === 'animating') {
     return (
       <View style={styles.progressContainer}>
-        <Animated.View 
-          style={[
-            styles.progressFill,
-            { width: progressWidth }
-          ]} 
-        />
+        <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
         <View style={styles.progressContent}>
           <Animated.Image
             source={require('../../../../assets/buttonforHP.png')}
-            style={[
-              styles.buttonIcon,
-              { transform: [{ scale: pulseAnim }] }
-            ]}
+            style={[styles.buttonIcon, { transform: [{ scale: pulseAnimRef.current }] }]}
           />
           <Text style={styles.text}>Organizing...</Text>
         </View>
@@ -232,15 +245,8 @@ export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimat
 
   // Default idle button
   return (
-    <Pressable
-      style={styles.button}
-      onPress={handlePress}
-      disabled={phase !== 'idle'}
-    >
-      <Image
-        source={require('../../../../assets/buttonforHP.png')}
-        style={styles.buttonIcon}
-      />
+    <Pressable style={styles.button} onPress={handlePress} disabled={phase !== 'idle'}>
+      <Image source={require('../../../../assets/buttonforHP.png')} style={styles.buttonIcon} />
       <Text style={styles.text}>Help me organize</Text>
     </Pressable>
   );

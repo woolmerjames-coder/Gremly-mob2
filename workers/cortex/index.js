@@ -1,6 +1,6 @@
 /**
  * Cortex Proxy Worker
- * 
+ *
  * Features:
  * - Phase 1 classification (non-streaming) - UPDATED with semantic classification + MULTI-ENTITY DETECTION
  * - Phase 2 enrichment (streaming with flush fixes, padding, heartbeat)
@@ -9,39 +9,39 @@
  * - Entity Chat (v4.0) - NEW: scoped chat for individual entities (todos, habits, notes)
  * - General chat/completion
  * - Transcription via OpenAI Whisper
- * 
+ *
  * Streaming fixes applied:
  * - Initial padding to force flush
  * - Heartbeat pings until first field
  * - Proper charset and no-transform headers
  * - TTFT timing logs
- * 
+ *
  * Classification v2 (2026-01-02):
  * - Semantic understanding of TODO vs HABIT vs LOG
  * - Concrete/trackable behavior test for habits
  * - Self-talk/venting detection for logs
  * - Verb + object context analysis
- * 
+ *
  * v2.1 (2026-01-02):
  * - Added time_estimate_minutes for habits (mirrors todo pattern)
- * 
+ *
  * v2.2 (2026-01-03):
  * - HABIT now requires EXPLICIT tracking intent (frequency, commitment, behavior change)
  * - Without explicit signals, repeatable activities default to TODO
  * - Semantic understanding over keyword matching
- * 
+ *
  * v2.3 (2026-01-03):
  * - HABIT requires EXPLICIT FREQUENCY or STOP/QUIT + concrete behavior
  * - "more/less/reduce" WITHOUT frequency  LOG/general (fuzzy aspirations)
  * - Evening Sweep handles conversion to habit if user wants
- * 
+ *
  * v2.4 (2026-01-03):
  * - Added transcription endpoint for voice-to-text via Whisper
- * 
+ *
  * v2.5 (2026-01-06):
  * - FIX 1: Updated Space Chat persona - balanced, helpful without being pushy
  * - FIX 3: Increased token limits for substantive responses (400 -> 800)
- * 
+ *
  * v2.6 (2026-01-06):
  * - NEW: space-chat-save endpoint - single call classify + enrich for chat saves
  * - Optimized for saving AI chat responses (different from Mind Drop classification)
@@ -121,466 +121,579 @@
 
 export default {
   async fetch(request, env) {
-  // --- CORS preflight ---
-  if (request.method === "OPTIONS") {
-  return new Response(null, {
-  headers: {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  },
-  });
-  }
- 
-  try {
-  const raw = await request.text();
-  const body = raw ? JSON.parse(raw) : {};
-  const key = env.OPENAI_API_KEY;
- 
-  const type = body.type || "complete";
-  const lane = body.lane || null;
- 
-  // Check if client requests streaming
-  const wantsStreaming = body.stream === true;
-  const isSpaceChatStreaming = wantsStreaming && lane === "space_chat";
-  const isPhase2Streaming = wantsStreaming && type === "enrich-phase2";
-  const isEntityChatStreaming = wantsStreaming && type === "entity-chat";
- 
-  // =========================
-  // Helpers
-  // =========================
-  const clamp01 = (n) => Math.max(0, Math.min(1, n));
- 
-  // =========================
- // Save Suggestion Extractor (post-response)
- // =========================
- // Uses a fast, cheap model to decide whether to show a Save card/chips and what type.
- // This MUST NOT change the assistant's conversational response.
- // --- Valid mood values (v3.0) ---
-  const VALID_MOODS = [
-  // Energy moods
-  'great', 'good', 'okay', 'low', 'tired',
-  // Emotion moods
-  'anxious', 'overwhelmed', 'frustrated', 'scattered',
-  'grateful', 'hopeful', 'focused', 'calm'
-  ];
- 
-  // --- Day name to number mapping (0=Sunday, 1=Monday, ..., 6=Saturday) ---
-  const DAY_NAME_TO_NUMBER = {
-  'sunday': 0, 'sun': 0,
-  'monday': 1, 'mon': 1,
-  'tuesday': 2, 'tue': 2, 'tues': 2,
-  'wednesday': 3, 'wed': 3,
-  'thursday': 4, 'thu': 4, 'thur': 4, 'thurs': 4,
-  'friday': 5, 'fri': 5,
-  'saturday': 6, 'sat': 6,
-  };
- 
-  // Parse day names from text and return array of day numbers
-  function parseDaysFromText(text) {
-  if (!text) return null;
-  const lower = text.toLowerCase();
-  const days = new Set();
-  
-  // Match day names (including plurals like "Tuesdays")
-  const dayPattern = /\b(sundays?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)\b/gi;
-  const matches = lower.match(dayPattern);
-  
-  if (matches && matches.length > 0) {
-  for (const match of matches) {
-  // Remove trailing 's' for plurals
-  const singular = match.replace(/s$/, '');
-  const dayNum = DAY_NAME_TO_NUMBER[singular];
-  if (dayNum !== undefined) {
-  days.add(dayNum);
-  }
-  }
-  }
-  
-  // Also check for "weekends" / "weekdays"
-  if (/\bweekends?\b/i.test(lower)) {
-  days.add(0); // Sunday
-  days.add(6); // Saturday
-  }
-  if (/\bweekdays?\b/i.test(lower)) {
-  days.add(1); days.add(2); days.add(3); days.add(4); days.add(5);
-  }
-  
-  if (days.size === 0) return null;
-  
-  // Return sorted array
-  return Array.from(days).sort((a, b) => a - b);
-  }
- 
-  // --- Title utilities (Phase 2) ---
-  const META_STARTERS = [
-  "reflect",
-  "reflection",
-  "journal",
-  "consider",
-  "track",
-  "manage",
-  "review",
-  "attend",
-  "think about",
-  "thoughts on",
-  "thoughts about",
-  ];
- 
-  function titleCase(s) {
-  const t = String(s || "").trim();
-  if (!t) return "";
-  return t
-  .split(/\s+/)
-  .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
-  .join(" ");
-  }
- 
-  function stripLeadingMeta(title) {
-  let t = String(title || "").trim();
-  if (!t) return "";
- 
-  const low = t.toLowerCase();
- 
-  if (["journal", "reflect", "reflection", "feelings", "stress"].includes(low)) return "";
- 
-  /** @type {Array<[RegExp, string]>} */
-  const patterns = [
-  [/^reflect\s+on\s+/i, ""],
-  [/^reflect\s+/i, ""],
-  [/^journal\s+about\s+/i, ""],
-  [/^journal\s+/i, ""],
-  [/^consider\s+/i, ""],
-  [/^track\s+/i, ""],
-  [/^manage\s+/i, ""],
-  [/^review\s+/i, ""],
-  [/^attend\s+/i, ""],
-  [/^thoughts\s+on\s+/i, ""],
-  [/^thoughts\s+about\s+/i, ""],
-  [/^think\s+about\s+/i, ""],
-  ];
- 
-  for (const [re, rep] of patterns) {
-  t = t.replace(re, rep).trim();
-  }
- 
-  const low2 = t.toLowerCase();
-  if (META_STARTERS.some((m) => low2.startsWith(m + " "))) return "";
- 
-  return t;
-  }
- 
-  function sanitizeTitle({ rawTitle, text, bucket }) {
-  let t = String(rawTitle || "").trim();
- 
-  if (t.length > 60) t = t.substring(0, 57) + "...";
- 
-  const stripped = stripLeadingMeta(t);
-  if (stripped) t = stripped;
- 
-  if (t.length < 3) {
-  const src = String(text || "").trim();
-  if (!src) return "";
- 
-  let candidate = src
-  .replace(/\s+/g, " ")
-  .replace(/[.?!].*$/, "")
-  .trim();
- 
-  if (bucket === "todo") {
-  candidate = candidate.split(/\s+/).slice(0, 7).join(" ");
-  } else {
-  candidate = candidate.replace(/^i\s+(feel|felt|am|'m|im|was|have|'ve)\s+/i, "");
-  candidate = candidate.split(/\s+/).slice(0, 6).join(" ");
-  }
- 
-  t = candidate;
-  }
- 
-  t = t.replace(/^(today|tonight|this\s+morning|this\s+evening|this\s+week)\s+/i, "").trim();
- 
-  const words = t.split(/\s+/);
-  if (words.length > 7) t = words.slice(0, 7).join(" ");
- 
-  t = titleCase(t);
-  return t;
-  }
- 
-  function dedupeTitle({ title, bucket, subtype, recentTitles }) {
-  const t = String(title || "").trim();
-  if (!t) return t;
- 
-  const norm = (s) => String(s || "").trim().toLowerCase();
-  const recent = Array.isArray(recentTitles) ? recentTitles : [];
-  const exists = recent.some((rt) => norm(rt) === norm(t));
-  if (!exists) return t;
- 
-  const suffixesTodo = ["(Follow Up)", "(Quick)", "(Today)"];
-  const suffixesIdea = ["(Idea)", "(Concept)", "(Option)"];
-  const suffixesLog = ["(Today)", "(This Week)", "(Note)", "(Moment)"];
- 
-  const suffixes =
-  bucket === "todo"
-  ? suffixesTodo
-  : subtype === "idea"
-  ? suffixesIdea
-  : suffixesLog;
- 
-  for (const sfx of suffixes) {
-  const candidate = `${t} ${sfx}`;
-  if (!recent.some((rt) => norm(rt) === norm(candidate))) return candidate;
-  }
- 
-  return `${t} (2)`;
-  }
- 
-  function isSenseMakingJournal(text) {
-  const t = String(text || "").trim();
-  if (!t) return false;
- 
-  const infoDump =
-  /\b(http|www\.|@\w+|isbn|serial\s+number|address:|phone:|reference|documentation)\b/i;
-  if (infoDump.test(t)) return false;
- 
-  const reflectionVerbs =
-  /\b(i\s+realized|i\s+noticed|i\s+learned|i\s+figured\s+out|i\s+keep\s+thinking|i\s+can't\s+stop\s+thinking|it\s+made\s+me\s+realize|it\s+reminded\s+me)\b/i;
- 
-  const patternLanguage =
-  /\b(lately|recently|this\s+week|these\s+days|for\s+the\s+past\s+\d+\s+(days|weeks)|i['']ve\s+been|i\s+have\s+been|i\s+keep|i\s+tend\s+to)\b/i;
- 
-  const selfStateFrame =
-  /\b(i\s+feel|i\s+felt|i['']m|i\s+am|i\s+was|been\s+feeling|my\s+mood|in\s+my\s+head)\b/i;
- 
-  const internalStateWords =
-  /\b(anxious|anxiety|stressed|stressful|overwhelmed|tired|exhausted|sad|down|lonely|angry|frustrated|worried|scared|nervous|restless|calm|peaceful|relieved|proud|grateful|thankful|happy|excited|content)\b/i;
- 
-  const expectationShift =
-  /\b(more\s+than\s+i\s+expected|less\s+than\s+i\s+expected|than\s+i\s+expected|surprised\s+me|didn['']t\s+think\s+i['']d|wasn['']t\s+expecting|turned\s+out\s+better|turned\s+out\s+worse|ended\s+up)\b/i;
- 
-  const meaningCues =
-  /\b(i\s+don['']t\s+know\s+why|not\s+sure\s+why|it\s+means|made\s+me\s+think|i\s+want\s+to\s+change|i\s+need\s+to\s+change|i\s+should\s+stop|i\s+should\s+start)\b/i;
- 
-  if (reflectionVerbs.test(t)) return true;
-  if (expectationShift.test(t)) return true;
-  if (patternLanguage.test(t) && (meaningCues.test(t) || internalStateWords.test(t))) return true;
-  if (selfStateFrame.test(t) && internalStateWords.test(t)) return true;
-  if (meaningCues.test(t)) return true;
- 
-  return false;
-  }
- 
-  function normalizePhase1(bucket, subtype, text) {
-  const validBuckets = ["todo", "habit", "log"];
-  let b = String(bucket || "").toLowerCase();
-  if (!validBuckets.includes(b)) b = "log";
- 
-  let st = null;
-  if (b === "log") {
-  const validSubtypes = ["journal", "idea", "general"];
-  st = validSubtypes.includes(subtype) ? subtype : "general";
-  if (st === "general" && isSenseMakingJournal(text)) st = "journal";
-  }
-  return { bucket: b, subtype: st };
-  }
- 
-  // =========================
-  // Tag quality filter (Phase 2)
-  // =========================
-  const STOP_TAGS = new Set([
-  "a","an","the","and","or","but","to","of","for","in","on","at","with","from","into","over","under",
-  "than","then","expected","expect","expecting","more","less","very","just","really","pretty","kind",
-  "this","that","these","those","today","tonight","yesterday","tomorrow","week","month","morning","evening",
-  "thing","things","stuff","place","places","good","great","nice","ok","okay","fine","note","notes",
-  "meeting","meetings","thought","thoughts","journal","reflection","reflect","track","review","manage",
-  ]);
- 
-  function isStopTag(t) {
-  const s = String(t || "").trim().toLowerCase();
-  return STOP_TAGS.has(s);
-  }
- 
-  // =========================
-  // Phase 2 post-processing helpers
-  // =========================
-  function processPhase2Response(parsed, text, bucket, subtype, recentTitles) {
-  // Normalize tags
-  let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
-  tags = tags
-  .map((t) =>
-  String(t).toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")
-  )
-  .filter((t) => t.length >= 2 && t.length <= 30)
-  .filter((t) => !isStopTag(t))
-  .slice(0, 7);
- 
-  // People
-  const people = Array.isArray(parsed.people) ? parsed.people.slice(0, 10) : [];
- 
-  // Filter out people names from tags
-  if (people.length > 0) {
-  const peopleNamesLower = people.map((p) =>
-  String(p).toLowerCase().replace(/\s+/g, "-")
-  );
-  tags = tags.filter((t) => !peopleNamesLower.includes(t));
-  }
- 
-  // Validate time estimate - NOW SUPPORTS BOTH TODOS AND HABITS
-  let timeEstimate = parsed.time_estimate_minutes;
-  if ((bucket === "todo" || bucket === "habit") && timeEstimate !== null && timeEstimate !== undefined) {
-  const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
-  const num = Number(timeEstimate);
-  if (Number.isFinite(num)) {
-  timeEstimate = allowed.reduce((prev, curr) =>
-  Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev
-  );
-  } else {
-  timeEstimate = null;
-  }
-  } else {
-  timeEstimate = null;
-  }
- 
-  // Validate time_window
-  let timeWindow = parsed.time_window;
-  if (timeWindow) {
-  const validWindows = ['morning', 'day', 'evening'];
-  const normalized = String(timeWindow).toLowerCase().trim();
-  timeWindow = validWindows.includes(normalized) ? normalized : null;
-  } else {
-  timeWindow = null;
-  }
- 
-  // Title sanitization
-  let smartTitle = sanitizeTitle({ rawTitle: parsed.smart_title, text, bucket });
-  smartTitle = dedupeTitle({ title: smartTitle, bucket, subtype, recentTitles });
- 
-  if (!smartTitle || smartTitle.length < 3) smartTitle = text.substring(0, 60).trim();
- 
-  // Confirmation message
-  const confirmationMessage = typeof parsed.confirmation_message === "string" && parsed.confirmation_message.trim().length > 0
-  ? parsed.confirmation_message.trim()
-  : null;
- 
-  // Validate extracted_date format
-  let extractedDate = parsed.extracted_date || null;
-  if (extractedDate) {
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (!dateRegex.test(extractedDate)) {
-  extractedDate = null;
-  }
-  }
- 
-  // Validate extracted_start_date for habits
-  let extractedStartDate = null;
-  if (bucket === "habit" && parsed.extracted_start_date) {
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (dateRegex.test(parsed.extracted_start_date)) {
-  extractedStartDate = parsed.extracted_start_date;
-  }
-  }
- 
-  // Validate and process extracted_days for habits
-  let extractedDays = null;
-  if (bucket === "habit") {
-  // First try to use what AI returned
-  if (Array.isArray(parsed.extracted_days) && parsed.extracted_days.length > 0) {
-  // Validate each day is 0-6
-  const validDays = parsed.extracted_days
-  .map(d => Number(d))
-  .filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
-  if (validDays.length > 0) {
-  // Remove duplicates and sort
-  extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
-  }
-  }
-  
-  // Fallback: parse days from original text if AI didn't extract them
-  if (!extractedDays) {
-  extractedDays = parseDaysFromText(text);
-  }
-  }
- 
-  // Validate mood for journals (v3.0)
-  let mood = null;
-  if (bucket === "log" && subtype === "journal") {
-  if (Array.isArray(parsed.mood) && parsed.mood.length > 0) {
-  mood = parsed.mood
-  .map(m => String(m).toLowerCase().trim())
-  .filter(m => VALID_MOODS.includes(m))
-  .slice(0, 3);
-  if (mood.length === 0) mood = null;
-  }
-  }
- 
-  return {
-  smart_title: smartTitle,
-  confirmation_message: confirmationMessage,
-  tags,
-  time_estimate_minutes: timeEstimate,
-  time_window: timeWindow,
-  extracted_date: extractedDate,
-  extracted_start_date: extractedStartDate,
-  extracted_frequency: parsed.extracted_frequency || null,
-  extracted_days: extractedDays,
-  people,
-  mood,
-  };
-  }
- 
-  // =========================
-  // === ENTITY CHAT (v4.0) ===
-  // Scoped chat for individual entities (todos, habits, notes)
-  // =========================
-  if (type === "entity-chat") {
-  const entity = body.entity || {};
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  const preset = body.preset || null;
-  const sweepContext = body.sweepContext || null;
- 
-  // Build entity context string
-  const entityContextParts = [];
-  entityContextParts.push(`Type: ${entity.type || 'unknown'}`);
-  entityContextParts.push(`Title: "${entity.title || 'Untitled'}"`);
-  if (entity.body) entityContextParts.push(`Details: "${entity.body.substring(0, 500)}"`);
-  if (entity.tags && entity.tags.length > 0) entityContextParts.push(`Tags: ${entity.tags.join(', ')}`);
-  if (entity.due_date) entityContextParts.push(`Due: ${entity.due_date}`);
-  if (entity.frequency) entityContextParts.push(`Frequency: ${entity.frequency}`);
-  if (entity.time_estimate) entityContextParts.push(`Time estimate: ${entity.time_estimate} minutes`);
-  if (entity.space_name) entityContextParts.push(`Space: ${entity.space_name}`);
-  if (entity.days_since_created !== undefined) entityContextParts.push(`Created: ${entity.days_since_created} days ago`);
-  if (entity.times_swept) entityContextParts.push(`Times reviewed in Sweep: ${entity.times_swept}`);
- 
-  const entityContext = entityContextParts.join('\n');
- 
-  // Build sweep context if present
-  let sweepContextStr = '';
-  if (sweepContext) {
-  const sweepParts = [];
-  if (sweepContext.times_moved >= 2) sweepParts.push(`This item has been deferred ${sweepContext.times_moved} times in Sweep.`);
-  if (sweepContext.days_unscheduled >= 7) sweepParts.push(`This item has been unscheduled for ${sweepContext.days_unscheduled} days.`);
-  if (sweepContext.is_overdue) sweepParts.push(`This item is overdue.`);
-  if (sweepParts.length > 0) {
-  sweepContextStr = `\n\n=== SWEEP CONTEXT ===\n${sweepParts.join('\n')}`;
-  }
-  }
- 
-  // Build preset instruction if present
-  let presetInstruction = '';
-  if (preset) {
-  const presetInstructions = {
-  'break_down': 'The user wants help breaking this down into smaller, manageable steps. Focus on creating a clear action plan.',
-  'research': 'The user wants to research or learn more about this. Help them explore relevant aspects and find useful information.',
-  'think_through': 'The user wants to think through this more deeply. Help them consider different angles and implications.',
-  'whats_blocking': 'The user feels stuck on this. Help them identify what might be blocking them and how to move forward.',
-  'action_steps': 'The user wants to turn this into concrete action steps. Help them identify specific next actions.',
-  'expand': 'The user wants to expand on this idea. Help them flesh it out with more detail and possibilities.',
-  'stay_consistent': 'The user wants help staying consistent with this habit. Focus on practical strategies and motivation.',
-  'approach': 'The user wants to refine their approach to this habit. Help them optimize their strategy.',
-  };
-  presetInstruction = presetInstructions[preset] ? `\n\n=== USER REQUEST ===\n${presetInstructions[preset]}` : '';
-  }
- 
-  const entityChatSystemPrompt = `You are Gremly, helping a user work through a specific item in their productivity app.
+    // --- CORS preflight ---
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        },
+      });
+    }
+
+    try {
+      const raw = await request.text();
+      const body = raw ? JSON.parse(raw) : {};
+      const key = env.OPENAI_API_KEY;
+
+      const type = body.type || 'complete';
+      const lane = body.lane || null;
+
+      // Check if client requests streaming
+      const wantsStreaming = body.stream === true;
+      const isSpaceChatStreaming = wantsStreaming && lane === 'space_chat';
+      const isPhase2Streaming = wantsStreaming && type === 'enrich-phase2';
+      const isEntityChatStreaming = wantsStreaming && type === 'entity-chat';
+
+      // =========================
+      // Helpers
+      // =========================
+      const clamp01 = (n) => Math.max(0, Math.min(1, n));
+
+      // =========================
+      // Save Suggestion Extractor (post-response)
+      // =========================
+      // Uses a fast, cheap model to decide whether to show a Save card/chips and what type.
+      // This MUST NOT change the assistant's conversational response.
+      // --- Valid mood values (v3.0) ---
+      const VALID_MOODS = [
+        // Energy moods
+        'great',
+        'good',
+        'okay',
+        'low',
+        'tired',
+        // Emotion moods
+        'anxious',
+        'overwhelmed',
+        'frustrated',
+        'scattered',
+        'grateful',
+        'hopeful',
+        'focused',
+        'calm',
+      ];
+
+      // --- Day name to number mapping (0=Sunday, 1=Monday, ..., 6=Saturday) ---
+      const DAY_NAME_TO_NUMBER = {
+        sunday: 0,
+        sun: 0,
+        monday: 1,
+        mon: 1,
+        tuesday: 2,
+        tue: 2,
+        tues: 2,
+        wednesday: 3,
+        wed: 3,
+        thursday: 4,
+        thu: 4,
+        thur: 4,
+        thurs: 4,
+        friday: 5,
+        fri: 5,
+        saturday: 6,
+        sat: 6,
+      };
+
+      // Parse day names from text and return array of day numbers
+      function parseDaysFromText(text) {
+        if (!text) return null;
+        const lower = text.toLowerCase();
+        const days = new Set();
+
+        // Match day names (including plurals like "Tuesdays")
+        const dayPattern =
+          /\b(sundays?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)\b/gi;
+        const matches = lower.match(dayPattern);
+
+        if (matches && matches.length > 0) {
+          for (const match of matches) {
+            // Remove trailing 's' for plurals
+            const singular = match.replace(/s$/, '');
+            const dayNum = DAY_NAME_TO_NUMBER[singular];
+            if (dayNum !== undefined) {
+              days.add(dayNum);
+            }
+          }
+        }
+
+        // Also check for "weekends" / "weekdays"
+        if (/\bweekends?\b/i.test(lower)) {
+          days.add(0); // Sunday
+          days.add(6); // Saturday
+        }
+        if (/\bweekdays?\b/i.test(lower)) {
+          days.add(1);
+          days.add(2);
+          days.add(3);
+          days.add(4);
+          days.add(5);
+        }
+
+        if (days.size === 0) return null;
+
+        // Return sorted array
+        return Array.from(days).sort((a, b) => a - b);
+      }
+
+      // --- Title utilities (Phase 2) ---
+      const META_STARTERS = [
+        'reflect',
+        'reflection',
+        'journal',
+        'consider',
+        'track',
+        'manage',
+        'review',
+        'attend',
+        'think about',
+        'thoughts on',
+        'thoughts about',
+      ];
+
+      function titleCase(s) {
+        const t = String(s || '').trim();
+        if (!t) return '';
+        return t
+          .split(/\s+/)
+          .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
+          .join(' ');
+      }
+
+      function stripLeadingMeta(title) {
+        let t = String(title || '').trim();
+        if (!t) return '';
+
+        const low = t.toLowerCase();
+
+        if (['journal', 'reflect', 'reflection', 'feelings', 'stress'].includes(low)) return '';
+
+        /** @type {Array<[RegExp, string]>} */
+        const patterns = [
+          [/^reflect\s+on\s+/i, ''],
+          [/^reflect\s+/i, ''],
+          [/^journal\s+about\s+/i, ''],
+          [/^journal\s+/i, ''],
+          [/^consider\s+/i, ''],
+          [/^track\s+/i, ''],
+          [/^manage\s+/i, ''],
+          [/^review\s+/i, ''],
+          [/^attend\s+/i, ''],
+          [/^thoughts\s+on\s+/i, ''],
+          [/^thoughts\s+about\s+/i, ''],
+          [/^think\s+about\s+/i, ''],
+        ];
+
+        for (const [re, rep] of patterns) {
+          t = t.replace(re, rep).trim();
+        }
+
+        const low2 = t.toLowerCase();
+        if (META_STARTERS.some((m) => low2.startsWith(m + ' '))) return '';
+
+        return t;
+      }
+
+      function sanitizeTitle({ rawTitle, text, bucket }) {
+        let t = String(rawTitle || '').trim();
+
+        if (t.length > 60) t = t.substring(0, 57) + '...';
+
+        const stripped = stripLeadingMeta(t);
+        if (stripped) t = stripped;
+
+        if (t.length < 3) {
+          const src = String(text || '').trim();
+          if (!src) return '';
+
+          let candidate = src
+            .replace(/\s+/g, ' ')
+            .replace(/[.?!].*$/, '')
+            .trim();
+
+          if (bucket === 'todo') {
+            candidate = candidate.split(/\s+/).slice(0, 7).join(' ');
+          } else {
+            candidate = candidate.replace(/^i\s+(feel|felt|am|'m|im|was|have|'ve)\s+/i, '');
+            candidate = candidate.split(/\s+/).slice(0, 6).join(' ');
+          }
+
+          t = candidate;
+        }
+
+        t = t.replace(/^(today|tonight|this\s+morning|this\s+evening|this\s+week)\s+/i, '').trim();
+
+        const words = t.split(/\s+/);
+        if (words.length > 7) t = words.slice(0, 7).join(' ');
+
+        t = titleCase(t);
+        return t;
+      }
+
+      function dedupeTitle({ title, bucket, subtype, recentTitles }) {
+        const t = String(title || '').trim();
+        if (!t) return t;
+
+        const norm = (s) =>
+          String(s || '')
+            .trim()
+            .toLowerCase();
+        const recent = Array.isArray(recentTitles) ? recentTitles : [];
+        const exists = recent.some((rt) => norm(rt) === norm(t));
+        if (!exists) return t;
+
+        const suffixesTodo = ['(Follow Up)', '(Quick)', '(Today)'];
+        const suffixesIdea = ['(Idea)', '(Concept)', '(Option)'];
+        const suffixesLog = ['(Today)', '(This Week)', '(Note)', '(Moment)'];
+
+        const suffixes =
+          bucket === 'todo' ? suffixesTodo : subtype === 'idea' ? suffixesIdea : suffixesLog;
+
+        for (const sfx of suffixes) {
+          const candidate = `${t} ${sfx}`;
+          if (!recent.some((rt) => norm(rt) === norm(candidate))) return candidate;
+        }
+
+        return `${t} (2)`;
+      }
+
+      function isSenseMakingJournal(text) {
+        const t = String(text || '').trim();
+        if (!t) return false;
+
+        const infoDump =
+          /\b(http|www\.|@\w+|isbn|serial\s+number|address:|phone:|reference|documentation)\b/i;
+        if (infoDump.test(t)) return false;
+
+        const reflectionVerbs =
+          /\b(i\s+realized|i\s+noticed|i\s+learned|i\s+figured\s+out|i\s+keep\s+thinking|i\s+can't\s+stop\s+thinking|it\s+made\s+me\s+realize|it\s+reminded\s+me)\b/i;
+
+        const patternLanguage =
+          /\b(lately|recently|this\s+week|these\s+days|for\s+the\s+past\s+\d+\s+(days|weeks)|i['']ve\s+been|i\s+have\s+been|i\s+keep|i\s+tend\s+to)\b/i;
+
+        const selfStateFrame =
+          /\b(i\s+feel|i\s+felt|i['']m|i\s+am|i\s+was|been\s+feeling|my\s+mood|in\s+my\s+head)\b/i;
+
+        const internalStateWords =
+          /\b(anxious|anxiety|stressed|stressful|overwhelmed|tired|exhausted|sad|down|lonely|angry|frustrated|worried|scared|nervous|restless|calm|peaceful|relieved|proud|grateful|thankful|happy|excited|content)\b/i;
+
+        const expectationShift =
+          /\b(more\s+than\s+i\s+expected|less\s+than\s+i\s+expected|than\s+i\s+expected|surprised\s+me|didn['']t\s+think\s+i['']d|wasn['']t\s+expecting|turned\s+out\s+better|turned\s+out\s+worse|ended\s+up)\b/i;
+
+        const meaningCues =
+          /\b(i\s+don['']t\s+know\s+why|not\s+sure\s+why|it\s+means|made\s+me\s+think|i\s+want\s+to\s+change|i\s+need\s+to\s+change|i\s+should\s+stop|i\s+should\s+start)\b/i;
+
+        if (reflectionVerbs.test(t)) return true;
+        if (expectationShift.test(t)) return true;
+        if (patternLanguage.test(t) && (meaningCues.test(t) || internalStateWords.test(t)))
+          return true;
+        if (selfStateFrame.test(t) && internalStateWords.test(t)) return true;
+        if (meaningCues.test(t)) return true;
+
+        return false;
+      }
+
+      function normalizePhase1(bucket, subtype, text) {
+        const validBuckets = ['todo', 'habit', 'log'];
+        let b = String(bucket || '').toLowerCase();
+        if (!validBuckets.includes(b)) b = 'log';
+
+        let st = null;
+        if (b === 'log') {
+          const validSubtypes = ['journal', 'idea', 'general'];
+          st = validSubtypes.includes(subtype) ? subtype : 'general';
+          if (st === 'general' && isSenseMakingJournal(text)) st = 'journal';
+        }
+        return { bucket: b, subtype: st };
+      }
+
+      // =========================
+      // Tag quality filter (Phase 2)
+      // =========================
+      const STOP_TAGS = new Set([
+        'a',
+        'an',
+        'the',
+        'and',
+        'or',
+        'but',
+        'to',
+        'of',
+        'for',
+        'in',
+        'on',
+        'at',
+        'with',
+        'from',
+        'into',
+        'over',
+        'under',
+        'than',
+        'then',
+        'expected',
+        'expect',
+        'expecting',
+        'more',
+        'less',
+        'very',
+        'just',
+        'really',
+        'pretty',
+        'kind',
+        'this',
+        'that',
+        'these',
+        'those',
+        'today',
+        'tonight',
+        'yesterday',
+        'tomorrow',
+        'week',
+        'month',
+        'morning',
+        'evening',
+        'thing',
+        'things',
+        'stuff',
+        'place',
+        'places',
+        'good',
+        'great',
+        'nice',
+        'ok',
+        'okay',
+        'fine',
+        'note',
+        'notes',
+        'meeting',
+        'meetings',
+        'thought',
+        'thoughts',
+        'journal',
+        'reflection',
+        'reflect',
+        'track',
+        'review',
+        'manage',
+      ]);
+
+      function isStopTag(t) {
+        const s = String(t || '')
+          .trim()
+          .toLowerCase();
+        return STOP_TAGS.has(s);
+      }
+
+      // =========================
+      // Phase 2 post-processing helpers
+      // =========================
+      function processPhase2Response(parsed, text, bucket, subtype, recentTitles) {
+        // Normalize tags
+        let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+        tags = tags
+          .map((t) =>
+            String(t)
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-]/g, ''),
+          )
+          .filter((t) => t.length >= 2 && t.length <= 30)
+          .filter((t) => !isStopTag(t))
+          .slice(0, 7);
+
+        // People
+        const people = Array.isArray(parsed.people) ? parsed.people.slice(0, 10) : [];
+
+        // Filter out people names from tags
+        if (people.length > 0) {
+          const peopleNamesLower = people.map((p) => String(p).toLowerCase().replace(/\s+/g, '-'));
+          tags = tags.filter((t) => !peopleNamesLower.includes(t));
+        }
+
+        // Validate time estimate - NOW SUPPORTS BOTH TODOS AND HABITS
+        let timeEstimate = parsed.time_estimate_minutes;
+        if (
+          (bucket === 'todo' || bucket === 'habit') &&
+          timeEstimate !== null &&
+          timeEstimate !== undefined
+        ) {
+          const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
+          const num = Number(timeEstimate);
+          if (Number.isFinite(num)) {
+            timeEstimate = allowed.reduce((prev, curr) =>
+              Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev,
+            );
+          } else {
+            timeEstimate = null;
+          }
+        } else {
+          timeEstimate = null;
+        }
+
+        // Validate time_window
+        let timeWindow = parsed.time_window;
+        if (timeWindow) {
+          const validWindows = ['morning', 'day', 'evening'];
+          const normalized = String(timeWindow).toLowerCase().trim();
+          timeWindow = validWindows.includes(normalized) ? normalized : null;
+        } else {
+          timeWindow = null;
+        }
+
+        // Title sanitization
+        let smartTitle = sanitizeTitle({ rawTitle: parsed.smart_title, text, bucket });
+        smartTitle = dedupeTitle({ title: smartTitle, bucket, subtype, recentTitles });
+
+        if (!smartTitle || smartTitle.length < 3) smartTitle = text.substring(0, 60).trim();
+
+        // Confirmation message
+        const confirmationMessage =
+          typeof parsed.confirmation_message === 'string' &&
+          parsed.confirmation_message.trim().length > 0
+            ? parsed.confirmation_message.trim()
+            : null;
+
+        // Validate extracted_date format
+        let extractedDate = parsed.extracted_date || null;
+        if (extractedDate) {
+          const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+          if (!dateRegex.test(extractedDate)) {
+            extractedDate = null;
+          }
+        }
+
+        // Validate extracted_start_date for habits
+        let extractedStartDate = null;
+        if (bucket === 'habit' && parsed.extracted_start_date) {
+          const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+          if (dateRegex.test(parsed.extracted_start_date)) {
+            extractedStartDate = parsed.extracted_start_date;
+          }
+        }
+
+        // Validate and process extracted_days for habits
+        let extractedDays = null;
+        if (bucket === 'habit') {
+          // First try to use what AI returned
+          if (Array.isArray(parsed.extracted_days) && parsed.extracted_days.length > 0) {
+            // Validate each day is 0-6
+            const validDays = parsed.extracted_days
+              .map((d) => Number(d))
+              .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+            if (validDays.length > 0) {
+              // Remove duplicates and sort
+              extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
+            }
+          }
+
+          // Fallback: parse days from original text if AI didn't extract them
+          if (!extractedDays) {
+            extractedDays = parseDaysFromText(text);
+          }
+        }
+
+        // Validate mood for journals (v3.0)
+        let mood = null;
+        if (bucket === 'log' && subtype === 'journal') {
+          if (Array.isArray(parsed.mood) && parsed.mood.length > 0) {
+            mood = parsed.mood
+              .map((m) => String(m).toLowerCase().trim())
+              .filter((m) => VALID_MOODS.includes(m))
+              .slice(0, 3);
+            if (mood.length === 0) mood = null;
+          }
+        }
+
+        return {
+          smart_title: smartTitle,
+          confirmation_message: confirmationMessage,
+          tags,
+          time_estimate_minutes: timeEstimate,
+          time_window: timeWindow,
+          extracted_date: extractedDate,
+          extracted_start_date: extractedStartDate,
+          extracted_frequency: parsed.extracted_frequency || null,
+          extracted_days: extractedDays,
+          people,
+          mood,
+        };
+      }
+
+      // =========================
+      // === ENTITY CHAT (v4.0) ===
+      // Scoped chat for individual entities (todos, habits, notes)
+      // =========================
+      if (type === 'entity-chat') {
+        const entity = body.entity || {};
+        const messages = Array.isArray(body.messages) ? body.messages : [];
+        const preset = body.preset || null;
+        const sweepContext = body.sweepContext || null;
+
+        // Build entity context string
+        const entityContextParts = [];
+        entityContextParts.push(`Type: ${entity.type || 'unknown'}`);
+        entityContextParts.push(`Title: "${entity.title || 'Untitled'}"`);
+        if (entity.body) entityContextParts.push(`Details: "${entity.body.substring(0, 500)}"`);
+        if (entity.tags && entity.tags.length > 0)
+          entityContextParts.push(`Tags: ${entity.tags.join(', ')}`);
+        if (entity.due_date) entityContextParts.push(`Due: ${entity.due_date}`);
+        if (entity.frequency) entityContextParts.push(`Frequency: ${entity.frequency}`);
+        if (entity.time_estimate)
+          entityContextParts.push(`Time estimate: ${entity.time_estimate} minutes`);
+        if (entity.space_name) entityContextParts.push(`Space: ${entity.space_name}`);
+        if (entity.days_since_created !== undefined)
+          entityContextParts.push(`Created: ${entity.days_since_created} days ago`);
+        if (entity.times_swept)
+          entityContextParts.push(`Times reviewed in Sweep: ${entity.times_swept}`);
+
+        const entityContext = entityContextParts.join('\n');
+
+        // Build sweep context if present
+        let sweepContextStr = '';
+        if (sweepContext) {
+          const sweepParts = [];
+          if (sweepContext.times_moved >= 2)
+            sweepParts.push(
+              `This item has been deferred ${sweepContext.times_moved} times in Sweep.`,
+            );
+          if (sweepContext.days_unscheduled >= 7)
+            sweepParts.push(
+              `This item has been unscheduled for ${sweepContext.days_unscheduled} days.`,
+            );
+          if (sweepContext.is_overdue) sweepParts.push(`This item is overdue.`);
+          if (sweepParts.length > 0) {
+            sweepContextStr = `\n\n=== SWEEP CONTEXT ===\n${sweepParts.join('\n')}`;
+          }
+        }
+
+        // Build preset instruction if present
+        let presetInstruction = '';
+        if (preset) {
+          const presetInstructions = {
+            break_down:
+              'The user wants help breaking this down into smaller, manageable steps. Focus on creating a clear action plan.',
+            research:
+              'The user wants to research or learn more about this. Help them explore relevant aspects and find useful information.',
+            think_through:
+              'The user wants to think through this more deeply. Help them consider different angles and implications.',
+            whats_blocking:
+              'The user feels stuck on this. Help them identify what might be blocking them and how to move forward.',
+            action_steps:
+              'The user wants to turn this into concrete action steps. Help them identify specific next actions.',
+            expand:
+              'The user wants to expand on this idea. Help them flesh it out with more detail and possibilities.',
+            stay_consistent:
+              'The user wants help staying consistent with this habit. Focus on practical strategies and motivation.',
+            approach:
+              'The user wants to refine their approach to this habit. Help them optimize their strategy.',
+          };
+          presetInstruction = presetInstructions[preset]
+            ? `\n\n=== USER REQUEST ===\n${presetInstructions[preset]}`
+            : '';
+        }
+
+        const entityChatSystemPrompt = `You are Gremly, helping a user work through a specific item in their productivity app.
  
  === ENTITY CONTEXT ===
  ${entityContext}${sweepContextStr}${presetInstruction}
@@ -624,321 +737,346 @@ export default {
  - You've had a few back-and-forths
  
  Most entity chats should NEVER suggest a Space. It's a rare recommendation.`;
- 
-  // Build messages array for OpenAI
-  const openaiMessages = [
-  { role: "system", content: entityChatSystemPrompt },
-  ...messages.slice(-20), // Keep last 20 messages for context
-  ];
- 
-  const t0 = Date.now();
- 
-  // =========================
-  // STREAMING ENTITY CHAT
-  // =========================
-  if (isEntityChatStreaming) {
-  console.log("[EntityChat:Streaming] Starting SSE stream");
- 
-  const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-  method: "POST",
-  headers: {
-  Authorization: `Bearer ${key}`,
-  "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-  model: "gpt-4.1",
-  messages: openaiMessages,
-  temperature: 0.7,
-  max_completion_tokens: 600,
-  stream: true,
-  }),
-  });
- 
-  if (!openaiRes.ok) {
-  const errText = await openaiRes.text().catch(() => "");
-  console.log("[EntityChat:Streaming] OpenAI error", { status: openaiRes.status, error: errText });
-  return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
-  }
- 
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
- 
-  (async () => {
-  const reader = openaiRes.body.getReader();
-  let buffer = "";
-  let fullContent = "";
- 
-  try {
-  while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
- 
-  buffer += decoder.decode(value, { stream: true });
-  const lines = buffer.split(/\r?\n/);
-  buffer = lines.pop() || "";
- 
-  for (const line of lines) {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed === "data: [DONE]") continue;
-  if (!trimmed.startsWith("data: ")) continue;
- 
-  try {
-  const json = JSON.parse(trimmed.slice(6));
-  const delta = json.choices?.[0]?.delta?.content;
- 
-  if (delta) {
-  fullContent += delta;
-  const sseData = JSON.stringify({ delta, done: false });
-  await writer.write(encoder.encode(`data: ${sseData}\n\n`));
-  }
-  } catch (parseErr) {
-  console.log("[EntityChat:Streaming] Chunk parse error", { line: trimmed.slice(0, 100) });
-  }
-  }
-  }
- 
-  // Detect saveable content in final response
-  const saveable = detectSaveableContent(fullContent);
- 
-  // Extract save suggestion (fast post-pass)
-       const save_suggestion = null;
-  
-  // Detect space promotion suggestion
-  const promotion = detectSpacePromotion(fullContent, messages.length);
- 
-  const latency = Date.now() - t0;
-  const finalData = JSON.stringify({ 
-  done: true, 
-  full_content: fullContent,
-  saveable,
-  save_suggestion,
-  promotion,
-  latency_ms: latency,
-  });
-  await writer.write(encoder.encode(`data: ${finalData}\n\n`));
- 
-  console.log("[EntityChat:Streaming] Complete", { 
-  latency_ms: latency, 
-  content_length: fullContent.length,
-  has_saveable: saveable?.detected,
-  has_promotion: promotion?.suggested,
-  });
- 
-  } catch (streamErr) {
-  console.log("[EntityChat:Streaming] Stream error", { error: String(streamErr) });
-  const errorData = JSON.stringify({ error: String(streamErr), done: true, full_content: fullContent });
-  await writer.write(encoder.encode(`data: ${errorData}\n\n`));
-  } finally {
-  await writer.close();
-  }
-  })();
- 
-  return new Response(readable, {
-  headers: {
-  "Access-Control-Allow-Origin": "*",
-  "Content-Type": "text/event-stream; charset=utf-8",
-  "Cache-Control": "no-cache, no-transform",
-  "Connection": "keep-alive",
-  },
-  });
-  }
- 
-  // =========================
-  // NON-STREAMING ENTITY CHAT
-  // =========================
-  try {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-  method: "POST",
-  headers: {
-  Authorization: `Bearer ${key}`,
-  "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-  model: "gpt-4.1",
-  messages: openaiMessages,
-  temperature: 0.7,
-  max_completion_tokens: 600,
-  }),
-  });
- 
-  const oj = await res.json();
-  const latency = Date.now() - t0;
- 
-  if (!res.ok) {
-  console.log("[EntityChat] API error", { error: oj.error, latency_ms: latency });
-  return j({ error: "entity_chat_failed", detail: oj.error?.message, latency_ms: latency }, 200);
-  }
- 
-  const content = oj?.choices?.[0]?.message?.content ?? "";
- 
-  // Detect saveable content
-  const saveable = detectSaveableContent(content);
- 
-  // Extract save suggestion (fast post-pass)
-       const save_suggestion = null;
-  
-  // Detect space promotion suggestion
-  const promotion = detectSpacePromotion(content, messages.length);
- 
-  console.log("[EntityChat] Complete", {
-  latency_ms: latency,
-  content_length: content.length,
-  has_saveable: saveable?.detected,
-  has_promotion: promotion?.suggested,
-  });
- 
-  return j({
-  content,
-  saveable,
-  save_suggestion,
-  promotion,
-  latency_ms: latency,
-  });
- 
-  } catch (err) {
-  const latency = Date.now() - t0;
-  console.log("[EntityChat] Error", { error: String(err), latency_ms: latency });
-  return j({ error: "entity_chat_failed", detail: String(err), latency_ms: latency }, 200);
-  }
-  }
- 
-  // Helper: Detect saveable content in response
-  function detectSaveableContent(content) {
-  if (!content) return { detected: false };
-  
-  const lower = content.toLowerCase();
-  
-  // Check for bullet list (potential checklist)
-  const bulletPattern = /^[\s]*[-"*]\s+.+$/gm;
-  const bullets = content.match(bulletPattern);
-  const hasBulletList = bullets && bullets.length >= 2;
-  
-  // Check for numbered list
-  const numberedPattern = /^[\s]*\d+[.)]\s+.+$/gm;
-  const numbered = content.match(numberedPattern);
-  const hasNumberedList = numbered && numbered.length >= 2;
-  
-  // Check for save suggestion phrases
-  const savePhrases = [
-  'save this', 'worth saving', 'keep this', 'worth keeping',
-  'as a checklist', 'save these steps', 'bookmark this',
-  ];
-  const hasSaveSuggestion = savePhrases.some(phrase => lower.includes(phrase));
-  
-  // Determine type
-  const isChecklist = hasBulletList || hasNumberedList;
-  
-  if (!isChecklist && !hasSaveSuggestion) {
-  return { detected: false };
-  }
- 
-  // Extract checklist items if present
-  let checklistItems = null;
-  if (isChecklist) {
-  const allItems = [...(bullets || []), ...(numbered || [])];
-  checklistItems = allItems
-  .map(item => item.replace(/^[\s]*[-"*\d.)]+\s+/, '').trim())
-  .filter(item => item.length > 0 && item.length < 200)
-  .slice(0, 10);
-  }
- 
-  return {
-  detected: true,
-  type: isChecklist ? 'checklist' : 'note',
-  checklist_items: checklistItems,
-  has_save_suggestion: false,
-  };
-  }
- 
-  // Helper: Detect space promotion suggestion
-  function detectSpacePromotion(content, messageCount) {
-  if (!content) return { suggested: false };
- 
-  const lower = content.toLowerCase();
-  
-  // Check if AI suggested a space
-  const spacePatterns = [
-  'create a space', 'set up a space', 'make a space',
-  'becoming a project', 'becoming a solid project',
-  'want me to set up a space', 'want me to create a space',
-  ];
-  
-  const aiSuggested = spacePatterns.some(pattern => lower.includes(pattern));
- 
-  // Only surface promotion if AI explicitly suggested it
-  // Don't auto-suggest based on message count alone
-  if (!aiSuggested) {
-  return { suggested: false };
-  }
- 
-  return {
-  suggested: true,
-  reason: 'AI detected this may work better as a Space with multiple tracked items.',
-  source: 'ai_suggested',
-  };
-  }
 
-  // =========================
-  // === ORGANIZE DAY (v1.0) ===
-  // AI-powered task scheduling for Morning Brief
-  // Assigns unscheduled tasks to time blocks based on:
-  // - Available time per block
-  // - Task estimates and due dates
-  // - Calendar context
-  // - Smart placement rules
-  // =========================
-  if (type === "organize-day") {
-    const tasks = Array.isArray(body.tasks) ? body.tasks : [];
-    const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
-    const blocks = body.blocks || {};
-    const currentHour = body.currentHour ?? new Date().getHours();
+        // Build messages array for OpenAI
+        const openaiMessages = [
+          { role: 'system', content: entityChatSystemPrompt },
+          ...messages.slice(-20), // Keep last 20 messages for context
+        ];
 
-    // Validation
-    if (tasks.length === 0) {
-      return j({ 
-        assignments: [], 
-        overflow: [],
-        reasoning: [],
-        summary: "No tasks to organize.",
-        latency_ms: 0 
-      });
-    }
+        const t0 = Date.now();
 
-    // Filter to only unassigned, unlocked tasks
-    const tasksToAssign = tasks.filter(t => !t.isLockedIn && !t.currentBlock);
-    
-    if (tasksToAssign.length === 0) {
-      return j({
-        assignments: [],
-        overflow: [],
-        reasoning: [],
-        summary: "All tasks are already assigned or locked.",
-        latency_ms: 0
-      });
-    }
+        // =========================
+        // STREAMING ENTITY CHAT
+        // =========================
+        if (isEntityChatStreaming) {
+          console.log('[EntityChat:Streaming] Starting SSE stream');
 
-    // Build context strings for the prompt
-    const taskList = tasksToAssign.map((t) => {
-      const parts = [`- ${t.id}: "${t.title}"`];
-      parts.push(`  total_minutes: ${t.totalMinutes || t.estimateMinutes || 30}`);
-      parts.push(`  energy: ${t.energyType || 'administrative'}`);
-      if (t.timeWindowPreference) {
-        parts.push(`  prefers: ${t.timeWindowPreference}`);
+          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1',
+              messages: openaiMessages,
+              temperature: 0.7,
+              max_completion_tokens: 600,
+              stream: true,
+            }),
+          });
+
+          if (!openaiRes.ok) {
+            const errText = await openaiRes.text().catch(() => '');
+            console.log('[EntityChat:Streaming] OpenAI error', {
+              status: openaiRes.status,
+              error: errText,
+            });
+            return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
+          }
+
+          const { readable, writable } = new TransformStream();
+          const writer = writable.getWriter();
+          const encoder = new TextEncoder();
+          const decoder = new TextDecoder();
+
+          (async () => {
+            const reader = openaiRes.body.getReader();
+            let buffer = '';
+            let fullContent = '';
+
+            try {
+              // eslint-disable-next-line no-constant-condition
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split(/\r?\n/);
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed === 'data: [DONE]') continue;
+                  if (!trimmed.startsWith('data: ')) continue;
+
+                  try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    const delta = json.choices?.[0]?.delta?.content;
+
+                    if (delta) {
+                      fullContent += delta;
+                      const sseData = JSON.stringify({ delta, done: false });
+                      await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                    }
+                  } catch (parseErr) {
+                    console.log('[EntityChat:Streaming] Chunk parse error', {
+                      line: trimmed.slice(0, 100),
+                    });
+                  }
+                }
+              }
+
+              // Detect saveable content in final response
+              const saveable = detectSaveableContent(fullContent);
+
+              // Extract save suggestion (fast post-pass)
+              const save_suggestion = null;
+
+              // Detect space promotion suggestion
+              const promotion = detectSpacePromotion(fullContent, messages.length);
+
+              const latency = Date.now() - t0;
+              const finalData = JSON.stringify({
+                done: true,
+                full_content: fullContent,
+                saveable,
+                save_suggestion,
+                promotion,
+                latency_ms: latency,
+              });
+              await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+              console.log('[EntityChat:Streaming] Complete', {
+                latency_ms: latency,
+                content_length: fullContent.length,
+                has_saveable: saveable?.detected,
+                has_promotion: promotion?.suggested,
+              });
+            } catch (streamErr) {
+              console.log('[EntityChat:Streaming] Stream error', { error: String(streamErr) });
+              const errorData = JSON.stringify({
+                error: String(streamErr),
+                done: true,
+                full_content: fullContent,
+              });
+              await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+            } finally {
+              await writer.close();
+            }
+          })();
+
+          return new Response(readable, {
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache, no-transform',
+              Connection: 'keep-alive',
+            },
+          });
+        }
+
+        // =========================
+        // NON-STREAMING ENTITY CHAT
+        // =========================
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1',
+              messages: openaiMessages,
+              temperature: 0.7,
+              max_completion_tokens: 600,
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[EntityChat] API error', { error: oj.error, latency_ms: latency });
+            return j(
+              { error: 'entity_chat_failed', detail: oj.error?.message, latency_ms: latency },
+              200,
+            );
+          }
+
+          const content = oj?.choices?.[0]?.message?.content ?? '';
+
+          // Detect saveable content
+          const saveable = detectSaveableContent(content);
+
+          // Extract save suggestion (fast post-pass)
+          const save_suggestion = null;
+
+          // Detect space promotion suggestion
+          const promotion = detectSpacePromotion(content, messages.length);
+
+          console.log('[EntityChat] Complete', {
+            latency_ms: latency,
+            content_length: content.length,
+            has_saveable: saveable?.detected,
+            has_promotion: promotion?.suggested,
+          });
+
+          return j({
+            content,
+            saveable,
+            save_suggestion,
+            promotion,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[EntityChat] Error', { error: String(err), latency_ms: latency });
+          return j({ error: 'entity_chat_failed', detail: String(err), latency_ms: latency }, 200);
+        }
       }
-      return parts.join('\n');
-    }).join('\n');
 
-    const calendarContext = calendarEvents.length > 0
-      ? calendarEvents.map(e => `- ${e.title}: ${e.startAt} to ${e.endAt} (${e.durationMinutes}min)`).join('\n')
-      : 'No calendar events today.';
+      // Helper: Detect saveable content in response
+      function detectSaveableContent(content) {
+        if (!content) return { detected: false };
 
-    const blockContext = `Morning: ${blocks.morning?.realisticAvailableMinutes ?? blocks.morning?.availableMinutes ?? 0} min
+        const lower = content.toLowerCase();
+
+        // Check for bullet list (potential checklist)
+        const bulletPattern = /^[\s]*[-"*]\s+.+$/gm;
+        const bullets = content.match(bulletPattern);
+        const hasBulletList = bullets && bullets.length >= 2;
+
+        // Check for numbered list
+        const numberedPattern = /^[\s]*\d+[.)]\s+.+$/gm;
+        const numbered = content.match(numberedPattern);
+        const hasNumberedList = numbered && numbered.length >= 2;
+
+        // Check for save suggestion phrases
+        const savePhrases = [
+          'save this',
+          'worth saving',
+          'keep this',
+          'worth keeping',
+          'as a checklist',
+          'save these steps',
+          'bookmark this',
+        ];
+        const hasSaveSuggestion = savePhrases.some((phrase) => lower.includes(phrase));
+
+        // Determine type
+        const isChecklist = hasBulletList || hasNumberedList;
+
+        if (!isChecklist && !hasSaveSuggestion) {
+          return { detected: false };
+        }
+
+        // Extract checklist items if present
+        let checklistItems = null;
+        if (isChecklist) {
+          const allItems = [...(bullets || []), ...(numbered || [])];
+          checklistItems = allItems
+            .map((item) => item.replace(/^[\s]*[-"*\d.)]+\s+/, '').trim())
+            .filter((item) => item.length > 0 && item.length < 200)
+            .slice(0, 10);
+        }
+
+        return {
+          detected: true,
+          type: isChecklist ? 'checklist' : 'note',
+          checklist_items: checklistItems,
+          has_save_suggestion: false,
+        };
+      }
+
+      // Helper: Detect space promotion suggestion
+      function detectSpacePromotion(content, messageCount) {
+        if (!content) return { suggested: false };
+
+        const lower = content.toLowerCase();
+
+        // Check if AI suggested a space
+        const spacePatterns = [
+          'create a space',
+          'set up a space',
+          'make a space',
+          'becoming a project',
+          'becoming a solid project',
+          'want me to set up a space',
+          'want me to create a space',
+        ];
+
+        const aiSuggested = spacePatterns.some((pattern) => lower.includes(pattern));
+
+        // Only surface promotion if AI explicitly suggested it
+        // Don't auto-suggest based on message count alone
+        if (!aiSuggested) {
+          return { suggested: false };
+        }
+
+        return {
+          suggested: true,
+          reason: 'AI detected this may work better as a Space with multiple tracked items.',
+          source: 'ai_suggested',
+        };
+      }
+
+      // =========================
+      // === ORGANIZE DAY (v1.0) ===
+      // AI-powered task scheduling for Morning Brief
+      // Assigns unscheduled tasks to time blocks based on:
+      // - Available time per block
+      // - Task estimates and due dates
+      // - Calendar context
+      // - Smart placement rules
+      // =========================
+      if (type === 'organize-day') {
+        const tasks = Array.isArray(body.tasks) ? body.tasks : [];
+        const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
+        const blocks = body.blocks || {};
+        const currentHour = body.currentHour ?? new Date().getHours();
+
+        // Validation
+        if (tasks.length === 0) {
+          return j({
+            assignments: [],
+            overflow: [],
+            reasoning: [],
+            summary: 'No tasks to organize.',
+            latency_ms: 0,
+          });
+        }
+
+        // Filter to only unassigned, unlocked tasks
+        const tasksToAssign = tasks.filter((t) => !t.isLockedIn && !t.currentBlock);
+
+        if (tasksToAssign.length === 0) {
+          return j({
+            assignments: [],
+            overflow: [],
+            reasoning: [],
+            summary: 'All tasks are already assigned or locked.',
+            latency_ms: 0,
+          });
+        }
+
+        // Build context strings for the prompt
+        const taskList = tasksToAssign
+          .map((t) => {
+            const parts = [`- ${t.id}: "${t.title}"`];
+            parts.push(`  total_minutes: ${t.totalMinutes || t.estimateMinutes || 30}`);
+            parts.push(`  energy: ${t.energyType || 'administrative'}`);
+            if (t.timeWindowPreference) {
+              parts.push(`  prefers: ${t.timeWindowPreference}`);
+            }
+            return parts.join('\n');
+          })
+          .join('\n');
+
+        const calendarContext =
+          calendarEvents.length > 0
+            ? calendarEvents
+                .map((e) => `- ${e.title}: ${e.startAt} to ${e.endAt} (${e.durationMinutes}min)`)
+                .join('\n')
+            : 'No calendar events today.';
+
+        const blockContext = `Morning: ${blocks.morning?.realisticAvailableMinutes ?? blocks.morning?.availableMinutes ?? 0} min
 Afternoon: ${blocks.day?.realisticAvailableMinutes ?? blocks.day?.availableMinutes ?? 0} min
 Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min`;
 
-    const organizePrompt = `You are a task scheduler. Place tasks into time blocks.
+        const organizePrompt = `You are a task scheduler. Place tasks into time blocks.
 
 === TIME ===
 Current hour: ${currentHour}:00
@@ -976,147 +1114,154 @@ Reasoning guidelines:
 - Do NOT mention: minutes, buffers, capacity numbers, energy types
 - Keep it human and reassuring`;
 
-    const t0 = Date.now();
+        const t0 = Date.now();
 
-    try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: organizePrompt }
-          ],
-          temperature: 0.2,
-          max_tokens: 900,
-          response_format: { type: "json_object" }
-        }),
-      });
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: organizePrompt }],
+              temperature: 0.2,
+              max_tokens: 900,
+              response_format: { type: 'json_object' },
+            }),
+          });
 
-      const oj = await res.json();
-      const latency = Date.now() - t0;
+          const oj = await res.json();
+          const latency = Date.now() - t0;
 
-      if (!res.ok) {
-        console.log("[organize-day] API error", { error: oj.error, latency_ms: latency });
-        return j({ 
-          error: "organize_failed", 
-          detail: oj.error?.message,
-          assignments: [],
-          overflow: tasksToAssign.map(t => ({ taskId: t.id, reason: "AI unavailable" })),
-          reasoning: [],
-          summary: "Couldn't organize automatically. Tasks left flexible.",
-          latency_ms: latency 
-        }, 200);
-      }
+          if (!res.ok) {
+            console.log('[organize-day] API error', { error: oj.error, latency_ms: latency });
+            return j(
+              {
+                error: 'organize_failed',
+                detail: oj.error?.message,
+                assignments: [],
+                overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'AI unavailable' })),
+                reasoning: [],
+                summary: "Couldn't organize automatically. Tasks left flexible.",
+                latency_ms: latency,
+              },
+              200,
+            );
+          }
 
-      const rawContent = oj?.choices?.[0]?.message?.content ?? "";
-      
-      let parsed = safeParseJson(rawContent);
-      
-      if (!parsed) {
-        console.log("[organize-day] Parse failed", { preview: rawContent.substring(0, 200) });
-        return j({ 
-          error: "parse_failed",
-          assignments: [],
-          overflow: tasksToAssign.map(t => ({ taskId: t.id, reason: "Parse error" })),
-          reasoning: [],
-          summary: "Couldn't parse response. Tasks left flexible.",
-          latency_ms: latency 
-        }, 200);
-      }
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '';
 
-      // Validate and extract
-      const validBlocks = ["morning", "day", "evening"];
-      const taskIds = new Set(tasksToAssign.map(t => t.id));
-      const assignedIds = new Set();
+          let parsed = safeParseJson(rawContent);
 
-      const assignments = (Array.isArray(parsed.assignments) ? parsed.assignments : [])
-        .filter(a => {
-          if (!taskIds.has(a.taskId)) return false;
-          if (!validBlocks.includes(a.block)) return false;
-          if (assignedIds.has(a.taskId)) return false;
-          assignedIds.add(a.taskId);
-          return true;
-        })
-        .map(a => ({
-          taskId: a.taskId,
-          block: a.block,
-          reason: String(a.reason || "").substring(0, 50)
-        }));
+          if (!parsed) {
+            console.log('[organize-day] Parse failed', { preview: rawContent.substring(0, 200) });
+            return j(
+              {
+                error: 'parse_failed',
+                assignments: [],
+                overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'Parse error' })),
+                reasoning: [],
+                summary: "Couldn't parse response. Tasks left flexible.",
+                latency_ms: latency,
+              },
+              200,
+            );
+          }
 
-      const overflowIds = new Set();
-      const overflow = (Array.isArray(parsed.overflow) ? parsed.overflow : [])
-        .filter(o => {
-          if (!taskIds.has(o.taskId)) return false;
-          if (assignedIds.has(o.taskId)) return false;
-          if (overflowIds.has(o.taskId)) return false;
-          overflowIds.add(o.taskId);
-          return true;
-        })
-        .map(o => ({
-          taskId: o.taskId,
-          reason: String(o.reason || "").substring(0, 50)
-        }));
+          // Validate and extract
+          const validBlocks = ['morning', 'day', 'evening'];
+          const taskIds = new Set(tasksToAssign.map((t) => t.id));
+          const assignedIds = new Set();
 
-      // Catch any unaccounted tasks
-      for (const task of tasksToAssign) {
-        if (!assignedIds.has(task.id) && !overflowIds.has(task.id)) {
-          overflow.push({ taskId: task.id, reason: "Not assigned" });
+          const assignments = (Array.isArray(parsed.assignments) ? parsed.assignments : [])
+            .filter((a) => {
+              if (!taskIds.has(a.taskId)) return false;
+              if (!validBlocks.includes(a.block)) return false;
+              if (assignedIds.has(a.taskId)) return false;
+              assignedIds.add(a.taskId);
+              return true;
+            })
+            .map((a) => ({
+              taskId: a.taskId,
+              block: a.block,
+              reason: String(a.reason || '').substring(0, 50),
+            }));
+
+          const overflowIds = new Set();
+          const overflow = (Array.isArray(parsed.overflow) ? parsed.overflow : [])
+            .filter((o) => {
+              if (!taskIds.has(o.taskId)) return false;
+              if (assignedIds.has(o.taskId)) return false;
+              if (overflowIds.has(o.taskId)) return false;
+              overflowIds.add(o.taskId);
+              return true;
+            })
+            .map((o) => ({
+              taskId: o.taskId,
+              reason: String(o.reason || '').substring(0, 50),
+            }));
+
+          // Catch any unaccounted tasks
+          for (const task of tasksToAssign) {
+            if (!assignedIds.has(task.id) && !overflowIds.has(task.id)) {
+              overflow.push({ taskId: task.id, reason: 'Not assigned' });
+            }
+          }
+
+          const summary =
+            typeof parsed.summary === 'string' && parsed.summary.length > 0
+              ? parsed.summary.substring(0, 150)
+              : `Scheduled ${assignments.length} of ${tasksToAssign.length} tasks.`;
+
+          const reasoning = Array.isArray(parsed.reasoning)
+            ? parsed.reasoning.map((r) => String(r).substring(0, 150)).slice(0, 4)
+            : [];
+
+          console.log('[organize-day] Success', {
+            assigned: assignments.length,
+            overflow: overflow.length,
+            latency_ms: latency,
+          });
+
+          return j({
+            assignments,
+            overflow,
+            reasoning,
+            summary,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[organize-day] Error', { error: String(err), latency_ms: latency });
+          return j(
+            {
+              error: 'organize_failed',
+              detail: String(err),
+              assignments: [],
+              overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'Request failed' })),
+              reasoning: [],
+              summary: 'Request failed. Tasks left flexible.',
+              latency_ms: latency,
+            },
+            200,
+          );
         }
       }
 
-      const summary = typeof parsed.summary === "string" && parsed.summary.length > 0
-        ? parsed.summary.substring(0, 150)
-        : `Scheduled ${assignments.length} of ${tasksToAssign.length} tasks.`;
+      // =========================
+      // === SPACE CHAT SAVE (v2.9) ===
+      // Single call classify + enrich for saving chat responses
+      // Uses Mind Drop classification logic adapted for chat context
+      // v2.9: Added extracted_days, fixed frequency parsing
+      // =========================
+      if (type === 'space-chat-save') {
+        const userMessage = body.userMessage || '';
+        const assistantMessage = body.assistantMessage || '';
+        const spaceName = body.spaceName || '';
 
-      const reasoning = Array.isArray(parsed.reasoning)
-        ? parsed.reasoning.map(r => String(r).substring(0, 150)).slice(0, 4)
-        : [];
-
-      console.log("[organize-day] Success", {
-        assigned: assignments.length,
-        overflow: overflow.length,
-        latency_ms: latency
-      });
-
-      return j({
-        assignments,
-        overflow,
-        reasoning,
-        summary,
-        latency_ms: latency
-      });
-
-    } catch (err) {
-      const latency = Date.now() - t0;
-      console.log("[organize-day] Error", { error: String(err), latency_ms: latency });
-      return j({ 
-        error: "organize_failed", 
-        detail: String(err),
-        assignments: [],
-        overflow: tasksToAssign.map(t => ({ taskId: t.id, reason: "Request failed" })),
-        reasoning: [],
-        summary: "Request failed. Tasks left flexible.",
-        latency_ms: latency 
-      }, 200);
-    }
-  }
- 
-  // =========================
-  // === SPACE CHAT SAVE (v2.9) ===
-  // Single call classify + enrich for saving chat responses
-  // Uses Mind Drop classification logic adapted for chat context
-  // v2.9: Added extracted_days, fixed frequency parsing
-  // =========================
-  if (type === "space-chat-save") {
-  const userMessage = body.userMessage || "";
-  const assistantMessage = body.assistantMessage || "";
-  const spaceName = body.spaceName || "";
- 
-  const spaceChatSavePrompt = `You classify and enrich saved chat responses for Gremly, a productivity app.
+        const spaceChatSavePrompt = `You classify and enrich saved chat responses for Gremly, a productivity app.
  
  === CONTEXT ===
  USER MESSAGE: "${userMessage.substring(0, 500)}"
@@ -1260,275 +1405,283 @@ Reasoning guidelines:
   "timeEstimateMinutes": number | null,
   "hasList": boolean
  }`;
- 
-  const t0 = Date.now();
- 
-  try {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-  method: "POST",
-  headers: {
-  Authorization: `Bearer ${key}`,
-  "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-  model: "gpt-4o-mini",
-  messages: [
-  { role: "system", content: spaceChatSavePrompt },
-  ],
-  temperature: 0.3,
-  max_tokens: 250,
-  response_format: { type: "json_object" },
-  }),
-  });
- 
-  const oj = await res.json();
-  const latency = Date.now() - t0;
- 
-  if (!res.ok) {
-  console.log("[space-chat-save] API error", { error: oj.error, latency_ms: latency });
-  return j({ error: "classification_failed", latency_ms: latency }, 200);
-  }
- 
-  const rawContent = oj?.choices?.[0]?.message?.content ?? "{}";
-  let parsed;
-  try {
-  parsed = JSON.parse(rawContent);
-  } catch {
-  console.log("[space-chat-save] Parse error", { raw: rawContent });
-  return j({ error: "parse_failed", latency_ms: latency }, 200);
-  }
- 
-  // Validate and normalize type
-  const validTypes = ["habit", "todo", "log"];
-  let resultType = String(parsed.type || "log").toLowerCase();
-  if (!validTypes.includes(resultType)) resultType = "log";
- 
-  // Validate and normalize subtype
-  const validSubtypes = {
-  habit: ["start_habit", "break_habit"],
-  todo: [],
-  log: ["general", "idea", "journal"],
-  };
- 
-  let subtype = parsed.subtype;
-  if (resultType === "habit") {
-  subtype = validSubtypes.habit.includes(subtype) ? subtype : "start_habit";
-  } else if (resultType === "log") {
-  subtype = validSubtypes.log.includes(subtype) ? subtype : "general";
-  } else {
-  subtype = null;
-  }
- 
-  // Validate confidence
-  let confidence = Number(parsed.confidence);
-  if (!Number.isFinite(confidence)) confidence = 0.8;
-  confidence = Math.max(0, Math.min(1, confidence));
- 
-  // Validate and sanitize title
-  let title = String(parsed.title || "").trim();
-  if (title.length < 3 || title.length > 60) {
-  // Fallback: use first part of user's question
-  title = userMessage.split(/[.?!]/)[0].trim();
-  if (title.length > 50) title = title.substring(0, 47) + "...";
-  if (title.length < 3) title = "Saved From Chat";
-  }
-  // Title case
-  title = title
-  .split(/\s+/)
-  .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
-  .join(" ");
- 
-  // Validate tags
-  let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
-  tags = tags
-  .map((t) => String(t).toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""))
-  .filter((t) => t.length >= 2 && t.length <= 30)
-  .filter((t) => !isStopTag(t))
-  .slice(0, 5);
- 
-  // Validate frequency (habits only)
-  let frequency = null;
-  if (resultType === "habit") {
-  frequency = parsed.frequency || "daily";
-  }
- 
-  // Validate days (habits only)
-  let days = null;
-  if (resultType === "habit" && Array.isArray(parsed.days) && parsed.days.length > 0) {
-  const validDays = parsed.days
-  .map(d => Number(d))
-  .filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
-  if (validDays.length > 0) {
-  days = [...new Set(validDays)].sort((a, b) => a - b);
-  }
-  }
-  // Fallback: parse from user message
-  if (resultType === "habit" && !days) {
-  days = parseDaysFromText(userMessage);
-  }
- 
-  // Validate time estimate
-  let timeEstimateMinutes = null;
-  if (resultType === "habit" || resultType === "todo") {
-  const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
-  const num = Number(parsed.timeEstimateMinutes);
-  if (Number.isFinite(num)) {
-  timeEstimateMinutes = allowed.reduce((prev, curr) =>
-  Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev
-  );
-  }
-  }
- 
-  // Validate hasList
-  const hasList = Boolean(parsed.hasList);
- 
-  console.log("[space-chat-save] Success", {
-  type: resultType,
-  subtype,
-  title: title.substring(0, 30),
-  tags_count: tags.length,
-  has_frequency: !!frequency,
-  has_days: !!days,
-  has_time: !!timeEstimateMinutes,
-  latency_ms: latency,
-  });
- 
-  return j({
-  type: resultType,
-  subtype,
-  confidence,
-  title,
-  tags,
-  frequency,
-  days,
-  timeEstimateMinutes,
-  hasList,
-  latency_ms: latency,
-  });
- 
-  } catch (err) {
-  const latency = Date.now() - t0;
-  console.log("[space-chat-save] Error", { error: String(err), latency_ms: latency });
-  return j({ error: "request_failed", detail: String(err) }, 200);
-  }
-  }
- 
-  // =========================
-  // === TRANSCRIPTION ===
-  // Voice-to-text via OpenAI Whisper
-  // =========================
-  if (type === "transcribe") {
-  const audio = body.audio;
-  const format = body.format || "m4a";
- 
-  if (!audio) {
-  console.log("[Transcribe] Missing audio data");
-  return j({ error: "missing_audio" }, 400);
-  }
- 
-  // Validate audio size (25MB limit for Whisper)
-  const estimatedBytes = (audio.length * 3) / 4;
-  if (estimatedBytes > 25 * 1024 * 1024) {
-  console.log("[Transcribe] Audio too large", {
-  size_mb: Math.round(estimatedBytes / 1024 / 1024),
-  });
-  return j({ error: "audio_too_large", max_mb: 25 }, 400);
-  }
- 
-  // Supported formats
-  const supportedFormats = ["mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"];
-  const normalizedFormat = format.toLowerCase().replace(".", "");
-  if (!supportedFormats.includes(normalizedFormat)) {
-  console.log("[Transcribe] Unsupported format", { format });
-  return j({ error: "unsupported_format", supported: supportedFormats }, 400);
-  }
- 
-  const t0 = Date.now();
- 
-  try {
-  // Convert base64 to binary
-  const binaryString = atob(audio);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-  bytes[i] = binaryString.charCodeAt(i);
-  }
- 
-  // Create form data for Whisper API
-  const formData = new FormData();
-  formData.append(
-  "file",
-  new Blob([bytes], { type: `audio/${normalizedFormat}` }),
-  `audio.${normalizedFormat}`
-  );
-  formData.append("model", "whisper-1");
-  formData.append("response_format", "json");
- 
-  console.log("[Transcribe] Calling Whisper API", {
-  size_kb: Math.round(bytes.length / 1024),
-  format: normalizedFormat,
-  });
- 
-  const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-  method: "POST",
-  headers: {
-  Authorization: `Bearer ${key}`,
-  },
-  body: formData,
-  });
- 
-  const latency = Date.now() - t0;
- 
-  if (!whisperRes.ok) {
-  const errText = await whisperRes.text().catch(() => "");
-  console.log("[Transcribe] Whisper API error", {
-  status: whisperRes.status,
-  error: errText,
-  latency_ms: latency,
-  });
-  return j({
-  error: "transcription_failed",
-  status: whisperRes.status,
-  detail: errText,
-  }, 200);
-  }
- 
-  const result = await whisperRes.json();
-  const text = result.text || "";
- 
-  console.log("[Transcribe] Success", {
-  text_length: text.length,
-  text_preview: text.substring(0, 50),
-  latency_ms: latency,
-  });
- 
-  return j({
-  text,
-  duration: result.duration,
-  language: result.language || "en",
-  latency_ms: latency,
-  });
-  } catch (err) {
-  const latency = Date.now() - t0;
-  console.log("[Transcribe] Error", {
-  error: String(err),
-  latency_ms: latency,
-  });
-  return j({
-  error: "transcription_error",
-  detail: String(err?.message || "unknown"),
-  }, 200);
-  }
-  }
- 
-  // =========================
-  // === PHASE 0: MULTI-ENTITY DETECTION (v3.6 - PURE AI) ===
-  // AI-only detection, no heuristics
-  // =========================
-  if (type === "detect-multi") {
-  const text = body.text || "";
-  const t0 = Date.now();
- 
-  const phase0Prompt = `You detect if a mind drop contains MULTIPLE DISTINCT ITEMS that should be split.
+
+        const t0 = Date.now();
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: spaceChatSavePrompt }],
+              temperature: 0.3,
+              max_tokens: 250,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[space-chat-save] API error', { error: oj.error, latency_ms: latency });
+            return j({ error: 'classification_failed', latency_ms: latency }, 200);
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+          let parsed;
+          try {
+            parsed = JSON.parse(rawContent);
+          } catch {
+            console.log('[space-chat-save] Parse error', { raw: rawContent });
+            return j({ error: 'parse_failed', latency_ms: latency }, 200);
+          }
+
+          // Validate and normalize type
+          const validTypes = ['habit', 'todo', 'log'];
+          let resultType = String(parsed.type || 'log').toLowerCase();
+          if (!validTypes.includes(resultType)) resultType = 'log';
+
+          // Validate and normalize subtype
+          const validSubtypes = {
+            habit: ['start_habit', 'break_habit'],
+            todo: [],
+            log: ['general', 'idea', 'journal'],
+          };
+
+          let subtype = parsed.subtype;
+          if (resultType === 'habit') {
+            subtype = validSubtypes.habit.includes(subtype) ? subtype : 'start_habit';
+          } else if (resultType === 'log') {
+            subtype = validSubtypes.log.includes(subtype) ? subtype : 'general';
+          } else {
+            subtype = null;
+          }
+
+          // Validate confidence
+          let confidence = Number(parsed.confidence);
+          if (!Number.isFinite(confidence)) confidence = 0.8;
+          confidence = Math.max(0, Math.min(1, confidence));
+
+          // Validate and sanitize title
+          let title = String(parsed.title || '').trim();
+          if (title.length < 3 || title.length > 60) {
+            // Fallback: use first part of user's question
+            title = userMessage.split(/[.?!]/)[0].trim();
+            if (title.length > 50) title = title.substring(0, 47) + '...';
+            if (title.length < 3) title = 'Saved From Chat';
+          }
+          // Title case
+          title = title
+            .split(/\s+/)
+            .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+            .join(' ');
+
+          // Validate tags
+          let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+          tags = tags
+            .map((t) =>
+              String(t)
+                .toLowerCase()
+                .replace(/\s+/g, '-')
+                .replace(/[^a-z0-9-]/g, ''),
+            )
+            .filter((t) => t.length >= 2 && t.length <= 30)
+            .filter((t) => !isStopTag(t))
+            .slice(0, 5);
+
+          // Validate frequency (habits only)
+          let frequency = null;
+          if (resultType === 'habit') {
+            frequency = parsed.frequency || 'daily';
+          }
+
+          // Validate days (habits only)
+          let days = null;
+          if (resultType === 'habit' && Array.isArray(parsed.days) && parsed.days.length > 0) {
+            const validDays = parsed.days
+              .map((d) => Number(d))
+              .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+            if (validDays.length > 0) {
+              days = [...new Set(validDays)].sort((a, b) => a - b);
+            }
+          }
+          // Fallback: parse from user message
+          if (resultType === 'habit' && !days) {
+            days = parseDaysFromText(userMessage);
+          }
+
+          // Validate time estimate
+          let timeEstimateMinutes = null;
+          if (resultType === 'habit' || resultType === 'todo') {
+            const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
+            const num = Number(parsed.timeEstimateMinutes);
+            if (Number.isFinite(num)) {
+              timeEstimateMinutes = allowed.reduce((prev, curr) =>
+                Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev,
+              );
+            }
+          }
+
+          // Validate hasList
+          const hasList = Boolean(parsed.hasList);
+
+          console.log('[space-chat-save] Success', {
+            type: resultType,
+            subtype,
+            title: title.substring(0, 30),
+            tags_count: tags.length,
+            has_frequency: !!frequency,
+            has_days: !!days,
+            has_time: !!timeEstimateMinutes,
+            latency_ms: latency,
+          });
+
+          return j({
+            type: resultType,
+            subtype,
+            confidence,
+            title,
+            tags,
+            frequency,
+            days,
+            timeEstimateMinutes,
+            hasList,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[space-chat-save] Error', { error: String(err), latency_ms: latency });
+          return j({ error: 'request_failed', detail: String(err) }, 200);
+        }
+      }
+
+      // =========================
+      // === TRANSCRIPTION ===
+      // Voice-to-text via OpenAI Whisper
+      // =========================
+      if (type === 'transcribe') {
+        const audio = body.audio;
+        const format = body.format || 'm4a';
+
+        if (!audio) {
+          console.log('[Transcribe] Missing audio data');
+          return j({ error: 'missing_audio' }, 400);
+        }
+
+        // Validate audio size (25MB limit for Whisper)
+        const estimatedBytes = (audio.length * 3) / 4;
+        if (estimatedBytes > 25 * 1024 * 1024) {
+          console.log('[Transcribe] Audio too large', {
+            size_mb: Math.round(estimatedBytes / 1024 / 1024),
+          });
+          return j({ error: 'audio_too_large', max_mb: 25 }, 400);
+        }
+
+        // Supported formats
+        const supportedFormats = ['mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm'];
+        const normalizedFormat = format.toLowerCase().replace('.', '');
+        if (!supportedFormats.includes(normalizedFormat)) {
+          console.log('[Transcribe] Unsupported format', { format });
+          return j({ error: 'unsupported_format', supported: supportedFormats }, 400);
+        }
+
+        const t0 = Date.now();
+
+        try {
+          // Convert base64 to binary
+          const binaryString = atob(audio);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+
+          // Create form data for Whisper API
+          const formData = new FormData();
+          formData.append(
+            'file',
+            new Blob([bytes], { type: `audio/${normalizedFormat}` }),
+            `audio.${normalizedFormat}`,
+          );
+          formData.append('model', 'whisper-1');
+          formData.append('response_format', 'json');
+
+          console.log('[Transcribe] Calling Whisper API', {
+            size_kb: Math.round(bytes.length / 1024),
+            format: normalizedFormat,
+          });
+
+          const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+            },
+            body: formData,
+          });
+
+          const latency = Date.now() - t0;
+
+          if (!whisperRes.ok) {
+            const errText = await whisperRes.text().catch(() => '');
+            console.log('[Transcribe] Whisper API error', {
+              status: whisperRes.status,
+              error: errText,
+              latency_ms: latency,
+            });
+            return j(
+              {
+                error: 'transcription_failed',
+                status: whisperRes.status,
+                detail: errText,
+              },
+              200,
+            );
+          }
+
+          const result = await whisperRes.json();
+          const text = result.text || '';
+
+          console.log('[Transcribe] Success', {
+            text_length: text.length,
+            text_preview: text.substring(0, 50),
+            latency_ms: latency,
+          });
+
+          return j({
+            text,
+            duration: result.duration,
+            language: result.language || 'en',
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[Transcribe] Error', {
+            error: String(err),
+            latency_ms: latency,
+          });
+          return j(
+            {
+              error: 'transcription_error',
+              detail: String(err?.message || 'unknown'),
+            },
+            200,
+          );
+        }
+      }
+
+      // =========================
+      // === PHASE 0: MULTI-ENTITY DETECTION (v3.6 - PURE AI) ===
+      // AI-only detection, no heuristics
+      // =========================
+      if (type === 'detect-multi') {
+        const text = body.text || '';
+        const t0 = Date.now();
+
+        const phase0Prompt = `You detect if a mind drop contains MULTIPLE DISTINCT ITEMS that should be split.
  
   === TOP-DOWN EVALUATION (READ FIRST) ===
   
@@ -1660,142 +1813,147 @@ Reasoning guidelines:
   }
  
  Summary must describe CONTENT (nouns/topics), never types like "Two Todos" or "Journal + Task".`;
- 
-  const phase0Messages = [
-  { role: "system", content: phase0Prompt },
-  { role: "user", content: text.substring(0, 1000) },
-  ];
- 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-  method: "POST",
-  headers: {
-  Authorization: `Bearer ${key}`,
-  "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-  model: "gpt-4o-mini",
-  messages: phase0Messages,
-  temperature: 0.1,
-  max_tokens: 500,
-  response_format: { type: "json_object" },
-  }),
-  });
- 
-  const oj = await res.json();
-  const latency = Date.now() - t0;
- 
-  if (!res.ok) {
-  console.log("[Phase0] API error", { error: oj.error });
-  return j({ is_multi: false, source: "error-fallback", latency_ms: latency });
-  }
- 
-  const rawContent = oj?.choices?.[0]?.message?.content ?? "{}";
-  
-  console.log("[Phase0] Input:", text.substring(0, 80));
-  console.log("[Phase0] Raw AI response:", rawContent);
-  
-  let parsed;
-  try {
-  parsed = JSON.parse(rawContent);
-  } catch {
-  console.log("[Phase0] Parse error", { raw: rawContent });
-  return j({ is_multi: false, source: "parse-fallback", latency_ms: latency });
-  }
- 
-  // Single entity - quick return
-  if (parsed.is_multi !== true) {
-  console.log("[Phase0] Single entity", { latency_ms: latency });
-  return j({ is_multi: false, source: "api", latency_ms: latency });
-  }
- 
-  // Multi entity - validate segments
-  const segments = Array.isArray(parsed.segments) ? parsed.segments : [];
-  
-  if (segments.length < 2) {
-  console.log("[Phase0] Multi claimed but <2 segments", { latency_ms: latency });
-  return j({ is_multi: false, source: "validation-fallback", latency_ms: latency });
-  }
- 
-  // Validate and normalize each segment
-  const validatedSegments = segments.map((seg, idx) => {
-  const segText = String(seg.text || "").trim();
-  const likelyBucket = ["todo", "habit", "log"].includes(seg.likely_bucket) 
-  ? seg.likely_bucket 
-  : "log";
-  return { text: segText, likely_bucket: likelyBucket };
-  }).filter(seg => seg.text.length > 0);
- 
-  if (validatedSegments.length < 2) {
-  console.log("[Phase0] Segments reduced to <2 after validation", { latency_ms: latency });
-  return j({ is_multi: false, source: "validation-fallback", latency_ms: latency });
-  }
- 
-  let confidence = Number(parsed.confidence);
-  if (!Number.isFinite(confidence)) confidence = 0.75;
-  confidence = clamp01(confidence);
- 
-  // Validate dominant_bucket
-  const validBuckets = ["todo", "habit", "log"];
-  let dominantBucket = validBuckets.includes(parsed.dominant_bucket) 
-  ? parsed.dominant_bucket 
-  : "log";
-  
-  // Validate dominant_subtype
-  const validSubtypes = ["journal", "idea", "general"];
-  let dominantSubtype = null;
-  if (dominantBucket === "log") {
-  dominantSubtype = validSubtypes.includes(parsed.dominant_subtype) 
-  ? parsed.dominant_subtype 
-  : "general";
-  }
- 
-  // Validate summary is content-based, not type-based
-  let summary = String(parsed.summary || "").trim();
-  const typePhrases = /\b(todo|habit|journal|emotion|task|item)\b/i;
-  if (!summary || summary.length < 3 || typePhrases.test(summary)) {
-  // Generate content-based summary from segment texts
-  const snippets = validatedSegments.slice(0, 3).map(seg => {
-  const words = seg.text.split(/\s+/).slice(0, 3).join(" ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
-  });
-  summary = snippets.join(" + ");
-  }
-  if (summary.length > 60) {
-  summary = summary.substring(0, 57) + "...";
-  }
- 
-  console.log("[Phase0:Multi]", {
-  item_count: validatedSegments.length,
-  summary,
-  dominant_bucket: dominantBucket,
-  dominant_subtype: dominantSubtype,
-  segments: validatedSegments.map(s => ({ text: s.text.substring(0, 40), bucket: s.likely_bucket })),
-  confidence,
-  latency_ms: latency,
-  });
- 
-  return j({
-  is_multi: true,
-  confidence,
-  item_count: validatedSegments.length,
-  segments: validatedSegments,
-  summary,
-  dominant_bucket: dominantBucket,
-  dominant_subtype: dominantSubtype,
-  source: "api",
-  latency_ms: latency,
-  });
-  }
- 
-  // =========================
-  // === PHASE 1 CLASSIFICATION (v4.1 - NOW INCLUDES TITLE + MESSAGE) ===
-  // =========================
-  if (type === "classify-phase1") {
-  const text = body.text || "";
-  const hasAttachments = body.hasAttachments || false;
-  const heuristicHint = body.heuristicHint || null;
- 
-  const phase1Prompt = `You classify "mind drops" for Gremly AND generate a smart title + confirmation message.
+
+        const phase0Messages = [
+          { role: 'system', content: phase0Prompt },
+          { role: 'user', content: text.substring(0, 1000) },
+        ];
+
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${key}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: phase0Messages,
+            temperature: 0.1,
+            max_tokens: 500,
+            response_format: { type: 'json_object' },
+          }),
+        });
+
+        const oj = await res.json();
+        const latency = Date.now() - t0;
+
+        if (!res.ok) {
+          console.log('[Phase0] API error', { error: oj.error });
+          return j({ is_multi: false, source: 'error-fallback', latency_ms: latency });
+        }
+
+        const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+
+        console.log('[Phase0] Input:', text.substring(0, 80));
+        console.log('[Phase0] Raw AI response:', rawContent);
+
+        let parsed;
+        try {
+          parsed = JSON.parse(rawContent);
+        } catch {
+          console.log('[Phase0] Parse error', { raw: rawContent });
+          return j({ is_multi: false, source: 'parse-fallback', latency_ms: latency });
+        }
+
+        // Single entity - quick return
+        if (parsed.is_multi !== true) {
+          console.log('[Phase0] Single entity', { latency_ms: latency });
+          return j({ is_multi: false, source: 'api', latency_ms: latency });
+        }
+
+        // Multi entity - validate segments
+        const segments = Array.isArray(parsed.segments) ? parsed.segments : [];
+
+        if (segments.length < 2) {
+          console.log('[Phase0] Multi claimed but <2 segments', { latency_ms: latency });
+          return j({ is_multi: false, source: 'validation-fallback', latency_ms: latency });
+        }
+
+        // Validate and normalize each segment
+        const validatedSegments = segments
+          .map((seg, idx) => {
+            const segText = String(seg.text || '').trim();
+            const likelyBucket = ['todo', 'habit', 'log'].includes(seg.likely_bucket)
+              ? seg.likely_bucket
+              : 'log';
+            return { text: segText, likely_bucket: likelyBucket };
+          })
+          .filter((seg) => seg.text.length > 0);
+
+        if (validatedSegments.length < 2) {
+          console.log('[Phase0] Segments reduced to <2 after validation', { latency_ms: latency });
+          return j({ is_multi: false, source: 'validation-fallback', latency_ms: latency });
+        }
+
+        let confidence = Number(parsed.confidence);
+        if (!Number.isFinite(confidence)) confidence = 0.75;
+        confidence = clamp01(confidence);
+
+        // Validate dominant_bucket
+        const validBuckets = ['todo', 'habit', 'log'];
+        let dominantBucket = validBuckets.includes(parsed.dominant_bucket)
+          ? parsed.dominant_bucket
+          : 'log';
+
+        // Validate dominant_subtype
+        const validSubtypes = ['journal', 'idea', 'general'];
+        let dominantSubtype = null;
+        if (dominantBucket === 'log') {
+          dominantSubtype = validSubtypes.includes(parsed.dominant_subtype)
+            ? parsed.dominant_subtype
+            : 'general';
+        }
+
+        // Validate summary is content-based, not type-based
+        let summary = String(parsed.summary || '').trim();
+        const typePhrases = /\b(todo|habit|journal|emotion|task|item)\b/i;
+        if (!summary || summary.length < 3 || typePhrases.test(summary)) {
+          // Generate content-based summary from segment texts
+          const snippets = validatedSegments.slice(0, 3).map((seg) => {
+            const words = seg.text.split(/\s+/).slice(0, 3).join(' ');
+            return words.charAt(0).toUpperCase() + words.slice(1);
+          });
+          summary = snippets.join(' + ');
+        }
+        if (summary.length > 60) {
+          summary = summary.substring(0, 57) + '...';
+        }
+
+        console.log('[Phase0:Multi]', {
+          item_count: validatedSegments.length,
+          summary,
+          dominant_bucket: dominantBucket,
+          dominant_subtype: dominantSubtype,
+          segments: validatedSegments.map((s) => ({
+            text: s.text.substring(0, 40),
+            bucket: s.likely_bucket,
+          })),
+          confidence,
+          latency_ms: latency,
+        });
+
+        return j({
+          is_multi: true,
+          confidence,
+          item_count: validatedSegments.length,
+          segments: validatedSegments,
+          summary,
+          dominant_bucket: dominantBucket,
+          dominant_subtype: dominantSubtype,
+          source: 'api',
+          latency_ms: latency,
+        });
+      }
+
+      // =========================
+      // === PHASE 1 CLASSIFICATION (v4.1 - NOW INCLUDES TITLE + MESSAGE) ===
+      // =========================
+      if (type === 'classify-phase1') {
+        const text = body.text || '';
+        const hasAttachments = body.hasAttachments || false;
+        const heuristicHint = body.heuristicHint || null;
+
+        const phase1Prompt = `You classify "mind drops" for Gremly AND generate a smart title + confirmation message.
 
   === THE THREE BUCKETS ===
   
@@ -1995,167 +2153,165 @@ Reasoning guidelines:
    "smart_title": "3-7 Word Title",
    "confirmation_message": "4-8 word warm message"
   }`;
- 
-  const phase1Messages = [
-  { role: "system", content: phase1Prompt },
-  { role: "user", content: text.substring(0, 1000) },
-  ];
- 
-  const t0 = Date.now();
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-  method: "POST",
-  headers: {
-  Authorization: `Bearer ${key}`,
-  "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-  model: "gpt-4o-mini",
-  messages: phase1Messages,
-  temperature: 0.1,
-  max_tokens: 500,
-  response_format: { type: "json_object" },
-  }),
-  });
- 
-  const oj = await res.json();
-  const latency = Date.now() - t0;
- 
-  if (!res.ok) {
-  console.log("[Phase1] API error", { error: oj.error });
- 
-  const fallbackBucket = heuristicHint?.bucket || "log";
-  const fallbackSubtype =
-  heuristicHint?.subtypeHint || (isSenseMakingJournal(text) ? "journal" : "general");
-  const fallbackHabitSubtype = fallbackBucket === 'habit' 
-  ? (heuristicHint?.habitSubtypeHint || 'start_habit') 
-  : null;
- 
-  const norm = normalizePhase1(fallbackBucket, fallbackSubtype, text);
- 
-  return j({
-  is_multi: false,
-  bucket: norm.bucket,
-  confidence: 0.5,
-  subtype: norm.subtype,
-  habitSubtype: norm.bucket === 'habit' ? fallbackHabitSubtype : null,
-  smart_title: null,
-  confirmation_message: null,
-  source: "heuristic-fallback",
-  latency_ms: latency,
-  });
-  }
- 
-  const rawContent = oj?.choices?.[0]?.message?.content ?? "{}";
-  let parsed;
-  try {
-  parsed = JSON.parse(rawContent);
-  } catch {
-  console.log("[Phase1] Parse error", { raw: rawContent });
- 
-  const fallbackBucket = heuristicHint?.bucket || "log";
-  const fallbackSubtype =
-  heuristicHint?.subtypeHint || (isSenseMakingJournal(text) ? "journal" : "general");
-  const fallbackHabitSubtype = fallbackBucket === 'habit' 
-  ? (heuristicHint?.habitSubtypeHint || 'start_habit') 
-  : null;
- 
-  const norm = normalizePhase1(fallbackBucket, fallbackSubtype, text);
- 
-  return j({
-  is_multi: false,
-  bucket: norm.bucket,
-  confidence: 0.5,
-  subtype: norm.subtype,
-  habitSubtype: norm.bucket === 'habit' ? fallbackHabitSubtype : null,
-  smart_title: null,
-  confirmation_message: null,
-  source: "parse-fallback",
-  latency_ms: latency,
-  });
-  }
- 
-  // =====================================================
-  // SINGLE ITEM RESPONSE (v4.1 - now includes title + message)
-  // =====================================================
-  let confidence = Number(parsed.confidence);
-  if (!Number.isFinite(confidence)) confidence = 0.7;
-  confidence = clamp01(confidence);
- 
-  const norm = normalizePhase1(parsed.bucket, parsed.subtype, text);
-  
-  // Determine habitSubtype for habits
-  let habitSubtype = null;
-  if (norm.bucket === 'habit') {
-  const validHabitSubtypes = ['start_habit', 'break_habit'];
-  if (validHabitSubtypes.includes(parsed.habitSubtype)) {
-  habitSubtype = parsed.habitSubtype;
-  } else {
-  habitSubtype = heuristicHint?.habitSubtypeHint ?? 'start_habit';
-  }
-  }
- 
-  // Extract and validate smart_title (v4.1 - NEW)
-  let smartTitle = parsed.smart_title || null;
-  if (smartTitle) {
-  smartTitle = String(smartTitle).trim();
-  if (smartTitle.length < 3 || smartTitle.length > 60) {
-  smartTitle = text.substring(0, 50).trim();
-  }
-  // Title case
-  smartTitle = smartTitle
-  .split(/\s+/)
-  .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
-  .join(" ");
-  }
- 
-  // Extract confirmation message (v4.1 - NEW)
-  let confirmationMessage = parsed.confirmation_message || null;
-  if (confirmationMessage) {
-  confirmationMessage = String(confirmationMessage).trim();
-  if (confirmationMessage.length < 3 || confirmationMessage.length > 100) {
-  confirmationMessage = null;
-  }
-  }
- 
-  const sameAsBucket = heuristicHint?.bucket === norm.bucket;
- 
-  console.log("[Phase1]", {
-  bucket: norm.bucket,
-  subtype: norm.subtype,
-  habitSubtype,
-  confidence,
-  smart_title: smartTitle?.substring(0, 30),
-  has_message: !!confirmationMessage,
-  heuristicBucket: heuristicHint?.bucket,
-  agreed: sameAsBucket,
-  latency_ms: latency,
-  });
- 
-  return j({
-  bucket: norm.bucket,
-  subtype: norm.subtype,
-  habitSubtype,
-  confidence,
-  smart_title: smartTitle,
-  confirmation_message: confirmationMessage,
-  source: sameAsBucket ? "heuristic-confirmed" : "api",
-  latency_ms: latency,
-  });
-  }
- 
-  // --- PHASE 2 ENRICHMENT (v4.1 - non-streaming, metadata only) ---
-  // Title and message now come from Phase 1
-  // Phase 2 only extracts: tags, time, dates, frequency, days, people, mood
-  if (type === "enrich-phase2") {
-  const text = body.text || "";
-  const bucket = body.bucket || "log";
-  const subtype = body.subtype || null;
-  // Use client-provided date to avoid timezone issues
-  const currentDate = body.currentDate || body.today || "2026-01-25";
-  const timezone = body.timezone || "UTC";
-  const dayOfWeek = body.dayOfWeek || "Sunday";
- 
-  const phase2Prompt = `You extract core, durable metadata for Gremly, a calm productivity app.
+
+        const phase1Messages = [
+          { role: 'system', content: phase1Prompt },
+          { role: 'user', content: text.substring(0, 1000) },
+        ];
+
+        const t0 = Date.now();
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${key}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: phase1Messages,
+            temperature: 0.1,
+            max_tokens: 500,
+            response_format: { type: 'json_object' },
+          }),
+        });
+
+        const oj = await res.json();
+        const latency = Date.now() - t0;
+
+        if (!res.ok) {
+          console.log('[Phase1] API error', { error: oj.error });
+
+          const fallbackBucket = heuristicHint?.bucket || 'log';
+          const fallbackSubtype =
+            heuristicHint?.subtypeHint || (isSenseMakingJournal(text) ? 'journal' : 'general');
+          const fallbackHabitSubtype =
+            fallbackBucket === 'habit' ? heuristicHint?.habitSubtypeHint || 'start_habit' : null;
+
+          const norm = normalizePhase1(fallbackBucket, fallbackSubtype, text);
+
+          return j({
+            is_multi: false,
+            bucket: norm.bucket,
+            confidence: 0.5,
+            subtype: norm.subtype,
+            habitSubtype: norm.bucket === 'habit' ? fallbackHabitSubtype : null,
+            smart_title: null,
+            confirmation_message: null,
+            source: 'heuristic-fallback',
+            latency_ms: latency,
+          });
+        }
+
+        const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+        let parsed;
+        try {
+          parsed = JSON.parse(rawContent);
+        } catch {
+          console.log('[Phase1] Parse error', { raw: rawContent });
+
+          const fallbackBucket = heuristicHint?.bucket || 'log';
+          const fallbackSubtype =
+            heuristicHint?.subtypeHint || (isSenseMakingJournal(text) ? 'journal' : 'general');
+          const fallbackHabitSubtype =
+            fallbackBucket === 'habit' ? heuristicHint?.habitSubtypeHint || 'start_habit' : null;
+
+          const norm = normalizePhase1(fallbackBucket, fallbackSubtype, text);
+
+          return j({
+            is_multi: false,
+            bucket: norm.bucket,
+            confidence: 0.5,
+            subtype: norm.subtype,
+            habitSubtype: norm.bucket === 'habit' ? fallbackHabitSubtype : null,
+            smart_title: null,
+            confirmation_message: null,
+            source: 'parse-fallback',
+            latency_ms: latency,
+          });
+        }
+
+        // =====================================================
+        // SINGLE ITEM RESPONSE (v4.1 - now includes title + message)
+        // =====================================================
+        let confidence = Number(parsed.confidence);
+        if (!Number.isFinite(confidence)) confidence = 0.7;
+        confidence = clamp01(confidence);
+
+        const norm = normalizePhase1(parsed.bucket, parsed.subtype, text);
+
+        // Determine habitSubtype for habits
+        let habitSubtype = null;
+        if (norm.bucket === 'habit') {
+          const validHabitSubtypes = ['start_habit', 'break_habit'];
+          if (validHabitSubtypes.includes(parsed.habitSubtype)) {
+            habitSubtype = parsed.habitSubtype;
+          } else {
+            habitSubtype = heuristicHint?.habitSubtypeHint ?? 'start_habit';
+          }
+        }
+
+        // Extract and validate smart_title (v4.1 - NEW)
+        let smartTitle = parsed.smart_title || null;
+        if (smartTitle) {
+          smartTitle = String(smartTitle).trim();
+          if (smartTitle.length < 3 || smartTitle.length > 60) {
+            smartTitle = text.substring(0, 50).trim();
+          }
+          // Title case
+          smartTitle = smartTitle
+            .split(/\s+/)
+            .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+            .join(' ');
+        }
+
+        // Extract confirmation message (v4.1 - NEW)
+        let confirmationMessage = parsed.confirmation_message || null;
+        if (confirmationMessage) {
+          confirmationMessage = String(confirmationMessage).trim();
+          if (confirmationMessage.length < 3 || confirmationMessage.length > 100) {
+            confirmationMessage = null;
+          }
+        }
+
+        const sameAsBucket = heuristicHint?.bucket === norm.bucket;
+
+        console.log('[Phase1]', {
+          bucket: norm.bucket,
+          subtype: norm.subtype,
+          habitSubtype,
+          confidence,
+          smart_title: smartTitle?.substring(0, 30),
+          has_message: !!confirmationMessage,
+          heuristicBucket: heuristicHint?.bucket,
+          agreed: sameAsBucket,
+          latency_ms: latency,
+        });
+
+        return j({
+          bucket: norm.bucket,
+          subtype: norm.subtype,
+          habitSubtype,
+          confidence,
+          smart_title: smartTitle,
+          confirmation_message: confirmationMessage,
+          source: sameAsBucket ? 'heuristic-confirmed' : 'api',
+          latency_ms: latency,
+        });
+      }
+
+      // --- PHASE 2 ENRICHMENT (v4.1 - non-streaming, metadata only) ---
+      // Title and message now come from Phase 1
+      // Phase 2 only extracts: tags, time, dates, frequency, days, people, mood
+      if (type === 'enrich-phase2') {
+        const text = body.text || '';
+        const bucket = body.bucket || 'log';
+        const subtype = body.subtype || null;
+        // Use client-provided date to avoid timezone issues
+        const currentDate = body.currentDate || body.today || '2026-01-25';
+        const timezone = body.timezone || 'UTC';
+        const dayOfWeek = body.dayOfWeek || 'Sunday';
+
+        const phase2Prompt = `You extract core, durable metadata for Gremly, a calm productivity app.
 Your goal is to capture only information that is intrinsic to the item.
 Do NOT include planning or scheduling logic.
 
@@ -2169,7 +2325,7 @@ Date rules:
 - Use YYYY-MM-DD format
 
 === ITEM TYPE ===
-Bucket: "${bucket}"${subtype ? ` (Subtype: "${subtype}")` : ""}
+Bucket: "${bucket}"${subtype ? ` (Subtype: "${subtype}")` : ''}
 
 === ORIGINAL TEXT ===
 "${text.substring(0, 1500)}"
@@ -2273,214 +2429,227 @@ TAGS (ALL TYPES):
 === OUTPUT ===
 Return ONLY valid JSON.
 Include null for fields that do not apply.`;
- 
-  const t0 = Date.now();
- 
-  try {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-  method: "POST",
-  headers: {
-  Authorization: `Bearer ${key}`,
-  "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-  model: "gpt-4o-mini",
-  messages: [
-  { role: "system", content: phase2Prompt },
-  ],
-  temperature: 0.2,
-  max_tokens: 300,
-  response_format: { type: "json_object" },
-  }),
-  });
- 
-  const oj = await res.json();
-  const latency = Date.now() - t0;
- 
-  if (!res.ok) {
-  console.log("[Phase2] API error", { error: oj.error, latency_ms: latency });
-  return j({ error: "enrichment_failed", latency_ms: latency }, 200);
-  }
- 
-  const rawContent = oj?.choices?.[0]?.message?.content ?? "{}";
-  let parsed;
-  try {
-  parsed = JSON.parse(rawContent);
-  } catch {
-  console.log("[Phase2] Parse error", { raw: rawContent });
-  return j({ error: "parse_failed", latency_ms: latency }, 200);
-  }
- 
-  // Validate and normalize tags
-  let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
-  tags = tags
-  .map((t) => String(t).toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""))
-  .filter((t) => t.length >= 2 && t.length <= 30)
-  .filter((t) => !isStopTag(t))
-  .slice(0, 7);
- 
-  // Validate time estimate
-  let timeEstimate = null;
-  if (bucket === "todo" || bucket === "habit") {
-  const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
-  const num = Number(parsed.time_estimate_minutes);
-  if (Number.isFinite(num)) {
-  timeEstimate = allowed.reduce((prev, curr) =>
-  Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev
-  );
-  }
-  }
- 
-  // Validate time_window
-  let timeWindow = null;
-  if (parsed.time_window) {
-  const validWindows = ['morning', 'day', 'evening'];
-  const normalized = String(parsed.time_window).toLowerCase().trim();
-  timeWindow = validWindows.includes(normalized) ? normalized : null;
-  }
- 
-  // Validate energy_type
-  let energyType = null;
-  if (bucket === "todo" || bucket === "habit") {
-  const validEnergyTypes = ["deep_focus", "administrative", "physical", "social", "quick"];
-  if (validEnergyTypes.includes(parsed.energy_type)) {
-    energyType = parsed.energy_type;
-  } else {
-    energyType = "administrative"; // default fallback
-  }
-  }
- 
-  // Validate extracted_date
-  let extractedDate = null;
-  if (bucket === "todo" && parsed.extracted_date) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)) {
-  extractedDate = parsed.extracted_date;
-  }
-  }
- 
-  // Validate extracted_start_date (habits)
-  let extractedStartDate = null;
-  if (bucket === "habit" && parsed.extracted_start_date) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_start_date)) {
-  extractedStartDate = parsed.extracted_start_date;
-  }
-  }
- 
-  // Validate extracted_frequency (habits)
-  let extractedFrequency = null;
-  if (bucket === "habit" && parsed.extracted_frequency) {
-  extractedFrequency = String(parsed.extracted_frequency).trim();
-  }
- 
-  // Validate extracted_days (habits)
-  let extractedDays = null;
-  if (bucket === "habit") {
-  if (Array.isArray(parsed.extracted_days) && parsed.extracted_days.length > 0) {
-  const validDays = parsed.extracted_days
-  .map(d => Number(d))
-  .filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
-  if (validDays.length > 0) {
-  extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
-  }
-  }
-  // Fallback: parse from text
-  if (!extractedDays) {
-  extractedDays = parseDaysFromText(text);
-  }
-  }
- 
-  // Validate people
-  let people = [];
-  if (Array.isArray(parsed.people)) {
-  people = parsed.people
-  .map(p => String(p).trim())
-  .filter(p => p.length > 0 && p.length < 50)
-  .slice(0, 10);
-  }
- 
-  // Validate mood (journals only)
-  let mood = null;
-  if (bucket === "log" && subtype === "journal" && Array.isArray(parsed.mood)) {
-  mood = parsed.mood
-  .map(m => String(m).toLowerCase().trim())
-  .filter(m => VALID_MOODS.includes(m))
-  .slice(0, 3);
-  if (mood.length === 0) mood = null;
-  }
- 
-  console.log("[Phase2]", {
-  tags_count: tags.length,
-  has_time: timeEstimate !== null,
-  has_window: timeWindow !== null,
-  has_energy: energyType !== null,
-  has_date: extractedDate !== null,
-  has_frequency: extractedFrequency !== null,
-  has_days: extractedDays !== null,
-  has_people: people.length > 0,
-  has_mood: mood !== null,
-  latency_ms: latency,
-  });
- 
-  return j({
-  tags,
-  time_estimate_minutes: timeEstimate,
-  time_window: timeWindow,
-  energy_type: energyType,
-  extracted_date: extractedDate,
-  extracted_start_date: extractedStartDate,
-  extracted_frequency: extractedFrequency,
-  extracted_days: extractedDays,
-  people,
-  mood,
-  latency_ms: latency,
-  });
- 
-  } catch (err) {
-  const latency = Date.now() - t0;
-  console.log("[Phase2] Error", { error: String(err), latency_ms: latency });
-  return j({ error: "enrichment_failed", detail: String(err), latency_ms: latency }, 200);
-  }
-  }
- 
-  // --- EXISTING LOGIC BELOW (unchanged) ---
-  const baseModel = body.model || "gpt-4o-mini";
- 
-  const baseTemperature = Number.isFinite(body.temperature)
-  ? body.temperature
-  : type === "classify"
-  ? 0.1
-  : 0.2;
- 
-  const baseMaxTokens = Number.isFinite(body.max_tokens)
-  ? body.max_tokens
-  : Number.isFinite(body.maxTokens)
-  ? body.maxTokens
-  : Number.isFinite(body.max_completion_tokens)
-  ? body.max_completion_tokens
-  : type === "classify"
-  ? 160
-  : 200;
- 
-  const isSpaceChatLane = lane === "space_chat" && type !== "classify";
-  const actualModel = isSpaceChatLane ? "gpt-4.1" : baseModel;
- 
-  const temperature =
-  actualModel === "gpt-4.1" && !Number.isFinite(body.temperature) ? 0.7 : baseTemperature;
- 
-  // FIX 3: Increased token limit for Space Chat (was 400, now 800)
-  const maxTokensValue = isSpaceChatLane ? 800 : baseMaxTokens;
- 
-  console.log("[MODEL]", { lane, model: actualModel, streaming: wantsStreaming, maxTokens: maxTokensValue });
- 
-  let originalText = "";
-  let messages = Array.isArray(body.messages) ? body.messages : [];
- 
-  if (type === "classify") {
-  const sysOverride = body.system || body.systemPrompt || null;
-  const text = body.text || body.prompt || body.input || body.message || "";
-  originalText = String(text || "");
- 
-  const masterPrompt = `You are classifying personal thoughts and tasks for a productivity app.
+
+        const t0 = Date.now();
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: phase2Prompt }],
+              temperature: 0.2,
+              max_tokens: 300,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[Phase2] API error', { error: oj.error, latency_ms: latency });
+            return j({ error: 'enrichment_failed', latency_ms: latency }, 200);
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+          let parsed;
+          try {
+            parsed = JSON.parse(rawContent);
+          } catch {
+            console.log('[Phase2] Parse error', { raw: rawContent });
+            return j({ error: 'parse_failed', latency_ms: latency }, 200);
+          }
+
+          // Validate and normalize tags
+          let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+          tags = tags
+            .map((t) =>
+              String(t)
+                .toLowerCase()
+                .replace(/\s+/g, '-')
+                .replace(/[^a-z0-9-]/g, ''),
+            )
+            .filter((t) => t.length >= 2 && t.length <= 30)
+            .filter((t) => !isStopTag(t))
+            .slice(0, 7);
+
+          // Validate time estimate
+          let timeEstimate = null;
+          if (bucket === 'todo' || bucket === 'habit') {
+            const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
+            const num = Number(parsed.time_estimate_minutes);
+            if (Number.isFinite(num)) {
+              timeEstimate = allowed.reduce((prev, curr) =>
+                Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev,
+              );
+            }
+          }
+
+          // Validate time_window
+          let timeWindow = null;
+          if (parsed.time_window) {
+            const validWindows = ['morning', 'day', 'evening'];
+            const normalized = String(parsed.time_window).toLowerCase().trim();
+            timeWindow = validWindows.includes(normalized) ? normalized : null;
+          }
+
+          // Validate energy_type
+          let energyType = null;
+          if (bucket === 'todo' || bucket === 'habit') {
+            const validEnergyTypes = [
+              'deep_focus',
+              'administrative',
+              'physical',
+              'social',
+              'quick',
+            ];
+            if (validEnergyTypes.includes(parsed.energy_type)) {
+              energyType = parsed.energy_type;
+            } else {
+              energyType = 'administrative'; // default fallback
+            }
+          }
+
+          // Validate extracted_date
+          let extractedDate = null;
+          if (bucket === 'todo' && parsed.extracted_date) {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)) {
+              extractedDate = parsed.extracted_date;
+            }
+          }
+
+          // Validate extracted_start_date (habits)
+          let extractedStartDate = null;
+          if (bucket === 'habit' && parsed.extracted_start_date) {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_start_date)) {
+              extractedStartDate = parsed.extracted_start_date;
+            }
+          }
+
+          // Validate extracted_frequency (habits)
+          let extractedFrequency = null;
+          if (bucket === 'habit' && parsed.extracted_frequency) {
+            extractedFrequency = String(parsed.extracted_frequency).trim();
+          }
+
+          // Validate extracted_days (habits)
+          let extractedDays = null;
+          if (bucket === 'habit') {
+            if (Array.isArray(parsed.extracted_days) && parsed.extracted_days.length > 0) {
+              const validDays = parsed.extracted_days
+                .map((d) => Number(d))
+                .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+              if (validDays.length > 0) {
+                extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
+              }
+            }
+            // Fallback: parse from text
+            if (!extractedDays) {
+              extractedDays = parseDaysFromText(text);
+            }
+          }
+
+          // Validate people
+          let people = [];
+          if (Array.isArray(parsed.people)) {
+            people = parsed.people
+              .map((p) => String(p).trim())
+              .filter((p) => p.length > 0 && p.length < 50)
+              .slice(0, 10);
+          }
+
+          // Validate mood (journals only)
+          let mood = null;
+          if (bucket === 'log' && subtype === 'journal' && Array.isArray(parsed.mood)) {
+            mood = parsed.mood
+              .map((m) => String(m).toLowerCase().trim())
+              .filter((m) => VALID_MOODS.includes(m))
+              .slice(0, 3);
+            if (mood.length === 0) mood = null;
+          }
+
+          console.log('[Phase2]', {
+            tags_count: tags.length,
+            has_time: timeEstimate !== null,
+            has_window: timeWindow !== null,
+            has_energy: energyType !== null,
+            has_date: extractedDate !== null,
+            has_frequency: extractedFrequency !== null,
+            has_days: extractedDays !== null,
+            has_people: people.length > 0,
+            has_mood: mood !== null,
+            latency_ms: latency,
+          });
+
+          return j({
+            tags,
+            time_estimate_minutes: timeEstimate,
+            time_window: timeWindow,
+            energy_type: energyType,
+            extracted_date: extractedDate,
+            extracted_start_date: extractedStartDate,
+            extracted_frequency: extractedFrequency,
+            extracted_days: extractedDays,
+            people,
+            mood,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[Phase2] Error', { error: String(err), latency_ms: latency });
+          return j({ error: 'enrichment_failed', detail: String(err), latency_ms: latency }, 200);
+        }
+      }
+
+      // --- EXISTING LOGIC BELOW (unchanged) ---
+      const baseModel = body.model || 'gpt-4o-mini';
+
+      const baseTemperature = Number.isFinite(body.temperature)
+        ? body.temperature
+        : type === 'classify'
+          ? 0.1
+          : 0.2;
+
+      const baseMaxTokens = Number.isFinite(body.max_tokens)
+        ? body.max_tokens
+        : Number.isFinite(body.maxTokens)
+          ? body.maxTokens
+          : Number.isFinite(body.max_completion_tokens)
+            ? body.max_completion_tokens
+            : type === 'classify'
+              ? 160
+              : 200;
+
+      const isSpaceChatLane = lane === 'space_chat' && type !== 'classify';
+      const actualModel = isSpaceChatLane ? 'gpt-4.1' : baseModel;
+
+      const temperature =
+        actualModel === 'gpt-4.1' && !Number.isFinite(body.temperature) ? 0.7 : baseTemperature;
+
+      // FIX 3: Increased token limit for Space Chat (was 400, now 800)
+      const maxTokensValue = isSpaceChatLane ? 800 : baseMaxTokens;
+
+      console.log('[MODEL]', {
+        lane,
+        model: actualModel,
+        streaming: wantsStreaming,
+        maxTokens: maxTokensValue,
+      });
+
+      let originalText = '';
+      let messages = Array.isArray(body.messages) ? body.messages : [];
+
+      if (type === 'classify') {
+        const sysOverride = body.system || body.systemPrompt || null;
+        const text = body.text || body.prompt || body.input || body.message || '';
+        originalText = String(text || '');
+
+        const masterPrompt = `You are classifying personal thoughts and tasks for a productivity app.
  
  BUCKETS (choose one):
  
@@ -2498,26 +2667,27 @@ Include null for fields that do not apply.`;
   "title": "...",
   "tags": ["a","b"]
  }`;
- 
-  messages = [{ role: "system", content: masterPrompt }];
-  if (sysOverride) messages.push({ role: "system", content: String(sysOverride) });
-  messages.push({ role: "user", content: originalText });
-  } else {
-  if (messages.length === 0) {
-  const sys = body.system || body.systemPrompt || null;
-  const text = body.text || body.prompt || body.input || body.message || "Respond succinctly.";
-  originalText = String(text || "");
-  messages = [];
-  if (sys) messages.push({ role: "system", content: String(sys) });
-  messages.push({ role: "user", content: text });
-  } else {
-  const lastUser = [...messages].reverse().find((m) => m.role === "user");
-  originalText = lastUser && typeof lastUser.content === "string" ? lastUser.content : "";
-  }
- 
-  // FIX 1: Updated Space Chat formatting prompt - balanced, helpful without being pushy
-  if (isSpaceChatLane) {
-  const spaceChatFormattingPrompt = `FORMATTING RULES (Gremly mobile chat):
+
+        messages = [{ role: 'system', content: masterPrompt }];
+        if (sysOverride) messages.push({ role: 'system', content: String(sysOverride) });
+        messages.push({ role: 'user', content: originalText });
+      } else {
+        if (messages.length === 0) {
+          const sys = body.system || body.systemPrompt || null;
+          const text =
+            body.text || body.prompt || body.input || body.message || 'Respond succinctly.';
+          originalText = String(text || '');
+          messages = [];
+          if (sys) messages.push({ role: 'system', content: String(sys) });
+          messages.push({ role: 'user', content: text });
+        } else {
+          const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+          originalText = lastUser && typeof lastUser.content === 'string' ? lastUser.content : '';
+        }
+
+        // FIX 1: Updated Space Chat formatting prompt - balanced, helpful without being pushy
+        if (isSpaceChatLane) {
+          const spaceChatFormattingPrompt = `FORMATTING RULES (Gremly mobile chat):
  
  Keep responses concise and scannable for mobile.
  - Use **bold** for key phrases (1-2 per response)
@@ -2530,243 +2700,259 @@ Include null for fields that do not apply.`;
  **Start small**  2-3 short runs per week, same days.
  **Be consistent**  Consistency beats intensity early on.
  **Track it**  Seeing progress helps motivation.`;
- 
-  const exists = messages.some(
-  (m) =>
-  m.role === "system" &&
-  typeof m.content === "string" &&
-  m.content.includes("FORMATTING RULES")
-  );
- 
-  if (!exists) {
-  messages.unshift({ role: "system", content: spaceChatFormattingPrompt });
-  }
-  }
-  }
- 
-  // ============================================================================
-  // STREAMING RESPONSE FOR SPACE CHAT
-  // ============================================================================
-  if (isSpaceChatStreaming && isSpaceChatLane) {
-  console.log("[STREAMING] Starting SSE stream for space_chat");
- 
-  const openaiPayload = {
-  model: actualModel,
-  messages,
-  temperature,
-  stream: true,
-  };
- 
-  if (actualModel === "gpt-4.1" || actualModel === "gpt-4o") {
-  openaiPayload.max_completion_tokens = maxTokensValue;
-  } else {
-  openaiPayload.max_tokens = maxTokensValue;
-  }
- 
-  const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-  method: "POST",
-  headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-  body: JSON.stringify(openaiPayload),
-  });
- 
-  if (!openaiRes.ok) {
-  const errText = await openaiRes.text().catch(() => "");
-  console.log("[STREAMING] OpenAI error", { status: openaiRes.status, error: errText });
-  return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
-  }
- 
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
- 
-  (async () => {
-  const reader = openaiRes.body.getReader();
-  let buffer = "";
-  let fullContent = "";
- 
-  try {
-  while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
- 
-  buffer += decoder.decode(value, { stream: true });
-  const lines = buffer.split(/\r?\n/);
-  buffer = lines.pop() || "";
- 
-  for (const line of lines) {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed === "data: [DONE]") continue;
-  if (!trimmed.startsWith("data: ")) continue;
- 
-  try {
-  const json = JSON.parse(trimmed.slice(6));
-  const delta = json.choices?.[0]?.delta?.content;
- 
-  if (delta) {
-  fullContent += delta;
-  const sseData = JSON.stringify({ delta, done: false });
-  await writer.write(encoder.encode(`data: ${sseData}\n\n`));
-  }
-  } catch (parseErr) {
-  console.log("[STREAMING] Chunk parse error", { line: trimmed.slice(0, 100) });
-  }
-  }
-  }
-       const save_suggestion = null;
- 
-  const finalData = JSON.stringify({ done: true, full_content: fullContent, save_suggestion });
-  await writer.write(encoder.encode(`data: ${finalData}\n\n`));
- 
-  } catch (streamErr) {
-  console.log("[STREAMING] Stream error", { error: String(streamErr) });
-  const errorData = JSON.stringify({ error: String(streamErr), done: true, full_content: fullContent });
-  await writer.write(encoder.encode(`data: ${errorData}\n\n`));
-  } finally {
-  await writer.close();
-  }
-  })();
- 
-  return new Response(readable, {
-  headers: {
-  "Access-Control-Allow-Origin": "*",
-  "Content-Type": "text/event-stream; charset=utf-8",
-  "Cache-Control": "no-cache, no-transform",
-  "Connection": "keep-alive",
+
+          const exists = messages.some(
+            (m) =>
+              m.role === 'system' &&
+              typeof m.content === 'string' &&
+              m.content.includes('FORMATTING RULES'),
+          );
+
+          if (!exists) {
+            messages.unshift({ role: 'system', content: spaceChatFormattingPrompt });
+          }
+        }
+      }
+
+      // ============================================================================
+      // STREAMING RESPONSE FOR SPACE CHAT
+      // ============================================================================
+      if (isSpaceChatStreaming && isSpaceChatLane) {
+        console.log('[STREAMING] Starting SSE stream for space_chat');
+
+        const openaiPayload = {
+          model: actualModel,
+          messages,
+          temperature,
+          stream: true,
+        };
+
+        if (actualModel === 'gpt-4.1' || actualModel === 'gpt-4o') {
+          openaiPayload.max_completion_tokens = maxTokensValue;
+        } else {
+          openaiPayload.max_tokens = maxTokensValue;
+        }
+
+        const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(openaiPayload),
+        });
+
+        if (!openaiRes.ok) {
+          const errText = await openaiRes.text().catch(() => '');
+          console.log('[STREAMING] OpenAI error', { status: openaiRes.status, error: errText });
+          return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
+        }
+
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+
+        (async () => {
+          const reader = openaiRes.body.getReader();
+          let buffer = '';
+          let fullContent = '';
+
+          try {
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split(/\r?\n/);
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === 'data: [DONE]') continue;
+                if (!trimmed.startsWith('data: ')) continue;
+
+                try {
+                  const json = JSON.parse(trimmed.slice(6));
+                  const delta = json.choices?.[0]?.delta?.content;
+
+                  if (delta) {
+                    fullContent += delta;
+                    const sseData = JSON.stringify({ delta, done: false });
+                    await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                  }
+                } catch (parseErr) {
+                  console.log('[STREAMING] Chunk parse error', { line: trimmed.slice(0, 100) });
+                }
+              }
+            }
+            const save_suggestion = null;
+
+            const finalData = JSON.stringify({
+              done: true,
+              full_content: fullContent,
+              save_suggestion,
+            });
+            await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+          } catch (streamErr) {
+            console.log('[STREAMING] Stream error', { error: String(streamErr) });
+            const errorData = JSON.stringify({
+              error: String(streamErr),
+              done: true,
+              full_content: fullContent,
+            });
+            await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+          } finally {
+            await writer.close();
+          }
+        })();
+
+        return new Response(readable, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          },
+        });
+      }
+      // ============================================================================
+      // END SPACE CHAT STREAMING
+      // ============================================================================
+
+      // --- NON-STREAMING (original logic, unchanged) ---
+      const openaiPayload = { model: actualModel, messages, temperature, stream: false };
+
+      if (actualModel === 'gpt-4.1' || actualModel === 'gpt-4o') {
+        openaiPayload.max_completion_tokens = maxTokensValue;
+      } else {
+        openaiPayload.max_tokens = maxTokensValue;
+      }
+
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(openaiPayload),
+      });
+
+      const oj = await res.json();
+
+      if (!res.ok) {
+        return j(
+          { error: (oj && (oj.error?.message || oj.message)) || 'openai_error', code: res.status },
+          200,
+        );
+      }
+
+      if (type === 'classify') {
+        const rawContent = oj?.choices?.[0]?.message?.content ?? '';
+        const cleaned = rawContent
+          .replace(/```json\n?/g, '')
+          .replace(/```\n?/g, '')
+          .trim();
+
+        let parsed;
+        try {
+          parsed = JSON.parse(cleaned);
+        } catch {
+          return j({ error: 'classification_unparsable', raw: rawContent }, 200);
+        }
+
+        const VALID_BUCKETS = [
+          'todo',
+          'habit',
+          'log-journal',
+          'log-idea',
+          'log-general',
+          'unsorted',
+        ];
+
+        let bucket = (parsed.bucket || '').toLowerCase().trim();
+        if (!VALID_BUCKETS.includes(bucket)) bucket = 'log-general';
+
+        let confidence = Number(parsed.confidence ?? 50);
+        if (!Number.isFinite(confidence)) confidence = 50;
+        confidence = Math.max(0, Math.min(100, confidence));
+
+        const tags = Array.isArray(parsed.tags)
+          ? parsed.tags.map((t) => String(t)).slice(0, 5)
+          : [];
+
+        const title =
+          typeof parsed.title === 'string' && parsed.title.trim().length > 0
+            ? parsed.title.trim()
+            : originalText.split(/\s+/).slice(0, 7).join(' ');
+
+        return j({
+          id: String(oj.id || crypto.randomUUID()),
+          classification: {
+            bucket,
+            type: bucket === 'todo' ? 'todo' : bucket === 'habit' ? 'habit' : 'log',
+            subtype:
+              bucket === 'log-journal'
+                ? 'journal'
+                : bucket === 'log-idea'
+                  ? 'idea'
+                  : bucket === 'log-general'
+                    ? 'general'
+                    : null,
+            category: bucket,
+            tags,
+            confidence,
+            title,
+          },
+          aiTitle: title,
+          aiTagsDebug: tags,
+        });
+      }
+
+      const content = oj?.choices?.[0]?.message?.content ?? oj?.choices?.[0]?.text ?? '';
+
+      let save_suggestion = null;
+      if (lane === 'space_chat') {
+        // save_suggestion removed
+      }
+
+      return j({
+        id: String((oj.id || '').replace(/^chatcmpl-/, 'cmpl-')),
+        content,
+        model: oj.model,
+        usage: oj.usage || null,
+        save_suggestion,
+      });
+    } catch (err) {
+      return j({ error: 'proxy_error', detail: String(err?.message || 'unknown') }, 200);
+    }
   },
-  });
-  }
-  // ============================================================================
-  // END SPACE CHAT STREAMING
-  // ============================================================================
- 
-  // --- NON-STREAMING (original logic, unchanged) ---
-  const openaiPayload = { model: actualModel, messages, temperature, stream: false };
- 
-  if (actualModel === "gpt-4.1" || actualModel === "gpt-4o") {
-  openaiPayload.max_completion_tokens = maxTokensValue;
-  } else {
-  openaiPayload.max_tokens = maxTokensValue;
-  }
- 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-  method: "POST",
-  headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-  body: JSON.stringify(openaiPayload),
-  });
- 
-  const oj = await res.json();
- 
-  if (!res.ok) {
-  return j(
-  { error: (oj && (oj.error?.message || oj.message)) || "openai_error", code: res.status },
-  200
-  );
-  }
- 
-  if (type === "classify") {
-  const rawContent = oj?.choices?.[0]?.message?.content ?? "";
-  const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
- 
-  let parsed;
-  try {
-  parsed = JSON.parse(cleaned);
-  } catch {
-  return j({ error: "classification_unparsable", raw: rawContent }, 200);
-  }
- 
-  const VALID_BUCKETS = [
-  "todo",
-  "habit",
-  "log-journal",
-  "log-idea",
-  "log-general",
-  "unsorted",
-  ];
- 
-  let bucket = (parsed.bucket || "").toLowerCase().trim();
-  if (!VALID_BUCKETS.includes(bucket)) bucket = "log-general";
- 
-  let confidence = Number(parsed.confidence ?? 50);
-  if (!Number.isFinite(confidence)) confidence = 50;
-  confidence = Math.max(0, Math.min(100, confidence));
- 
-  const tags = Array.isArray(parsed.tags)
-  ? parsed.tags.map((t) => String(t)).slice(0, 5)
-  : [];
- 
-  const title =
-  typeof parsed.title === "string" && parsed.title.trim().length > 0
-  ? parsed.title.trim()
-  : originalText.split(/\s+/).slice(0, 7).join(" ");
- 
-  return j({
-  id: String(oj.id || crypto.randomUUID()),
-  classification: {
-  bucket,
-  type: bucket === "todo" ? "todo" : bucket === "habit" ? "habit" : "log",
-  subtype:
-  bucket === "log-journal"
-  ? "journal"
-  : bucket === "log-idea"
-  ? "idea"
-  : bucket === "log-general"
-  ? "general"
-  : null,
-  category: bucket,
-  tags,
-  confidence,
-  title,
-  },
-  aiTitle: title,
-  aiTagsDebug: tags,
-  });
-  }
- 
-  const content = oj?.choices?.[0]?.message?.content ?? oj?.choices?.[0]?.text ?? "";
- 
-  let save_suggestion = null;
-  if (lane === 'space_chat') {
-         // save_suggestion removed
-  }
- 
-  return j({
-  id: String((oj.id || "").replace(/^chatcmpl-/, "cmpl-")),
-  content,
-  model: oj.model,
-  usage: oj.usage || null,
-  save_suggestion,
-  });
-  } catch (err) {
-  return j({ error: "proxy_error", detail: String(err?.message || "unknown") }, 200);
-  }
-  },
- };
- 
- function j(obj, status = 200) {
-  return Response.json ? Response.json(obj, {
-  status,
-  headers: {
-  "Access-Control-Allow-Origin": "*",
-  },
-  }) : new Response(JSON.stringify(obj), {
-  status,
-  headers: {
-  "Access-Control-Allow-Origin": "*",
-  "Content-Type": "application/json",
-  },
-  });
- }
+};
+
+function j(obj, status = 200) {
+  return Response.json
+    ? Response.json(obj, {
+        status,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+        },
+      })
+    : new Response(JSON.stringify(obj), {
+        status,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/json',
+        },
+      });
+}
 
 // Safe JSON parser that handles markdown fences and malformed responses
 function safeParseJson(raw) {
-  if (!raw || typeof raw !== "string") return null;
+  if (!raw || typeof raw !== 'string') return null;
   let s = raw.trim();
   // Strip markdown code fences
-  s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  s = s
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
   // Extract first {...} block if there's extra text
-  const firstBrace = s.indexOf("{");
-  const lastBrace = s.lastIndexOf("}");
+  const firstBrace = s.indexOf('{');
+  const lastBrace = s.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
     s = s.slice(firstBrace, lastBrace + 1);
   }
@@ -2775,4 +2961,4 @@ function safeParseJson(raw) {
   } catch {
     return null;
   }
-}// Paste your worker code here
+} // Paste your worker code here

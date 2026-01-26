@@ -4,7 +4,7 @@
  * Renders a single task row in Morning Brief.
  * - Tap row → opens TimeBlockPicker
  * - Tap time estimate → opens TimeEstimatePicker
- * 
+ *
  * AnimatedTaskItem wraps TaskItem with exit animation support.
  */
 
@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
 
 /**
  * AnimatedTaskItem
- * 
+ *
  * Wraps TaskItem with exit animation support for organize flow.
  * When isAnimatingOut is true, the card lifts slightly then slides down and fades out.
  */
@@ -150,9 +150,10 @@ export function AnimatedTaskItem({
   isAnimatingOut = false,
   animationDelay = 0,
 }: AnimatedTaskItemProps) {
-  const translateY = useRef(new Animated.Value(0)).current;
-  const opacity = useRef(new Animated.Value(1)).current;
-  const scale = useRef(new Animated.Value(1)).current;
+  // Using refs without destructuring .current to satisfy React Compiler
+  const translateYRef = useRef(new Animated.Value(0));
+  const opacityRef = useRef(new Animated.Value(1));
+  const scaleRef = useRef(new Animated.Value(1));
 
   useEffect(() => {
     if (isAnimatingOut) {
@@ -161,13 +162,13 @@ export function AnimatedTaskItem({
         Animated.delay(animationDelay),
         // Lift slightly with scale
         Animated.parallel([
-          Animated.timing(translateY, {
+          Animated.timing(translateYRef.current, {
             toValue: -6,
             duration: 120,
             easing: Easing.out(Easing.quad),
             useNativeDriver: true,
           }),
-          Animated.timing(scale, {
+          Animated.timing(scaleRef.current, {
             toValue: 1.02,
             duration: 120,
             easing: Easing.out(Easing.quad),
@@ -178,19 +179,19 @@ export function AnimatedTaskItem({
         Animated.delay(80),
         // Slide down and fade out
         Animated.parallel([
-          Animated.timing(translateY, {
+          Animated.timing(translateYRef.current, {
             toValue: 40,
             duration: 280,
             easing: Easing.in(Easing.quad),
             useNativeDriver: true,
           }),
-          Animated.timing(opacity, {
+          Animated.timing(opacityRef.current, {
             toValue: 0,
             duration: 280,
             easing: Easing.in(Easing.quad),
             useNativeDriver: true,
           }),
-          Animated.timing(scale, {
+          Animated.timing(scaleRef.current, {
             toValue: 0.95,
             duration: 280,
             easing: Easing.in(Easing.quad),
@@ -200,17 +201,17 @@ export function AnimatedTaskItem({
       ]).start();
     } else {
       // Reset if not animating
-      translateY.setValue(0);
-      opacity.setValue(1);
-      scale.setValue(1);
+      translateYRef.current.setValue(0);
+      opacityRef.current.setValue(1);
+      scaleRef.current.setValue(1);
     }
-  }, [isAnimatingOut, animationDelay, translateY, opacity, scale]);
+  }, [isAnimatingOut, animationDelay]);
 
   return (
     <Animated.View
       style={{
-        transform: [{ translateY }, { scale }],
-        opacity,
+        transform: [{ translateY: translateYRef.current }, { scale: scaleRef.current }],
+        opacity: opacityRef.current,
       }}
     >
       <TaskItem
