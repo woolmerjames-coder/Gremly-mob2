@@ -35,6 +35,15 @@ jest.mock('../../../../contexts/OverlayContext', () => ({
   }),
 }));
 
+// Mock capacitySelectors to avoid needing full store state
+jest.mock('../../../../lib/store/capacitySelectors', () => ({
+  useMiniSweepCalendarContext: () => ({
+    blockedHours: 0,
+    eventCount: 0,
+    gremlyMessage: 'Clear day ahead. Good time to make progress on these.',
+  }),
+}));
+
 // Mock Reanimated
 jest.mock('react-native-reanimated', () => {
   const Reanimated = require('react-native-reanimated/mock');
@@ -127,7 +136,7 @@ describe('MiniSweepGate', () => {
         />,
       );
 
-      expect(screen.getByText('Quick sort, then we plan the day!')).toBeTruthy();
+      expect(screen.getByText('Clear day ahead. Good time to make progress on these.')).toBeTruthy();
     });
 
     it('renders rolled over section when items exist', () => {

@@ -40,11 +40,19 @@ jest.mock('react-native-safe-area-context', () => ({
 // Mock store
 const mockDayBoundaryHour = 5;
 const mockSetDayBoundaryHour = jest.fn().mockResolvedValue(undefined);
+const mockTimeBlockPreferences = {
+  morning: { startHour: 6, endHour: 12 },
+  day: { startHour: 12, endHour: 17 },
+  evening: { startHour: 17, endHour: 22 },
+};
+const mockSetTimeBlockPreferences = jest.fn().mockResolvedValue(undefined);
 jest.mock('../../../lib/store/useGremlyStore', () => ({
   useGremlyStore: (selector: (state: unknown) => unknown) => {
     const state = {
       dayBoundaryHour: mockDayBoundaryHour,
       setDayBoundaryHour: mockSetDayBoundaryHour,
+      timeBlockPreferences: mockTimeBlockPreferences,
+      setTimeBlockPreferences: mockSetTimeBlockPreferences,
     };
     return selector(state);
   },
