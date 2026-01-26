@@ -1058,6 +1058,11 @@ export default {
             const parts = [`- ${t.id}: "${t.title}"`];
             parts.push(`  total_minutes: ${t.totalMinutes || t.estimateMinutes || 30}`);
             parts.push(`  energy: ${t.energyType || 'administrative'}`);
+            parts.push(`  type: ${t.type || 'todo'}`);
+            // Include tags if available (comma-separated)
+            if (t.tags && Array.isArray(t.tags) && t.tags.length > 0) {
+              parts.push(`  tags: ${t.tags.slice(0, 5).join(', ')}`);
+            }
             if (t.timeWindowPreference) {
               parts.push(`  prefers: ${t.timeWindowPreference}`);
             }
@@ -1076,11 +1081,11 @@ export default {
 Afternoon: ${blocks.day?.realisticAvailableMinutes ?? blocks.day?.availableMinutes ?? 0} min
 Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min`;
 
-        const organizePrompt = `You are a task scheduler. Place tasks into time blocks.
+        const organizePrompt = `You are a task scheduler. Place tasks into time blocks to create a calm, focused day.
 
 === TIME ===
 Current hour: ${currentHour}:00
-Past blocks unavailable.
+Past blocks are unavailable.
 
 === CALENDAR ===
 ${calendarContext}
@@ -1092,27 +1097,54 @@ Use max 85% of each block.
 === TASKS ===
 ${taskList}
 
-=== RULES ===
-1. Never schedule in past blocks
-2. Never exceed 85% of capacity (use total_minutes)
-3. Respect time_window_preference if set
-4. deep_focus → longest block
-5. Avoid stacking physical/social back-to-back
+Each task includes:
+- id, title
+- total_minutes (includes prep/cooldown, use for capacity)
+- energy: deep_focus | administrative | physical | social | quick
+- type: todo | habit
+- tags: topical labels (work, health, finance, creative, etc.)
+- prefers: time_window_preference if set
+
+=== SCHEDULING RULES ===
+1. Never schedule tasks in past blocks
+2. Never exceed 85% of block capacity
+3. Respect time_window_preference when set
+
+4. Use energy types to shape task sequencing and flow
+5. Place deep_focus tasks in the longest uninterrupted block
+6. Group tasks with shared tags to reduce context switching
+7. Avoid stacking physical or social tasks back-to-back
+8. Spread habits across blocks — avoid clustering
+
+=== GROUPING PRINCIPLES ===
+- Tasks sharing tags (e.g. "work", "finance") benefit from being adjacent
+- Similar energy types flow better together
+- Habits should feel integrated, not front-loaded
+- Reduce mental overhead by minimizing topic jumps
 
 === OUTPUT ===
-JSON only:
+JSON only, no markdown:
 {
   "assignments": [{ "taskId": "...", "block": "morning|day|evening", "reason": "5-10 words" }],
   "overflow": [{ "taskId": "...", "reason": "5-10 words" }],
-  "reasoning": ["First pattern or decision", "Second pattern", "Third if needed"],
-  "summary": "One sentence"
+  "reasoning": ["Pattern or decision 1", "Pattern 2", "Pattern 3 if needed"],
+  "summary": "One calm sentence about the plan"
 }
 
-Reasoning guidelines:
-- 2-4 short bullets explaining the overall approach
-- Focus on patterns: grouping, protecting focus time, respecting preferences
-- Do NOT mention: minutes, buffers, capacity numbers, energy types
-- Keep it human and reassuring`;
+=== REASONING GUIDELINES ===
+Provide 2-4 short bullets explaining your approach. Focus on:
+- Grouping patterns (e.g. "Batched your work tasks together")
+- Energy flow (e.g. "Put focus work in the morning when you're fresh")
+- Habit placement (e.g. "Spread your habits throughout the day")
+- Preference respect (e.g. "Honored your morning preference for the gym")
+
+Do NOT mention in reasoning:
+- Specific minute counts or capacity numbers
+- Buffer calculations
+- Energy type names (use plain language like "heavier tasks" or "quick wins")
+- Technical terms
+
+Keep the tone warm and reassuring — like a helpful friend explaining the plan.`;
 
         const t0 = Date.now();
 
