@@ -1,13 +1,14 @@
 /**
  * TimeEstimatePicker
  *
- * Quick picker for editing task time estimates.
+ * Hybrid grid + stepper picker for editing task time estimates.
+ * Supports 5-minute increments from 5 to 240 minutes.
  * Updates the time_estimate_minutes field on todos/habits.
  */
 
-import React, { useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, TextInput } from 'react-native';
-import { Clock, Check } from 'lucide-react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
+import { Clock, Check, Minus, Plus } from 'lucide-react-native';
 
 // Colors matching app patterns
 const COLORS = {
@@ -20,16 +21,13 @@ const COLORS = {
   selectedBg: 'rgba(46, 85, 64, 0.1)',
 };
 
-// Preset time options in minutes
-const PRESET_OPTIONS = [
-  { label: '5m', value: 5 },
-  { label: '15m', value: 15 },
-  { label: '30m', value: 30 },
-  { label: '45m', value: 45 },
-  { label: '1h', value: 60 },
-  { label: '1.5h', value: 90 },
-  { label: '2h', value: 120 },
-];
+// Quick-select options for common values
+const QUICK_OPTIONS = [5, 10, 15, 20, 30, 45, 60, 90];
+
+// Stepper constraints
+const MIN_MINUTES = 5;
+const MAX_MINUTES = 240;
+const STEP_INCREMENT = 5;
 
 interface TimeEstimatePickerProps {
   visible: boolean;
@@ -41,6 +39,22 @@ interface TimeEstimatePickerProps {
   onSave: (taskId: string, taskType: 'todo' | 'habit', minutes: number | null) => void;
 }
 
+// Utility function for consistent time formatting
+function formatTimeEstimate(minutes: number | null | undefined): string {
+  if (!minutes) return '';
+
+  if (minutes < 60) {
+    return `${minutes} min`;
+  } else if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} hr${hours > 1 ? 's' : ''}`;
+  } else {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+  }
+}
+
 export function TimeEstimatePicker({
   visible,
   taskId,
@@ -50,8 +64,7 @@ export function TimeEstimatePicker({
   onClose,
   onSave,
 }: TimeEstimatePickerProps) {
-  const [customMinutes, setCustomMinutes] = useState('');
-  const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
+  const [selectedMinutes, setSelectedMinutes] = useState<number>(currentEstimate ?? 30);
 
   // Track previous values to reset state when task changes
   const [prevVisible, setPrevVisible] = useState(visible);
@@ -62,55 +75,40 @@ export function TimeEstimatePicker({
     setPrevVisible(visible);
     setPrevEstimate(currentEstimate);
 
-    if (visible && currentEstimate) {
-      const matchingPreset = PRESET_OPTIONS.find((p) => p.value === currentEstimate);
-      if (matchingPreset) {
-        setSelectedPreset(currentEstimate);
-        setCustomMinutes('');
-      } else {
-        setSelectedPreset(null);
-        setCustomMinutes(String(currentEstimate));
-      }
-    } else if (visible) {
-      setSelectedPreset(null);
-      setCustomMinutes('');
+    if (visible) {
+      setSelectedMinutes(currentEstimate ?? 30);
     }
   }
 
+  const handleQuickSelect = useCallback((minutes: number) => {
+    setSelectedMinutes(minutes);
+  }, []);
+
+  const handleIncrement = useCallback(() => {
+    setSelectedMinutes((prev) => Math.min(MAX_MINUTES, prev + STEP_INCREMENT));
+  }, []);
+
+  const handleDecrement = useCallback(() => {
+    setSelectedMinutes((prev) => Math.max(MIN_MINUTES, prev - STEP_INCREMENT));
+  }, []);
+
+  const handleSave = useCallback(() => {
+    if (taskId && taskType) {
+      onSave(taskId, taskType, selectedMinutes);
+    }
+    onClose();
+  }, [taskId, taskType, selectedMinutes, onSave, onClose]);
+
+  const handleClear = useCallback(() => {
+    if (taskId && taskType) {
+      onSave(taskId, taskType, null);
+    }
+    onClose();
+  }, [taskId, taskType, onSave, onClose]);
+
   if (!taskId || !taskType) return null;
 
-  const handlePresetSelect = (value: number) => {
-    setSelectedPreset(value);
-    setCustomMinutes('');
-  };
-
-  const handleCustomChange = (text: string) => {
-    // Only allow numbers
-    const numericText = text.replace(/[^0-9]/g, '');
-    setCustomMinutes(numericText);
-    setSelectedPreset(null);
-  };
-
-  const handleSave = () => {
-    let minutes: number | null = null;
-
-    if (selectedPreset !== null) {
-      minutes = selectedPreset;
-    } else if (customMinutes) {
-      const parsed = parseInt(customMinutes, 10);
-      if (!isNaN(parsed) && parsed > 0) {
-        minutes = parsed;
-      }
-    }
-
-    onSave(taskId, taskType, minutes);
-    onClose();
-  };
-
-  const handleClear = () => {
-    onSave(taskId, taskType, null);
-    onClose();
-  };
+  const isQuickOptionSelected = QUICK_OPTIONS.includes(selectedMinutes);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -119,50 +117,83 @@ export function TimeEstimatePicker({
           {/* Header */}
           <View style={styles.header}>
             <Clock size={20} color={COLORS.mossGreen} />
-            <Text style={styles.title}>Time estimate</Text>
+            <Text style={styles.title}>How long will this take?</Text>
           </View>
 
           {/* Task name for context */}
-          <Text style={styles.taskName} numberOfLines={1}>
-            {taskTitle}
-          </Text>
+          {taskTitle && (
+            <Text style={styles.taskName} numberOfLines={1}>
+              {taskTitle}
+            </Text>
+          )}
 
-          {/* Preset Options Grid */}
-          <View style={styles.presetsGrid}>
-            {PRESET_OPTIONS.map((option) => (
+          {/* Quick Select Grid */}
+          <View style={styles.quickGrid}>
+            {QUICK_OPTIONS.map((minutes) => (
               <Pressable
-                key={option.value}
+                key={minutes}
                 style={[
-                  styles.presetButton,
-                  selectedPreset === option.value && styles.presetButtonSelected,
+                  styles.quickOption,
+                  selectedMinutes === minutes && styles.quickOptionSelected,
                 ]}
-                onPress={() => handlePresetSelect(option.value)}
+                onPress={() => handleQuickSelect(minutes)}
               >
                 <Text
                   style={[
-                    styles.presetText,
-                    selectedPreset === option.value && styles.presetTextSelected,
+                    styles.quickOptionText,
+                    selectedMinutes === minutes && styles.quickOptionTextSelected,
                   ]}
                 >
-                  {option.label}
+                  {formatTimeEstimate(minutes)}
                 </Text>
               </Pressable>
             ))}
           </View>
 
-          {/* Custom Input */}
-          <View style={styles.customRow}>
-            <Text style={styles.customLabel}>Custom:</Text>
-            <TextInput
-              style={styles.customInput}
-              value={customMinutes}
-              onChangeText={handleCustomChange}
-              placeholder="mins"
-              placeholderTextColor={COLORS.inkMuted}
-              keyboardType="number-pad"
-              maxLength={3}
-            />
-            <Text style={styles.customSuffix}>minutes</Text>
+          {/* Stepper for custom values */}
+          <View style={styles.stepperContainer}>
+            <Text style={styles.stepperLabel}>Custom</Text>
+            <View style={styles.stepper}>
+              <Pressable
+                style={[
+                  styles.stepperButton,
+                  selectedMinutes <= MIN_MINUTES && styles.stepperButtonDisabled,
+                ]}
+                onPress={handleDecrement}
+                disabled={selectedMinutes <= MIN_MINUTES}
+              >
+                <Minus
+                  size={20}
+                  color={selectedMinutes <= MIN_MINUTES ? '#CCCCCC' : COLORS.mossGreen}
+                />
+              </Pressable>
+
+              <View style={styles.stepperValue}>
+                <Text
+                  style={[
+                    styles.stepperValueText,
+                    !isQuickOptionSelected && styles.stepperValueTextActive,
+                  ]}
+                >
+                  {formatTimeEstimate(selectedMinutes)}
+                </Text>
+              </View>
+
+              <Pressable
+                style={[
+                  styles.stepperButton,
+                  selectedMinutes >= MAX_MINUTES && styles.stepperButtonDisabled,
+                ]}
+                onPress={handleIncrement}
+                disabled={selectedMinutes >= MAX_MINUTES}
+              >
+                <Plus
+                  size={20}
+                  color={selectedMinutes >= MAX_MINUTES ? '#CCCCCC' : COLORS.mossGreen}
+                />
+              </Pressable>
+            </View>
+            <Text style={styles.stepperHint}>5 min – 4 hrs</Text>
           </View>
 
           {/* Actions */}
@@ -208,7 +239,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
     color: COLORS.charcoalInk,
     marginLeft: 8,
@@ -219,58 +250,73 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
-  presetsGrid: {
+  quickGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 20,
   },
-  presetButton: {
+  quickOption: {
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 8,
     backgroundColor: COLORS.linenCream,
-    minWidth: 56,
+    minWidth: 64,
     alignItems: 'center',
   },
-  presetButtonSelected: {
+  quickOptionSelected: {
     backgroundColor: COLORS.mossGreen,
   },
-  presetText: {
-    fontSize: 15,
+  quickOptionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.charcoalInk,
+  },
+  quickOptionTextSelected: {
+    color: COLORS.surface,
+  },
+  stepperContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  stepperLabel: {
+    fontSize: 13,
+    color: COLORS.inkMuted,
+    marginBottom: 8,
+  },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  stepperButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.linenCream,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stepperButtonDisabled: {
+    opacity: 0.5,
+  },
+  stepperValue: {
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  stepperValueText: {
+    fontSize: 20,
     fontWeight: '600',
     color: COLORS.charcoalInk,
   },
-  presetTextSelected: {
-    color: COLORS.surface,
+  stepperValueTextActive: {
+    color: COLORS.mossGreen,
   },
-  customRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  customLabel: {
-    fontSize: 14,
+  stepperHint: {
+    fontSize: 12,
     color: COLORS.inkMuted,
-    marginRight: 8,
-  },
-  customInput: {
-    width: 60,
-    height: 40,
-    borderWidth: 1,
-    borderColor: COLORS.divider,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    fontSize: 16,
-    color: COLORS.charcoalInk,
-    textAlign: 'center',
-  },
-  customSuffix: {
-    fontSize: 14,
-    color: COLORS.inkMuted,
-    marginLeft: 8,
+    marginTop: 4,
   },
   actions: {
     flexDirection: 'row',

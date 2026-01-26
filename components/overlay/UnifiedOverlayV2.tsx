@@ -36,6 +36,7 @@ import Reanimated, {
 import {
   X as CloseIcon,
   Plus,
+  Minus,
   Calendar,
   Pencil,
   RotateCw,
@@ -300,17 +301,29 @@ const PRESET_TIMES = [
   { label: '9:00 PM', hour: 21, minute: 0, key: '9:00-PM' },
 ] as const;
 
-// Time estimate options for todos
-const TIME_ESTIMATE_OPTIONS = [
-  { value: 5, label: '5 min' },
-  { value: 10, label: '10 min' },
-  { value: 15, label: '15 min' },
-  { value: 30, label: '30 min' },
-  { value: 45, label: '45 min' },
-  { value: 60, label: '1 hour' },
-  { value: 90, label: '1.5 hours' },
-  { value: 120, label: '2 hours' },
-] as const;
+// Time estimate options for todos - quick select grid
+const TIME_ESTIMATE_QUICK_OPTIONS = [5, 10, 15, 20, 30, 45, 60, 90] as const;
+
+// Stepper constraints for time estimates
+const TIME_ESTIMATE_MIN = 5;
+const TIME_ESTIMATE_MAX = 240;
+const TIME_ESTIMATE_STEP = 5;
+
+// Utility function for consistent time formatting
+function formatTimeEstimate(minutes: number | null | undefined): string {
+  if (!minutes) return '';
+
+  if (minutes < 60) {
+    return `${minutes} min`;
+  } else if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} hr${hours > 1 ? 's' : ''}`;
+  } else {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+  }
+}
 
 // Time window options for todos and habits (preferred time of day)
 const TIME_WINDOW_OPTIONS: {
@@ -1373,6 +1386,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   const [showTimeEstimateModal, setShowTimeEstimateModal] = useState(false);
+  const [timeEstimateValue, setTimeEstimateValue] = useState<number>(30); // Stepper value for time estimate modal
   const [showTimeWindowModal, setShowTimeWindowModal] = useState(false);
   const [showHabitStartDatePicker, setShowHabitStartDatePicker] = useState(false);
   const [showHabitEndDatePicker, setShowHabitEndDatePicker] = useState(false);
@@ -6233,7 +6247,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     <View style={styles.dueDateLeft}>
                                       <Pressable
                                         style={styles.dueDatePill}
-                                        onPress={() => setShowTimeEstimateModal(true)}
+                                        onPress={() => {
+                                          setTimeEstimateValue(state.todo.time_estimate_minutes ?? 30);
+                                          setShowTimeEstimateModal(true);
+                                        }}
                                         accessibilityRole="button"
                                         accessibilityLabel={
                                           state.todo.time_estimate_minutes
@@ -6267,9 +6284,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           ]}
                                         >
                                           {state.todo.time_estimate_minutes
-                                            ? TIME_ESTIMATE_OPTIONS.find(
-                                                (o) => o.value === state.todo.time_estimate_minutes,
-                                              )?.label || `${state.todo.time_estimate_minutes} min`
+                                            ? formatTimeEstimate(state.todo.time_estimate_minutes)
                                             : 'Add time estimate'}
                                         </Text>
                                       </Pressable>
@@ -7547,7 +7562,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Pressable>
                   </Modal>
 
-                  {/* Time Estimate Modal */}
+                  {/* Time Estimate Modal - Hybrid Grid + Stepper */}
                   <Modal visible={showTimeEstimateModal} transparent animationType="fade">
                     <Pressable
                       style={{
@@ -7562,7 +7577,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         onPress={(e) => e.stopPropagation()}
                         style={{
                           width: '92%',
-                          maxWidth: 400,
+                          maxWidth: 340,
                           alignSelf: 'center',
                           backgroundColor: '#FFFFFF',
                           paddingHorizontal: 20,
@@ -7584,57 +7599,124 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             fontWeight: '600',
                             color: '#222222',
                             marginBottom: 16,
+                            textAlign: 'center',
                           }}
                         >
                           How long will this take?
                         </Text>
+
+                        {/* Quick Select Grid */}
                         <View style={styles.timeEstimateGrid}>
-                          {TIME_ESTIMATE_OPTIONS.map((option) => {
-                            const currentEstimate =
-                              baseType === 'habit'
-                                ? state.habit.time_estimate_minutes
-                                : state.todo.time_estimate_minutes;
-                            return (
-                              <Pressable
-                                key={option.value}
+                          {TIME_ESTIMATE_QUICK_OPTIONS.map((minutes) => (
+                            <Pressable
+                              key={minutes}
+                              style={[
+                                styles.timeEstimateOption,
+                                timeEstimateValue === minutes &&
+                                  styles.timeEstimateOptionSelected,
+                              ]}
+                              onPress={() => setTimeEstimateValue(minutes)}
+                            >
+                              <Text
                                 style={[
-                                  styles.timeEstimateOption,
-                                  currentEstimate === option.value &&
-                                    styles.timeEstimateOptionSelected,
+                                  styles.timeEstimateOptionText,
+                                  timeEstimateValue === minutes &&
+                                    styles.timeEstimateOptionTextSelected,
                                 ]}
-                                onPress={() => {
-                                  if (baseType === 'habit') {
-                                    dispatch({
-                                      type: 'SET_HABIT_TIME_ESTIMATE',
-                                      minutes: option.value,
-                                    });
-                                  } else {
-                                    dispatch({
-                                      type: 'SET_TODO_TIME_ESTIMATE',
-                                      minutes: option.value,
-                                    });
-                                  }
-                                  setShowTimeEstimateModal(false);
+                              >
+                                {formatTimeEstimate(minutes)}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+
+                        {/* Stepper for custom values */}
+                        <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                          <Text style={{ fontSize: 13, color: '#666666', marginBottom: 8 }}>
+                            Custom
+                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                            <Pressable
+                              style={{
+                                width: 44,
+                                height: 44,
+                                borderRadius: 22,
+                                backgroundColor: '#F5F5F5',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                opacity: timeEstimateValue <= TIME_ESTIMATE_MIN ? 0.5 : 1,
+                              }}
+                              onPress={() =>
+                                setTimeEstimateValue((prev) =>
+                                  Math.max(TIME_ESTIMATE_MIN, prev - TIME_ESTIMATE_STEP)
+                                )
+                              }
+                              disabled={timeEstimateValue <= TIME_ESTIMATE_MIN}
+                            >
+                              <Minus
+                                size={20}
+                                color={
+                                  timeEstimateValue <= TIME_ESTIMATE_MIN ? '#CCCCCC' : '#2E5540'
+                                }
+                              />
+                            </Pressable>
+
+                            <View style={{ minWidth: 80, alignItems: 'center' }}>
+                              <Text
+                                style={{
+                                  fontSize: 20,
+                                  fontWeight: '600',
+                                  color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
+                                    timeEstimateValue as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number]
+                                  )
+                                    ? '#2E5540'
+                                    : '#333333',
                                 }}
                               >
-                                <Text
-                                  style={[
-                                    styles.timeEstimateOptionText,
-                                    currentEstimate === option.value &&
-                                      styles.timeEstimateOptionTextSelected,
-                                  ]}
-                                >
-                                  {option.label}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
+                                {formatTimeEstimate(timeEstimateValue)}
+                              </Text>
+                            </View>
+
+                            <Pressable
+                              style={{
+                                width: 44,
+                                height: 44,
+                                borderRadius: 22,
+                                backgroundColor: '#F5F5F5',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                opacity: timeEstimateValue >= TIME_ESTIMATE_MAX ? 0.5 : 1,
+                              }}
+                              onPress={() =>
+                                setTimeEstimateValue((prev) =>
+                                  Math.min(TIME_ESTIMATE_MAX, prev + TIME_ESTIMATE_STEP)
+                                )
+                              }
+                              disabled={timeEstimateValue >= TIME_ESTIMATE_MAX}
+                            >
+                              <Plus
+                                size={20}
+                                color={
+                                  timeEstimateValue >= TIME_ESTIMATE_MAX ? '#CCCCCC' : '#2E5540'
+                                }
+                              />
+                            </Pressable>
+                          </View>
+                          <Text style={{ fontSize: 12, color: '#999999', marginTop: 4 }}>
+                            5 min – 4 hrs
+                          </Text>
                         </View>
-                        {(baseType === 'habit'
-                          ? state.habit.time_estimate_minutes
-                          : state.todo.time_estimate_minutes) && (
+
+                        {/* Action buttons */}
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
                           <Pressable
-                            style={styles.timeEstimateClearButton}
+                            style={{ paddingVertical: 12, paddingHorizontal: 16 }}
                             onPress={() => {
                               if (baseType === 'habit') {
                                 dispatch({ type: 'SET_HABIT_TIME_ESTIMATE', minutes: null });
@@ -7644,9 +7726,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               setShowTimeEstimateModal(false);
                             }}
                           >
-                            <Text style={styles.timeEstimateClearButtonText}>Clear estimate</Text>
+                            <Text style={{ fontSize: 14, color: '#666666' }}>Clear</Text>
                           </Pressable>
-                        )}
+
+                          <Pressable
+                            style={{
+                              backgroundColor: '#2E5540',
+                              paddingVertical: 12,
+                              paddingHorizontal: 24,
+                              borderRadius: 8,
+                            }}
+                            onPress={() => {
+                              if (baseType === 'habit') {
+                                dispatch({
+                                  type: 'SET_HABIT_TIME_ESTIMATE',
+                                  minutes: timeEstimateValue,
+                                });
+                              } else {
+                                dispatch({
+                                  type: 'SET_TODO_TIME_ESTIMATE',
+                                  minutes: timeEstimateValue,
+                                });
+                              }
+                              setShowTimeEstimateModal(false);
+                            }}
+                          >
+                            <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
+                              Save
+                            </Text>
+                          </Pressable>
+                        </View>
                       </Pressable>
                     </Pressable>
                   </Modal>
@@ -8038,13 +8147,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                           {/* ===== DURATION SECTION ===== */}
                           <Text style={styles.scheduleModalSectionLabel}>Duration</Text>
+                          
+                          {/* Quick select grid */}
                           <View style={styles.durationGrid}>
-                            {TIME_ESTIMATE_OPTIONS.map((option) => {
+                            {TIME_ESTIMATE_QUICK_OPTIONS.map((minutes) => {
                               const isSelected =
-                                scheduleModalState.timeEstimateMinutes === option.value;
+                                scheduleModalState.timeEstimateMinutes === minutes;
                               return (
                                 <Pressable
-                                  key={option.value}
+                                  key={minutes}
                                   style={[
                                     styles.durationChip,
                                     isSelected && styles.durationChipSelected,
@@ -8052,7 +8163,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   onPress={() =>
                                     setScheduleModalState((prev) => ({
                                       ...prev,
-                                      timeEstimateMinutes: isSelected ? null : option.value,
+                                      timeEstimateMinutes: minutes,
                                     }))
                                   }
                                 >
@@ -8062,11 +8173,100 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       isSelected && styles.durationChipTextSelected,
                                     ]}
                                   >
-                                    {option.label}
+                                    {formatTimeEstimate(minutes)}
                                   </Text>
                                 </Pressable>
                               );
                             })}
+                          </View>
+
+                          {/* Stepper for custom values */}
+                          <View style={{ alignItems: 'center', marginTop: 12, marginBottom: 8 }}>
+                            <Text style={{ fontSize: 12, color: '#666666', marginBottom: 6 }}>
+                              Custom
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <Pressable
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 18,
+                                  backgroundColor: '#F5F5F5',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  opacity: (scheduleModalState.timeEstimateMinutes ?? 30) <= TIME_ESTIMATE_MIN ? 0.5 : 1,
+                                }}
+                                onPress={() =>
+                                  setScheduleModalState((prev) => ({
+                                    ...prev,
+                                    timeEstimateMinutes: Math.max(
+                                      TIME_ESTIMATE_MIN,
+                                      (prev.timeEstimateMinutes ?? 30) - TIME_ESTIMATE_STEP
+                                    ),
+                                  }))
+                                }
+                                disabled={(scheduleModalState.timeEstimateMinutes ?? 30) <= TIME_ESTIMATE_MIN}
+                              >
+                                <Minus
+                                  size={16}
+                                  color={
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) <= TIME_ESTIMATE_MIN
+                                      ? '#CCCCCC'
+                                      : '#2E5540'
+                                  }
+                                />
+                              </Pressable>
+
+                              <View style={{ minWidth: 70, alignItems: 'center' }}>
+                                <Text
+                                  style={{
+                                    fontSize: 16,
+                                    fontWeight: '600',
+                                    color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
+                                      (scheduleModalState.timeEstimateMinutes ?? 30) as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number]
+                                    )
+                                      ? '#2E5540'
+                                      : '#333333',
+                                  }}
+                                >
+                                  {formatTimeEstimate(scheduleModalState.timeEstimateMinutes ?? 30)}
+                                </Text>
+                              </View>
+
+                              <Pressable
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 18,
+                                  backgroundColor: '#F5F5F5',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  opacity: (scheduleModalState.timeEstimateMinutes ?? 30) >= TIME_ESTIMATE_MAX ? 0.5 : 1,
+                                }}
+                                onPress={() =>
+                                  setScheduleModalState((prev) => ({
+                                    ...prev,
+                                    timeEstimateMinutes: Math.min(
+                                      TIME_ESTIMATE_MAX,
+                                      (prev.timeEstimateMinutes ?? 30) + TIME_ESTIMATE_STEP
+                                    ),
+                                  }))
+                                }
+                                disabled={(scheduleModalState.timeEstimateMinutes ?? 30) >= TIME_ESTIMATE_MAX}
+                              >
+                                <Plus
+                                  size={16}
+                                  color={
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) >= TIME_ESTIMATE_MAX
+                                      ? '#CCCCCC'
+                                      : '#2E5540'
+                                  }
+                                />
+                              </Pressable>
+                            </View>
+                            <Text style={{ fontSize: 11, color: '#999999', marginTop: 4 }}>
+                              5 min – 4 hrs
+                            </Text>
                           </View>
                         </ScrollView>
 

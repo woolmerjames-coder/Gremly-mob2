@@ -1985,206 +1985,253 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
         const hasAttachments = body.hasAttachments || false;
         const heuristicHint = body.heuristicHint || null;
 
-        const phase1Prompt = `You classify "mind drops" for Gremly AND generate a smart title + confirmation message.
+        const phase1Prompt = `You classify "mind drops" for Gremly, a productivity app. Your job is to understand the user's TRUE INTENT using semantic understanding, not keyword matching.
 
-  === THE THREE BUCKETS ===
-  
-  **TODO** - A discrete, completable action
-  User will eventually "check this off." Clear done state exists.
-  
-  **TODO SIGNAL PHRASES (these indicate a task, not a note):**
-  - "make sure to...", "make sure I..."
-  - "don't forget to...", "remember to..."
-  - "need to...", "have to...", "should..." (+ specific action)
-  - "remind me to..."
-  
-  Even without explicit "todo" framing, these phrases indicate an action the user wants to complete.
-  
-  **HABIT** - A trackable, recurring behavior the user EXPLICITLY wants to track
-  STRICT REQUIREMENTS - see "HABIT GATE" below. Must have explicit frequency OR stop/quit + concrete behavior.
-  
-  **LOG** - Capture for reflection, not action
-  A thought, feeling, idea, observation, OR a fuzzy aspiration that needs more thought.
-  
-  === DECISION FRAMEWORK ===
-  
-  **STEP 0: Check for STRONG TODO SIGNALS (HIGH CONFIDENCE)**
-  
-  These phrases strongly indicate a task — classify as TODO:
-  
-  Explicit reminders: "make sure to...", "don't forget to...", "remember to...", "remind me to..."
-  Clear obligation: "need to...", "have to...", "gotta...", "got to..."
-  Direct commands to self: "call...", "text...", "email...", "buy...", "book...", "schedule...", "submit...", "pay...", "send...", "finish...", "complete..."
-  
-  These are TODOs even with soft hedging:
-  - "should call mom" → TODO (clear action)
-  - "need to buy groceries" → TODO (clear action)
-  - "don't forget to submit timesheet" → TODO (explicit reminder)
-  
-  **STEP 1: Check for REFERENCE/INFO signals (LOG/general)**
-  
-  Classify as LOG/general if the input is purely INFORMATIONAL (no action):
-  - Contact info: "john's number is 555-1234"
-  - Status updates: "meeting moved to thursday"
-  - Facts to remember: "remember sarah likes orchids" (storing info, not tasking yourself)
-  - Announcements: "jake is sick", "office closed monday"
-  
-  **STEP 2: HABIT GATE (STRICT)**
-  
-  ONLY classify as HABIT if:
-  
-  A) EXPLICIT FREQUENCY: "daily", "every day", "every morning", "3x/week", "weekly", etc.
-  
-  OR
-  
-  B) STOP/QUIT + CONCRETE TRACKABLE BEHAVIOR: "stop smoking", "quit scrolling", "no phone after 9pm"
-  
-  WITHOUT explicit frequency or stop/quit → NOT a habit
-  
-  **STEP 3: Check for IDEA signals (LOG/idea)**
-  
-  Classify as LOG/idea if:
-  - Explicit idea framing: "idea for...", "idea:", "concept:", "what if..."
-  - Comparing options WITHOUT action verb: "necklace or scarf for mom", "yoga or pilates"
-  - Brainstorming: "random thought:", "what about...", "could we try..."
-  - Floating possibilities: "might be nice to...", "would be cool if..."
-  
-  KEY DISTINCTION — hedging + action verb:
-  - "maybe buy groceries" → TODO (has clear action verb "buy")
-  - "should probably call mom" → TODO (has clear action verb "call")
-  - "thinking I should text sarah" → TODO (has clear action verb "text")
-  
-  vs. hedging WITHOUT action verb:
-  - "maybe a necklace for mom" → LOG/idea (no verb, just considering)
-  - "thinking about career change" → LOG/idea (abstract, no specific action)
-  - "pottery class sometime" → LOG/idea (vague interest)
-  
-  **The test: Is there a CLEAR ACTION VERB (buy, call, text, send, book, submit, etc.)?**
-  - YES + any level of hedging → TODO
-  - NO + exploring/uncertain → LOG/idea
-  
-  **STEP 4: Check for JOURNAL signals (LOG/journal)**
-  
-  Classify as LOG/journal if:
-  - Emotional expression: "feeling anxious", "stressed", "grateful"
-  - Past reflection: "I realized...", "had a great day"
-  - Self-talk/venting: "why do I always...", "ugh"
-  
-  **STEP 5: Work/Project tasks with clear scope (TODO)**
-  
-  If describing SPECIFIC, BOUNDED work with a clear done state:
-  - "improve the onboarding screen" → TODO (specific change, can be done)
-  - "fix the checkout bug" → TODO (specific fix)
-  - "write the Q3 report" → TODO (specific deliverable)
-  
-  NOT todos (too vague):
-  - "improve my productivity" → LOG/general (no clear done state)
-  - "work on the app" → LOG/general (too broad)
-  
-  **STEP 6: Genuinely ambiguous → LOG/general**
-  
-  When uncertain, default to LOG/general. This is the SAFE CAPTURE bucket.
-  - User can promote to TODO in Evening Sweep
-  - Better to safely capture than create false tasks
-  - LOG/general means "noted — you decide what it becomes"
-  
-  Examples of genuinely ambiguous (→ LOG/general):
-  - "standing desk" (noun phrase, unclear if shopping or just noting)
-  - "dentist" (could be reminder, could be just noting they need one eventually)
-  - "mom's birthday" (unclear intent without more context)
-  
-  === THE KEY PRINCIPLE ===
-  
-  Action verb present → almost certainly TODO (even with hedging)
-  No action verb + exploring → LOG/idea
-  No action verb + genuinely unclear → LOG/general (safe capture)
-  
-  The goal is to correctly capture clear todos while NOT forcing ambiguous items into todo.
-  When genuinely unsure, LOG/general is the right choice — it's a safe holding area.
-  
-  === EXAMPLES ===
-  
-  TODO (clear action verb, even with hedging):
-  - "Call mom", "Buy groceries", "Book flights"
-  - "should call mom" → TODO
-  - "maybe buy groceries" → TODO
-  - "need to submit timesheet" → TODO
-  - "don't forget to text sarah" → TODO
-  - "improve the first screen of the sweep" → TODO (specific work)
-  - "fix the login bug" → TODO (specific work)
-  
-  HABIT (explicit frequency or stop/quit + behavior):
-  - "Run every morning", "Meditate daily", "Exercise 3x per week"
-  - "Stop smoking", "No phone after 9pm"
-  
-  LOG/general (ambiguous, safe capture):
-  - "standing desk" (noun phrase, unclear intent)
-  - "dentist" (unclear if task or just noting)
-  - "drink more water" (fuzzy aspiration, no frequency)
-  - "john's number is 555-1234" (reference info)
-  - "meeting moved to thursday" (status update)
-  
-  LOG/journal (emotional/reflective):
-  - "feeling overwhelmed", "stressed about work"
-  - "why do I always procrastinate"
-  
-  LOG/idea (exploring without action verb):
-  - "necklace or scarf for mom" (comparing options, no verb)
-  - "what if we added dark mode" (brainstorming)
-  - "pottery class sometime" (vague interest)
-  - "thinking about switching careers" (abstract exploration)
-  
-  NOT ideas (these have action verbs → TODO):
-  - "maybe buy a necklace" → TODO (has "buy")
-  - "should add dark mode" → TODO (has "add")
-  - "sign up for pottery" → TODO (has "sign up")
-  
-  === HABIT SUBTYPE ===
-  
-  If classifying as HABIT:
-  - **start_habit**: Building/doing something (exercise, meditate, read)
-  - **break_habit**: Stopping/avoiding something (stop smoking, quit scrolling)
-  
-  === SMART TITLE (3-7 words) ===
-  
-  Generate a title that describes the SUBJECT/TOPIC:
-  - TODO: Verb + object (Buy Groceries, Call Mom, Book Dentist)
-  - HABIT: Activity name only - NO frequency in title (Run, Reading, No Phone After 9pm). Frequency appears in chips, not title.
-  - LOG/JOURNAL: Topic or situation (Job Interview Tomorrow, Work Stress)
-  - LOG/IDEA: The concept (Garden Redesign, App Feature Idea)
-  - LOG/GENERAL: The topic/noun (Dark Mode, Standing Desk, Pottery Class)
-  
-  AVOID: "Reflect on...", "Journal about...", "Track..."
-  NEVER include mood words: anxious, stressed, grateful, overwhelmed, tired, etc.
-  
-  === CONFIRMATION MESSAGE (4-8 words) ===
-  
-  A warm, specific acknowledgment from Gremly:
-  - Reference something SPECIFIC from their text (noun, name, place, feeling)
-  - Add warmth or personality
-  - Never just restate the title
-  - No exclamation marks
-  
-  GOOD: "Mum's waiting, you've got this." / "Triple run week, let's go." / "Presentation nerves are real."
-  BAD: "Task noted." / "Got it." / "Added to list."
-  
-  For LOG/general (ambiguous captures):
-  - "Captured — you decide in Sweep."
-  - "Noted for later."
-  - "Holding onto this one."
-  - "Saved — see what it becomes."
-  
-  === OUTPUT ===
-  
-  Return ONLY valid JSON:
-  { 
-   "bucket": "todo"|"habit"|"log", 
-   "confidence": 0.0-1.0, 
-   "subtype": "journal"|"idea"|"general"|null, 
-   "habitSubtype": "start_habit"|"break_habit"|null,
-   "smart_title": "3-7 Word Title",
-   "confirmation_message": "4-8 word warm message"
-  }`;
+=== THE THREE BUCKETS ===
+
+**TODO** — A discrete, completable action
+The user will eventually "check this off." A clear DONE state exists.
+Ask: "Can this be marked DONE when complete?"
+
+**HABIT** — A trackable, recurring behavior
+The user wants to TRACK this over time. It's concrete and observable.
+Ask: "Can this be tracked with a yes/no each day/week?"
+
+**LOG** — Capture for reflection, not action
+A thought, feeling, idea, or fuzzy aspiration. No clear done state or tracking intent.
+Ask: "Is this reflection, exploration, venting, or too vague to act on?"
+
+=== SEMANTIC CLASSIFICATION (PRIMARY) ===
+
+Use your language understanding to determine intent. Don't pattern-match keywords.
+
+**TODO SEMANTIC TEST:**
+A TODO has ALL of these:
+1. A discrete action (not ongoing)
+2. A clear completion point (you'll know when it's done)
+3. Something the user would "check off"
+
+Examples that pass the test:
+- "Have vit c and iron supplement" → Done when taken ✓
+- "Call mom" → Done when call ends ✓
+- "Buy groceries" → Done when purchased ✓
+- "Fix the login bug" → Done when bug is fixed ✓
+- "Submit the report" → Done when submitted ✓
+- "Book dentist appointment" → Done when booked ✓
+- "Cancel Netflix" → Done when cancelled ✓
+- "Improve the onboarding screen" → Done when improvement ships ✓
+
+Examples that FAIL the test:
+- "Be healthier" → No clear done state ✗
+- "Improve my relationship with dad" → No discrete completion ✗
+- "Work on the app" → Too vague, no end point ✗
+
+**HABIT SEMANTIC TEST:**
+A HABIT has ALL of these:
+1. A CONCRETE, OBSERVABLE behavior (not abstract)
+2. Something trackable with yes/no (did I do it today?)
+3. EXPLICIT intent to repeat (frequency stated OR stop/quit pattern)
+
+The "trackable" test:
+- "Stop smoking" → Trackable: "Did I smoke today? No ✓" → HABIT
+- "Run every morning" → Trackable: "Did I run this morning? Yes ✓" → HABIT
+- "Stop overthinking" → NOT trackable (mental state, not behavior) → LOG
+- "Be more patient" → NOT trackable (abstract quality) → LOG
+
+STRICT REQUIREMENT — Habits need explicit signals:
+- Explicit frequency: "daily", "every day", "every morning", "3x/week", "weekly", "twice a day"
+- OR stop/quit + concrete behavior: "stop smoking", "quit drinking", "no phone after 9pm"
+
+WITHOUT explicit frequency or stop/quit → NOT a habit, even if repeatable.
+- "Go to the gym" (no frequency) → TODO (single instance)
+- "Drink water" (no frequency) → LOG/general (vague aspiration)
+- "Go to the gym every day" → HABIT (explicit frequency)
+
+**LOG SEMANTIC TEST:**
+A LOG is for content that doesn't fit TODO or HABIT:
+
+LOG/journal — Emotional expression or reflection:
+- Processing feelings: "feeling anxious about the presentation"
+- Past reflection: "I realized I've been avoiding this"
+- Venting/self-talk: "why do I always procrastinate"
+- Gratitude/mood: "grateful for the good weather"
+
+LOG/idea — Exploration without commitment:
+- Brainstorming: "what if we added dark mode"
+- Weighing options: "necklace or scarf for mom" (no action verb, comparing)
+- Vague interest: "pottery class sometime"
+- Not decided: "thinking about switching careers"
+
+LOG/general — Information or unclear intent:
+- Reference info: "john's number is 555-1234"
+- Status updates: "meeting moved to thursday"
+- Fuzzy aspirations: "drink more water", "eat healthier" (no frequency)
+- Genuinely ambiguous: "dentist", "standing desk" (unclear intent)
+
+=== STRUCTURAL SIGNALS (SUPPORTING EVIDENCE) ===
+
+These patterns provide EVIDENCE to support your semantic classification. They don't override semantic understanding — they confirm it.
+
+**Strong TODO signals:**
+- Imperative structure: verb + object with no subject
+  "Have my supplements", "Call mom", "Fix the bug", "Water the plants"
+- Reminder phrasing: "make sure to...", "don't forget to...", "remember to...", "remind me to..."
+- Obligation language: "need to...", "have to...", "gotta...", "should..." (+ specific action)
+
+**Strong HABIT signals:**
+- Explicit frequency: "daily", "every [day/morning/week]", "3x per week", "twice a day"
+- Stop/quit + concrete behavior: "stop smoking", "quit scrolling", "no phone after 9"
+- Tracking language: "track my...", "start doing X every..."
+
+**Strong LOG signals:**
+- Past tense reflection: "I realized...", "I felt...", "I noticed..."
+- Emotional language: "feeling...", "stressed about...", "grateful for...", "anxious"
+- Exploration hedging (WITHOUT action verb): "thinking about...", "what if...", "maybe...", "might be nice to..."
+- Comparing options: "X or Y for...", "either... or..."
+
+**CRITICAL DISTINCTION — Hedging + Action Verb:**
+- "Maybe buy groceries" → TODO (has action verb "buy" — the "maybe" is soft commitment, not exploration)
+- "Should probably call mom" → TODO (has action verb "call")
+- "Thinking I need to submit the report" → TODO (has action verb "submit")
+
+vs. Hedging WITHOUT action verb:
+- "Maybe a necklace for mom" → LOG/idea (no verb, just considering options)
+- "Thinking about career change" → LOG/idea (no specific action)
+
+The test: **Is there a clear action verb (buy, call, text, send, book, submit, take, have, make, do, get, pick up, cancel, fix, etc.)?**
+- YES + hedging → Still TODO (they intend to do it)
+- NO + hedging → LOG/idea (they're exploring)
+
+=== CONFIDENCE & FALLBACK ===
+
+**High confidence (0.8-1.0):**
+- Semantic test clearly passed
+- Structural signals confirm
+- No ambiguity
+
+**Medium confidence (0.6-0.8):**
+- Semantic test passed but edge case
+- Mixed signals
+
+**Low confidence (0.4-0.6):**
+- Genuinely ambiguous
+- Could reasonably be multiple buckets
+- DEFAULT TO LOG/general — safe capture, user decides in Sweep
+
+**The principle:** Only use LOG/general as fallback when GENUINELY uncertain after semantic analysis. It should be rare, not the default. Most inputs have clear intent if you understand them semantically.
+
+=== EXAMPLES ===
+
+**TODO** (discrete, completable, clear done state):
+- "Have vit c and iron supplement" → TODO (imperative, done when taken)
+- "Call mom" → TODO
+- "Buy groceries" → TODO
+- "Maybe buy groceries" → TODO (has "buy" — hedging doesn't change it)
+- "Should probably call the dentist" → TODO (has "call")
+- "Fix the login bug" → TODO (specific, done when fixed)
+- "Improve the onboarding screen" → TODO (specific work, done when shipped)
+- "Submit the expense report" → TODO
+- "Don't forget to text Sarah" → TODO (reminder phrasing)
+- "Make sure to lock the door" → TODO (reminder phrasing)
+- "Cancel the subscription" → TODO (one-time action)
+- "Stop by the pharmacy" → TODO (errand, not habit)
+- "Water the plants" → TODO (single instance, no frequency)
+
+**HABIT** (trackable, recurring, explicit frequency or stop/quit):
+- "Run every morning" → HABIT (explicit frequency)
+- "Meditate daily" → HABIT (explicit frequency)
+- "Go to gym 3x per week" → HABIT (explicit frequency)
+- "Stop smoking" → HABIT (stop + concrete trackable behavior)
+- "Quit biting my nails" → HABIT (quit + concrete behavior)
+- "No phone after 9pm" → HABIT (concrete rule to track)
+- "Drink 8 glasses of water daily" → HABIT (explicit frequency)
+
+**LOG/journal** (emotional, reflective):
+- "Feeling anxious about tomorrow" → LOG/journal
+- "Stressed about work" → LOG/journal
+- "I realized I've been avoiding this" → LOG/journal
+- "Why do I always procrastinate" → LOG/journal (self-talk)
+- "Grateful for the support" → LOG/journal
+- "Had a rough day" → LOG/journal
+
+**LOG/idea** (exploring, not committed):
+- "Necklace or scarf for mom" → LOG/idea (comparing options, no verb)
+- "What if we added dark mode" → LOG/idea (brainstorming)
+- "Pottery class sometime" → LOG/idea (vague interest)
+- "Thinking about switching careers" → LOG/idea (exploring, no action)
+- "App idea: calorie tracker" → LOG/idea (concept capture)
+
+**LOG/general** (reference, vague, or genuinely ambiguous):
+- "John's number is 555-1234" → LOG/general (reference info)
+- "Meeting moved to Thursday" → LOG/general (status update)
+- "Drink more water" → LOG/general (vague, no frequency)
+- "Exercise more" → LOG/general (vague aspiration)
+- "Dentist" → LOG/general (ambiguous intent)
+- "Standing desk" → LOG/general (unclear — noting or buying?)
+
+**NOT habits** (missing explicit frequency):
+- "Go to the gym" → TODO (single instance, no frequency stated)
+- "Drink water" → LOG/general (vague, no frequency)
+- "Run" → TODO (single run, no frequency)
+- "Stop overthinking" → LOG/journal (not trackable — mental state)
+- "Be more patient" → LOG/general (abstract quality, not trackable)
+
+=== HABIT SUBTYPE ===
+
+If classifying as HABIT, also determine:
+- **start_habit**: Building/doing something (run, meditate, read, exercise, drink water)
+- **break_habit**: Stopping/avoiding something (stop smoking, quit scrolling, no phone after 9)
+
+=== SMART TITLE (3-7 words) ===
+
+Generate a title that captures the SUBJECT/TOPIC:
+- TODO: Action + object ("Buy Groceries", "Call Mom", "Fix Login Bug")
+- HABIT: Activity only, NO frequency in title ("Morning Run", "Daily Meditation", "No Late Phone")
+- LOG/journal: Topic or situation ("Work Stress", "Presentation Anxiety")
+- LOG/idea: The concept ("Gift Ideas For Mom", "Dark Mode Feature")
+- LOG/general: The topic ("Career Thoughts", "Standing Desk")
+
+Rules:
+- Never start with "Reflect on...", "Journal about...", "Track..."
+- Never include mood words in title (anxious, stressed, grateful, overwhelmed)
+- Title case, 3-7 words
+
+=== CONFIRMATION MESSAGE (4-8 words) ===
+
+A warm, specific acknowledgment:
+- Reference something SPECIFIC from their input
+- Add warmth without being cheesy
+- Never just "Got it" or "Added"
+- No exclamation marks
+
+Good examples:
+- "Supplements noted, take care of yourself."
+- "Mom would love to hear from you."
+- "That bug won't fix itself — on it."
+- "Gym consistency starts now."
+- "Work stress is real, noted."
+
+For LOG/general (ambiguous captures):
+- "Captured — you decide in Sweep."
+- "Noted for later."
+- "Holding onto this one."
+
+=== OUTPUT FORMAT ===
+
+Return ONLY valid JSON:
+{
+  "bucket": "todo" | "habit" | "log",
+  "confidence": 0.0-1.0,
+  "subtype": "journal" | "idea" | "general" | null,
+  "habitSubtype": "start_habit" | "break_habit" | null,
+  "smart_title": "3-7 Word Title",
+  "confirmation_message": "4-8 word warm message"
+}
+
+Rules:
+- subtype is only set when bucket is "log"
+- habitSubtype is only set when bucket is "habit"
+- confidence reflects how certain you are after semantic analysis`;
 
         const phase1Messages = [
           { role: 'system', content: phase1Prompt },
@@ -2370,48 +2417,122 @@ Do NOT invent or over-infer.
 FOR TODOS & HABITS:
 --------------------------------
 1. time_estimate_minutes
-Choose one: 5, 10, 15, 30, 45, 60, 90, 120
-ESTIMATION RULES — ERR ON THE GENEROUS SIDE:
-Tasks always take longer than expected. Account for:
-- Setup/transition time (finding things, context switching)
-- Realistic pace (not rushing)
-- Common interruptions and distractions
+Estimate in 5-minute increments from 5 to 240 minutes.
+Use factor-based reasoning, not category lookup.
 
-MINIMUM ESTIMATES BY CATEGORY:
-- Quick digital tasks (send text, quick email, simple lookup): 5-10 min
-- Phone calls: 15-30 min (includes pleasantries, hold time, wrap-up)
-- Administrative (forms, scheduling, paperwork, bills, timesheets): 15-30 min
-- Shopping errands: 30-60 min (travel + browsing + checkout)
-- Meal prep / cooking: 30-60 min
-- Exercise:
-  - Quick (stretching, short walk): 15-20 min
-  - Moderate (run, yoga, swim): 30-45 min
-  - Full workout (gym session): 45-60 min
-- Deep work (writing, coding, planning, designing): 45-90 min
-- Meetings/calls with prep: 30-45 min
-- Creative work (design, art, music): 60-120 min
-- Research / learning: 30-60 min
-- Cleaning / organizing: 30-45 min
-- Medical/dental appointments: 60-90 min (including travel and wait)
+=== ESTIMATION FRAMEWORK ===
 
-ESTIMATION PRINCIPLES:
-- If user specifies duration ("30 min run") → honor their estimate
-- If no duration mentioned → use generous category estimate
-- If uncertain between two time buckets → round UP to the higher one
-- NEVER estimate less than 5 minutes for any real task
-- Tasks involving leaving the house → minimum 30 min
-- Tasks involving other people → add buffer for coordination
+Think through these factors for EVERY task:
 
-EXAMPLES:
-- "call mom" → 30 min (not 5 or 10)
-- "buy groceries" → 45 min (not 15)
-- "submit timesheet" → 15 min (not 5)
-- "gym" → 60 min (not 30)
-- "write report" → 60 min (not 30)
-- "pay credit card bill" → 10 min (quick online task)
-- "text sarah about dinner" → 5 min (truly quick digital)
-- "dentist appointment" → 90 min (travel + wait + appointment)
-- "pick up dry cleaning" → 30 min (errand with travel)
+**FACTOR 1: What's the core action?**
+Estimate the minimum time if everything went perfectly.
+- Send a text: 1-2 min
+- Make a phone call: 10-15 min
+- Walk somewhere: depends on distance
+- Write something: depends on length/complexity
+- Physical task: depends on scope
+
+**FACTOR 2: Do I need to leave my current location?**
+- Staying put (home/desk): no addition
+- Leaving the house: +15-20 min minimum (getting ready, keys, shoes, return, settle back in)
+- Going somewhere specific: add realistic travel time (round trip)
+
+**FACTOR 3: Are other people or animals involved?**
+- Solo task: you control the pace
+- Another person: +10-15 min (coordination, waiting, social dynamics, conversations run long)
+- Animal (dog walk, vet): +10-15 min (unpredictability, their pace not yours)
+- Group/meeting: +15-20 min (gathering, small talk, herding cats)
+
+**FACTOR 4: Physical world or digital?**
+- Digital: more predictable, usually faster
+- Physical: more variables, more can go wrong, round UP
+
+**FACTOR 5: Is this bounded or open-ended?**
+- Bounded ("pay bill", "send email"): clearer end point, estimate tighter
+- Open-ended ("clean garage", "work on project"): no natural stopping point, estimate higher
+
+**FACTOR 6: What commonly goes wrong?**
+- Can't find something: +5-10 min
+- Technical issues: +5-10 min
+- Waiting (on hold, in line): +10-15 min
+- Unexpected conversation: +10 min
+
+=== THE PROCESS ===
+
+1. Identify the core action and base time
+2. Apply each relevant factor
+3. Add up the total
+4. Round UP to nearest 5 minutes
+5. When uncertain between two estimates, choose the higher one
+
+=== EXAMPLES WITH REASONING ===
+
+**"Walk Bella" (dog walk)**
+- Core: walking (20-25 min)
+- Leave house: yes (+10 min prep/return)
+- Animal involved: yes (+10 min for sniffing, unpredictability)
+- Physical: yes (round up)
+→ Total: 40-45 min → **45 min**
+
+**"Call mom"**
+- Core: phone conversation (15 min)
+- Leave house: no
+- Other person: yes (+15 min, mom calls run long)
+- Digital: yes
+→ Total: 30 min → **30 min**
+
+**"Buy groceries"**
+- Core: shopping (20 min in store)
+- Leave house: yes (+10 min)
+- Travel: yes (+20 min round trip)
+- Physical: yes (round up)
+- Can go wrong: lines, can't find items (+10 min)
+→ Total: 60 min → **60 min**
+
+**"Pay electric bill"**
+- Core: online payment (3-5 min)
+- Leave house: no
+- Solo: yes
+- Digital: yes
+- Bounded: yes
+→ Total: 5-10 min → **10 min**
+
+**"Dentist appointment"**
+- Core: appointment (30-45 min)
+- Leave house: yes (+10 min)
+- Travel: yes (+30 min round trip)
+- Other people: yes (waiting room +15 min)
+- Physical: yes
+→ Total: 85-100 min → **90 min**
+
+**"Write quarterly report"**
+- Core: writing/analysis (60-90 min)
+- Leave house: no
+- Solo: yes
+- Digital: yes
+- Open-ended: somewhat (scope can expand)
+- Deep focus required: yes (add buffer for getting into flow)
+→ Total: 90-120 min → **90 min** (or 120 if complex)
+
+**"Text Sarah about dinner"**
+- Core: typing a message (1-2 min)
+- Everything else: no
+→ Total: 5 min → **5 min**
+
+=== RANGE ANCHORS ===
+
+- Minimum: 5 min (truly instant digital tasks)
+- Maximum: 240 min (4 hours, major project blocks)
+- Most common range: 15-60 min
+
+=== CRITICAL RULES ===
+
+- ALWAYS round UP, never down
+- When uncertain, choose the higher estimate
+- "Quick" tasks that involve leaving the house are never under 30 min
+- Tasks involving other people are rarely under 20 min
+- If the user specifies a duration ("30 min run"), honor their estimate
+- Don't be afraid to estimate 45, 50, 55 min — use the full range
 
 2. time_window
 Only if explicitly mentioned:
@@ -2513,12 +2634,10 @@ Include null for fields that do not apply.`;
           // Validate time estimate
           let timeEstimate = null;
           if (bucket === 'todo' || bucket === 'habit') {
-            const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
             const num = Number(parsed.time_estimate_minutes);
-            if (Number.isFinite(num)) {
-              timeEstimate = allowed.reduce((prev, curr) =>
-                Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev,
-              );
+            if (Number.isFinite(num) && num > 0) {
+              // Round to nearest 5 minutes, clamp between 5 and 240
+              timeEstimate = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
             }
           }
 
