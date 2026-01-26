@@ -131,6 +131,7 @@ function toActiveItem(item: Todo | Habit, spacesMap: Map<string, Space>): NowAct
     spaceName: space?.name ?? null,
     targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
     frequency: isHabit ? (item as Habit).frequency : undefined,
+    timeWindow: (item.time_window as NowActiveItem['timeWindow']) ?? null,
   };
 }
 
