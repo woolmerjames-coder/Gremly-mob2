@@ -7,7 +7,7 @@
 export { MorningBriefHeader } from './MorningBriefHeader';
 export { MorningBriefFooter } from './MorningBriefFooter';
 export { GremlySummary } from './GremlySummary';
-export { TaskItem, type TaskItemData } from './TaskItem';
+export { TaskItem, AnimatedTaskItem, type TaskItemData } from './TaskItem';
 export { TimeBlockPicker } from './TimeBlockPicker';
 export { TimeBlockSection } from './TimeBlockSection';
 export { OnYourPlateSection } from './OnYourPlateSection';

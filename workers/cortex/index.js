@@ -1818,200 +1818,136 @@ Reasoning guidelines:
   
   === DECISION FRAMEWORK ===
   
-  **STEP 0: Check for REFERENCE/INFO signals (LOG/general)**
+  **STEP 0: Check for STRONG TODO SIGNALS (HIGH CONFIDENCE)**
   
-  Classify as LOG/general if the input is INFORMATIONAL (not actionable):
-  - Contact info: "john's number is 555-1234", "sarah's email is...", "the address is..."
-  - Status updates: "meeting moved to thursday", "event rescheduled", "flight changed to..."
-  - Facts to remember: "remember sarah likes orchids", "the password is...", "the code is..."
+  These phrases strongly indicate a task — classify as TODO:
+  
+  Explicit reminders: "make sure to...", "don't forget to...", "remember to...", "remind me to..."
+  Clear obligation: "need to...", "have to...", "gotta...", "got to..."
+  Direct commands to self: "call...", "text...", "email...", "buy...", "book...", "schedule...", "submit...", "pay...", "send...", "finish...", "complete..."
+  
+  These are TODOs even with soft hedging:
+  - "should call mom" → TODO (clear action)
+  - "need to buy groceries" → TODO (clear action)
+  - "don't forget to submit timesheet" → TODO (explicit reminder)
+  
+  **STEP 1: Check for REFERENCE/INFO signals (LOG/general)**
+  
+  Classify as LOG/general if the input is purely INFORMATIONAL (no action):
+  - Contact info: "john's number is 555-1234"
+  - Status updates: "meeting moved to thursday"
+  - Facts to remember: "remember sarah likes orchids" (storing info, not tasking yourself)
   - Announcements: "jake is sick", "office closed monday"
   
-  These are REFERENCE items - no action verb, just information to store.
+  **STEP 2: HABIT GATE (STRICT)**
   
-  NOT reference (these are todos):
-  - "call john at 555-1234" → TODO (has action verb "call")
-  - "update calendar for thursday meeting" → TODO (has action verb)
-  - "text sarah the address" → TODO (has action verb)
+  ONLY classify as HABIT if:
   
-  **STEP 1: Check for IDEA signals (LOG/idea)**
-  
-  Classify as LOG/idea if ANY of these are true:
-  - Explicit idea framing: "idea for...", "gift idea", "project idea", "idea:"
-  - Alternatives with "or": "maybe X or Y", "could do X or Y", "thinking X or maybe Y"
-  - Hedging language: "maybe", "might", "thinking about", "considering", "what about"
-  - Brainstorming: "what if...", "random thought:", "could we..."
-  - Uncommitted exploration: "thinking about getting...", "might try..."
-  - Questions exploring options: "should I...", "what if I...", "would it be good to..."
-  
-  IDEA EXAMPLES:
-  - "maybe get her a necklace or scarf" → LOG/idea (alternatives + "maybe")
-  - "gift idea for mom - spa day or cooking class" → LOG/idea (alternatives)
-  - "project idea from the meeting, build a dashboard" → LOG/idea ("idea from")
-  - "thinking about switching jobs" → LOG/idea (not committed)
-  - "what if we added dark mode" → LOG/idea (brainstorming)
-  - "could do yoga or pilates" → LOG/idea (weighing options)
-  - "should I take the new job?" → LOG/idea (exploring decision)
-  
-  vs COMMITTED (not ideas):
-  - "buy her a necklace" → TODO (decided, no hedging)
-  - "build the customer dashboard" → TODO (committed action)
-  - "I'm switching jobs" → LOG/journal or TODO (decided)
-  
-  **STEP 2: Check for JOURNAL signals (LOG/journal)**
-  
-  Classify as LOG/journal if ANY of these are true:
-  - Past tense reflection: "I realized...", "Had a great...", "Felt really..."
-  - Emotional processing: Contains feeling words about current/past state
-  - Self-talk/venting: "Why do I always...", "Ugh", "I wish I could...", "such a/an [self-label]"
-  - Rhetorical frustration: "Why can't I just...", "What is wrong with me"
-  - PURE EMOTION statements (no action): "feeling anxious", "stressed", "grateful and tired"
-  - Self-reflective questions: "why am I so tired?", "what's wrong with me?"
-  
-  JOURNAL EXAMPLES:
-  - "feeling anxious" → LOG/journal (pure emotion, no action)
-  - "grateful and exhausted" → LOG/journal (emotions only)
-  - "stressed about work" → LOG/journal (emotion + context)
-  - "ugh tired" → LOG/journal (self-expression)
-  - "I realized I need more rest" → LOG/journal (reflection)
-  - "why do I always procrastinate" → LOG/journal (self-reflection)
-  
-  NOT journal (has action or concrete task):
-  - "feeling anxious, need to call therapist" → this should SPLIT (journal + todo)
-  - "stressed, book a massage" → this should SPLIT (journal + todo)
-  
-  **STEP 3: HABIT GATE (STRICT - READ CAREFULLY)**
-  
-  HABIT requires EXPLICIT TRACKING SIGNALS. Without them, it is NOT a habit.
-  
-  **IMPORTANT: Extract the CORE INTENT from planning context.**
-  Users sometimes bury the habit signal in planning details. Look for frequency ANYWHERE in the text:
-  - "want to drink more water, can use the big blue bottle and refill it like 3 times a day" → HABIT (has "3 times a day")
-  - "start running, thinking maybe every morning before work" → HABIT (has "every morning")
-  - "meditate, should probably do it daily, can use that app" → HABIT (has "daily")
-  
-  ONLY classify as HABIT if the input contains:
-  
-  A) EXPLICIT FREQUENCY (can be buried in context):
-   - "daily", "every day", "every morning", "each night"
-   - "weekly", "every week", "once a week"
-   - "3x/week", "twice a day", "monthly", "3 times a day"
-   - "regularly", "every time I..."
+  A) EXPLICIT FREQUENCY: "daily", "every day", "every morning", "3x/week", "weekly", etc.
   
   OR
   
-  B) STOP/QUIT + CONCRETE TRACKABLE BEHAVIOR:
-   - "Stop smoking" → (concrete: did I smoke today? yes/no)
-   - "Quit biting nails" → (concrete: did I bite nails? yes/no)
-   - "No phone after 9pm" → (concrete daily constraint)
+  B) STOP/QUIT + CONCRETE TRACKABLE BEHAVIOR: "stop smoking", "quit scrolling", "no phone after 9pm"
   
-  **CRITICAL: "more/less/reduce" WITHOUT frequency = LOG/general, NOT habit**
+  WITHOUT explicit frequency or stop/quit → NOT a habit
   
-  These are FUZZY ASPIRATIONS:
-  - "Drink more water" → LOG/general (no frequency)
-  - "Exercise more" → LOG/general (no frequency)
-  - "Sleep better" → LOG/general (no frequency)
+  **STEP 3: Check for IDEA signals (LOG/idea)**
   
-  BUT with frequency buried in context:
-  - "Drink more water, like 8 glasses a day" → HABIT (has "a day")
-  - "Exercise more, at least 3x per week" → HABIT (has "3x per week")
+  Classify as LOG/idea if:
+  - Explicit idea framing: "idea for...", "idea:", "concept:", "what if..."
+  - Comparing options WITHOUT action verb: "necklace or scarf for mom", "yoga or pilates"
+  - Brainstorming: "random thought:", "what about...", "could we try..."
+  - Floating possibilities: "might be nice to...", "would be cool if..."
   
-  **STEP 4: For remaining action-oriented input**
+  KEY DISTINCTION — hedging + action verb:
+  - "maybe buy groceries" → TODO (has clear action verb "buy")
+  - "should probably call mom" → TODO (has clear action verb "call")
+  - "thinking I should text sarah" → TODO (has clear action verb "text")
   
-  Default to TODO. The user is expressing a discrete action.
+  vs. hedging WITHOUT action verb:
+  - "maybe a necklace for mom" → LOG/idea (no verb, just considering)
+  - "thinking about career change" → LOG/idea (abstract, no specific action)
+  - "pottery class sometime" → LOG/idea (vague interest)
   
-  **Work/Project tasks are TODOs (even without "remind me" or "need to"):**
-  If the input describes a SPECIFIC, BOUNDED piece of work with a clear done state:
-  - Software/product changes: "improve X screen", "fix the bug", "update the API", "add dark mode"
-  - Document/content work: "write the report", "edit the proposal", "finish the slides"
-  - Planning/organizing: "plan the trip", "organize the files", "set up the meeting"
+  **The test: Is there a CLEAR ACTION VERB (buy, call, text, send, book, submit, etc.)?**
+  - YES + any level of hedging → TODO
+  - NO + exploring/uncertain → LOG/idea
   
-  The test: "Can this be marked DONE when the specific change is complete?"
-  - "improve the first screen of the sweep" → YES, screen gets improved → TODO
-  - "improve my health" → NO clear done state → LOG/general
-  - "fix the login bug" → YES, bug gets fixed → TODO
-  - "fix my relationship with dad" → NO clear done state → LOG/journal
+  **STEP 4: Check for JOURNAL signals (LOG/journal)**
   
-  Simple actions without frequency = TODO:
-  - "Run 10km" → TODO (single run)
-  - "Go to the gym" → TODO (single visit)
-  - "Call mom" → TODO (single call)
-  - "Find a vacation spot, needs to be hot and close" → TODO (one task with criteria)
+  Classify as LOG/journal if:
+  - Emotional expression: "feeling anxious", "stressed", "grateful"
+  - Past reflection: "I realized...", "had a great day"
+  - Self-talk/venting: "why do I always...", "ugh"
   
-  **STEP 5: Analyze VERB + OBJECT combinations**
+  **STEP 5: Work/Project tasks with clear scope (TODO)**
   
-  STOP/QUIT + concrete behavior → HABIT
-  STOP/QUIT + abstract state → LOG/journal
-  STOP/QUIT + one-time action → TODO
+  If describing SPECIFIC, BOUNDED work with a clear done state:
+  - "improve the onboarding screen" → TODO (specific change, can be done)
+  - "fix the checkout bug" → TODO (specific fix)
+  - "write the Q3 report" → TODO (specific deliverable)
   
-  MORE/LESS/REDUCE without frequency → LOG/general
-  MORE/LESS/REDUCE with frequency → HABIT
+  NOT todos (too vague):
+  - "improve my productivity" → LOG/general (no clear done state)
+  - "work on the app" → LOG/general (too broad)
   
-  START + activity WITH frequency → HABIT
-  START + activity WITHOUT frequency → TODO
+  **STEP 6: Genuinely ambiguous → LOG/general**
   
-  PLANNING VERBS → almost always TODO:
-  figure out, decide, plan, create, organize, set up, choose, research, book, schedule
+  When uncertain, default to LOG/general. This is the SAFE CAPTURE bucket.
+  - User can promote to TODO in Evening Sweep
+  - Better to safely capture than create false tasks
+  - LOG/general means "noted — you decide what it becomes"
   
-  **STEP 6: WHEN UNCERTAIN → LOG/general**
+  Examples of genuinely ambiguous (→ LOG/general):
+  - "standing desk" (noun phrase, unclear if shopping or just noting)
+  - "dentist" (could be reminder, could be just noting they need one eventually)
+  - "mom's birthday" (unclear intent without more context)
   
-  If you're unsure whether something is a TODO, HABIT, or just a thought — choose LOG/general.
+  === THE KEY PRINCIPLE ===
   
-  **The "verb check" principle:**
-  - No clear action verb? → LOG/general
-  - Short noun phrase without commitment? → LOG/general
+  Action verb present → almost certainly TODO (even with hedging)
+  No action verb + exploring → LOG/idea
+  No action verb + genuinely unclear → LOG/general (safe capture)
   
-  Examples that should be LOG/general (not TODO):
-  - "dark mode for the app" → no verb, just a concept → LOG/general
-  - "standing desk" → noun phrase, no action → LOG/general
-  - "pottery class" → could be an interest, not committed → LOG/general
-  - "subscription tier with family sharing" → feature concept → LOG/general
-  - "sauna after workouts" → routine thought, no commitment → LOG/general
-  - "birthday party at the bowling alley" → venue idea, not booked → LOG/general
-  
-  vs. with verbs (these ARE todos):
-  - "add dark mode" → has "add" → TODO
-  - "buy a standing desk" → has "buy" → TODO
-  - "sign up for pottery class" → has "sign up" → TODO
-  - "build subscription tier" → has "build" → TODO
-  - "book the bowling alley" → has "book" → TODO
-  
-  **Why default to LOG/general?**
-  - User can easily promote to TODO in Evening Sweep
-  - Better to capture a thought safely than create a false task
-  - LOG/general means "captured, you decide what it is"
+  The goal is to correctly capture clear todos while NOT forcing ambiguous items into todo.
+  When genuinely unsure, LOG/general is the right choice — it's a safe holding area.
   
   === EXAMPLES ===
   
-  TODO:
-  - "Run 10km", "Call mom", "Book flights to Japan"
-  - "Stop the subscription" (one-time cancellation)
-  - "Start the report" (one-time task)
-  - "Find a vacation spot, needs to be hot and fun" (one task with criteria)
-  - "improve the onboarding flow" (bounded work task)
-  - "fix the bug in checkout" (clear done state)
+  TODO (clear action verb, even with hedging):
+  - "Call mom", "Buy groceries", "Book flights"
+  - "should call mom" → TODO
+  - "maybe buy groceries" → TODO
+  - "need to submit timesheet" → TODO
+  - "don't forget to text sarah" → TODO
+  - "improve the first screen of the sweep" → TODO (specific work)
+  - "fix the login bug" → TODO (specific work)
   
-  HABIT:
+  HABIT (explicit frequency or stop/quit + behavior):
   - "Run every morning", "Meditate daily", "Exercise 3x per week"
-  - "Stop smoking", "Quit biting nails", "No phone after 9pm"
-  - "Drink more water, refill bottle 3 times a day" (frequency in context)
-  - "Start running, maybe every morning" (frequency in context)
+  - "Stop smoking", "No phone after 9pm"
   
-  LOG/general:
-  - "Drink more water", "Exercise more", "Sleep better" (fuzzy aspirations)
-  - "dark mode for the app", "standing desk", "pottery class" (noun phrases, no verb)
-  - "subscription tier with family sharing" (concept, not committed)
+  LOG/general (ambiguous, safe capture):
+  - "standing desk" (noun phrase, unclear intent)
+  - "dentist" (unclear if task or just noting)
+  - "drink more water" (fuzzy aspiration, no frequency)
+  - "john's number is 555-1234" (reference info)
+  - "meeting moved to thursday" (status update)
   
-  LOG/journal:
-  - "Feeling overwhelmed", "Why do I always procrastinate"
-  - "grateful and tired", "ugh what a day"
-  - "why am I like this"
+  LOG/journal (emotional/reflective):
+  - "feeling overwhelmed", "stressed about work"
+  - "why do I always procrastinate"
   
-  LOG/idea:
-  - "What if we added dark mode", "Maybe get her a necklace or scarf"
-  - "Gift idea for mom - spa day or cooking class"
-  - "Thinking about switching careers"
-  - "Project idea: build a customer dashboard"
-  - "should I take the new job?"
+  LOG/idea (exploring without action verb):
+  - "necklace or scarf for mom" (comparing options, no verb)
+  - "what if we added dark mode" (brainstorming)
+  - "pottery class sometime" (vague interest)
+  - "thinking about switching careers" (abstract exploration)
+  
+  NOT ideas (these have action verbs → TODO):
+  - "maybe buy a necklace" → TODO (has "buy")
+  - "should add dark mode" → TODO (has "add")
+  - "sign up for pottery" → TODO (has "sign up")
   
   === HABIT SUBTYPE ===
   
@@ -2247,7 +2183,47 @@ FOR TODOS & HABITS:
 --------------------------------
 1. time_estimate_minutes
 Choose one: 5, 10, 15, 30, 45, 60, 90, 120
-Be realistic, not optimistic.
+ESTIMATION RULES — ERR ON THE GENEROUS SIDE:
+Tasks always take longer than expected. Account for:
+- Setup/transition time (finding things, context switching)
+- Realistic pace (not rushing)
+- Common interruptions and distractions
+
+MINIMUM ESTIMATES BY CATEGORY:
+- Quick digital tasks (send text, quick email, simple lookup): 5-10 min
+- Phone calls: 15-30 min (includes pleasantries, hold time, wrap-up)
+- Administrative (forms, scheduling, paperwork, bills, timesheets): 15-30 min
+- Shopping errands: 30-60 min (travel + browsing + checkout)
+- Meal prep / cooking: 30-60 min
+- Exercise:
+  - Quick (stretching, short walk): 15-20 min
+  - Moderate (run, yoga, swim): 30-45 min
+  - Full workout (gym session): 45-60 min
+- Deep work (writing, coding, planning, designing): 45-90 min
+- Meetings/calls with prep: 30-45 min
+- Creative work (design, art, music): 60-120 min
+- Research / learning: 30-60 min
+- Cleaning / organizing: 30-45 min
+- Medical/dental appointments: 60-90 min (including travel and wait)
+
+ESTIMATION PRINCIPLES:
+- If user specifies duration ("30 min run") → honor their estimate
+- If no duration mentioned → use generous category estimate
+- If uncertain between two time buckets → round UP to the higher one
+- NEVER estimate less than 5 minutes for any real task
+- Tasks involving leaving the house → minimum 30 min
+- Tasks involving other people → add buffer for coordination
+
+EXAMPLES:
+- "call mom" → 30 min (not 5 or 10)
+- "buy groceries" → 45 min (not 15)
+- "submit timesheet" → 15 min (not 5)
+- "gym" → 60 min (not 30)
+- "write report" → 60 min (not 30)
+- "pay credit card bill" → 10 min (quick online task)
+- "text sarah about dinner" → 5 min (truly quick digital)
+- "dentist appointment" → 90 min (travel + wait + appointment)
+- "pick up dry cleaning" → 30 min (errand with travel)
 
 2. time_window
 Only if explicitly mentioned:

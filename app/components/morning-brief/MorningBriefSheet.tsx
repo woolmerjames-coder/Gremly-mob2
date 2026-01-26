@@ -10,8 +10,8 @@
  * Replaces the previous drag-and-drop bucket UI.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { View, Modal, StyleSheet, ScrollView, Text, Pressable } from 'react-native';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { View, Modal, StyleSheet, ScrollView, Text, Pressable, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
@@ -261,6 +261,32 @@ export function MorningBriefSheet({
   const [organizeMessage, setOrganizeMessage] = useState<string | null>(null);
   const [organizeReasoning, setOrganizeReasoning] = useState<string[] | null>(null);
   const [showReasoningModal, setShowReasoningModal] = useState(false);
+  // Animation state for card exit animations
+  const [animatingAssignments, setAnimatingAssignments] = useState<Array<{ taskId: string; block: string }> | null>(null);
+
+  // Summary fade-in animation
+  const summaryOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (organizeMessage) {
+      summaryOpacity.setValue(0);
+      Animated.timing(summaryOpacity, {
+        toValue: 1,
+        duration: 400,
+        delay: 200, // Wait for cards to settle
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [organizeMessage, summaryOpacity]);
+
+  const handleAnimationStart = useCallback((assignments: Array<{ taskId: string; block: string }>) => {
+    setAnimatingAssignments(assignments);
+  }, []);
+
+  const handleAnimationComplete = useCallback(() => {
+    setAnimatingAssignments(null);
+  }, []);
+
   const handleTaskPress = useCallback((task: TaskItemData) => {
     setSelectedTask(task);
     setPickerVisible(true);
@@ -418,6 +444,7 @@ export function MorningBriefSheet({
               {/* On Your Plate - Flexible/Unassigned Tasks */}
               <OnYourPlateSection
                 tasks={tasksByBlock.flexible}
+                animatingAssignments={animatingAssignments}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
                 onAddPress={handleAddPress}
@@ -442,17 +469,19 @@ export function MorningBriefSheet({
                   setOrganizeReasoning(null);
                   setTimeout(() => setOrganizeMessage(null), 30000);
                 }}
+                onAnimationStart={handleAnimationStart}
+                onAnimationComplete={handleAnimationComplete}
               />
 
               {organizeMessage && (
-                <View style={styles.organizeFeedback}>
+                <Animated.View style={[styles.organizeFeedback, { opacity: summaryOpacity }]}>
                   <Text style={styles.organizeMessage}>{organizeMessage}</Text>
                   {organizeReasoning && organizeReasoning.length > 0 && (
                     <Pressable onPress={() => setShowReasoningModal(true)}>
                       <Text style={styles.reasoningLink}>Why this plan?</Text>
                     </Pressable>
                   )}
-                </View>
+                </Animated.View>
               )}
 
               {/* Reasoning Modal */}

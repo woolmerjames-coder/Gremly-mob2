@@ -4,12 +4,13 @@
  * Displays unassigned/flexible tasks in Morning Brief.
  * Tasks here can be tapped to assign to a time block.
  * Styled to match CalendarScreen section patterns.
+ * Supports exit animations when tasks are being organized.
  */
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Plus, Clock } from 'lucide-react-native';
-import { TaskItem, type TaskItemData } from './TaskItem';
+import { AnimatedTaskItem, type TaskItemData } from './TaskItem';
 
 // Colors matching CalendarScreen exactly
 const COLORS = {
@@ -24,8 +25,14 @@ const COLORS = {
 // Section color for "anytime/flexible" - matches CalendarScreen SECTION_CONFIG
 const SECTION_COLOR = '#999999';
 
+interface AnimatingAssignment {
+  taskId: string;
+  block: string;
+}
+
 interface OnYourPlateSectionProps {
   tasks: TaskItemData[];
+  animatingAssignments?: AnimatingAssignment[] | null;
   onTaskPress: (task: TaskItemData) => void;
   onTimePress?: (task: TaskItemData) => void;
   onAddPress: () => void;
@@ -33,6 +40,7 @@ interface OnYourPlateSectionProps {
 
 export function OnYourPlateSection({
   tasks,
+  animatingAssignments,
   onTaskPress,
   onTimePress,
   onAddPress,
@@ -66,14 +74,26 @@ export function OnYourPlateSection({
       )}
 
       {/* Task List */}
-      {tasks.map((task, index) => (
-        <View
-          key={task.id}
-          style={[styles.taskWrapper, index < tasks.length - 1 && styles.taskBorder]}
-        >
-          <TaskItem task={task} onPress={onTaskPress} onTimePress={onTimePress} />
-        </View>
-      ))}
+      {tasks.map((task, index) => {
+        // Check if this task is being animated out
+        const animationIndex = animatingAssignments?.findIndex(a => a.taskId === task.id) ?? -1;
+        const isAnimatingOut = animationIndex >= 0;
+        
+        return (
+          <View
+            key={task.id}
+            style={[styles.taskWrapper, index < tasks.length - 1 && styles.taskBorder]}
+          >
+            <AnimatedTaskItem 
+              task={task} 
+              onPress={onTaskPress} 
+              onTimePress={onTimePress}
+              isAnimatingOut={isAnimatingOut}
+              animationDelay={animationIndex * 150}
+            />
+          </View>
+        );
+      })}
 
       {/* Empty State */}
       {count === 0 && (

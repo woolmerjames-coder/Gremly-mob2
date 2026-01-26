@@ -2,13 +2,14 @@
  * OrganizeButton
  *
  * "Help me organize" button that calls AI to assign tasks to time blocks.
+ * Features animated progress bar during organization.
  */
 
-import React, { useState } from 'react';
-import { Pressable, Text, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { Pressable, Text, StyleSheet, Image, View, Animated, Easing } from 'react-native';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { useTodayCapacity, useTodayCalendarEvents } from '../../../../lib/store/capacitySelectors';
-import { organizeDay, buildOrganizeDayRequest } from '../../../../lib/api/organizeDay';
+import { organizeDay, buildOrganizeDayRequest, type TaskAssignment } from '../../../../lib/api/organizeDay';
 import { getDateService } from '../../../../lib/date';
 
 const COLORS = {
@@ -18,13 +19,22 @@ const COLORS = {
   inkMuted: '#666666',
 };
 
+type OrganizePhase = 'idle' | 'organizing' | 'animating' | 'complete';
+
 interface OrganizeButtonProps {
   onComplete?: (summary: string, reasoning?: string[]) => void;
   onError?: (error: string) => void;
+  onAnimationStart?: (assignments: TaskAssignment[]) => void;
+  onAnimationComplete?: () => void;
 }
 
-export function OrganizeButton({ onComplete, onError }: OrganizeButtonProps) {
-  const [isLoading, setIsLoading] = useState(false);
+export function OrganizeButton({ onComplete, onError, onAnimationStart, onAnimationComplete }: OrganizeButtonProps) {
+  const [phase, setPhase] = useState<OrganizePhase>('idle');
+  
+  // Animation values
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const pulseAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
@@ -35,6 +45,36 @@ export function OrganizeButton({ onComplete, onError }: OrganizeButtonProps) {
 
   const today = getDateService().getCurrentDate();
   const currentHour = getDateService().getHour();
+
+  // Pulse animation for icon during organizing
+  useEffect(() => {
+    if (phase === 'organizing') {
+      pulseAnimRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.08,
+            duration: 750,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 750,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulseAnimRef.current.start();
+    } else {
+      pulseAnimRef.current?.stop();
+      pulseAnim.setValue(1);
+    }
+    
+    return () => {
+      pulseAnimRef.current?.stop();
+    };
+  }, [phase, pulseAnim]);
 
   // Count unassigned tasks
   const unassignedCount = React.useMemo(() => {
@@ -60,8 +100,42 @@ export function OrganizeButton({ onComplete, onError }: OrganizeButtonProps) {
     return null;
   }
 
+  const startProgressAnimation = () => {
+    progressAnim.setValue(0);
+    setPhase('organizing');
+    
+    // Animate to 85% over 8 seconds with ease-out
+    Animated.timing(progressAnim, {
+      toValue: 0.85,
+      duration: 8000,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const completeProgressAnimation = (callback: () => void) => {
+    // Stop current animation and spring to 100%
+    progressAnim.stopAnimation(() => {
+      Animated.timing(progressAnim, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: false,
+      }).start(() => {
+        // Brief pause at 100% before completing
+        setTimeout(() => {
+          setPhase('complete');
+          progressAnim.setValue(0);
+          callback();
+        }, 200);
+      });
+    });
+  };
+
   const handlePress = async () => {
-    setIsLoading(true);
+    if (phase !== 'idle') return;
+    
+    startProgressAnimation();
 
     try {
       const request = buildOrganizeDayRequest({
@@ -82,44 +156,92 @@ export function OrganizeButton({ onComplete, onError }: OrganizeButtonProps) {
 
       if (response.error) {
         console.log('[OrganizeButton] API returned error', { error: response.error });
-        onError?.(response.summary || 'Something went wrong');
+        completeProgressAnimation(() => {
+          setPhase('idle');
+          onError?.(response.summary || 'Something went wrong');
+        });
         return;
       }
 
-      // Apply assignments
-      if (response.assignments.length > 0) {
-        applyOrganizeAssignments(response.assignments);
-      }
+      // Complete progress animation, then trigger card animation
+      completeProgressAnimation(() => {
+        setPhase('animating');
+        
+        // Trigger card exit animations
+        if (response.assignments.length > 0) {
+          onAnimationStart?.(response.assignments);
+        }
+        
+        // Calculate animation duration: base 400ms + 150ms per card staggered
+        const animationDuration = 400 + (response.assignments.length * 150);
+        
+        setTimeout(() => {
+          // Now actually apply the assignments to Zustand
+          if (response.assignments.length > 0) {
+            applyOrganizeAssignments(response.assignments);
+          }
 
-      console.log('[OrganizeButton] Applied assignments', {
-        assigned: response.assignments.length,
-        overflow: response.overflow.length,
+          console.log('[OrganizeButton] Applied assignments', {
+            assigned: response.assignments.length,
+            overflow: response.overflow.length,
+          });
+
+          onAnimationComplete?.();
+          setPhase('idle');
+          onComplete?.(response.summary, response.reasoning);
+        }, animationDuration);
       });
-
-      onComplete?.(response.summary, response.reasoning);
     } catch (err) {
       console.log('[OrganizeButton] Error', { error: String(err) });
-      onError?.('Failed to organize tasks');
-    } finally {
-      setIsLoading(false);
+      completeProgressAnimation(() => {
+        setPhase('idle');
+        onError?.('Failed to organize tasks');
+      });
     }
   };
 
+  // Progress bar width interpolation
+  const progressWidth = progressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
+
+  // Render progress bar when organizing or animating
+  if (phase === 'organizing' || phase === 'animating') {
+    return (
+      <View style={styles.progressContainer}>
+        <Animated.View 
+          style={[
+            styles.progressFill,
+            { width: progressWidth }
+          ]} 
+        />
+        <View style={styles.progressContent}>
+          <Animated.Image
+            source={require('../../../../assets/buttonforHP.png')}
+            style={[
+              styles.buttonIcon,
+              { transform: [{ scale: pulseAnim }] }
+            ]}
+          />
+          <Text style={styles.text}>Organizing...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Default idle button
   return (
     <Pressable
-      style={[styles.button, isLoading && styles.buttonDisabled]}
+      style={styles.button}
       onPress={handlePress}
-      disabled={isLoading}
+      disabled={phase !== 'idle'}
     >
-      {isLoading ? (
-        <ActivityIndicator size="small" color={COLORS.mossGreen} />
-      ) : (
-        <Image
-          source={require('../../../../assets/buttonforHP.png')}
-          style={styles.buttonIcon}
-        />
-      )}
-      <Text style={styles.text}>{isLoading ? 'Organizing...' : 'Help me organize'}</Text>
+      <Image
+        source={require('../../../../assets/buttonforHP.png')}
+        style={styles.buttonIcon}
+      />
+      <Text style={styles.text}>Help me organize</Text>
     </Pressable>
   );
 }
@@ -138,9 +260,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     gap: 8,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
   buttonIcon: {
     width: 32,
     height: 32,
@@ -150,5 +269,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: COLORS.mossGreen,
+  },
+  // Progress bar styles
+  progressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.mossGreenLight,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  progressFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(46, 85, 64, 0.25)',
+    borderRadius: 8,
+  },
+  progressContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    zIndex: 1,
   },
 });

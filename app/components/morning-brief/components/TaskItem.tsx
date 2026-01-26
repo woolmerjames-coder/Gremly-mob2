@@ -4,10 +4,12 @@
  * Renders a single task row in Morning Brief.
  * - Tap row → opens TimeBlockPicker
  * - Tap time estimate → opens TimeEstimatePicker
+ * 
+ * AnimatedTaskItem wraps TaskItem with exit animation support.
  */
 
-import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, Pressable, StyleSheet, Animated, Easing } from 'react-native';
 import { Circle, Diamond, Repeat } from 'lucide-react-native';
 import type { TimeBlock } from '../../../../lib/capacity';
 
@@ -127,3 +129,97 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 });
+
+/**
+ * AnimatedTaskItem
+ * 
+ * Wraps TaskItem with exit animation support for organize flow.
+ * When isAnimatingOut is true, the card lifts slightly then slides down and fades out.
+ */
+interface AnimatedTaskItemProps extends TaskItemProps {
+  isAnimatingOut?: boolean;
+  animationDelay?: number;
+}
+
+export function AnimatedTaskItem({
+  task,
+  onPress,
+  onTimePress,
+  showEstimate = true,
+  dimmed = false,
+  isAnimatingOut = false,
+  animationDelay = 0,
+}: AnimatedTaskItemProps) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (isAnimatingOut) {
+      // Staggered exit animation: lift, then slide down and fade
+      Animated.sequence([
+        Animated.delay(animationDelay),
+        // Lift slightly with scale
+        Animated.parallel([
+          Animated.timing(translateY, {
+            toValue: -6,
+            duration: 120,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(scale, {
+            toValue: 1.02,
+            duration: 120,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+        // Brief pause at top
+        Animated.delay(80),
+        // Slide down and fade out
+        Animated.parallel([
+          Animated.timing(translateY, {
+            toValue: 40,
+            duration: 280,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 280,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(scale, {
+            toValue: 0.95,
+            duration: 280,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start();
+    } else {
+      // Reset if not animating
+      translateY.setValue(0);
+      opacity.setValue(1);
+      scale.setValue(1);
+    }
+  }, [isAnimatingOut, animationDelay, translateY, opacity, scale]);
+
+  return (
+    <Animated.View
+      style={{
+        transform: [{ translateY }, { scale }],
+        opacity,
+      }}
+    >
+      <TaskItem
+        task={task}
+        onPress={onPress}
+        onTimePress={onTimePress}
+        showEstimate={showEstimate}
+        dimmed={dimmed}
+      />
+    </Animated.View>
+  );
+}
