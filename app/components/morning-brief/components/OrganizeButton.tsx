@@ -19,7 +19,7 @@ const COLORS = {
 };
 
 interface OrganizeButtonProps {
-  onComplete?: (summary: string) => void;
+  onComplete?: (summary: string, reasoning?: string[]) => void;
   onError?: (error: string) => void;
 }
 
@@ -96,7 +96,7 @@ export function OrganizeButton({ onComplete, onError }: OrganizeButtonProps) {
         overflow: response.overflow.length,
       });
 
-      onComplete?.(response.summary);
+      onComplete?.(response.summary, response.reasoning);
     } catch (err) {
       console.log('[OrganizeButton] Error', { error: String(err) });
       onError?.('Failed to organize tasks');

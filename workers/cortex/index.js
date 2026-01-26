@@ -899,7 +899,8 @@ export default {
     if (tasks.length === 0) {
       return j({ 
         assignments: [], 
-        overflow: [], 
+        overflow: [],
+        reasoning: [],
         summary: "No tasks to organize.",
         latency_ms: 0 
       });
@@ -912,94 +913,68 @@ export default {
       return j({
         assignments: [],
         overflow: [],
+        reasoning: [],
         summary: "All tasks are already assigned or locked.",
         latency_ms: 0
       });
     }
 
     // Build context strings for the prompt
-    const taskList = tasksToAssign.map((t, i) => {
-      const parts = [`${i + 1}. [taskId: ${t.id}] "${t.title}" (${t.type})`];
-      if (t.estimateMinutes) parts.push(`~${t.estimateMinutes}min`);
-      if (t.dueDate) parts.push(`due: ${t.dueDate}`);
-      if (t.priority) parts.push(`priority: ${t.priority}`);
-      if (t.timeWindowPreference) parts.push(`prefers: ${t.timeWindowPreference}`);
-      return parts.join(', ');
+    const taskList = tasksToAssign.map((t) => {
+      const parts = [`- ${t.id}: "${t.title}"`];
+      parts.push(`  total_minutes: ${t.totalMinutes || t.estimateMinutes || 30}`);
+      parts.push(`  energy: ${t.energyType || 'administrative'}`);
+      if (t.timeWindowPreference) {
+        parts.push(`  prefers: ${t.timeWindowPreference}`);
+      }
+      return parts.join('\n');
     }).join('\n');
 
     const calendarContext = calendarEvents.length > 0
       ? calendarEvents.map(e => `- ${e.title}: ${e.startAt} to ${e.endAt} (${e.durationMinutes}min)`).join('\n')
       : 'No calendar events today.';
 
-    const blockContext = `
-Morning (${blocks.morning?.startHour || 6}:00 - ${blocks.morning?.endHour || 12}:00): ${blocks.morning?.realisticAvailableMinutes ?? blocks.morning?.availableMinutes ?? 0} minutes actually available right now
-Afternoon (${blocks.day?.startHour || 12}:00 - ${blocks.day?.endHour || 17}:00): ${blocks.day?.realisticAvailableMinutes ?? blocks.day?.availableMinutes ?? 0} minutes actually available right now
-Evening (${blocks.evening?.startHour || 17}:00 - ${blocks.evening?.endHour || 22}:00): ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} minutes actually available right now
-Current time: ${currentHour}:00
+    const blockContext = `Morning: ${blocks.morning?.realisticAvailableMinutes ?? blocks.morning?.availableMinutes ?? 0} min
+Afternoon: ${blocks.day?.realisticAvailableMinutes ?? blocks.day?.availableMinutes ?? 0} min
+Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min`;
 
-IMPORTANT: The "actually available right now" minutes account for:
-- Current time (past time is gone)
-- Calendar events blocking time
-This is the REAL time the user has. Do not exceed 85% of these values.`.trim();
+    const organizePrompt = `You are a task scheduler. Place tasks into time blocks.
 
-    const organizePrompt = `You are Gremly's scheduling AI. Assign tasks to time blocks for a user's day.
+=== TIME ===
+Current hour: ${currentHour}:00
+Past blocks unavailable.
 
-=== AVAILABLE TIME ===
-${blockContext}
-
-=== CALENDAR EVENTS ===
+=== CALENDAR ===
 ${calendarContext}
 
-=== TASKS TO ASSIGN ===
+=== CAPACITY ===
+${blockContext}
+Use max 85% of each block.
+
+=== TASKS ===
 ${taskList}
 
-=== HARD CONSTRAINTS (never violate) ===
-1. Never assign to a block that's already passed (current hour is ${currentHour})
-2. Never exceed 85% of available time in any block (leave 15% buffer)
-3. Respect time window preferences (if task prefers "morning", put it in morning if possible)
-4. Tasks without time estimates: assume 30 minutes
+=== RULES ===
+1. Never schedule in past blocks
+2. Never exceed 85% of capacity (use total_minutes)
+3. Respect time_window_preference if set
+4. deep_focus → longest block
+5. Avoid stacking physical/social back-to-back
 
-=== SMART PLACEMENT RULES ===
-1. **Due today** → Earliest available block with room
-2. **High priority** → Earlier in day when energy is higher
-3. **Quick tasks (≤15min)** → Good as warm-up or between meetings
-4. **Deep work (≥60min or titles with: write, code, design, plan, create, build, draft, prepare, review)** → Longest uninterrupted stretch, avoid blocks with many meetings
-5. **Exercise/physical tasks** → Not right before important meetings
-6. **Variety** → Don't cluster all similar tasks; spread them out
-7. **Calendar awareness** → If a block has back-to-back meetings, assign fewer/lighter tasks
-
-=== BLOCK SELECTION PRIORITY ===
-For each task, consider in order:
-1. Does it have a time preference? → Honor it if that block has room
-2. Is it due today? → Earliest block with room
-3. Is it high priority? → Earlier block preferred
-4. Is it deep work? → Block with most uninterrupted time
-5. Is it quick? → Any block, good for filling gaps
-6. Default → Balance across blocks, don't overload any single block
-
-=== OVERFLOW HANDLING ===
-If a task doesn't fit in any block:
-- Mark it as "flexible" (not assigned to a specific block)
-- This means the user will see it but it's not scheduled
-- Do NOT auto-defer to tomorrow
-
-=== OUTPUT FORMAT ===
-Return ONLY valid JSON:
+=== OUTPUT ===
+JSON only:
 {
-  "assignments": [
-    { "taskId": "...", "block": "morning" | "day" | "evening", "reason": "Brief reason" }
-  ],
-  "overflow": [
-    { "taskId": "...", "reason": "Why it didn't fit" }
-  ],
-  "summary": "One sentence summary, e.g. 'Scheduled 5 of 7 tasks. Left 2 flexible due to limited afternoon availability.'"
+  "assignments": [{ "taskId": "...", "block": "morning|day|evening", "reason": "5-10 words" }],
+  "overflow": [{ "taskId": "...", "reason": "5-10 words" }],
+  "reasoning": ["First pattern or decision", "Second pattern", "Third if needed"],
+  "summary": "One sentence"
 }
 
-IMPORTANT:
-- taskId must match exactly from the input
-- "block" must be one of: "morning", "day", "evening"
-- Every task must appear in either assignments OR overflow, not both
-- Summary should be natural, mention specific constraints if relevant`;
+Reasoning guidelines:
+- 2-4 short bullets explaining the overall approach
+- Focus on patterns: grouping, protecting focus time, respecting preferences
+- Do NOT mention: minutes, buffers, capacity numbers, energy types
+- Keep it human and reassuring`;
 
     const t0 = Date.now();
 
@@ -1013,11 +988,11 @@ IMPORTANT:
         body: JSON.stringify({
           model: "gpt-4o-mini",
           messages: [
-            { role: "system", content: organizePrompt },
+            { role: "system", content: organizePrompt }
           ],
-          temperature: 0.3,
-          max_tokens: 800,
-          response_format: { type: "json_object" },
+          temperature: 0.2,
+          max_tokens: 900,
+          response_format: { type: "json_object" }
         }),
       });
 
@@ -1029,31 +1004,32 @@ IMPORTANT:
         return j({ 
           error: "organize_failed", 
           detail: oj.error?.message,
-          // Fallback: return all tasks as overflow
           assignments: [],
           overflow: tasksToAssign.map(t => ({ taskId: t.id, reason: "AI unavailable" })),
+          reasoning: [],
           summary: "Couldn't organize automatically. Tasks left flexible.",
           latency_ms: latency 
         }, 200);
       }
 
-      const rawContent = oj?.choices?.[0]?.message?.content ?? "{}";
-      let parsed;
-      try {
-        parsed = JSON.parse(rawContent);
-      } catch {
-        console.log("[organize-day] Parse error", { raw: rawContent });
+      const rawContent = oj?.choices?.[0]?.message?.content ?? "";
+      
+      let parsed = safeParseJson(rawContent);
+      
+      if (!parsed) {
+        console.log("[organize-day] Parse failed", { preview: rawContent.substring(0, 200) });
         return j({ 
           error: "parse_failed",
           assignments: [],
           overflow: tasksToAssign.map(t => ({ taskId: t.id, reason: "Parse error" })),
-          summary: "Couldn't parse AI response. Tasks left flexible.",
+          reasoning: [],
+          summary: "Couldn't parse response. Tasks left flexible.",
           latency_ms: latency 
         }, 200);
       }
 
-      // Validate assignments
-      const validBlocks = ['morning', 'day', 'evening'];
+      // Validate and extract
+      const validBlocks = ["morning", "day", "evening"];
       const taskIds = new Set(tasksToAssign.map(t => t.id));
       const assignedIds = new Set();
 
@@ -1068,10 +1044,9 @@ IMPORTANT:
         .map(a => ({
           taskId: a.taskId,
           block: a.block,
-          reason: String(a.reason || '').substring(0, 100),
+          reason: String(a.reason || "").substring(0, 50)
         }));
 
-      // Validate overflow
       const overflowIds = new Set();
       const overflow = (Array.isArray(parsed.overflow) ? parsed.overflow : [])
         .filter(o => {
@@ -1083,32 +1058,36 @@ IMPORTANT:
         })
         .map(o => ({
           taskId: o.taskId,
-          reason: String(o.reason || '').substring(0, 100),
+          reason: String(o.reason || "").substring(0, 50)
         }));
 
-      // Any tasks not in assignments or overflow? Add to overflow
+      // Catch any unaccounted tasks
       for (const task of tasksToAssign) {
         if (!assignedIds.has(task.id) && !overflowIds.has(task.id)) {
-          overflow.push({ taskId: task.id, reason: "Not assigned by AI" });
+          overflow.push({ taskId: task.id, reason: "Not assigned" });
         }
       }
 
-      const summary = typeof parsed.summary === 'string' && parsed.summary.length > 0
-        ? parsed.summary.substring(0, 200)
+      const summary = typeof parsed.summary === "string" && parsed.summary.length > 0
+        ? parsed.summary.substring(0, 150)
         : `Scheduled ${assignments.length} of ${tasksToAssign.length} tasks.`;
 
+      const reasoning = Array.isArray(parsed.reasoning)
+        ? parsed.reasoning.map(r => String(r).substring(0, 150)).slice(0, 4)
+        : [];
+
       console.log("[organize-day] Success", {
-        tasks_input: tasksToAssign.length,
         assigned: assignments.length,
         overflow: overflow.length,
-        latency_ms: latency,
+        latency_ms: latency
       });
 
       return j({
         assignments,
         overflow,
+        reasoning,
         summary,
-        latency_ms: latency,
+        latency_ms: latency
       });
 
     } catch (err) {
@@ -1119,6 +1098,7 @@ IMPORTANT:
         detail: String(err),
         assignments: [],
         overflow: tasksToAssign.map(t => ({ taskId: t.id, reason: "Request failed" })),
+        reasoning: [],
         summary: "Request failed. Tasks left flexible.",
         latency_ms: latency 
       }, 200);
@@ -2239,93 +2219,84 @@ IMPORTANT:
   const timezone = body.timezone || "UTC";
   const dayOfWeek = body.dayOfWeek || "Sunday";
  
-  const dateContext = `Today is ${dayOfWeek}, ${currentDate}. The user is in timezone ${timezone}.`;
- 
-  // Build prompt based on bucket type
-  let fieldInstructions = "";
-  if (bucket === "todo") {
-  fieldInstructions = `Extract these fields for a TODO item:
- - tags: 2-4 relevant tags (lowercase, hyphenated)
- - time_estimate_minutes: estimated minutes (5, 10, 15, 30, 45, 60, 90, or 120)
- - time_window: "morning", "day", or "evening" if mentioned, else null
- - extracted_date: due date in YYYY-MM-DD format if mentioned, else null
- - people: array of names/relationships mentioned, else empty array`;
-  } else if (bucket === "habit") {
-  fieldInstructions = `Extract these fields for a HABIT item:
- - tags: 2-4 relevant tags (lowercase, hyphenated)
- - time_estimate_minutes: minutes per session (5, 10, 15, 30, 45, 60, 90, or 120)
- - time_window: "morning", "day", or "evening" if mentioned, else null
- - extracted_frequency: frequency string like "daily", "2x/week", "3x/week", "weekly"
- - extracted_days: array of day numbers (0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat) if specific days mentioned, else null
- - extracted_start_date: start date in YYYY-MM-DD if mentioned, else null
- - people: array of names/relationships mentioned, else empty array
- 
- FREQUENCY RULES:
- - "twice a week" = "2x/week" (NOT 3x/week)
- - "Monday and Friday" = 2 days = "2x/week"
- - "Monday, Wednesday, Friday" = 3 days = "3x/week"
- - "every day" or "daily" = "daily"
- - "once a week" or "weekly" = "weekly"`;
-  } else if (bucket === "log" && subtype === "journal") {
-  fieldInstructions = `Extract these fields for a JOURNAL entry:
- - tags: 2-4 relevant tags (lowercase, hyphenated)
- - mood: 1-3 moods from this list: great, good, okay, low, tired, anxious, overwhelmed, frustrated, scattered, grateful, hopeful, focused, calm
- - people: array of names/relationships mentioned, else empty array
- 
- MOOD RULES:
- - Extract explicit emotions mentioned
- - Also infer from context: promotion/achievement = "great", bad news/loss = "low"
- - "exhausted" = "tired", "stressed" = "anxious"`;
-  } else {
-  fieldInstructions = `Extract these fields for a LOG/NOTE item:
- - tags: 2-4 relevant tags (lowercase, hyphenated)
- - people: array of names/relationships mentioned, else empty array`;
-  }
- 
-  const phase2Prompt = `You extract metadata from items for Gremly, a productivity app.
- 
-  === DATE CONTEXT ===
-  ${dateContext}
-  
-  === DATE CALCULATION ===
-  Today is ${currentDate} (${dayOfWeek}).
-  - "tomorrow" = add 1 day to today's date
-  - "next week" / "next monday" = find the coming Monday
-  - "friday" = find the coming Friday (could be this week or next)
-  
-  IMPORTANT: Calculate dates relative to TODAY (${currentDate}), not some other reference point.
- 
- === ITEM TYPE: "${bucket}"${subtype ? ` (${subtype})` : ""} ===
- 
- === ORIGINAL TEXT ===
- "${text.substring(0, 1500)}"
- 
- === EXTRACTION RULES ===
- ${fieldInstructions}
- 
- === TAG RULES ===
- - 2-4 tags total
- - Lowercase, use hyphens for multi-word (e.g., "self-care")
- - Category tags: work, health, home, travel, family, finance, fitness, social, planning
- - Topic tags: specific nouns from the text
- - NO generic words: good, thing, stuff, today, etc.
- - NO people names as tags
- 
- === OUTPUT ===
- Return ONLY valid JSON with the fields specified above. Example structure:
- {
-  "tags": ["work", "planning"],
-  "time_estimate_minutes": 30,
-  "time_window": "morning",
-  "extracted_date": "2026-01-20",
-  "extracted_frequency": "daily",
-  "extracted_days": [1, 3, 5],
-  "extracted_start_date": null,
-  "people": ["Mom", "Dr. Smith"],
-  "mood": ["anxious", "hopeful"]
- }
- 
- Only include fields relevant to the item type. Use null for fields that don't apply or aren't mentioned.`;
+  const phase2Prompt = `You extract core, durable metadata for Gremly, a calm productivity app.
+Your goal is to capture only information that is intrinsic to the item.
+Do NOT include planning or scheduling logic.
+
+=== DATE CONTEXT ===
+Today is ${currentDate} (${dayOfWeek}).
+User timezone: ${timezone}.
+
+Date rules:
+- "tomorrow" = today + 1 day
+- Named days refer to the NEXT occurrence
+- Use YYYY-MM-DD format
+
+=== ITEM TYPE ===
+Bucket: "${bucket}"${subtype ? ` (Subtype: "${subtype}")` : ""}
+
+=== ORIGINAL TEXT ===
+"${text.substring(0, 1500)}"
+
+=== EXTRACTION RULES ===
+If unsure, return null.
+Do NOT invent or over-infer.
+
+--------------------------------
+FOR TODOS & HABITS:
+--------------------------------
+1. time_estimate_minutes
+Choose one: 5, 10, 15, 30, 45, 60, 90, 120
+Be realistic, not optimistic.
+
+2. time_window
+Only if explicitly mentioned:
+"morning" | "day" | "evening" | null
+
+3. energy_type
+Choose ONE (strict enum):
+- deep_focus (thinking, writing, coding, planning, creating, designing)
+- administrative (email, forms, scheduling, logistics, booking, paying)
+- physical (exercise, errands, movement, cleaning, walking, running)
+- social (calls, meetings, conversations, interviews)
+- quick (very small tasks under 10 min, low cognitive effort)
+
+Default to "administrative" if unclear.
+
+--------------------------------
+FOR HABITS ONLY:
+--------------------------------
+4. extracted_frequency
+Examples: daily, 2x/week, 3x/week, weekly
+
+5. extracted_days
+Array of numbers if mentioned (0=Sun … 6=Sat), else null
+
+6. extracted_start_date
+YYYY-MM-DD if mentioned, else null
+
+--------------------------------
+FOR JOURNAL ONLY:
+--------------------------------
+7. mood
+Choose up to 3:
+great, good, okay, low, tired,
+anxious, overwhelmed, frustrated,
+scattered, grateful, hopeful,
+focused, calm
+
+--------------------------------
+TAGS (ALL TYPES):
+--------------------------------
+8. tags
+- 2–4 lowercase, hyphenated
+- Category + topic
+- No filler words
+- No people names
+
+=== OUTPUT ===
+Return ONLY valid JSON.
+Include null for fields that do not apply.`;
  
   const t0 = Date.now();
  
@@ -2392,6 +2363,17 @@ IMPORTANT:
   timeWindow = validWindows.includes(normalized) ? normalized : null;
   }
  
+  // Validate energy_type
+  let energyType = null;
+  if (bucket === "todo" || bucket === "habit") {
+  const validEnergyTypes = ["deep_focus", "administrative", "physical", "social", "quick"];
+  if (validEnergyTypes.includes(parsed.energy_type)) {
+    energyType = parsed.energy_type;
+  } else {
+    energyType = "administrative"; // default fallback
+  }
+  }
+ 
   // Validate extracted_date
   let extractedDate = null;
   if (bucket === "todo" && parsed.extracted_date) {
@@ -2454,6 +2436,7 @@ IMPORTANT:
   tags_count: tags.length,
   has_time: timeEstimate !== null,
   has_window: timeWindow !== null,
+  has_energy: energyType !== null,
   has_date: extractedDate !== null,
   has_frequency: extractedFrequency !== null,
   has_days: extractedDays !== null,
@@ -2466,6 +2449,7 @@ IMPORTANT:
   tags,
   time_estimate_minutes: timeEstimate,
   time_window: timeWindow,
+  energy_type: energyType,
   extracted_date: extractedDate,
   extracted_start_date: extractedStartDate,
   extracted_frequency: extractedFrequency,
@@ -2796,4 +2780,23 @@ IMPORTANT:
   "Content-Type": "application/json",
   },
   });
- }// Paste your worker code here
+ }
+
+// Safe JSON parser that handles markdown fences and malformed responses
+function safeParseJson(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  let s = raw.trim();
+  // Strip markdown code fences
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  // Extract first {...} block if there's extra text
+  const firstBrace = s.indexOf("{");
+  const lastBrace = s.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    s = s.slice(firstBrace, lastBrace + 1);
+  }
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}// Paste your worker code here

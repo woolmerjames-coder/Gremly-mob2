@@ -9,6 +9,7 @@ import type { Todo, Habit } from '../types';
 import type { CalendarEvent } from '../calendar/CalendarClient';
 import type { DayCapacity } from '../capacity';
 import { calculateRealisticAvailableMinutes } from '../capacity';
+import { computeTotalMinutes, validateEnergyType } from '../planning';
 
 // =============================================================================
 // TYPES
@@ -19,6 +20,9 @@ export interface OrganizeDayTask {
   title: string;
   type: 'todo' | 'habit';
   estimateMinutes: number | null;
+  visibleMinutes: number;
+  totalMinutes: number;
+  energyType: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick';
   dueDate: string | null;
   priority: 'high' | 'medium' | 'low' | null;
   isLockedIn: boolean;
@@ -66,6 +70,7 @@ export interface TaskOverflow {
 export interface OrganizeDayResponse {
   assignments: TaskAssignment[];
   overflow: TaskOverflow[];
+  reasoning: string[];
   summary: string;
   latency_ms: number;
   error?: string;
@@ -107,6 +112,7 @@ export async function organizeDay(request: OrganizeDayRequest): Promise<Organize
       return {
         assignments: [],
         overflow: request.tasks.map((t) => ({ taskId: t.id, reason: 'API request failed' })),
+        reasoning: [],
         summary: 'Could not reach AI. Tasks left flexible.',
         latency_ms: Date.now() - startTime,
         error: `HTTP ${response.status}`,
@@ -129,6 +135,7 @@ export async function organizeDay(request: OrganizeDayRequest): Promise<Organize
     return {
       assignments: [],
       overflow: request.tasks.map((t) => ({ taskId: t.id, reason: 'Network error' })),
+      reasoning: [],
       summary: 'Network error. Tasks left flexible.',
       latency_ms: Date.now() - startTime,
       error: 'network_error',
@@ -156,19 +163,27 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
   // Convert todos to OrganizeDayTask format
   const todoTasks: OrganizeDayTask[] = todos
     .filter((t) => !t.archived && !t.completed_at && t.due_day === today)
-    .map((t) => ({
-      id: t.id,
-      title: t.name || t.title || '',
-      type: 'todo' as const,
-      estimateMinutes: t.time_estimate_minutes ?? null,
-      dueDate: t.due_day ?? null,
-      priority: null, // Todo type doesn't have priority
-      isLockedIn: t.locked_in ?? false,
-      currentBlock: t.time_window && t.time_window !== 'any'
-        ? t.time_window as 'morning' | 'day' | 'evening'
-        : null,
-      timeWindowPreference: t.time_window as 'morning' | 'day' | 'evening' | 'any' | null,
-    }));
+    .map((t) => {
+      const estimateMinutes = t.time_estimate_minutes ?? 30;
+      const prepBuffer = (t as any).prep_buffer_minutes ?? 0;
+      const cooldownBuffer = (t as any).cooldown_buffer_minutes ?? 0;
+      return {
+        id: t.id,
+        title: t.name || t.title || '',
+        type: 'todo' as const,
+        estimateMinutes: t.time_estimate_minutes ?? null,
+        visibleMinutes: estimateMinutes,
+        totalMinutes: computeTotalMinutes(estimateMinutes, prepBuffer, cooldownBuffer),
+        energyType: validateEnergyType((t as any).energy_type),
+        dueDate: t.due_day ?? null,
+        priority: null, // Todo type doesn't have priority
+        isLockedIn: t.locked_in ?? false,
+        currentBlock: t.time_window && t.time_window !== 'any'
+          ? t.time_window as 'morning' | 'day' | 'evening'
+          : null,
+        timeWindowPreference: t.time_window as 'morning' | 'day' | 'evening' | 'any' | null,
+      };
+    });
 
   // Convert habits to OrganizeDayTask format
   const habitTasks: OrganizeDayTask[] = habits
@@ -178,19 +193,27 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
       if (h.end_date && h.end_date < today) return false;
       return true;
     })
-    .map((h) => ({
-      id: h.id,
-      title: h.name,
-      type: 'habit' as const,
-      estimateMinutes: h.time_estimate_minutes ?? null,
-      dueDate: null,
-      priority: null,
-      isLockedIn: false,
-      currentBlock: h.time_window && h.time_window !== 'any'
-        ? h.time_window as 'morning' | 'day' | 'evening'
-        : null,
-      timeWindowPreference: h.time_window as 'morning' | 'day' | 'evening' | 'any' | null,
-    }));
+    .map((h) => {
+      const estimateMinutes = h.time_estimate_minutes ?? 30;
+      const prepBuffer = (h as any).prep_buffer_minutes ?? 0;
+      const cooldownBuffer = (h as any).cooldown_buffer_minutes ?? 0;
+      return {
+        id: h.id,
+        title: h.name,
+        type: 'habit' as const,
+        estimateMinutes: h.time_estimate_minutes ?? null,
+        visibleMinutes: estimateMinutes,
+        totalMinutes: computeTotalMinutes(estimateMinutes, prepBuffer, cooldownBuffer),
+        energyType: validateEnergyType((h as any).energy_type),
+        dueDate: null,
+        priority: null,
+        isLockedIn: false,
+        currentBlock: h.time_window && h.time_window !== 'any'
+          ? h.time_window as 'morning' | 'day' | 'evening'
+          : null,
+        timeWindowPreference: h.time_window as 'morning' | 'day' | 'evening' | 'any' | null,
+      };
+    });
 
   // Convert calendar events
   const events: OrganizeDayCalendarEvent[] = calendarEvents.map((e) => ({

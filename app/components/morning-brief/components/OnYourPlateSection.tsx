@@ -79,7 +79,7 @@ export function OnYourPlateSection({
       {count === 0 && (
         <View style={styles.emptyState}>
           <Text style={styles.emptyText}>
-            Nothing flexible right now. Add a task or check your time blocks above.
+            Nothing to organize. Add a task or check your time blocks below.
           </Text>
         </View>
       )}

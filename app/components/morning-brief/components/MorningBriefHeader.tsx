@@ -50,22 +50,21 @@ export function MorningBriefHeader() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <View style={styles.headerContent}>
-          <Text style={styles.title}>Your {dayName}</Text>
+          <Text style={styles.title}>Plan Your {dayName}</Text>
           <Text style={styles.subtitle}>
             {dateString} · {timeString}
           </Text>
           <View style={styles.statsRow}>
             <Text style={styles.stats}>
-              {eventCount === 0
-                ? `No events · ${availableTime} available`
-                : `${eventCount} event${eventCount !== 1 ? 's' : ''} · ${availableTime} available`}
+              {eventCount > 0 ? `${eventCount} event${eventCount !== 1 ? 's' : ''} · ` : ''}
+              {availableTime} available
             </Text>
             {totalHiddenCount > 0 && (
               <Pressable
                 onPress={() => setShowHiddenPopup(true)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Text style={styles.hiddenLink}>· {totalHiddenCount} hidden</Text>
+                <Text style={styles.hiddenLink}> · {totalHiddenCount} hidden</Text>
               </Pressable>
             )}
           </View>
@@ -95,9 +94,9 @@ interface HiddenItemsPopupProps {
 function HiddenItemsPopup({ visible, onClose }: HiddenItemsPopupProps) {
   const today = getDateService().getCurrentDate();
 
-  // Hidden events
-  const allEvents = useGremlyStore((s) => s.calendarEvents[today] ?? []);
-  const hiddenEventIds = useGremlyStore((s) => s.hiddenCalendarEventsByDate[today] ?? []);
+  // Hidden events - select raw state, handle fallbacks in useMemo
+  const calendarEvents = useGremlyStore((s) => s.calendarEvents);
+  const hiddenCalendarEventsByDate = useGremlyStore((s) => s.hiddenCalendarEventsByDate);
   const unhideCalendarEvent = useGremlyStore((s) => s.unhideCalendarEvent);
   const unhideAllCalendarEventsForDate = useGremlyStore((s) => s.unhideAllCalendarEventsForDate);
 
@@ -108,11 +107,13 @@ function HiddenItemsPopup({ visible, onClose }: HiddenItemsPopupProps) {
   const unhideForToday = useGremlyStore((s) => s.unhideForToday);
   const clearHiddenToday = useGremlyStore((s) => s.clearHiddenToday);
 
-  // Get hidden events
-  const hiddenEventSet = new Set(hiddenEventIds);
-  const hiddenEvents = allEvents.filter((e) =>
-    hiddenEventSet.has(`${e.provider}-${e.providerEventId}`),
-  );
+  // Get hidden events - compute from raw state
+  const hiddenEvents = useMemo(() => {
+    const allEvents = calendarEvents[today] ?? [];
+    const hiddenEventIds = hiddenCalendarEventsByDate[today] ?? [];
+    const hiddenEventSet = new Set(hiddenEventIds);
+    return allEvents.filter((e) => hiddenEventSet.has(`${e.provider}-${e.providerEventId}`));
+  }, [calendarEvents, hiddenCalendarEventsByDate, today]);
 
   // Get hidden todos and habits
   const hiddenTodaySet = useMemo(() => new Set(hiddenTodayIds), [hiddenTodayIds]);

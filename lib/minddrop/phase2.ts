@@ -15,6 +15,7 @@ import { callEnrichPhase2Streaming, Phase2EnrichmentResult } from '../cortex/Cor
 import { parseFrequencyString } from '../habits/frequencyUtils';
 import { extractSpacePattern, findSpaceByName } from './spacePatterns';
 import { supabase } from '../supabase/client';
+import { calculateBuffers } from '../planning';
 
 // --- Types ---
 
@@ -30,6 +31,7 @@ export interface Phase2Result {
   people: string[];
   confirmationMessage: string | null;
   mood: string[] | null; // AI-extracted moods for journal entries
+  energyType: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
 }
 
 // --- Constants ---
@@ -146,6 +148,13 @@ async function callEnrichAPI(
     }
 
     // Map API response to Phase2Result
+    // Validate energy_type
+    const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'] as const;
+    const rawEnergyType = json.energy_type;
+    const energyType = validEnergyTypes.includes(rawEnergyType)
+      ? (rawEnergyType as 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick')
+      : null;
+
     return {
       smartTitle: json.smart_title || generateFallbackTitle(text),
       tags: Array.isArray(json.tags) ? json.tags : [],
@@ -158,6 +167,7 @@ async function callEnrichAPI(
       people: Array.isArray(json.people) ? json.people : [],
       confirmationMessage: json.confirmation_message ?? null,
       mood: Array.isArray(json.mood) ? json.mood : null,
+      energyType,
     };
   } catch (err) {
     clearTimeout(timeout);
@@ -348,6 +358,15 @@ export async function runPhase2(
         if (result.timeWindow) {
           updatePayload.time_window = result.timeWindow;
         }
+        // Energy type and buffers
+        updatePayload.energy_type = result.energyType || 'administrative';
+        const buffers = calculateBuffers(
+          result.energyType,
+          finalSmartTitle,
+          result.timeEstimateMinutes ?? 30,
+        );
+        updatePayload.prep_buffer_minutes = buffers.prep_buffer_minutes;
+        updatePayload.cooldown_buffer_minutes = buffers.cooldown_buffer_minutes;
         if (result.extractedDate) {
           updatePayload.due_date = result.extractedDate;
           // CRITICAL: due_day is the canonical field for Today page visibility
@@ -374,6 +393,15 @@ export async function runPhase2(
         if (result.timeEstimateMinutes !== null && result.timeEstimateMinutes !== undefined) {
           updatePayload.time_estimate_minutes = result.timeEstimateMinutes;
         }
+        // Energy type and buffers
+        updatePayload.energy_type = result.energyType || 'administrative';
+        const buffers = calculateBuffers(
+          result.energyType,
+          finalSmartTitle,
+          result.timeEstimateMinutes ?? 30,
+        );
+        updatePayload.prep_buffer_minutes = buffers.prep_buffer_minutes;
+        updatePayload.cooldown_buffer_minutes = buffers.cooldown_buffer_minutes;
         // Set start_date if extracted (only if not already set)
         if (result.extractedStartDate && !entity.start_date) {
           updatePayload.start_date = result.extractedStartDate;

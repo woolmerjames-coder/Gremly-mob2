@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Modal, StyleSheet, ScrollView, Text } from 'react-native';
+import { View, Modal, StyleSheet, ScrollView, Text, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
@@ -259,6 +259,8 @@ export function MorningBriefSheet({
   const [selectedTask, setSelectedTask] = useState<TaskItemData | null>(null);
   // Organize feedback message
   const [organizeMessage, setOrganizeMessage] = useState<string | null>(null);
+  const [organizeReasoning, setOrganizeReasoning] = useState<string[] | null>(null);
+  const [showReasoningModal, setShowReasoningModal] = useState(false);
   const handleTaskPress = useCallback((task: TaskItemData) => {
     setSelectedTask(task);
     setPickerVisible(true);
@@ -423,17 +425,63 @@ export function MorningBriefSheet({
 
               {/* Help Me Organize Button */}
               <OrganizeButton
-                onComplete={(summary) => {
+                onComplete={(summary, reasoning) => {
                   setOrganizeMessage(summary);
-                  setTimeout(() => setOrganizeMessage(null), 4000);
+                  if (reasoning && reasoning.length > 0) {
+                    setOrganizeReasoning(reasoning);
+                  } else {
+                    setOrganizeReasoning(null);
+                  }
+                  setTimeout(() => {
+                    setOrganizeMessage(null);
+                    setOrganizeReasoning(null);
+                  }, 30000);
                 }}
                 onError={(error) => {
                   setOrganizeMessage(error);
-                  setTimeout(() => setOrganizeMessage(null), 4000);
+                  setOrganizeReasoning(null);
+                  setTimeout(() => setOrganizeMessage(null), 30000);
                 }}
               />
 
-              {organizeMessage && <Text style={styles.organizeMessage}>{organizeMessage}</Text>}
+              {organizeMessage && (
+                <View style={styles.organizeFeedback}>
+                  <Text style={styles.organizeMessage}>{organizeMessage}</Text>
+                  {organizeReasoning && organizeReasoning.length > 0 && (
+                    <Pressable onPress={() => setShowReasoningModal(true)}>
+                      <Text style={styles.reasoningLink}>Why this plan?</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+
+              {/* Reasoning Modal */}
+              <Modal
+                visible={showReasoningModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowReasoningModal(false)}
+              >
+                <Pressable
+                  style={styles.modalOverlay}
+                  onPress={() => setShowReasoningModal(false)}
+                >
+                  <View style={styles.reasoningModal}>
+                    <Text style={styles.reasoningTitle}>Why this plan?</Text>
+                    <View style={styles.reasoningList}>
+                      {organizeReasoning?.map((reason, index) => (
+                        <Text key={index} style={styles.reasoningItem}>• {reason}</Text>
+                      ))}
+                    </View>
+                    <Pressable
+                      style={styles.reasoningDismiss}
+                      onPress={() => setShowReasoningModal(false)}
+                    >
+                      <Text style={styles.reasoningDismissText}>Got it</Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </Modal>
 
               {/* Thick divider between On Your Plate and Time Blocks */}
               <View style={styles.sectionDivider} />
@@ -539,9 +587,59 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#666666',
     textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  organizeFeedback: {
     marginHorizontal: 16,
     marginBottom: 8,
-    fontStyle: 'italic',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  reasoningLink: {
+    fontSize: 13,
+    color: '#2E5540',
+    textDecorationLine: 'underline',
+    marginTop: 6,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  reasoningModal: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 320,
+  },
+  reasoningTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    marginBottom: 12,
+  },
+  reasoningList: {
+    marginBottom: 16,
+  },
+  reasoningItem: {
+    fontSize: 15,
+    color: '#333333',
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  reasoningDismiss: {
+    backgroundColor: '#2E5540',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  reasoningDismissText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
 
