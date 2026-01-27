@@ -4975,12 +4975,21 @@ export const useGremlyStore = create<GremlyState>()(
           // Converting to TODO - use reclassify dates
           const body = originalBody;
 
-          // Use target_date from reclassify result, or extracted date as fallback
-          const dueDay = reclassifyResult.target_date
+          // Date Intelligence fields
+          // target_date = when something IS/DUE (event/deadline) - external, immovable
+          // scheduled_date = when user will DO the work - internal, movable
+          const targetDate = reclassifyResult.target_date
             ? reclassifyResult.target_date.split('T')[0]
-            : extractedDate
-              ? extractedDate.split('T')[0]
-              : null;
+            : null;
+          const scheduledDate = reclassifyResult.scheduled_date
+            ? reclassifyResult.scheduled_date.split('T')[0]
+            : null;
+          
+          // Legacy fields (due_day, due_date) should match scheduled_date, NOT target_date
+          // This is because due_day was historically "when to do it", not "when it's due"
+          // If no scheduled_date, fall back to extracted date for backwards compat
+          const legacyDueDate = scheduledDate 
+            || (extractedDate ? extractedDate.split('T')[0] : null);
 
           newEntityPayload = {
             ...commonFields,
@@ -4989,13 +4998,13 @@ export const useGremlyStore = create<GremlyState>()(
             body: body !== newTitle ? body : null,
             subtype: newSubtype || null,
             status: 'active',
-            undefined_due: !dueDay,
-            due_day: dueDay,
-            due_date: dueDay,
-            target_date: dueDay,
-            scheduled_date: reclassifyResult.scheduled_date
-              ? reclassifyResult.scheduled_date.split('T')[0]
-              : null,
+            undefined_due: !legacyDueDate && !targetDate,
+            // Legacy fields - match scheduled_date for backwards compat
+            due_day: legacyDueDate,
+            due_date: legacyDueDate,
+            // Date Intelligence fields
+            target_date: targetDate,
+            scheduled_date: scheduledDate,
             time_estimate_minutes: timeEstimate,
             energy_type: energyType || 'administrative',
             source_note_id: entityType === 'note' ? entityId : null,
