@@ -4665,6 +4665,93 @@ export const useGremlyStore = create<GremlyState>()(
           await get().updateNote(entityId, updates);
         }
 
+        console.log('[GremlyStore] Same bucket clarification - reclassify applied:', { entityId });
+
+        // ─────────────────────────────────────────────────────────────────────
+        // PHASE 2 ENRICHMENT: Now call Phase 2 with the correct bucket
+        // This extracts: tags, time_estimate, frequency, days, people, mood
+        // The progressive update triggers chip animations in the card
+        // ─────────────────────────────────────────────────────────────────────
+        try {
+          const cortexUrl = env.cortexUrl;
+          if (cortexUrl) {
+            console.log('[GremlyStore] Calling Phase 2 enrichment for clarified entity...');
+            const phase2Response = await fetch(cortexUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'enrich-phase2',
+                text: originalText,
+                bucket: targetBucket,
+                subtype: newSubtype,
+                currentDate: getDateService().getCurrentDate(),
+              }),
+            });
+
+            if (phase2Response.ok) {
+              const phase2Result = await phase2Response.json();
+              console.log('[GremlyStore] Phase 2 enrichment result', {
+                entityId,
+                tags: phase2Result.tags,
+                timeEstimate: phase2Result.time_estimate_minutes,
+                people: phase2Result.people,
+                frequency: phase2Result.frequency,
+                latency_ms: phase2Result.latency_ms,
+              });
+
+              // Build Phase 2 updates
+              const phase2Updates: Record<string, unknown> = {};
+
+              if (phase2Result.tags && Array.isArray(phase2Result.tags) && phase2Result.tags.length > 0) {
+                phase2Updates.tags = phase2Result.tags;
+              }
+              if (phase2Result.time_estimate_minutes != null) {
+                phase2Updates.time_estimate_minutes = phase2Result.time_estimate_minutes;
+              }
+              if (phase2Result.energy_type) {
+                phase2Updates.energy_type = phase2Result.energy_type;
+              }
+              if (phase2Result.people && Array.isArray(phase2Result.people) && phase2Result.people.length > 0) {
+                phase2Updates.views = {
+                  ...updatedViews,
+                  people: phase2Result.people,
+                };
+              }
+              // Habit-specific fields
+              if (entityType === 'habit') {
+                if (phase2Result.frequency) {
+                  phase2Updates.frequency = phase2Result.frequency;
+                  phase2Updates.cadence = phase2Result.frequency;
+                }
+                if (phase2Result.days && Array.isArray(phase2Result.days)) {
+                  phase2Updates.days = phase2Result.days;
+                }
+              }
+
+              // Apply Phase 2 updates if any
+              if (Object.keys(phase2Updates).length > 0) {
+                console.log('[GremlyStore] Applying Phase 2 updates:', {
+                  entityId,
+                  updateKeys: Object.keys(phase2Updates),
+                });
+
+                if (entityType === 'todo') {
+                  await get().updateTodo(entityId, phase2Updates);
+                } else if (entityType === 'habit') {
+                  await get().updateHabit(entityId, phase2Updates);
+                } else {
+                  await get().updateNote(entityId, phase2Updates);
+                }
+              }
+            } else {
+              console.warn('[GremlyStore] Phase 2 response not ok:', phase2Response.status);
+            }
+          }
+        } catch (phase2Error) {
+          console.log('[GremlyStore] Phase 2 enrichment failed:', phase2Error);
+          // Non-critical - entity already updated with reclassify data
+        }
+
         console.log('[GremlyStore] Same bucket clarification resolved:', { entityId });
         return;
       }
@@ -4894,6 +4981,91 @@ export const useGremlyStore = create<GremlyState>()(
           type: targetBucket,
           source: 'clarification-bucket-change',
         });
+
+        // ─────────────────────────────────────────────────────────────────────
+        // PHASE 2 ENRICHMENT: Now call Phase 2 with the correct bucket
+        // This extracts: tags, time_estimate, frequency, days, people, mood
+        // The progressive update triggers chip animations in the card
+        // ─────────────────────────────────────────────────────────────────────
+        try {
+          const cortexUrl = env.cortexUrl;
+          if (cortexUrl) {
+            console.log('[GremlyStore] Calling Phase 2 enrichment for converted entity...');
+            const phase2Response = await fetch(cortexUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'enrich-phase2',
+                text: originalText,
+                bucket: targetBucket,
+                subtype: newSubtype,
+                currentDate: getDateService().getCurrentDate(),
+              }),
+            });
+
+            if (phase2Response.ok) {
+              const phase2Result = await phase2Response.json();
+              console.log('[GremlyStore] Phase 2 enrichment result for converted entity', {
+                newEntityId: insertedEntity.id,
+                tags: phase2Result.tags,
+                timeEstimate: phase2Result.time_estimate_minutes,
+                people: phase2Result.people,
+                frequency: phase2Result.frequency,
+                latency_ms: phase2Result.latency_ms,
+              });
+
+              // Build Phase 2 updates
+              const phase2Updates: Record<string, unknown> = {};
+
+              if (phase2Result.tags && Array.isArray(phase2Result.tags) && phase2Result.tags.length > 0) {
+                phase2Updates.tags = phase2Result.tags;
+              }
+              if (phase2Result.time_estimate_minutes != null) {
+                phase2Updates.time_estimate_minutes = phase2Result.time_estimate_minutes;
+              }
+              if (phase2Result.energy_type) {
+                phase2Updates.energy_type = phase2Result.energy_type;
+              }
+              if (phase2Result.people && Array.isArray(phase2Result.people) && phase2Result.people.length > 0) {
+                phase2Updates.views = {
+                  ...(insertedEntity.views || {}),
+                  people: phase2Result.people,
+                };
+              }
+              // Habit-specific fields
+              if (targetBucket === 'habit') {
+                if (phase2Result.frequency) {
+                  phase2Updates.frequency = phase2Result.frequency;
+                  phase2Updates.cadence = phase2Result.frequency;
+                }
+                if (phase2Result.days && Array.isArray(phase2Result.days)) {
+                  phase2Updates.days = phase2Result.days;
+                }
+              }
+
+              // Apply Phase 2 updates if any
+              if (Object.keys(phase2Updates).length > 0) {
+                console.log('[GremlyStore] Applying Phase 2 updates to converted entity:', {
+                  newEntityId: insertedEntity.id,
+                  updateKeys: Object.keys(phase2Updates),
+                });
+
+                if (targetBucket === 'todo') {
+                  await get().updateTodo(insertedEntity.id, phase2Updates);
+                } else if (targetBucket === 'habit') {
+                  await get().updateHabit(insertedEntity.id, phase2Updates);
+                } else {
+                  await get().updateNote(insertedEntity.id, phase2Updates);
+                }
+              }
+            } else {
+              console.warn('[GremlyStore] Phase 2 response not ok for converted entity:', phase2Response.status);
+            }
+          }
+        } catch (phase2Error) {
+          console.log('[GremlyStore] Phase 2 enrichment failed for converted entity:', phase2Error);
+          // Non-critical - entity already created with reclassify data
+        }
       } catch (error) {
         console.error('[GremlyStore] Bucket change failed:', error);
         // Fall back to just updating clarification status
