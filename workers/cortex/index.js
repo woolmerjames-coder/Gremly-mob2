@@ -2003,28 +2003,82 @@ PHASE 1 RESULT: bucket="${bucket}", subtype="${subtype}"
 
 === YOUR TASK ===
 
-Determine if this input has MULTIPLE VALID INTERPRETATIONS that would result in different entity types or behaviors.
+Determine if this input has MULTIPLE VALID INTERPRETATIONS that would result in different entity types or behaviors. If ambiguous, generate options and classify each option using the EXACT bucket rules below.
+
+=== THE THREE BUCKETS (CLASSIFICATION RULES) ===
+
+**TODO** — A discrete, completable action
+The user will eventually "check this off." A clear DONE state exists.
+Ask: "Can this be marked DONE when complete?"
+
+TODO SEMANTIC TEST — Must have ALL:
+1. A discrete action (not ongoing)
+2. A clear completion point (you'll know when it's done)
+3. Something the user would "check off"
+
+TODO examples:
+- "Call mom" → Done when call ends ✓
+- "Buy groceries" → Done when purchased ✓
+- "Book dentist appointment" → Done when booked ✓
+- "Renew passport" → Done when renewed ✓
+- "Cancel Netflix" → Done when cancelled ✓
+
+**HABIT** — A trackable, recurring behavior
+The user wants to TRACK this over time. It's concrete and observable.
+Ask: "Can this be tracked with a yes/no each day/week?"
+
+HABIT SEMANTIC TEST — Must have ALL:
+1. A CONCRETE, OBSERVABLE behavior (not abstract)
+2. Something trackable with yes/no (did I do it today?)
+3. EXPLICIT intent to repeat (frequency stated OR stop/quit pattern)
+
+STRICT REQUIREMENT — Habits need explicit signals:
+- Explicit frequency: "daily", "every day", "every morning", "3x/week"
+- OR stop/quit + concrete behavior: "stop smoking", "quit drinking"
+
+WITHOUT explicit frequency or stop/quit → NOT a habit.
+- "Go to the gym" (no frequency) → TODO (single instance)
+
+**LOG** — Capture for reflection, not action
+A thought, feeling, idea, or information. No clear done state or tracking intent.
+
+LOG subtypes:
+- journal: Emotional expression, reflection, venting
+- idea: Exploration, brainstorming, weighing options
+- general: Reference info, status updates, external events user is noting
+
+=== CRITICAL: EXTERNAL EVENTS = LOG ===
+
+When the user has an EXISTING appointment/event/deadline:
+- They're NOTING something external, not creating a task
+- The action is already scheduled — they didn't create it
+- Bucket = LOG (usually general)
+- scheduled_date = true (it's a fixed external event)
+
+Examples:
+- "Dentist Tuesday" + "I have an appointment" → LOG/general (noting external event)
+- "Passport expires June" → LOG/general (noting deadline, unless they say "need to renew")
+- "Mom's birthday March 5" → LOG/general (noting the date)
+
+vs. when they need to DO something:
+- "Dentist Tuesday" + "I need to book" → TODO (action required)
+- "Passport June" + "Need to renew" → TODO (action required)
+- "Mom's birthday" + "Get a gift" → TODO (action required)
 
 === AMBIGUITY PATTERNS ===
 
 **Pattern 1: Noun + Date (very common)**
 - "dentist Tuesday" → Do they HAVE an appointment, or need to BOOK one?
 - "mom's birthday March 5" → Just noting it, or need to BUY a gift?
-- "passport June" → Expiration date, or trip planned?
+- "passport June" → Is it expiring (note), or do they need to renew (todo)?
 
 **Pattern 2: Activity + Date**
-- "gym Monday" → One-time plan, or starting a habit?
-- "run tomorrow" → Single run, or beginning running regularly?
-- "yoga Thursday" → Class they're attending, or want to start?
+- "gym Monday" → One-time plan (todo), or starting a habit?
+- "run tomorrow" → Single run (todo), or beginning running regularly (habit)?
 
 **Pattern 3: Bare Noun (no date)**
-- "standing desk" → Noting the idea, or planning to buy?
-- "new laptop" → Wishlist item, or purchase task?
-
-**Pattern 4: Ambiguous Intent**
-- "call mom" → Clear todo (NOT ambiguous)
-- "mom" → What about mom? (ambiguous)
-- "taxes" → Need to do them? Just thinking about them?
+- "standing desk" → Noting the idea (log), or planning to buy (todo)?
+- "new laptop" → Wishlist item (log/idea), or purchase task (todo)?
 
 === DECISION RULES ===
 
@@ -2048,22 +2102,29 @@ Ask for each option: "If user picks this, what does ${detectedTemporal || 'the d
 Examples:
 - "dentist Tuesday" + "I have an appointment" → Tuesday IS the appointment → target_date: true
 - "dentist Tuesday" + "I need to book" → Tuesday is WHEN they want it → target_date: true
-- "gym Monday" + "One-time" → Monday is when they'll go → target_date: true
-- "gym Monday" + "Starting a habit" → Monday could be start date → target_date: true (or use for scheduling)
+- "passport June" + "It's expiring" → June is the deadline they're noting → target_date: true
+- "passport June" + "Need to renew" → June is when they need it done by → target_date: true
 
 Only set target_date: false when the date truly becomes irrelevant (rare).
 
 === OPTION DESIGN ===
 
-For each option:
+For each option, apply the bucket classification rules above:
+
 - id: short snake_case identifier
 - label: What user would tap (natural language, 3-8 words)
-- action: What happens if selected
-  - bucket: "todo" | "habit" | "log"
+- action: Apply classification rules to this intent
+  - bucket: "todo" | "habit" | "log" (use the rules above!)
   - subtype: only for log ("general" | "idea" | "journal") 
   - target_date: boolean (should the date become due_day/target?)
   - scheduled_date: boolean (is this a fixed external event?)
   - habit_subtype: only for habits ("start_habit" | "break_habit")
+
+CLASSIFICATION LOGIC PER OPTION:
+1. What is the user's INTENT if they pick this option?
+2. Does that intent involve an ACTION they need to complete? → TODO
+3. Is it a recurring behavior they want to track? → HABIT
+4. Is it information/event they're noting, or something external? → LOG
 
 === OUTPUT FORMAT ===
 
@@ -2103,6 +2164,16 @@ INPUT: "dentist Tuesday"
   "options": [
     { "id": "have_appointment", "label": "I have an appointment Tuesday", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": true } },
     { "id": "need_to_book", "label": "I need to book/call about it", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
+  ]
+}
+
+INPUT: "passport June"
+{
+  "is_ambiguous": true,
+  "question": "What about the passport?",
+  "options": [
+    { "id": "expiring", "label": "It's expiring — just noting", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": true } },
+    { "id": "need_to_renew", "label": "I need to renew it", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
   ]
 }
 
