@@ -4975,9 +4975,9 @@ export const useGremlyStore = create<GremlyState>()(
             ...commonFields,
             name: newTitle,
             title: newTitle,
-            frequency: null, // Will be set by Phase 2 enrichment
-            cadence: null, // Will be set by Phase 2 enrichment
-            target_per_period: null, // Will be set by Phase 2 enrichment
+            frequency: 'pending', // Placeholder until Phase 2 sets real frequency
+            cadence: 'daily', // DB requires valid cadence; Phase 2 will update
+            target_per_period: 1, // Default; Phase 2 will update
             time_window: 'day',
             time_estimate_minutes: timeEstimate,
             energy_type: energyType || 'physical',

@@ -167,6 +167,12 @@ export function getFrequencyDisplayLabel(
   targetPerPeriod: number | null | undefined,
   frequencyString?: string | null, // Raw frequency string from Phase 2 enrichment (e.g., "3x/week", "daily")
 ): string | null {
+  // If frequency is 'pending', return null to hide the chip
+  // This is a placeholder value used during bucket change before Phase 2 runs
+  if (frequencyString === 'pending') {
+    return null;
+  }
+
   // If no cadence and no frequency string, return null to hide the chip
   // This prevents showing "Daily" as a default before Phase 2 enrichment runs
   if (!cadence && !frequencyString) {
