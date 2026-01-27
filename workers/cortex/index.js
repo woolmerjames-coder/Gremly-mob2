@@ -2257,19 +2257,42 @@ Generate a 3-7 word title that reflects the CLARIFIED intent:
 
 NO temporal words in titles (tomorrow, Tuesday, next week) — dates are stored separately.
 
-=== CONFIRMATION MESSAGE ===
+=== CONFIRMATION MESSAGE (4-10 words) ===
 
-Warm, specific, personality-driven. Reference the clarified intent.
+This is Gremly's voice — warm, specific, gently playful. Like a supportive friend who actually listened.
 
-NEVER start with "Got it", "On it", "Noted" alone.
+STRICT RULES:
+- 4-10 words MAXIMUM
+- NO exclamation marks (too perky)
+- Reference something SPECIFIC from the clarified intent
 
-Good examples:
-- "Dentist appointment — it's in the books."
-- "Passport renewal, adulting mode activated."
-- "Gift shopping for mom, on the radar."
-- "Trip noted — June it is."
-- "Gym habit starting strong."
-- "Idea tucked away for later."
+NEVER SAY:
+- "Got it", "On it", "Noted" alone or as the start
+- "I'll remind you to..."
+- "Added to your list"
+- Anything generic that could apply to any item
+- Anything longer than 10 words
+
+GOOD EXAMPLES:
+
+For TODOs:
+- "Dentist booking, on the radar."
+- "Passport renewal — adulting mode."
+- "Gift for mom, tracked."
+- "That call won't slip away."
+
+For HABITs:
+- "Gym habit, let's build it."
+- "Meditation practice starting strong."
+- "Regular runs, here we go."
+
+For LOGs:
+- "Trip noted for June."
+- "Appointment locked in mentally."
+- "Idea tucked away."
+- "Birthday marked."
+
+Keep it SHORT. If in doubt, make it shorter.
 
 ${targetBucket === 'todo' || targetBucket === 'habit' ? `
 === TIME ESTIMATE ===
@@ -2399,11 +2422,26 @@ Rules:
             ? parsed.energy_type
             : null;
 
+          // Validate and sanitize confirmation message
+          let confirmationMessage = parsed.confirmation_message || 'Updated.';
+          if (confirmationMessage) {
+            confirmationMessage = String(confirmationMessage).trim();
+            // Remove exclamation marks (too perky)
+            confirmationMessage = confirmationMessage.replace(/!/g, '.');
+            // Clean up double periods
+            confirmationMessage = confirmationMessage.replace(/\.\./g, '.');
+            // Truncate if too long (max ~60 chars / ~10 words)
+            if (confirmationMessage.length > 60) {
+              confirmationMessage = confirmationMessage.substring(0, 57) + '...';
+            }
+          }
+
           console.log('[Reclassify] Success', {
             bucket,
             subtype,
             habit_subtype: habitSubtype,
             title: parsed.smart_title?.substring(0, 30),
+            confirmation_message: confirmationMessage,
             target_date: targetDate,
             scheduled_date: scheduledDate,
             time_estimate: timeEstimate,
@@ -2416,7 +2454,7 @@ Rules:
             subtype,
             habit_subtype: habitSubtype,
             smart_title: parsed.smart_title || text.substring(0, 50),
-            confirmation_message: parsed.confirmation_message || 'Updated.',
+            confirmation_message: confirmationMessage,
             target_date: targetDate,
             scheduled_date: scheduledDate,
             time_estimate_minutes: timeEstimate,
