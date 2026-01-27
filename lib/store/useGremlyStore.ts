@@ -311,6 +311,9 @@ export interface PendingDrop {
   /** Set to true when user resolves the clarification */
   clarification_resolved?: boolean;
 
+  /** Set to true while processing clarification (triggers card loading animation) */
+  clarification_processing?: boolean;
+
   // ═══════════════════════════════════════════════════════════════════
   // Phase 1.5: Clarification Options (populated asynchronously)
   // ═══════════════════════════════════════════════════════════════════
@@ -4364,6 +4367,20 @@ export const useGremlyStore = create<GremlyState>()(
           selectedLabel: selectedLabel.substring(0, 50),
         });
 
+        // Set processing state BEFORE API calls to trigger card loading animation
+        set((s) => {
+          const pendingDrops = new Map(s.pendingDrops);
+          const drop = pendingDrops.get(localId);
+          if (drop) {
+            pendingDrops.set(localId, {
+              ...drop,
+              clarification_processing: true,
+            });
+          }
+          return { pendingDrops };
+        });
+        console.log('[GremlyStore] Set clarification_processing: true for pending drop:', localId);
+
         // Call reclassify endpoint to get bucket, dates, time estimate
         try {
           const cortexUrl = env.cortexUrl;
@@ -4526,6 +4543,35 @@ export const useGremlyStore = create<GremlyState>()(
         selectedLabel: selectedLabel.substring(0, 50),
         originalTextPreview: originalText.substring(0, 50),
       });
+
+      // Set processing state BEFORE API calls to trigger card loading animation
+      // Update the entity's views.ai_pending flag to trigger shimmer in the card
+      if (entityType === 'note') {
+        set((s) => ({
+          notes: s.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: { ...(n.views as Record<string, unknown> || {}), ai_pending: true, clarification_processing: true } }
+              : n
+          ),
+        }));
+      } else if (entityType === 'todo') {
+        set((s) => ({
+          todos: s.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: { ...(t.views as Record<string, unknown> || {}), ai_pending: true, clarification_processing: true } }
+              : t
+          ),
+        }));
+      } else if (entityType === 'habit') {
+        set((s) => ({
+          habits: s.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: { ...(h.views as Record<string, unknown> || {}), ai_pending: true, clarification_processing: true } }
+              : h
+          ),
+        }));
+      }
+      console.log('[GremlyStore] Set ai_pending: true for entity:', { entityId, entityType });
 
       // ─────────────────────────────────────────────────────────────────────
       // CALL RECLASSIFY ENDPOINT
