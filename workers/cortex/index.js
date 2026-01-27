@@ -2795,6 +2795,33 @@ The test: **Is there a clear action verb (buy, call, text, send, book, submit, t
 
 **The principle:** Only use LOG/general as fallback when GENUINELY uncertain after semantic analysis. It should be rare, not the default. Most inputs have clear intent if you understand them semantically.
 
+=== AMBIGUITY DETECTION ===
+
+Some inputs are genuinely ambiguous — they could reasonably be multiple buckets depending on what the user meant. When this happens, flag it.
+
+**AMBIGUOUS patterns (is_ambiguous: true):**
+
+- Noun + date, no action verb: "dentist Tuesday", "passport June", "mom birthday March 5"
+  → Could be noting an event OR needing to take action
+  
+- Activity + date, no frequency: "gym Monday", "run tomorrow", "yoga Thursday"
+  → Could be one-time (todo) OR starting a habit
+  
+- Bare noun, unclear intent: "standing desk", "new laptop", "pottery class"
+  → Could be buying/doing (todo) OR just noting idea (log)
+
+**NOT ambiguous (clear intent):**
+
+- Has action verb: "call mom", "buy groceries", "book dentist" → TODO
+- Has explicit frequency: "run every morning", "meditate daily" → HABIT
+- Has emotional content: "feeling anxious", "stressed about work" → LOG/journal
+- Has "what if" / exploration: "what if we added dark mode" → LOG/idea
+
+**When is_ambiguous is true:**
+- Set confidence to 0.5-0.6 (reflecting uncertainty)
+- Keep title CLOSE TO ORIGINAL TEXT (don't hedge toward a bucket)
+- Provide ambiguity_reason (short explanation of why it's unclear)
+
 === EXAMPLES ===
 
 **TODO** (discrete, completable, clear done state):
@@ -2850,6 +2877,12 @@ The test: **Is there a clear action verb (buy, call, text, send, book, submit, t
 - "Run" → TODO (single run, no frequency)
 - "Stop overthinking" → LOG/journal (not trackable — mental state)
 - "Be more patient" → LOG/general (abstract quality, not trackable)
+
+**AMBIGUOUS (flag it):**
+- "dentist Tuesday" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if existing appointment or need to book", bucket: "log", confidence: 0.5, smart_title: "Dentist Tuesday"
+- "passport June" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if trip or expiration", bucket: "log", confidence: 0.5, smart_title: "Passport June"
+- "gym Monday" → is_ambiguous: true, ambiguity_reason: "activity + date, unclear if one-time or habit", bucket: "todo", confidence: 0.55, smart_title: "Gym Monday"
+- "standing desk" → is_ambiguous: true, ambiguity_reason: "bare noun, unclear if buying or noting idea", bucket: "log", confidence: 0.5, smart_title: "Standing Desk"
 
 === HABIT SUBTYPE ===
 
@@ -2969,12 +3002,22 @@ Return ONLY valid JSON:
   "subtype": "journal" | "idea" | "general" | null,
   "habitSubtype": "start_habit" | "break_habit" | null,
   "smart_title": "3-7 Word Title",
-  "confirmation_message": "4-8 word warm message"
+  "confirmation_message": "4-8 word warm message",
+  "is_ambiguous": true | false,
+  "ambiguity_reason": "Short reason why it's ambiguous" | null
 }
 
 Rules:
 - subtype is only set when bucket is "log"
-- habitSubtype is only set when bucket is "habit"`;
+- habitSubtype is only set when bucket is "habit"
+- is_ambiguous is true when input matches ambiguous patterns above
+- ambiguity_reason is only set when is_ambiguous is true
+- When is_ambiguous is true, smart_title should stay close to original text
+- When is_ambiguous is true, confirmation_message should be a "tap me" variant:
+  - "Quick question — tap me"
+  - "Need your input — tap here"
+  - "One quick thing — tap me"
+  - "Help me understand — tap here"`;
 
         const phase1Messages = [
           { role: 'system', content: phase1Prompt },
@@ -3103,55 +3146,18 @@ Rules:
           }
         }
 
-        // Extract clarification fields (Phase 2 - Clarifying Questions)
-        let needsClarification = false;
-        let clarificationType = null;
-        let clarificationQuestion = null;
-        let clarificationOptions = null;
+        // Extract ambiguity fields (v4.2 - Phase 1 ambiguity detection)
+        const isAmbiguous = parsed.is_ambiguous === true;
+        const ambiguityReason = isAmbiguous && typeof parsed.ambiguity_reason === 'string'
+          ? parsed.ambiguity_reason.trim().substring(0, 200)
+          : null;
 
-        if (parsed.needs_clarification === true && confidence < BUCKET_CONFIDENCE_THRESHOLD) {
-          needsClarification = true;
-          clarificationType = parsed.clarification_type || 'bucket';
-
-          if (
-            typeof parsed.clarification_question === 'string' &&
-            parsed.clarification_question.length > 0
-          ) {
-            clarificationQuestion = parsed.clarification_question.trim().substring(0, 100);
-          }
-
-          if (
-            Array.isArray(parsed.clarification_options) &&
-            parsed.clarification_options.length >= 2
-          ) {
-            clarificationOptions = parsed.clarification_options
-              .slice(0, 3) // Max 3 options
-              .map((opt) => ({
-                id: String(opt.id || '').substring(0, 20),
-                label: String(opt.label || '').substring(0, 80),
-                action: {
-                  bucket: ['todo', 'habit', 'log'].includes(opt.action?.bucket)
-                    ? opt.action.bucket
-                    : null,
-                  subtype: opt.action?.subtype || null,
-                  target_date: opt.action?.target_date === true,
-                  scheduled_date: opt.action?.scheduled_date === true,
-                },
-              }))
-              .filter((opt) => opt.id && opt.label && opt.action.bucket);
-
-            // If options are invalid, don't request clarification
-            if (clarificationOptions.length < 2) {
-              needsClarification = false;
-              clarificationType = null;
-              clarificationQuestion = null;
-              clarificationOptions = null;
-            }
-          } else {
-            // No valid options, don't request clarification
-            needsClarification = false;
-          }
-        }
+        // Legacy clarification fields - always false/null in Phase 1
+        // Actual clarification options are generated by Phase 1.5
+        const needsClarification = false;
+        const clarificationType = null;
+        const clarificationQuestion = null;
+        const clarificationOptions = null;
 
         const sameAsBucket = heuristicHint?.bucket === norm.bucket;
 
@@ -3162,18 +3168,12 @@ Rules:
           confidence,
           smart_title: smartTitle?.substring(0, 30),
           has_message: !!confirmationMessage,
-          needs_clarification: needsClarification,
-          clarification_type: clarificationType,
-          clarification_question: clarificationQuestion?.substring(0, 50),
-          clarification_options: clarificationOptions,
+          is_ambiguous: isAmbiguous,
+          ambiguity_reason: ambiguityReason?.substring(0, 50),
           heuristicBucket: heuristicHint?.bucket,
           agreed: sameAsBucket,
           latency_ms: latency,
         });
-
-        // If needs_clarification is true, don't send the AI confirmation message
-        // The client should show a tap prompt instead (e.g., "One quick thing — tap me")
-        const finalConfirmationMessage = needsClarification ? null : confirmationMessage;
 
         return j({
           bucket: norm.bucket,
@@ -3181,7 +3181,10 @@ Rules:
           habitSubtype,
           confidence,
           smart_title: smartTitle,
-          confirmation_message: finalConfirmationMessage,
+          confirmation_message: confirmationMessage,
+          is_ambiguous: isAmbiguous,
+          ambiguity_reason: ambiguityReason,
+          // Legacy fields for backwards compatibility - Phase 1.5 handles actual clarification
           needs_clarification: needsClarification,
           clarification_type: clarificationType,
           clarification_question: clarificationQuestion,
