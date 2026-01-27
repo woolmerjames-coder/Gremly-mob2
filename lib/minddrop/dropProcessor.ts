@@ -870,13 +870,22 @@ export async function processDrop(
 
     // =========================================
     // PHASE 2: Enrichment (non-streaming)
-    // Simple JSON request/response for metadata fields
-    // smart_title and confirmation_message already came from Phase 1
+    // SKIP for ambiguous items - Phase 2 will run after clarification
     // =========================================
 
-    const enrichmentResult = await runPhase2(text, phase1Result.bucket, phase1Result.subtype);
-
-    console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
+    let enrichmentResult = null;
+    
+    if (phase1Result.is_ambiguous) {
+      console.log('[DropProcessor] Skipping Phase 2 for ambiguous item - will run after clarification', {
+        localId,
+        ambiguity_reason: phase1Result.ambiguity_reason,
+      });
+      // Don't run Phase 2 yet - it will run after user clarifies
+      // The card will show without metadata chips until then
+    } else {
+      enrichmentResult = await runPhase2(text, phase1Result.bucket, phase1Result.subtype);
+      console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
+    }
 
     // Update Zustand with ALL metadata fields (time estimate, tags, frequency, people, etc.)
     // CRITICAL: Set status to 'enriched' so UI knows ALL chip data is ready
