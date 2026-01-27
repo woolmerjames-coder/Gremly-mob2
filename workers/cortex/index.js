@@ -2228,7 +2228,34 @@ LOG signals from clarification:
 - "I have an appointment/meeting" → existing event → LOG/general
 - "I have a trip" → noting travel → LOG/general
 - "Just noting the date" → awareness → LOG/general
-- "Just exploring the idea" → brainstorming → LOG/idea
+
+LOG/idea signals (brainstorming, exploring, not committed):
+- "Just exploring the idea" → LOG/idea
+- "Researching options" → LOG/idea
+- "Still deciding" → LOG/idea
+- "Thinking about it" → LOG/idea
+- "Maybe someday" → LOG/idea
+- "Not sure yet" → LOG/idea
+- Any response indicating exploration without commitment → LOG/idea
+
+=== SUBTYPE DECISION FOR LOGS ===
+
+When bucket is "log", determine subtype based on the clarification:
+
+**LOG/idea** — User is exploring, not committed:
+- Selected option contains: "exploring", "researching", "deciding", "thinking about", "maybe", "not sure"
+- User hasn't committed to action, just capturing the thought
+- Examples: "Just exploring the idea", "Researching options", "Still deciding"
+
+**LOG/journal** — User is reflecting on feelings/experiences:
+- Selected option contains emotional or reflective language
+- Examples: "Just venting", "Processing this", "Reflecting on it"
+
+**LOG/general** — User is noting information or existing events:
+- Selected option confirms something EXISTS or is scheduled
+- Examples: "I have an appointment", "Just noting the date", "It's already booked"
+
+Default to "general" if unclear, but prefer "idea" when user indicates exploration.
 
 === DATE INTELLIGENCE ===
 
