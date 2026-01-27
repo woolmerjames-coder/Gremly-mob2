@@ -4592,7 +4592,8 @@ export const useGremlyStore = create<GremlyState>()(
           views: updatedViews,
           needs_clarification: false,
           clarification_resolved: true,
-          ...dateUpdate,
+          // Only include date fields for todos/habits - notes don't have due_date/due_day columns
+          ...(entityType !== 'note' ? dateUpdate : {}),
         };
 
         // Set title/name and time estimate based on entity type
