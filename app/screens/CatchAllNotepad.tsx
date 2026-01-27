@@ -2484,7 +2484,7 @@ const AnimatedMindDropCard = React.memo<{
     // Interpolate background color for clarification cards
     const clarificationBgColor = clarificationBgOpacity.interpolate({
       inputRange: [0, 1],
-      outputRange: ['rgba(255, 255, 255, 0)', 'rgba(238, 240, 255, 1)'], // Subtle periwinkle
+      outputRange: ['rgba(255, 255, 255, 0)', 'rgba(244, 249, 244, 1)'], // Same subtle green as multi-drop (#F4F9F4)
     });
 
     // Gremly pulse animation for multi-entity cards (always called, conditionally used)
