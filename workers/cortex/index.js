@@ -2003,7 +2003,16 @@ PHASE 1 RESULT: bucket="${bucket}", subtype="${subtype}"
 
 === YOUR TASK ===
 
-Determine if this input has MULTIPLE VALID INTERPRETATIONS that would result in different entity types or behaviors. If ambiguous, generate options and classify each option using the EXACT bucket rules below.
+1. FIRST: Ask "What are the DIFFERENT SITUATIONS this person could be in?"
+   - Don't assume you know what they mean
+   - Think of 2-3 genuinely different real-world scenarios
+   
+2. THEN: Generate options representing those different situations
+   - Each option = a different user reality
+   - Options should be MEANINGFULLY different, not variations of the same thing
+   
+3. FINALLY: Apply classification rules to each situation
+   - What bucket does THIS situation map to?
 
 === THE THREE BUCKETS (CLASSIFICATION RULES) ===
 
@@ -2065,20 +2074,62 @@ vs. when they need to DO something:
 - "Passport June" + "Need to renew" → TODO (action required)
 - "Mom's birthday" + "Get a gift" → TODO (action required)
 
-=== AMBIGUITY PATTERNS ===
+=== DISCOVERING THE AMBIGUITY ===
 
-**Pattern 1: Noun + Date (very common)**
-- "dentist Tuesday" → Do they HAVE an appointment, or need to BOOK one?
-- "mom's birthday March 5" → Just noting it, or need to BUY a gift?
-- "passport June" → Is it expiring (note), or do they need to renew (todo)?
+Your job is to figure out WHAT different situations could explain this input.
+
+**The Question to Ask Yourself:**
+"If 10 different people typed this exact input, what different things might they mean?"
+
+**Pattern 1: Noun + Date**
+Think about ALL the reasons someone might mention [thing] + [date]:
+
+"passport June"
+- Person A: Has a trip in June, noting they need passport
+- Person B: Passport expires in June, needs to renew
+- Person C: Has a passport appointment scheduled
+→ These are 3 DIFFERENT situations, not variations of one
+
+"dentist Tuesday"  
+- Person A: Has an appointment on Tuesday
+- Person B: Needs to book an appointment, wants it Tuesday
+- Person C: Needs to call about something dentist-related
+→ Different situations requiring different actions
+
+"mom birthday March 5"
+- Person A: Just noting the date for awareness
+- Person B: Needs to buy a gift
+- Person C: Needs to plan a party/dinner
+→ Different levels of action required
 
 **Pattern 2: Activity + Date**
-- "gym Monday" → One-time plan (todo), or starting a habit?
-- "run tomorrow" → Single run (todo), or beginning running regularly (habit)?
+Think about one-time vs recurring:
 
-**Pattern 3: Bare Noun (no date)**
-- "standing desk" → Noting the idea (log), or planning to buy (todo)?
-- "new laptop" → Wishlist item (log/idea), or purchase task (todo)?
+"gym Monday"
+- Person A: Going to gym this Monday (one-time)
+- Person B: Starting to go to gym on Mondays (habit)
+→ Fundamentally different intents
+
+**Pattern 3: Bare Noun**
+Think about what action (if any) is implied:
+
+"standing desk"
+- Person A: Wants to buy one
+- Person B: Researching options
+- Person C: Just noting the idea for someday
+→ Different levels of commitment
+
+**BAD Option Generation (too narrow):**
+"passport June" →
+- "It's expiring — just noting" (log)
+- "I need to renew it" (todo)
+Problem: Both assume expiration! What about trips?
+
+**GOOD Option Generation (discovers the ambiguity):**
+"passport June" →
+- "I have a trip in June" (log - noting upcoming travel)
+- "It expires — I need to renew" (todo - action required)
+→ These represent DIFFERENT user situations
 
 === DECISION RULES ===
 
@@ -2158,62 +2209,86 @@ If AMBIGUOUS:
 === EXAMPLES ===
 
 INPUT: "dentist Tuesday"
+Thinking: What situations could this be?
+- Has appointment → noting an external event
+- Needs to book → action required
 {
   "is_ambiguous": true,
   "question": "What's the dentist situation?",
   "options": [
     { "id": "have_appointment", "label": "I have an appointment Tuesday", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": true } },
-    { "id": "need_to_book", "label": "I need to book/call about it", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
+    { "id": "need_to_book", "label": "I need to book/call", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
   ]
 }
 
 INPUT: "passport June"
+Thinking: What situations could this be?
+- Has a trip → noting travel plans
+- Expiring → needs to renew (action)
 {
   "is_ambiguous": true,
-  "question": "What about the passport?",
+  "question": "What's happening with the passport?",
   "options": [
-    { "id": "expiring", "label": "It's expiring — just noting", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": true } },
-    { "id": "need_to_renew", "label": "I need to renew it", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
+    { "id": "trip", "label": "I have a trip in June", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": false } },
+    { "id": "expiring", "label": "It expires — need to renew", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
+  ]
+}
+
+INPUT: "mom birthday March 5"
+Thinking: What situations could this be?
+- Just noting the date → awareness
+- Need to get gift → action required
+{
+  "is_ambiguous": true,
+  "question": "What about mom's birthday?",
+  "options": [
+    { "id": "noting", "label": "Just noting the date", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": false } },
+    { "id": "gift", "label": "I need to get a gift", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
   ]
 }
 
 INPUT: "gym Monday"
+Thinking: What situations could this be?
+- One-time plan → single todo
+- Starting a routine → habit
 {
   "is_ambiguous": true,
   "question": "One-time or building a habit?",
   "options": [
-    { "id": "one_time", "label": "Just going Monday", "action": { "bucket": "todo", "target_date": true } },
+    { "id": "one_time", "label": "Just going this Monday", "action": { "bucket": "todo", "target_date": true } },
     { "id": "habit", "label": "Starting to go regularly", "action": { "bucket": "habit", "habit_subtype": "start_habit", "target_date": true } }
   ]
 }
 
 INPUT: "standing desk"
+Thinking: What situations could this be?
+- Want to buy → action
+- Just an idea → exploration
 {
   "is_ambiguous": true,
   "question": "What's the plan?",
   "options": [
     { "id": "buy", "label": "I want to buy one", "action": { "bucket": "todo", "target_date": false } },
-    { "id": "research", "label": "Just researching", "action": { "bucket": "log", "subtype": "idea", "target_date": false } },
-    { "id": "note", "label": "Just noting it", "action": { "bucket": "log", "subtype": "general", "target_date": false } }
+    { "id": "idea", "label": "Just exploring the idea", "action": { "bucket": "log", "subtype": "idea", "target_date": false } }
   ]
 }
 
 INPUT: "call mom tomorrow"
 {
   "is_ambiguous": false,
-  "reason": "Clear action verb 'call' with specific target"
+  "reason": "Clear action verb 'call' with specific target and time"
 }
 
 INPUT: "run every morning"
 {
   "is_ambiguous": false,
-  "reason": "Explicit frequency indicates habit intent"
+  "reason": "Explicit frequency indicates clear habit intent"
 }
 
 INPUT: "feeling stressed about work"
 {
   "is_ambiguous": false,
-  "reason": "Clear emotional/reflective content"
+  "reason": "Clear emotional/reflective content — journal entry"
 }`;
 
         const t0 = Date.now();
