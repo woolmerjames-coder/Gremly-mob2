@@ -143,6 +143,31 @@ export interface QueuedDrop {
   mood?: string[] | null;
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Phase 2: Clarification fields
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** True if AI needs user to disambiguate the intent */
+  needsClarification?: boolean;
+
+  /** Type of clarification needed */
+  clarificationType?: 'bucket' | 'date' | 'social_plan' | null;
+
+  /** Question to present to the user */
+  clarificationQuestion?: string | null;
+
+  /** Available options for the user to choose from */
+  clarificationOptions?: Array<{
+    id: string;
+    label: string;
+    action: {
+      bucket?: 'todo' | 'habit' | 'log';
+      subtype?: string | null;
+      target_date?: boolean;
+      scheduled_date?: boolean;
+    };
+  }> | null;
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Sync results
   // ──────────────────────────────────────────────────────────────────────────
 

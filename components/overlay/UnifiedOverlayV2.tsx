@@ -143,6 +143,7 @@ import { EntityChatButton, EntityChatScreen, EntityNotesSection, EntityNotesModa
 import { ChecklistProgress } from './ChecklistProgress';
 import { RevertToTextButton } from './RevertToTextButton';
 import { TodoPreviewModal } from './TodoPreviewModal';
+import { ClarificationPopup } from '../minddrop/ClarificationPopup';
 import {
   extractListItems,
   hasActionableList,
@@ -1104,8 +1105,64 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // NOTE: isViewMode is now derived above with displayMode state for habits
 
-  // Extract full entity from props (passed by OverlayHost in edit mode)
-  const fullEntity = (props as any).entity ?? null;
+  // Get the entity ID from props (passed by OverlayHost in edit mode)
+  const propsEntity = (props as any).entity ?? initialEntity ?? null;
+  const entityIdToFetch = propsEntity?.id ?? null;
+
+  // Fetch the LIVE entity from Zustand store (so we get updated clarification data)
+  const fullEntity = useGremlyStore((state) => {
+    if (!entityIdToFetch) return propsEntity; // Fall back to props if no ID
+
+    // Check all entity types for the most up-to-date data
+    const todo = state.todos.find((t) => t.id === entityIdToFetch);
+    if (todo) return todo;
+
+    const habit = state.habits.find((h) => h.id === entityIdToFetch);
+    if (habit) return habit;
+
+    const note = state.notes.find((n) => n.id === entityIdToFetch);
+    if (note) return note;
+
+    // Fall back to props entity if not found in store
+    return propsEntity;
+  });
+
+  // Debug: Log entity sources to understand what's available
+  console.log('[UnifiedOverlayV2] Entity sources:', {
+    propsEntityId: propsEntity?.id,
+    entityIdToFetch,
+    fullEntityId: fullEntity?.id,
+    fullEntityType: fullEntity?.type,
+    fullEntityViews: fullEntity?.views ? Object.keys(fullEntity.views) : 'none',
+    fromZustand: fullEntity?.id && fullEntity?.id === entityIdToFetch,
+  });
+
+  // Clarification detection (Phase 2)
+  // Check both direct fields and views JSONB (data stored in views)
+  const needsClarification =
+    (fullEntity?.views?.needs_clarification === true ||
+      fullEntity?.needs_clarification === true ||
+      fullEntity?.clarification_needed === true) &&
+    fullEntity?.views?.clarification_resolved !== true &&
+    fullEntity?.clarification_resolved !== true;
+  const clarificationQuestion =
+    fullEntity?.views?.clarification_question ?? fullEntity?.clarification_question ?? null;
+  const clarificationOptions =
+    fullEntity?.views?.clarification_options ?? fullEntity?.clarification_options ?? [];
+  const clarificationType =
+    fullEntity?.views?.clarification_type ?? fullEntity?.clarification_type ?? null;
+
+  // Debug: Log clarification check
+  console.log('[UnifiedOverlayV2] Clarification data from fullEntity:', {
+    visible,
+    entityId: fullEntity?.id,
+    needsClarification,
+    clarificationResolved:
+      fullEntity?.clarification_resolved || fullEntity?.views?.clarification_resolved,
+    clarificationQuestion,
+    clarificationOptionsCount: clarificationOptions?.length || 0,
+    clarificationType,
+  });
 
   // Zustand store mutations (replaces useRepo)
   const createTodo = useGremlyStore((s) => s.createTodo);
@@ -1329,6 +1386,132 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     [currentEntityId, entityTypeForChat, convertNoteToChecklist],
   );
 
+  // Clarification popup: auto-show when overlay opens for item needing clarification
+  useEffect(() => {
+    console.log('[UnifiedOverlayV2] Clarification useEffect triggered:', {
+      visible,
+      needsClarification,
+      clarificationQuestion,
+      clarificationOptionsLength: clarificationOptions?.length,
+    });
+
+    if (visible && needsClarification && clarificationQuestion) {
+      console.log('[UnifiedOverlayV2] Should show clarification popup!');
+      // Small delay to let overlay animate in first
+      const timer = setTimeout(() => {
+        setShowClarificationPopup(true);
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setShowClarificationPopup(false);
+    }
+  }, [visible, needsClarification, clarificationQuestion]);
+
+  // Clarification: handle option selection
+  const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
+  const handleClarificationSelect = useCallback(
+    async (optionId: string) => {
+      console.log('[UnifiedOverlayV2] handleClarificationSelect called:', { optionId });
+
+      // Get the entity ID from fullEntity (which combines props.entity and initialEntity)
+      const entityId = fullEntity?.id;
+      console.log('[UnifiedOverlayV2] Entity ID resolved:', {
+        entityId,
+        fromFullEntity: fullEntity?.id,
+        propsEntityId: propsEntity?.id,
+        initialEntityId: initialEntity?.id,
+      });
+
+      if (!entityId) {
+        console.error('[UnifiedOverlayV2] No entity ID available for clarification');
+        setShowClarificationPopup(false);
+        return;
+      }
+
+      // Show loading state
+      setClarificationLoading(true);
+
+      console.log('[UnifiedOverlayV2] Calling store action resolvePendingDropClarification...');
+
+      try {
+        await resolvePendingDropClarification(entityId, optionId);
+        console.log('[UnifiedOverlayV2] Store action completed successfully');
+
+        // Haptic feedback
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+        // Show success state
+        setClarificationLoading(false);
+        setClarificationSuccess('Got it — updated!');
+
+        // Wait for user to see success message, then close
+        setTimeout(() => {
+          setClarificationSuccess(null);
+          setShowClarificationPopup(false);
+
+          // Close the overlay - the entity may have been converted to a different type
+          onClose?.();
+
+          // Emit events to trigger list refresh so the new entity appears
+          // ItemUpdated: specific entity update notification
+          eventBus.emit('ItemUpdated', { id: entityId, source: 'clarification-resolved' });
+
+          // entity:updated: broader refresh signal for bucket conversions
+          // RecentDrops and other list components listen for this
+          eventBus.emit('entity:updated', {
+            entity: { id: entityId },
+            type: 'unknown', // May have changed type during conversion
+            source: 'clarification-resolved',
+          });
+
+          console.log('[UnifiedOverlayV2] Clarification resolved, events emitted');
+        }, 1200); // Show success for 1.2 seconds
+      } catch (error) {
+        console.error('[UnifiedOverlayV2] Store action failed:', error);
+        setClarificationLoading(false);
+        setShowClarificationPopup(false);
+      }
+    },
+    [fullEntity?.id, propsEntity?.id, initialEntity?.id, resolvePendingDropClarification, onClose],
+  );
+
+  // Clarification: handle skip
+  const handleClarificationSkip = useCallback(async () => {
+    // Mark clarification as resolved even when skipping
+    // Entity keeps its current bucket (defaults to what Phase 1 assigned)
+    if (fullEntity?.id) {
+      try {
+        const entityType = baseType === 'log' ? 'note' : baseType;
+        const currentViews = (fullEntity?.views as Record<string, unknown>) || {};
+
+        const updates = {
+          views: {
+            ...currentViews,
+            needs_clarification: false,
+            clarification_resolved: true,
+          },
+        };
+
+        if (entityType === 'todo') {
+          await updateTodo(fullEntity.id, updates);
+        } else if (entityType === 'habit') {
+          await updateHabit(fullEntity.id, updates);
+        } else {
+          await updateNote(fullEntity.id, updates);
+        }
+
+        console.log('[ClarificationSkip] Marked entity as resolved', {
+          entityId: fullEntity.id,
+          entityType,
+        });
+      } catch (error) {
+        console.error('[ClarificationSkip] Failed to update entity:', error);
+      }
+    }
+
+    setShowClarificationPopup(false);
+  }, [fullEntity?.id, fullEntity?.views, baseType, updateTodo, updateHabit, updateNote]);
+
   // Log kind detection (Phase L1)
   const isLog = baseType === 'log';
   const logKind = isLog ? state.log.kind : 'basic';
@@ -1471,6 +1654,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Entity Chat state
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [showNotesModal, setShowNotesModal] = useState(false);
+
+  // Clarification popup state (Phase 2)
+  const [showClarificationPopup, setShowClarificationPopup] = useState(false);
+  const [clarificationLoading, setClarificationLoading] = useState(false);
+  const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
 
   // View mode: store fetched entity for display
   const [viewModeEntity, setViewModeEntity] = useState<any>(null);
@@ -6248,7 +6436,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       <Pressable
                                         style={styles.dueDatePill}
                                         onPress={() => {
-                                          setTimeEstimateValue(state.todo.time_estimate_minutes ?? 30);
+                                          setTimeEstimateValue(
+                                            state.todo.time_estimate_minutes ?? 30,
+                                          );
                                           setShowTimeEstimateModal(true);
                                         }}
                                         accessibilityRole="button"
@@ -7612,8 +7802,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               key={minutes}
                               style={[
                                 styles.timeEstimateOption,
-                                timeEstimateValue === minutes &&
-                                  styles.timeEstimateOptionSelected,
+                                timeEstimateValue === minutes && styles.timeEstimateOptionSelected,
                               ]}
                               onPress={() => setTimeEstimateValue(minutes)}
                             >
@@ -7648,7 +7837,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               }}
                               onPress={() =>
                                 setTimeEstimateValue((prev) =>
-                                  Math.max(TIME_ESTIMATE_MIN, prev - TIME_ESTIMATE_STEP)
+                                  Math.max(TIME_ESTIMATE_MIN, prev - TIME_ESTIMATE_STEP),
                                 )
                               }
                               disabled={timeEstimateValue <= TIME_ESTIMATE_MIN}
@@ -7667,7 +7856,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   fontSize: 20,
                                   fontWeight: '600',
                                   color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
-                                    timeEstimateValue as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number]
+                                    timeEstimateValue as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number],
                                   )
                                     ? '#2E5540'
                                     : '#333333',
@@ -7689,7 +7878,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               }}
                               onPress={() =>
                                 setTimeEstimateValue((prev) =>
-                                  Math.min(TIME_ESTIMATE_MAX, prev + TIME_ESTIMATE_STEP)
+                                  Math.min(TIME_ESTIMATE_MAX, prev + TIME_ESTIMATE_STEP),
                                 )
                               }
                               disabled={timeEstimateValue >= TIME_ESTIMATE_MAX}
@@ -8147,12 +8336,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                           {/* ===== DURATION SECTION ===== */}
                           <Text style={styles.scheduleModalSectionLabel}>Duration</Text>
-                          
+
                           {/* Quick select grid */}
                           <View style={styles.durationGrid}>
                             {TIME_ESTIMATE_QUICK_OPTIONS.map((minutes) => {
-                              const isSelected =
-                                scheduleModalState.timeEstimateMinutes === minutes;
+                              const isSelected = scheduleModalState.timeEstimateMinutes === minutes;
                               return (
                                 <Pressable
                                   key={minutes}
@@ -8194,23 +8382,31 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   backgroundColor: '#F5F5F5',
                                   justifyContent: 'center',
                                   alignItems: 'center',
-                                  opacity: (scheduleModalState.timeEstimateMinutes ?? 30) <= TIME_ESTIMATE_MIN ? 0.5 : 1,
+                                  opacity:
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) <=
+                                    TIME_ESTIMATE_MIN
+                                      ? 0.5
+                                      : 1,
                                 }}
                                 onPress={() =>
                                   setScheduleModalState((prev) => ({
                                     ...prev,
                                     timeEstimateMinutes: Math.max(
                                       TIME_ESTIMATE_MIN,
-                                      (prev.timeEstimateMinutes ?? 30) - TIME_ESTIMATE_STEP
+                                      (prev.timeEstimateMinutes ?? 30) - TIME_ESTIMATE_STEP,
                                     ),
                                   }))
                                 }
-                                disabled={(scheduleModalState.timeEstimateMinutes ?? 30) <= TIME_ESTIMATE_MIN}
+                                disabled={
+                                  (scheduleModalState.timeEstimateMinutes ?? 30) <=
+                                  TIME_ESTIMATE_MIN
+                                }
                               >
                                 <Minus
                                   size={16}
                                   color={
-                                    (scheduleModalState.timeEstimateMinutes ?? 30) <= TIME_ESTIMATE_MIN
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) <=
+                                    TIME_ESTIMATE_MIN
                                       ? '#CCCCCC'
                                       : '#2E5540'
                                   }
@@ -8223,7 +8419,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     fontSize: 16,
                                     fontWeight: '600',
                                     color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
-                                      (scheduleModalState.timeEstimateMinutes ?? 30) as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number]
+                                      (scheduleModalState.timeEstimateMinutes ??
+                                        30) as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number],
                                     )
                                       ? '#2E5540'
                                       : '#333333',
@@ -8241,23 +8438,31 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   backgroundColor: '#F5F5F5',
                                   justifyContent: 'center',
                                   alignItems: 'center',
-                                  opacity: (scheduleModalState.timeEstimateMinutes ?? 30) >= TIME_ESTIMATE_MAX ? 0.5 : 1,
+                                  opacity:
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) >=
+                                    TIME_ESTIMATE_MAX
+                                      ? 0.5
+                                      : 1,
                                 }}
                                 onPress={() =>
                                   setScheduleModalState((prev) => ({
                                     ...prev,
                                     timeEstimateMinutes: Math.min(
                                       TIME_ESTIMATE_MAX,
-                                      (prev.timeEstimateMinutes ?? 30) + TIME_ESTIMATE_STEP
+                                      (prev.timeEstimateMinutes ?? 30) + TIME_ESTIMATE_STEP,
                                     ),
                                   }))
                                 }
-                                disabled={(scheduleModalState.timeEstimateMinutes ?? 30) >= TIME_ESTIMATE_MAX}
+                                disabled={
+                                  (scheduleModalState.timeEstimateMinutes ?? 30) >=
+                                  TIME_ESTIMATE_MAX
+                                }
                               >
                                 <Plus
                                   size={16}
                                   color={
-                                    (scheduleModalState.timeEstimateMinutes ?? 30) >= TIME_ESTIMATE_MAX
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) >=
+                                    TIME_ESTIMATE_MAX
                                       ? '#CCCCCC'
                                       : '#2E5540'
                                   }
@@ -9623,6 +9828,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         onUpdateNote={handleChatNoteUpdate}
         onDeleteNote={handleChatNoteDelete}
         onConvertToChecklist={handleConvertNoteToChecklist}
+      />
+
+      {/* Clarification Popup - Phase 2 */}
+      <ClarificationPopup
+        visible={showClarificationPopup}
+        question={clarificationQuestion ?? ''}
+        options={clarificationOptions}
+        onSelectOption={handleClarificationSelect}
+        onSkip={handleClarificationSkip}
+        isLoading={clarificationLoading}
+        successMessage={clarificationSuccess}
       />
     </>
   );

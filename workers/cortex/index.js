@@ -1982,6 +1982,378 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
       }
 
       // =========================
+      // === PHASE 1.5: CLARIFY AMBIGUITY ===
+      // =========================
+      if (type === 'clarify-ambiguity') {
+        const text = body.text || '';
+        const bucket = body.bucket || 'log';
+        const subtype = body.subtype || 'general';
+        const detectedTemporal = body.detectedTemporal || null;
+        // currentDate is passed from client using dateService.today() - the fallback is for edge cases
+        // eslint-disable-next-line no-restricted-syntax -- Cloudflare Worker doesn't have dateService
+        const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
+
+        const phase1_5Prompt = `You determine if a short input is AMBIGUOUS and needs user clarification.
+
+=== CONTEXT ===
+INPUT: "${text}"
+DETECTED TEMPORAL: ${detectedTemporal || 'none'}
+CURRENT DATE: ${currentDate}
+PHASE 1 RESULT: bucket="${bucket}", subtype="${subtype}"
+
+=== YOUR TASK ===
+
+Determine if this input has MULTIPLE VALID INTERPRETATIONS that would result in different entity types or behaviors.
+
+=== AMBIGUITY PATTERNS ===
+
+**Pattern 1: Noun + Date (very common)**
+- "dentist Tuesday" → Do they HAVE an appointment, or need to BOOK one?
+- "mom's birthday March 5" → Just noting it, or need to BUY a gift?
+- "passport June" → Expiration date, or trip planned?
+
+**Pattern 2: Activity + Date**
+- "gym Monday" → One-time plan, or starting a habit?
+- "run tomorrow" → Single run, or beginning running regularly?
+- "yoga Thursday" → Class they're attending, or want to start?
+
+**Pattern 3: Bare Noun (no date)**
+- "standing desk" → Noting the idea, or planning to buy?
+- "new laptop" → Wishlist item, or purchase task?
+
+**Pattern 4: Ambiguous Intent**
+- "call mom" → Clear todo (NOT ambiguous)
+- "mom" → What about mom? (ambiguous)
+- "taxes" → Need to do them? Just thinking about them?
+
+=== DECISION RULES ===
+
+**IS AMBIGUOUS** when:
+- Multiple bucket interpretations are reasonable (log vs todo, todo vs habit)
+- The date could mean different things depending on intent
+- A reasonable person would ask "wait, what do you mean?"
+
+**NOT AMBIGUOUS** when:
+- Clear action verb present: "call mom", "buy groceries", "book dentist"
+- Explicit frequency for habits: "run every morning", "meditate daily"
+- Clear emotional/reflective content: "feeling anxious", "stressed about work"
+- Just vague (not ambiguous, just unclear): "stuff", "things to do"
+
+=== DATE TRANSFER PRINCIPLE ===
+
+When generating options, the mentioned date is ALMOST ALWAYS meaningful for EVERY option.
+
+Ask for each option: "If user picks this, what does ${detectedTemporal || 'the date'} mean?"
+
+Examples:
+- "dentist Tuesday" + "I have an appointment" → Tuesday IS the appointment → target_date: true
+- "dentist Tuesday" + "I need to book" → Tuesday is WHEN they want it → target_date: true
+- "gym Monday" + "One-time" → Monday is when they'll go → target_date: true
+- "gym Monday" + "Starting a habit" → Monday could be start date → target_date: true (or use for scheduling)
+
+Only set target_date: false when the date truly becomes irrelevant (rare).
+
+=== OPTION DESIGN ===
+
+For each option:
+- id: short snake_case identifier
+- label: What user would tap (natural language, 3-8 words)
+- action: What happens if selected
+  - bucket: "todo" | "habit" | "log"
+  - subtype: only for log ("general" | "idea" | "journal") 
+  - target_date: boolean (should the date become due_day/target?)
+  - scheduled_date: boolean (is this a fixed external event?)
+  - habit_subtype: only for habits ("start_habit" | "break_habit")
+
+=== OUTPUT FORMAT ===
+
+Return ONLY valid JSON.
+
+If NOT ambiguous:
+{
+  "is_ambiguous": false,
+  "reason": "Brief explanation why it's clear"
+}
+
+If AMBIGUOUS:
+{
+  "is_ambiguous": true,
+  "question": "Short, natural question (under 50 chars)",
+  "options": [
+    {
+      "id": "option_id",
+      "label": "What user taps",
+      "action": {
+        "bucket": "todo",
+        "subtype": null,
+        "target_date": true,
+        "scheduled_date": false,
+        "habit_subtype": null
+      }
+    }
+  ]
+}
+
+=== EXAMPLES ===
+
+INPUT: "dentist Tuesday"
+{
+  "is_ambiguous": true,
+  "question": "What's the dentist situation?",
+  "options": [
+    { "id": "have_appointment", "label": "I have an appointment Tuesday", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": true } },
+    { "id": "need_to_book", "label": "I need to book/call about it", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
+  ]
+}
+
+INPUT: "gym Monday"
+{
+  "is_ambiguous": true,
+  "question": "One-time or building a habit?",
+  "options": [
+    { "id": "one_time", "label": "Just going Monday", "action": { "bucket": "todo", "target_date": true } },
+    { "id": "habit", "label": "Starting to go regularly", "action": { "bucket": "habit", "habit_subtype": "start_habit", "target_date": true } }
+  ]
+}
+
+INPUT: "standing desk"
+{
+  "is_ambiguous": true,
+  "question": "What's the plan?",
+  "options": [
+    { "id": "buy", "label": "I want to buy one", "action": { "bucket": "todo", "target_date": false } },
+    { "id": "research", "label": "Just researching", "action": { "bucket": "log", "subtype": "idea", "target_date": false } },
+    { "id": "note", "label": "Just noting it", "action": { "bucket": "log", "subtype": "general", "target_date": false } }
+  ]
+}
+
+INPUT: "call mom tomorrow"
+{
+  "is_ambiguous": false,
+  "reason": "Clear action verb 'call' with specific target"
+}
+
+INPUT: "run every morning"
+{
+  "is_ambiguous": false,
+  "reason": "Explicit frequency indicates habit intent"
+}
+
+INPUT: "feeling stressed about work"
+{
+  "is_ambiguous": false,
+  "reason": "Clear emotional/reflective content"
+}`;
+
+        const t0 = Date.now();
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: phase1_5Prompt }],
+              temperature: 0.1,
+              max_tokens: 400,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[Phase1.5] API error', { error: oj.error, latency_ms: latency });
+            return j({ is_ambiguous: false, reason: 'api_error', latency_ms: latency });
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+
+          let parsed;
+          try {
+            parsed = JSON.parse(rawContent);
+          } catch {
+            console.log('[Phase1.5] Parse error', { raw: rawContent });
+            return j({ is_ambiguous: false, reason: 'parse_error', latency_ms: latency });
+          }
+
+          // Validate response
+          if (parsed.is_ambiguous !== true) {
+            console.log('[Phase1.5] Not ambiguous', { reason: parsed.reason, latency_ms: latency });
+            return j({
+              is_ambiguous: false,
+              reason: parsed.reason || 'clear_intent',
+              latency_ms: latency,
+            });
+          }
+
+          // Validate options
+          if (!Array.isArray(parsed.options) || parsed.options.length < 2) {
+            console.log('[Phase1.5] Invalid options', { latency_ms: latency });
+            return j({ is_ambiguous: false, reason: 'invalid_options', latency_ms: latency });
+          }
+
+          // Clean and validate each option
+          const validBuckets = ['todo', 'habit', 'log'];
+          const validSubtypes = ['general', 'idea', 'journal'];
+          const validHabitSubtypes = ['start_habit', 'break_habit'];
+
+          const cleanedOptions = parsed.options
+            .slice(0, 3) // Max 3 options
+            .map((opt) => {
+              const action = opt.action || {};
+              return {
+                id: String(opt.id || '')
+                  .substring(0, 30)
+                  .replace(/[^a-z0-9_]/gi, '_'),
+                label: String(opt.label || '').substring(0, 80),
+                action: {
+                  bucket: validBuckets.includes(action.bucket) ? action.bucket : 'log',
+                  subtype:
+                    action.bucket === 'log' && validSubtypes.includes(action.subtype)
+                      ? action.subtype
+                      : null,
+                  target_date: action.target_date === true,
+                  scheduled_date: action.scheduled_date === true,
+                  habit_subtype:
+                    action.bucket === 'habit' && validHabitSubtypes.includes(action.habit_subtype)
+                      ? action.habit_subtype
+                      : null,
+                },
+              };
+            })
+            .filter((opt) => opt.id && opt.label && opt.action.bucket);
+
+          if (cleanedOptions.length < 2) {
+            console.log('[Phase1.5] Not enough valid options after cleaning', {
+              latency_ms: latency,
+            });
+            return j({ is_ambiguous: false, reason: 'insufficient_options', latency_ms: latency });
+          }
+
+          const question =
+            typeof parsed.question === 'string'
+              ? parsed.question.trim().substring(0, 60)
+              : 'What did you mean?';
+
+          console.log('[Phase1.5] Ambiguous', {
+            question: question.substring(0, 40),
+            options_count: cleanedOptions.length,
+            latency_ms: latency,
+          });
+
+          return j({
+            is_ambiguous: true,
+            question,
+            options: cleanedOptions,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[Phase1.5] Error', { error: String(err), latency_ms: latency });
+          return j({ is_ambiguous: false, reason: 'request_error', latency_ms: latency });
+        }
+      }
+
+      // =========================
+      // === RECLASSIFY AFTER CLARIFICATION ===
+      // Generates updated title + confirmation message after user clarifies intent
+      // =========================
+      if (type === 'reclassify-after-clarification') {
+        const text = body.text || '';
+        const resolvedBucket = body.bucket || 'todo';
+        const resolvedSubtype = body.subtype || null;
+        const selectedLabel = body.selectedLabel || '';
+
+        const reclassifyPrompt = `Generate a smart title and confirmation message for a productivity app item.
+
+=== CONTEXT ===
+ORIGINAL INPUT: "${text}"
+USER CLARIFIED: "${selectedLabel}"
+RESOLVED TYPE: ${resolvedBucket}${resolvedSubtype ? ` (${resolvedSubtype})` : ''}
+
+=== TASK ===
+Generate an updated title and confirmation message that reflects the user's clarified intent.
+
+TITLE RULES:
+- 3-7 words, Title Case
+- No temporal words (tomorrow, Tuesday, etc.) - dates are stored separately
+- Action-focused for todos: "Book Dentist Appointment"
+- Activity-focused for habits: "Daily Run"
+- Topic-focused for notes: "Dentist Info"
+
+CONFIRMATION MESSAGE RULES:
+- 4-10 words, warm and specific
+- Reference the clarified intent
+- No exclamation marks
+- Examples: "Appointment locked in.", "Added to your list.", "On it — dentist booked soon."
+
+=== OUTPUT ===
+Return ONLY valid JSON:
+{
+  "smart_title": "Updated Title Here",
+  "confirmation_message": "Warm confirmation message."
+}`;
+
+        const t0 = Date.now();
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: reclassifyPrompt }],
+              temperature: 0.3,
+              max_tokens: 100,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[Reclassify] API error', { error: oj.error });
+            return j({
+              smart_title: text.substring(0, 50),
+              confirmation_message: 'Updated.',
+              latency_ms: latency,
+            });
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+          const parsed = JSON.parse(rawContent);
+
+          console.log('[Reclassify] Success', {
+            title: parsed.smart_title?.substring(0, 30),
+            latency_ms: latency,
+          });
+
+          return j({
+            smart_title: parsed.smart_title || text.substring(0, 50),
+            confirmation_message: parsed.confirmation_message || 'Updated.',
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[Reclassify] Error', { error: String(err), latency_ms: latency });
+          return j({
+            smart_title: text.substring(0, 50),
+            confirmation_message: 'Updated.',
+            latency_ms: latency,
+          });
+        }
+      }
+
+      // =========================
       // === PHASE 1 CLASSIFICATION (v4.1 - NOW INCLUDES TITLE + MESSAGE) ===
       // =========================
       if (type === 'classify-phase1') {
@@ -2288,111 +2660,22 @@ THE VIBE:
 - Brief but human
 - Gently playful when appropriate, not forced
 
-=== CLARIFYING QUESTIONS ===
-
-When you are GENUINELY UNCERTAIN about the bucket (confidence < 0.7), you may request clarification instead of guessing.
-
-**WHEN TO ASK (confidence < 0.7):**
-
-Bucket ambiguity — could legitimately be multiple buckets:
-- "dentist Tuesday" → Is this an appointment they HAVE (log/event) or need to BOOK (todo)?
-- "standing desk" → Are they NOTING this (log) or planning to BUY one (todo)?
-- "go running" → Single run (todo) or starting a running habit (habit)?
-- "maybe yoga" → Exploring the idea (log/idea) or planning to do yoga (todo)?
-
-**WHEN NOT TO ASK (just classify with lower confidence):**
-
-- Clear intent but unusual phrasing → classify, don't ask
-- Vague but clearly reflective → log/general
-- Could be todo or habit but has explicit frequency → habit
-- Hedging language with clear action verb → todo
-
-**QUESTION DESIGN RULES:**
-
-1. Ask about the USER'S SITUATION, not the data model
-   - GOOD: "What's the dentist situation?"
-   - BAD: "Is this a todo or a log?"
-
-2. Provide 2-3 clear options that map to different buckets
-   - Each option should describe a real-world scenario
-   - Include the action that would result
-
-3. Collapse multiple ambiguities into ONE question when possible
-
-4. Keep questions SHORT (under 60 chars) and conversational
-
-**OPTION FORMAT:**
-
-Each option needs:
-- id: short identifier (e.g., "appointment", "book", "idea")
-- label: what the user would tap (e.g., "I have an appointment Tuesday")
-- action: what bucket/subtype this resolves to
-
-**EXAMPLES:**
-
-Input: "dentist Tuesday"
-Question: "What's the dentist situation?"
-Options:
-- { id: "appointment", label: "I have an appointment Tuesday", action: { bucket: "log", subtype: "general", target_date: true } }
-- { id: "book", label: "I need to book/call about it", action: { bucket: "todo" } }
-
-Input: "standing desk"
-Question: "What's the plan with the standing desk?"
-Options:
-- { id: "buy", label: "I want to buy one", action: { bucket: "todo" } }
-- { id: "research", label: "Just researching options", action: { bucket: "log", subtype: "idea" } }
-- { id: "note", label: "Just noting it down", action: { bucket: "log", subtype: "general" } }
-
-Input: "go running"
-Question: "One-time run or building a habit?"
-Options:
-- { id: "once", label: "Just planning a run", action: { bucket: "todo" } }
-- { id: "habit", label: "I want to run regularly", action: { bucket: "habit" } }
-
-Input: "meditate"
-Question: "Single session or ongoing practice?"
-Options:
-- { id: "once", label: "Just today", action: { bucket: "todo" } }
-- { id: "habit", label: "I want to meditate regularly", action: { bucket: "habit" } }
-
 === OUTPUT FORMAT ===
 
-Return ONLY valid JSON.
+Return ONLY valid JSON:
 
-If confident (>= 0.7):
 {
   "bucket": "todo" | "habit" | "log",
-  "confidence": 0.7-1.0,
+  "confidence": 0.0-1.0,
   "subtype": "journal" | "idea" | "general" | null,
   "habitSubtype": "start_habit" | "break_habit" | null,
   "smart_title": "3-7 Word Title",
-  "confirmation_message": "4-8 word warm message",
-  "needs_clarification": false
-}
-
-If uncertain (< 0.7) and genuinely ambiguous:
-{
-  "bucket": "log",
-  "confidence": 0.4-0.69,
-  "subtype": "general",
-  "habitSubtype": null,
-  "smart_title": "3-7 Word Title",
-  "confirmation_message": "Captured — you'll sort it in Sweep.",
-  "needs_clarification": true,
-  "clarification_type": "bucket",
-  "clarification_question": "Short question about their situation?",
-  "clarification_options": [
-    { "id": "option1", "label": "User-facing option text", "action": { "bucket": "todo" } },
-    { "id": "option2", "label": "Another option", "action": { "bucket": "log", "subtype": "general" } }
-  ]
+  "confirmation_message": "4-8 word warm message"
 }
 
 Rules:
 - subtype is only set when bucket is "log"
-- habitSubtype is only set when bucket is "habit"
-- needs_clarification should only be true when confidence < 0.7 AND the input is genuinely ambiguous
-- clarification_type is always "bucket" for now (future: "date_type", "detail")
-- clarification_options should have 2-3 options max`;
+- habitSubtype is only set when bucket is "habit"`;
 
         const phase1Messages = [
           { role: 'system', content: phase1Prompt },
@@ -2582,6 +2865,8 @@ Rules:
           has_message: !!confirmationMessage,
           needs_clarification: needsClarification,
           clarification_type: clarificationType,
+          clarification_question: clarificationQuestion?.substring(0, 50),
+          clarification_options: clarificationOptions,
           heuristicBucket: heuristicHint?.bucket,
           agreed: sameAsBucket,
           latency_ms: latency,

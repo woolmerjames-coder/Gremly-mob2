@@ -180,4 +180,29 @@ export interface Phase1Result {
 
   /** Early confirmation message from Phase 1 (enables faster typewriter animation) */
   confirmation_message?: string | null;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 2: Clarification fields (when bucket confidence < threshold)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** True if AI needs user to disambiguate the intent */
+  needs_clarification?: boolean;
+
+  /** Type of clarification needed */
+  clarification_type?: 'bucket' | 'date' | 'social_plan' | null;
+
+  /** Question to present to the user */
+  clarification_question?: string | null;
+
+  /** Available options for the user to choose from */
+  clarification_options?: Array<{
+    id: string;
+    label: string;
+    action: {
+      bucket?: 'todo' | 'habit' | 'log';
+      subtype?: string | null;
+      target_date?: boolean;
+      scheduled_date?: boolean;
+    };
+  }> | null;
 }

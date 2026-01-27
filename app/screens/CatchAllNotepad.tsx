@@ -120,6 +120,7 @@ import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { Lock, Camera, Clock, LogOut, User, ChevronDown } from 'lucide-react-native';
+import { ClarificationIndicatorChip } from '../../components/minddrop/ClarificationIndicatorChip';
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -823,6 +824,12 @@ type UnifiedDrop = {
   is_multi?: boolean; // True if this drop contains multiple items
   multi_items?: import('../../lib/minddrop/types').MultiDropItem[]; // The parsed items array
   multi_summary_title?: string; // Summary title for display (e.g., "Groceries + Running Habit")
+  // Phase 2: Clarification fields
+  needs_clarification?: boolean; // True if AI needs user to disambiguate
+  clarification_resolved?: boolean; // True once user responds to clarification
+  clarification_question?: string; // The question to ask the user
+  clarification_options?: Array<{ id: string; label: string; action: any }>; // Available options
+  clarification_type?: string; // Type of clarification needed
 };
 
 /**
@@ -1478,6 +1485,12 @@ const Row3Chips: React.FC<{
   // drop_id is set when pending drop is created and persists when synced to Supabase
   const trackingId = item.drop_id || item.id;
 
+  // Check if item needs clarification (Phase 2 - Clarifying Questions)
+  const needsClarification =
+    (item.views?.needs_clarification === true || item.needs_clarification === true) &&
+    item.clarification_resolved !== true &&
+    item.views?.clarification_resolved !== true;
+
   // Get chip data
   const contextMeta = getContextualMeta(effectiveKind, item);
   const contextTestId =
@@ -1576,6 +1589,9 @@ const Row3Chips: React.FC<{
   return (
     <AnimatedChipsTransition trackingId={trackingId} hasRealData={hasRealChipData}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {/* Clarification chip - show first when item needs user input */}
+        {needsClarification && <ClarificationIndicatorChip />}
+
         {/* Context chip (deadline, frequency, type label, etc.) */}
         {renderContextChip()}
 
@@ -2297,6 +2313,13 @@ const AnimatedMindDropCard = React.memo<{
   onSplitSelected?: (id: string, selectedItems: MultiDropItem[]) => void;
   // Callback to open modal at parent level (modal lives in RecentDrops, not here)
   onOpenModal?: (item: UnifiedDrop) => void;
+  // Callback to open standalone clarification popup
+  openClarificationPopup?: (options: {
+    entityId: string;
+    entityType: 'note' | 'todo' | 'habit';
+    question: string;
+    options: Array<{ id: string; label: string; action: any }>;
+  }) => void;
 }>(
   ({
     item,
@@ -2314,6 +2337,7 @@ const AnimatedMindDropCard = React.memo<{
     onKeepAsNote,
     onSplitSelected,
     onOpenModal,
+    openClarificationPopup,
   }) => {
     // Check for multi-entity drops
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
@@ -2509,6 +2533,7 @@ const AnimatedMindDropCard = React.memo<{
     const isFailed = visualState === 'failed';
 
     // Multi-entity handler - opens modal at parent level
+    // Clarification handler - opens standalone popup instead of full overlay
     const handleCardPress = () => {
       if (isMulti) {
         // Modal lives in RecentDrops - just tell parent to open it
@@ -2517,6 +2542,38 @@ const AnimatedMindDropCard = React.memo<{
         }
         return;
       }
+
+      // Check if this item needs clarification
+      const needsClarification =
+        (item as any)?.needs_clarification || (item.views as any)?.needs_clarification;
+      const clarificationResolved =
+        (item as any)?.clarification_resolved || (item.views as any)?.clarification_resolved;
+
+      if (needsClarification && !clarificationResolved && openClarificationPopup) {
+        // Get clarification data from entity
+        const question =
+          (item as any)?.clarification_question || (item.views as any)?.clarification_question;
+        const options =
+          (item as any)?.clarification_options || (item.views as any)?.clarification_options;
+
+        if (question && options?.length >= 2) {
+          console.log('[AnimatedMindDropCard] Opening clarification popup', {
+            itemId: item.id,
+            question,
+            optionsCount: options.length,
+          });
+
+          // Open standalone popup - no full overlay behind it
+          openClarificationPopup({
+            entityId: item.id,
+            entityType: item.kind,
+            question,
+            options,
+          });
+          return; // Don't open the full overlay
+        }
+      }
+
       handleEdit(item.id, item.kind, item.unsorted);
     };
 
@@ -2690,7 +2747,12 @@ function getDisplayKindForDrop(item: UnifiedDrop, canonicalTypesOn: boolean): st
 type OverlayContextValue = ReturnType<typeof useGlobalOverlay>;
 type GlobalOverlayController = Pick<
   OverlayContextValue,
-  'openCreate' | 'openEdit' | 'openView' | 'close'
+  | 'openCreate'
+  | 'openEdit'
+  | 'openView'
+  | 'close'
+  | 'openClarificationPopup'
+  | 'closeClarificationPopup'
 >;
 
 const noopOverlayController: GlobalOverlayController = {
@@ -2698,6 +2760,8 @@ const noopOverlayController: GlobalOverlayController = {
   openEdit: () => {},
   openView: () => {},
   close: () => {},
+  openClarificationPopup: () => {},
+  closeClarificationPopup: () => {},
 };
 
 function useMaybeGlobalOverlay(): GlobalOverlayController | null {
@@ -3533,22 +3597,32 @@ const RecentDrops: React.FC<{
   useEffect(() => {
     const unsubscribe = eventBus.on(
       'entity:deleted',
-      (event: { id: string; type?: string; spaceId?: string | null }) => {
-        console.debug('[RecentDrops] entity:deleted event:', event.id, event.type);
+      (event: { id: string; type?: string; spaceId?: string | null; source?: string }) => {
+        console.log('[RecentDrops] entity:deleted event:', {
+          id: event.id,
+          type: event.type,
+          source: event.source,
+        });
         // Remove the item immediately from local state
-        setItems((prev) => prev.filter((item) => item.id !== event.id));
+        setItems((prev) => {
+          const filtered = prev.filter((item) => item.id !== event.id);
+          console.log('[RecentDrops] Removed item from list, remaining:', filtered.length);
+          return filtered;
+        });
         // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
       },
     );
 
     const unsubEntityCreated = eventBus.on(
       'entity:created',
-      (payload: { entity: any; type: string; spaceId?: string | null }) => {
+      (payload: { entity: any; type: string; spaceId?: string | null; source?: string }) => {
         const dropId = payload.entity?.drop_id;
-        console.debug('[CatchAllNotepad] entity:created received', {
+        console.log('[CatchAllNotepad] entity:created received', {
           dropId,
           type: payload.type,
           entityId: payload.entity?.id,
+          source: payload.source,
+          title: payload.entity?.title ?? payload.entity?.name,
         });
 
         // DEBUG: Log multi-entity note details
@@ -3597,14 +3671,26 @@ const RecentDrops: React.FC<{
             multi_summary_title: entity.views?.multi_summary_title ?? undefined,
           };
 
+          console.log('[CatchAllNotepad] Adding new entity to items list', {
+            entityId: realItem.id,
+            kind: realItem.kind,
+            title: realItem.title,
+            drop_id: realItem.drop_id,
+          });
+
           // Merge into items - pending drops will be automatically removed from Zustand when synced
           setItems((prev) => {
             const existingIndex = prev.findIndex((item) => item.id === realItem.id);
             if (existingIndex >= 0) {
+              console.log('[CatchAllNotepad] Updating existing item at index', existingIndex);
               const updated = [...prev];
               updated[existingIndex] = realItem;
               return updated;
             }
+            console.log(
+              '[CatchAllNotepad] Prepending new item to list, total items:',
+              prev.length + 1,
+            );
             return [realItem, ...prev];
           });
         }
@@ -4391,6 +4477,7 @@ const RecentDrops: React.FC<{
                         onKeepAsNote={handleKeepAsNote}
                         onSplitSelected={handleSplitSelected}
                         onOpenModal={handleOpenModal}
+                        openClarificationPopup={overlay.openClarificationPopup}
                       />
                     </UnifiedCardWrapper>
                   );

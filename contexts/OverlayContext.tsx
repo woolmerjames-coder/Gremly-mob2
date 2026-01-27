@@ -5,6 +5,9 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
+import { ClarificationPopup } from '../components/minddrop/ClarificationPopup';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
+import * as Haptics from 'expo-haptics';
 
 type EntityType = CanonicalType;
 
@@ -65,12 +68,31 @@ interface EditOptions {
   fromChat?: boolean; // Opens notes in preview mode when true
 }
 
+// Clarification popup state for standalone popup (no overlay behind it)
+interface ClarificationPopupState {
+  visible: boolean;
+  entityId: string | null;
+  entityType: 'note' | 'todo' | 'habit' | null;
+  question: string;
+  options: Array<{ id: string; label: string; action: any }>;
+}
+
+interface ClarificationPopupOptions {
+  entityId: string;
+  entityType: 'note' | 'todo' | 'habit';
+  question: string;
+  options: Array<{ id: string; label: string; action: any }>;
+}
+
 interface OverlayContextValue {
   state: OverlayState;
   openCreate: (options?: CreateOptions) => void;
   openEdit: (options: EditOptions) => void;
   openView: (options: EditOptions) => void;
   close: () => void;
+  // Clarification popup methods
+  openClarificationPopup: (options: ClarificationPopupOptions) => void;
+  closeClarificationPopup: () => void;
 }
 
 const OverlayContext = createContext<OverlayContextValue | undefined>(undefined);
@@ -82,8 +104,88 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     entity: undefined,
   });
 
+  // Clarification popup state (standalone, no overlay behind)
+  const [clarificationPopup, setClarificationPopup] = useState<ClarificationPopupState>({
+    visible: false,
+    entityId: null,
+    entityType: null,
+    question: '',
+    options: [],
+  });
+  const [clarificationLoading, setClarificationLoading] = useState(false);
+  const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
+
   const isOpeningRef = useRef(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Get store action for resolving clarification
+  const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
+
+  // Clarification popup methods
+  const openClarificationPopup = useCallback(
+    ({ entityId, entityType, question, options }: ClarificationPopupOptions) => {
+      console.log('[GlobalOverlay] Opening clarification popup', { entityId, question });
+      setClarificationPopup({
+        visible: true,
+        entityId,
+        entityType,
+        question,
+        options,
+      });
+    },
+    [],
+  );
+
+  const closeClarificationPopup = useCallback(() => {
+    setClarificationPopup({
+      visible: false,
+      entityId: null,
+      entityType: null,
+      question: '',
+      options: [],
+    });
+    setClarificationLoading(false);
+    setClarificationSuccess(null);
+  }, []);
+
+  const handleClarificationSelect = useCallback(
+    async (optionId: string) => {
+      if (!clarificationPopup.entityId) return;
+
+      setClarificationLoading(true);
+
+      try {
+        await resolvePendingDropClarification(clarificationPopup.entityId, optionId);
+
+        // Haptic feedback
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+        // Show success state
+        setClarificationLoading(false);
+        setClarificationSuccess('Got it — updated!');
+
+        // Wait for user to see success message, then close
+        // Note: Events are emitted by resolvePendingDropClarification in the store
+        // (entity:deleted for old entity, entity:created for new entity)
+        setTimeout(() => {
+          closeClarificationPopup();
+          console.log('[GlobalOverlay] Clarification resolved, popup closed');
+        }, 1200);
+      } catch (error) {
+        console.error('[GlobalOverlay] Clarification failed:', error);
+        setClarificationLoading(false);
+        closeClarificationPopup();
+      }
+    },
+    [clarificationPopup.entityId, resolvePendingDropClarification, closeClarificationPopup],
+  );
+
+  const handleClarificationSkip = useCallback(() => {
+    // User wants to skip - could open full overlay here, or just close
+    // For now, just close the popup
+    console.log('[GlobalOverlay] Clarification skipped');
+    closeClarificationPopup();
+  }, [closeClarificationPopup]);
 
   const openCreate = useCallback(
     ({
@@ -280,8 +382,28 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <OverlayContext.Provider value={{ state, openCreate, openEdit, openView, close }}>
+    <OverlayContext.Provider
+      value={{
+        state,
+        openCreate,
+        openEdit,
+        openView,
+        close,
+        openClarificationPopup,
+        closeClarificationPopup,
+      }}
+    >
       {children}
+      {/* Standalone Clarification Popup - renders on top of everything */}
+      <ClarificationPopup
+        visible={clarificationPopup.visible}
+        question={clarificationPopup.question}
+        options={clarificationPopup.options}
+        onSelectOption={handleClarificationSelect}
+        onSkip={handleClarificationSkip}
+        isLoading={clarificationLoading}
+        successMessage={clarificationSuccess}
+      />
     </OverlayContext.Provider>
   );
 }

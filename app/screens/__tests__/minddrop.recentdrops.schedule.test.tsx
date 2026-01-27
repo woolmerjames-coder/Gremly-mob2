@@ -105,6 +105,8 @@ const overlayStub = {
   openCreate: jest.fn(),
   openView: jest.fn(),
   close: jest.fn(),
+  openClarificationPopup: jest.fn(),
+  closeClarificationPopup: jest.fn(),
 };
 
 jest.mock('../../../providers/ThemeProvider', () => ({

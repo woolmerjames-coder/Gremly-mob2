@@ -94,6 +94,8 @@ const overlayStub = {
   openCreate: jest.fn(),
   openView: jest.fn(),
   close: jest.fn(),
+  openClarificationPopup: jest.fn(),
+  closeClarificationPopup: jest.fn(),
 };
 
 const makeNote = (id: string, body: string, createdAt: Date) => ({

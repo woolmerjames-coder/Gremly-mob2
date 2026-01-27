@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase/client';
 import { getRitualDay } from '../date/ritualDay';
+import { env } from '../env';
 import type {
   Todo,
   Habit,
@@ -573,7 +574,7 @@ interface GremlyState {
   updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
   promotePendingDropToEntity: (localId: string, supabaseId: string) => void;
   removePendingDrop: (localId: string) => void;
-  resolvePendingDropClarification: (localId: string, optionId: string) => void;
+  resolvePendingDropClarification: (localId: string, optionId: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // ENTITY CHAT MUTATIONS
@@ -4244,37 +4245,412 @@ export const useGremlyStore = create<GremlyState>()(
       console.log('[GremlyStore] Removed pending drop', { localId });
     },
 
-    resolvePendingDropClarification: (localId, optionId) => {
-      set((state) => {
-        const pendingDrops = new Map(state.pendingDrops);
-        const drop = pendingDrops.get(localId);
+    resolvePendingDropClarification: async (localId, optionId) => {
+      const state = get();
 
-        if (!drop || !drop.clarification_options) return state;
+      // First, try to find in pending drops (items still in Mind Drop queue)
+      const pendingDrop = state.pendingDrops.get(localId);
 
-        const selectedOption = drop.clarification_options.find((opt) => opt.id === optionId);
-        if (!selectedOption) return state;
+      if (pendingDrop && pendingDrop.clarification_options) {
+        const selectedOption = pendingDrop.clarification_options.find((opt) => opt.id === optionId);
+        if (selectedOption) {
+          set((s) => {
+            const pendingDrops = new Map(s.pendingDrops);
+            const drop = pendingDrops.get(localId);
+            if (!drop) return s;
 
-        // Apply the selected option's action to the pending drop
-        const updatedDrop: PendingDrop = {
-          ...drop,
-          // Update bucket if specified
-          bucket: selectedOption.action.bucket || drop.bucket,
-          // Update subtype if specified
-          subtype: (selectedOption.action.subtype as PendingDrop['subtype']) || drop.subtype,
-          // Mark clarification as resolved
-          clarification_resolved: true,
+            // Apply the selected option's action to the pending drop
+            const updatedDrop: PendingDrop = {
+              ...drop,
+              // Update bucket if specified
+              bucket: selectedOption.action.bucket || drop.bucket,
+              // Update subtype if specified
+              subtype: (selectedOption.action.subtype as PendingDrop['subtype']) || drop.subtype,
+              // Mark clarification as resolved
+              clarification_resolved: true,
+              needs_clarification: false,
+            };
+
+            pendingDrops.set(localId, updatedDrop);
+            console.log('[GremlyStore] Resolved pending drop clarification', {
+              localId,
+              optionId,
+              bucket: updatedDrop.bucket,
+            });
+
+            return { pendingDrops };
+          });
+          return;
+        }
+      }
+
+      // Not in pending drops - try to find as a synced entity (todo, habit, or note)
+      // localId here is actually the entity ID from Supabase
+      const entityId = localId;
+
+      // Find the entity across all types
+      let entity: Todo | Habit | Note | undefined;
+      let entityType: 'todo' | 'habit' | 'note' | undefined;
+
+      entity = state.todos.find((t) => t.id === entityId);
+      if (entity) {
+        entityType = 'todo';
+      } else {
+        entity = state.habits.find((h) => h.id === entityId);
+        if (entity) {
+          entityType = 'habit';
+        } else {
+          entity = state.notes.find((n) => n.id === entityId);
+          if (entity) {
+            entityType = 'note';
+          }
+        }
+      }
+
+      if (!entity || !entityType) {
+        console.warn('[GremlyStore] resolvePendingDropClarification: Entity not found', {
+          entityId,
+        });
+        return;
+      }
+
+      // Get clarification options from views (where they're stored)
+      const views = entity.views as Record<string, unknown> | undefined;
+      const clarificationOptions = views?.clarification_options as
+        | Array<{
+            id: string;
+            label: string;
+            action: {
+              bucket?: 'todo' | 'habit' | 'log';
+              subtype?: string | null;
+              target_date?: boolean;
+              scheduled_date?: boolean;
+            };
+          }>
+        | undefined;
+
+      if (!clarificationOptions) {
+        console.warn('[GremlyStore] resolvePendingDropClarification: No clarification options', {
+          entityId,
+        });
+        return;
+      }
+
+      const selectedOption = clarificationOptions.find((opt) => opt.id === optionId);
+      if (!selectedOption) {
+        console.warn('[GremlyStore] resolvePendingDropClarification: Option not found', {
+          entityId,
+          optionId,
+        });
+        return;
+      }
+
+      // Determine if bucket is changing
+      const currentBucket =
+        entityType === 'todo' ? 'todo' : entityType === 'habit' ? 'habit' : 'log';
+      const targetBucket = selectedOption.action.bucket || currentBucket;
+
+      console.log('[GremlyStore] Resolving clarification:', {
+        entityId,
+        entityType,
+        currentBucket,
+        targetBucket,
+        optionId,
+        selectedLabel: selectedOption.label,
+        action: selectedOption.action,
+      });
+
+      // If bucket is NOT changing, just update clarification status
+      if (targetBucket === currentBucket || (targetBucket === 'log' && entityType === 'note')) {
+        console.log('[GremlyStore] Same bucket - updating clarification status only');
+
+        const updatedViews: Record<string, unknown> = {
+          ...(views || {}),
           needs_clarification: false,
+          clarification_resolved: true,
         };
 
-        pendingDrops.set(localId, updatedDrop);
-        console.log('[GremlyStore] Resolved pending drop clarification', {
-          localId,
-          optionId,
-          bucket: updatedDrop.bucket,
+        const updates: Record<string, unknown> = {
+          views: updatedViews,
+          needs_clarification: false,
+          clarification_resolved: true,
+        };
+
+        // If subtype changed for notes
+        if (selectedOption.action.subtype && entityType === 'note') {
+          updates.subtype = selectedOption.action.subtype;
+        }
+
+        if (entityType === 'todo') {
+          await get().updateTodo(entityId, updates);
+        } else if (entityType === 'habit') {
+          await get().updateHabit(entityId, updates);
+        } else {
+          await get().updateNote(entityId, updates);
+        }
+        return;
+      }
+
+      // BUCKET IS CHANGING - Need to create new entity and archive old one
+      console.log('[GremlyStore] Bucket change required:', {
+        from: currentBucket,
+        to: targetBucket,
+      });
+
+      try {
+        // Use the imported supabase client
+        if (!supabase) {
+          throw new Error('Supabase client not available');
+        }
+
+        // Determine target table
+        const targetTable =
+          targetBucket === 'todo' ? 'todos' : targetBucket === 'habit' ? 'habits' : 'notes';
+        const sourceTable =
+          entityType === 'note' ? 'notes' : entityType === 'todo' ? 'todos' : 'habits';
+
+        // Get extracted date from views if available
+        const extractedDate = (views?.extracted_date as string) || null;
+
+        // Get updated title and confirmation message from reclassify endpoint
+        const originalTitle = (entity as Note).title || (entity as any).name || '';
+        const originalBody = (entity as Note).body || '';
+        let newTitle = originalTitle || originalBody.substring(0, 50);
+        let newConfirmation = 'Updated.';
+
+        try {
+          const cortexUrl = env.cortexUrl;
+          if (cortexUrl) {
+            console.log('[GremlyStore] Calling reclassify endpoint...');
+            const reclassifyResponse = await fetch(cortexUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'reclassify-after-clarification',
+                text: originalBody || originalTitle,
+                bucket: targetBucket,
+                subtype: selectedOption.action.subtype || null,
+                selectedLabel: selectedOption.label,
+              }),
+            });
+
+            if (reclassifyResponse.ok) {
+              const reclassifyResult = await reclassifyResponse.json();
+              newTitle = reclassifyResult.smart_title || newTitle;
+              newConfirmation = reclassifyResult.confirmation_message || newConfirmation;
+              console.log('[GremlyStore] Reclassified', {
+                newTitle,
+                newConfirmation,
+                latency_ms: reclassifyResult.latency_ms,
+              });
+            }
+          }
+        } catch (reclassifyError) {
+          console.log('[GremlyStore] Reclassify failed, using original title', reclassifyError);
+        }
+
+        // Common fields for new entity
+        const commonFields = {
+          owner_id: entity.owner_id,
+          tags: entity.tags || [],
+          origin: (entity as any).origin || 'catchall',
+          drop_id: (entity as any).drop_id,
+          ai_placed: entity.ai_placed || false,
+          space_id: entity.space_id || null,
+          needs_clarification: false,
+          clarification_resolved: true,
+          views: {
+            ...(views || {}),
+            needs_clarification: false,
+            clarification_resolved: true,
+            converted_from: entityType,
+            converted_at: new Date().toISOString(),
+            confirmation_message: newConfirmation,
+          },
+        };
+
+        let newEntityPayload: Record<string, unknown>;
+
+        if (targetBucket === 'todo') {
+          // Converting to TODO
+          const body = originalBody;
+
+          // Handle date - if action.target_date is true, use extracted date as due_day
+          let dueDay: string | null = null;
+          if (selectedOption.action.target_date && extractedDate) {
+            dueDay = extractedDate.split('T')[0]; // Ensure just the date part
+          }
+
+          newEntityPayload = {
+            ...commonFields,
+            name: newTitle,
+            title: newTitle,
+            body: body !== newTitle ? body : null,
+            subtype: selectedOption.action.subtype || null,
+            status: 'active',
+            undefined_due: !dueDay,
+            due_day: dueDay,
+            due_date: dueDay,
+            source_note_id: entityType === 'note' ? entityId : null,
+          };
+        } else if (targetBucket === 'habit') {
+          // Converting to HABIT
+          newEntityPayload = {
+            ...commonFields,
+            name: newTitle,
+            title: newTitle,
+            frequency: 'daily',
+            cadence: 'daily',
+            target_per_period: 1,
+            time_window: 'day',
+            subtype: selectedOption.action.subtype || 'start_habit',
+            start_date:
+              selectedOption.action.scheduled_date && extractedDate
+                ? extractedDate.split('T')[0]
+                : null,
+            start_date_confirmed: false,
+          };
+        } else {
+          // Converting to NOTE (log)
+          const body = originalBody || newTitle;
+
+          newEntityPayload = {
+            ...commonFields,
+            title: newTitle,
+            body: body,
+            subtype: selectedOption.action.subtype || 'catchall',
+            date:
+              selectedOption.action.target_date && extractedDate
+                ? extractedDate.split('T')[0]
+                : null,
+          };
+        }
+
+        console.log('[GremlyStore] Creating new entity in', targetTable);
+
+        // Insert into new table
+        const { data: insertedEntity, error: insertError } = await supabase
+          .from(targetTable)
+          .insert(newEntityPayload)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('[GremlyStore] Failed to insert new entity:', insertError);
+          throw insertError;
+        }
+
+        console.log('[GremlyStore] New entity created:', {
+          id: insertedEntity.id,
+          drop_id: insertedEntity.drop_id,
+          originalDropId: (entity as any).drop_id,
         });
 
-        return { pendingDrops };
-      });
+        // Verify drop_id was correctly set on the new entity
+        // This maintains the link so RecentDrops can find the converted item
+        if (!insertedEntity.drop_id && (entity as any).drop_id) {
+          console.log('[GremlyStore] Updating drop_id on new entity...');
+          await supabase
+            .from(targetTable)
+            .update({ drop_id: (entity as any).drop_id })
+            .eq('id', insertedEntity.id);
+        }
+
+        // Archive the old entity (soft delete with reason)
+        const archiveUpdates = {
+          archived: true,
+          archived_at: new Date().toISOString(),
+          archived_reason: 'converted',
+          views: {
+            ...(views || {}),
+            converted_to_type: targetBucket,
+            converted_to_id: insertedEntity.id,
+          },
+        };
+
+        const { error: archiveError } = await supabase
+          .from(sourceTable)
+          .update(archiveUpdates)
+          .eq('id', entityId);
+
+        if (archiveError) {
+          console.error('[GremlyStore] Failed to archive old entity:', archiveError);
+          // Don't throw - we've already created the new one
+        }
+
+        // Update Zustand state - remove from old collection
+        if (entityType === 'note') {
+          set({ notes: get().notes.filter((n) => n.id !== entityId) });
+        } else if (entityType === 'todo') {
+          set({ todos: get().todos.filter((t) => t.id !== entityId) });
+        } else {
+          set({ habits: get().habits.filter((h) => h.id !== entityId) });
+        }
+
+        // Add to new collection
+        if (targetBucket === 'todo') {
+          set({ todos: [...get().todos, { ...insertedEntity, type: 'todo' as const }] });
+        } else if (targetBucket === 'habit') {
+          set({ habits: [...get().habits, { ...insertedEntity, type: 'habit' as const }] });
+        } else {
+          set({ notes: [...get().notes, { ...insertedEntity, type: 'note' as const }] });
+        }
+
+        console.log('[GremlyStore] Bucket change complete:', {
+          oldId: entityId,
+          oldType: entityType,
+          newId: insertedEntity.id,
+          newType: targetBucket,
+          drop_id: insertedEntity.drop_id,
+        });
+
+        // Emit events to update RecentDrops list without requiring reload
+        console.log('[GremlyStore] Emitting entity:deleted for old entity', {
+          id: entityId,
+          type: entityType,
+        });
+        // 1. Delete event for old entity (removes archived note from list)
+        eventBus.emit('entity:deleted', {
+          id: entityId,
+          type: entityType,
+          source: 'clarification-bucket-change',
+        });
+
+        console.log('[GremlyStore] Emitting entity:created for new entity', {
+          id: insertedEntity.id,
+          type: targetBucket,
+          drop_id: insertedEntity.drop_id,
+          title: insertedEntity.title ?? insertedEntity.name,
+        });
+        // 2. Created event for new entity (adds todo/habit to list)
+        eventBus.emit('entity:created', {
+          entity: {
+            ...insertedEntity,
+            type: targetBucket,
+          },
+          type: targetBucket,
+          source: 'clarification-bucket-change',
+        });
+      } catch (error) {
+        console.error('[GremlyStore] Bucket change failed:', error);
+        // Fall back to just updating clarification status
+        const updatedViews: Record<string, unknown> = {
+          ...(views || {}),
+          needs_clarification: false,
+          clarification_resolved: true,
+          bucket_change_failed: true,
+        };
+
+        const updates = { views: updatedViews };
+
+        if (entityType === 'todo') {
+          await get().updateTodo(entityId, updates);
+        } else if (entityType === 'habit') {
+          await get().updateHabit(entityId, updates);
+        } else {
+          await get().updateNote(entityId, updates);
+        }
+      }
     },
 
     // ═══════════════════════════════════════════════════════════════════

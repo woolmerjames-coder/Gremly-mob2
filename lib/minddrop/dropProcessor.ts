@@ -21,6 +21,7 @@
 import { type QueuedDrop, updateDrop, markFailed, getPendingDrops, dequeue } from './dropQueue';
 import { detectMulti } from './detectMulti';
 import { runPhase1 } from './phase1';
+import { shouldRunPhase1_5, runPhase1_5 } from '../ai/phase1_5';
 import type { MindDropBucket, LogSubtype } from './types';
 import { calculateBuffers } from '../planning';
 import { useGremlyStore } from '../store/useGremlyStore';
@@ -138,7 +139,13 @@ async function runPhase2(
         : null;
 
       // Validate energy_type
-      const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'] as const;
+      const validEnergyTypes = [
+        'deep_focus',
+        'administrative',
+        'physical',
+        'social',
+        'quick',
+      ] as const;
       const rawEnergyType = json.energy_type;
       const energy_type = validEnergyTypes.includes(rawEnergyType)
         ? (rawEnergyType as 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick')
@@ -202,6 +209,22 @@ async function syncDropToSupabase(
   const now = new Date().toISOString();
   const today = dateService.today();
 
+  // Debug: Log the full drop object to see what clarification fields are present
+  console.log('[DropProcessor] Drop object before payload build:', {
+    localId: drop.localId,
+    // Log ALL possible clarification field names (both camelCase and snake_case)
+    needsClarification: drop.needsClarification,
+    needs_clarification: (drop as any).needs_clarification,
+    clarificationType: drop.clarificationType,
+    clarification_type: (drop as any).clarification_type,
+    clarificationQuestion: drop.clarificationQuestion,
+    clarification_question: (drop as any).clarification_question,
+    clarificationOptions: drop.clarificationOptions?.length ?? 'undefined',
+    clarification_options: (drop as any).clarification_options?.length ?? 'undefined',
+    // Also check if it's nested somewhere
+    dropKeys: Object.keys(drop),
+  });
+
   try {
     let table: string;
     let payload: Record<string, unknown>;
@@ -240,11 +263,23 @@ async function syncDropToSupabase(
         due_day: dueDay,
         due_date: dueDay,
         due_time: parsedFields.dueTime || null,
+        // Phase 2: Clarification fields (direct columns)
+        needs_clarification: drop.needsClarification || false,
+        clarification_type: drop.clarificationType || null,
+        clarification_question: drop.clarificationQuestion || null,
+        clarification_options: drop.clarificationOptions || null,
+        clarification_resolved: false,
         views: {
           minddrop_stage: 'enriched',
           ai_pending: false,
           confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
+          // Phase 2: Clarification fields (also in views for redundancy)
+          needs_clarification: drop.needsClarification || false,
+          clarification_type: drop.clarificationType || null,
+          clarification_question: drop.clarificationQuestion || null,
+          clarification_options: drop.clarificationOptions || null,
+          clarification_resolved: false,
         },
         created_at: now,
         updated_at: now,
@@ -284,11 +319,23 @@ async function syncDropToSupabase(
         prep_buffer_minutes: buffers.prep_buffer_minutes,
         cooldown_buffer_minutes: buffers.cooldown_buffer_minutes,
         tags: enrichment?.tags || [],
+        // Phase 2: Clarification fields (direct columns)
+        needs_clarification: drop.needsClarification || false,
+        clarification_type: drop.clarificationType || null,
+        clarification_question: drop.clarificationQuestion || null,
+        clarification_options: drop.clarificationOptions || null,
+        clarification_resolved: false,
         views: {
           minddrop_stage: 'enriched',
           ai_pending: false,
           confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
+          // Phase 2: Clarification fields (also in views for redundancy)
+          needs_clarification: drop.needsClarification || false,
+          clarification_type: drop.clarificationType || null,
+          clarification_question: drop.clarificationQuestion || null,
+          clarification_options: drop.clarificationOptions || null,
+          clarification_resolved: false,
         },
         created_at: now,
         updated_at: now,
@@ -311,11 +358,23 @@ async function syncDropToSupabase(
         origin: source === 'space' ? 'space_chat' : 'catchall',
         tags: enrichment?.tags || [],
         mood: enrichment?.mood || null,
+        // Phase 2: Clarification fields (direct columns)
+        needs_clarification: drop.needsClarification || false,
+        clarification_type: drop.clarificationType || null,
+        clarification_question: drop.clarificationQuestion || null,
+        clarification_options: drop.clarificationOptions || null,
+        clarification_resolved: false,
         views: {
           minddrop_stage: 'enriched',
           ai_pending: false,
           confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
+          // Phase 2: Clarification fields (also in views for redundancy)
+          needs_clarification: drop.needsClarification || false,
+          clarification_type: drop.clarificationType || null,
+          clarification_question: drop.clarificationQuestion || null,
+          clarification_options: drop.clarificationOptions || null,
+          clarification_resolved: false,
         },
         created_at: now,
         updated_at: now,
@@ -323,6 +382,14 @@ async function syncDropToSupabase(
     }
 
     console.log('[DropProcessor] Syncing to Supabase', { localId, table, entityType });
+
+    // Debug: Log clarification fields being sent to Supabase
+    console.log('[DropProcessor] Entity payload clarification fields:', {
+      needs_clarification: (payload as any).needs_clarification,
+      clarification_type: (payload as any).clarification_type,
+      clarification_question: (payload as any).clarification_question,
+      clarification_options_count: (payload as any).clarification_options?.length ?? 0,
+    });
 
     const { data, error } = await supabase.from(table).insert(payload).select().single();
 
@@ -592,19 +659,12 @@ export async function processDrop(
 
     console.log('[DropProcessor] Phase 1 timing', { localId, elapsed: Date.now() - startTime });
 
-    // CHECKPOINT 1: Save classification results (and early enrichment fields if present)
-    // This is the first save - protects expensive Phase 1 AI work
-    await updateDrop(localId, {
-      bucket: phase1Result.bucket,
-      subtype: phase1Result.subtype,
-      habitSubtype: phase1Result.habitSubtype,
-      confidence: phase1Result.confidence,
-      // Phase 1 now returns early enrichment fields for faster typewriter animation
-      ...(phase1Result.smart_title && { smartTitle: phase1Result.smart_title }),
-      ...(phase1Result.confirmation_message && {
-        confirmationMessage: phase1Result.confirmation_message,
-      }),
-      status: 'classified', // Clear checkpoint status
+    // Debug: Log clarification fields from Phase 1
+    console.log('[DropProcessor] Phase 1 clarification fields:', {
+      needs_clarification: phase1Result.needs_clarification,
+      clarification_type: phase1Result.clarification_type,
+      clarification_question: phase1Result.clarification_question,
+      clarification_options: phase1Result.clarification_options,
     });
 
     // Update Zustand for immediate UI feedback (in-memory, instant)
@@ -627,6 +687,111 @@ export async function processDrop(
     }
 
     callbacks?.onPhase1Complete?.(localId, phase1Result.bucket);
+
+    // =========================================
+    // PHASE 1.5: Ambiguity Detection
+    // Checks if short temporal inputs need clarification
+    // Skip if Phase 1 already determined clarification is needed (backwards compat)
+    // =========================================
+
+    const phase1_5Start = Date.now();
+    let clarificationFromPhase1_5 = false;
+    let phase1_5Skipped = false;
+
+    // Skip if Phase 1 already determined clarification is needed
+    if (
+      phase1Result.needs_clarification &&
+      (phase1Result.clarification_options?.length ?? 0) >= 2
+    ) {
+      console.log('[DropProcessor] Skipping Phase 1.5 - Phase 1 already set clarification');
+      phase1_5Skipped = true;
+    } else {
+      const { shouldRun, detectedTemporal } = shouldRunPhase1_5(
+        text,
+        phase1Result.bucket,
+        phase1Result.subtype,
+        phase1Result.confidence,
+      );
+
+      if (shouldRun) {
+        console.log('[DropProcessor] Phase 1.5 triggered', {
+          text: text.substring(0, 50),
+          detectedTemporal,
+          phase1Bucket: phase1Result.bucket,
+        });
+
+        const phase1_5Result = await runPhase1_5(
+          text,
+          phase1Result.bucket,
+          phase1Result.subtype,
+          detectedTemporal,
+        );
+
+        console.log('[DropProcessor] Phase 1.5 result', {
+          is_ambiguous: phase1_5Result.is_ambiguous,
+          question: phase1_5Result.question?.substring(0, 40),
+          options_count: phase1_5Result.options?.length || 0,
+          latency_ms: phase1_5Result.latency_ms,
+        });
+
+        if (
+          phase1_5Result.is_ambiguous &&
+          phase1_5Result.options &&
+          phase1_5Result.options.length >= 2
+        ) {
+          // Override Phase 1 clarification fields with Phase 1.5 results
+          phase1Result.needs_clarification = true;
+          phase1Result.clarification_type = 'bucket';
+          phase1Result.clarification_question = phase1_5Result.question;
+          phase1Result.clarification_options = phase1_5Result.options;
+
+          // Lower confidence since we're uncertain
+          phase1Result.confidence = Math.min(phase1Result.confidence, 0.6);
+
+          clarificationFromPhase1_5 = true;
+
+          console.log('[DropProcessor] Phase 1.5 set clarification', {
+            question: phase1_5Result.question,
+            options: phase1_5Result.options.map((o) => ({ id: o.id, bucket: o.action.bucket })),
+          });
+        }
+
+        const phase1_5Elapsed = Date.now() - phase1_5Start;
+        console.log('[DropProcessor] Phase 1.5 timing', {
+          elapsed: phase1_5Elapsed,
+          localId,
+          triggered_clarification: clarificationFromPhase1_5,
+        });
+      }
+    }
+
+    // CHECKPOINT 1: Save classification results (and clarification fields from Phase 1 OR Phase 1.5)
+    // This is the first save - protects expensive Phase 1/1.5 AI work
+    await updateDrop(localId, {
+      bucket: phase1Result.bucket,
+      subtype: phase1Result.subtype,
+      habitSubtype: phase1Result.habitSubtype,
+      confidence: phase1Result.confidence,
+      // Phase 1 now returns early enrichment fields for faster typewriter animation
+      ...(phase1Result.smart_title && { smartTitle: phase1Result.smart_title }),
+      ...(phase1Result.confirmation_message && {
+        confirmationMessage: phase1Result.confirmation_message,
+      }),
+      // Clarification fields (may come from Phase 1 OR Phase 1.5)
+      needsClarification: phase1Result.needs_clarification || false,
+      clarificationType: phase1Result.clarification_type || null,
+      clarificationQuestion: phase1Result.clarification_question || null,
+      clarificationOptions: phase1Result.clarification_options || null,
+      status: 'classified', // Clear checkpoint status
+    });
+
+    console.log('[DropQueue] Updated drop with classification', {
+      localId,
+      bucket: phase1Result.bucket,
+      needsClarification: phase1Result.needs_clarification,
+      hasClarificationOptions: !!phase1Result.clarification_options,
+      clarificationSource: clarificationFromPhase1_5 ? 'phase1.5' : 'phase1',
+    });
 
     // =========================================
     // PHASE 2: Enrichment (non-streaming)
@@ -694,6 +859,11 @@ export async function processDrop(
         // Include Phase 1 smart title and confirmation message
         smartTitle: phase1Result.smart_title ?? undefined,
         confirmationMessage: phase1Result.confirmation_message ?? undefined,
+        // Include Phase 1 clarification fields
+        needsClarification: phase1Result.needs_clarification || false,
+        clarificationType: phase1Result.clarification_type || null,
+        clarificationQuestion: phase1Result.clarification_question || null,
+        clarificationOptions: phase1Result.clarification_options || null,
       },
       enrichmentResult,
     );

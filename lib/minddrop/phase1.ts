@@ -221,6 +221,10 @@ export async function runPhase1(
     source,
     smart_title: apiResult.smart_title || null,
     confirmation_message: apiResult.confirmation_message || null,
+    needs_clarification: apiResult.needs_clarification || false,
+    clarification_type: apiResult.clarification_type || null,
+    clarification_question: apiResult.clarification_question || null,
+    clarification_options: apiResult.clarification_options || null,
   });
 
   return {
@@ -233,5 +237,10 @@ export async function runPhase1(
     // Early enrichment fields (enables typewriter to start after Phase 1)
     smart_title: apiResult.smart_title || null,
     confirmation_message: apiResult.confirmation_message || null,
+    // Phase 2: Clarification fields
+    needs_clarification: apiResult.needs_clarification || false,
+    clarification_type: apiResult.clarification_type || null,
+    clarification_question: apiResult.clarification_question || null,
+    clarification_options: apiResult.clarification_options || null,
   };
 }
