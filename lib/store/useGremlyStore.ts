@@ -4675,13 +4675,20 @@ export const useGremlyStore = create<GremlyState>()(
         try {
           const cortexUrl = env.cortexUrl;
           if (cortexUrl) {
-            console.log('[GremlyStore] Calling Phase 2 enrichment for clarified entity...');
+            // Combine original text with user's clarification so Phase 2 can extract frequency, dates, etc.
+            const phase2Text = `${originalText} — ${selectedLabel}`;
+            console.log('[GremlyStore] Phase 2 called with combined text:', {
+              originalText: originalText.substring(0, 30),
+              selectedLabel: selectedLabel.substring(0, 30),
+              phase2Text: phase2Text.substring(0, 60),
+            });
+            
             const phase2Response = await fetch(cortexUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 type: 'enrich-phase2',
-                text: originalText,
+                text: phase2Text,
                 bucket: targetBucket,
                 subtype: newSubtype,
                 currentDate: getDateService().getCurrentDate(),
@@ -4990,13 +4997,20 @@ export const useGremlyStore = create<GremlyState>()(
         try {
           const cortexUrl = env.cortexUrl;
           if (cortexUrl) {
-            console.log('[GremlyStore] Calling Phase 2 enrichment for converted entity...');
+            // Combine original text with user's clarification so Phase 2 can extract frequency, dates, etc.
+            const phase2Text = `${originalText} — ${selectedLabel}`;
+            console.log('[GremlyStore] Phase 2 called with combined text (converted entity):', {
+              originalText: originalText.substring(0, 30),
+              selectedLabel: selectedLabel.substring(0, 30),
+              phase2Text: phase2Text.substring(0, 60),
+            });
+            
             const phase2Response = await fetch(cortexUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 type: 'enrich-phase2',
-                text: originalText,
+                text: phase2Text,
                 bucket: targetBucket,
                 subtype: newSubtype,
                 currentDate: getDateService().getCurrentDate(),
