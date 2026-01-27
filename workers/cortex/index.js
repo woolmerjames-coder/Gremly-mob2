@@ -1986,309 +1986,116 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
       // =========================
       if (type === 'clarify-ambiguity') {
         const text = body.text || '';
-        const bucket = body.bucket || 'log';
-        const subtype = body.subtype || 'general';
         const detectedTemporal = body.detectedTemporal || null;
-        // currentDate is passed from client using dateService.today() - the fallback is for edge cases
-        // eslint-disable-next-line no-restricted-syntax -- Cloudflare Worker doesn't have dateService
-        const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
+        const ambiguityReason = body.ambiguityReason || 'unclear intent';
 
-        const phase1_5Prompt = `You determine if a short input is AMBIGUOUS and needs user clarification.
+        const phase1_5Prompt = `You generate clarifying questions for ambiguous inputs in a productivity app.
 
 === CONTEXT ===
 INPUT: "${text}"
 DETECTED TEMPORAL: ${detectedTemporal || 'none'}
-CURRENT DATE: ${currentDate}
-PHASE 1 RESULT: bucket="${bucket}", subtype="${subtype}"
+AMBIGUITY REASON: ${ambiguityReason}
 
-=== YOUR TASK ===
+=== YOUR GOAL ===
 
-1. FIRST: Ask "What are the DIFFERENT SITUATIONS this person could be in?"
-   - Don't assume you know what they mean
-   - Think of 2-3 genuinely different real-world scenarios
-   
-2. THEN: Generate options representing those different situations
-   - Each option = a different user reality
-   - Options should be MEANINGFULLY different, not variations of the same thing
-   
-3. FINALLY: Apply classification rules to each situation
-   - What bucket does THIS situation map to?
+Generate a short question and 2-3 option labels that will RESOLVE the ambiguity.
 
-=== THE THREE BUCKETS (CLASSIFICATION RULES) ===
+The user will tap one option, and THAT tells us how to classify the item.
 
-**TODO** — A discrete, completable action
-The user will eventually "check this off." A clear DONE state exists.
-Ask: "Can this be marked DONE when complete?"
+=== WHAT MAKES GOOD OPTIONS ===
 
-TODO SEMANTIC TEST — Must have ALL:
-1. A discrete action (not ongoing)
-2. A clear completion point (you'll know when it's done)
-3. Something the user would "check off"
+**Each option must represent a DIFFERENT user situation.**
 
-TODO examples:
-- "Call mom" → Done when call ends ✓
-- "Buy groceries" → Done when purchased ✓
-- "Book dentist appointment" → Done when booked ✓
-- "Renew passport" → Done when renewed ✓
-- "Cancel Netflix" → Done when cancelled ✓
+Ask yourself: "If 10 people typed '${text}', what different things might they mean?"
 
-**HABIT** — A trackable, recurring behavior
-The user wants to TRACK this over time. It's concrete and observable.
-Ask: "Can this be tracked with a yes/no each day/week?"
+**Options must lead to different outcomes:**
+- One option might mean they have something (noting/awareness)
+- Another might mean they need to DO something (action required)
+- Another might mean they want to build a routine (habit)
 
-HABIT SEMANTIC TEST — Must have ALL:
-1. A CONCRETE, OBSERVABLE behavior (not abstract)
-2. Something trackable with yes/no (did I do it today?)
-3. EXPLICIT intent to repeat (frequency stated OR stop/quit pattern)
+**BAD options (too similar):**
+- "Passport expiring soon" / "Passport needs attention" → Both vaguely imply action, doesn't clarify
+- "Going to gym" / "Planning to exercise" → Same thing, different words
 
-STRICT REQUIREMENT — Habits need explicit signals:
-- Explicit frequency: "daily", "every day", "every morning", "3x/week"
-- OR stop/quit + concrete behavior: "stop smoking", "quit drinking"
+**GOOD options (meaningfully different):**
+- "I have a trip in June" (noting event) vs "It expires — need to renew" (action required)
+- "Just going this Monday" (one-time) vs "Starting to go regularly" (building habit)
+- "I have an appointment" (existing event) vs "I need to book one" (action required)
 
-WITHOUT explicit frequency or stop/quit → NOT a habit.
-- "Go to the gym" (no frequency) → TODO (single instance)
+=== OPTION LABELS ===
 
-**LOG** — Capture for reflection, not action
-A thought, feeling, idea, or information. No clear done state or tracking intent.
-
-LOG subtypes:
-- journal: Emotional expression, reflection, venting
-- idea: Exploration, brainstorming, weighing options
-- general: Reference info, status updates, external events user is noting
-
-=== CRITICAL: EXTERNAL EVENTS = LOG ===
-
-When the user has an EXISTING appointment/event/deadline:
-- They're NOTING something external, not creating a task
-- The action is already scheduled — they didn't create it
-- Bucket = LOG (usually general)
-- scheduled_date = true (it's a fixed external event)
-
-Examples:
-- "Dentist Tuesday" + "I have an appointment" → LOG/general (noting external event)
-- "Passport expires June" → LOG/general (noting deadline, unless they say "need to renew")
-- "Mom's birthday March 5" → LOG/general (noting the date)
-
-vs. when they need to DO something:
-- "Dentist Tuesday" + "I need to book" → TODO (action required)
-- "Passport June" + "Need to renew" → TODO (action required)
-- "Mom's birthday" + "Get a gift" → TODO (action required)
-
-=== DISCOVERING THE AMBIGUITY ===
-
-Your job is to figure out WHAT different situations could explain this input.
-
-**The Question to Ask Yourself:**
-"If 10 different people typed this exact input, what different things might they mean?"
-
-**Pattern 1: Noun + Date**
-Think about ALL the reasons someone might mention [thing] + [date]:
-
-"passport June"
-- Person A: Has a trip in June, noting they need passport
-- Person B: Passport expires in June, needs to renew
-- Person C: Has a passport appointment scheduled
-→ These are 3 DIFFERENT situations, not variations of one
-
-"dentist Tuesday"  
-- Person A: Has an appointment on Tuesday
-- Person B: Needs to book an appointment, wants it Tuesday
-- Person C: Needs to call about something dentist-related
-→ Different situations requiring different actions
-
-"mom birthday March 5"
-- Person A: Just noting the date for awareness
-- Person B: Needs to buy a gift
-- Person C: Needs to plan a party/dinner
-→ Different levels of action required
-
-**Pattern 2: Activity + Date**
-Think about one-time vs recurring:
-
-"gym Monday"
-- Person A: Going to gym this Monday (one-time)
-- Person B: Starting to go to gym on Mondays (habit)
-→ Fundamentally different intents
-
-**Pattern 3: Bare Noun**
-Think about what action (if any) is implied:
-
-"standing desk"
-- Person A: Wants to buy one
-- Person B: Researching options
-- Person C: Just noting the idea for someday
-→ Different levels of commitment
-
-**BAD Option Generation (too narrow):**
-"passport June" →
-- "It's expiring — just noting" (log)
-- "I need to renew it" (todo)
-Problem: Both assume expiration! What about trips?
-
-**GOOD Option Generation (discovers the ambiguity):**
-"passport June" →
-- "I have a trip in June" (log - noting upcoming travel)
-- "It expires — I need to renew" (todo - action required)
-→ These represent DIFFERENT user situations
-
-=== DECISION RULES ===
-
-**IS AMBIGUOUS** when:
-- Multiple bucket interpretations are reasonable (log vs todo, todo vs habit)
-- The date could mean different things depending on intent
-- A reasonable person would ask "wait, what do you mean?"
-
-**NOT AMBIGUOUS** when:
-- Clear action verb present: "call mom", "buy groceries", "book dentist"
-- Explicit frequency for habits: "run every morning", "meditate daily"
-- Clear emotional/reflective content: "feeling anxious", "stressed about work"
-- Just vague (not ambiguous, just unclear): "stuff", "things to do"
-
-=== DATE TRANSFER PRINCIPLE ===
-
-When generating options, the mentioned date is ALMOST ALWAYS meaningful for EVERY option.
-
-Ask for each option: "If user picks this, what does ${detectedTemporal || 'the date'} mean?"
-
-Examples:
-- "dentist Tuesday" + "I have an appointment" → Tuesday IS the appointment → target_date: true
-- "dentist Tuesday" + "I need to book" → Tuesday is WHEN they want it → target_date: true
-- "passport June" + "It's expiring" → June is the deadline they're noting → target_date: true
-- "passport June" + "Need to renew" → June is when they need it done by → target_date: true
-
-Only set target_date: false when the date truly becomes irrelevant (rare).
-
-=== OPTION DESIGN ===
-
-For each option, apply the bucket classification rules above:
-
-- id: short snake_case identifier
-- label: What user would tap (natural language, 3-8 words)
-- action: Apply classification rules to this intent
-  - bucket: "todo" | "habit" | "log" (use the rules above!)
-  - subtype: only for log ("general" | "idea" | "journal") 
-  - target_date: boolean (should the date become due_day/target?)
-  - scheduled_date: boolean (is this a fixed external event?)
-  - habit_subtype: only for habits ("start_habit" | "break_habit")
-
-CLASSIFICATION LOGIC PER OPTION:
-1. What is the user's INTENT if they pick this option?
-2. Does that intent involve an ACTION they need to complete? → TODO
-3. Is it a recurring behavior they want to track? → HABIT
-4. Is it information/event they're noting, or something external? → LOG
+Write labels as if the user is completing the sentence "I..."
+- 3-8 words
+- Natural language, not formal
+- Mutually exclusive (picking one rules out the others)
 
 === OUTPUT FORMAT ===
 
-Return ONLY valid JSON.
+Return ONLY valid JSON:
 
-If NOT ambiguous:
 {
-  "is_ambiguous": false,
-  "reason": "Brief explanation why it's clear"
-}
-
-If AMBIGUOUS:
-{
-  "is_ambiguous": true,
-  "question": "Short, natural question (under 50 chars)",
+  "question": "Short question under 50 chars",
   "options": [
-    {
-      "id": "option_id",
-      "label": "What user taps",
-      "action": {
-        "bucket": "todo",
-        "subtype": null,
-        "target_date": true,
-        "scheduled_date": false,
-        "habit_subtype": null
-      }
-    }
+    { "id": "option_1", "label": "First option label" },
+    { "id": "option_2", "label": "Second option label" }
   ]
 }
+
+- question: Natural, friendly, specific to the input
+- options: 2-3 options, each with id (snake_case) and label (what user taps)
+- NO bucket, action, or classification data — just labels
 
 === EXAMPLES ===
 
 INPUT: "dentist Tuesday"
-Thinking: What situations could this be?
-- Has appointment → noting an external event
-- Needs to book → action required
+AMBIGUITY REASON: "noun + date, unclear if existing appointment or need to book"
 {
-  "is_ambiguous": true,
   "question": "What's the dentist situation?",
   "options": [
-    { "id": "have_appointment", "label": "I have an appointment Tuesday", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": true } },
-    { "id": "need_to_book", "label": "I need to book/call", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
+    { "id": "have_appointment", "label": "I have an appointment Tuesday" },
+    { "id": "need_to_book", "label": "I need to book/call about it" }
   ]
 }
 
 INPUT: "passport June"
-Thinking: What situations could this be?
-- Has a trip → noting travel plans
-- Expiring → needs to renew (action)
+AMBIGUITY REASON: "noun + date, unclear if trip or expiration"
 {
-  "is_ambiguous": true,
   "question": "What's happening with the passport?",
   "options": [
-    { "id": "trip", "label": "I have a trip in June", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": false } },
-    { "id": "expiring", "label": "It expires — need to renew", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
-  ]
-}
-
-INPUT: "mom birthday March 5"
-Thinking: What situations could this be?
-- Just noting the date → awareness
-- Need to get gift → action required
-{
-  "is_ambiguous": true,
-  "question": "What about mom's birthday?",
-  "options": [
-    { "id": "noting", "label": "Just noting the date", "action": { "bucket": "log", "subtype": "general", "target_date": true, "scheduled_date": false } },
-    { "id": "gift", "label": "I need to get a gift", "action": { "bucket": "todo", "subtype": null, "target_date": true, "scheduled_date": false } }
+    { "id": "trip", "label": "I have a trip in June" },
+    { "id": "expiring", "label": "It expires — need to renew" }
   ]
 }
 
 INPUT: "gym Monday"
-Thinking: What situations could this be?
-- One-time plan → single todo
-- Starting a routine → habit
+AMBIGUITY REASON: "activity + date, unclear if one-time or habit"
 {
-  "is_ambiguous": true,
   "question": "One-time or building a habit?",
   "options": [
-    { "id": "one_time", "label": "Just going this Monday", "action": { "bucket": "todo", "target_date": true } },
-    { "id": "habit", "label": "Starting to go regularly", "action": { "bucket": "habit", "habit_subtype": "start_habit", "target_date": true } }
+    { "id": "one_time", "label": "Just going this Monday" },
+    { "id": "habit", "label": "Starting to go regularly" }
+  ]
+}
+
+INPUT: "mom birthday March 5"
+AMBIGUITY REASON: "noun + date, unclear if noting or action needed"
+{
+  "question": "What about mom's birthday?",
+  "options": [
+    { "id": "noting", "label": "Just noting the date" },
+    { "id": "gift", "label": "I need to get a gift" },
+    { "id": "party", "label": "I need to plan something" }
   ]
 }
 
 INPUT: "standing desk"
-Thinking: What situations could this be?
-- Want to buy → action
-- Just an idea → exploration
+AMBIGUITY REASON: "bare noun, unclear if buying or noting idea"
 {
-  "is_ambiguous": true,
   "question": "What's the plan?",
   "options": [
-    { "id": "buy", "label": "I want to buy one", "action": { "bucket": "todo", "target_date": false } },
-    { "id": "idea", "label": "Just exploring the idea", "action": { "bucket": "log", "subtype": "idea", "target_date": false } }
+    { "id": "buy", "label": "I want to buy one" },
+    { "id": "idea", "label": "Just exploring the idea" }
   ]
-}
-
-INPUT: "call mom tomorrow"
-{
-  "is_ambiguous": false,
-  "reason": "Clear action verb 'call' with specific target and time"
-}
-
-INPUT: "run every morning"
-{
-  "is_ambiguous": false,
-  "reason": "Explicit frequency indicates clear habit intent"
-}
-
-INPUT: "feeling stressed about work"
-{
-  "is_ambiguous": false,
-  "reason": "Clear emotional/reflective content — journal entry"
 }`;
 
         const t0 = Date.now();
@@ -2304,7 +2111,7 @@ INPUT: "feeling stressed about work"
               model: 'gpt-4o-mini',
               messages: [{ role: 'system', content: phase1_5Prompt }],
               temperature: 0.1,
-              max_tokens: 400,
+              max_tokens: 200,
               response_format: { type: 'json_object' },
             }),
           });
@@ -2314,7 +2121,7 @@ INPUT: "feeling stressed about work"
 
           if (!res.ok) {
             console.log('[Phase1.5] API error', { error: oj.error, latency_ms: latency });
-            return j({ is_ambiguous: false, reason: 'api_error', latency_ms: latency });
+            return j({ success: false, reason: 'api_error', latency_ms: latency });
           }
 
           const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
@@ -2324,61 +2131,27 @@ INPUT: "feeling stressed about work"
             parsed = JSON.parse(rawContent);
           } catch {
             console.log('[Phase1.5] Parse error', { raw: rawContent });
-            return j({ is_ambiguous: false, reason: 'parse_error', latency_ms: latency });
-          }
-
-          // Validate response
-          if (parsed.is_ambiguous !== true) {
-            console.log('[Phase1.5] Not ambiguous', { reason: parsed.reason, latency_ms: latency });
-            return j({
-              is_ambiguous: false,
-              reason: parsed.reason || 'clear_intent',
-              latency_ms: latency,
-            });
+            return j({ success: false, reason: 'parse_error', latency_ms: latency });
           }
 
           // Validate options
           if (!Array.isArray(parsed.options) || parsed.options.length < 2) {
             console.log('[Phase1.5] Invalid options', { latency_ms: latency });
-            return j({ is_ambiguous: false, reason: 'invalid_options', latency_ms: latency });
+            return j({ success: false, reason: 'invalid_options', latency_ms: latency });
           }
 
-          // Clean and validate each option
-          const validBuckets = ['todo', 'habit', 'log'];
-          const validSubtypes = ['general', 'idea', 'journal'];
-          const validHabitSubtypes = ['start_habit', 'break_habit'];
-
+          // Clean options (just id and label, no action/bucket)
           const cleanedOptions = parsed.options
-            .slice(0, 3) // Max 3 options
-            .map((opt) => {
-              const action = opt.action || {};
-              return {
-                id: String(opt.id || '')
-                  .substring(0, 30)
-                  .replace(/[^a-z0-9_]/gi, '_'),
-                label: String(opt.label || '').substring(0, 80),
-                action: {
-                  bucket: validBuckets.includes(action.bucket) ? action.bucket : 'log',
-                  subtype:
-                    action.bucket === 'log' && validSubtypes.includes(action.subtype)
-                      ? action.subtype
-                      : null,
-                  target_date: action.target_date === true,
-                  scheduled_date: action.scheduled_date === true,
-                  habit_subtype:
-                    action.bucket === 'habit' && validHabitSubtypes.includes(action.habit_subtype)
-                      ? action.habit_subtype
-                      : null,
-                },
-              };
-            })
-            .filter((opt) => opt.id && opt.label && opt.action.bucket);
+            .slice(0, 3)
+            .map((opt) => ({
+              id: String(opt.id || '').substring(0, 30).replace(/[^a-z0-9_]/gi, '_'),
+              label: String(opt.label || '').substring(0, 80),
+            }))
+            .filter((opt) => opt.id && opt.label);
 
           if (cleanedOptions.length < 2) {
-            console.log('[Phase1.5] Not enough valid options after cleaning', {
-              latency_ms: latency,
-            });
-            return j({ is_ambiguous: false, reason: 'insufficient_options', latency_ms: latency });
+            console.log('[Phase1.5] Not enough valid options', { latency_ms: latency });
+            return j({ success: false, reason: 'insufficient_options', latency_ms: latency });
           }
 
           const question =
@@ -2386,38 +2159,22 @@ INPUT: "feeling stressed about work"
               ? parsed.question.trim().substring(0, 60)
               : 'What did you mean?';
 
-          // Tap-encouraging confirmation messages for ambiguous drops
-          const tapPromptMessages = [
-            'Quick question for you — tap me',
-            'Need your input — tap to clarify',
-            'One quick thing — tap me',
-            'Help me understand — tap here',
-            'Almost there — tap to confirm',
-            'Need to check something — tap me',
-            'Quick clarification needed — tap',
-            'Tap to help me sort this out',
-          ];
-          const confirmationMessage =
-            tapPromptMessages[Math.floor(Math.random() * tapPromptMessages.length)];
-
-          console.log('[Phase1.5] Ambiguous', {
+          console.log('[Phase1.5] Success', {
             question: question.substring(0, 40),
             options_count: cleanedOptions.length,
-            confirmation_message: confirmationMessage,
             latency_ms: latency,
           });
 
           return j({
-            is_ambiguous: true,
+            success: true,
             question,
             options: cleanedOptions,
-            confirmation_message: confirmationMessage,
             latency_ms: latency,
           });
         } catch (err) {
           const latency = Date.now() - t0;
           console.log('[Phase1.5] Error', { error: String(err), latency_ms: latency });
-          return j({ is_ambiguous: false, reason: 'request_error', latency_ms: latency });
+          return j({ success: false, reason: 'request_error', latency_ms: latency });
         }
       }
 
