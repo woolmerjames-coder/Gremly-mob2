@@ -5158,7 +5158,15 @@ export const useGremlyStore = create<GremlyState>()(
               });
 
               // Build Phase 2 updates
-              const phase2Updates: Record<string, unknown> = {};
+              // CRITICAL: Include minddrop_stage: 'enriched' so all chips animate together
+              const phase2Updates: Record<string, unknown> = {
+                views: {
+                  ...(insertedEntity.views || {}),
+                  ai_pending: false,
+                  clarification_processing: false,
+                  minddrop_stage: 'enriched',
+                },
+              };
 
               if (
                 phase2Result.tags &&
@@ -5178,10 +5186,7 @@ export const useGremlyStore = create<GremlyState>()(
                 Array.isArray(phase2Result.people) &&
                 phase2Result.people.length > 0
               ) {
-                phase2Updates.views = {
-                  ...(insertedEntity.views || {}),
-                  people: phase2Result.people,
-                };
+                (phase2Updates.views as Record<string, unknown>).people = phase2Result.people;
               }
               // Habit-specific fields
               if (targetBucket === 'habit') {
@@ -5197,20 +5202,18 @@ export const useGremlyStore = create<GremlyState>()(
                 }
               }
 
-              // Apply Phase 2 updates if any
-              if (Object.keys(phase2Updates).length > 0) {
-                console.log('[GremlyStore] Applying Phase 2 updates to converted entity:', {
-                  newEntityId: insertedEntity.id,
-                  updateKeys: Object.keys(phase2Updates),
-                });
+              // Apply Phase 2 updates - always has views with enriched stage
+              console.log('[GremlyStore] Applying Phase 2 updates to converted entity:', {
+                newEntityId: insertedEntity.id,
+                updateKeys: Object.keys(phase2Updates),
+              });
 
-                if (targetBucket === 'todo') {
-                  await get().updateTodo(insertedEntity.id, phase2Updates);
-                } else if (targetBucket === 'habit') {
-                  await get().updateHabit(insertedEntity.id, phase2Updates);
-                } else {
-                  await get().updateNote(insertedEntity.id, phase2Updates);
-                }
+              if (targetBucket === 'todo') {
+                await get().updateTodo(insertedEntity.id, phase2Updates);
+              } else if (targetBucket === 'habit') {
+                await get().updateHabit(insertedEntity.id, phase2Updates);
+              } else {
+                await get().updateNote(insertedEntity.id, phase2Updates);
               }
             } else {
               console.warn(
@@ -5225,6 +5228,7 @@ export const useGremlyStore = create<GremlyState>()(
         }
 
         // Clear processing state on the new entity after Phase 2 (success or failure)
+        // CRITICAL: Set minddrop_stage to 'enriched' so chips animate together
         if (targetBucket === 'log') {
           set((s) => ({
             notes: s.notes.map((n) =>
@@ -5235,6 +5239,7 @@ export const useGremlyStore = create<GremlyState>()(
                       ...((n.views as Record<string, unknown>) || {}),
                       ai_pending: false,
                       clarification_processing: false,
+                      minddrop_stage: 'enriched',
                     },
                   }
                 : n,
@@ -5250,6 +5255,7 @@ export const useGremlyStore = create<GremlyState>()(
                       ...((t.views as Record<string, unknown>) || {}),
                       ai_pending: false,
                       clarification_processing: false,
+                      minddrop_stage: 'enriched',
                     },
                   }
                 : t,
@@ -5265,6 +5271,7 @@ export const useGremlyStore = create<GremlyState>()(
                       ...((h.views as Record<string, unknown>) || {}),
                       ai_pending: false,
                       clarification_processing: false,
+                      minddrop_stage: 'enriched',
                     },
                   }
                 : h,
