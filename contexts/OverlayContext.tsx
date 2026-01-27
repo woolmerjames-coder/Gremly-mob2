@@ -126,6 +126,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const notes = useGremlyStore((s) => s.notes);
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
+  // Also subscribe to pendingDrops - Phase 1.5 updates here before sync completes
+  const pendingDrops = useGremlyStore((s) => s.pendingDrops);
 
   // Derive the actual question/options from the entity if popup state is stale
   // This ensures we always show the latest data, even if Phase 1.5 completed after popup opened
@@ -139,7 +141,29 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       return { question: clarificationPopup.question, options: clarificationPopup.options };
     }
 
-    // Otherwise, try to get fresh data from the entity
+    // FIRST: Check pendingDrops - Phase 1.5 updates here before sync completes
+    // The entityId might be the localId (drop_id) stored on the pending drop
+    for (const [dropId, drop] of pendingDrops.entries()) {
+      // Check if this pending drop matches by ID or if entityId is the drop_id
+      if (dropId === clarificationPopup.entityId || (drop as any).id === clarificationPopup.entityId) {
+        const pendingQuestion = (drop as any).clarification_question;
+        const pendingOptions = (drop as any).clarification_options;
+        
+        if (pendingQuestion && Array.isArray(pendingOptions) && pendingOptions.length >= 2) {
+          console.log('[GlobalOverlay] Using fresh Phase 1.5 data from pendingDrop', {
+            dropId,
+            question: String(pendingQuestion).substring(0, 30),
+            optionsCount: pendingOptions.length,
+          });
+          return {
+            question: pendingQuestion as string,
+            options: pendingOptions as ClarificationPopupState['options'],
+          };
+        }
+      }
+    }
+
+    // SECOND: Try to get fresh data from synced entities
     type EntityWithViews = { id: string; views?: Record<string, unknown> };
     let entity: EntityWithViews | undefined;
     if (clarificationPopup.entityType === 'note') {
@@ -180,6 +204,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     clarificationPopup.entityType,
     clarificationPopup.question,
     clarificationPopup.options,
+    pendingDrops,
     notes,
     todos,
     habits,
