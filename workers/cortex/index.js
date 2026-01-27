@@ -2428,30 +2428,6 @@ THE VIBE:
 - Brief but human
 - Gently playful when appropriate, not forced
 
-${targetBucket === 'todo' || targetBucket === 'habit' ? `
-=== TIME ESTIMATE ===
-
-Estimate in 5-minute increments (5 to 240 minutes).
-
-Factor-based reasoning:
-1. Core action time
-2. Leave house? +15-20 min
-3. Other people involved? +10-15 min
-4. Physical vs digital
-5. What commonly goes wrong? +5-15 min
-
-Round UP. When uncertain, choose higher estimate.
-
-=== ENERGY TYPE ===
-
-Choose ONE:
-- deep_focus: thinking, writing, creating, planning
-- administrative: emails, forms, scheduling, booking, logistics
-- physical: exercise, errands, movement, cleaning
-- social: calls, meetings, conversations
-- quick: small tasks under 10 min
-` : ''}
-
 === OUTPUT FORMAT ===
 
 Return ONLY valid JSON:
@@ -2464,15 +2440,12 @@ Return ONLY valid JSON:
   "confirmation_message": "Warm, specific message",
   "target_date": "YYYY-MM-DD" | null,
   "scheduled_date": "YYYY-MM-DD" | null,
-  "date_type_ambiguous": boolean,
-  "time_estimate_minutes": number | null,
-  "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick" | null
+  "date_type_ambiguous": boolean
 }
 
 Rules:
 - subtype only when bucket is "log"
 - habit_subtype only when bucket is "habit"
-- time_estimate_minutes and energy_type only for todo/habit
 - date_type_ambiguous: true when original had date but clarification didn't resolve its meaning
 - Dates in YYYY-MM-DD format`;
 
@@ -2507,8 +2480,6 @@ Rules:
               confirmation_message: 'Updated.',
               target_date: null,
               scheduled_date: null,
-              time_estimate_minutes: null,
-              energy_type: null,
               latency_ms: latency,
             });
           }
@@ -2549,18 +2520,6 @@ Rules:
           // Extract date_type_ambiguous flag
           const dateTypeAmbiguous = parsed.date_type_ambiguous === true;
 
-          // Validate time estimate
-          let timeEstimate = null;
-          if (typeof parsed.time_estimate_minutes === 'number') {
-            timeEstimate = Math.max(5, Math.min(240, Math.round(parsed.time_estimate_minutes / 5) * 5));
-          }
-
-          // Validate energy type
-          const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'];
-          const energyType = validEnergyTypes.includes(parsed.energy_type)
-            ? parsed.energy_type
-            : null;
-
           // Extract confirmation message (same as Phase 1)
           let confirmationMessage = parsed.confirmation_message || null;
           if (confirmationMessage) {
@@ -2579,8 +2538,6 @@ Rules:
             target_date: targetDate,
             scheduled_date: scheduledDate,
             date_type_ambiguous: dateTypeAmbiguous,
-            time_estimate: timeEstimate,
-            energy_type: energyType,
             latency_ms: latency,
           });
 
@@ -2593,8 +2550,6 @@ Rules:
             target_date: targetDate,
             scheduled_date: scheduledDate,
             date_type_ambiguous: dateTypeAmbiguous,
-            time_estimate_minutes: timeEstimate,
-            energy_type: energyType,
             latency_ms: latency,
           });
         } catch (err) {
