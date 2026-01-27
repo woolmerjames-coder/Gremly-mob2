@@ -2607,20 +2607,15 @@ LOG/idea — Exploration without commitment:
 - Vague interest: "pottery class sometime"
 - Not decided: "thinking about switching careers"
 
-LOG/general — Reference information, status updates, or stated facts:
+LOG/general — Reference information where NO ACTION is plausible:
 - Reference info with existence verb: "john's number is 555-1234", "mum's birthday is August 22nd"
-- Status updates: "meeting moved to thursday"
-- Fuzzy aspirations with no actionable path: "drink more water", "eat healthier"
+- Status updates with existence verb: "meeting is moved to thursday", "office is closed friday"
+- Completed events: "went to dentist", "finished the report"
 
-**CRITICAL — Existence verbs signal reference, not action:**
-- "mum's birthday IS August 22nd" → Has "is" → Stating a fact → LOG/general, NOT ambiguous
-- "mum birthday August 22" → No verb → Could be noting OR action needed → AMBIGUOUS
-
-The presence of "is", "have", "got" signals the user is stating information.
-The ABSENCE of any verb means intent is unclear — flag as ambiguous.
-
-LOG/general is for content where you're CONFIDENT there's no action needed.
-It is NOT a dumping ground for uncertainty. If intent is unclear, flag is_ambiguous: true.
+**NOT for LOG/general — these should be AMBIGUOUS:**
+- Bare nouns without verbs: "dentist", "standing desk", "groceries"
+- Service + date without action verb: "dermatologist next week", "car inspection Tuesday"
+- Vague aspirations that could be habits: "drink more water", "exercise more"
 
 === STRUCTURAL SIGNALS (SUPPORTING EVIDENCE) ===
 
@@ -2667,14 +2662,17 @@ The test: **Is there a clear action verb (buy, call, text, send, book, submit, t
 - Semantic test passed but edge case
 - Mixed signals
 
-**Low confidence (0.4-0.6):**
+**Low confidence (0.4-0.65):**
 - Genuinely ambiguous
 - Could reasonably be multiple buckets
-- Set is_ambiguous: true and use LOG as hedged bucket
-- The ambiguity FLAG is what matters — it triggers clarification
+- MUST set is_ambiguous: true
+- Use LOG as hedged bucket, but the FLAG is what matters
+
+**ENFORCED RULE:** If your confidence is below 0.65, is_ambiguous MUST be true. No exceptions.
 
 DO NOT use LOG/general as a dumping ground for uncertainty.
-If you're uncertain whether action is needed, FLAG IT with is_ambiguous: true.
+LOG/general is ONLY for content with existence verbs where you're CONFIDENT no action is needed.
+If you're uncertain → is_ambiguous: true.
 
 **The principle:** Only use LOG/general as fallback when GENUINELY uncertain after semantic analysis. It should be rare, not the default. Most inputs have clear intent if you understand them semantically.
 
@@ -2734,6 +2732,39 @@ UNCLEAR (ambiguous):
 
 **CRITICAL:** These are SEMANTIC TESTS. Apply the REASONING to any input. Do NOT pattern-match against specific strings.
 
+**TEST 4: BARE NOUN TEST**
+If the input is a noun/noun phrase with:
+- No action verb (call, buy, book, schedule, etc.)
+- No existence verb (is, have, got)
+- No explicit emotional content
+
+→ is_ambiguous: true, ambiguity_type: "bucket"
+
+Examples:
+- "dentist" → No verb → AMBIGUOUS
+- "standing desk" → No verb → AMBIGUOUS
+- "groceries" → No verb → AMBIGUOUS
+- "new laptop" → No verb → AMBIGUOUS
+
+**TEST 5: SERVICE + TIME WITHOUT VERB**
+If the input has a service/appointment noun + time reference but NO verb:
+
+→ is_ambiguous: true, ambiguity_type: "action"
+
+Examples:
+- "dermatologist next week" → No verb → AMBIGUOUS
+- "car inspection Tuesday" → No verb → AMBIGUOUS
+- "accountant April" → No verb → AMBIGUOUS
+- "therapist soon" → No verb → AMBIGUOUS
+
+**FINAL CHECK — RUN THIS BEFORE RETURNING:**
+
+Before returning your response, ask yourself:
+1. "Am I putting this in LOG/general because I'm CONFIDENT there's no action, or because I'm UNCERTAIN?"
+2. "If I'm uncertain, have I set is_ambiguous: true?"
+
+If confidence < 0.65, you MUST set is_ambiguous: true. The ambiguity flag triggers clarification — it's MORE IMPORTANT than the bucket assignment.
+
 === EXAMPLES ===
 
 **TODO** (discrete, completable, clear done state):
@@ -2775,14 +2806,20 @@ UNCLEAR (ambiguous):
 - "Thinking about switching careers" → LOG/idea (exploring, no action)
 - "App idea: calorie tracker" → LOG/idea (concept capture)
 
-**LOG/general** (reference info, status updates, stated facts):
-- "John's number is 555-1234" → LOG/general (reference info)
-- "Meeting moved to Thursday" → LOG/general (status update)
-- "Mum's birthday is August 22nd" → LOG/general (existence verb "is" = stating fact)
-- "Drink more water" → LOG/general (vague aspiration, no actionable path)
-- "Exercise more" → LOG/general (vague aspiration)
+**LOG/general** (reference info with existence verbs, completed events):
+- "John's number is 555-1234" → LOG/general (reference info, has "is")
+- "Meeting is moved to Thursday" → LOG/general (status update, has "is")
+- "Mum's birthday is August 22nd" → LOG/general (stating fact, has "is")
+- "Went to dentist yesterday" → LOG/general (completed event, past tense)
+- "Finished the report" → LOG/general (completed event)
 
-NOTE: "Dentist" and "Standing desk" should NOT be LOG/general — they should be flagged as AMBIGUOUS because intent is unclear.
+**AMBIGUOUS** (must flag, do NOT put in LOG/general):
+- "Dentist" → is_ambiguous: true, ambiguity_type: "bucket" (bare noun, no verb)
+- "Standing desk" → is_ambiguous: true, ambiguity_type: "bucket" (bare noun, no verb)
+- "Dermatologist next week" → is_ambiguous: true, ambiguity_type: "action" (service + time, no verb)
+- "Car inspection Tuesday" → is_ambiguous: true, ambiguity_type: "action" (service + time, no verb)
+- "Drink more water" → is_ambiguous: true, ambiguity_type: "bucket" (could be habit to track)
+- "Exercise more" → is_ambiguous: true, ambiguity_type: "bucket" (could be habit to track)
 
 **NOT habits** (missing explicit frequency):
 - "Go to the gym" → TODO (single instance, no frequency stated)
