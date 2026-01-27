@@ -1986,8 +1986,9 @@ const RevealingCard: React.FC<{
   badgeStyleKey: string;
   styles: any;
   c: any;
+  isPending: boolean; // Whether the item is still being processed (Phase 1.5 may not be done)
   onRevealComplete: () => void;
-}> = ({ item, effectiveKind, displayKind, badgeStyleKey, styles, c, onRevealComplete }) => {
+}> = ({ item, effectiveKind, displayKind, badgeStyleKey, styles, c, isPending, onRevealComplete }) => {
   // CRITICAL: Use drop_id for tracking - persists across pending→entity transition
   const trackingId = item.drop_id || item.id;
 
@@ -2012,10 +2013,13 @@ const RevealingCard: React.FC<{
     !item.clarification_resolved &&
     !item.views?.clarification_resolved;
 
-  // Use reactive confirmation for clarification cards, frozen for normal cards
-  const confirmationText = needsClarification
-    ? getConfirmationMessage(effectiveKind, item) // Reactive - will show tap prompt
-    : frozenConfirmationText; // Frozen - prevents typewriter restart
+  // Use reactive confirmation while pending (Phase 1.5 may still set clarification)
+  // Once synced (!isPending), use frozen for normal cards or reactive for clarification
+  const confirmationText = isPending
+    ? getConfirmationMessage(effectiveKind, item) // Reactive while processing - Phase 1.5 may update
+    : needsClarification
+      ? getConfirmationMessage(effectiveKind, item) // Reactive for clarification cards
+      : frozenConfirmationText; // Frozen for complete non-clarification cards
 
   // Memoize callbacks to prevent re-renders
   const handleLine1Done = React.useCallback(() => setLine1Done(true), []);
@@ -2639,6 +2643,7 @@ const AnimatedMindDropCard = React.memo<{
             badgeStyleKey={badgeStyleKey}
             styles={styles}
             c={c}
+            isPending={isPending}
             onRevealComplete={handleRevealComplete}
           />
         );
