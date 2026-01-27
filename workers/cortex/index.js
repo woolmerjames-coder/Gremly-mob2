@@ -2653,28 +2653,68 @@ The test: **Is there a clear action verb (buy, call, text, send, book, submit, t
 
 === CONFIDENCE & FALLBACK ===
 
-**High confidence (0.8-1.0):**
-- Semantic test clearly passed
-- Structural signals confirm
-- No ambiguity
+Confidence reflects HOW MUCH EVIDENCE exists in the input — not how sure you feel about a guess.
 
-**Medium confidence (0.6-0.8):**
-- Semantic test passed but edge case
-- Mixed signals
+**THE EVIDENCE TEST:**
+Before assigning confidence, ask yourself: "What SPECIFIC WORDS in this input tell me the user's intent?"
 
-**Low confidence (0.4-0.65):**
-- Genuinely ambiguous
-- Could reasonably be multiple buckets
+- If you can point to words that reveal intent → You have evidence → Confidence can be high
+- If you're inferring from context but no explicit signal → You're interpreting → Confidence should be medium
+- If you could argue for multiple interpretations equally → You're guessing → Confidence must be low AND is_ambiguous must be true
+
+**High confidence (0.8-1.0) — You have EVIDENCE:**
+- Action verb present: "book", "call", "buy", "schedule", "cancel", "fix" → Evidence for TODO
+- Existence verb present: "is", "have", "got" → Evidence for LOG (stating fact)
+- Frequency word present: "daily", "every morning", "3x/week" → Evidence for HABIT
+- Emotional language present: "feeling", "stressed", "anxious" → Evidence for LOG/journal
+
+**Medium confidence (0.65-0.8) — You're INTERPRETING:**
+- The input leans one way based on context
+- You're making a reasonable inference
+- But you can't point to a specific word that proves it
+
+**Low confidence (below 0.65) — You're GUESSING:****
+- Multiple interpretations are equally valid
+- You cannot point to specific words that disambiguate
 - MUST set is_ambiguous: true
 - Use LOG as hedged bucket, but the FLAG is what matters
 
-**ENFORCED RULE:** If your confidence is below 0.65, is_ambiguous MUST be true. No exceptions.
+**EXAMPLES OF EVIDENCE vs GUESSING:**
 
-DO NOT use LOG/general as a dumping ground for uncertainty.
-LOG/general is ONLY for content with existence verbs where you're CONFIDENT no action is needed.
-If you're uncertain → is_ambiguous: true.
+"book chiropractor Monday"
+→ Evidence: "book" is an action verb
+→ Conclusion: TODO, confidence: 0.85+
 
-**The principle:** Only use LOG/general as fallback when GENUINELY uncertain after semantic analysis. It should be rare, not the default. Most inputs have clear intent if you understand them semantically.
+"chiropractor appointment is Monday"
+→ Evidence: "is" is an existence verb
+→ Conclusion: LOG/general, confidence: 0.85+
+
+"chiropractor Monday"
+→ Evidence for TODO: None (no action verb)
+→ Evidence for LOG: None (no existence verb)
+→ Could mean: "I have an appointment" OR "I need to book/go"
+→ Conclusion: GUESSING → is_ambiguous: true, confidence: 0.5
+
+"standing desk"
+→ Evidence for TODO: None (no "buy", "order", "get")
+→ Evidence for LOG: None (no "is", "have")
+→ Could mean: "I want to buy one" OR "Just an idea" OR "Researching"
+→ Conclusion: GUESSING → is_ambiguous: true, confidence: 0.5
+
+"mum's birthday is August 22nd"
+→ Evidence: "is" (existence verb)
+→ Conclusion: LOG/general, confidence: 0.9
+
+"mum birthday August 22"
+→ Evidence for action: None
+→ Evidence for reference: None (no "is")
+→ Could mean: "Just noting" OR "Need to get gift" OR "Need to plan"
+→ Conclusion: GUESSING → is_ambiguous: true, confidence: 0.5
+
+**THE PRINCIPLE:**
+High confidence requires EVIDENCE. If you cannot point to specific words that reveal intent, you are guessing — and guessing means low confidence and is_ambiguous: true.
+
+DO NOT use LOG/general as a dumping ground for uncertainty. If you're uncertain, FLAG IT.
 
 === AMBIGUITY DETECTION ===
 
@@ -2757,13 +2797,13 @@ Examples:
 - "accountant April" → No verb → AMBIGUOUS
 - "therapist soon" → No verb → AMBIGUOUS
 
-**FINAL CHECK — RUN THIS BEFORE RETURNING:**
+**THE EVIDENCE QUESTION:**
+"What specific words in this input PROVE the user's intent?"
 
-Before returning your response, ask yourself:
-1. "Am I putting this in LOG/general because I'm CONFIDENT there's no action, or because I'm UNCERTAIN?"
-2. "If I'm uncertain, have I set is_ambiguous: true?"
+- If you can point to evidence → Classify with confidence
+- If you can't point to evidence → You're guessing → is_ambiguous: true
 
-If confidence < 0.65, you MUST set is_ambiguous: true. The ambiguity flag triggers clarification — it's MORE IMPORTANT than the bucket assignment.
+**CRITICAL:** The question is not "what does this probably mean?" but "what EVIDENCE tells me what this means?"
 
 === EXAMPLES ===
 
@@ -2955,7 +2995,6 @@ Return ONLY valid JSON:
 Rules:
 - subtype is only set when bucket is "log"
 - habitSubtype is only set when bucket is "habit"
-- is_ambiguous is true when semantic tests reveal missing information
 - ambiguity_type and ambiguity_reason are only set when is_ambiguous is true
 - When is_ambiguous is true, smart_title should stay close to original text
 - When is_ambiguous is true, confirmation_message should be a "tap me" variant:
