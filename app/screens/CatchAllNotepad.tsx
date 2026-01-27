@@ -1326,7 +1326,8 @@ const AnimatedChipsTransition: React.FC<{
   trackingId: string;
   hasRealData: boolean;
   children: React.ReactNode;
-}> = ({ trackingId, hasRealData, children }) => {
+  onAnimationComplete?: () => void;
+}> = ({ trackingId, hasRealData, children, onAnimationComplete }) => {
   // Check if this drop has already animated using module-level Set
   // This persists across pending→entity transition (drop_id stays the same)
   const alreadyAnimated = chipAnimatedIds.has(trackingId);
@@ -1374,7 +1375,10 @@ const AnimatedChipsTransition: React.FC<{
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(() => {
+        // Fire callback when chip animation completes
+        onAnimationComplete?.();
+      });
     } else if (hasRealData && chipAnimatedIds.has(trackingId) && !isVisible) {
       // Already animated but not visible (e.g., remounted) - show immediately
       setIsVisible(true);
@@ -1442,7 +1446,8 @@ const Row3Chips: React.FC<{
   effectiveKind: 'todo' | 'habit' | 'note';
   styles: any;
   isMulti?: boolean;
-}> = ({ item, effectiveKind, styles, isMulti = false }) => {
+  onChipAnimationComplete?: () => void;
+}> = ({ item, effectiveKind, styles, isMulti = false, onChipAnimationComplete }) => {
   // Compute derived state once
   const isJournal =
     item.kind === 'note' && (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
@@ -1587,7 +1592,11 @@ const Row3Chips: React.FC<{
   };
 
   return (
-    <AnimatedChipsTransition trackingId={trackingId} hasRealData={hasRealChipData}>
+    <AnimatedChipsTransition
+      trackingId={trackingId}
+      hasRealData={hasRealChipData}
+      onAnimationComplete={onChipAnimationComplete}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         {/* Clarification chip - show first when item needs user input */}
         {needsClarification && <ClarificationIndicatorChip />}
@@ -2310,6 +2319,10 @@ const chipAnimatedIds = new Set<string>();
 // Uses drop_id for stability across pending→synced transition
 const multiBounceAnimatedIds = new Set<string>();
 
+// Module-level Set to track drops that have bounced after chip animation
+// Prevents double bounce when component remounts
+const chipBounceAnimatedIds = new Set<string>();
+
 /**
  * Animated wrapper for Mind Drop card that smoothly transitions
  * from pending skeleton to final content when AI enrichment completes
@@ -2379,8 +2392,11 @@ const AnimatedMindDropCard = React.memo<{
     }, []); // Empty deps = only on mount/unmount
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Multi-drop bounce animation
-    // When a card transitions to multi-drop, do a celebratory bounce
+    // ─────────────────────────────────────────────────────────────────────────
+    // Card bounce animation
+    // Triggers when:
+    // 1. Multi-drop is detected (isMulti becomes true)
+    // 2. Chip animation completes (non-multi cards)
     // Uses drop_id (stable across pending→synced) to prevent duplicate animations
     // ─────────────────────────────────────────────────────────────────────────
     const bounceScale = useSharedValue(1);
@@ -2389,9 +2405,20 @@ const AnimatedMindDropCard = React.memo<{
     // Falls back to item.id for items without drop_id
     const bounceTrackingId = item.drop_id || item.id;
 
+    // Track when chip animation completes (for non-multi cards)
+    const [chipAnimationComplete, setChipAnimationComplete] = React.useState(false);
+
+    const handleChipAnimationComplete = React.useCallback(() => {
+      setChipAnimationComplete(true);
+    }, []);
+
     React.useEffect(() => {
-      // Trigger bounce when isMulti is true AND we haven't animated this drop yet
-      // Uses module-level Set to persist across component remounts
+      // Trigger bounce when:
+      // 1. Multi-drop is detected (isMulti becomes true)
+      // 2. Chip animation completes (non-multi cards)
+      // Uses module-level Sets to persist across component remounts
+
+      // Multi-drop bounce: happens when isMulti becomes true
       if (isMulti && !multiBounceAnimatedIds.has(bounceTrackingId)) {
         multiBounceAnimatedIds.add(bounceTrackingId);
 
@@ -2401,8 +2428,26 @@ const AnimatedMindDropCard = React.memo<{
           withTiming(0.96, { duration: 140 }),
           withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
         );
+        return;
       }
-    }, [isMulti, bounceTrackingId, bounceScale]);
+
+      // Chip animation bounce: happens when chip animation completes (non-multi)
+      if (
+        chipAnimationComplete &&
+        !isMulti &&
+        !chipBounceAnimatedIds.has(bounceTrackingId) &&
+        !multiBounceAnimatedIds.has(bounceTrackingId)
+      ) {
+        chipBounceAnimatedIds.add(bounceTrackingId);
+
+        // Same bounce as multi-drop: 1.0 → 1.10 → 0.96 → 1.0
+        bounceScale.value = withSequence(
+          withTiming(1.1, { duration: 180 }),
+          withTiming(0.96, { duration: 140 }),
+          withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
+        );
+      }
+    }, [isMulti, bounceTrackingId, bounceScale, chipAnimationComplete]);
 
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
@@ -2671,6 +2716,7 @@ const AnimatedMindDropCard = React.memo<{
               effectiveKind={effectiveKind}
               styles={styles}
               isMulti={isMulti}
+              onChipAnimationComplete={handleChipAnimationComplete}
             />
             {/* Right side: photo icon + timestamp */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
