@@ -2197,10 +2197,14 @@ AMBIGUITY REASON: "bare noun, unclear if buying or noting idea"
 
 === CONTEXT ===
 ORIGINAL INPUT: "${text}"
-USER SELECTED: "${selectedLabel}"
+USER CLARIFICATION: "${selectedLabel}"
 CURRENT DATE: ${currentDate}
 
-The user was asked a clarifying question and selected the option above. Now classify based on what they ACTUALLY meant.
+The user was asked to clarify their intent. Their response above might be:
+- A predefined option they tapped (e.g., "I want to build this into my routine")
+- Free text they typed to explain (e.g., "I want to drink 8 glasses a day")
+
+Either way, use their clarification to understand what they ACTUALLY meant, then classify accordingly.
 
 === THE FOUR BUCKETS ===
 
