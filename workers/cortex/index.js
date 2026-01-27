@@ -2004,27 +2004,51 @@ AMBIGUITY REASON: ${ambiguityReason}
 
 Generate a short question and 2-3 option labels that will RESOLVE the ambiguity.
 
-The user will tap one option, and THAT tells us how to classify the item.
+The user will tap one option OR type their own explanation. Options should cover the most likely intents.
 
-=== WHAT MAKES GOOD OPTIONS ===
+=== OUTCOME-FIRST THINKING ===
 
-**Each option must represent a DIFFERENT user situation.**
+**CRITICAL: Each option must lead to a DIFFERENT classification outcome.**
 
-Ask yourself: "If 10 people typed '${text}', what different things might they mean?"
+Before writing options, identify what different outcomes are possible:
+- **TODO** — A one-time action to complete soon
+- **HABIT** — An ongoing behavior to track over time
+- **LOG/idea** — A thought to capture, no commitment
+- **LOG/general** — Information about something that exists
 
-**Options must lead to different outcomes:**
-- One option might mean they have something (noting/awareness)
-- Another might mean they need to DO something (action required)
-- Another might mean they want to build a routine (habit)
+**THE PROCESS:**
+1. What are the 2-3 genuinely different things this input could mean?
+2. What outcome (bucket) would each interpretation lead to?
+3. Write ONE option for each different outcome
+4. Verify: if options lead to the same outcome, revise or remove one
 
-**BAD options (too similar):**
-- "Passport expiring soon" / "Passport needs attention" → Both vaguely imply action, doesn't clarify
-- "Going to gym" / "Planning to exercise" → Same thing, different words
+**THE KEY FORK FOR MOST INPUTS:**
 
-**GOOD options (meaningfully different):**
-- "I have a trip in June" (noting event) vs "It expires — need to renew" (action required)
-- "Just going this Monday" (one-time) vs "Starting to go regularly" (building habit)
-- "I have an appointment" (existing event) vs "I need to book one" (action required)
+Ask: "Is this something to DO ONCE, TRACK OVER TIME, or just CAPTURE?"
+
+=== NATURAL LANGUAGE RULES ===
+
+Options must sound like a human describing their situation, NOT like selecting a database category.
+
+**NEVER use these words in options:**
+- "track", "habit", "todo", "log", "routine" (too system-y)
+- "classify", "categorize", "bucket" (internal terms)
+
+**GOOD — Natural, describes the situation:**
+- "I want to do this regularly"
+- "Just a thought for now"
+- "I need to do this soon"
+- "I already have this scheduled"
+- "Not sure yet — just capturing it"
+
+**BAD — Sounds like selecting a category:**
+- "Track this as a habit"
+- "Save as an idea"
+- "Add to my todos"
+- "Make it recurring"
+
+**THE VIBE:**
+User is completing the sentence "I..." with their actual situation, not picking a system label.
 
 === OPTION LABELS ===
 
@@ -2097,8 +2121,28 @@ AMBIGUITY REASON: "bare noun, unclear if buying or noting idea"
 {
   "question": "What's the plan?",
   "options": [
-    { "id": "buy", "label": "I want to buy one" },
-    { "id": "idea", "label": "Just exploring the idea" }
+    { "id": "action", "label": "I want to buy one" },
+    { "id": "idea", "label": "Just a thought for now" }
+  ]
+}
+
+INPUT: "drink more water"
+AMBIGUITY REASON: "vague aspiration, unclear if commitment or thought"
+{
+  "question": "What did you have in mind?",
+  "options": [
+    { "id": "ongoing", "label": "I want to do this regularly" },
+    { "id": "thought", "label": "Just a thought for now" }
+  ]
+}
+
+INPUT: "gym Monday"
+AMBIGUITY REASON: "activity + date, unclear if one-time or recurring"
+{
+  "question": "One-time or ongoing?",
+  "options": [
+    { "id": "once", "label": "Just this Monday" },
+    { "id": "ongoing", "label": "I want to go regularly" }
   ]
 }`;
 
