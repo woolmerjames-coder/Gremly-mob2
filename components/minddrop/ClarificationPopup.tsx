@@ -55,6 +55,7 @@ export function ClarificationPopup({
   // Free text input state
   const [freeText, setFreeText] = React.useState('');
   const [isTextInputFocused, setIsTextInputFocused] = React.useState(false);
+  const [instantSuccess, setInstantSuccess] = React.useState(false);
 
   // Auto-detect loading state when Phase 1.5 hasn't completed yet
   // Options loading: question or options not ready
@@ -73,9 +74,10 @@ export function ClarificationPopup({
     } else {
       scale.value = 0.9;
       opacity.value = 0;
-      // Reset free text when popup closes
+      // Reset state when popup closes
       setFreeText('');
       setIsTextInputFocused(false);
+      setInstantSuccess(false);
     }
   }, [visible, scale, opacity]);
 
@@ -87,18 +89,39 @@ export function ClarificationPopup({
   const handleOptionPress = (optionId: string) => {
     console.log('[ClarificationPopup] Option pressed:', { optionId });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // Show instant success feedback
+    setInstantSuccess(true);
+    
+    // Fire off the selection (will process in background)
     onSelectOption(optionId);
+    
+    // Dismiss popup after brief success display
+    setTimeout(() => {
+      setInstantSuccess(false);
+      onSkip(); // This closes the popup
+    }, 1000);
   };
 
   const handleFreeTextSubmit = () => {
     const trimmed = freeText.trim();
-    if (trimmed.length < 2) return; // Ignore very short input
+    if (trimmed.length < 2) return;
     
     console.log('[ClarificationPopup] Free text submitted:', { text: trimmed });
     Keyboard.dismiss();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // Pass free text as the "optionId" - reclassify will handle it as selectedLabel
+    
+    // Show instant success feedback
+    setInstantSuccess(true);
+    
+    // Fire off the selection
     onSelectOption(`freetext:${trimmed}`);
+    
+    // Dismiss popup after brief success display
+    setTimeout(() => {
+      setInstantSuccess(false);
+      onSkip();
+    }, 1000);
   };
 
   const handleSkipPress = () => {
@@ -124,14 +147,18 @@ export function ClarificationPopup({
     );
   }
 
-  // Loading state - either waiting for Phase 1.5 options OR submitting selection
-  if (visible && isSubmitting) {
+  // Instant success state - brief acknowledgment before dismissing
+  if (visible && instantSuccess) {
     return (
       <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
         <View style={styles.backdrop}>
-          <Animated.View style={[styles.card, styles.loadingCard, animatedCardStyle]}>
-            <ActivityIndicator size="small" color="#4A7C59" />
-            <Text style={styles.loadingText}>Updating...</Text>
+          <Animated.View style={[styles.card, styles.successCard, animatedCardStyle]}>
+            <View style={styles.successContainer}>
+              <View style={styles.successIconContainer}>
+                <CheckCircle size={48} color="#4A7C59" />
+              </View>
+              <Text style={styles.successText}>Great, on it</Text>
+            </View>
           </Animated.View>
         </View>
       </Modal>
