@@ -4109,12 +4109,29 @@ const RecentDrops: React.FC<{
           return;
         }
 
+        const views = (entity as any).views || {};
+
+        // CRITICAL: If clarification_processing just started, reset animation tracking
+        // so the card shows fresh shimmer animation
+        if (views.clarification_processing === true || views.ai_pending === true) {
+          const dropId = (entity as any).drop_id;
+          if (dropId) {
+            console.log(
+              '[RecentDrops] ItemUpdated: resetting animation tracking for clarification',
+              { dropId },
+            );
+            resetAnimationTrackingForDrop(dropId);
+          }
+        }
+
         console.log('[RecentDrops] ItemUpdated: merging updated entity', {
           id: payload.id,
           type: entityType,
           title: (entity as any).title ?? (entity as any).name,
           needs_clarification: (entity as any).needs_clarification,
           clarification_resolved: (entity as any).clarification_resolved,
+          ai_pending: views.ai_pending,
+          clarification_processing: views.clarification_processing,
         });
 
         // Update the item in local state
@@ -4122,7 +4139,6 @@ const RecentDrops: React.FC<{
           prev.map((item) => {
             if (item.id !== payload.id) return item;
 
-            const views = (entity as any).views || {};
             return {
               ...item,
               title: (entity as any).title ?? (entity as any).name ?? item.title,

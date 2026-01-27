@@ -4594,6 +4594,10 @@ export const useGremlyStore = create<GremlyState>()(
       }
       console.log('[GremlyStore] Set ai_pending: true for entity:', { entityId, entityType });
 
+      // CRITICAL: Emit ItemUpdated so RecentDrops picks up the ai_pending change
+      // This triggers the card to show shimmer immediately
+      eventBus.emit('ItemUpdated', { id: entityId, source: STORE_EVENT_SOURCE });
+
       // ─────────────────────────────────────────────────────────────────────
       // CALL RECLASSIFY ENDPOINT
       // This determines: bucket, subtype, dates, time estimate, title
