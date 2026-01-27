@@ -1656,13 +1656,30 @@ const Row3Chips: React.FC<{
     }
 
     // Todo/Habit: show context pill (deadline/frequency)
-    return contextMeta ? (
-      <View style={styles.recentContextPillContainer}>
-        <Text testID={contextTestId} style={styles.recentContextPill}>
-          {contextMeta}
-        </Text>
-      </View>
-    ) : null;
+    // For todos with both target and scheduled date, show both
+    const hasTargetDate = effectiveKind === 'todo' && item.target_date;
+    const hasScheduledDate = effectiveKind === 'todo' && item.scheduled_date;
+    const showBothDates = hasTargetDate && hasScheduledDate;
+    
+    return (
+      <>
+        {contextMeta && (
+          <View style={styles.recentContextPillContainer}>
+            <Text testID={contextTestId} style={styles.recentContextPill}>
+              {contextMeta}
+            </Text>
+          </View>
+        )}
+        {/* Show scheduled date as secondary chip if both dates exist */}
+        {showBothDates && (
+          <View style={styles.recentContextPillContainer}>
+            <Text style={[styles.recentContextPill, { backgroundColor: 'rgba(200, 220, 255, 0.4)' }]}>
+              do {formatDateForChip(item.scheduled_date)}
+            </Text>
+          </View>
+        )}
+      </>
+    );
   };
 
   return (
