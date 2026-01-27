@@ -4255,34 +4255,96 @@ export const useGremlyStore = create<GremlyState>()(
     resolvePendingDropClarification: async (localId, optionId) => {
       const state = get();
 
-      // First, try to find in pending drops (items still in Mind Drop queue)
+      // ─────────────────────────────────────────────────────────────────────
+      // PENDING DROPS: Items still in Mind Drop queue (not yet synced)
+      // For pending drops, we update the local state and let the processor
+      // handle the actual entity creation with the correct bucket
+      // ─────────────────────────────────────────────────────────────────────
       const pendingDrop = state.pendingDrops.get(localId);
 
       if (pendingDrop && pendingDrop.clarification_options) {
         const selectedOption = pendingDrop.clarification_options.find((opt) => opt.id === optionId);
         if (selectedOption) {
+          console.log('[GremlyStore] Resolving pending drop clarification', {
+            localId,
+            optionId,
+            selectedLabel: selectedOption.label,
+          });
+
+          // Call reclassify endpoint to get bucket, dates, time estimate
+          try {
+            const cortexUrl = env.cortexUrl;
+            if (cortexUrl) {
+              const reclassifyResponse = await fetch(cortexUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'reclassify-after-clarification',
+                  text: pendingDrop.text || pendingDrop.smartTitle || '',
+                  selectedLabel: selectedOption.label,
+                  currentDate: getDateService().getCurrentDate(),
+                  targetBucket: pendingDrop.bucket, // Hint for time estimation
+                }),
+              });
+
+              if (reclassifyResponse.ok) {
+                const result = await reclassifyResponse.json();
+                console.log('[GremlyStore] Pending drop reclassify result', {
+                  localId,
+                  newBucket: result.bucket,
+                  newTitle: result.smart_title,
+                  targetDate: result.target_date,
+                  scheduledDate: result.scheduled_date,
+                  timeEstimate: result.time_estimate_minutes,
+                  latency_ms: result.latency_ms,
+                });
+
+                // Update the pending drop with reclassified data
+                set((s) => {
+                  const pendingDrops = new Map(s.pendingDrops);
+                  const drop = pendingDrops.get(localId);
+                  if (!drop) return s;
+
+                  const updatedDrop: PendingDrop = {
+                    ...drop,
+                    bucket: result.bucket || drop.bucket,
+                    subtype: result.subtype || drop.subtype,
+                    smartTitle: result.smart_title || drop.smartTitle,
+                    confirmationMessage: result.confirmation_message || drop.confirmationMessage,
+                    timeEstimateMinutes: result.time_estimate_minutes ?? drop.timeEstimateMinutes,
+                    // Date intelligence
+                    target_date: result.target_date || null,
+                    scheduled_date: result.scheduled_date || null,
+                    // Mark clarification as resolved
+                    clarification_resolved: true,
+                    needs_clarification: false,
+                  };
+
+                  pendingDrops.set(localId, updatedDrop);
+                  return { pendingDrops };
+                });
+                return;
+              }
+            }
+          } catch (error) {
+            console.log('[GremlyStore] Pending drop reclassify failed:', error);
+          }
+
+          // Fallback: just mark as resolved without reclassifying
           set((s) => {
             const pendingDrops = new Map(s.pendingDrops);
             const drop = pendingDrops.get(localId);
             if (!drop) return s;
 
-            // Apply the selected option's action to the pending drop
             const updatedDrop: PendingDrop = {
               ...drop,
-              // Update bucket if specified
-              bucket: selectedOption.action.bucket || drop.bucket,
-              // Update subtype if specified
-              subtype: (selectedOption.action.subtype as PendingDrop['subtype']) || drop.subtype,
-              // Mark clarification as resolved
               clarification_resolved: true,
               needs_clarification: false,
             };
 
             pendingDrops.set(localId, updatedDrop);
-            console.log('[GremlyStore] Resolved pending drop clarification', {
+            console.log('[GremlyStore] Pending drop clarification resolved (fallback)', {
               localId,
-              optionId,
-              bucket: updatedDrop.bucket,
             });
 
             return { pendingDrops };
@@ -4291,8 +4353,9 @@ export const useGremlyStore = create<GremlyState>()(
         }
       }
 
-      // Not in pending drops - try to find as a synced entity (todo, habit, or note)
-      // localId here is actually the entity ID from Supabase
+      // ─────────────────────────────────────────────────────────────────────
+      // SYNCED ENTITIES: Items already in Supabase (todo, habit, or note)
+      // ─────────────────────────────────────────────────────────────────────
       const entityId = localId;
 
       // Find the entity across all types
@@ -4322,18 +4385,10 @@ export const useGremlyStore = create<GremlyState>()(
       }
 
       // Get clarification options from views (where they're stored)
+      // Options now just have id and label (no action.bucket)
       const views = entity.views as Record<string, unknown> | undefined;
       const clarificationOptions = views?.clarification_options as
-        | Array<{
-            id: string;
-            label: string;
-            action: {
-              bucket?: 'todo' | 'habit' | 'log';
-              subtype?: string | null;
-              target_date?: boolean;
-              scheduled_date?: boolean;
-            };
-          }>
+        | Array<{ id: string; label: string }>
         | undefined;
 
       if (!clarificationOptions) {
@@ -4352,72 +4407,107 @@ export const useGremlyStore = create<GremlyState>()(
         return;
       }
 
-      // Determine if bucket is changing
+      // Get original text for reclassification
+      const originalTitle = (entity as Note).title || (entity as any).name || '';
+      const originalBody = (entity as Note).body || '';
+      const originalText = originalBody || originalTitle;
       const currentBucket =
         entityType === 'todo' ? 'todo' : entityType === 'habit' ? 'habit' : 'log';
-      const targetBucket = selectedOption.action.bucket || currentBucket;
 
-      console.log('[GremlyStore] Resolving clarification:', {
+      console.log('[GremlyStore] Resolving synced entity clarification', {
         entityId,
         entityType,
         currentBucket,
-        targetBucket,
-        optionId,
         selectedLabel: selectedOption.label,
-        action: selectedOption.action,
+        originalTextPreview: originalText.substring(0, 50),
       });
 
-      // If bucket is NOT changing, still reclassify to get updated title/confirmation
-      if (targetBucket === currentBucket || (targetBucket === 'log' && entityType === 'note')) {
-        console.log('[GremlyStore] Same bucket - reclassifying and updating');
+      // ─────────────────────────────────────────────────────────────────────
+      // CALL RECLASSIFY ENDPOINT
+      // This determines: bucket, subtype, dates, time estimate, title
+      // ─────────────────────────────────────────────────────────────────────
+      let reclassifyResult: {
+        bucket?: 'todo' | 'habit' | 'log';
+        subtype?: string | null;
+        habit_subtype?: string | null;
+        smart_title?: string;
+        confirmation_message?: string;
+        target_date?: string | null;
+        scheduled_date?: string | null;
+        time_estimate_minutes?: number | null;
+        energy_type?: string | null;
+        latency_ms?: number;
+      } = {};
 
-        // Get updated title and confirmation message (same as bucket change flow)
-        const originalTitle = (entity as Note).title || (entity as any).name || '';
-        const originalBody = (entity as Note).body || '';
-        let newTitle = originalTitle || originalBody.substring(0, 50);
-        let newConfirmation = 'Updated.';
+      try {
+        const cortexUrl = env.cortexUrl;
+        if (cortexUrl) {
+          console.log('[GremlyStore] Calling reclassify endpoint...');
+          const reclassifyResponse = await fetch(cortexUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'reclassify-after-clarification',
+              text: originalText,
+              selectedLabel: selectedOption.label,
+              currentDate: getDateService().getCurrentDate(),
+              targetBucket: currentBucket, // Hint for time estimation
+            }),
+          });
 
-        try {
-          const cortexUrl = env.cortexUrl;
-          if (cortexUrl) {
-            const reclassifyResponse = await fetch(cortexUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                type: 'reclassify-after-clarification',
-                text: originalBody || originalTitle,
-                bucket: targetBucket,
-                subtype: selectedOption.action.subtype || (entity as any).subtype || null,
-                selectedLabel: selectedOption.label,
-              }),
+          if (reclassifyResponse.ok) {
+            reclassifyResult = await reclassifyResponse.json();
+            console.log('[GremlyStore] Reclassify result', {
+              entityId,
+              newBucket: reclassifyResult.bucket,
+              newTitle: reclassifyResult.smart_title,
+              targetDate: reclassifyResult.target_date,
+              scheduledDate: reclassifyResult.scheduled_date,
+              timeEstimate: reclassifyResult.time_estimate_minutes,
+              latency_ms: reclassifyResult.latency_ms,
             });
-
-            if (reclassifyResponse.ok) {
-              const reclassifyResult = await reclassifyResponse.json();
-              newTitle = reclassifyResult.smart_title || newTitle;
-              newConfirmation = reclassifyResult.confirmation_message || newConfirmation;
-              console.log('[GremlyStore] Same bucket reclassified:', {
-                newTitle,
-                newConfirmation,
-              });
-            }
+          } else {
+            console.warn('[GremlyStore] Reclassify response not ok:', reclassifyResponse.status);
           }
-        } catch (reclassifyError) {
-          console.log('[GremlyStore] Same bucket reclassify failed:', reclassifyError);
         }
+      } catch (reclassifyError) {
+        console.log('[GremlyStore] Reclassify failed:', reclassifyError);
+      }
 
-        // Handle target_date if the option specifies it
-        const extractedDate =
-          (views?.extracted_date as string) ||
-          (views?.target_date as string) ||
-          (entity as any).target_date ||
-          null;
+      // Determine target bucket from reclassify result (fallback to current)
+      const targetBucket = reclassifyResult.bucket || currentBucket;
+      const bucketChanged = targetBucket !== currentBucket;
 
+      // Extract values from reclassify result (with fallbacks)
+      const newTitle =
+        reclassifyResult.smart_title || originalTitle || originalText.substring(0, 50);
+      const newConfirmation = reclassifyResult.confirmation_message || 'Updated.';
+      const timeEstimate = reclassifyResult.time_estimate_minutes ?? null;
+      const energyType = reclassifyResult.energy_type ?? null;
+      const newSubtype = reclassifyResult.subtype ?? reclassifyResult.habit_subtype ?? null;
+
+      // ─────────────────────────────────────────────────────────────────────
+      // SAME BUCKET: Update the existing entity with reclassify data
+      // ─────────────────────────────────────────────────────────────────────
+      if (!bucketChanged) {
+        console.log('[GremlyStore] Same bucket - updating with reclassify data', {
+          entityId,
+          newTitle,
+          newConfirmation,
+          targetDate: reclassifyResult.target_date,
+          scheduledDate: reclassifyResult.scheduled_date,
+        });
+
+        // Build date updates from reclassify result
         const dateUpdate: Record<string, unknown> = {};
-        if (selectedOption.action.target_date && extractedDate) {
-          dateUpdate.target_date = extractedDate.split('T')[0];
-          dateUpdate.date = extractedDate.split('T')[0]; // For notes, this might be the date field
-          console.log('[GremlyStore] Same bucket applying target_date:', dateUpdate);
+        if (reclassifyResult.target_date) {
+          dateUpdate.due_day = reclassifyResult.target_date;
+          dateUpdate.due_date = reclassifyResult.target_date;
+          dateUpdate.target_date = reclassifyResult.target_date;
+        }
+        if (reclassifyResult.scheduled_date) {
+          dateUpdate.scheduled_date = reclassifyResult.scheduled_date;
+          dateUpdate.start_date = reclassifyResult.scheduled_date; // For habits
         }
 
         const updatedViews: Record<string, unknown> = {
@@ -4427,8 +4517,7 @@ export const useGremlyStore = create<GremlyState>()(
           confirmation_message: newConfirmation,
         };
 
-        // Build updates object based on entity type
-        // Notes use 'title', todos/habits use 'name'
+        // Build updates object
         const updates: Record<string, unknown> = {
           views: updatedViews,
           needs_clarification: false,
@@ -4436,22 +4525,29 @@ export const useGremlyStore = create<GremlyState>()(
           ...dateUpdate,
         };
 
-        // Set the correct title/name field based on entity type
+        // Set title/name and time estimate based on entity type
         if (entityType === 'note') {
           updates.title = newTitle;
         } else {
           updates.name = newTitle;
+          if (timeEstimate !== null) {
+            updates.time_estimate_minutes = timeEstimate;
+          }
+          if (energyType) {
+            updates.energy_type = energyType;
+          }
         }
 
         // Update subtype if specified
-        if (selectedOption.action.subtype) {
-          updates.subtype = selectedOption.action.subtype;
+        if (newSubtype) {
+          updates.subtype = newSubtype;
         }
 
         console.log('[GremlyStore] Same bucket updates:', {
           entityId,
           newTitle,
           newConfirmation,
+          timeEstimate,
           hasDateUpdate: Object.keys(dateUpdate).length > 0,
         });
 
@@ -4463,84 +4559,30 @@ export const useGremlyStore = create<GremlyState>()(
           await get().updateNote(entityId, updates);
         }
 
-        console.log('[GremlyStore] Same bucket clarification resolved:', {
-          entityId,
-          newTitle,
-          newConfirmation,
-        });
+        console.log('[GremlyStore] Same bucket clarification resolved:', { entityId });
         return;
       }
 
-      // BUCKET IS CHANGING - Need to create new entity and archive old one
+      // ─────────────────────────────────────────────────────────────────────
+      // BUCKET CHANGE: Create new entity and archive old one
+      // ─────────────────────────────────────────────────────────────────────
       console.log('[GremlyStore] Bucket change required:', {
         from: currentBucket,
         to: targetBucket,
       });
 
       try {
-        // Use the imported supabase client
         if (!supabase) {
           throw new Error('Supabase client not available');
         }
 
-        // Determine target table
         const targetTable =
           targetBucket === 'todo' ? 'todos' : targetBucket === 'habit' ? 'habits' : 'notes';
         const sourceTable =
           entityType === 'note' ? 'notes' : entityType === 'todo' ? 'todos' : 'habits';
 
-        // Get extracted date from views if available
+        // Get extracted date from views if available (fallback for dates if reclassify didn't return them)
         const extractedDate = (views?.extracted_date as string) || null;
-
-        // Get updated title and confirmation message from reclassify endpoint
-        const originalTitle = (entity as Note).title || (entity as any).name || '';
-        const originalBody = (entity as Note).body || '';
-        let newTitle = originalTitle || originalBody.substring(0, 50);
-        let newConfirmation = 'Updated.';
-        let timeEstimate: number | null = null;
-        let energyType: string | null = null;
-
-        try {
-          const cortexUrl = env.cortexUrl;
-          if (cortexUrl) {
-            console.log('[GremlyStore] Calling reclassify endpoint...');
-            const reclassifyResponse = await fetch(cortexUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                type: 'reclassify-after-clarification',
-                text: originalBody || originalTitle,
-                bucket: targetBucket,
-                subtype: selectedOption.action.subtype || null,
-                selectedLabel: selectedOption.label,
-              }),
-            });
-
-            if (reclassifyResponse.ok) {
-              const reclassifyResult = await reclassifyResponse.json();
-              console.log('[GremlyStore] Reclassify raw response:', reclassifyResult);
-              console.log('[GremlyStore] Time estimate from reclassify:', {
-                time_estimate_minutes: reclassifyResult.time_estimate_minutes,
-                energy_type: reclassifyResult.energy_type,
-              });
-              newTitle = reclassifyResult.smart_title || newTitle;
-              newConfirmation = reclassifyResult.confirmation_message || newConfirmation;
-              timeEstimate = reclassifyResult.time_estimate_minutes || null;
-              energyType = reclassifyResult.energy_type || null;
-              console.log('[GremlyStore] Reclassified with time estimate', {
-                newTitle,
-                newConfirmation,
-                timeEstimate,
-                energyType,
-                latency_ms: reclassifyResult.latency_ms,
-              });
-            } else {
-              console.warn('[GremlyStore] Reclassify response not ok:', reclassifyResponse.status);
-            }
-          }
-        } catch (reclassifyError) {
-          console.log('[GremlyStore] Reclassify failed, using original title', reclassifyError);
-        }
 
         // Common fields for new entity
         const commonFields = {
@@ -4565,31 +4607,42 @@ export const useGremlyStore = create<GremlyState>()(
         let newEntityPayload: Record<string, unknown>;
 
         if (targetBucket === 'todo') {
-          // Converting to TODO
+          // Converting to TODO - use reclassify dates
           const body = originalBody;
 
-          // Handle date - if action.target_date is true, use extracted date as due_day
-          let dueDay: string | null = null;
-          if (selectedOption.action.target_date && extractedDate) {
-            dueDay = extractedDate.split('T')[0]; // Ensure just the date part
-          }
+          // Use target_date from reclassify result, or extracted date as fallback
+          const dueDay = reclassifyResult.target_date
+            ? reclassifyResult.target_date.split('T')[0]
+            : extractedDate
+              ? extractedDate.split('T')[0]
+              : null;
 
           newEntityPayload = {
             ...commonFields,
             name: newTitle,
             title: newTitle,
             body: body !== newTitle ? body : null,
-            subtype: selectedOption.action.subtype || null,
+            subtype: newSubtype || null,
             status: 'active',
             undefined_due: !dueDay,
             due_day: dueDay,
             due_date: dueDay,
+            target_date: dueDay,
+            scheduled_date: reclassifyResult.scheduled_date
+              ? reclassifyResult.scheduled_date.split('T')[0]
+              : null,
             time_estimate_minutes: timeEstimate,
             energy_type: energyType || 'administrative',
             source_note_id: entityType === 'note' ? entityId : null,
           };
         } else if (targetBucket === 'habit') {
-          // Converting to HABIT
+          // Converting to HABIT - use scheduled_date from reclassify
+          const startDate = reclassifyResult.scheduled_date
+            ? reclassifyResult.scheduled_date.split('T')[0]
+            : extractedDate
+              ? extractedDate.split('T')[0]
+              : null;
+
           newEntityPayload = {
             ...commonFields,
             name: newTitle,
@@ -4600,11 +4653,8 @@ export const useGremlyStore = create<GremlyState>()(
             time_window: 'day',
             time_estimate_minutes: timeEstimate,
             energy_type: energyType || 'physical',
-            subtype: selectedOption.action.subtype || 'start_habit',
-            start_date:
-              selectedOption.action.scheduled_date && extractedDate
-                ? extractedDate.split('T')[0]
-                : null,
+            subtype: newSubtype || 'start_habit',
+            start_date: startDate,
             start_date_confirmed: false,
           };
         } else {
@@ -4615,9 +4665,10 @@ export const useGremlyStore = create<GremlyState>()(
             ...commonFields,
             title: newTitle,
             body: body,
-            subtype: selectedOption.action.subtype || 'catchall',
-            date:
-              selectedOption.action.target_date && extractedDate
+            subtype: newSubtype || 'catchall',
+            date: reclassifyResult.target_date
+              ? reclassifyResult.target_date.split('T')[0]
+              : extractedDate
                 ? extractedDate.split('T')[0]
                 : null,
           };

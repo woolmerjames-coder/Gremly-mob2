@@ -148,7 +148,7 @@ export function ClarificationPopup({
           <Text style={styles.question}>{question}</Text>
 
           <View style={styles.optionsContainer}>
-            {options.map((option) => (
+            {options?.map((option) => (
               <Pressable
                 key={option.id}
                 style={({ pressed }) => [
