@@ -2653,68 +2653,73 @@ The test: **Is there a clear action verb (buy, call, text, send, book, submit, t
 
 === CONFIDENCE & FALLBACK ===
 
-Confidence reflects HOW MUCH EVIDENCE exists in the input — not how sure you feel about a guess.
+Confidence reflects how much EVIDENCE exists in the input — not how sure you feel about an interpretation.
 
 **THE EVIDENCE TEST:**
-Before assigning confidence, ask yourself: "What SPECIFIC WORDS in this input tell me the user's intent?"
+Before classifying, ask: "What SPECIFIC WORDS in this input tell me the user's intent?"
 
-- If you can point to words that reveal intent → You have evidence → Confidence can be high
-- If you're inferring from context but no explicit signal → You're interpreting → Confidence should be medium
-- If you could argue for multiple interpretations equally → You're guessing → Confidence must be low AND is_ambiguous must be true
+Words that count as evidence:
+- Action verbs: "book", "call", "buy", "schedule", "cancel", "fix", "submit", "send", "pick up"
+- Existence verbs: "is", "have", "got", "was"
+- Frequency words: "daily", "every morning", "3x/week", "weekly"
+- Emotional language: "feeling", "stressed", "anxious", "grateful", "overwhelmed"
+- Stop/quit language: "stop", "quit", "no more", "avoid"
 
-**High confidence (0.8-1.0) — You have EVIDENCE:**
-- Action verb present: "book", "call", "buy", "schedule", "cancel", "fix" → Evidence for TODO
-- Existence verb present: "is", "have", "got" → Evidence for LOG (stating fact)
-- Frequency word present: "daily", "every morning", "3x/week" → Evidence for HABIT
-- Emotional language present: "feeling", "stressed", "anxious" → Evidence for LOG/journal
+**How evidence maps to confidence:**
 
-**Medium confidence (0.65-0.8) — You're INTERPRETING:**
-- The input leans one way based on context
-- You're making a reasonable inference
-- But you can't point to a specific word that proves it
+High confidence: You can point to specific words that reveal intent.
 
-**Low confidence (below 0.65) — You're GUESSING:****
-- Multiple interpretations are equally valid
-- You cannot point to specific words that disambiguate
-- MUST set is_ambiguous: true
-- Use LOG as hedged bucket, but the FLAG is what matters
+Medium confidence: The input leans one way based on context, but no single word proves it.
 
-**EXAMPLES OF EVIDENCE vs GUESSING:**
+Low confidence: Multiple interpretations are equally valid. You cannot point to words that disambiguate.
+
+**How evidence relates to ambiguity:**
+
+When you have evidence, you know. When you don't have evidence, you're guessing.
+
+If you're guessing between interpretations, the user needs to clarify — that's what is_ambiguous is for.
+
+**EXAMPLES:**
 
 "book chiropractor Monday"
-→ Evidence: "book" is an action verb
-→ Conclusion: TODO, confidence: 0.85+
+→ Evidence: "book" (action verb)
+→ You know: User needs to do something
+→ Result: TODO, high confidence, not ambiguous
 
 "chiropractor appointment is Monday"
-→ Evidence: "is" is an existence verb
-→ Conclusion: LOG/general, confidence: 0.85+
+→ Evidence: "is" (existence verb)
+→ You know: User is stating a fact
+→ Result: LOG/general, high confidence, not ambiguous
 
 "chiropractor Monday"
-→ Evidence for TODO: None (no action verb)
-→ Evidence for LOG: None (no existence verb)
-→ Could mean: "I have an appointment" OR "I need to book/go"
-→ Conclusion: GUESSING → is_ambiguous: true, confidence: 0.5
+→ Evidence: None — no action verb, no existence verb
+→ You don't know: Could be "I have an appointment" or "I need to book"
+→ Result: Guessing, low confidence, ambiguous
 
 "standing desk"
-→ Evidence for TODO: None (no "buy", "order", "get")
-→ Evidence for LOG: None (no "is", "have")
-→ Could mean: "I want to buy one" OR "Just an idea" OR "Researching"
-→ Conclusion: GUESSING → is_ambiguous: true, confidence: 0.5
+→ Evidence: None
+→ You don't know: Could be "want to buy", "just an idea", "researching"
+→ Result: Guessing, low confidence, ambiguous
 
 "mum's birthday is August 22nd"
 → Evidence: "is" (existence verb)
-→ Conclusion: LOG/general, confidence: 0.9
+→ You know: User is stating a fact
+→ Result: LOG/general, high confidence, not ambiguous
 
 "mum birthday August 22"
-→ Evidence for action: None
-→ Evidence for reference: None (no "is")
-→ Could mean: "Just noting" OR "Need to get gift" OR "Need to plan"
-→ Conclusion: GUESSING → is_ambiguous: true, confidence: 0.5
+→ Evidence: None
+→ You don't know: Could be "just noting" or "need to get gift" or "need to plan"
+→ Result: Guessing, low confidence, ambiguous
 
-**THE PRINCIPLE:**
-High confidence requires EVIDENCE. If you cannot point to specific words that reveal intent, you are guessing — and guessing means low confidence and is_ambiguous: true.
+"feeling overwhelmed about the move"
+→ Evidence: "feeling overwhelmed" (emotional language)
+→ You know: User is processing emotions
+→ Result: LOG/journal, high confidence, not ambiguous
 
-DO NOT use LOG/general as a dumping ground for uncertainty. If you're uncertain, FLAG IT.
+"the move"
+→ Evidence: None
+→ You don't know: Could be reflection, could be tasks, could be noting
+→ Result: Guessing, low confidence, ambiguous
 
 === AMBIGUITY DETECTION ===
 
@@ -2797,13 +2802,10 @@ Examples:
 - "accountant April" → No verb → AMBIGUOUS
 - "therapist soon" → No verb → AMBIGUOUS
 
-**THE EVIDENCE QUESTION:**
-"What specific words in this input PROVE the user's intent?"
+**THE CORE QUESTION:**
+"What specific words in this input tell me the user's intent?"
 
-- If you can point to evidence → Classify with confidence
-- If you can't point to evidence → You're guessing → is_ambiguous: true
-
-**CRITICAL:** The question is not "what does this probably mean?" but "what EVIDENCE tells me what this means?"
+If you can point to evidence, classify with confidence. If you can't, you're guessing — and the user should clarify.
 
 === EXAMPLES ===
 
