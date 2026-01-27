@@ -1148,7 +1148,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const clarificationQuestion =
     fullEntity?.views?.clarification_question ?? fullEntity?.clarification_question ?? null;
   const clarificationOptions =
-    fullEntity?.views?.clarification_options ?? fullEntity?.clarification_options ?? [];
+    fullEntity?.views?.clarification_options ?? fullEntity?.clarification_options ?? null;
   const clarificationType =
     fullEntity?.views?.clarification_type ?? fullEntity?.clarification_type ?? null;
 
@@ -9833,11 +9833,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       {/* Clarification Popup - Phase 2 */}
       <ClarificationPopup
         visible={showClarificationPopup}
-        question={clarificationQuestion ?? ''}
+        question={clarificationQuestion}
         options={clarificationOptions}
         onSelectOption={handleClarificationSelect}
         onSkip={handleClarificationSkip}
-        isLoading={clarificationLoading}
+        isSubmitting={clarificationLoading}
         successMessage={clarificationSuccess}
       />
     </>

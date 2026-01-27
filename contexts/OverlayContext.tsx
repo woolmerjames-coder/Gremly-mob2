@@ -73,15 +73,15 @@ interface ClarificationPopupState {
   visible: boolean;
   entityId: string | null;
   entityType: 'note' | 'todo' | 'habit' | null;
-  question: string;
-  options: Array<{ id: string; label: string; action: any }>;
+  question: string | null; // null = Phase 1.5 still loading
+  options: Array<{ id: string; label: string; action: any }> | null; // null = loading
 }
 
 interface ClarificationPopupOptions {
   entityId: string;
   entityType: 'note' | 'todo' | 'habit';
-  question: string;
-  options: Array<{ id: string; label: string; action: any }>;
+  question: string | null; // null = Phase 1.5 still loading
+  options: Array<{ id: string; label: string; action: any }> | null; // null = loading
 }
 
 interface OverlayContextValue {
@@ -109,8 +109,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     visible: false,
     entityId: null,
     entityType: null,
-    question: '',
-    options: [],
+    question: null,
+    options: null,
   });
   const [clarificationLoading, setClarificationLoading] = useState(false);
   const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
@@ -141,8 +141,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       visible: false,
       entityId: null,
       entityType: null,
-      question: '',
-      options: [],
+      question: null,
+      options: null,
     });
     setClarificationLoading(false);
     setClarificationSuccess(null);
@@ -401,7 +401,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         options={clarificationPopup.options}
         onSelectOption={handleClarificationSelect}
         onSkip={handleClarificationSkip}
-        isLoading={clarificationLoading}
+        isSubmitting={clarificationLoading}
         successMessage={clarificationSuccess}
       />
     </OverlayContext.Provider>

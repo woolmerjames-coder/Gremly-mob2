@@ -2427,8 +2427,8 @@ const AnimatedMindDropCard = React.memo<{
   openClarificationPopup?: (options: {
     entityId: string;
     entityType: 'note' | 'todo' | 'habit';
-    question: string;
-    options: Array<{ id: string; label: string; action: any }>;
+    question: string | null; // null = Phase 1.5 still loading
+    options: Array<{ id: string; label: string; action: any }> | null; // null = loading
   }) => void;
 }>(
   ({
@@ -2732,28 +2732,26 @@ const AnimatedMindDropCard = React.memo<{
         (item as any)?.clarification_resolved || (item.views as any)?.clarification_resolved;
 
       if (needsClarification && !clarificationResolved && openClarificationPopup) {
-        // Get clarification data from entity
+        // Get clarification data from entity (may be null if Phase 1.5 still loading)
         const question =
           (item as any)?.clarification_question || (item.views as any)?.clarification_question;
         const options =
           (item as any)?.clarification_options || (item.views as any)?.clarification_options;
 
-        if (question && options?.length >= 2) {
-          console.log('[AnimatedMindDropCard] Opening clarification popup', {
-            itemId: item.id,
-            question,
-            optionsCount: options.length,
-          });
+        console.log('[AnimatedMindDropCard] Opening clarification popup', {
+          itemId: item.id,
+          question: question ?? '(loading)',
+          optionsCount: options?.length ?? 0,
+        });
 
-          // Open standalone popup - no full overlay behind it
-          openClarificationPopup({
-            entityId: item.id,
-            entityType: item.kind,
-            question,
-            options,
-          });
-          return; // Don't open the full overlay
-        }
+        // Open standalone popup - show loading state if Phase 1.5 not complete
+        openClarificationPopup({
+          entityId: item.id,
+          entityType: item.kind,
+          question: question || null,
+          options: options || null,
+        });
+        return; // Don't open the full overlay
       }
 
       handleEdit(item.id, item.kind, item.unsorted);

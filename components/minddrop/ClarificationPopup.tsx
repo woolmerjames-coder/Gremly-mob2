@@ -22,11 +22,14 @@ interface ClarificationOption {
 
 interface ClarificationPopupProps {
   visible: boolean;
-  question: string;
-  options: ClarificationOption[];
+  /** Question text from Phase 1.5 (null = still loading) */
+  question: string | null;
+  /** Options from Phase 1.5 (null or empty = still loading) */
+  options: ClarificationOption[] | null;
   onSelectOption: (optionId: string) => void | Promise<void>;
   onSkip: () => void;
-  isLoading?: boolean;
+  /** Manual loading override (e.g., while submitting selection) */
+  isSubmitting?: boolean;
   successMessage?: string | null;
 }
 
@@ -43,11 +46,15 @@ export function ClarificationPopup({
   options,
   onSelectOption,
   onSkip,
-  isLoading = false,
+  isSubmitting = false,
   successMessage = null,
 }: ClarificationPopupProps) {
   const scale = useSharedValue(0.9);
   const opacity = useSharedValue(0);
+
+  // Auto-detect loading state when Phase 1.5 hasn't completed yet
+  // Options loading: question or options not ready
+  const isOptionsLoading = !question || !options || options.length < 2;
 
   useEffect(() => {
     if (visible) {
@@ -99,14 +106,28 @@ export function ClarificationPopup({
     );
   }
 
-  // Loading state
-  if (visible && isLoading) {
+  // Loading state - either waiting for Phase 1.5 options OR submitting selection
+  if (visible && isSubmitting) {
     return (
       <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
         <View style={styles.backdrop}>
           <Animated.View style={[styles.card, styles.loadingCard, animatedCardStyle]}>
             <ActivityIndicator size="small" color="#4A7C59" />
             <Text style={styles.loadingText}>Updating...</Text>
+          </Animated.View>
+        </View>
+      </Modal>
+    );
+  }
+
+  // Options loading state - Phase 1.5 hasn't completed yet
+  if (visible && isOptionsLoading) {
+    return (
+      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.backdrop}>
+          <Animated.View style={[styles.card, styles.loadingCard, animatedCardStyle]}>
+            <ActivityIndicator size="small" color="#4A7C59" />
+            <Text style={styles.loadingText}>Thinking...</Text>
           </Animated.View>
         </View>
       </Modal>
