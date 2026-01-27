@@ -155,22 +155,49 @@ async function runPhase1_5InBackground(
     });
 
     if (phase1_5Result.success && phase1_5Result.options?.length >= 2) {
-      // Update Zustand with question and options
-      // UI will reactively show the options in the clarify popup
-      useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-        clarification_question: phase1_5Result.question,
-        clarification_options: phase1_5Result.options.map((opt: { id: string; label: string }) => ({
+      const clarificationOptions = phase1_5Result.options.map(
+        (opt: { id: string; label: string }) => ({
           id: opt.id,
           label: opt.label,
           // Action will be determined by reclassify endpoint when user selects
           action: { bucket, target_date: false, scheduled_date: false },
-        })),
-      });
+        }),
+      );
 
-      console.log('[DropProcessor] Phase 1.5 pushed options to UI', {
-        localId,
-        optionLabels: phase1_5Result.options.map((o: { label: string }) => o.label),
-      });
+      // Try to update pending drop first
+      const pendingDrop = useGremlyStore.getState().pendingDrops.get(localId);
+
+      if (pendingDrop) {
+        // Pending drop still exists - update it directly
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          clarification_question: phase1_5Result.question,
+          clarification_options: clarificationOptions,
+        });
+
+        console.log('[DropProcessor] Phase 1.5 pushed options to pending drop', {
+          localId,
+          optionLabels: phase1_5Result.options.map((o: { label: string }) => o.label),
+        });
+      } else {
+        // Pending drop already synced - update the entity by drop_id
+        console.log('[DropProcessor] Phase 1.5: pending drop already synced, updating entity', {
+          localId,
+        });
+
+        const updated = await useGremlyStore.getState().updateEntityClarificationByDropId(localId, {
+          question: phase1_5Result.question,
+          options: clarificationOptions,
+        });
+
+        if (updated) {
+          console.log('[DropProcessor] Phase 1.5 pushed options to synced entity', {
+            localId,
+            optionLabels: phase1_5Result.options.map((o: { label: string }) => o.label),
+          });
+        } else {
+          console.warn('[DropProcessor] Phase 1.5 could not find entity to update', { localId });
+        }
+      }
     }
   } catch (error) {
     console.log('[DropProcessor] Phase 1.5 background error', {
@@ -809,12 +836,7 @@ export async function processDrop(
 
     // Fire and forget - Phase 1.5 runs in background, Phase 2 starts immediately
     if (phase1Result.is_ambiguous && phase1Result.ambiguity_reason) {
-      runPhase1_5InBackground(
-        localId,
-        text,
-        phase1Result.ambiguity_reason,
-        phase1Result.bucket,
-      );
+      runPhase1_5InBackground(localId, text, phase1Result.ambiguity_reason, phase1Result.bucket);
     }
 
     // CHECKPOINT 1: Save classification results (ambiguity fields saved, options come later)

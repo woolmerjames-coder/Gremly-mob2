@@ -579,6 +579,14 @@ interface GremlyState {
     },
   ) => void;
   updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
+  /** Update clarification fields on a synced entity by its drop_id (for Phase 1.5 race condition) */
+  updateEntityClarificationByDropId: (
+    dropId: string,
+    clarificationData: {
+      question: string;
+      options: Array<{ id: string; label: string; action: Record<string, unknown> }>;
+    },
+  ) => Promise<boolean>;
   promotePendingDropToEntity: (localId: string, supabaseId: string) => void;
   removePendingDrop: (localId: string) => void;
   resolvePendingDropClarification: (localId: string, optionId: string) => Promise<void>;
@@ -4232,6 +4240,68 @@ export const useGremlyStore = create<GremlyState>()(
 
         return { pendingDrops: newPending };
       });
+    },
+
+    /**
+     * Update clarification fields on a synced entity by its drop_id.
+     * This handles the race condition where Phase 1.5 completes after the drop
+     * has already been synced to Supabase and promoted to an entity.
+     */
+    updateEntityClarificationByDropId: async (
+      dropId: string,
+      clarificationData: {
+        question: string;
+        options: Array<{ id: string; label: string; action: Record<string, unknown> }>;
+      },
+    ): Promise<boolean> => {
+      const state = get();
+
+      // Find the entity by drop_id in all collections
+      const note = state.notes.find((n) => (n as any).drop_id === dropId);
+      const todo = state.todos.find((t) => (t as any).drop_id === dropId);
+      const habit = state.habits.find((h) => (h as any).drop_id === dropId);
+
+      const entity = note || todo || habit;
+      const entityType = note ? 'note' : todo ? 'todo' : habit ? 'habit' : null;
+
+      if (!entity || !entityType) {
+        console.warn('[GremlyStore] updateEntityClarificationByDropId: entity not found', {
+          dropId,
+        });
+        return false;
+      }
+
+      console.log('[GremlyStore] updateEntityClarificationByDropId: found entity', {
+        dropId,
+        entityId: entity.id,
+        entityType,
+      });
+
+      // Update the views with clarification data
+      const currentViews = (entity as any).views || {};
+      const updatedViews = {
+        ...currentViews,
+        clarification_question: clarificationData.question,
+        clarification_options: clarificationData.options,
+      };
+
+      // Update via the appropriate update function
+      if (entityType === 'note') {
+        await get().updateNote(entity.id, { views: updatedViews } as any);
+      } else if (entityType === 'todo') {
+        await get().updateTodo(entity.id, { views: updatedViews } as any);
+      } else if (entityType === 'habit') {
+        await get().updateHabit(entity.id, { views: updatedViews } as any);
+      }
+
+      console.log('[GremlyStore] updateEntityClarificationByDropId: updated', {
+        dropId,
+        entityId: entity.id,
+        question: clarificationData.question.substring(0, 30),
+        optionsCount: clarificationData.options.length,
+      });
+
+      return true;
     },
 
     promotePendingDropToEntity: (localId: string, supabaseId: string) => {
