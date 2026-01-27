@@ -2649,26 +2649,36 @@ Some inputs are genuinely ambiguous — they could reasonably be multiple bucket
 
 **AMBIGUOUS patterns (is_ambiguous: true):**
 
-- Noun + date, no action verb: "dentist Tuesday", "passport June", "mom birthday March 5"
-  → Could be noting an event OR needing to take action
-  
-- Activity + date, no frequency: "gym Monday", "run tomorrow", "yoga Thursday"
-  → Could be one-time (todo) OR starting a habit
-  
-- Bare noun, unclear intent: "standing desk", "new laptop", "pottery class"
-  → Could be buying/doing (todo) OR just noting idea (log)
+PATTERN 1: Noun/service + date (no action verb)
+- "dentist Tuesday", "therapist Wednesday", "vet Thursday", "mechanic Friday"
+- "passport June", "mom birthday March 5", "haircut Saturday"
+→ Could be an existing appointment OR need to book/schedule one
+
+PATTERN 2: Noun + "soon" or vague timing
+- "oil change soon", "haircut soon", "checkup soon", "dentist soon"
+→ Could be noting a need OR just awareness, unclear if action required
+
+PATTERN 3: Bare service/activity noun
+- "therapist", "mechanic", "dentist", "gym", "standing desk", "new laptop"
+→ Could be existing appointment, need to book, wanting to buy, or just noting idea
+
+PATTERN 4: Activity + date (no frequency word)
+- "gym Monday", "run tomorrow", "yoga Thursday"
+→ Could be one-time (todo) OR starting a habit
 
 **NOT ambiguous (clear intent):**
 
-- Has action verb: "call mom", "buy groceries", "book dentist" → TODO
+- Has action verb: "call mom", "buy groceries", "book dentist", "schedule therapist" → TODO
 - Has explicit frequency: "run every morning", "meditate daily" → HABIT
 - Has emotional content: "feeling anxious", "stressed about work" → LOG/journal
 - Has "what if" / exploration: "what if we added dark mode" → LOG/idea
+- Past tense / completed: "went to dentist", "had therapy" → LOG/journal
 
 **When is_ambiguous is true:**
 - Set confidence to 0.5-0.6 (reflecting uncertainty)
 - Keep title CLOSE TO ORIGINAL TEXT (don't hedge toward a bucket)
 - Provide ambiguity_reason (short explanation of why it's unclear)
+- Use bucket: "log" as safe default for noun+date patterns
 
 === EXAMPLES ===
 
@@ -2728,7 +2738,11 @@ Some inputs are genuinely ambiguous — they could reasonably be multiple bucket
 
 **AMBIGUOUS (flag it):**
 - "dentist Tuesday" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if existing appointment or need to book", bucket: "log", confidence: 0.5, smart_title: "Dentist Tuesday"
+- "therapist Wednesday" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if existing appointment or need to book", bucket: "log", confidence: 0.5, smart_title: "Therapist Wednesday"
+- "vet Thursday" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if existing appointment or need to book", bucket: "log", confidence: 0.5, smart_title: "Vet Thursday"
 - "passport June" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if trip or expiration", bucket: "log", confidence: 0.5, smart_title: "Passport June"
+- "oil change soon" → is_ambiguous: true, ambiguity_reason: "noun + vague timing, unclear if scheduling or noting", bucket: "log", confidence: 0.5, smart_title: "Oil Change"
+- "haircut soon" → is_ambiguous: true, ambiguity_reason: "noun + vague timing, unclear if scheduling or noting", bucket: "log", confidence: 0.5, smart_title: "Haircut"
 - "gym Monday" → is_ambiguous: true, ambiguity_reason: "activity + date, unclear if one-time or habit", bucket: "todo", confidence: 0.55, smart_title: "Gym Monday"
 - "standing desk" → is_ambiguous: true, ambiguity_reason: "bare noun, unclear if buying or noting idea", bucket: "log", confidence: 0.5, smart_title: "Standing Desk"
 
