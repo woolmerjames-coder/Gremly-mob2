@@ -4550,24 +4550,45 @@ export const useGremlyStore = create<GremlyState>()(
         set((s) => ({
           notes: s.notes.map((n) =>
             n.id === entityId
-              ? { ...n, views: { ...(n.views as Record<string, unknown> || {}), ai_pending: true, clarification_processing: true } }
-              : n
+              ? {
+                  ...n,
+                  views: {
+                    ...((n.views as Record<string, unknown>) || {}),
+                    ai_pending: true,
+                    clarification_processing: true,
+                  },
+                }
+              : n,
           ),
         }));
       } else if (entityType === 'todo') {
         set((s) => ({
           todos: s.todos.map((t) =>
             t.id === entityId
-              ? { ...t, views: { ...(t.views as Record<string, unknown> || {}), ai_pending: true, clarification_processing: true } }
-              : t
+              ? {
+                  ...t,
+                  views: {
+                    ...((t.views as Record<string, unknown>) || {}),
+                    ai_pending: true,
+                    clarification_processing: true,
+                  },
+                }
+              : t,
           ),
         }));
       } else if (entityType === 'habit') {
         set((s) => ({
           habits: s.habits.map((h) =>
             h.id === entityId
-              ? { ...h, views: { ...(h.views as Record<string, unknown> || {}), ai_pending: true, clarification_processing: true } }
-              : h
+              ? {
+                  ...h,
+                  views: {
+                    ...((h.views as Record<string, unknown>) || {}),
+                    ai_pending: true,
+                    clarification_processing: true,
+                  },
+                }
+              : h,
           ),
         }));
       }
@@ -4728,7 +4749,7 @@ export const useGremlyStore = create<GremlyState>()(
               selectedLabel: selectedLabel.substring(0, 30),
               phase2Text: phase2Text.substring(0, 60),
             });
-            
+
             const phase2Response = await fetch(cortexUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -4748,14 +4769,19 @@ export const useGremlyStore = create<GremlyState>()(
                 tags: phase2Result.tags,
                 timeEstimate: phase2Result.time_estimate_minutes,
                 people: phase2Result.people,
-                frequency: phase2Result.frequency,
+                extractedFrequency: phase2Result.extracted_frequency,
+                extractedDays: phase2Result.extracted_days,
                 latency_ms: phase2Result.latency_ms,
               });
 
               // Build Phase 2 updates
               const phase2Updates: Record<string, unknown> = {};
 
-              if (phase2Result.tags && Array.isArray(phase2Result.tags) && phase2Result.tags.length > 0) {
+              if (
+                phase2Result.tags &&
+                Array.isArray(phase2Result.tags) &&
+                phase2Result.tags.length > 0
+              ) {
                 phase2Updates.tags = phase2Result.tags;
               }
               if (phase2Result.time_estimate_minutes != null) {
@@ -4764,7 +4790,11 @@ export const useGremlyStore = create<GremlyState>()(
               if (phase2Result.energy_type) {
                 phase2Updates.energy_type = phase2Result.energy_type;
               }
-              if (phase2Result.people && Array.isArray(phase2Result.people) && phase2Result.people.length > 0) {
+              if (
+                phase2Result.people &&
+                Array.isArray(phase2Result.people) &&
+                phase2Result.people.length > 0
+              ) {
                 phase2Updates.views = {
                   ...updatedViews,
                   people: phase2Result.people,
@@ -4772,12 +4802,12 @@ export const useGremlyStore = create<GremlyState>()(
               }
               // Habit-specific fields
               if (entityType === 'habit') {
-                if (phase2Result.frequency) {
-                  phase2Updates.frequency = phase2Result.frequency;
-                  phase2Updates.cadence = phase2Result.frequency;
+                if (phase2Result.extracted_frequency) {
+                  phase2Updates.frequency = phase2Result.extracted_frequency;
+                  phase2Updates.cadence = phase2Result.extracted_frequency;
                 }
-                if (phase2Result.days && Array.isArray(phase2Result.days)) {
-                  phase2Updates.days = phase2Result.days;
+                if (phase2Result.extracted_days && Array.isArray(phase2Result.extracted_days)) {
+                  phase2Updates.days_active = phase2Result.extracted_days;
                 }
               }
 
@@ -4810,24 +4840,45 @@ export const useGremlyStore = create<GremlyState>()(
           set((s) => ({
             notes: s.notes.map((n) =>
               n.id === entityId
-                ? { ...n, views: { ...(n.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
-                : n
+                ? {
+                    ...n,
+                    views: {
+                      ...((n.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                    },
+                  }
+                : n,
             ),
           }));
         } else if (entityType === 'todo') {
           set((s) => ({
             todos: s.todos.map((t) =>
               t.id === entityId
-                ? { ...t, views: { ...(t.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
-                : t
+                ? {
+                    ...t,
+                    views: {
+                      ...((t.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                    },
+                  }
+                : t,
             ),
           }));
         } else if (entityType === 'habit') {
           set((s) => ({
             habits: s.habits.map((h) =>
               h.id === entityId
-                ? { ...h, views: { ...(h.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
-                : h
+                ? {
+                    ...h,
+                    views: {
+                      ...((h.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                    },
+                  }
+                : h,
             ),
           }));
         }
@@ -5078,7 +5129,7 @@ export const useGremlyStore = create<GremlyState>()(
               selectedLabel: selectedLabel.substring(0, 30),
               phase2Text: phase2Text.substring(0, 60),
             });
-            
+
             const phase2Response = await fetch(cortexUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -5098,14 +5149,19 @@ export const useGremlyStore = create<GremlyState>()(
                 tags: phase2Result.tags,
                 timeEstimate: phase2Result.time_estimate_minutes,
                 people: phase2Result.people,
-                frequency: phase2Result.frequency,
+                extractedFrequency: phase2Result.extracted_frequency,
+                extractedDays: phase2Result.extracted_days,
                 latency_ms: phase2Result.latency_ms,
               });
 
               // Build Phase 2 updates
               const phase2Updates: Record<string, unknown> = {};
 
-              if (phase2Result.tags && Array.isArray(phase2Result.tags) && phase2Result.tags.length > 0) {
+              if (
+                phase2Result.tags &&
+                Array.isArray(phase2Result.tags) &&
+                phase2Result.tags.length > 0
+              ) {
                 phase2Updates.tags = phase2Result.tags;
               }
               if (phase2Result.time_estimate_minutes != null) {
@@ -5114,7 +5170,11 @@ export const useGremlyStore = create<GremlyState>()(
               if (phase2Result.energy_type) {
                 phase2Updates.energy_type = phase2Result.energy_type;
               }
-              if (phase2Result.people && Array.isArray(phase2Result.people) && phase2Result.people.length > 0) {
+              if (
+                phase2Result.people &&
+                Array.isArray(phase2Result.people) &&
+                phase2Result.people.length > 0
+              ) {
                 phase2Updates.views = {
                   ...(insertedEntity.views || {}),
                   people: phase2Result.people,
@@ -5122,12 +5182,12 @@ export const useGremlyStore = create<GremlyState>()(
               }
               // Habit-specific fields
               if (targetBucket === 'habit') {
-                if (phase2Result.frequency) {
-                  phase2Updates.frequency = phase2Result.frequency;
-                  phase2Updates.cadence = phase2Result.frequency;
+                if (phase2Result.extracted_frequency) {
+                  phase2Updates.frequency = phase2Result.extracted_frequency;
+                  phase2Updates.cadence = phase2Result.extracted_frequency;
                 }
-                if (phase2Result.days && Array.isArray(phase2Result.days)) {
-                  phase2Updates.days = phase2Result.days;
+                if (phase2Result.extracted_days && Array.isArray(phase2Result.extracted_days)) {
+                  phase2Updates.days_active = phase2Result.extracted_days;
                 }
               }
 
@@ -5147,7 +5207,10 @@ export const useGremlyStore = create<GremlyState>()(
                 }
               }
             } else {
-              console.warn('[GremlyStore] Phase 2 response not ok for converted entity:', phase2Response.status);
+              console.warn(
+                '[GremlyStore] Phase 2 response not ok for converted entity:',
+                phase2Response.status,
+              );
             }
           }
         } catch (phase2Error) {
@@ -5160,28 +5223,52 @@ export const useGremlyStore = create<GremlyState>()(
           set((s) => ({
             notes: s.notes.map((n) =>
               n.id === insertedEntity.id
-                ? { ...n, views: { ...(n.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
-                : n
+                ? {
+                    ...n,
+                    views: {
+                      ...((n.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                    },
+                  }
+                : n,
             ),
           }));
         } else if (targetBucket === 'todo') {
           set((s) => ({
             todos: s.todos.map((t) =>
               t.id === insertedEntity.id
-                ? { ...t, views: { ...(t.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
-                : t
+                ? {
+                    ...t,
+                    views: {
+                      ...((t.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                    },
+                  }
+                : t,
             ),
           }));
         } else if (targetBucket === 'habit') {
           set((s) => ({
             habits: s.habits.map((h) =>
               h.id === insertedEntity.id
-                ? { ...h, views: { ...(h.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
-                : h
+                ? {
+                    ...h,
+                    views: {
+                      ...((h.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                    },
+                  }
+                : h,
             ),
           }));
         }
-        console.log('[GremlyStore] Cleared processing state for converted entity:', { newEntityId: insertedEntity.id, targetBucket });
+        console.log('[GremlyStore] Cleared processing state for converted entity:', {
+          newEntityId: insertedEntity.id,
+          targetBucket,
+        });
       } catch (error) {
         console.error('[GremlyStore] Bucket change failed:', error);
         // Fall back to just updating clarification status
