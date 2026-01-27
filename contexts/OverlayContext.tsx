@@ -243,8 +243,21 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
 
       setClarificationLoading(true);
 
+      // Check if this is free text input (prefixed with "freetext:")
+      const isFreeText = optionId.startsWith('freetext:');
+      const selectionValue = isFreeText ? optionId.slice('freetext:'.length) : optionId;
+      
+      console.log('[GlobalOverlay] Clarification selection:', {
+        isFreeText,
+        value: selectionValue.substring(0, 50),
+      });
+
       try {
-        await resolvePendingDropClarification(clarificationPopup.entityId, optionId);
+        await resolvePendingDropClarification(
+          clarificationPopup.entityId, 
+          selectionValue,
+          isFreeText // Pass flag so store knows this is free text
+        );
 
         // Haptic feedback
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
