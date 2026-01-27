@@ -252,9 +252,11 @@ function isValidUuid(value: string | null | undefined): boolean {
   return uuidRegex.test(value);
 }
 
-const DEBUG_MINDDROP_LOGS =
-  (typeof __DEV__ !== 'undefined' && __DEV__) ||
-  String(process.env.FF_DEBUG_OVERLAY ?? '').toLowerCase() === 'on';
+// Temporarily disabled to reduce Metro noise during testing
+const DEBUG_MINDDROP_LOGS = false;
+// const DEBUG_MINDDROP_LOGS =
+//   (typeof __DEV__ !== 'undefined' && __DEV__) ||
+//   String(process.env.FF_DEBUG_OVERLAY ?? '').toLowerCase() === 'on';
 
 const fingerprintTitle = (value?: string | null): string | null => {
   if (!value || !value.length) return null;
@@ -1209,18 +1211,18 @@ const UnifiedCardWrapper: React.FC<{
   isPending: boolean;
   children: React.ReactNode;
 }> = ({ itemId, dropId, isPending, children }) => {
-  // DEBUG: Track wrapper mount/unmount
-  React.useEffect(() => {
-    console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
-    return () => {
-      console.log('[DEBUG:Wrapper] UnifiedCardWrapper UNMOUNTED:', { itemId, dropId });
-    };
-  }, []);
+  // DEBUG: Track wrapper mount/unmount (disabled to reduce Metro noise)
+  // React.useEffect(() => {
+  //   console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
+  //   return () => {
+  //     console.log('[DEBUG:Wrapper] UnifiedCardWrapper UNMOUNTED:', { itemId, dropId });
+  //   };
+  // }, []);
 
-  // DEBUG: Track isPending changes
-  React.useEffect(() => {
-    console.log('[DEBUG:Wrapper] isPending changed:', { itemId, dropId, isPending });
-  }, [isPending, itemId, dropId]);
+  // DEBUG: Track isPending changes (disabled to reduce Metro noise)
+  // React.useEffect(() => {
+  //   console.log('[DEBUG:Wrapper] isPending changed:', { itemId, dropId, isPending });
+  // }, [isPending, itemId, dropId]);
 
   // Track animation state - starts true if was pending, then transitions
   const [wasPending, setWasPending] = React.useState(isPending);
@@ -2430,7 +2432,7 @@ export const resetAnimationTrackingForDrop = (dropId: string) => {
   multiBounceAnimatedIds.delete(dropId);
   chipBounceAnimatedIds.delete(dropId);
   clarificationBounceAnimatedIds.delete(dropId);
-  console.log('[AnimatedMindDropCard] Reset animation tracking for drop:', dropId);
+  // console.log('[AnimatedMindDropCard] Reset animation tracking for drop:', dropId);
 };
 
 /**
@@ -2492,20 +2494,20 @@ const AnimatedMindDropCard = React.memo<{
       item.clarification_resolved !== true &&
       item.views?.clarification_resolved !== true;
 
-    // DEBUG: Track component mount/unmount
-    React.useEffect(() => {
-      console.log('[DEBUG:AnimatedMindDropCard] MOUNTED:', {
-        itemId: item.id,
-        dropId: item.drop_id,
-        isMulti,
-      });
-      return () => {
-        console.log('[DEBUG:AnimatedMindDropCard] UNMOUNTED:', {
-          itemId: item.id,
-          dropId: item.drop_id,
-        });
-      };
-    }, []); // Empty deps = only on mount/unmount
+    // DEBUG: Track component mount/unmount (disabled to reduce Metro noise)
+    // React.useEffect(() => {
+    //   console.log('[DEBUG:AnimatedMindDropCard] MOUNTED:', {
+    //     itemId: item.id,
+    //     dropId: item.drop_id,
+    //     isMulti,
+    //   });
+    //   return () => {
+    //     console.log('[DEBUG:AnimatedMindDropCard] UNMOUNTED:', {
+    //       itemId: item.id,
+    //       dropId: item.drop_id,
+    //     });
+    //   };
+    // }, []);
 
     // ─────────────────────────────────────────────────────────────────────────
     // ─────────────────────────────────────────────────────────────────────────
@@ -2635,7 +2637,7 @@ const AnimatedMindDropCard = React.memo<{
             // Item is new (created within 30s), trigger reveal
             // Mark as revealing IMMEDIATELY to prevent duplicate animations on sync
             revealedItemIds.add(trackingId);
-            console.log('[AnimatedMindDropCard] First render reveal', { trackingId, ageMs });
+            // console.log('[AnimatedMindDropCard] First render reveal', { trackingId, ageMs });
             setIsRevealing(true);
           } else {
             // Item is old, mark as already revealed
@@ -2655,11 +2657,11 @@ const AnimatedMindDropCard = React.memo<{
         // Mark as revealing IMMEDIATELY to prevent duplicate animations on sync
         revealedItemIds.add(trackingId);
         // Start revealing animation
-        console.log('[AnimatedMindDropCard] Transition reveal', {
-          trackingId,
-          prev,
-          current: itemVisualState,
-        });
+        // console.log('[AnimatedMindDropCard] Transition reveal', {
+        //   trackingId,
+        //   prev,
+        //   current: itemVisualState,
+        // });
         setIsRevealing(true);
       }
       prevStateRef.current = itemVisualState;
@@ -2763,11 +2765,11 @@ const AnimatedMindDropCard = React.memo<{
         const options =
           (item as any)?.clarification_options || (item.views as any)?.clarification_options;
 
-        console.log('[AnimatedMindDropCard] Opening clarification popup', {
-          itemId: item.id,
-          question: question ?? '(loading)',
-          optionsCount: options?.length ?? 0,
-        });
+        // console.log('[AnimatedMindDropCard] Opening clarification popup', {
+        //   itemId: item.id,
+        //   question: question ?? '(loading)',
+        //   optionsCount: options?.length ?? 0,
+        // });
 
         // Open standalone popup - show loading state if Phase 1.5 not complete
         openClarificationPopup({
@@ -3056,8 +3058,8 @@ const RecentDrops: React.FC<{
   initiallyOpen = true,
   eagerLoad = false,
 }) => {
-  // DEBUG: Log every RecentDrops render with timestamp
-  console.log('[RecentDrops] 🔄 Render', { timestamp: Date.now() });
+  // DEBUG: Log every RecentDrops render with timestamp (disabled to reduce Metro noise)
+  // console.log('[RecentDrops] 🔄 Render', { timestamp: Date.now() });
 
   // Direct store access - no adapter
   const deleteNote = useGremlyStore((s) => s.deleteNote);
@@ -3111,7 +3113,7 @@ const RecentDrops: React.FC<{
     const notRemoval = currentCount >= prevPendingDropsCountRef.current;
 
     if (contentChanged && notInitialMount && notRemoval && !newlyMulti) {
-      console.log('[CatchAllNotepad] 🔄 Pending drops data changed, configuring layout animation');
+      // console.log('[CatchAllNotepad] 🔄 Pending drops data changed, configuring layout animation');
       LayoutAnimation.configureNext({
         duration: 200,
         update: {
@@ -3187,7 +3189,7 @@ const RecentDrops: React.FC<{
 
   // Handler to open modal from child card
   const handleOpenModal = React.useCallback((item: UnifiedDrop) => {
-    console.log('[RecentDrops] Opening modal for item:', item.id, item.drop_id);
+    // console.log('[RecentDrops] Opening modal for item:', item.id, item.drop_id);
     setActiveModalItem(item);
   }, []);
 
@@ -3278,17 +3280,17 @@ const RecentDrops: React.FC<{
           clarification_type: drop.clarification_type ?? undefined,
           // Multi-drop fields (from Phase 0/1, before entity creation)
           multi_items: drop.multiSegments?.map((seg, idx) => {
-            // Debug: Log segment data including Phase 1 titles
-            if (idx === 0) {
-              console.log('🟡 [pendingItems] Mapping multiSegments', {
-                segmentCount: drop.multiSegments?.length,
-                firstSeg: {
-                  text: seg.text?.substring(0, 20),
-                  smartTitle: seg.smartTitle,
-                  confirmationMessage: seg.confirmationMessage?.substring(0, 30),
-                },
-              });
-            }
+            // Debug: Log segment data including Phase 1 titles (disabled to reduce Metro noise)
+            // if (idx === 0) {
+            //   console.log('🟡 [pendingItems] Mapping multiSegments', {
+            //     segmentCount: drop.multiSegments?.length,
+            //     firstSeg: {
+            //       text: seg.text?.substring(0, 20),
+            //       smartTitle: seg.smartTitle,
+            //       confirmationMessage: seg.confirmationMessage?.substring(0, 30),
+            //     },
+            //   });
+            // }
             return {
               text: seg.text,
               bucket: seg.bucket,
@@ -3391,14 +3393,14 @@ const RecentDrops: React.FC<{
         const dueDate = (record as any).due_date ?? item.due_date ?? null;
         const dueDay = (record as any).due_day ?? item.due_day ?? null;
 
-        console.debug('[RecentDrops] Merging Phase 2 update', {
-          id: record.id,
-          oldTitle: item.title?.substring(0, 20),
-          newTitle: title?.substring(0, 20),
-          oldTags: item.tags?.length ?? 0,
-          newTags: tags.length,
-          stage: views.minddrop_stage,
-        });
+        // console.debug('[RecentDrops] Merging Phase 2 update', {
+        //   id: record.id,
+        //   oldTitle: item.title?.substring(0, 20),
+        //   newTitle: title?.substring(0, 20),
+        //   oldTags: item.tags?.length ?? 0,
+        //   newTags: tags.length,
+        //   stage: views.minddrop_stage,
+        // });
 
         return {
           ...item,
@@ -3509,19 +3511,19 @@ const RecentDrops: React.FC<{
       // - A new canonical item (habit/todo/note with canonicalType) is created with same drop_id
       // - We filter out archived notes and dedupe by drop_id, keeping canonical items
 
-      // DEBUG: Log notes with views before mapping
-      (Array.isArray(notes) ? notes : []).forEach((note) => {
-        const noteAny = note as any;
-        if (noteAny?.views?.is_multi || noteAny?.title?.includes('Call Mom + Quit')) {
-          console.log('[DEBUG:NoteMapping]', {
-            id: noteAny.id,
-            title: noteAny.title?.substring(0, 30),
-            has_views: !!noteAny.views,
-            views_keys: noteAny.views ? Object.keys(noteAny.views) : [],
-            is_multi: noteAny.views?.is_multi,
-          });
-        }
-      });
+      // DEBUG: Log notes with views before mapping (disabled to reduce Metro noise)
+      // (Array.isArray(notes) ? notes : []).forEach((note) => {
+      //   const noteAny = note as any;
+      //   if (noteAny?.views?.is_multi || noteAny?.title?.includes('Call Mom + Quit')) {
+      //     console.log('[DEBUG:NoteMapping]', {
+      //       id: noteAny.id,
+      //       title: noteAny.title?.substring(0, 30),
+      //       has_views: !!noteAny.views,
+      //       views_keys: noteAny.views ? Object.keys(noteAny.views) : [],
+      //       is_multi: noteAny.views?.is_multi,
+      //     });
+      //   }
+      // });
 
       const noteDrops: UnifiedDrop[] = (Array.isArray(notes) ? notes : [])
         .filter((n) => {
@@ -3694,17 +3696,17 @@ const RecentDrops: React.FC<{
       // Combine deduplicated items with no-drop-id items
       unified = [...Array.from(dropIdMap.values()), ...noDropIdItems];
 
-      console.debug('[MindDrop.UI] Unified items after dedup', {
-        count: unified.length,
-        items: unified.map((i) => ({
-          id: i.id,
-          kind: i.kind,
-          title: i.title?.substring(0, 30),
-          drop_id: i.drop_id,
-          due_date: (i as any).due_date,
-          space_id: (i as any).space_id,
-        })),
-      });
+      // console.debug('[MindDrop.UI] Unified items after dedup', {
+      //   count: unified.length,
+      //   items: unified.map((i) => ({
+      //     id: i.id,
+      //     kind: i.kind,
+      //     title: i.title?.substring(0, 30),
+      //     drop_id: i.drop_id,
+      //     due_date: (i as any).due_date,
+      //     space_id: (i as any).space_id,
+      //   })),
+      // });
 
       // Calculate today count before any filtering
       const todayItems = unified.filter((i) => {
@@ -3740,12 +3742,13 @@ const RecentDrops: React.FC<{
         drop_id: item.drop_id,
         visualState: getMindDropVisualState(item),
       }));
-      console.debug('[RecentDrops] Loaded items:', {
-        total: unified.length,
-        pending: visualStates.filter((s) => s.visualState === 'pending').length,
-        complete: visualStates.filter((s) => s.visualState === 'complete').length,
-        failed: visualStates.filter((s) => s.visualState === 'failed').length,
-      });
+      // console.debug('[RecentDrops] Loaded items:', {
+      //   total: unified.length,
+      //   pending: visualStates.filter((s) => s.visualState === 'pending').length,
+      //   complete: visualStates.filter((s) => s.visualState === 'complete').length,
+      //   failed: visualStates.filter((s) => s.visualState === 'failed').length,
+      // });
+      void visualStates; // Suppress unused variable warning
 
       // Note: Pending items now come from Zustand pendingDrops - auto-cleanup is handled by the store
 
@@ -3799,7 +3802,7 @@ const RecentDrops: React.FC<{
   useEffect(() => {
     if (!userId) return;
 
-    console.debug('[RecentDrops] Setting up real-time subscriptions for userId:', userId);
+    // console.debug('[RecentDrops] Setting up real-time subscriptions for userId:', userId);
 
     // Subscribe to todos, habits, and notes for Mind Drop origin items
     const todosChannel = supabase
@@ -3816,12 +3819,12 @@ const RecentDrops: React.FC<{
           const record = payload.new as any;
           if (!record || record.origin !== 'catchall') return;
 
-          console.debug('[RecentDrops] Todos DB update:', {
-            event: payload.eventType,
-            id: record.id,
-            drop_id: record.drop_id,
-            views: record.views ?? null,
-          });
+          // console.debug('[RecentDrops] Todos DB update:', {
+          //   event: payload.eventType,
+          //   id: record.id,
+          //   drop_id: record.drop_id,
+          //   views: record.views ?? null,
+          // });
 
           // Merge into items list - pending drops are managed by Zustand pendingDrops
           setItems((prev) => mergeDbRecordIntoItems(prev, record, 'todo'));
@@ -3843,12 +3846,12 @@ const RecentDrops: React.FC<{
           const record = payload.new as any;
           if (!record || record.origin !== 'catchall') return;
 
-          console.debug('[RecentDrops] Habits DB update:', {
-            event: payload.eventType,
-            id: record.id,
-            drop_id: record.drop_id,
-            views: record.views ?? null,
-          });
+          // console.debug('[RecentDrops] Habits DB update:', {
+          //   event: payload.eventType,
+          //   id: record.id,
+          //   drop_id: record.drop_id,
+          //   views: record.views ?? null,
+          // });
 
           // Merge into items list - pending drops are managed by Zustand pendingDrops
           setItems((prev) => mergeDbRecordIntoItems(prev, record, 'habit'));
@@ -3870,12 +3873,12 @@ const RecentDrops: React.FC<{
           const record = payload.new as any;
           if (!record || record.origin !== 'catchall') return;
 
-          console.debug('[RecentDrops] Notes DB update:', {
-            event: payload.eventType,
-            id: record.id,
-            drop_id: record.drop_id,
-            views: record.views ?? null,
-          });
+          // console.debug('[RecentDrops] Notes DB update:', {
+          //   event: payload.eventType,
+          //   id: record.id,
+          //   drop_id: record.drop_id,
+          //   views: record.views ?? null,
+          // });
 
           // Merge into items list - pending drops are managed by Zustand pendingDrops
           setItems((prev) => mergeDbRecordIntoItems(prev, record, 'note'));
@@ -3884,7 +3887,7 @@ const RecentDrops: React.FC<{
       .subscribe();
 
     return () => {
-      console.debug('[RecentDrops] Cleaning up real-time subscriptions');
+      // console.debug('[RecentDrops] Cleaning up real-time subscriptions');
       void todosChannel.unsubscribe();
       void habitsChannel.unsubscribe();
       void notesChannel.unsubscribe();
@@ -3896,15 +3899,15 @@ const RecentDrops: React.FC<{
     const unsubscribe = eventBus.on(
       'entity:deleted',
       (event: { id: string; type?: string; spaceId?: string | null; source?: string }) => {
-        console.log('[RecentDrops] entity:deleted event:', {
-          id: event.id,
-          type: event.type,
-          source: event.source,
-        });
+        // console.log('[RecentDrops] entity:deleted event:', {
+        //   id: event.id,
+        //   type: event.type,
+        //   source: event.source,
+        // });
         // Remove the item immediately from local state
         setItems((prev) => {
           const filtered = prev.filter((item) => item.id !== event.id);
-          console.log('[RecentDrops] Removed item from list, remaining:', filtered.length);
+          // console.log('[RecentDrops] Removed item from list, remaining:', filtered.length);
           return filtered;
         });
         // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
@@ -3915,13 +3918,13 @@ const RecentDrops: React.FC<{
       'entity:created',
       (payload: { entity: any; type: string; spaceId?: string | null; source?: string }) => {
         const dropId = payload.entity?.drop_id;
-        console.log('[CatchAllNotepad] entity:created received', {
-          dropId,
-          type: payload.type,
-          entityId: payload.entity?.id,
-          source: payload.source,
-          title: payload.entity?.title ?? payload.entity?.name,
-        });
+        // console.log('[CatchAllNotepad] entity:created received', {
+        //   dropId,
+        //   type: payload.type,
+        //   entityId: payload.entity?.id,
+        //   source: payload.source,
+        //   title: payload.entity?.title ?? payload.entity?.name,
+        // });
 
         // CRITICAL: For clarification bucket changes, reset animation tracking
         // so the new entity shows fresh animations (shimmer, typewriter, mist, bounce)
@@ -3929,15 +3932,15 @@ const RecentDrops: React.FC<{
           resetAnimationTrackingForDrop(dropId);
         }
 
-        // DEBUG: Log multi-entity note details
-        if (payload.type === 'note') {
-          console.log('[DEBUG:EntityCreated:Note]', {
-            entityId: payload.entity?.id,
-            has_views: !!payload.entity?.views,
-            views_is_multi: payload.entity?.views?.is_multi,
-            views_keys: payload.entity?.views ? Object.keys(payload.entity.views) : [],
-          });
-        }
+        // DEBUG: Log multi-entity note details (disabled to reduce Metro noise)
+        // if (payload.type === 'note') {
+        //   console.log('[DEBUG:EntityCreated:Note]', {
+        //     entityId: payload.entity?.id,
+        //     has_views: !!payload.entity?.views,
+        //     views_is_multi: payload.entity?.views?.is_multi,
+        //     views_keys: payload.entity?.views ? Object.keys(payload.entity.views) : [],
+        //   });
+        // }
 
         // Merge entity into items list - pending drops are managed by Zustand pendingDrops
         if (dropId && payload.entity) {
@@ -3975,26 +3978,26 @@ const RecentDrops: React.FC<{
             multi_summary_title: entity.views?.multi_summary_title ?? undefined,
           };
 
-          console.log('[CatchAllNotepad] Adding new entity to items list', {
-            entityId: realItem.id,
-            kind: realItem.kind,
-            title: realItem.title,
-            drop_id: realItem.drop_id,
-          });
+          // console.log('[CatchAllNotepad] Adding new entity to items list', {
+          //   entityId: realItem.id,
+          //   kind: realItem.kind,
+          //   title: realItem.title,
+          //   drop_id: realItem.drop_id,
+          // });
 
           // Merge into items - pending drops will be automatically removed from Zustand when synced
           setItems((prev) => {
             const existingIndex = prev.findIndex((item) => item.id === realItem.id);
             if (existingIndex >= 0) {
-              console.log('[CatchAllNotepad] Updating existing item at index', existingIndex);
+              // console.log('[CatchAllNotepad] Updating existing item at index', existingIndex);
               const updated = [...prev];
               updated[existingIndex] = realItem;
               return updated;
             }
-            console.log(
-              '[CatchAllNotepad] Prepending new item to list, total items:',
-              prev.length + 1,
-            );
+            // console.log(
+            //   '[CatchAllNotepad] Prepending new item to list, total items:',
+            //   prev.length + 1,
+            // );
             return [realItem, ...prev];
           });
         }
@@ -4003,7 +4006,7 @@ const RecentDrops: React.FC<{
 
     // Listen for Phase 2 enrichment completion to update card smoothly
     const unsubEntityEnriched = eventBus.on('entity:enriched', (payload) => {
-      console.debug('[RecentDrops] entity:enriched received', payload);
+      // console.debug('[RecentDrops] entity:enriched received', payload);
 
       // Update the item in local state immediately for smooth card update
       setItems((prev) =>
@@ -4042,29 +4045,30 @@ const RecentDrops: React.FC<{
     // Listen for Phase 2 streaming field updates for progressive UI
     const unsubFieldUpdated = eventBus.on('entity:field_updated', (payload) => {
       const { entityId, field, value } = payload;
-      console.log('🔵 [RecentDrops] entity:field_updated received', { entityId, field, value });
+      // console.log('🔵 [RecentDrops] entity:field_updated received', { entityId, field, value });
 
       setItems((prev) => {
         const matchingItem = prev.find((item) => item.id === entityId);
-        console.log('🔵 [RecentDrops] Found matching item?', !!matchingItem, matchingItem?.id);
+        // console.log('🔵 [RecentDrops] Found matching item?', !!matchingItem, matchingItem?.id);
+        void matchingItem; // Suppress unused warning
 
         return prev.map((item) => {
           if (item.id !== entityId) return item;
 
           // Update the specific field that changed
           if (field === 'smart_title') {
-            console.log('🔴 UPDATING TITLE IN STATE:', value);
+            // console.log('🔴 UPDATING TITLE IN STATE:', value);
             return { ...item, title: value };
           }
           if (field === 'confirmation_message') {
-            console.log('🟡 UPDATING CONFIRMATION IN STATE:', value);
+            // console.log('🟡 UPDATING CONFIRMATION IN STATE:', value);
             return {
               ...item,
               views: { ...item.views, confirmation_message: value },
             };
           }
           if (field === 'tags') {
-            console.log('🟢 UPDATING TAGS IN STATE:', value);
+            // console.log('🟢 UPDATING TAGS IN STATE:', value);
             return { ...item, tags: value };
           }
           // CRITICAL: Do NOT update minddrop_stage via field_updated events!
@@ -4072,11 +4076,11 @@ const RecentDrops: React.FC<{
           // which contains ALL fields at once. If we set 'enriched' here before
           // time_estimate_minutes arrives, chips animate in without the time estimate.
           if (field === 'minddrop_stage') {
-            console.log('🟣 IGNORING minddrop_stage via field_updated (wait for entity:enriched)');
+            // console.log('🟣 IGNORING minddrop_stage via field_updated (wait for entity:enriched)');
             return item; // Don't update - wait for entity:enriched
           }
           if (field === 'time_estimate_minutes') {
-            console.log('⏱️ UPDATING TIME ESTIMATE IN STATE:', value);
+            // console.log('⏱️ UPDATING TIME ESTIMATE IN STATE:', value);
             return { ...item, time_estimate_minutes: value };
           }
 
@@ -4089,7 +4093,7 @@ const RecentDrops: React.FC<{
     const unsubItemCompleted = eventBus.on(
       'ItemCompleted',
       (payload: { id: string; type: 'habit' | 'todo' }) => {
-        console.debug('[RecentDrops] ItemCompleted event:', payload.id, payload.type);
+        // console.debug('[RecentDrops] ItemCompleted event:', payload.id, payload.type);
         // Remove the item immediately from local state
         setItems((prev) => prev.filter((item) => item.id !== payload.id));
         // Note: Pending items are managed by Zustand pendingDrops - no cleanup needed here
@@ -4100,7 +4104,7 @@ const RecentDrops: React.FC<{
     const unsubItemUpdated = eventBus.on(
       'ItemUpdated',
       (payload: { id: string; source?: string }) => {
-        console.log('[RecentDrops] ItemUpdated event:', payload.id);
+        // console.log('[RecentDrops] ItemUpdated event:', payload.id);
 
         // Fetch the updated entity from Zustand and merge into local state
         const store = useGremlyStore.getState();
@@ -4125,23 +4129,23 @@ const RecentDrops: React.FC<{
         if (views.clarification_processing === true || views.ai_pending === true) {
           const dropId = (entity as any).drop_id;
           if (dropId) {
-            console.log(
-              '[RecentDrops] ItemUpdated: resetting animation tracking for clarification',
-              { dropId },
-            );
+            // console.log(
+            //   '[RecentDrops] ItemUpdated: resetting animation tracking for clarification',
+            //   { dropId },
+            // );
             resetAnimationTrackingForDrop(dropId);
           }
         }
 
-        console.log('[RecentDrops] ItemUpdated: merging updated entity', {
-          id: payload.id,
-          type: entityType,
-          title: (entity as any).title ?? (entity as any).name,
-          needs_clarification: (entity as any).needs_clarification,
-          clarification_resolved: (entity as any).clarification_resolved,
-          ai_pending: views.ai_pending,
-          clarification_processing: views.clarification_processing,
-        });
+        // console.log('[RecentDrops] ItemUpdated: merging updated entity', {
+        //   id: payload.id,
+        //   type: entityType,
+        //   title: (entity as any).title ?? (entity as any).name,
+        //   needs_clarification: (entity as any).needs_clarification,
+        //   clarification_resolved: (entity as any).clarification_resolved,
+        //   ai_pending: views.ai_pending,
+        //   clarification_processing: views.clarification_processing,
+        // });
 
         // Update the item in local state
         setItems((prev) =>
@@ -4520,18 +4524,18 @@ const RecentDrops: React.FC<{
       // Close modal first (modal is at RecentDrops level now)
       setActiveModalItem(null);
 
-      console.log('[RecentDrops] Splitting multi-drop into', selectedItems.length, 'items');
-      console.log(
-        '[RecentDrops] Split items detail:',
-        selectedItems.map((item) => ({
-          text: item.text.substring(0, 30),
-          bucket: item.bucket,
-          subtype: item.subtype,
-          habitSubtype: item.habitSubtype,
-          smart_title: item.smart_title,
-          confirmation_message: item.confirmation_message,
-        })),
-      );
+      // console.log('[RecentDrops] Splitting multi-drop into', selectedItems.length, 'items');
+      // console.log(
+      //   '[RecentDrops] Split items detail:',
+      //   selectedItems.map((item) => ({
+      //     text: item.text.substring(0, 30),
+      //     bucket: item.bucket,
+      //     subtype: item.subtype,
+      //     habitSubtype: item.habitSubtype,
+      //     smart_title: item.smart_title,
+      //     confirmation_message: item.confirmation_message,
+      //   })),
+      // );
       const noteToSplit = items.find((item) => item.id === noteId);
       const spaceId = noteToSplit?.views?.space_id ?? null;
       const now = Date.now();
@@ -4826,14 +4830,14 @@ const RecentDrops: React.FC<{
                   // Use drop_id for key to maintain component identity across pending→real transition
                   const stableKey = item.drop_id || `${item.kind}:${item.id}`;
 
-                  // DEBUG: Log each item render with key info
-                  console.log('[DEBUG:Render] Item in list:', {
-                    stableKey,
-                    itemId: item.id,
-                    dropId: item.drop_id,
-                    isPendingList: item._isPendingList,
-                    kind: item.kind,
-                  });
+                  // DEBUG: Log each item render with key info (disabled to reduce Metro noise)
+                  // console.log('[DEBUG:Render] Item in list:', {
+                  //   stableKey,
+                  //   itemId: item.id,
+                  //   dropId: item.drop_id,
+                  //   isPendingList: item._isPendingList,
+                  //   kind: item.kind,
+                  // });
 
                   // Use UnifiedCardWrapper for BOTH pending and real items
                   // This prevents remounting when transitioning (preserves modal state)
@@ -5313,14 +5317,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Helper to show Gremly speech bubble with auto-dismiss
   const showGremlySpeech = useCallback((message: string, durationMs = 3500) => {
-    console.log('[Gremly Speech] showGremlySpeech called:', { message, durationMs });
+    // console.log('[Gremly Speech] showGremlySpeech called:', { message, durationMs });
     if (gremlySpeechTimeoutRef.current) {
       clearTimeout(gremlySpeechTimeoutRef.current);
     }
     lastSpeechRef.current = message;
     setGremlySpeech(message);
     gremlySpeechTimeoutRef.current = setTimeout(() => {
-      console.log('[Gremly Speech] Auto-dismissing speech bubble');
+      // console.log('[Gremly Speech] Auto-dismissing speech bubble');
       setGremlySpeech(null);
     }, durationMs);
   }, []);
