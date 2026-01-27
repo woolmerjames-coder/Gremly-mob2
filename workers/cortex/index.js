@@ -3025,13 +3025,17 @@ Rules:
           latency_ms: latency,
         });
 
+        // If needs_clarification is true, don't send the AI confirmation message
+        // The client should show a tap prompt instead (e.g., "One quick thing — tap me")
+        const finalConfirmationMessage = needsClarification ? null : confirmationMessage;
+
         return j({
           bucket: norm.bucket,
           subtype: norm.subtype,
           habitSubtype,
           confidence,
           smart_title: smartTitle,
-          confirmation_message: confirmationMessage,
+          confirmation_message: finalConfirmationMessage,
           needs_clarification: needsClarification,
           clarification_type: clarificationType,
           clarification_question: clarificationQuestion,
