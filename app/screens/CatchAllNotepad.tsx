@@ -2683,11 +2683,16 @@ const AnimatedMindDropCard = React.memo<{
 
     // Determine actual visual state
     // 'streaming' = Phase 1 done, treat like 'complete' for card rendering (chips will wait for chip_data_ready)
-    const visualState: MindDropVisualState = isRevealing
-      ? 'revealing'
-      : revealComplete || itemVisualState === 'complete' || itemVisualState === 'streaming'
-        ? 'complete'
-        : itemVisualState;
+    // CRITICAL: 'enriching' state takes priority over revealComplete
+    // This ensures the card shows shimmer when clarification processing starts
+    const visualState: MindDropVisualState =
+      itemVisualState === 'enriching' || itemVisualState === 'pending'
+        ? itemVisualState // Always show skeleton when processing
+        : isRevealing
+          ? 'revealing'
+          : revealComplete || itemVisualState === 'complete' || itemVisualState === 'streaming'
+            ? 'complete'
+            : itemVisualState;
 
     // MULTI-DROP EARLY RETURN: Show multi-card immediately, even during pending/enriching
     // Multi-drops have enough info from Phase 0 to render the multi-card shape
