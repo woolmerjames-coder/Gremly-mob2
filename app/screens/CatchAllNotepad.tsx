@@ -908,6 +908,11 @@ function getMindDropVisualState(entity: {
 }): MindDropVisualState {
   const views = entity.views ?? {};
 
+  // Clarification processing - user just selected an option, API calls in progress
+  if (views.clarification_processing === true || views.ai_pending === true) {
+    return 'enriching';
+  }
+
   // Phase 1 in progress - no entity yet, show skeleton
   if (views.minddrop_stage === 'pending') {
     return 'pending';
@@ -931,11 +936,6 @@ function getMindDropVisualState(entity: {
   // Successfully enriched
   if (views.minddrop_stage === 'enriched' || views.minddrop_stage === 'prefilled') {
     return 'complete';
-  }
-
-  // Legacy: ai_pending check - treat as enriching since entity likely exists
-  if (views.ai_pending === true) {
-    return 'enriching';
   }
 
   // Default: complete
@@ -3230,6 +3230,8 @@ const RecentDrops: React.FC<{
             clarification_question: drop.clarification_question,
             clarification_options: drop.clarification_options,
             clarification_resolved: drop.clarification_resolved,
+            // Processing state for shimmer animation during reclassify/Phase 2
+            clarification_processing: drop.clarification_processing,
           },
           time_estimate_minutes: drop.timeEstimateMinutes ?? null,
           frequency: drop.extractedFrequency ?? null, // For habits: "3x/week", "daily", etc.
