@@ -119,7 +119,7 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock, Camera, Clock, LogOut, User, ChevronDown } from 'lucide-react-native';
+import { Lock, Camera, Clock, LogOut, User, ChevronDown, Calendar } from 'lucide-react-native';
 // ClarificationIndicatorChip moved to badge position - import removed
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
@@ -1657,30 +1657,20 @@ const Row3Chips: React.FC<{
 
     // Todo/Habit: show context pill (deadline/frequency)
     // For todos with both target and scheduled date, show both
-    const hasTargetDate = effectiveKind === 'todo' && item.target_date;
-    const hasScheduledDate = effectiveKind === 'todo' && item.scheduled_date;
-    const showBothDates = hasTargetDate && hasScheduledDate;
-    
-    return (
-      <>
-        {contextMeta && (
-          <View style={styles.recentContextPillContainer}>
-            <Text testID={contextTestId} style={styles.recentContextPill}>
-              {contextMeta}
-            </Text>
-          </View>
-        )}
-        {/* Show scheduled date as secondary chip if both dates exist */}
-        {showBothDates && (
-          <View style={styles.recentContextPillContainer}>
-            <Text style={[styles.recentContextPill, { backgroundColor: 'rgba(200, 220, 255, 0.4)' }]}>
-              do {formatDateForChip(item.scheduled_date)}
-            </Text>
-          </View>
-        )}
-      </>
-    );
+    // Context chip rendering (scheduled date, frequency, etc.)
+    return contextMeta ? (
+      <View style={styles.recentContextPillContainer}>
+        <Text testID={contextTestId} style={styles.recentContextPill}>
+          {contextMeta}
+        </Text>
+      </View>
+    ) : null;
   };
+
+  // Check for target_date (event/deadline context) - shown separately on right
+  const hasTargetDate = (effectiveKind === 'todo' || effectiveKind === 'note') && 
+    (item.target_date || item.views?.target_date);
+  const targetDateValue = item.target_date || item.views?.target_date;
 
   return (
     <AnimatedChipsTransition
@@ -1688,54 +1678,71 @@ const Row3Chips: React.FC<{
       hasRealData={hasRealChipData}
       onAnimationComplete={onChipAnimationComplete}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        {/* Context chip (deadline, frequency, type label, etc.) */}
-        {renderContextChip()}
+      <View style={{ 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        flex: 1,
+      }}>
+        {/* Left side: Context chips */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+          {/* Context chip (scheduled date, frequency, type label, etc.) */}
+          {renderContextChip()}
 
-        {/* Phase 2 chips: HIDE while clarification is pending */}
-        {/* These chips are based on Phase 1 guesses - don't show until user confirms intent */}
-        {!needsClarification && (
-          <>
-            {/* Start date chip for habits - before time estimate */}
-            {effectiveKind === 'habit' && (
-              <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
-            )}
-
-            {/* Time estimate chip for todos AND habits */}
-            {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
-              item.time_estimate_minutes && (
-                <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    Alert.alert(
-                      '⏱️ Time Estimate',
-                      effectiveKind === 'habit'
-                        ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
-                        : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
-                      [{ text: 'Got it', style: 'default' }],
-                    );
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <View style={styles.timeEstimateChip}>
-                    <Clock size={10} color="#888" strokeWidth={2} />
-                    <Text style={styles.timeEstimateText}>
-                      {formatTimeEstimate(item.time_estimate_minutes)}
-                    </Text>
-                  </View>
-                </Pressable>
+          {/* Phase 2 chips: HIDE while clarification is pending */}
+          {!needsClarification && (
+            <>
+              {/* Start date chip for habits - before time estimate */}
+              {effectiveKind === 'habit' && (
+                <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
               )}
 
-            {/* People chip */}
-            {hasPeople && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                <User size={10} color="#6B8E6B" strokeWidth={2.5} />
-                <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
-                  {item.views!.people![0]}
-                </Text>
-              </View>
-            )}
-          </>
+              {/* Time estimate chip for todos AND habits */}
+              {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
+                item.time_estimate_minutes && (
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      Alert.alert(
+                        '⏱️ Time Estimate',
+                        effectiveKind === 'habit'
+                          ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
+                          : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                        [{ text: 'Got it', style: 'default' }],
+                      );
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <View style={styles.timeEstimateChip}>
+                      <Clock size={10} color="#888" strokeWidth={2} />
+                      <Text style={styles.timeEstimateText}>
+                        {formatTimeEstimate(item.time_estimate_minutes)}
+                      </Text>
+                    </View>
+                  </Pressable>
+                )}
+
+              {/* People chip */}
+              {hasPeople && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                  <User size={10} color="#6B8E6B" strokeWidth={2.5} />
+                  <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
+                    {item.views!.people![0]}
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
+        </View>
+
+        {/* Right side: Target date chip (event/deadline context) */}
+        {!needsClarification && hasTargetDate && targetDateValue && (
+          <View style={styles.targetDateChip}>
+            <Calendar size={10} color="#7A9A7A" strokeWidth={2} />
+            <Text style={styles.targetDateText}>
+              {formatDateForChip(targetDateValue)}
+            </Text>
+          </View>
         )}
       </View>
     </AnimatedChipsTransition>
@@ -2424,18 +2431,18 @@ function formatDateForChip(dateStr: string | null | undefined): string {
  */
 function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string | null {
   if (kind === 'todo') {
-    // Date Intelligence: prefer target_date/scheduled_date over legacy due_date
-    if (item.target_date) {
-      // Has target date (deadline/event) - show as "due [date]"
-      return `due ${formatDateForChip(item.target_date)}`;
-    }
+    // Scheduled date = when user will DO the work (primary chip)
     if (item.scheduled_date) {
-      // Has scheduled date only (no deadline) - show as just "[date]"
       return formatDateForChip(item.scheduled_date);
     }
     // Fallback to legacy due_date for backwards compatibility
     if (item.due_date || item.due_day) {
       return formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time });
+    }
+    // NOTE: target_date is handled separately as a right-aligned chip with calendar icon
+    // Don't show "no deadline yet" if there's a target_date
+    if (item.target_date) {
+      return null; // Will be shown as calendar chip on right
     }
     return 'no deadline yet';
   }
@@ -9159,6 +9166,22 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     timeEstimateText: {
       fontSize: 10,
       color: '#666',
+      fontFamily: 'Inter-Medium',
+    },
+    // Target date chip (event/deadline context) - right-aligned
+    targetDateChip: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 3,
+      backgroundColor: 'rgba(122, 154, 122, 0.15)',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      marginLeft: 8,
+    },
+    targetDateText: {
+      fontSize: 10,
+      color: '#7A9A7A',
       fontFamily: 'Inter-Medium',
     },
     // Journal subtype display - plain text label with separator and mood chips
