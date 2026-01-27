@@ -2875,15 +2875,20 @@ const AnimatedMindDropCard = React.memo<{
           )}
 
           {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
+          {/* Hide chips when card needs clarification - show only timestamp */}
           <View style={styles.recentMetaRow}>
-            {/* Left side: ALL chips rendered by unified Row3Chips component */}
-            <Row3Chips
-              item={item}
-              effectiveKind={effectiveKind}
-              styles={styles}
-              isMulti={isMulti}
-              onChipAnimationComplete={handleChipAnimationComplete}
-            />
+            {/* Left side: Chips (hidden during clarification) */}
+            {!needsClarification && (
+              <Row3Chips
+                item={item}
+                effectiveKind={effectiveKind}
+                styles={styles}
+                isMulti={isMulti}
+                onChipAnimationComplete={handleChipAnimationComplete}
+              />
+            )}
+            {/* Spacer when chips are hidden */}
+            {needsClarification && <View style={{ flex: 1 }} />}
             {/* Right side: photo icon + timestamp */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
