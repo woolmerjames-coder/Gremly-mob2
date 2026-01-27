@@ -2645,40 +2645,59 @@ The test: **Is there a clear action verb (buy, call, text, send, book, submit, t
 
 === AMBIGUITY DETECTION ===
 
-Some inputs are genuinely ambiguous — they could reasonably be multiple buckets depending on what the user meant. When this happens, flag it.
+Flag ambiguity when you're MISSING INFORMATION needed to handle this item correctly. Use semantic reasoning — apply the LOGIC to any input, don't match against example strings.
 
-**AMBIGUOUS patterns (is_ambiguous: true):**
+**THREE SEMANTIC TESTS:**
 
-PATTERN 1: Noun/service + date (no action verb)
-- "dentist Tuesday", "therapist Wednesday", "vet Thursday", "mechanic Friday"
-- "passport June", "mom birthday March 5", "haircut Saturday"
-→ Could be an existing appointment OR need to book/schedule one
+**TEST 1: BUCKET CLARITY**
+Ask: "Do I KNOW if this is something to DO vs TRACK vs KNOW?"
 
-PATTERN 2: Noun + "soon" or vague timing
-- "oil change soon", "haircut soon", "checkup soon", "dentist soon"
-→ Could be noting a need OR just awareness, unclear if action required
+CLEAR (not ambiguous):
+- Has action verb (call, buy, book, send, fix, submit, schedule) → DO something
+- Has explicit frequency (daily, every morning, 3x/week) → TRACK something
+- Has emotional/reflective content → KNOW something
 
-PATTERN 3: Bare service/activity noun
-- "therapist", "mechanic", "dentist", "gym", "standing desk", "new laptop"
-→ Could be existing appointment, need to book, wanting to buy, or just noting idea
+UNCLEAR (ambiguous):
+- Bare noun with no verb or intent signal
+- Could reasonably be multiple buckets
+→ is_ambiguous: true, ambiguity_type: "bucket"
 
-PATTERN 4: Activity + date (no frequency word)
-- "gym Monday", "run tomorrow", "yoga Thursday"
-→ Could be one-time (todo) OR starting a habit
+**TEST 2: ACTION CLARITY** (apply when input has noun + date/time but no clear action verb)
+Ask: "Do I know if the user HAS something or NEEDS TO DO something?"
 
-**NOT ambiguous (clear intent):**
+CLEAR (not ambiguous):
+- Has action verb: "book dentist", "call therapist", "schedule vet" → NEEDS TO DO
+- Has existence language: "appointment is Tuesday", "I have a meeting" → HAS
 
-- Has action verb: "call mom", "buy groceries", "book dentist", "schedule therapist" → TODO
-- Has explicit frequency: "run every morning", "meditate daily" → HABIT
-- Has emotional content: "feeling anxious", "stressed about work" → LOG/journal
-- Has "what if" / exploration: "what if we added dark mode" → LOG/idea
-- Past tense / completed: "went to dentist", "had therapy" → LOG/journal
+UNCLEAR (ambiguous):
+- Noun + date with NO VERB: [service/appointment] + [day/date]
+- Could be existing appointment OR need to book/schedule
+→ is_ambiguous: true, ambiguity_type: "action"
 
-**When is_ambiguous is true:**
-- Set confidence to 0.5-0.6 (reflecting uncertainty)
-- Keep title CLOSE TO ORIGINAL TEXT (don't hedge toward a bucket)
-- Provide ambiguity_reason (short explanation of why it's unclear)
-- Use bucket: "log" as safe default for noun+date patterns
+**TEST 3: DATE TYPE CLARITY** (apply when bucket IS clear but date meaning isn't)
+Ask: "Do I know if this date is when something IS/DUE or when to DO the work?"
+
+CLEAR (not ambiguous):
+- Has deadline signal: "due April 15", "by Friday", "before the 10th" → TARGET DATE
+- Has event signal: "race is Feb 1", "wedding on June 15", "[event] is [date]" → TARGET DATE
+- Action directly tied to time: "call tomorrow", "do tonight", "[verb] [time]" → SCHEDULED DATE
+
+UNCLEAR (ambiguous):
+- Action verb + noun + date WITHOUT deadline/event signal
+- Example reasoning: "Book half marathon Feb 1" — Is Feb 1 when the race IS, or when to book?
+→ is_ambiguous: true, ambiguity_type: "date_type"
+
+**THE KEY QUESTION:**
+"If I had to set this up correctly in the user's productivity system, what information am I MISSING that would CHANGE how I handle it?"
+
+**WHEN is_ambiguous IS TRUE:**
+- confidence: 0.5-0.6
+- smart_title: Stay CLOSE TO ORIGINAL TEXT
+- ambiguity_type: "bucket" | "action" | "date_type"
+- ambiguity_reason: Short explanation (e.g., "noun + date without verb, unclear if existing or need to schedule")
+- confirmation_message: "Quick question — tap me" or similar
+
+**CRITICAL:** These are SEMANTIC TESTS. Apply the REASONING to any input. Do NOT pattern-match against specific strings.
 
 === EXAMPLES ===
 
@@ -2735,16 +2754,6 @@ PATTERN 4: Activity + date (no frequency word)
 - "Run" → TODO (single run, no frequency)
 - "Stop overthinking" → LOG/journal (not trackable — mental state)
 - "Be more patient" → LOG/general (abstract quality, not trackable)
-
-**AMBIGUOUS (flag it):**
-- "dentist Tuesday" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if existing appointment or need to book", bucket: "log", confidence: 0.5, smart_title: "Dentist Tuesday"
-- "therapist Wednesday" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if existing appointment or need to book", bucket: "log", confidence: 0.5, smart_title: "Therapist Wednesday"
-- "vet Thursday" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if existing appointment or need to book", bucket: "log", confidence: 0.5, smart_title: "Vet Thursday"
-- "passport June" → is_ambiguous: true, ambiguity_reason: "noun + date, unclear if trip or expiration", bucket: "log", confidence: 0.5, smart_title: "Passport June"
-- "oil change soon" → is_ambiguous: true, ambiguity_reason: "noun + vague timing, unclear if scheduling or noting", bucket: "log", confidence: 0.5, smart_title: "Oil Change"
-- "haircut soon" → is_ambiguous: true, ambiguity_reason: "noun + vague timing, unclear if scheduling or noting", bucket: "log", confidence: 0.5, smart_title: "Haircut"
-- "gym Monday" → is_ambiguous: true, ambiguity_reason: "activity + date, unclear if one-time or habit", bucket: "todo", confidence: 0.55, smart_title: "Gym Monday"
-- "standing desk" → is_ambiguous: true, ambiguity_reason: "bare noun, unclear if buying or noting idea", bucket: "log", confidence: 0.5, smart_title: "Standing Desk"
 
 === HABIT SUBTYPE ===
 
@@ -2866,14 +2875,15 @@ Return ONLY valid JSON:
   "smart_title": "3-7 Word Title",
   "confirmation_message": "4-8 word warm message",
   "is_ambiguous": true | false,
+  "ambiguity_type": "bucket" | "action" | "date_type" | null,
   "ambiguity_reason": "Short reason why it's ambiguous" | null
 }
 
 Rules:
 - subtype is only set when bucket is "log"
 - habitSubtype is only set when bucket is "habit"
-- is_ambiguous is true when input matches ambiguous patterns above
-- ambiguity_reason is only set when is_ambiguous is true
+- is_ambiguous is true when semantic tests reveal missing information
+- ambiguity_type and ambiguity_reason are only set when is_ambiguous is true
 - When is_ambiguous is true, smart_title should stay close to original text
 - When is_ambiguous is true, confirmation_message should be a "tap me" variant:
   - "Quick question — tap me"
@@ -3013,6 +3023,10 @@ Rules:
         const ambiguityReason = isAmbiguous && typeof parsed.ambiguity_reason === 'string'
           ? parsed.ambiguity_reason.trim().substring(0, 200)
           : null;
+        const ambiguityType = isAmbiguous && typeof parsed.ambiguity_type === 'string'
+          && ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
+          ? parsed.ambiguity_type
+          : null;
 
         // Legacy clarification fields - always false/null in Phase 1
         // Actual clarification options are generated by Phase 1.5
@@ -3031,6 +3045,7 @@ Rules:
           smart_title: smartTitle?.substring(0, 30),
           has_message: !!confirmationMessage,
           is_ambiguous: isAmbiguous,
+          ambiguity_type: ambiguityType,
           ambiguity_reason: ambiguityReason?.substring(0, 50),
           heuristicBucket: heuristicHint?.bucket,
           agreed: sameAsBucket,
@@ -3045,6 +3060,7 @@ Rules:
           smart_title: smartTitle,
           confirmation_message: confirmationMessage,
           is_ambiguous: isAmbiguous,
+          ambiguity_type: ambiguityType,
           ambiguity_reason: ambiguityReason,
           // Legacy fields for backwards compatibility - Phase 1.5 handles actual clarification
           needs_clarification: needsClarification,
