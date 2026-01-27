@@ -3496,17 +3496,22 @@ FOR LOGS (ALL SUBTYPES):
 Logs can contain dates that represent EVENTS or REFERENCE INFORMATION.
 ALWAYS extract dates when present, regardless of log subtype.
 
+When the input describes an event, appointment, or scheduled occurrence:
+- Extract the date as target_date
+- Extract time if mentioned as event_time
+
+Signals to extract dates for logs:
+- Existence verbs + date: "is Tuesday", "is on March 5", "is next week"
+- Status updates: "moved to Thursday", "scheduled for Friday"
+- Event references: "appointment", "meeting", "birthday", "trip"
+
 Examples:
 - "Dentist appointment is Tuesday" → target_date: next Tuesday's date
 - "Mom's birthday March 5" → target_date: "YYYY-03-05"
-- "Meeting moved to Thursday" → target_date: next Thursday's date
-- "Conference in June" → target_date: "YYYY-06-01" (first of month if day not specified)
+- "Meeting moved to Thursday 2pm" → target_date: next Thursday, event_time: "14:00"
+- "Conference in June" → target_date: "YYYY-06-01"
 
-Date signals in logs:
-- "is [day/date]" → extract as target_date
-- "[event] on [day/date]" → extract as target_date
-- "moved to [day/date]" → extract as target_date
-- Named days (Monday, Tuesday, etc.) → calculate next occurrence from current date
+Named days (Monday, Tuesday, etc.) → calculate next occurrence from current date.
 
 7. mood (JOURNAL ONLY)
 Choose up to 3:
