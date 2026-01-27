@@ -2478,7 +2478,7 @@ const AnimatedMindDropCard = React.memo<{
     // Card bounce animation
     // Triggers when:
     // 1. Multi-drop is detected (isMulti becomes true)
-    // 2. Chip animation completes (non-multi cards)
+    // 2. Phase 1 completes (streaming state reached - bucket is set)
     // Uses drop_id (stable across pending→synced) to prevent duplicate animations
     // ─────────────────────────────────────────────────────────────────────────
     const bounceScale = useSharedValue(1);
@@ -2487,7 +2487,11 @@ const AnimatedMindDropCard = React.memo<{
     // Falls back to item.id for items without drop_id
     const bounceTrackingId = item.drop_id || item.id;
 
-    // Track when chip animation completes (for non-multi cards)
+    // Get visual state to detect Phase 1 completion
+    const currentVisualState = getMindDropVisualState(item);
+    const phase1Complete = currentVisualState === 'streaming' || currentVisualState === 'complete';
+
+    // Track when chip animation completes (for Row3Chips blur-to-focus callback)
     const [chipAnimationComplete, setChipAnimationComplete] = React.useState(false);
 
     const handleChipAnimationComplete = React.useCallback(() => {
@@ -2497,7 +2501,7 @@ const AnimatedMindDropCard = React.memo<{
     React.useEffect(() => {
       // Trigger bounce when:
       // 1. Multi-drop is detected (isMulti becomes true)
-      // 2. Chip animation completes (non-multi cards)
+      // 2. Phase 1 completes (non-multi cards) - don't wait for Phase 2 chips
       // Uses module-level Sets to persist across component remounts
 
       // Multi-drop bounce: happens when isMulti becomes true
@@ -2513,9 +2517,10 @@ const AnimatedMindDropCard = React.memo<{
         return;
       }
 
-      // Chip animation bounce: happens when chip animation completes (non-multi)
+      // Phase 1 bounce: happens when Phase 1 completes (streaming/complete state)
+      // This triggers immediately when bucket is set, not waiting for Phase 2 chips
       if (
-        chipAnimationComplete &&
+        phase1Complete &&
         !isMulti &&
         !chipBounceAnimatedIds.has(bounceTrackingId) &&
         !multiBounceAnimatedIds.has(bounceTrackingId)
@@ -2529,7 +2534,7 @@ const AnimatedMindDropCard = React.memo<{
           withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
         );
       }
-    }, [isMulti, bounceTrackingId, bounceScale, chipAnimationComplete]);
+    }, [isMulti, bounceTrackingId, bounceScale, phase1Complete]);
 
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
