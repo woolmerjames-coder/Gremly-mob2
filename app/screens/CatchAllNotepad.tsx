@@ -849,7 +849,7 @@ function applyEnrichmentToItem(
     smartTitle?: string;
     tags?: string[];
     timeEstimateMinutes?: number | null;
-    extractedDate?: string | null;
+    extractedDate?: string | null; // Legacy - maps to due_date
     extractedStartDate?: string | null;
     extractedFrequency?: string | null;
     extractedDays?: number[] | null;
@@ -858,14 +858,23 @@ function applyEnrichmentToItem(
     confirmationMessage?: string | null;
     people?: string[];
     mood?: string[] | null;
+    // Date Intelligence fields (Phase C)
+    targetDate?: string | null;
+    scheduledDate?: string | null;
+    dateTypeAmbiguous?: boolean;
   },
 ): UnifiedDrop {
   return {
     ...item,
     tags: result.tags || item.tags,
     time_estimate_minutes: result.timeEstimateMinutes ?? item.time_estimate_minutes,
-    due_date: result.extractedDate ?? item.due_date,
-    due_day: result.extractedDate?.split('T')[0] ?? item.due_day,
+    // Date Intelligence: prefer new fields, fall back to legacy
+    target_date: result.targetDate ?? item.target_date,
+    scheduled_date: result.scheduledDate ?? item.scheduled_date,
+    date_type_ambiguous: result.dateTypeAmbiguous ?? item.date_type_ambiguous,
+    // Legacy date fields - still set for backwards compatibility
+    due_date: result.extractedDate ?? result.scheduledDate ?? item.due_date,
+    due_day: (result.extractedDate ?? result.scheduledDate)?.split('T')[0] ?? item.due_day,
     start_date: result.extractedStartDate ?? item.start_date,
     frequency: result.extractedFrequency ?? item.frequency,
     cadence: (result.cadence as 'daily' | 'weekly' | 'monthly' | null) ?? item.cadence,
