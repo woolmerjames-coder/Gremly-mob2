@@ -1556,7 +1556,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showTimeWindowModal, setShowTimeWindowModal] = useState(false);
   const [showHabitStartDatePicker, setShowHabitStartDatePicker] = useState(false);
   const [showHabitEndDatePicker, setShowHabitEndDatePicker] = useState(false);
-  const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
+  const [dateModalTarget, setDateModalTarget] = useState<
+    'todo_deadline' | 'todo_dodate' | 'note_event' | 'reminder' | null
+  >(null);
   const [showSpaceModal, setShowSpaceModal] = useState(false);
 
   // Keyboard height tracking for dynamic sheet sizing
@@ -3930,7 +3932,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           cooldown_buffer_minutes: todoBuffers.cooldown_buffer_minutes,
           space_id: resolvedSpaceId,
           origin: 'catchall' as const,
-          views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
+          views: {
+            ...viewsWithPrefillFlag,
+            // Date Intelligence fields in views
+            target_date: s.todo.target_date ?? null,
+            scheduled_date: s.todo.scheduled_date ?? null,
+          },
           // Commitment fields (only for todos/habits)
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
@@ -3981,7 +3988,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         cooldown_buffer_minutes: todoBuffers2.cooldown_buffer_minutes,
         space_id: resolvedSpaceId2,
         origin: 'catchall' as const,
-        views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
+        views: {
+          ...viewsWithPrefillFlag,
+          // Date Intelligence fields in views
+          target_date: s.todo.target_date ?? null,
+          scheduled_date: s.todo.scheduled_date ?? null,
+        },
         ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
@@ -4147,6 +4159,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
           : viewsWithPrefillFlag;
 
+      // Add Date Intelligence fields to views
+      const viewsWithDateIntelligence = {
+        ...viewsWithPrivate,
+        target_date: s.log.target_date ?? null,
+        event_time: s.log.event_time ?? null,
+      };
+
       // Resolve space_id: explicit null means "None" selected, undefined means use fallback
       const resolvedSpaceId5 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
       if (__DEV__ && s.spaceId === null) {
@@ -4164,7 +4183,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ...logConfirmationPatch, // Override with confirmed log status and correct subtype
         space_id: resolvedSpaceId5,
         origin: 'catchall' as const,
-        views: viewsWithPrivate, // Add views with minddrop_prefilled_v1 and private_journal flags
+        views: viewsWithDateIntelligence, // Add views with Date Intelligence, private_journal, and prefill flags
         ...moodPatch,
         ...fmtPatch,
         ...datePatch,
@@ -6277,21 +6296,84 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           ) : null}
 
                           <Box>
+                            {/* Event Date for Notes */}
+                            {baseType === 'log' && (
+                              <Box style={{ marginBottom: 16 }}>
+                                <View style={styles.dueAndLockRow}>
+                                  <View style={styles.dueDateLeft}>
+                                    <Pressable
+                                      style={styles.dueDatePill}
+                                      onPress={() => {
+                                        setMoodPickerExpanded(false);
+                                        if (state.log.target_date) {
+                                          const parsed = getDateService().fromDateString(
+                                            state.log.target_date,
+                                          );
+                                          if (parsed) {
+                                            setSelectedDate(parsed);
+                                          }
+                                        } else {
+                                          setSelectedDate(new Date());
+                                        }
+                                        setDateModalTarget('note_event');
+                                        setShowDateModal(true);
+                                      }}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={
+                                        state.log.target_date
+                                          ? `Event date: ${formatDueDay(state.log.target_date)}`
+                                          : 'Add event date'
+                                      }
+                                    >
+                                      <Calendar
+                                        size={16}
+                                        color={
+                                          state.log.target_date
+                                            ? colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.7)'
+                                              : '#666666'
+                                            : colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.5)'
+                                              : '#777777'
+                                        }
+                                        style={styles.dueDateIcon}
+                                      />
+                                      <Text
+                                        style={[
+                                          styles.dueDateText,
+                                          !state.log.target_date && {
+                                            color:
+                                              colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.5)'
+                                                : '#777777',
+                                            fontWeight: '400',
+                                          },
+                                        ]}
+                                      >
+                                        {state.log.target_date
+                                          ? formatDueDay(state.log.target_date)
+                                          : 'Add event date'}
+                                      </Text>
+                                    </Pressable>
+                                  </View>
+                                </View>
+                              </Box>
+                            )}
+
                             {baseType === 'todo' || baseType === 'habit' ? (
                               <Box style={{ marginBottom: 0 }}>
-                                {/* Due date + Lock In row */}
+                                {/* Deadline (target_date) + Lock In row */}
                                 <View style={styles.dueAndLockRow}>
-                                  {/* Left side: Due date */}
+                                  {/* Left side: Deadline (target_date) */}
                                   <View style={styles.dueDateLeft}>
                                     {baseType === 'todo' ? (
                                       <Pressable
                                         style={styles.dueDatePill}
                                         onPress={() => {
-                                          setMoodPickerExpanded(false); // Collapse mood picker
-                                          // Pre-fill date picker with current due_day if set
-                                          if (state.todo.due_day) {
+                                          setMoodPickerExpanded(false);
+                                          if (state.todo.target_date) {
                                             const parsed = getDateService().fromDateString(
-                                              state.todo.due_day,
+                                              state.todo.target_date,
                                             );
                                             if (parsed) {
                                               setSelectedDate(parsed);
@@ -6299,20 +6381,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           } else {
                                             setSelectedDate(new Date());
                                           }
-                                          setDateModalTarget('todo');
+                                          setDateModalTarget('todo_deadline');
                                           setShowDateModal(true);
                                         }}
                                         accessibilityRole="button"
                                         accessibilityLabel={
-                                          state.todo.due_day
-                                            ? `Due date: ${formatDueDay(state.todo.due_day)}`
-                                            : 'Add due date'
+                                          state.todo.target_date
+                                            ? `Deadline: ${formatDueDay(state.todo.target_date)}`
+                                            : 'Add deadline'
                                         }
                                       >
                                         <Calendar
                                           size={16}
                                           color={
-                                            state.todo.due_day
+                                            state.todo.target_date
                                               ? colorMode === 'dark'
                                                 ? 'rgba(255,255,255,0.7)'
                                                 : '#666666'
@@ -6325,7 +6407,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         <Text
                                           style={[
                                             styles.dueDateText,
-                                            !state.todo.due_day && {
+                                            !state.todo.target_date && {
                                               color:
                                                 colorMode === 'dark'
                                                   ? 'rgba(255,255,255,0.5)'
@@ -6334,9 +6416,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             },
                                           ]}
                                         >
-                                          {state.todo.due_day
-                                            ? formatDueDay(state.todo.due_day)
-                                            : 'Add due date'}
+                                          {state.todo.target_date
+                                            ? formatDueDay(state.todo.target_date)
+                                            : 'Add deadline'}
                                         </Text>
                                       </Pressable>
                                     ) : null}
@@ -6411,6 +6493,68 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     </Text>
                                   </View>
                                 ) : null}
+
+                                {/* Do date (scheduled_date) row for todos */}
+                                {baseType === 'todo' && (
+                                  <View style={styles.dueAndLockRow}>
+                                    <View style={styles.dueDateLeft}>
+                                      <Pressable
+                                        style={styles.dueDatePill}
+                                        onPress={() => {
+                                          setMoodPickerExpanded(false);
+                                          if (state.todo.scheduled_date) {
+                                            const parsed = getDateService().fromDateString(
+                                              state.todo.scheduled_date,
+                                            );
+                                            if (parsed) {
+                                              setSelectedDate(parsed);
+                                            }
+                                          } else {
+                                            setSelectedDate(new Date());
+                                          }
+                                          setDateModalTarget('todo_dodate');
+                                          setShowDateModal(true);
+                                        }}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                          state.todo.scheduled_date
+                                            ? `Do date: ${formatDueDay(state.todo.scheduled_date)}`
+                                            : 'Add do date'
+                                        }
+                                      >
+                                        <Clock
+                                          size={16}
+                                          color={
+                                            state.todo.scheduled_date
+                                              ? colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.7)'
+                                                : '#666666'
+                                              : colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.5)'
+                                                : '#777777'
+                                          }
+                                          style={styles.dueDateIcon}
+                                        />
+                                        <Text
+                                          style={[
+                                            styles.dueDateText,
+                                            !state.todo.scheduled_date && {
+                                              color:
+                                                colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.5)'
+                                                  : '#777777',
+                                              fontWeight: '400',
+                                            },
+                                          ]}
+                                        >
+                                          {state.todo.scheduled_date
+                                            ? formatDueDay(state.todo.scheduled_date)
+                                            : 'Add do date'}
+                                        </Text>
+                                      </Pressable>
+                                    </View>
+                                  </View>
+                                )}
 
                                 {/* Time estimate row for todos */}
                                 {baseType === 'todo' && (
@@ -7299,7 +7443,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         // Use today as fallback
                                         setSelectedDate(new Date());
                                       }
-                                      setDateModalTarget('todo');
+                                      setDateModalTarget('todo_deadline');
                                       setShowDateModal(true);
                                     }
                                   }}
@@ -7375,7 +7519,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               marginBottom: 16,
                             }}
                           >
-                            Set due date
+                            {dateModalTarget === 'todo_deadline' && 'Set deadline'}
+                            {dateModalTarget === 'todo_dodate' && 'Set do date'}
+                            {dateModalTarget === 'note_event' && 'Set event date'}
+                            {dateModalTarget === 'reminder' && 'Set reminder'}
                           </Text>
                           <Box mt={1}>
                             <Box row gap={2} style={{ flexWrap: 'wrap' }}>
@@ -7703,17 +7850,60 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     }
                                   }
 
-                                  // Apply the change
+                                  // Apply the change based on target type
                                   if (dateModalTarget === 'reminder') {
                                     // Reminders still use ISO timestamps
                                     dispatch({
                                       type: 'SET_REMINDER',
                                       when: finalDate?.toISOString() ?? null,
                                     });
-                                  } else {
-                                    // Todos use due_day (local date string) - pass Date object
-                                    const label = finalDate ? format(finalDate, 'MMM d') : '';
-                                    handleTodoDueChange(finalDate, { label });
+                                  } else if (dateModalTarget === 'todo_deadline') {
+                                    // Deadline (target_date) - when it's due
+                                    if (finalDate) {
+                                      const dateStr = getDateService().toDateString(finalDate);
+                                      dispatch({ type: 'SET_TODO_TARGET_DATE', date: dateStr });
+                                      showDueToast(
+                                        `Deadline set for ${format(finalDate, 'MMM d')}`,
+                                      );
+                                    } else {
+                                      dispatch({ type: 'SET_TODO_TARGET_DATE', date: null });
+                                      showDueToast('Deadline cleared');
+                                    }
+                                  } else if (dateModalTarget === 'todo_dodate') {
+                                    // Do date (scheduled_date) - when user will work on it
+                                    if (finalDate) {
+                                      const dateStr = getDateService().toDateString(finalDate);
+                                      dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: dateStr });
+                                      // Also update legacy due_day for backwards compatibility
+                                      dispatch({
+                                        type: 'SET_TODO_DUE',
+                                        due_at: null,
+                                        due_day: dateStr,
+                                        due_time: null,
+                                      });
+                                      showDueToast(`Do date set for ${format(finalDate, 'MMM d')}`);
+                                    } else {
+                                      dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: null });
+                                      dispatch({
+                                        type: 'SET_TODO_DUE',
+                                        due_at: null,
+                                        due_day: null,
+                                        due_time: null,
+                                      });
+                                      showDueToast('Do date cleared');
+                                    }
+                                  } else if (dateModalTarget === 'note_event') {
+                                    // Event date for notes (target_date)
+                                    if (finalDate) {
+                                      const dateStr = getDateService().toDateString(finalDate);
+                                      dispatch({ type: 'SET_LOG_TARGET_DATE', date: dateStr });
+                                      showDueToast(
+                                        `Event date set for ${format(finalDate, 'MMM d')}`,
+                                      );
+                                    } else {
+                                      dispatch({ type: 'SET_LOG_TARGET_DATE', date: null });
+                                      showDueToast('Event date cleared');
+                                    }
                                   }
 
                                   // Reset and close
@@ -10099,6 +10289,9 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       body: logBody,
       kind: classifyLogKind(logBody),
       private: (entity as any)?.private ?? false, // Hydrate private field for logs (Phase L7)
+      // Date Intelligence fields for notes
+      target_date: (entity as any)?.target_date ?? (entity?.views as any)?.target_date ?? null,
+      event_time: (entity as any)?.event_time ?? (entity?.views as any)?.event_time ?? null,
     },
     todo: {
       title: todoTitle,
@@ -10112,6 +10305,10 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       due_time: (entity as any)?.due_time ?? null,
       time_estimate_minutes: (entity as any)?.time_estimate_minutes ?? null,
       time_window: (entity as any)?.time_window ?? null,
+      // Date Intelligence fields for todos
+      target_date: (entity as any)?.target_date ?? (entity?.views as any)?.target_date ?? null,
+      scheduled_date:
+        (entity as any)?.scheduled_date ?? (entity?.views as any)?.scheduled_date ?? null,
     },
     habit: {
       title: name || title || '',

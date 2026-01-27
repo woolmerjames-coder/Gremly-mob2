@@ -6,7 +6,16 @@ export type TagKey = string;
 
 export type LogKind = 'journal' | 'idea' | 'list' | 'basic';
 
-export type LogState = { body: string; title: string; kind: LogKind; private: boolean };
+export type LogState = {
+  body: string;
+  title: string;
+  kind: LogKind;
+  private: boolean;
+  /** Date Intelligence: Event date for notes (when it IS) */
+  target_date?: string | null;
+  /** Date Intelligence: Event time if applicable */
+  event_time?: string | null;
+};
 
 /**
  * Classify log kind based on content heuristics.
@@ -56,6 +65,10 @@ export type TodoState = {
   time_estimate_minutes?: number | null;
   /** Preferred time of day for scheduling (from AI or user) */
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
+  /** Date Intelligence: When it's due/event date (deadline) - external, immovable */
+  target_date?: string | null;
+  /** Date Intelligence: When user will work on it - internal, movable */
+  scheduled_date?: string | null;
 };
 
 /**
@@ -164,7 +177,7 @@ export const initialV2State: V2State = {
   compactTitle: '',
   compactTitleSource: '',
   userEditedTitle: false,
-  log: { title: '', body: '', kind: 'basic', private: false },
+  log: { title: '', body: '', kind: 'basic', private: false, target_date: null, event_time: null },
   todo: {
     title: '',
     details: '',
@@ -173,6 +186,8 @@ export const initialV2State: V2State = {
     due_time: null,
     time_estimate_minutes: null,
     time_window: null,
+    target_date: null,
+    scheduled_date: null,
   },
   habit: {
     title: '',
@@ -208,6 +223,8 @@ type Action =
   | { type: 'SET_HABIT_END_DATE'; date: string | null }
   | { type: 'SET_TODO_TIME_ESTIMATE'; minutes: number | null }
   | { type: 'SET_TODO_TIME_WINDOW'; window: 'any' | 'morning' | 'day' | 'evening' | null }
+  | { type: 'SET_TODO_TARGET_DATE'; date: string | null }
+  | { type: 'SET_TODO_SCHEDULED_DATE'; date: string | null }
   | { type: 'SET_HABIT_TIME_WINDOW'; window: 'any' | 'morning' | 'day' | 'evening' | null }
   | { type: 'SET_HABIT_TIME_ESTIMATE'; minutes: number | null }
   | { type: 'TOGGLE_COMMITMENT' }
@@ -224,6 +241,8 @@ type Action =
   | { type: 'SET_PERSON'; person: PersonLink }
   | { type: 'SET_FORMAT'; fmt: FormatKind }
   | { type: 'SET_REMINDER'; when: string | null }
+  | { type: 'SET_LOG_TARGET_DATE'; date: string | null }
+  | { type: 'SET_LOG_EVENT_TIME'; time: string | null }
   | { type: 'TOGGLE_LOG_PRIVATE' }
   | { type: 'SET_LOG_SUBTYPE_OVERRIDE'; value: LogSubtypeOverride }
   | { type: 'SET_LOG_IS_PRIVATE'; value: boolean }
@@ -442,6 +461,10 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, todo: { ...state.todo, time_estimate_minutes: action.minutes } };
     case 'SET_TODO_TIME_WINDOW':
       return { ...state, todo: { ...state.todo, time_window: action.window } };
+    case 'SET_TODO_TARGET_DATE':
+      return { ...state, todo: { ...state.todo, target_date: action.date } };
+    case 'SET_TODO_SCHEDULED_DATE':
+      return { ...state, todo: { ...state.todo, scheduled_date: action.date } };
     case 'SET_HABIT_TIME_WINDOW':
       return { ...state, habit: { ...state.habit, time_window: action.window } };
     case 'SET_HABIT_TIME_ESTIMATE':
@@ -493,6 +516,10 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, format: action.fmt };
     case 'SET_REMINDER':
       return { ...state, reminderAt: action.when };
+    case 'SET_LOG_TARGET_DATE':
+      return { ...state, log: { ...state.log, target_date: action.date } };
+    case 'SET_LOG_EVENT_TIME':
+      return { ...state, log: { ...state.log, event_time: action.time } };
     case 'TOGGLE_LOG_PRIVATE':
       return { ...state, log: { ...state.log, private: !state.log.private } };
     case 'SET_LOG_SUBTYPE_OVERRIDE':
