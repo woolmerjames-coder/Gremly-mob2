@@ -1660,43 +1660,49 @@ const Row3Chips: React.FC<{
         {/* Context chip (deadline, frequency, type label, etc.) */}
         {renderContextChip()}
 
-        {/* Start date chip for habits - before time estimate */}
-        {effectiveKind === 'habit' && (
-          <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
-        )}
+        {/* Phase 2 chips: HIDE while clarification is pending */}
+        {/* These chips are based on Phase 1 guesses - don't show until user confirms intent */}
+        {!needsClarification && (
+          <>
+            {/* Start date chip for habits - before time estimate */}
+            {effectiveKind === 'habit' && (
+              <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
+            )}
 
-        {/* Time estimate chip for todos AND habits */}
-        {(effectiveKind === 'todo' || effectiveKind === 'habit') && item.time_estimate_minutes && (
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              Alert.alert(
-                '⏱️ Time Estimate',
-                effectiveKind === 'habit'
-                  ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
-                  : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
-                [{ text: 'Got it', style: 'default' }],
-              );
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <View style={styles.timeEstimateChip}>
-              <Clock size={10} color="#888" strokeWidth={2} />
-              <Text style={styles.timeEstimateText}>
-                {formatTimeEstimate(item.time_estimate_minutes)}
-              </Text>
-            </View>
-          </Pressable>
-        )}
+            {/* Time estimate chip for todos AND habits */}
+            {(effectiveKind === 'todo' || effectiveKind === 'habit') && item.time_estimate_minutes && (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  Alert.alert(
+                    '⏱️ Time Estimate',
+                    effectiveKind === 'habit'
+                      ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
+                      : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                    [{ text: 'Got it', style: 'default' }],
+                  );
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <View style={styles.timeEstimateChip}>
+                  <Clock size={10} color="#888" strokeWidth={2} />
+                  <Text style={styles.timeEstimateText}>
+                    {formatTimeEstimate(item.time_estimate_minutes)}
+                  </Text>
+                </View>
+              </Pressable>
+            )}
 
-        {/* People chip */}
-        {hasPeople && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-            <User size={10} color="#6B8E6B" strokeWidth={2.5} />
-            <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
-              {item.views!.people![0]}
-            </Text>
-          </View>
+            {/* People chip */}
+            {hasPeople && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <User size={10} color="#6B8E6B" strokeWidth={2.5} />
+                <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
+                  {item.views!.people![0]}
+                </Text>
+              </View>
+            )}
+          </>
         )}
       </View>
     </AnimatedChipsTransition>
