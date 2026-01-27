@@ -2585,11 +2585,20 @@ LOG/idea — Exploration without commitment:
 - Vague interest: "pottery class sometime"
 - Not decided: "thinking about switching careers"
 
-LOG/general — Information or unclear intent:
-- Reference info: "john's number is 555-1234"
+LOG/general — Reference information, status updates, or stated facts:
+- Reference info with existence verb: "john's number is 555-1234", "mum's birthday is August 22nd"
 - Status updates: "meeting moved to thursday"
-- Fuzzy aspirations: "drink more water", "eat healthier" (no frequency)
-- Genuinely ambiguous: "dentist", "standing desk" (unclear intent)
+- Fuzzy aspirations with no actionable path: "drink more water", "eat healthier"
+
+**CRITICAL — Existence verbs signal reference, not action:**
+- "mum's birthday IS August 22nd" → Has "is" → Stating a fact → LOG/general, NOT ambiguous
+- "mum birthday August 22" → No verb → Could be noting OR action needed → AMBIGUOUS
+
+The presence of "is", "have", "got" signals the user is stating information.
+The ABSENCE of any verb means intent is unclear — flag as ambiguous.
+
+LOG/general is for content where you're CONFIDENT there's no action needed.
+It is NOT a dumping ground for uncertainty. If intent is unclear, flag is_ambiguous: true.
 
 === STRUCTURAL SIGNALS (SUPPORTING EVIDENCE) ===
 
@@ -2639,7 +2648,11 @@ The test: **Is there a clear action verb (buy, call, text, send, book, submit, t
 **Low confidence (0.4-0.6):**
 - Genuinely ambiguous
 - Could reasonably be multiple buckets
-- DEFAULT TO LOG/general — safe capture, user decides in Sweep
+- Set is_ambiguous: true and use LOG as hedged bucket
+- The ambiguity FLAG is what matters — it triggers clarification
+
+DO NOT use LOG/general as a dumping ground for uncertainty.
+If you're uncertain whether action is needed, FLAG IT with is_ambiguous: true.
 
 **The principle:** Only use LOG/general as fallback when GENUINELY uncertain after semantic analysis. It should be rare, not the default. Most inputs have clear intent if you understand them semantically.
 
@@ -2740,13 +2753,14 @@ UNCLEAR (ambiguous):
 - "Thinking about switching careers" → LOG/idea (exploring, no action)
 - "App idea: calorie tracker" → LOG/idea (concept capture)
 
-**LOG/general** (reference, vague, or genuinely ambiguous):
+**LOG/general** (reference info, status updates, stated facts):
 - "John's number is 555-1234" → LOG/general (reference info)
 - "Meeting moved to Thursday" → LOG/general (status update)
-- "Drink more water" → LOG/general (vague, no frequency)
+- "Mum's birthday is August 22nd" → LOG/general (existence verb "is" = stating fact)
+- "Drink more water" → LOG/general (vague aspiration, no actionable path)
 - "Exercise more" → LOG/general (vague aspiration)
-- "Dentist" → LOG/general (ambiguous intent)
-- "Standing desk" → LOG/general (unclear — noting or buying?)
+
+NOTE: "Dentist" and "Standing desk" should NOT be LOG/general — they should be flagged as AMBIGUOUS because intent is unclear.
 
 **NOT habits** (missing explicit frequency):
 - "Go to the gym" → TODO (single instance, no frequency stated)
