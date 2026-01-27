@@ -400,6 +400,10 @@ async function syncDropToSupabase(
         due_day: dueDay,
         due_date: dueDay,
         due_time: parsedFields.dueTime || null,
+        // Date Intelligence fields (Phase 2)
+        target_date: enrichment?.target_date || null,
+        scheduled_date: enrichment?.scheduled_date || null,
+        date_type_ambiguous: enrichment?.date_type_ambiguous || false,
         // Phase 2: Clarification fields (direct columns)
         needs_clarification: drop.needsClarification || false,
         clarification_type: drop.clarificationType || null,
@@ -411,6 +415,8 @@ async function syncDropToSupabase(
           ai_pending: false,
           confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
+          // Date Intelligence in views for redundancy
+          target_date: enrichment?.target_date || null,
           // Phase 2: Clarification fields (also in views for redundancy)
           needs_clarification: drop.needsClarification || false,
           clarification_type: drop.clarificationType || null,
@@ -495,6 +501,11 @@ async function syncDropToSupabase(
         origin: source === 'space' ? 'space_chat' : 'catchall',
         tags: enrichment?.tags || [],
         mood: enrichment?.mood || null,
+        // Date Intelligence fields (Phase 2)
+        target_date: enrichment?.target_date || null,
+        scheduled_date: enrichment?.scheduled_date || null,
+        event_time: enrichment?.event_time || null,
+        date_type_ambiguous: enrichment?.date_type_ambiguous || false,
         // Phase 2: Clarification fields (direct columns)
         needs_clarification: drop.needsClarification || false,
         clarification_type: drop.clarificationType || null,
@@ -506,6 +517,8 @@ async function syncDropToSupabase(
           ai_pending: false,
           confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
+          // Date Intelligence in views for redundancy
+          target_date: enrichment?.target_date || null,
           // Phase 2: Clarification fields (also in views for redundancy)
           needs_clarification: drop.needsClarification || false,
           clarification_type: drop.clarificationType || null,
