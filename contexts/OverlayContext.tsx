@@ -238,48 +238,34 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleClarificationSelect = useCallback(
-    async (optionId: string) => {
+    (optionId: string) => {
       if (!clarificationPopup.entityId) return;
-
-      setClarificationLoading(true);
 
       // Check if this is free text input (prefixed with "freetext:")
       const isFreeText = optionId.startsWith('freetext:');
       const selectionValue = isFreeText ? optionId.slice('freetext:'.length) : optionId;
       
       console.log('[GlobalOverlay] Clarification selection:', {
+        entityId: clarificationPopup.entityId,
         isFreeText,
         value: selectionValue.substring(0, 50),
       });
 
-      try {
-        await resolvePendingDropClarification(
-          clarificationPopup.entityId, 
-          selectionValue,
-          isFreeText // Pass flag so store knows this is free text
-        );
-
-        // Haptic feedback
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-        // Show success state
-        setClarificationLoading(false);
-        setClarificationSuccess('Got it — updated!');
-
-        // Wait for user to see success message, then close
-        // Note: Events are emitted by resolvePendingDropClarification in the store
-        // (entity:deleted for old entity, entity:created for new entity)
-        setTimeout(() => {
-          closeClarificationPopup();
-          console.log('[GlobalOverlay] Clarification resolved, popup closed');
-        }, 1200);
-      } catch (error) {
-        console.error('[GlobalOverlay] Clarification failed:', error);
-        setClarificationLoading(false);
-        closeClarificationPopup();
-      }
+      // Fire and forget - don't await
+      // The popup shows instant success and dismisses itself
+      // The card shows processing animation and updates progressively
+      resolvePendingDropClarification(
+        clarificationPopup.entityId, 
+        selectionValue,
+        isFreeText
+      ).catch((error) => {
+        console.error('[GlobalOverlay] Clarification resolution failed:', error);
+      });
+      
+      // Note: Popup dismisses itself after showing "Great, on it"
+      // We don't close it here anymore
     },
-    [clarificationPopup.entityId, resolvePendingDropClarification, closeClarificationPopup],
+    [clarificationPopup.entityId, resolvePendingDropClarification],
   );
 
   const handleClarificationSkip = useCallback(() => {
