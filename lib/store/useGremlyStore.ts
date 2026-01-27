@@ -5358,11 +5358,13 @@ export const useGremlyStore = create<GremlyState>()(
       });
 
       // Step 1: Mark clarification as skipped and set ai_pending for shimmer animation
+      // Also set a normal confirmation message to replace the "tap me" style message
       const skippedViews: Record<string, unknown> = {
         ...views,
         needs_clarification: false,
         clarification_resolved: true,
         clarification_skipped: true,
+        confirmation_message: 'Captured for later.',
         ai_pending: true,
         minddrop_stage: 'classified',
       };
@@ -5375,6 +5377,7 @@ export const useGremlyStore = create<GremlyState>()(
                   ...n,
                   needs_clarification: false,
                   clarification_resolved: true,
+                  confirmation_message: 'Captured for later.',
                   views: skippedViews,
                 }
               : n,
@@ -5388,6 +5391,7 @@ export const useGremlyStore = create<GremlyState>()(
                   ...t,
                   needs_clarification: false,
                   clarification_resolved: true,
+                  confirmation_message: 'Captured for later.',
                   views: skippedViews,
                 }
               : t,
@@ -5401,6 +5405,7 @@ export const useGremlyStore = create<GremlyState>()(
                   ...h,
                   needs_clarification: false,
                   clarification_resolved: true,
+                  confirmation_message: 'Captured for later.',
                   views: skippedViews,
                 }
               : h,
