@@ -1999,7 +1999,23 @@ const RevealingCard: React.FC<{
   // This prevents Phase 2 updates from restarting the typewriter animation
   // Using useState initializer to freeze on first render (only runs once)
   const [titleText] = React.useState(() => item.title || item.text || '—');
-  const [confirmationText] = React.useState(() => getConfirmationMessage(effectiveKind, item));
+
+  // For confirmation text: freeze it UNLESS the item needs clarification
+  // Clarification cards should show the tap prompt immediately, not the AI confirmation
+  const [frozenConfirmationText] = React.useState(() =>
+    getConfirmationMessage(effectiveKind, item),
+  );
+
+  // Check if this item needs clarification (reactive - responds to item updates)
+  const needsClarification =
+    (item.needs_clarification || item.views?.needs_clarification) &&
+    !item.clarification_resolved &&
+    !item.views?.clarification_resolved;
+
+  // Use reactive confirmation for clarification cards, frozen for normal cards
+  const confirmationText = needsClarification
+    ? getConfirmationMessage(effectiveKind, item) // Reactive - will show tap prompt
+    : frozenConfirmationText; // Frozen - prevents typewriter restart
 
   // Memoize callbacks to prevent re-renders
   const handleLine1Done = React.useCallback(() => setLine1Done(true), []);
