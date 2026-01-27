@@ -2000,62 +2000,108 @@ INPUT: "${text}"
 DETECTED TEMPORAL: ${detectedTemporal || 'none'}
 AMBIGUITY REASON: ${ambiguityReason}
 
-=== YOUR GOAL ===
+=== STEP 1: DETERMINE AMBIGUITY TYPE ===
 
-Generate a short question and 2-3 option labels that will RESOLVE the ambiguity.
+Read the AMBIGUITY REASON and INPUT to determine what kind of clarification is needed:
 
-The user will tap one option OR type their own explanation. Options should cover the most likely intents.
+**DATE TYPE AMBIGUITY** — The input has a date, but we don't know what it means:
+- Signals in reason: "date meaning", "when to do vs when it is", "event or action", "deadline or scheduled"
+- Signals in input: Action verb + noun + date (e.g., "book half marathon Feb 1", "schedule dentist Monday")
+- Question should ask: Is the date when something IS/happens, or when to DO the action?
 
-=== OUTCOME-FIRST THINKING ===
+**BUCKET AMBIGUITY** — We don't know if this is a todo, habit, or note:
+- Signals in reason: "unclear intent", "bare noun", "no verb", "could be multiple buckets"
+- Signals in input: No clear action verb, vague aspiration, noun + date without context
+- Question should ask: What do you want to do with this?
 
-**CRITICAL: Each option must lead to a DIFFERENT classification outcome.**
+=== STEP 2: GENERATE APPROPRIATE QUESTION ===
 
-Before writing options, identify what different outcomes are possible:
-- **TODO** — A one-time action to complete soon
-- **HABIT** — An ongoing behavior to track over time
-- **LOG/idea** — A thought to capture, no commitment
-- **LOG/general** — Information about something that exists
+**FOR DATE TYPE AMBIGUITY:**
 
-**THE PROCESS:**
-1. What are the 2-3 genuinely different things this input could mean?
-2. What outcome (bucket) would each interpretation lead to?
-3. Write ONE option for each different outcome
-4. Verify: if options lead to the same outcome, revise or remove one
+The user has an action + date. We need to know if the date is:
+- TARGET DATE: When something IS, HAPPENS, or is DUE (external, immovable)
+- SCHEDULED DATE: When the user will DO the action (internal, movable)
 
-**THE KEY FORK FOR MOST INPUTS:**
+Question pattern: "Is [date] when [the thing] is, or when you'll [action]?"
 
-Ask: "Is this something to DO ONCE, TRACK OVER TIME, or just CAPTURE?"
+Options should be:
+1. One option for "that's when it IS" → will become target_date
+2. One option for "that's when I'll DO it" → will become scheduled_date
+
+Examples:
+
+INPUT: "book half marathon Feb 1"
+{
+  "question": "Is Feb 1 when the race is, or when you'll book?",
+  "options": [
+    { "id": "event_date", "label": "That's when the race is" },
+    { "id": "action_date", "label": "That's when I'll book it" }
+  ]
+}
+
+INPUT: "schedule dentist Monday"
+{
+  "question": "Is Monday when the appointment is, or when you'll call?",
+  "options": [
+    { "id": "event_date", "label": "That's when the appointment is" },
+    { "id": "action_date", "label": "That's when I'll schedule it" }
+  ]
+}
+
+INPUT: "passport June"
+{
+  "question": "What's happening with the passport in June?",
+  "options": [
+    { "id": "trip_date", "label": "I have a trip then" },
+    { "id": "expiry_date", "label": "It expires — need to renew" }
+  ]
+}
+
+**FOR BUCKET AMBIGUITY:**
+
+Generate options that lead to DIFFERENT classification outcomes.
+
+Question pattern: Natural question about intent
+Options should cover: TODO (action), HABIT (recurring), LOG/idea (just capturing)
+
+Examples:
+
+INPUT: "standing desk"
+{
+  "question": "What's the plan?",
+  "options": [
+    { "id": "action", "label": "I want to buy one" },
+    { "id": "idea", "label": "Just a thought for now" }
+  ]
+}
+
+INPUT: "gym Monday"
+{
+  "question": "One-time or building a habit?",
+  "options": [
+    { "id": "one_time", "label": "Just going this Monday" },
+    { "id": "habit", "label": "Starting to go regularly" }
+  ]
+}
 
 === NATURAL LANGUAGE RULES ===
 
-Options must sound like a human describing their situation, NOT like selecting a database category.
+Options must sound like a human describing their situation.
 
 **NEVER use these words in options:**
-- "track", "habit", "todo", "log", "routine" (too system-y)
-- "classify", "categorize", "bucket" (internal terms)
+- "track", "habit", "todo", "log", "routine", "target date", "scheduled date"
+- "classify", "categorize", "bucket"
 
-**GOOD — Natural, describes the situation:**
+**GOOD — Natural:**
+- "That's when the race is"
+- "That's when I'll book it"
 - "I want to do this regularly"
 - "Just a thought for now"
-- "I need to do this soon"
-- "I already have this scheduled"
-- "Not sure yet — just capturing it"
 
-**BAD — Sounds like selecting a category:**
+**BAD — System-y:**
+- "Set as target date"
 - "Track this as a habit"
-- "Save as an idea"
-- "Add to my todos"
-- "Make it recurring"
-
-**THE VIBE:**
-User is completing the sentence "I..." with their actual situation, not picking a system label.
-
-=== OPTION LABELS ===
-
-Write labels as if the user is completing the sentence "I..."
-- 3-8 words
-- Natural language, not formal
-- Mutually exclusive (picking one rules out the others)
+- "Save as scheduled date"
 
 === OUTPUT FORMAT ===
 
@@ -2070,81 +2116,9 @@ Return ONLY valid JSON:
 }
 
 - question: Natural, friendly, specific to the input
-- options: 2-3 options, each with id (snake_case) and label (what user taps)
-- NO bucket, action, or classification data — just labels
-
-=== EXAMPLES ===
-
-INPUT: "dentist Tuesday"
-AMBIGUITY REASON: "noun + date, unclear if existing appointment or need to book"
-{
-  "question": "What's the dentist situation?",
-  "options": [
-    { "id": "have_appointment", "label": "I have an appointment Tuesday" },
-    { "id": "need_to_book", "label": "I need to book/call about it" }
-  ]
-}
-
-INPUT: "passport June"
-AMBIGUITY REASON: "noun + date, unclear if trip or expiration"
-{
-  "question": "What's happening with the passport?",
-  "options": [
-    { "id": "trip", "label": "I have a trip in June" },
-    { "id": "expiring", "label": "It expires — need to renew" }
-  ]
-}
-
-INPUT: "gym Monday"
-AMBIGUITY REASON: "activity + date, unclear if one-time or habit"
-{
-  "question": "One-time or building a habit?",
-  "options": [
-    { "id": "one_time", "label": "Just going this Monday" },
-    { "id": "habit", "label": "Starting to go regularly" }
-  ]
-}
-
-INPUT: "mom birthday March 5"
-AMBIGUITY REASON: "noun + date, unclear if noting or action needed"
-{
-  "question": "What about mom's birthday?",
-  "options": [
-    { "id": "noting", "label": "Just noting the date" },
-    { "id": "gift", "label": "I need to get a gift" },
-    { "id": "party", "label": "I need to plan something" }
-  ]
-}
-
-INPUT: "standing desk"
-AMBIGUITY REASON: "bare noun, unclear if buying or noting idea"
-{
-  "question": "What's the plan?",
-  "options": [
-    { "id": "action", "label": "I want to buy one" },
-    { "id": "idea", "label": "Just a thought for now" }
-  ]
-}
-
-INPUT: "drink more water"
-AMBIGUITY REASON: "vague aspiration, unclear if commitment or thought"
-{
-  "question": "What did you have in mind?",
-  "options": [
-    { "id": "ongoing", "label": "I want to do this regularly" },
-    { "id": "thought", "label": "Just a thought for now" }
-  ]
-}
-
-INPUT: "gym Monday"
-AMBIGUITY REASON: "activity + date, unclear if one-time or recurring"
-{
-  "question": "One-time or ongoing?",
-  "options": [
-    { "id": "once", "label": "Just this Monday" },
-    { "id": "ongoing", "label": "I want to go regularly" }
-  ]
-}`;
+- options: 2-3 options, each with id (snake_case) and label
+- For date ambiguity: use ids like "event_date", "action_date", "trip_date", "expiry_date"
+- For bucket ambiguity: use ids like "action", "habit", "idea", "noting"`;
 
         const t0 = Date.now();
 
