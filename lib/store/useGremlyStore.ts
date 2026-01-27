@@ -4803,8 +4803,11 @@ export const useGremlyStore = create<GremlyState>()(
               // Habit-specific fields
               if (entityType === 'habit') {
                 if (phase2Result.extracted_frequency) {
-                  phase2Updates.frequency = phase2Result.extracted_frequency;
-                  phase2Updates.cadence = phase2Result.extracted_frequency;
+                  // Parse frequency string into canonical fields
+                  const parsed = parseHabitFrequency(phase2Result.extracted_frequency);
+                  phase2Updates.frequency = parsed.frequency;
+                  phase2Updates.cadence = parsed.cadence;
+                  phase2Updates.target_per_period = parsed.target_per_period;
                 }
                 if (phase2Result.extracted_days && Array.isArray(phase2Result.extracted_days)) {
                   phase2Updates.days_active = phase2Result.extracted_days;
@@ -5183,8 +5186,11 @@ export const useGremlyStore = create<GremlyState>()(
               // Habit-specific fields
               if (targetBucket === 'habit') {
                 if (phase2Result.extracted_frequency) {
-                  phase2Updates.frequency = phase2Result.extracted_frequency;
-                  phase2Updates.cadence = phase2Result.extracted_frequency;
+                  // Parse frequency string into canonical fields
+                  const parsed = parseHabitFrequency(phase2Result.extracted_frequency);
+                  phase2Updates.frequency = parsed.frequency;
+                  phase2Updates.cadence = parsed.cadence;
+                  phase2Updates.target_per_period = parsed.target_per_period;
                 }
                 if (phase2Result.extracted_days && Array.isArray(phase2Result.extracted_days)) {
                   phase2Updates.days_active = phase2Result.extracted_days;
