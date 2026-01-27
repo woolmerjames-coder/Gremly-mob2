@@ -3670,6 +3670,8 @@ const RecentDrops: React.FC<{
             views: noteAny?.views ?? {},
             hasPhotos: noteAny?.views?.has_photos === true,
             mood: noteAny?.mood ?? null,
+            // Date Intelligence fields (for notes with event dates)
+            target_date: noteAny?.target_date ?? null,
             // Multi-entity support: extract from views to top level
             is_multi: noteAny?.views?.is_multi === true,
             multi_items: noteAny?.views?.multi_items ?? undefined,
@@ -3702,6 +3704,10 @@ const RecentDrops: React.FC<{
             due_date: t.due_date ?? null,
             due_day: (t as any).due_day ?? null,
             due_time: (t as any).due_time ?? null,
+            // Date Intelligence fields
+            target_date: (t as any).target_date ?? null,
+            scheduled_date: (t as any).scheduled_date ?? null,
+            date_type_ambiguous: (t as any).date_type_ambiguous ?? false,
             tags: toTagList((t as any)?.tags),
             drop_id: (t as any)?.drop_id ?? null,
             canonical_type: (t as any)?.canonical_type ?? null,
