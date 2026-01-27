@@ -3457,7 +3457,19 @@ TAGS (ALL TYPES):
 - 2–4 lowercase, hyphenated
 - Category + topic
 - No filler words
-- No people names
+- No people names (people go in the people array instead)
+
+--------------------------------
+PEOPLE EXTRACTION:
+--------------------------------
+9. people
+Extract names of people mentioned in the text. Include:
+- Explicit names: "John", "Sarah", "Dr. Smith"
+- Relationship words: "mom", "dad", "sister", "brother", "boss", "wife", "husband"
+- Possessive patterns: "dad's anniversary" → extract "dad", "mom's birthday" → extract "mom"
+- Referenced people: "the one Sarah recommended" → extract "Sarah"
+
+Return as array of strings, max 10 people.
 
 === OUTPUT ===
 Return ONLY valid JSON.
@@ -3491,14 +3503,16 @@ For LOGS (journal):
   "tags": ["tag1", "tag2"],
   "mood": ["anxious", "grateful"] | null,
   "target_date": "YYYY-MM-DD" | null,
-  "event_time": "HH:mm" | null
+  "event_time": "HH:mm" | null,
+  "people": ["name1", "name2"] | []
 }
 
 For LOGS (idea/general):
 {
   "tags": ["tag1", "tag2"],
   "target_date": "YYYY-MM-DD" | null,
-  "event_time": "HH:mm" | null
+  "event_time": "HH:mm" | null,
+  "people": ["name1", "name2"] | []
 }`;
 
         const t0 = Date.now();
