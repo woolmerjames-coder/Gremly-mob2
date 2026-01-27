@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View, Keyboard } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -51,6 +51,10 @@ export function ClarificationPopup({
 }: ClarificationPopupProps) {
   const scale = useSharedValue(0.9);
   const opacity = useSharedValue(0);
+  
+  // Free text input state
+  const [freeText, setFreeText] = React.useState('');
+  const [isTextInputFocused, setIsTextInputFocused] = React.useState(false);
 
   // Auto-detect loading state when Phase 1.5 hasn't completed yet
   // Options loading: question or options not ready
@@ -69,6 +73,9 @@ export function ClarificationPopup({
     } else {
       scale.value = 0.9;
       opacity.value = 0;
+      // Reset free text when popup closes
+      setFreeText('');
+      setIsTextInputFocused(false);
     }
   }, [visible, scale, opacity]);
 
@@ -81,6 +88,17 @@ export function ClarificationPopup({
     console.log('[ClarificationPopup] Option pressed:', { optionId });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onSelectOption(optionId);
+  };
+
+  const handleFreeTextSubmit = () => {
+    const trimmed = freeText.trim();
+    if (trimmed.length < 2) return; // Ignore very short input
+    
+    console.log('[ClarificationPopup] Free text submitted:', { text: trimmed });
+    Keyboard.dismiss();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Pass free text as the "optionId" - reclassify will handle it as selectedLabel
+    onSelectOption(`freetext:${trimmed}`);
   };
 
   const handleSkipPress = () => {
@@ -143,7 +161,7 @@ export function ClarificationPopup({
       statusBarTranslucent
       onRequestClose={onSkip}
     >
-      <View style={styles.backdrop}>
+      <Pressable style={styles.backdrop} onPress={Keyboard.dismiss}>
         <Animated.View style={[styles.card, animatedCardStyle]}>
           <Text style={styles.question}>{question}</Text>
 
@@ -162,6 +180,37 @@ export function ClarificationPopup({
             ))}
           </View>
 
+          {/* Free text input */}
+          <View style={styles.freeTextContainer}>
+            <TextInput
+              style={[
+                styles.freeTextInput,
+                isTextInputFocused && styles.freeTextInputFocused,
+              ]}
+              placeholder="Or explain more..."
+              placeholderTextColor="#9CA39C"
+              value={freeText}
+              onChangeText={setFreeText}
+              onFocus={() => setIsTextInputFocused(true)}
+              onBlur={() => setIsTextInputFocused(false)}
+              onSubmitEditing={handleFreeTextSubmit}
+              returnKeyType="done"
+              maxLength={200}
+              multiline={false}
+            />
+            {freeText.trim().length >= 2 && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.freeTextSubmit,
+                  pressed && styles.freeTextSubmitPressed,
+                ]}
+                onPress={handleFreeTextSubmit}
+              >
+                <Text style={styles.freeTextSubmitText}>Go</Text>
+              </Pressable>
+            )}
+          </View>
+
           <Pressable
             style={({ pressed }) => [styles.skipButton, pressed && styles.skipButtonPressed]}
             onPress={handleSkipPress}
@@ -169,7 +218,7 @@ export function ClarificationPopup({
             <Text style={styles.skipText}>Skip for now</Text>
           </Pressable>
         </Animated.View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }
@@ -265,6 +314,46 @@ const styles = StyleSheet.create({
     color: '#8A8F8A',
     textAlign: 'center',
     fontFamily: 'Inter-Regular',
+  },
+  freeTextContainer: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  freeTextInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderColor: 'rgba(142, 156, 142, 0.3)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#2E3A2E',
+    backgroundColor: 'rgba(250, 252, 250, 0.8)',
+  },
+  freeTextInputFocused: {
+    borderColor: '#4A7C59',
+    backgroundColor: '#FFFFFF',
+  },
+  freeTextSubmit: {
+    height: 40,
+    paddingHorizontal: 16,
+    backgroundColor: '#4A7C59',
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  freeTextSubmitPressed: {
+    opacity: 0.8,
+  },
+  freeTextSubmitText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    fontFamily: 'Inter-SemiBold',
   },
 });
 
