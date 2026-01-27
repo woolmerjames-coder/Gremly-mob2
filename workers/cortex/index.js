@@ -2257,42 +2257,54 @@ Generate a 3-7 word title that reflects the CLARIFIED intent:
 
 NO temporal words in titles (tomorrow, Tuesday, next week) — dates are stored separately.
 
-=== CONFIRMATION MESSAGE (4-10 words) ===
+=== CONFIRMATION MESSAGE (4-8 words) ===
 
-This is Gremly's voice — warm, specific, gently playful. Like a supportive friend who actually listened.
+Write a SHORT, WARM message that Gremly says to acknowledge the user's clarified intent.
 
-STRICT RULES:
-- 4-10 words MAXIMUM
-- NO exclamation marks (too perky)
-- Reference something SPECIFIC from the clarified intent
+THE RULE: Reference something SPECIFIC from their text — a noun, name, place, verb, or feeling. Gremly heard what they said and reflects it back with warmth.
 
-NEVER SAY:
-- "Got it", "On it", "Noted" alone or as the start
-- "I'll remind you to..."
-- "Added to your list"
-- Anything generic that could apply to any item
-- Anything longer than 10 words
+RULES:
+1. Pull a SPECIFIC word from their input (the passport, the dentist, the gym, mom's birthday, June, Monday)
+2. React to THAT thing with personality
+3. Keep it to 4-8 words max (must fit one line)
+4. No exclamation marks
+5. Never just restate the title
 
-GOOD EXAMPLES:
+GOOD EXAMPLES (notice the specific references):
 
-For TODOs:
-- "Dentist booking, on the radar."
-- "Passport renewal — adulting mode."
-- "Gift for mom, tracked."
-- "That call won't slip away."
+Input: "passport June" + selected "I have a trip in June"
+→ "June adventures await."
 
-For HABITs:
-- "Gym habit, let's build it."
-- "Meditation practice starting strong."
-- "Regular runs, here we go."
+Input: "passport June" + selected "It expires — need to renew"  
+→ "Passport's not gonna renew itself."
 
-For LOGs:
-- "Trip noted for June."
-- "Appointment locked in mentally."
-- "Idea tucked away."
-- "Birthday marked."
+Input: "dentist Tuesday" + selected "I have an appointment"
+→ "Tuesday teeth time. Brave."
 
-Keep it SHORT. If in doubt, make it shorter.
+Input: "dentist Tuesday" + selected "I need to book one"
+→ "Dentist won't book itself."
+
+Input: "gym Monday" + selected "Just going this Monday"
+→ "Monday gains incoming."
+
+Input: "gym Monday" + selected "Starting to go regularly"
+→ "Gym era begins."
+
+Input: "mom birthday March 5" + selected "Just noting the date"
+→ "March 5, locked in."
+
+Input: "mom birthday March 5" + selected "I need to get a gift"
+→ "Mom's gonna love it."
+
+BAD EXAMPLES (too generic, no specific reference):
+- "Task noted." ❌
+- "Got it." ❌
+- "On the radar." ❌
+- "Adulting mode." ❌
+- "Safe with me." ❌
+- "Tracked." ❌
+
+THE TEST: Does the message contain a word from the user's original input? If not, rewrite it.
 
 ${targetBucket === 'todo' || targetBucket === 'habit' ? `
 === TIME ESTIMATE ===
@@ -2423,17 +2435,13 @@ Rules:
             : null;
 
           // Validate and sanitize confirmation message
-          let confirmationMessage = parsed.confirmation_message || 'Updated.';
-          if (confirmationMessage) {
-            confirmationMessage = String(confirmationMessage).trim();
-            // Remove exclamation marks (too perky)
-            confirmationMessage = confirmationMessage.replace(/!/g, '.');
-            // Clean up double periods
-            confirmationMessage = confirmationMessage.replace(/\.\./g, '.');
-            // Truncate if too long (max ~60 chars / ~10 words)
-            if (confirmationMessage.length > 60) {
-              confirmationMessage = confirmationMessage.substring(0, 57) + '...';
-            }
+          let confirmationMessage = parsed.confirmation_message || 'Captured.';
+          confirmationMessage = String(confirmationMessage).trim();
+          // Remove exclamation marks (too perky)
+          confirmationMessage = confirmationMessage.replace(/!/g, '');
+          // Hard cap for single line (45 chars max)
+          if (confirmationMessage.length > 45) {
+            confirmationMessage = confirmationMessage.substring(0, 42).trim() + '...';
           }
 
           console.log('[Reclassify] Success', {
