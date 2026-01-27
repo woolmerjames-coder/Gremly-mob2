@@ -3513,6 +3513,9 @@ Examples:
 
 Named days (Monday, Tuesday, etc.) → calculate next occurrence from current date.
 
+IMPORTANT: Do NOT skip date extraction just because bucket is "log".
+If a date is mentioned, extract it.
+
 7. mood (JOURNAL ONLY)
 Choose up to 3:
 great, good, okay, low, tired,
