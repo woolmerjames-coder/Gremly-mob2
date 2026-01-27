@@ -2667,17 +2667,22 @@ Words that count as evidence:
 
 **How evidence maps to confidence:**
 
-High confidence: You can point to specific words that reveal intent.
+**High confidence (0.8-1.0) — You have EVIDENCE:**
+- You can point to specific words that reveal intent
+- is_ambiguous: false
 
-Medium confidence: The input leans one way based on context, but no single word proves it.
+**Medium confidence (0.7-0.8) — You're INTERPRETING:**
+- The input leans one way based on context
+- But you can't point to a specific word that proves it
+- This is still below 0.8, so set is_ambiguous: true
 
-Low confidence: Multiple interpretations are equally valid. You cannot point to words that disambiguate.
+**Low confidence (below 0.7) — You're GUESSING:**
+- Multiple interpretations are equally valid
+- You cannot point to specific words that disambiguate
+- Set is_ambiguous: true
+- Use LOG as hedged bucket, but the FLAG is what matters
 
-**How evidence relates to ambiguity:**
-
-When you have evidence, you know. When you don't have evidence, you're guessing.
-
-If you're guessing between interpretations, the user needs to clarify — that's what is_ambiguous is for.
+**THE RULE:** Confidence below 0.8 = is_ambiguous: true. Only classify without ambiguity when you have real evidence.
 
 **EXAMPLES:**
 
