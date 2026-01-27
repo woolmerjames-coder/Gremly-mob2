@@ -1678,71 +1678,63 @@ const Row3Chips: React.FC<{
       hasRealData={hasRealChipData}
       onAnimationComplete={onChipAnimationComplete}
     >
-      <View style={{ 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        justifyContent: 'space-between',
-        flex: 1,
-      }}>
-        {/* Left side: Context chips */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
-          {/* Context chip (scheduled date, frequency, type label, etc.) */}
-          {renderContextChip()}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        {/* Context chip (scheduled date, frequency, type label, etc.) */}
+        {renderContextChip()}
 
-          {/* Phase 2 chips: HIDE while clarification is pending */}
-          {!needsClarification && (
-            <>
-              {/* Start date chip for habits - before time estimate */}
-              {effectiveKind === 'habit' && (
-                <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
+        {/* Phase 2 chips: HIDE while clarification is pending */}
+        {!needsClarification && (
+          <>
+            {/* Start date chip for habits - before time estimate */}
+            {effectiveKind === 'habit' && (
+              <Text style={styles.recentContextPill}>{formatStartDate(item.start_date)}</Text>
+            )}
+
+            {/* Time estimate chip for todos AND habits */}
+            {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
+              item.time_estimate_minutes && (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    Alert.alert(
+                      '⏱️ Time Estimate',
+                      effectiveKind === 'habit'
+                        ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
+                        : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                      [{ text: 'Got it', style: 'default' }],
+                    );
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <View style={styles.timeEstimateChip}>
+                    <Clock size={10} color="#888" strokeWidth={2} />
+                    <Text style={styles.timeEstimateText}>
+                      {formatTimeEstimate(item.time_estimate_minutes)}
+                    </Text>
+                  </View>
+                </Pressable>
               )}
 
-              {/* Time estimate chip for todos AND habits */}
-              {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
-                item.time_estimate_minutes && (
-                  <Pressable
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      Alert.alert(
-                        '⏱️ Time Estimate',
-                        effectiveKind === 'habit'
-                          ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
-                          : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
-                        [{ text: 'Got it', style: 'default' }],
-                      );
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <View style={styles.timeEstimateChip}>
-                      <Clock size={10} color="#888" strokeWidth={2} />
-                      <Text style={styles.timeEstimateText}>
-                        {formatTimeEstimate(item.time_estimate_minutes)}
-                      </Text>
-                    </View>
-                  </Pressable>
-                )}
+            {/* Target date chip (event/deadline context) - inline with other chips */}
+            {hasTargetDate && targetDateValue && (
+              <View style={styles.targetDateChip}>
+                <Calendar size={10} color="#7A9A7A" strokeWidth={2} />
+                <Text style={styles.targetDateText}>
+                  {formatDateForChip(targetDateValue)}
+                </Text>
+              </View>
+            )}
 
-              {/* People chip */}
-              {hasPeople && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                  <User size={10} color="#6B8E6B" strokeWidth={2.5} />
-                  <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
-                    {item.views!.people![0]}
-                  </Text>
-                </View>
-              )}
-            </>
-          )}
-        </View>
-
-        {/* Right side: Target date chip (event/deadline context) */}
-        {!needsClarification && hasTargetDate && targetDateValue && (
-          <View style={styles.targetDateChip}>
-            <Calendar size={10} color="#7A9A7A" strokeWidth={2} />
-            <Text style={styles.targetDateText}>
-              {formatDateForChip(targetDateValue)}
-            </Text>
-          </View>
+            {/* People chip */}
+            {hasPeople && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <User size={10} color="#6B8E6B" strokeWidth={2.5} />
+                <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
+                  {item.views!.people![0]}
+                </Text>
+              </View>
+            )}
+          </>
         )}
       </View>
     </AnimatedChipsTransition>
@@ -2431,18 +2423,22 @@ function formatDateForChip(dateStr: string | null | undefined): string {
  */
 function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string | null {
   if (kind === 'todo') {
+    // Date Intelligence: target_date is shown as separate calendar chip on right
+    // If target_date exists, skip legacy fields and let calendar chip handle it
+    if (item.target_date) {
+      // If we also have scheduled_date, show it as the primary chip
+      if (item.scheduled_date) {
+        return formatDateForChip(item.scheduled_date);
+      }
+      return null; // Will be shown as calendar chip on right
+    }
     // Scheduled date = when user will DO the work (primary chip)
     if (item.scheduled_date) {
       return formatDateForChip(item.scheduled_date);
     }
-    // Fallback to legacy due_date for backwards compatibility
+    // Fallback to legacy due_date for backwards compatibility (only if no target_date)
     if (item.due_date || item.due_day) {
       return formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time });
-    }
-    // NOTE: target_date is handled separately as a right-aligned chip with calendar icon
-    // Don't show "no deadline yet" if there's a target_date
-    if (item.target_date) {
-      return null; // Will be shown as calendar chip on right
     }
     return 'no deadline yet';
   }
