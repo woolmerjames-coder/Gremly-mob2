@@ -46,6 +46,11 @@ export interface Phase2MetadataResult {
   people: string[];
   mood: string[] | null;
   energy_type: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
+  // Date Intelligence fields
+  target_date: string | null;
+  scheduled_date: string | null;
+  event_time: string | null;
+  date_type_ambiguous: boolean;
 }
 
 export interface ProcessingCallbacks {
@@ -289,6 +294,11 @@ async function runPhase2(
         people: Array.isArray(json.people) ? json.people : [],
         mood: json.mood ?? null,
         energy_type,
+        // Date Intelligence fields
+        target_date: json.target_date ?? null,
+        scheduled_date: json.scheduled_date ?? null,
+        event_time: json.event_time ?? null,
+        date_type_ambiguous: json.date_type_ambiguous ?? false,
       };
     } catch (err) {
       console.log('[DropProcessor] Phase 2 API error', { error: String(err) });
@@ -874,12 +884,15 @@ export async function processDrop(
     // =========================================
 
     let enrichmentResult = null;
-    
+
     if (phase1Result.is_ambiguous) {
-      console.log('[DropProcessor] Skipping Phase 2 for ambiguous item - will run after clarification', {
-        localId,
-        ambiguity_reason: phase1Result.ambiguity_reason,
-      });
+      console.log(
+        '[DropProcessor] Skipping Phase 2 for ambiguous item - will run after clarification',
+        {
+          localId,
+          ambiguity_reason: phase1Result.ambiguity_reason,
+        },
+      );
       // Don't run Phase 2 yet - it will run after user clarifies
       // The card will show without metadata chips until then
     } else {
@@ -896,6 +909,7 @@ export async function processDrop(
         time_estimate: enrichmentResult.time_estimate_minutes,
         people: enrichmentResult.people,
         tags: enrichmentResult.tags,
+        target_date: enrichmentResult.target_date,
       });
       useGremlyStore.getState().updatePendingDropEnrichment(localId, {
         status: 'enriched', // CRITICAL: Mark as fully enriched for chip animation
@@ -907,6 +921,11 @@ export async function processDrop(
         extractedDays: enrichmentResult.extracted_days,
         people: enrichmentResult.people, // Include people for chip rendering
         mood: enrichmentResult.mood, // Include mood for journal chip rendering
+        // Date Intelligence fields (snake_case to match PendingDrop interface)
+        target_date: enrichmentResult.target_date,
+        scheduled_date: enrichmentResult.scheduled_date,
+        event_time: enrichmentResult.event_time,
+        date_type_ambiguous: enrichmentResult.date_type_ambiguous,
       });
     }
 
@@ -924,6 +943,11 @@ export async function processDrop(
         people: enrichmentResult.people,
         mood: enrichmentResult.mood,
         status: 'enriched', // Clear checkpoint status
+        // Date Intelligence fields
+        targetDate: enrichmentResult.target_date,
+        scheduledDate: enrichmentResult.scheduled_date,
+        eventTime: enrichmentResult.event_time,
+        dateTypeAmbiguous: enrichmentResult.date_type_ambiguous,
       });
     }
 

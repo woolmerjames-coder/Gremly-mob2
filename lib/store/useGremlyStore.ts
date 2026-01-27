@@ -355,6 +355,9 @@ export interface PendingDrop {
 
   /** For notes classified as events - the event time */
   event_time?: string | null;
+
+  /** True if AI couldn't determine date meaning */
+  date_type_ambiguous?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -4984,12 +4987,12 @@ export const useGremlyStore = create<GremlyState>()(
           const scheduledDate = reclassifyResult.scheduled_date
             ? reclassifyResult.scheduled_date.split('T')[0]
             : null;
-          
+
           // Legacy fields (due_day, due_date) should match scheduled_date, NOT target_date
           // This is because due_day was historically "when to do it", not "when it's due"
           // If no scheduled_date, fall back to extracted date for backwards compat
-          const legacyDueDate = scheduledDate 
-            || (extractedDate ? extractedDate.split('T')[0] : null);
+          const legacyDueDate =
+            scheduledDate || (extractedDate ? extractedDate.split('T')[0] : null);
 
           newEntityPayload = {
             ...commonFields,

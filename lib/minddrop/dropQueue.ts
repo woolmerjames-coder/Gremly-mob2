@@ -143,6 +143,22 @@ export interface QueuedDrop {
   mood?: string[] | null;
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Date Intelligence (Phase 2)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** External deadline/due date (ISO) */
+  targetDate?: string | null;
+
+  /** Scheduled work date (ISO) */
+  scheduledDate?: string | null;
+
+  /** Event time for notes classified as events */
+  eventTime?: string | null;
+
+  /** True if AI couldn't determine date meaning */
+  dateTypeAmbiguous?: boolean;
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Phase 1: Ambiguity detection (triggers Phase 1.5 in background)
   // ──────────────────────────────────────────────────────────────────────────
 
