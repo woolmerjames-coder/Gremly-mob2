@@ -4407,8 +4407,19 @@ export const useGremlyStore = create<GremlyState>()(
                 targetDate: result.target_date,
                 scheduledDate: result.scheduled_date,
                 timeEstimate: result.time_estimate_minutes,
+                dateTypeAmbiguous: result.date_type_ambiguous,
                 latency_ms: result.latency_ms,
               });
+
+              // Check if date type is ambiguous
+              // For MVP, we default ambiguous dates to target_date (deadline/event)
+              // The Sweep can then prompt "When do you want to work on this?" to resolve
+              if (result.date_type_ambiguous && result.target_date) {
+                console.log(
+                  '[GremlyStore] Pending drop date type ambiguous, defaulting to target_date:',
+                  result.target_date,
+                );
+              }
 
               // Update the pending drop with reclassified data
               set((s) => {
@@ -4613,6 +4624,7 @@ export const useGremlyStore = create<GremlyState>()(
         scheduled_date?: string | null;
         time_estimate_minutes?: number | null;
         energy_type?: string | null;
+        date_type_ambiguous?: boolean;
         latency_ms?: number;
       } = {};
 
@@ -4641,8 +4653,24 @@ export const useGremlyStore = create<GremlyState>()(
               targetDate: reclassifyResult.target_date,
               scheduledDate: reclassifyResult.scheduled_date,
               timeEstimate: reclassifyResult.time_estimate_minutes,
+              dateTypeAmbiguous: reclassifyResult.date_type_ambiguous,
               latency_ms: reclassifyResult.latency_ms,
             });
+
+            // Check if date type is ambiguous
+            // For MVP, we default ambiguous dates to target_date (deadline/event)
+            // The Sweep can then prompt "When do you want to work on this?" to resolve
+            if (reclassifyResult.date_type_ambiguous && reclassifyResult.target_date) {
+              console.log(
+                '[GremlyStore] Date type ambiguous, defaulting to target_date:',
+                reclassifyResult.target_date,
+              );
+              // Future: Could show a follow-up popup asking:
+              // "Is [date] when [the thing] is, or when you'll do it?"
+              // Options:
+              // 1. "That's when it is" → target_date stays, scheduled_date = null
+              // 2. "That's when I'll do it" → scheduled_date = date, target_date = null
+            }
           } else {
             console.warn('[GremlyStore] Reclassify response not ok:', reclassifyResponse.status);
           }
