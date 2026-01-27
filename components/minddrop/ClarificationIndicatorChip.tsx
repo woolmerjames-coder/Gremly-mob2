@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Animated, Easing } from 'react-native';
 import { HelpCircle } from 'lucide-react-native';
 
 interface ClarificationIndicatorChipProps {
@@ -13,16 +13,45 @@ interface ClarificationIndicatorChipProps {
  * Displays in Row 3 of Mind Drop cards alongside other chips (time estimate, mood, etc.).
  * Uses a warm, subtle attention color that stands out but isn't alarming.
  *
- * NOTE: This chip does NOT have its own animation. The parent AnimatedChipsTransition
- * handles the coordinated "emerge from mist" animation for ALL chips in Row 3 together.
- * Adding a separate animation here would cause flickering and layout shifts.
+ * The chip has a gentle pulsing animation that starts after the initial "emerge from mist"
+ * animation completes. The pulse draws subtle attention without being distracting.
+ *
+ * NOTE: The parent AnimatedChipsTransition handles the coordinated "emerge from mist"
+ * animation for ALL chips in Row 3 together. This chip's pulse starts after that.
  */
 export function ClarificationIndicatorChip({ onPress }: ClarificationIndicatorChipProps) {
+  // Pulsing animation - gentle scale pulse that draws attention
+  const pulseAnim = React.useMemo(() => new Animated.Value(1), []);
+
+  React.useEffect(() => {
+    // Delay start by 1000ms to let the "emerge from mist" animation finish first
+    const startTimeout = setTimeout(() => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.08,
+            duration: 800,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+      ).start();
+    }, 1000);
+
+    return () => clearTimeout(startTimeout);
+  }, [pulseAnim]);
+
   const chipContent = (
-    <View style={styles.chip}>
+    <Animated.View style={[styles.chip, { transform: [{ scale: pulseAnim }] }]}>
       <HelpCircle size={11} color="#B48C50" strokeWidth={2.5} />
       <Text style={styles.text}>Clarify</Text>
-    </View>
+    </Animated.View>
   );
 
   if (onPress) {

@@ -2376,6 +2376,12 @@ const AnimatedMindDropCard = React.memo<{
     // Check for multi-entity drops
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
 
+    // Check if item needs clarification (for special styling)
+    const needsClarification =
+      (item.views?.needs_clarification === true || item.needs_clarification === true) &&
+      item.clarification_resolved !== true &&
+      item.views?.clarification_resolved !== true;
+
     // DEBUG: Track component mount/unmount
     React.useEffect(() => {
       console.log('[DEBUG:AnimatedMindDropCard] MOUNTED:', {
@@ -2452,6 +2458,34 @@ const AnimatedMindDropCard = React.memo<{
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
     }));
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Clarification card background fade-in
+    // When a card needs clarification, show a subtle golden/pear background
+    // Fades in smoothly to avoid visual jolt
+    // ─────────────────────────────────────────────────────────────────────────
+    const clarificationBgOpacity = React.useMemo(() => new Animated.Value(0), []);
+
+    React.useEffect(() => {
+      if (needsClarification) {
+        // Fade in the golden background
+        Animated.timing(clarificationBgOpacity, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false, // backgroundColor doesn't support native driver
+        }).start();
+      } else {
+        // Reset if clarification is resolved
+        clarificationBgOpacity.setValue(0);
+      }
+    }, [needsClarification, clarificationBgOpacity]);
+
+    // Interpolate background color for clarification cards
+    const clarificationBgColor = clarificationBgOpacity.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['rgba(255, 255, 255, 0)', 'rgba(255, 248, 235, 1)'], // Subtle golden/pear
+    });
 
     // Gremly pulse animation for multi-entity cards (always called, conditionally used)
     const gremlyPulseScale = useGremlyPulse();
@@ -2645,16 +2679,38 @@ const AnimatedMindDropCard = React.memo<{
 
     return (
       <Reanimated.View style={bounceStyle}>
+        {/* Background layer for clarification cards (animated) */}
+        {needsClarification && (
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: clarificationBgColor,
+              borderRadius: 12, // Match card border radius
+            }}
+          />
+        )}
         <Pressable
           key={`${item.kind}:${item.id}`}
           testID={`minddrop-recent-${item.kind}-${item.id}`}
-          style={[styles.recentCard, isMulti && { backgroundColor: '#F4F9F4' }]}
+          style={[
+            styles.recentCard,
+            isMulti && { backgroundColor: '#F4F9F4' },
+            // For clarification, keep card transparent so animated bg shows through
+            needsClarification && !isMulti && { backgroundColor: 'transparent' },
+          ]}
           onPress={handleCardPress}
           accessibilityRole="button"
           accessibilityLabel={
             isMulti
               ? 'Tap to decide what to do with multiple items'
-              : `Edit ${item.title || item.text || 'item'}`
+              : needsClarification
+                ? 'Tap to answer a quick question'
+                : `Edit ${item.title || item.text || 'item'}`
           }
         >
           {/* Row 1: Title (left) + Chip (right) */}
