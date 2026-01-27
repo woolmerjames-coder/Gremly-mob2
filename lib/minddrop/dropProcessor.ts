@@ -236,6 +236,18 @@ async function runPhase2(
   // Create API call promise
   const apiPromise = (async (): Promise<Phase2MetadataResult | null> => {
     try {
+      // Get date context for Phase 2 using DateService (timezone-safe)
+      const currentDate = dateService.today(); // YYYY-MM-DD in local timezone
+      const now = new Date();
+      const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+      console.log('[DropProcessor] Phase 2 calling with date context:', {
+        currentDate,
+        dayOfWeek,
+        timezone,
+      });
+
       const res = await fetch(cortexUrl, {
         method: 'POST',
         headers: {
@@ -247,6 +259,9 @@ async function runPhase2(
           text,
           bucket,
           subtype,
+          currentDate,
+          dayOfWeek,
+          timezone,
         }),
       });
 
