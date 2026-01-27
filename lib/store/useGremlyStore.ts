@@ -4420,14 +4420,21 @@ export const useGremlyStore = create<GremlyState>()(
           confirmation_message: newConfirmation,
         };
 
+        // Build updates object based on entity type
+        // Notes use 'title', todos/habits use 'name'
         const updates: Record<string, unknown> = {
-          title: newTitle,
-          name: newTitle, // Some entities use name instead of title
           views: updatedViews,
           needs_clarification: false,
           clarification_resolved: true,
           ...dateUpdate,
         };
+
+        // Set the correct title/name field based on entity type
+        if (entityType === 'note') {
+          updates.title = newTitle;
+        } else {
+          updates.name = newTitle;
+        }
 
         // Update subtype if specified
         if (selectedOption.action.subtype) {
