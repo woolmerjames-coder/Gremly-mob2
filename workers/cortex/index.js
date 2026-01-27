@@ -196,6 +196,10 @@ export default {
         sat: 6,
       };
 
+      // --- Clarification confidence threshold ---
+      // Below this confidence, AI should ask a clarifying question instead of guessing
+      const BUCKET_CONFIDENCE_THRESHOLD = 0.7;
+
       // Parse day names from text and return array of day numbers
       function parseDaysFromText(text) {
         if (!text) return null;
@@ -2284,22 +2288,111 @@ THE VIBE:
 - Brief but human
 - Gently playful when appropriate, not forced
 
+=== CLARIFYING QUESTIONS ===
+
+When you are GENUINELY UNCERTAIN about the bucket (confidence < 0.7), you may request clarification instead of guessing.
+
+**WHEN TO ASK (confidence < 0.7):**
+
+Bucket ambiguity — could legitimately be multiple buckets:
+- "dentist Tuesday" → Is this an appointment they HAVE (log/event) or need to BOOK (todo)?
+- "standing desk" → Are they NOTING this (log) or planning to BUY one (todo)?
+- "go running" → Single run (todo) or starting a running habit (habit)?
+- "maybe yoga" → Exploring the idea (log/idea) or planning to do yoga (todo)?
+
+**WHEN NOT TO ASK (just classify with lower confidence):**
+
+- Clear intent but unusual phrasing → classify, don't ask
+- Vague but clearly reflective → log/general
+- Could be todo or habit but has explicit frequency → habit
+- Hedging language with clear action verb → todo
+
+**QUESTION DESIGN RULES:**
+
+1. Ask about the USER'S SITUATION, not the data model
+   - GOOD: "What's the dentist situation?"
+   - BAD: "Is this a todo or a log?"
+
+2. Provide 2-3 clear options that map to different buckets
+   - Each option should describe a real-world scenario
+   - Include the action that would result
+
+3. Collapse multiple ambiguities into ONE question when possible
+
+4. Keep questions SHORT (under 60 chars) and conversational
+
+**OPTION FORMAT:**
+
+Each option needs:
+- id: short identifier (e.g., "appointment", "book", "idea")
+- label: what the user would tap (e.g., "I have an appointment Tuesday")
+- action: what bucket/subtype this resolves to
+
+**EXAMPLES:**
+
+Input: "dentist Tuesday"
+Question: "What's the dentist situation?"
+Options:
+- { id: "appointment", label: "I have an appointment Tuesday", action: { bucket: "log", subtype: "general", target_date: true } }
+- { id: "book", label: "I need to book/call about it", action: { bucket: "todo" } }
+
+Input: "standing desk"
+Question: "What's the plan with the standing desk?"
+Options:
+- { id: "buy", label: "I want to buy one", action: { bucket: "todo" } }
+- { id: "research", label: "Just researching options", action: { bucket: "log", subtype: "idea" } }
+- { id: "note", label: "Just noting it down", action: { bucket: "log", subtype: "general" } }
+
+Input: "go running"
+Question: "One-time run or building a habit?"
+Options:
+- { id: "once", label: "Just planning a run", action: { bucket: "todo" } }
+- { id: "habit", label: "I want to run regularly", action: { bucket: "habit" } }
+
+Input: "meditate"
+Question: "Single session or ongoing practice?"
+Options:
+- { id: "once", label: "Just today", action: { bucket: "todo" } }
+- { id: "habit", label: "I want to meditate regularly", action: { bucket: "habit" } }
+
 === OUTPUT FORMAT ===
 
-Return ONLY valid JSON:
+Return ONLY valid JSON.
+
+If confident (>= 0.7):
 {
   "bucket": "todo" | "habit" | "log",
-  "confidence": 0.0-1.0,
+  "confidence": 0.7-1.0,
   "subtype": "journal" | "idea" | "general" | null,
   "habitSubtype": "start_habit" | "break_habit" | null,
   "smart_title": "3-7 Word Title",
-  "confirmation_message": "4-8 word warm message"
+  "confirmation_message": "4-8 word warm message",
+  "needs_clarification": false
+}
+
+If uncertain (< 0.7) and genuinely ambiguous:
+{
+  "bucket": "log",
+  "confidence": 0.4-0.69,
+  "subtype": "general",
+  "habitSubtype": null,
+  "smart_title": "3-7 Word Title",
+  "confirmation_message": "Captured — you'll sort it in Sweep.",
+  "needs_clarification": true,
+  "clarification_type": "bucket",
+  "clarification_question": "Short question about their situation?",
+  "clarification_options": [
+    { "id": "option1", "label": "User-facing option text", "action": { "bucket": "todo" } },
+    { "id": "option2", "label": "Another option", "action": { "bucket": "log", "subtype": "general" } }
+  ]
 }
 
 Rules:
 - subtype is only set when bucket is "log"
 - habitSubtype is only set when bucket is "habit"
-- confidence reflects how certain you are after semantic analysis`;
+- needs_clarification should only be true when confidence < 0.7 AND the input is genuinely ambiguous
+- clarification_type is always "bucket" for now (future: "date_type", "detail")
+- clarification_options should have 2-3 options max`;
 
         const phase1Messages = [
           { role: 'system', content: phase1Prompt },
@@ -2344,6 +2437,10 @@ Rules:
             habitSubtype: norm.bucket === 'habit' ? fallbackHabitSubtype : null,
             smart_title: null,
             confirmation_message: null,
+            needs_clarification: false,
+            clarification_type: null,
+            clarification_question: null,
+            clarification_options: null,
             source: 'heuristic-fallback',
             latency_ms: latency,
           });
@@ -2372,6 +2469,10 @@ Rules:
             habitSubtype: norm.bucket === 'habit' ? fallbackHabitSubtype : null,
             smart_title: null,
             confirmation_message: null,
+            needs_clarification: false,
+            clarification_type: null,
+            clarification_question: null,
+            clarification_options: null,
             source: 'parse-fallback',
             latency_ms: latency,
           });
@@ -2420,6 +2521,56 @@ Rules:
           }
         }
 
+        // Extract clarification fields (Phase 2 - Clarifying Questions)
+        let needsClarification = false;
+        let clarificationType = null;
+        let clarificationQuestion = null;
+        let clarificationOptions = null;
+
+        if (parsed.needs_clarification === true && confidence < BUCKET_CONFIDENCE_THRESHOLD) {
+          needsClarification = true;
+          clarificationType = parsed.clarification_type || 'bucket';
+
+          if (
+            typeof parsed.clarification_question === 'string' &&
+            parsed.clarification_question.length > 0
+          ) {
+            clarificationQuestion = parsed.clarification_question.trim().substring(0, 100);
+          }
+
+          if (
+            Array.isArray(parsed.clarification_options) &&
+            parsed.clarification_options.length >= 2
+          ) {
+            clarificationOptions = parsed.clarification_options
+              .slice(0, 3) // Max 3 options
+              .map((opt) => ({
+                id: String(opt.id || '').substring(0, 20),
+                label: String(opt.label || '').substring(0, 80),
+                action: {
+                  bucket: ['todo', 'habit', 'log'].includes(opt.action?.bucket)
+                    ? opt.action.bucket
+                    : null,
+                  subtype: opt.action?.subtype || null,
+                  target_date: opt.action?.target_date === true,
+                  scheduled_date: opt.action?.scheduled_date === true,
+                },
+              }))
+              .filter((opt) => opt.id && opt.label && opt.action.bucket);
+
+            // If options are invalid, don't request clarification
+            if (clarificationOptions.length < 2) {
+              needsClarification = false;
+              clarificationType = null;
+              clarificationQuestion = null;
+              clarificationOptions = null;
+            }
+          } else {
+            // No valid options, don't request clarification
+            needsClarification = false;
+          }
+        }
+
         const sameAsBucket = heuristicHint?.bucket === norm.bucket;
 
         console.log('[Phase1]', {
@@ -2429,6 +2580,8 @@ Rules:
           confidence,
           smart_title: smartTitle?.substring(0, 30),
           has_message: !!confirmationMessage,
+          needs_clarification: needsClarification,
+          clarification_type: clarificationType,
           heuristicBucket: heuristicHint?.bucket,
           agreed: sameAsBucket,
           latency_ms: latency,
@@ -2441,6 +2594,10 @@ Rules:
           confidence,
           smart_title: smartTitle,
           confirmation_message: confirmationMessage,
+          needs_clarification: needsClarification,
+          clarification_type: clarificationType,
+          clarification_question: clarificationQuestion,
+          clarification_options: clarificationOptions,
           source: sameAsBucket ? 'heuristic-confirmed' : 'api',
           latency_ms: latency,
         });
@@ -2617,6 +2774,51 @@ Choose ONE (strict enum):
 Default to "administrative" if unclear.
 
 --------------------------------
+DATE INTELLIGENCE (TODOS ONLY):
+--------------------------------
+
+Dates in user input can mean TWO different things:
+
+**TARGET DATE** — When something IS or is DUE (external, immovable)
+- Deadlines: "due April 15", "by Friday", "before the 10th"
+- Events: "dentist Tuesday 2pm", "wedding June 15", "mom's birthday March 5"
+- Expiration: "passport expires June", "lease ends March 1"
+
+Signals: "due", "by", "before", "deadline", "expires", "is on", "appointment"
+
+**SCHEDULED DATE** — When user plans to DO the work (internal, movable)
+- Action + time: "call mom tomorrow", "go to gym Monday"
+- Planning: "work on taxes Saturday", "start running next week"
+- Intent: "do this tonight", "handle it tomorrow morning"
+
+Signals: Action verb + time reference, "do", "work on", "handle", "start"
+
+**AMBIGUOUS** — Could be either (flag for clarification)
+- "dentist Tuesday" — appointment they have? or need to book?
+- "passport June" — trip date? or expiration?
+- Noun + date with no context
+
+**RULES:**
+1. If clear deadline language → target_date only
+2. If clear action + time → scheduled_date only  
+3. If both exist → set both (e.g., "work on taxes Saturday, due April 15")
+4. If ambiguous → set target_date (safer default) and flag date_type_ambiguous
+
+**OUTPUT FIELDS:**
+- target_date: YYYY-MM-DD or null (when something IS or is DUE)
+- scheduled_date: YYYY-MM-DD or null (when user will DO the work)
+- date_type_ambiguous: boolean (true if unclear which type)
+
+**EXAMPLES:**
+
+"taxes due April 15" → target_date: "2026-04-15", scheduled_date: null
+"call mom tomorrow" → target_date: null, scheduled_date: "2026-01-27"
+"dentist Tuesday 2pm" → target_date: "2026-01-28", scheduled_date: null (appointment)
+"work on report, due Friday" → target_date: "2026-01-31", scheduled_date: null (can add scheduled later)
+"go to gym Monday" → target_date: null, scheduled_date: "2026-01-27"
+"passport June" → target_date: "2026-06-01", date_type_ambiguous: true
+
+--------------------------------
 FOR HABITS ONLY:
 --------------------------------
 4. extracted_frequency
@@ -2649,7 +2851,45 @@ TAGS (ALL TYPES):
 
 === OUTPUT ===
 Return ONLY valid JSON.
-Include null for fields that do not apply.`;
+
+For TODOS:
+{
+  "tags": ["tag1", "tag2"],
+  "time_estimate_minutes": number | null,
+  "time_window": "morning" | "day" | "evening" | null,
+  "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
+  "target_date": "YYYY-MM-DD" | null,
+  "scheduled_date": "YYYY-MM-DD" | null,
+  "date_type_ambiguous": boolean,
+  "people": ["name1", "name2"] | []
+}
+
+For HABITS:
+{
+  "tags": ["tag1", "tag2"],
+  "time_estimate_minutes": number | null,
+  "time_window": "morning" | "day" | "evening" | null,
+  "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
+  "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
+  "extracted_days": [0, 1, 2] | null,
+  "extracted_start_date": "YYYY-MM-DD" | null,
+  "people": ["name1", "name2"] | []
+}
+
+For LOGS (journal):
+{
+  "tags": ["tag1", "tag2"],
+  "mood": ["anxious", "grateful"] | null,
+  "target_date": "YYYY-MM-DD" | null,
+  "event_time": "HH:mm" | null
+}
+
+For LOGS (idea/general):
+{
+  "tags": ["tag1", "tag2"],
+  "target_date": "YYYY-MM-DD" | null,
+  "event_time": "HH:mm" | null
+}`;
 
         const t0 = Date.now();
 
@@ -2734,11 +2974,44 @@ Include null for fields that do not apply.`;
             }
           }
 
-          // Validate extracted_date
-          let extractedDate = null;
-          if (bucket === 'todo' && parsed.extracted_date) {
-            if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)) {
-              extractedDate = parsed.extracted_date;
+          // Validate date intelligence fields (todos only)
+          let targetDate = null;
+          let scheduledDate = null;
+          let dateTypeAmbiguous = false;
+          if (bucket === 'todo') {
+            // Target date (when something IS or is DUE)
+            if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+              targetDate = parsed.target_date;
+            }
+
+            // Scheduled date (when user will DO the work)
+            if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
+              scheduledDate = parsed.scheduled_date;
+            }
+
+            // Ambiguity flag
+            dateTypeAmbiguous = parsed.date_type_ambiguous === true;
+
+            // Backward compatibility: if old extracted_date exists and no new fields, use it as scheduled_date
+            if (
+              !targetDate &&
+              !scheduledDate &&
+              parsed.extracted_date &&
+              /^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)
+            ) {
+              scheduledDate = parsed.extracted_date;
+            }
+          }
+
+          // Event dates for logs (notes that are events)
+          let noteTargetDate = null;
+          let eventTime = null;
+          if (bucket === 'log') {
+            if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+              noteTargetDate = parsed.target_date;
+            }
+            if (parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
+              eventTime = parsed.event_time;
             }
           }
 
@@ -2794,12 +3067,16 @@ Include null for fields that do not apply.`;
 
           console.log('[Phase2]', {
             tags_count: tags.length,
-            has_time: timeEstimate !== null,
+            has_time_estimate: timeEstimate !== null,
             has_window: timeWindow !== null,
             has_energy: energyType !== null,
-            has_date: extractedDate !== null,
+            has_target_date: targetDate !== null || noteTargetDate !== null,
+            has_scheduled_date: scheduledDate !== null,
+            date_ambiguous: dateTypeAmbiguous,
+            has_event_time: eventTime !== null,
             has_frequency: extractedFrequency !== null,
             has_days: extractedDays !== null,
+            has_start_date: extractedStartDate !== null,
             has_people: people.length > 0,
             has_mood: mood !== null,
             latency_ms: latency,
@@ -2810,10 +3087,16 @@ Include null for fields that do not apply.`;
             time_estimate_minutes: timeEstimate,
             time_window: timeWindow,
             energy_type: energyType,
-            extracted_date: extractedDate,
+            // New date intelligence fields for todos
+            target_date: bucket === 'todo' ? targetDate : noteTargetDate,
+            scheduled_date: scheduledDate,
+            date_type_ambiguous: dateTypeAmbiguous,
+            event_time: eventTime,
+            // Keep existing habit fields
             extracted_start_date: extractedStartDate,
             extracted_frequency: extractedFrequency,
             extracted_days: extractedDays,
+            // Other fields
             people,
             mood,
             latency_ms: latency,

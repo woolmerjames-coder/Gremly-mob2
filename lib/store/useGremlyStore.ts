@@ -16,6 +16,7 @@ import type {
   EntityChatData,
   EntityChatMessage,
   EntityChatNote,
+  CalendarEvent as UserCalendarEvent,
 } from '../types';
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
@@ -295,6 +296,54 @@ export interface PendingDrop {
   multiSummary?: string; // Summary title for the multi-card
   dominantBucket?: 'todo' | 'habit' | 'log';
   dominantSubtype?: 'journal' | 'idea' | 'general' | null;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Clarifying Questions (Phase 2)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** True if AI returned needs_clarification in Phase 1 */
+  needs_clarification?: boolean;
+
+  /** Type of clarification needed - 'bucket' blocks Phase 2 */
+  clarification_type?:
+    | 'bucket'
+    | 'habit_or_todo'
+    | 'date_type'
+    | 'detail'
+    | 'intent'
+    | 'action'
+    | null;
+
+  /** Question to show user */
+  clarification_question?: string | null;
+
+  /** Options array with id, label, and action payload */
+  clarification_options?: Array<{
+    id: string;
+    label: string;
+    action: {
+      bucket?: 'todo' | 'habit' | 'log';
+      subtype?: string;
+      target_date?: boolean;
+      scheduled_date?: boolean;
+    };
+  }> | null;
+
+  /** Set to true when user resolves the clarification */
+  clarification_resolved?: boolean;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Date Intelligence (Phase 2)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** External deadline date extracted by AI */
+  target_date?: string | null;
+
+  /** Scheduled work date extracted by AI */
+  scheduled_date?: string | null;
+
+  /** For notes classified as events - the event time */
+  event_time?: string | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -524,6 +573,7 @@ interface GremlyState {
   updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
   promotePendingDropToEntity: (localId: string, supabaseId: string) => void;
   removePendingDrop: (localId: string) => void;
+  resolvePendingDropClarification: (localId: string, optionId: string) => void;
 
   // ═══════════════════════════════════════════════════════════════════
   // ENTITY CHAT MUTATIONS
@@ -593,7 +643,8 @@ interface GremlyState {
   // CALENDAR INTEGRATION
   // ═══════════════════════════════════════════════════════════════════
   calendarConnections: CalendarConnectionStatus[];
-  calendarEvents: Record<string, CalendarEvent[]>; // Key is YYYY-MM-DD
+  calendarEvents: Record<string, CalendarEvent[]>; // Key is YYYY-MM-DD (synced external events)
+  userCalendarEvents: UserCalendarEvent[]; // User-created quick-add events
   calendarLoading: boolean;
   calendarLastFetched: string | null;
   /** Hidden calendar events keyed by date (YYYY-MM-DD) */
@@ -620,6 +671,14 @@ interface GremlyState {
   hideCalendarEvent: (date: string, eventId: string) => void;
   unhideCalendarEvent: (date: string, eventId: string) => void;
   unhideAllCalendarEventsForDate: (date: string) => void;
+
+  // User Calendar Events (quick-add entries)
+  setUserCalendarEvents: (events: UserCalendarEvent[]) => void;
+  createUserCalendarEvent: (
+    event: Omit<UserCalendarEvent, 'id' | 'type' | 'created_at' | 'updated_at' | 'owner_id'>,
+  ) => Promise<UserCalendarEvent>;
+  updateUserCalendarEvent: (id: string, patch: Partial<UserCalendarEvent>) => Promise<void>;
+  deleteUserCalendarEvent: (id: string) => Promise<void>;
   setEventTimeOverride: (eventId: string, startAt: string, endAt: string) => void;
   clearEventTimeOverride: (eventId: string) => void;
   clearAllEventTimeOverrides: () => void;
@@ -676,6 +735,7 @@ const initialState = {
   // Calendar integration
   calendarConnections: [] as CalendarConnectionStatus[],
   calendarEvents: {} as Record<string, CalendarEvent[]>,
+  userCalendarEvents: [] as UserCalendarEvent[],
   calendarLoading: false,
   calendarLastFetched: null as string | null,
   hiddenCalendarEventsByDate: {} as Record<string, string[]>,
@@ -3438,6 +3498,115 @@ export const useGremlyStore = create<GremlyState>()(
       });
     },
 
+    // ═══════════════════════════════════════════════════════════════════
+    // USER CALENDAR EVENTS (Quick-add entries)
+    // ═══════════════════════════════════════════════════════════════════
+
+    setUserCalendarEvents: (events) => set({ userCalendarEvents: events }),
+
+    createUserCalendarEvent: async (eventData) => {
+      const tempId = `temp_${Date.now()}`;
+      const now = new Date().toISOString();
+      const userId = get().userId;
+
+      if (!userId) throw new Error('Not authenticated');
+
+      const optimisticEvent: UserCalendarEvent = {
+        ...eventData,
+        id: tempId,
+        type: 'calendar_event',
+        owner_id: userId,
+        source: 'user',
+        created_at: now,
+        updated_at: now,
+      };
+
+      // Optimistic update
+      set((state) => ({
+        userCalendarEvents: [...state.userCalendarEvents, optimisticEvent],
+      }));
+
+      // Persist to Supabase
+      const { data, error } = await supabase
+        .from('calendar_events')
+        .insert({
+          owner_id: userId,
+          title: eventData.title,
+          event_date: eventData.event_date,
+          event_time: eventData.event_time,
+          duration_minutes: eventData.duration_minutes,
+          space_id: eventData.space_id,
+          notes: eventData.notes,
+          source: 'user',
+        })
+        .select()
+        .single();
+
+      if (error) {
+        // Rollback on error
+        set((state) => ({
+          userCalendarEvents: state.userCalendarEvents.filter((e) => e.id !== tempId),
+        }));
+        console.error('[GremlyStore] createUserCalendarEvent failed:', error);
+        throw error;
+      }
+
+      // Replace temp with real
+      set((state) => ({
+        userCalendarEvents: state.userCalendarEvents.map((e) =>
+          e.id === tempId ? { ...data, type: 'calendar_event' as const } : e,
+        ),
+      }));
+
+      return { ...data, type: 'calendar_event' as const };
+    },
+
+    updateUserCalendarEvent: async (id, patch) => {
+      const prev = get().userCalendarEvents.find((e) => e.id === id);
+      const now = new Date().toISOString();
+
+      // Optimistic update
+      set((state) => ({
+        userCalendarEvents: state.userCalendarEvents.map((e) =>
+          e.id === id ? { ...e, ...patch, updated_at: now } : e,
+        ),
+      }));
+
+      const { error } = await supabase
+        .from('calendar_events')
+        .update({ ...patch, updated_at: now })
+        .eq('id', id);
+
+      if (error && prev) {
+        // Rollback
+        set((state) => ({
+          userCalendarEvents: state.userCalendarEvents.map((e) => (e.id === id ? prev : e)),
+        }));
+        console.error('[GremlyStore] updateUserCalendarEvent failed:', error);
+        throw error;
+      }
+    },
+
+    deleteUserCalendarEvent: async (id) => {
+      const prev = get().userCalendarEvents.find((e) => e.id === id);
+
+      // Optimistic delete
+      set((state) => ({
+        userCalendarEvents: state.userCalendarEvents.filter((e) => e.id !== id),
+      }));
+
+      const { error } = await supabase.from('calendar_events').delete().eq('id', id);
+
+      if (error && prev) {
+        // Rollback
+        set((state) => ({
+          userCalendarEvents: [...state.userCalendarEvents, prev],
+        }));
+        console.error('[GremlyStore] deleteUserCalendarEvent failed:', error);
+        throw error;
+      }
+    },
+
     setEventTimeOverride: (eventId: string, startAt: string, endAt: string) => {
       set((state) => {
         const updated = {
@@ -4073,6 +4242,39 @@ export const useGremlyStore = create<GremlyState>()(
         return { pendingDrops: newPending };
       });
       console.log('[GremlyStore] Removed pending drop', { localId });
+    },
+
+    resolvePendingDropClarification: (localId, optionId) => {
+      set((state) => {
+        const pendingDrops = new Map(state.pendingDrops);
+        const drop = pendingDrops.get(localId);
+
+        if (!drop || !drop.clarification_options) return state;
+
+        const selectedOption = drop.clarification_options.find((opt) => opt.id === optionId);
+        if (!selectedOption) return state;
+
+        // Apply the selected option's action to the pending drop
+        const updatedDrop: PendingDrop = {
+          ...drop,
+          // Update bucket if specified
+          bucket: selectedOption.action.bucket || drop.bucket,
+          // Update subtype if specified
+          subtype: (selectedOption.action.subtype as PendingDrop['subtype']) || drop.subtype,
+          // Mark clarification as resolved
+          clarification_resolved: true,
+          needs_clarification: false,
+        };
+
+        pendingDrops.set(localId, updatedDrop);
+        console.log('[GremlyStore] Resolved pending drop clarification', {
+          localId,
+          optionId,
+          bucket: updatedDrop.bucket,
+        });
+
+        return { pendingDrops };
+      });
     },
 
     // ═══════════════════════════════════════════════════════════════════
@@ -4920,3 +5122,49 @@ export const useGremlyStore = create<GremlyState>()(
     },
   })),
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SELECTORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Select todos that have a target_date but no scheduled_date (need scheduling) */
+export const selectTodosNeedingScheduling = (state: GremlyState) =>
+  state.todos.filter((t) => !t.archived && !t.completed_at && t.target_date && !t.scheduled_date);
+
+/** Select notes that are events (have target_date) */
+export const selectEventNotes = (state: GremlyState) =>
+  state.notes.filter((n) => !n.archived && n.target_date);
+
+/** Select items with pending clarifications */
+export const selectItemsNeedingClarification = (state: GremlyState) => {
+  const todos = state.todos.filter((t) => t.needs_clarification && !t.clarification_resolved);
+  const habits = state.habits.filter((h) => h.needs_clarification && !h.clarification_resolved);
+  const notes = state.notes.filter((n) => n.needs_clarification && !n.clarification_resolved);
+  return { todos, habits, notes };
+};
+
+/** Select synced calendar events for a specific date */
+export const selectCalendarEventsForDate = (date: string) => (state: GremlyState) =>
+  state.calendarEvents[date] ?? [];
+
+/** Select user-created calendar events for a specific date */
+export const selectUserCalendarEventsForDate = (date: string) => (state: GremlyState) =>
+  state.userCalendarEvents.filter((e) => e.event_date === date);
+
+/** Select all items for Morning Brief on a given date */
+export const selectMorningBriefItems = (date: string) => (state: GremlyState) => {
+  const todos = state.todos.filter(
+    (t) => !t.archived && !t.completed_at && t.scheduled_date === date,
+  );
+  const habits = state.habits.filter(
+    (h) => !h.archived,
+    // Note: Habits don't have completed_at - completion is tracked via habitProgress
+    // Add days_active logic here if needed
+  );
+  const eventNotes = state.notes.filter((n) => !n.archived && n.target_date === date);
+  const reminderNotes = state.notes.filter((n) => !n.archived && n.reminder_date === date);
+  const calendarEvents = state.calendarEvents[date] ?? [];
+  const userCalendarEvents = state.userCalendarEvents.filter((e) => e.event_date === date);
+
+  return { todos, habits, eventNotes, reminderNotes, calendarEvents, userCalendarEvents };
+};
