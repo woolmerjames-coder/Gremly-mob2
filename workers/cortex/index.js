@@ -3445,14 +3445,39 @@ Array of numbers if mentioned (0=Sun … 6=Sat), else null
 YYYY-MM-DD if mentioned, else null
 
 --------------------------------
-FOR JOURNAL ONLY:
+FOR LOGS (ALL SUBTYPES):
 --------------------------------
-7. mood
+
+**DATE EXTRACTION FOR LOGS:**
+
+Logs can contain dates that represent EVENTS or REFERENCE INFORMATION.
+ALWAYS extract dates when present, regardless of log subtype.
+
+Examples:
+- "Dentist appointment is Tuesday" → target_date: next Tuesday's date
+- "Mom's birthday March 5" → target_date: "YYYY-03-05"
+- "Meeting moved to Thursday" → target_date: next Thursday's date
+- "Conference in June" → target_date: "YYYY-06-01" (first of month if day not specified)
+
+Date signals in logs:
+- "is [day/date]" → extract as target_date
+- "[event] on [day/date]" → extract as target_date
+- "moved to [day/date]" → extract as target_date
+- Named days (Monday, Tuesday, etc.) → calculate next occurrence from current date
+
+7. mood (JOURNAL ONLY)
 Choose up to 3:
 great, good, okay, low, tired,
 anxious, overwhelmed, frustrated,
 scattered, grateful, hopeful,
 focused, calm
+
+8. target_date (ALL LOG SUBTYPES)
+Extract ANY date mentioned, in YYYY-MM-DD format.
+This is when an event IS or HAPPENS — reference information.
+
+9. event_time (ALL LOG SUBTYPES)
+Extract time if mentioned, in HH:mm format (24-hour).
 
 --------------------------------
 TAGS (ALL TYPES):
