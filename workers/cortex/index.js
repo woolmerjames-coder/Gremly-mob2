@@ -2784,18 +2784,61 @@ UNCLEAR (ambiguous):
 - Could be existing appointment OR need to book/schedule
 → is_ambiguous: true, ambiguity_type: "action"
 
-**TEST 3: DATE TYPE CLARITY** (apply when bucket IS clear but date meaning isn't)
-Ask: "Do I know if this date is when something IS/DUE or when to DO the work?"
+**TEST 3: DATE TYPE CLARITY** (apply AFTER bucket is determined, when input has action verb + date)
 
-CLEAR (not ambiguous):
-- Has deadline signal: "due April 15", "by Friday", "before the 10th" → TARGET DATE
-- Has event signal: "race is Feb 1", "wedding on June 15", "[event] is [date]" → TARGET DATE
-- Action directly tied to time: "call tomorrow", "do tonight", "[verb] [time]" → SCHEDULED DATE
+This test applies when:
+- Bucket is clearly TODO (has action verb)
+- Input contains a date reference
+- But we don't know what the date MEANS
 
-UNCLEAR (ambiguous):
-- Action verb + noun + date WITHOUT deadline/event signal
-- Example reasoning: "Book half marathon Feb 1" — Is Feb 1 when the race IS, or when to book?
-→ is_ambiguous: true, ambiguity_type: "date_type"
+Ask: "Do I know if this date is when something IS/HAPPENS or when to DO the action?"
+
+**CLEAR (not date_type ambiguous):**
+- Deadline language: "due April 15", "by Friday", "before the 10th" → TARGET DATE
+- Event language: "appointment is Tuesday", "race is Feb 1", "[thing] is [date]" → TARGET DATE
+- Action timing: "call tomorrow", "do tonight", "book on Monday" → SCHEDULED DATE
+
+**UNCLEAR (date_type ambiguous):**
+- Action verb + noun + date WITHOUT clear signals:
+  - "book half marathon Feb 1" — Is Feb 1 the race or the booking?
+  - "schedule dentist Monday" — Is Monday the appointment or when to call?
+  - "renew passport June" — Is June a trip or expiration?
+
+**CRITICAL:** When bucket is TODO and date exists but meaning is unclear:
+→ Set bucket: "todo" (we know it's an action)
+→ Set is_ambiguous: true
+→ Set ambiguity_type: "date_type"
+→ Set ambiguity_reason: Explain the date ambiguity (e.g., "unclear if Feb 1 is the event date or when to do the booking")
+
+This is DIFFERENT from bucket ambiguity:
+- Bucket ambiguity: We don't know TODO vs HABIT vs LOG
+- Date type ambiguity: We KNOW it's a TODO, but don't know what the date means
+
+**EXAMPLES:**
+
+"book half marathon Feb 1"
+→ Evidence: "book" (action verb) → TODO
+→ Date present: "Feb 1"
+→ Date meaning clear? NO — could be race date or booking date
+→ Result: bucket: "todo", is_ambiguous: true, ambiguity_type: "date_type"
+
+"dentist appointment Tuesday 2pm"
+→ Evidence: "appointment is" (existence) → LOG/general
+→ Date present: "Tuesday 2pm"
+→ Date meaning clear? YES — appointment IS on Tuesday
+→ Result: bucket: "log", is_ambiguous: false
+
+"taxes due April 15"
+→ Evidence: "due" (deadline language) → TODO
+→ Date present: "April 15"
+→ Date meaning clear? YES — deadline is April 15
+→ Result: bucket: "todo", is_ambiguous: false, target_date context
+
+"call mom tomorrow"
+→ Evidence: "call" (action verb) → TODO
+→ Date present: "tomorrow"
+→ Date meaning clear? YES — call HAPPENS tomorrow (action timing)
+→ Result: bucket: "todo", is_ambiguous: false, scheduled_date context
 
 **THE KEY QUESTION:**
 "If I had to set this up correctly in the user's productivity system, what information am I MISSING that would CHANGE how I handle it?"
