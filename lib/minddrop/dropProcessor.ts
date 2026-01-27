@@ -81,6 +81,106 @@ const readSupabaseAnonKey = (): string => {
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 };
 
+// --- Helper: Extract temporal info from text for Phase 1.5 ---
+
+const TEMPORAL_PATTERN =
+  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|tonight|next\s+week|this\s+week|next\s+month|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}|\d{1,2}(st|nd|rd|th)?)\b/i;
+
+function extractTemporal(text: string): string | null {
+  const match = text.match(TEMPORAL_PATTERN);
+  return match ? match[0] : null;
+}
+
+// --- Helper: Run Phase 1.5 in background (non-blocking) ---
+
+/**
+ * Runs Phase 1.5 clarification question generation in the background.
+ * Does NOT block Phase 2 - fires and forgets.
+ * When complete, updates Zustand with question/options for the popup.
+ */
+async function runPhase1_5InBackground(
+  localId: string,
+  text: string,
+  ambiguityReason: string,
+  bucket: MindDropBucket,
+): Promise<void> {
+  const startTime = Date.now();
+  const cortexUrl = readCortexUrl();
+  const anonKey = readSupabaseAnonKey();
+
+  console.log('[DropProcessor] Phase 1.5 starting in background', {
+    localId,
+    ambiguityReason,
+  });
+
+  if (!cortexUrl || !anonKey) {
+    console.log('[DropProcessor] Phase 1.5 skipped - missing cortex URL or anon key');
+    return;
+  }
+
+  try {
+    const detectedTemporal = extractTemporal(text);
+    const currentDate = dateService.today();
+
+    const res = await fetch(cortexUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({
+        type: 'clarify-ambiguity',
+        text,
+        ambiguityReason,
+        detectedTemporal,
+        currentDate,
+        targetBucket: bucket,
+      }),
+    });
+
+    if (!res.ok) {
+      console.log('[DropProcessor] Phase 1.5 API error', { status: res.status });
+      return;
+    }
+
+    const phase1_5Result = await res.json();
+    const latencyMs = Date.now() - startTime;
+
+    console.log('[DropProcessor] Phase 1.5 complete', {
+      localId,
+      success: phase1_5Result.success,
+      question: phase1_5Result.question?.substring(0, 30),
+      options_count: phase1_5Result.options?.length,
+      latency_ms: latencyMs,
+    });
+
+    if (phase1_5Result.success && phase1_5Result.options?.length >= 2) {
+      // Update Zustand with question and options
+      // UI will reactively show the options in the clarify popup
+      useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+        clarification_question: phase1_5Result.question,
+        clarification_options: phase1_5Result.options.map((opt: { id: string; label: string }) => ({
+          id: opt.id,
+          label: opt.label,
+          // Action will be determined by reclassify endpoint when user selects
+          action: { bucket, target_date: false, scheduled_date: false },
+        })),
+      });
+
+      console.log('[DropProcessor] Phase 1.5 pushed options to UI', {
+        localId,
+        optionLabels: phase1_5Result.options.map((o: { label: string }) => o.label),
+      });
+    }
+  } catch (error) {
+    console.log('[DropProcessor] Phase 1.5 background error', {
+      localId,
+      error: String(error),
+    });
+    // Silent failure — user can still tap card, will see loading state
+  }
+}
+
 // --- Helper: Run Phase 2 (non-streaming) ---
 
 async function runPhase2(
@@ -657,15 +757,18 @@ export async function processDrop(
 
     const phase1Result = await runPhase1(text, { hasAttachments: false });
 
-    console.log('[DropProcessor] Phase 1 timing', { localId, elapsed: Date.now() - startTime });
-
-    // Debug: Log clarification fields from Phase 1
-    console.log('[DropProcessor] Phase 1 clarification fields:', {
-      needs_clarification: phase1Result.needs_clarification,
-      clarification_type: phase1Result.clarification_type,
-      clarification_question: phase1Result.clarification_question,
-      clarification_options: phase1Result.clarification_options,
+    console.log('[DropProcessor] Phase 1 complete', {
+      localId,
+      bucket: phase1Result.bucket,
+      is_ambiguous: phase1Result.is_ambiguous,
+      ambiguity_reason: phase1Result.ambiguity_reason,
+      latency_ms: Date.now() - startTime,
     });
+
+    // =========================================
+    // UPDATE UI IMMEDIATELY with Phase 1 data
+    // Card can now render with clarify badge if is_ambiguous
+    // =========================================
 
     // Update Zustand for immediate UI feedback (in-memory, instant)
     useGremlyStore.getState().updatePendingDropClassification(localId, {
@@ -673,121 +776,49 @@ export async function processDrop(
       subtype: phase1Result.subtype,
     });
 
-    // If Phase 1 returned early enrichment fields, push them to Zustand immediately
-    // This allows typewriter animation to start after Phase 1 (~1.5s) instead of Phase 2 (~4s)
-    if (phase1Result.smart_title || phase1Result.confirmation_message) {
-      const earlyEnrichment: Record<string, string | null> = {};
-      if (phase1Result.smart_title) {
-        earlyEnrichment.smartTitle = phase1Result.smart_title;
-      }
-      if (phase1Result.confirmation_message) {
-        earlyEnrichment.confirmationMessage = phase1Result.confirmation_message;
-      }
+    // Push early enrichment AND ambiguity fields to Zustand
+    // This allows:
+    // 1. Typewriter animation to start after Phase 1 (~1.5s)
+    // 2. Clarify badge to appear immediately if is_ambiguous
+    const earlyEnrichment: Record<string, unknown> = {};
+    if (phase1Result.smart_title) {
+      earlyEnrichment.smartTitle = phase1Result.smart_title;
+    }
+    if (phase1Result.confirmation_message) {
+      earlyEnrichment.confirmationMessage = phase1Result.confirmation_message;
+    }
+    // NEW: Push ambiguity state for immediate UI feedback (clarify badge)
+    if (phase1Result.is_ambiguous) {
+      earlyEnrichment.needs_clarification = true;
+      earlyEnrichment.ambiguity_reason = phase1Result.ambiguity_reason;
+      earlyEnrichment.clarification_resolved = false;
+      // Options will be populated by Phase 1.5 in background
+      earlyEnrichment.clarification_question = null;
+      earlyEnrichment.clarification_options = null;
+    }
+    if (Object.keys(earlyEnrichment).length > 0) {
       useGremlyStore.getState().updatePendingDropEnrichment(localId, earlyEnrichment);
     }
 
     callbacks?.onPhase1Complete?.(localId, phase1Result.bucket);
 
     // =========================================
-    // PHASE 1.5: Ambiguity Detection
-    // Checks if short temporal inputs need clarification
-    // Skip if Phase 1 already determined clarification is needed (backwards compat)
+    // PHASE 1.5: Clarification Question Generation
+    // Runs in BACKGROUND if is_ambiguous - does NOT block Phase 2
     // =========================================
 
-    const phase1_5Start = Date.now();
-    let clarificationFromPhase1_5 = false;
-    let phase1_5Skipped = false;
-
-    // Skip if Phase 1 already determined clarification is needed
-    if (
-      phase1Result.needs_clarification &&
-      (phase1Result.clarification_options?.length ?? 0) >= 2
-    ) {
-      console.log('[DropProcessor] Skipping Phase 1.5 - Phase 1 already set clarification');
-      phase1_5Skipped = true;
-    } else {
-      const { shouldRun, detectedTemporal } = shouldRunPhase1_5(
+    // Fire and forget - Phase 1.5 runs in background, Phase 2 starts immediately
+    if (phase1Result.is_ambiguous && phase1Result.ambiguity_reason) {
+      runPhase1_5InBackground(
+        localId,
         text,
+        phase1Result.ambiguity_reason,
         phase1Result.bucket,
-        phase1Result.subtype,
-        phase1Result.confidence,
       );
-
-      if (shouldRun) {
-        console.log('[DropProcessor] Phase 1.5 triggered', {
-          text: text.substring(0, 50),
-          detectedTemporal,
-          phase1Bucket: phase1Result.bucket,
-        });
-
-        const phase1_5Result = await runPhase1_5(
-          text,
-          phase1Result.bucket,
-          phase1Result.subtype,
-          detectedTemporal,
-        );
-
-        console.log('[DropProcessor] Phase 1.5 result', {
-          is_ambiguous: phase1_5Result.is_ambiguous,
-          question: phase1_5Result.question?.substring(0, 40),
-          options_count: phase1_5Result.options?.length || 0,
-          latency_ms: phase1_5Result.latency_ms,
-        });
-
-        if (
-          phase1_5Result.is_ambiguous &&
-          phase1_5Result.options &&
-          phase1_5Result.options.length >= 2
-        ) {
-          // Override Phase 1 clarification fields with Phase 1.5 results
-          phase1Result.needs_clarification = true;
-          phase1Result.clarification_type = 'bucket';
-          phase1Result.clarification_question = phase1_5Result.question;
-          phase1Result.clarification_options = phase1_5Result.options;
-
-          // Override confirmation message with tap-encouraging prompt
-          if (phase1_5Result.confirmation_message) {
-            phase1Result.confirmation_message = phase1_5Result.confirmation_message;
-          }
-
-          // Lower confidence since we're uncertain
-          phase1Result.confidence = Math.min(phase1Result.confidence, 0.6);
-
-          clarificationFromPhase1_5 = true;
-
-          console.log('[DropProcessor] Phase 1.5 set clarification', {
-            question: phase1_5Result.question,
-            options: phase1_5Result.options.map((o) => ({ id: o.id, bucket: o.action.bucket })),
-            confirmation_message: phase1_5Result.confirmation_message,
-          });
-        }
-
-        const phase1_5Elapsed = Date.now() - phase1_5Start;
-        console.log('[DropProcessor] Phase 1.5 timing', {
-          elapsed: phase1_5Elapsed,
-          localId,
-          triggered_clarification: clarificationFromPhase1_5,
-        });
-
-        // CRITICAL: Push clarification fields to Zustand for UI immediately
-        // This must happen BEFORE Phase 2 so the chip is present when animation starts
-        if (clarificationFromPhase1_5) {
-          useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-            needs_clarification: true,
-            clarification_type: 'bucket',
-            clarification_question: phase1_5Result.question || null,
-            clarification_options: (phase1_5Result.options as any) || null,
-            clarification_resolved: false,
-            // Also update confirmation message with tap prompt
-            confirmationMessage: phase1_5Result.confirmation_message || undefined,
-          });
-          console.log('[DropProcessor] Pushed clarification to Zustand for UI', { localId });
-        }
-      }
     }
 
-    // CHECKPOINT 1: Save classification results (and clarification fields from Phase 1 OR Phase 1.5)
-    // This is the first save - protects expensive Phase 1/1.5 AI work
+    // CHECKPOINT 1: Save classification results (ambiguity fields saved, options come later)
+    // This is the first save - protects expensive Phase 1 AI work
     await updateDrop(localId, {
       bucket: phase1Result.bucket,
       subtype: phase1Result.subtype,
@@ -798,20 +829,21 @@ export async function processDrop(
       ...(phase1Result.confirmation_message && {
         confirmationMessage: phase1Result.confirmation_message,
       }),
-      // Clarification fields (may come from Phase 1 OR Phase 1.5)
-      needsClarification: phase1Result.needs_clarification || false,
-      clarificationType: phase1Result.clarification_type || null,
-      clarificationQuestion: phase1Result.clarification_question || null,
-      clarificationOptions: phase1Result.clarification_options || null,
+      // Ambiguity detection (Phase 1.5 populates question/options in background)
+      needsClarification: phase1Result.is_ambiguous || false,
+      ambiguityReason: phase1Result.ambiguity_reason || null,
+      // Options will be populated by Phase 1.5 asynchronously
+      clarificationType: null,
+      clarificationQuestion: null,
+      clarificationOptions: null,
       status: 'classified', // Clear checkpoint status
     });
 
     console.log('[DropQueue] Updated drop with classification', {
       localId,
       bucket: phase1Result.bucket,
-      needsClarification: phase1Result.needs_clarification,
-      hasClarificationOptions: !!phase1Result.clarification_options,
-      clarificationSource: clarificationFromPhase1_5 ? 'phase1.5' : 'phase1',
+      is_ambiguous: phase1Result.is_ambiguous,
+      ambiguity_reason: phase1Result.ambiguity_reason,
     });
 
     // =========================================
@@ -880,11 +912,15 @@ export async function processDrop(
         // Include Phase 1 smart title and confirmation message
         smartTitle: phase1Result.smart_title ?? undefined,
         confirmationMessage: phase1Result.confirmation_message ?? undefined,
-        // Include Phase 1 clarification fields
-        needsClarification: phase1Result.needs_clarification || false,
-        clarificationType: phase1Result.clarification_type || null,
-        clarificationQuestion: phase1Result.clarification_question || null,
-        clarificationOptions: phase1Result.clarification_options || null,
+        // Include ambiguity detection from Phase 1
+        // Note: question/options may still be loading from Phase 1.5 background task
+        needsClarification: phase1Result.is_ambiguous || false,
+        ambiguityReason: phase1Result.ambiguity_reason || null,
+        // Get latest clarification data from Zustand (Phase 1.5 may have updated it)
+        clarificationQuestion:
+          useGremlyStore.getState().pendingDrops.get(localId)?.clarification_question || null,
+        clarificationOptions:
+          useGremlyStore.getState().pendingDrops.get(localId)?.clarification_options || null,
       },
       enrichmentResult,
     );

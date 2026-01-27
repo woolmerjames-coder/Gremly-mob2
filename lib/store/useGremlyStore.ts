@@ -299,11 +299,21 @@ export interface PendingDrop {
   dominantSubtype?: 'journal' | 'idea' | 'general' | null;
 
   // ═══════════════════════════════════════════════════════════════════
-  // Clarifying Questions (Phase 2)
+  // Phase 1: Ambiguity Detection (triggers Phase 1.5 in background)
   // ═══════════════════════════════════════════════════════════════════
 
-  /** True if AI returned needs_clarification in Phase 1 */
+  /** True if AI returned is_ambiguous in Phase 1 - shows clarify badge immediately */
   needs_clarification?: boolean;
+
+  /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
+  ambiguity_reason?: string | null;
+
+  /** Set to true when user resolves the clarification */
+  clarification_resolved?: boolean;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Phase 1.5: Clarification Options (populated asynchronously)
+  // ═══════════════════════════════════════════════════════════════════
 
   /** Type of clarification needed - 'bucket' blocks Phase 2 */
   clarification_type?:
@@ -329,9 +339,6 @@ export interface PendingDrop {
       scheduled_date?: boolean;
     };
   }> | null;
-
-  /** Set to true when user resolves the clarification */
-  clarification_resolved?: boolean;
 
   // ═══════════════════════════════════════════════════════════════════
   // Date Intelligence (Phase 2)

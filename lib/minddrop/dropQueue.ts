@@ -143,11 +143,18 @@ export interface QueuedDrop {
   mood?: string[] | null;
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Phase 2: Clarification fields
+  // Phase 1: Ambiguity detection (triggers Phase 1.5 in background)
   // ──────────────────────────────────────────────────────────────────────────
 
   /** True if AI needs user to disambiguate the intent */
   needsClarification?: boolean;
+
+  /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
+  ambiguityReason?: string | null;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 1.5: Clarification fields (populated asynchronously in background)
+  // ──────────────────────────────────────────────────────────────────────────
 
   /** Type of clarification needed */
   clarificationType?: 'bucket' | 'date' | 'social_plan' | null;

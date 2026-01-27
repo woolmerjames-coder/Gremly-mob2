@@ -182,7 +182,17 @@ export interface Phase1Result {
   confirmation_message?: string | null;
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Phase 2: Clarification fields (when bucket confidence < threshold)
+  // Phase 1: Ambiguity detection (triggers Phase 1.5 in background)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** True if Phase 1 detected ambiguity - UI shows clarify badge immediately */
+  is_ambiguous?: boolean;
+
+  /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
+  ambiguity_reason?: string | null;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 1.5: Clarification fields (populated asynchronously in background)
   // ──────────────────────────────────────────────────────────────────────────
 
   /** True if AI needs user to disambiguate the intent */
