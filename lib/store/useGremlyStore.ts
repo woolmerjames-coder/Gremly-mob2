@@ -589,7 +589,11 @@ interface GremlyState {
   ) => Promise<boolean>;
   promotePendingDropToEntity: (localId: string, supabaseId: string) => void;
   removePendingDrop: (localId: string) => void;
-  resolvePendingDropClarification: (localId: string, optionId: string) => Promise<void>;
+  resolvePendingDropClarification: (
+    localId: string,
+    optionId: string,
+    isFreeText?: boolean,
+  ) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // ENTITY CHAT MUTATIONS
@@ -4322,7 +4326,7 @@ export const useGremlyStore = create<GremlyState>()(
       console.log('[GremlyStore] Removed pending drop', { localId });
     },
 
-    resolvePendingDropClarification: async (localId, optionId) => {
+    resolvePendingDropClarification: async (localId, optionId, isFreeText = false) => {
       const state = get();
 
       // ─────────────────────────────────────────────────────────────────────
@@ -4332,95 +4336,113 @@ export const useGremlyStore = create<GremlyState>()(
       // ─────────────────────────────────────────────────────────────────────
       const pendingDrop = state.pendingDrops.get(localId);
 
-      if (pendingDrop && pendingDrop.clarification_options) {
-        const selectedOption = pendingDrop.clarification_options.find((opt) => opt.id === optionId);
-        if (selectedOption) {
-          console.log('[GremlyStore] Resolving pending drop clarification', {
-            localId,
-            optionId,
-            selectedLabel: selectedOption.label,
-          });
-
-          // Call reclassify endpoint to get bucket, dates, time estimate
-          try {
-            const cortexUrl = env.cortexUrl;
-            if (cortexUrl) {
-              const reclassifyResponse = await fetch(cortexUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  type: 'reclassify-after-clarification',
-                  text: pendingDrop.text || pendingDrop.smartTitle || '',
-                  selectedLabel: selectedOption.label,
-                  currentDate: getDateService().getCurrentDate(),
-                  targetBucket: pendingDrop.bucket, // Hint for time estimation
-                }),
-              });
-
-              if (reclassifyResponse.ok) {
-                const result = await reclassifyResponse.json();
-                console.log('[GremlyStore] Pending drop reclassify result', {
-                  localId,
-                  newBucket: result.bucket,
-                  newTitle: result.smart_title,
-                  targetDate: result.target_date,
-                  scheduledDate: result.scheduled_date,
-                  timeEstimate: result.time_estimate_minutes,
-                  latency_ms: result.latency_ms,
-                });
-
-                // Update the pending drop with reclassified data
-                set((s) => {
-                  const pendingDrops = new Map(s.pendingDrops);
-                  const drop = pendingDrops.get(localId);
-                  if (!drop) return s;
-
-                  const updatedDrop: PendingDrop = {
-                    ...drop,
-                    bucket: result.bucket || drop.bucket,
-                    subtype: result.subtype || drop.subtype,
-                    smartTitle: result.smart_title || drop.smartTitle,
-                    confirmationMessage: result.confirmation_message || drop.confirmationMessage,
-                    timeEstimateMinutes: result.time_estimate_minutes ?? drop.timeEstimateMinutes,
-                    // Date intelligence
-                    target_date: result.target_date || null,
-                    scheduled_date: result.scheduled_date || null,
-                    // Mark clarification as resolved
-                    clarification_resolved: true,
-                    needs_clarification: false,
-                  };
-
-                  pendingDrops.set(localId, updatedDrop);
-                  return { pendingDrops };
-                });
-                return;
-              }
-            }
-          } catch (error) {
-            console.log('[GremlyStore] Pending drop reclassify failed:', error);
+      if (pendingDrop && (isFreeText || pendingDrop.clarification_options)) {
+        // Determine the selected label based on whether it's free text or a predefined option
+        let selectedLabel: string;
+        if (isFreeText) {
+          // User typed their own explanation - use it directly
+          selectedLabel = optionId;
+          console.log(
+            '[GremlyStore] Using free text as selectedLabel:',
+            selectedLabel.substring(0, 50),
+          );
+        } else {
+          // User selected a predefined option - look up the label
+          const selectedOption = pendingDrop.clarification_options?.find(
+            (opt) => opt.id === optionId,
+          );
+          if (!selectedOption) {
+            console.warn('[GremlyStore] Pending drop option not found:', { localId, optionId });
+            return;
           }
+          selectedLabel = selectedOption.label;
+        }
 
-          // Fallback: just mark as resolved without reclassifying
-          set((s) => {
-            const pendingDrops = new Map(s.pendingDrops);
-            const drop = pendingDrops.get(localId);
-            if (!drop) return s;
+        console.log('[GremlyStore] Resolving pending drop clarification', {
+          localId,
+          optionId: isFreeText ? '(free text)' : optionId,
+          selectedLabel: selectedLabel.substring(0, 50),
+        });
 
-            const updatedDrop: PendingDrop = {
-              ...drop,
-              clarification_resolved: true,
-              needs_clarification: false,
-            };
-
-            pendingDrops.set(localId, updatedDrop);
-            console.log('[GremlyStore] Pending drop clarification resolved (fallback)', {
-              localId,
+        // Call reclassify endpoint to get bucket, dates, time estimate
+        try {
+          const cortexUrl = env.cortexUrl;
+          if (cortexUrl) {
+            const reclassifyResponse = await fetch(cortexUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'reclassify-after-clarification',
+                text: pendingDrop.text || pendingDrop.smartTitle || '',
+                selectedLabel: selectedLabel,
+                currentDate: getDateService().getCurrentDate(),
+                targetBucket: pendingDrop.bucket, // Hint for time estimation
+              }),
             });
 
-            return { pendingDrops };
-          });
-          return;
+            if (reclassifyResponse.ok) {
+              const result = await reclassifyResponse.json();
+              console.log('[GremlyStore] Pending drop reclassify result', {
+                localId,
+                newBucket: result.bucket,
+                newTitle: result.smart_title,
+                targetDate: result.target_date,
+                scheduledDate: result.scheduled_date,
+                timeEstimate: result.time_estimate_minutes,
+                latency_ms: result.latency_ms,
+              });
+
+              // Update the pending drop with reclassified data
+              set((s) => {
+                const pendingDrops = new Map(s.pendingDrops);
+                const drop = pendingDrops.get(localId);
+                if (!drop) return s;
+
+                const updatedDrop: PendingDrop = {
+                  ...drop,
+                  bucket: result.bucket || drop.bucket,
+                  subtype: result.subtype || drop.subtype,
+                  smartTitle: result.smart_title || drop.smartTitle,
+                  confirmationMessage: result.confirmation_message || drop.confirmationMessage,
+                  timeEstimateMinutes: result.time_estimate_minutes ?? drop.timeEstimateMinutes,
+                  // Date intelligence
+                  target_date: result.target_date || null,
+                  scheduled_date: result.scheduled_date || null,
+                  // Mark clarification as resolved
+                  clarification_resolved: true,
+                  needs_clarification: false,
+                };
+
+                pendingDrops.set(localId, updatedDrop);
+                return { pendingDrops };
+              });
+              return;
+            }
+          }
+        } catch (error) {
+          console.log('[GremlyStore] Pending drop reclassify failed:', error);
         }
+
+        // Fallback: just mark as resolved without reclassifying
+        set((s) => {
+          const pendingDrops = new Map(s.pendingDrops);
+          const drop = pendingDrops.get(localId);
+          if (!drop) return s;
+
+          const updatedDrop: PendingDrop = {
+            ...drop,
+            clarification_resolved: true,
+            needs_clarification: false,
+          };
+
+          pendingDrops.set(localId, updatedDrop);
+          console.log('[GremlyStore] Pending drop clarification resolved (fallback)', {
+            localId,
+          });
+
+          return { pendingDrops };
+        });
+        return;
       }
 
       // ─────────────────────────────────────────────────────────────────────
@@ -4461,20 +4483,33 @@ export const useGremlyStore = create<GremlyState>()(
         | Array<{ id: string; label: string }>
         | undefined;
 
-      if (!clarificationOptions) {
-        console.warn('[GremlyStore] resolvePendingDropClarification: No clarification options', {
-          entityId,
-        });
-        return;
-      }
+      // Determine the selected label based on whether it's free text or a predefined option
+      let selectedLabel: string;
+      if (isFreeText) {
+        // User typed their own explanation - use it directly
+        selectedLabel = optionId;
+        console.log(
+          '[GremlyStore] Using free text as selectedLabel for synced entity:',
+          selectedLabel.substring(0, 50),
+        );
+      } else {
+        // User selected a predefined option - look up the label
+        if (!clarificationOptions) {
+          console.warn('[GremlyStore] resolvePendingDropClarification: No clarification options', {
+            entityId,
+          });
+          return;
+        }
 
-      const selectedOption = clarificationOptions.find((opt) => opt.id === optionId);
-      if (!selectedOption) {
-        console.warn('[GremlyStore] resolvePendingDropClarification: Option not found', {
-          entityId,
-          optionId,
-        });
-        return;
+        const selectedOption = clarificationOptions.find((opt) => opt.id === optionId);
+        if (!selectedOption) {
+          console.warn('[GremlyStore] resolvePendingDropClarification: Option not found', {
+            entityId,
+            optionId,
+          });
+          return;
+        }
+        selectedLabel = selectedOption.label;
       }
 
       // Get original text for reclassification
@@ -4488,7 +4523,7 @@ export const useGremlyStore = create<GremlyState>()(
         entityId,
         entityType,
         currentBucket,
-        selectedLabel: selectedOption.label,
+        selectedLabel: selectedLabel.substring(0, 50),
         originalTextPreview: originalText.substring(0, 50),
       });
 
@@ -4519,7 +4554,7 @@ export const useGremlyStore = create<GremlyState>()(
             body: JSON.stringify({
               type: 'reclassify-after-clarification',
               text: originalText,
-              selectedLabel: selectedOption.label,
+              selectedLabel: selectedLabel,
               currentDate: getDateService().getCurrentDate(),
               targetBucket: currentBucket, // Hint for time estimation
             }),
