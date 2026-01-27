@@ -4360,26 +4360,86 @@ export const useGremlyStore = create<GremlyState>()(
         action: selectedOption.action,
       });
 
-      // If bucket is NOT changing, just update clarification status
+      // If bucket is NOT changing, still reclassify to get updated title/confirmation
       if (targetBucket === currentBucket || (targetBucket === 'log' && entityType === 'note')) {
-        console.log('[GremlyStore] Same bucket - updating clarification status only');
+        console.log('[GremlyStore] Same bucket - reclassifying and updating');
+
+        // Get updated title and confirmation message (same as bucket change flow)
+        const originalTitle = (entity as Note).title || (entity as any).name || '';
+        const originalBody = (entity as Note).body || '';
+        let newTitle = originalTitle || originalBody.substring(0, 50);
+        let newConfirmation = 'Updated.';
+
+        try {
+          const cortexUrl = env.cortexUrl;
+          if (cortexUrl) {
+            const reclassifyResponse = await fetch(cortexUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'reclassify-after-clarification',
+                text: originalBody || originalTitle,
+                bucket: targetBucket,
+                subtype: selectedOption.action.subtype || (entity as any).subtype || null,
+                selectedLabel: selectedOption.label,
+              }),
+            });
+
+            if (reclassifyResponse.ok) {
+              const reclassifyResult = await reclassifyResponse.json();
+              newTitle = reclassifyResult.smart_title || newTitle;
+              newConfirmation = reclassifyResult.confirmation_message || newConfirmation;
+              console.log('[GremlyStore] Same bucket reclassified:', {
+                newTitle,
+                newConfirmation,
+              });
+            }
+          }
+        } catch (reclassifyError) {
+          console.log('[GremlyStore] Same bucket reclassify failed:', reclassifyError);
+        }
+
+        // Handle target_date if the option specifies it
+        const extractedDate =
+          (views?.extracted_date as string) ||
+          (views?.target_date as string) ||
+          (entity as any).target_date ||
+          null;
+
+        const dateUpdate: Record<string, unknown> = {};
+        if (selectedOption.action.target_date && extractedDate) {
+          dateUpdate.target_date = extractedDate.split('T')[0];
+          dateUpdate.date = extractedDate.split('T')[0]; // For notes, this might be the date field
+          console.log('[GremlyStore] Same bucket applying target_date:', dateUpdate);
+        }
 
         const updatedViews: Record<string, unknown> = {
           ...(views || {}),
           needs_clarification: false,
           clarification_resolved: true,
+          confirmation_message: newConfirmation,
         };
 
         const updates: Record<string, unknown> = {
+          title: newTitle,
+          name: newTitle, // Some entities use name instead of title
           views: updatedViews,
           needs_clarification: false,
           clarification_resolved: true,
+          ...dateUpdate,
         };
 
-        // If subtype changed for notes
-        if (selectedOption.action.subtype && entityType === 'note') {
+        // Update subtype if specified
+        if (selectedOption.action.subtype) {
           updates.subtype = selectedOption.action.subtype;
         }
+
+        console.log('[GremlyStore] Same bucket updates:', {
+          entityId,
+          newTitle,
+          newConfirmation,
+          hasDateUpdate: Object.keys(dateUpdate).length > 0,
+        });
 
         if (entityType === 'todo') {
           await get().updateTodo(entityId, updates);
@@ -4388,6 +4448,12 @@ export const useGremlyStore = create<GremlyState>()(
         } else {
           await get().updateNote(entityId, updates);
         }
+
+        console.log('[GremlyStore] Same bucket clarification resolved:', {
+          entityId,
+          newTitle,
+          newConfirmation,
+        });
         return;
       }
 
