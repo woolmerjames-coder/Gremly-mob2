@@ -2239,31 +2239,46 @@ Only set dates that were mentioned in the ORIGINAL INPUT. If there was no date, 
 
 **RULE 2: Use the clarification to determine date TYPE.**
 
-If clarification reveals EXISTING EVENT/APPOINTMENT:
+If clarification reveals EXISTING EVENT/APPOINTMENT (LOG):
 - "I have an appointment Monday" → target_date = Monday (it's when the appointment IS)
 - "I have a trip in June" → target_date = June (it's when the trip IS)
 
-If clarification reveals ACTION NEEDED but specifies WHEN TO DO IT:
+If clarification reveals PLANNING FOR AN EVENT (TODO):
+- "I need to plan a celebration" (original had "May") → target_date = May (when the event IS), scheduled_date = null
+- "I need to get a gift" (original had "March 5") → target_date = March 5 (when the birthday IS), scheduled_date = null
+- The date is CONTEXT for the task, not when to DO the task
+- Do NOT set this as a due_date — it's reference info
+
+If clarification reveals ACTION with explicit timing:
 - "I need to book, will call Monday" → scheduled_date = Monday (when they'll do the task)
 - "I'll handle it tomorrow" → scheduled_date = tomorrow
 
-If clarification reveals ACTION NEEDED but doesn't specify what the date means:
-- "I need to book" (original had "Monday") → We don't know if Monday is when they want the appointment or when they'll call
+If clarification reveals ACTION but date meaning is ambiguous:
+- "I need to book" (original had "Monday") → Could be "appointment on Monday" or "call on Monday"
 - In this case: target_date = the original date, scheduled_date = null, date_type_ambiguous = true
-- Reasoning: Safer to assume the date is when they want it scheduled FOR, and let Sweep ask when they'll DO it
 
-**RULE 3: Flag ambiguity when date meaning wasn't resolved.**
+**RULE 3: Planning tasks get target_date, not scheduled_date.**
+
+When the clarification is about PLANNING or PREPARING for something:
+- "plan a celebration", "get a gift", "prepare for", "organize"
+- The original date is WHEN THE THING IS, not when to do the planning
+- Set target_date = original date, scheduled_date = null
+- Do NOT flag as ambiguous — we know the date is the event date
+
+**RULE 4: Flag ambiguity only when truly unclear.**
 
 Set date_type_ambiguous: true when:
 - Original input had a date
 - Clarification confirmed action is needed (TODO)
-- But clarification did NOT explicitly say what the date means
+- But clarification did NOT reveal whether the date is event or action timing
+- AND it's not clearly a "planning for event" scenario
 
 Examples:
-- "chiropractor Monday" + "I need to book" → target_date: Monday, scheduled_date: null, date_type_ambiguous: true
+- "sister graduation May" + "I need to plan a celebration" → target_date: May (graduation date), scheduled_date: null, date_type_ambiguous: false
+- "mom birthday March 5" + "I need to get a gift" → target_date: March 5 (birthday), scheduled_date: null, date_type_ambiguous: false
+- "chiropractor Monday" + "I need to book" → target_date: Monday, scheduled_date: null, date_type_ambiguous: true (unclear if appointment or call date)
 - "chiropractor Monday" + "I have an appointment" → target_date: Monday, scheduled_date: null, date_type_ambiguous: false
-- "chiropractor Monday" + "I'll call Monday to book" → target_date: null, scheduled_date: Monday, date_type_ambiguous: false
-- "standing desk" + "I want to buy one" → target_date: null, scheduled_date: null, date_type_ambiguous: false (no date in original)
+- "standing desk" + "I want to buy one" → target_date: null, scheduled_date: null, date_type_ambiguous: false (no date)
 
 === TITLE RULES ===
 
