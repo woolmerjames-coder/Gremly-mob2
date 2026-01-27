@@ -4913,6 +4913,7 @@ export const useGremlyStore = create<GremlyState>()(
         const extractedDate = (views?.extracted_date as string) || null;
 
         // Common fields for new entity
+        // CRITICAL: Set ai_pending: true so the card shows shimmer animation while Phase 2 runs
         const commonFields = {
           owner_id: entity.owner_id,
           tags: entity.tags || [],
@@ -4929,6 +4930,9 @@ export const useGremlyStore = create<GremlyState>()(
             converted_from: entityType,
             converted_at: new Date().toISOString(),
             confirmation_message: newConfirmation,
+            // Set processing state so card shows shimmer while Phase 2 runs
+            ai_pending: true,
+            minddrop_stage: 'classified',
           },
         };
 

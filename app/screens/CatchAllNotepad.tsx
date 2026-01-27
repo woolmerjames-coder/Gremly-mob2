@@ -2416,6 +2416,19 @@ const multiBounceAnimatedIds = new Set<string>();
 const chipBounceAnimatedIds = new Set<string>();
 
 /**
+ * Reset all animation tracking for a drop_id.
+ * Called when a clarification bucket change happens so the new entity
+ * can show fresh animations (shimmer, typewriter, mist, bounce).
+ */
+export const resetAnimationTrackingForDrop = (dropId: string) => {
+  revealedItemIds.delete(dropId);
+  chipAnimatedIds.delete(dropId);
+  multiBounceAnimatedIds.delete(dropId);
+  chipBounceAnimatedIds.delete(dropId);
+  console.log('[AnimatedMindDropCard] Reset animation tracking for drop:', dropId);
+};
+
+/**
  * Animated wrapper for Mind Drop card that smoothly transitions
  * from pending skeleton to final content when AI enrichment completes
  *
@@ -3900,6 +3913,12 @@ const RecentDrops: React.FC<{
           source: payload.source,
           title: payload.entity?.title ?? payload.entity?.name,
         });
+
+        // CRITICAL: For clarification bucket changes, reset animation tracking
+        // so the new entity shows fresh animations (shimmer, typewriter, mist, bounce)
+        if (payload.source === 'clarification-bucket-change' && dropId) {
+          resetAnimationTrackingForDrop(dropId);
+        }
 
         // DEBUG: Log multi-entity note details
         if (payload.type === 'note') {
