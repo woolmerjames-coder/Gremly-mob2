@@ -3148,9 +3148,9 @@ const RecentDrops: React.FC<{
           // Top-level clarification fields for direct access
           needs_clarification: drop.needs_clarification,
           clarification_resolved: drop.clarification_resolved,
-          clarification_question: drop.clarification_question,
-          clarification_options: drop.clarification_options,
-          clarification_type: drop.clarification_type,
+          clarification_question: drop.clarification_question ?? undefined,
+          clarification_options: drop.clarification_options ?? undefined,
+          clarification_type: drop.clarification_type ?? undefined,
           // Multi-drop fields (from Phase 0/1, before entity creation)
           multi_items: drop.multiSegments?.map((seg, idx) => {
             // Debug: Log segment data including Phase 1 titles
@@ -3305,6 +3305,32 @@ const RecentDrops: React.FC<{
           is_multi: views?.is_multi === true,
           multi_items: views?.multi_items ?? item.multi_items ?? undefined,
           multi_summary_title: views?.multi_summary_title ?? item.multi_summary_title ?? undefined,
+          // Clarification fields - CRITICAL for removing the Clarify chip after resolution
+          needs_clarification:
+            (record as any).needs_clarification ??
+            views?.needs_clarification ??
+            item.needs_clarification ??
+            false,
+          clarification_resolved:
+            (record as any).clarification_resolved ??
+            views?.clarification_resolved ??
+            item.clarification_resolved ??
+            false,
+          clarification_question:
+            (record as any).clarification_question ??
+            views?.clarification_question ??
+            item.clarification_question ??
+            undefined,
+          clarification_options:
+            (record as any).clarification_options ??
+            views?.clarification_options ??
+            item.clarification_options ??
+            undefined,
+          clarification_type:
+            (record as any).clarification_type ??
+            views?.clarification_type ??
+            item.clarification_type ??
+            undefined,
         };
       });
     },
@@ -3939,6 +3965,63 @@ const RecentDrops: React.FC<{
       },
     );
 
+    // Listen for ItemUpdated events from Zustand store (e.g., same-bucket clarification resolution)
+    const unsubItemUpdated = eventBus.on(
+      'ItemUpdated',
+      (payload: { id: string; source?: string }) => {
+        console.log('[RecentDrops] ItemUpdated event:', payload.id);
+
+        // Fetch the updated entity from Zustand and merge into local state
+        const store = useGremlyStore.getState();
+
+        // Check all entity types
+        const note = store.notes.find((n) => n.id === payload.id);
+        const todo = store.todos.find((t) => t.id === payload.id);
+        const habit = store.habits.find((h) => h.id === payload.id);
+
+        const entity = note || todo || habit;
+        const entityType = note ? 'note' : todo ? 'todo' : habit ? 'habit' : null;
+
+        if (!entity || !entityType) {
+          console.warn('[RecentDrops] ItemUpdated: entity not found in store', payload.id);
+          return;
+        }
+
+        console.log('[RecentDrops] ItemUpdated: merging updated entity', {
+          id: payload.id,
+          type: entityType,
+          title: (entity as any).title ?? (entity as any).name,
+          needs_clarification: (entity as any).needs_clarification,
+          clarification_resolved: (entity as any).clarification_resolved,
+        });
+
+        // Update the item in local state
+        setItems((prev) =>
+          prev.map((item) => {
+            if (item.id !== payload.id) return item;
+
+            const views = (entity as any).views || {};
+            return {
+              ...item,
+              title: (entity as any).title ?? (entity as any).name ?? item.title,
+              tags: Array.isArray((entity as any).tags) ? (entity as any).tags : item.tags,
+              views: views,
+              due_date: (entity as any).due_date ?? (entity as any).due_at ?? item.due_date,
+              due_day: (entity as any).due_day ?? item.due_day,
+              // Clarification fields - CRITICAL for removing the Clarify chip
+              needs_clarification:
+                (entity as any).needs_clarification ?? views.needs_clarification ?? false,
+              clarification_resolved:
+                (entity as any).clarification_resolved ?? views.clarification_resolved ?? false,
+              clarification_question: views.clarification_question ?? item.clarification_question,
+              clarification_options: views.clarification_options ?? item.clarification_options,
+              clarification_type: views.clarification_type ?? item.clarification_type,
+            };
+          }),
+        );
+      },
+    );
+
     // Timeout mechanism for stuck cards - recover after 30 seconds
     const stuckCardInterval = setInterval(() => {
       const now = Date.now();
@@ -3975,6 +4058,7 @@ const RecentDrops: React.FC<{
       unsubEntityEnriched();
       unsubFieldUpdated();
       unsubItemCompleted();
+      unsubItemUpdated();
       clearInterval(stuckCardInterval);
     };
   }, [load]);
