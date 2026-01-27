@@ -121,6 +121,70 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   // Get store action for resolving clarification
   const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
 
+  // Subscribe to entities to get fresh clarification data when Phase 1.5 completes
+  // This handles the race condition where popup opens before Phase 1.5 finishes
+  const notes = useGremlyStore((s) => s.notes);
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+
+  // Derive the actual question/options from the entity if popup state is stale
+  // This ensures we always show the latest data, even if Phase 1.5 completed after popup opened
+  const effectiveClarificationData = React.useMemo(() => {
+    if (!clarificationPopup.visible || !clarificationPopup.entityId) {
+      return { question: clarificationPopup.question, options: clarificationPopup.options };
+    }
+
+    // If we already have options in popup state, use them
+    if (clarificationPopup.options && clarificationPopup.options.length >= 2) {
+      return { question: clarificationPopup.question, options: clarificationPopup.options };
+    }
+
+    // Otherwise, try to get fresh data from the entity
+    type EntityWithViews = { id: string; views?: Record<string, unknown> };
+    let entity: EntityWithViews | undefined;
+    if (clarificationPopup.entityType === 'note') {
+      entity = notes.find((n) => n.id === clarificationPopup.entityId);
+    } else if (clarificationPopup.entityType === 'todo') {
+      entity = todos.find((t) => t.id === clarificationPopup.entityId);
+    } else if (clarificationPopup.entityType === 'habit') {
+      entity = habits.find((h) => h.id === clarificationPopup.entityId);
+    }
+
+    if (!entity) {
+      return { question: clarificationPopup.question, options: clarificationPopup.options };
+    }
+
+    const freshQuestion =
+      (entity as Record<string, unknown>).clarification_question ||
+      entity.views?.clarification_question;
+    const freshOptions =
+      (entity as Record<string, unknown>).clarification_options ||
+      entity.views?.clarification_options;
+
+    if (freshQuestion && Array.isArray(freshOptions) && freshOptions.length >= 2) {
+      console.log('[GlobalOverlay] Using fresh Phase 1.5 data from entity', {
+        entityId: clarificationPopup.entityId,
+        question: String(freshQuestion).substring(0, 30),
+        optionsCount: freshOptions.length,
+      });
+      return {
+        question: freshQuestion as string,
+        options: freshOptions as ClarificationPopupState['options'],
+      };
+    }
+
+    return { question: clarificationPopup.question, options: clarificationPopup.options };
+  }, [
+    clarificationPopup.visible,
+    clarificationPopup.entityId,
+    clarificationPopup.entityType,
+    clarificationPopup.question,
+    clarificationPopup.options,
+    notes,
+    todos,
+    habits,
+  ]);
+
   // Clarification popup methods
   const openClarificationPopup = useCallback(
     ({ entityId, entityType, question, options }: ClarificationPopupOptions) => {
@@ -397,8 +461,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       {/* Standalone Clarification Popup - renders on top of everything */}
       <ClarificationPopup
         visible={clarificationPopup.visible}
-        question={clarificationPopup.question}
-        options={clarificationPopup.options}
+        question={effectiveClarificationData.question}
+        options={effectiveClarificationData.options}
         onSelectOption={handleClarificationSelect}
         onSkip={handleClarificationSkip}
         isSubmitting={clarificationLoading}
