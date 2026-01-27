@@ -12,6 +12,10 @@ interface ClarificationIndicatorChipProps {
  *
  * Displays in Row 3 of Mind Drop cards alongside other chips (time estimate, mood, etc.).
  * Uses a warm, subtle attention color that stands out but isn't alarming.
+ *
+ * NOTE: This chip does NOT have its own animation. The parent AnimatedChipsTransition
+ * handles the coordinated "emerge from mist" animation for ALL chips in Row 3 together.
+ * Adding a separate animation here would cause flickering and layout shifts.
  */
 export function ClarificationIndicatorChip({ onPress }: ClarificationIndicatorChipProps) {
   const chipContent = (

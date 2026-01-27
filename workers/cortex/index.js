@@ -2240,9 +2240,24 @@ INPUT: "feeling stressed about work"
               ? parsed.question.trim().substring(0, 60)
               : 'What did you mean?';
 
+          // Tap-encouraging confirmation messages for ambiguous drops
+          const tapPromptMessages = [
+            'Quick question for you — tap me',
+            'Need your input — tap to clarify',
+            'One quick thing — tap me',
+            'Help me understand — tap here',
+            'Almost there — tap to confirm',
+            'Need to check something — tap me',
+            'Quick clarification needed — tap',
+            'Tap to help me sort this out',
+          ];
+          const confirmationMessage =
+            tapPromptMessages[Math.floor(Math.random() * tapPromptMessages.length)];
+
           console.log('[Phase1.5] Ambiguous', {
             question: question.substring(0, 40),
             options_count: cleanedOptions.length,
+            confirmation_message: confirmationMessage,
             latency_ms: latency,
           });
 
@@ -2250,6 +2265,7 @@ INPUT: "feeling stressed about work"
             is_ambiguous: true,
             question,
             options: cleanedOptions,
+            confirmation_message: confirmationMessage,
             latency_ms: latency,
           });
         } catch (err) {
@@ -2269,34 +2285,137 @@ INPUT: "feeling stressed about work"
         const resolvedSubtype = body.subtype || null;
         const selectedLabel = body.selectedLabel || '';
 
-        const reclassifyPrompt = `Generate a smart title and confirmation message for a productivity app item.
+        // Include time estimation for todos and habits
+        const timeEstimationSection =
+          resolvedBucket === 'todo' || resolvedBucket === 'habit'
+            ? `
+=== TIME ESTIMATE (required for todos and habits) ===
+Estimate in 5-minute increments from 5 to 240 minutes.
+Use factor-based reasoning, not category lookup.
+
+**ESTIMATION FRAMEWORK**
+
+Think through these factors for EVERY task:
+
+**FACTOR 1: What's the core action?**
+Estimate the minimum time if everything went perfectly.
+- Send a text: 1-2 min
+- Make a phone call: 10-15 min
+- Walk somewhere: depends on distance
+- Write something: depends on length/complexity
+- Physical task: depends on scope
+
+**FACTOR 2: Do I need to leave my current location?**
+- Staying put (home/desk): no addition
+- Leaving the house: +15-20 min minimum (getting ready, keys, shoes, return, settle back in)
+- Going somewhere specific: add realistic travel time (round trip)
+
+**FACTOR 3: Are other people or animals involved?**
+- Solo task: you control the pace
+- Another person: +10-15 min (coordination, waiting, social dynamics, conversations run long)
+- Animal (dog walk, vet): +10-15 min (unpredictability, their pace not yours)
+- Group/meeting: +15-20 min (gathering, small talk, herding cats)
+
+**FACTOR 4: Physical world or digital?**
+- Digital: more predictable, usually faster
+- Physical: more variables, more can go wrong, round UP
+
+**FACTOR 5: Is this bounded or open-ended?**
+- Bounded ("pay bill", "send email"): clearer end point, estimate tighter
+- Open-ended ("clean garage", "work on project"): no natural stopping point, estimate higher
+
+**FACTOR 6: What commonly goes wrong?**
+- Can't find something: +5-10 min
+- Technical issues: +5-10 min
+- Waiting (on hold, in line): +10-15 min
+- Unexpected conversation: +10 min
+
+**THE PROCESS**
+1. Identify the core action and base time
+2. Apply each relevant factor
+3. Add up the total
+4. Round UP to nearest 5 minutes
+5. When uncertain between two estimates, choose the higher one
+
+**EXAMPLES WITH REASONING**
+
+"Walk Bella" (dog walk)
+- Core: walking (20-25 min)
+- Leave house: yes (+10 min prep/return)
+- Animal involved: yes (+10 min for sniffing, unpredictability)
+- Physical: yes (round up)
+→ Total: 40-45 min → 45 min
+
+"Call mom"
+- Core: phone conversation (15 min)
+- Leave house: no
+- Other person: yes (+15 min, mom calls run long)
+- Digital: yes
+→ Total: 30 min → 30 min
+
+"Buy groceries"
+- Core: shopping (20 min in store)
+- Leave house: yes (+10 min)
+- Travel: yes (+20 min round trip)
+- Physical: yes (round up)
+- Can go wrong: lines, can't find items (+10 min)
+→ Total: 60 min → 60 min
+
+**RANGE ANCHORS**
+- Minimum: 5 min (truly instant digital tasks)
+- Maximum: 240 min (4 hours, major project blocks)
+- Most common range: 15-60 min
+
+**CRITICAL RULES**
+- ALWAYS round UP, never down
+- When uncertain, choose the higher estimate
+- "Quick" tasks that involve leaving the house are never under 30 min
+- Tasks involving other people are rarely under 20 min
+
+=== ENERGY TYPE (required for todos and habits) ===
+Choose ONE:
+- deep_focus: thinking, writing, coding, creating, designing, planning
+- administrative: emails, forms, scheduling, booking, paying bills, logistics
+- physical: exercise, errands, movement, cleaning, walking, running
+- social: calls, meetings, conversations, interviews
+- quick: very small tasks under 10 min, low cognitive effort
+
+Default to "administrative" if unclear.
+`
+            : '';
+
+        const reclassifyPrompt = `Generate metadata for a productivity app item after the user clarified their intent.
 
 === CONTEXT ===
 ORIGINAL INPUT: "${text}"
 USER CLARIFIED: "${selectedLabel}"
 RESOLVED TYPE: ${resolvedBucket}${resolvedSubtype ? ` (${resolvedSubtype})` : ''}
 
-=== TASK ===
-Generate an updated title and confirmation message that reflects the user's clarified intent.
-
-TITLE RULES:
-- 3-7 words, Title Case
+=== TITLE (3-7 words, Title Case) ===
 - No temporal words (tomorrow, Tuesday, etc.) - dates are stored separately
 - Action-focused for todos: "Book Dentist Appointment"
 - Activity-focused for habits: "Daily Run"
 - Topic-focused for notes: "Dentist Info"
 
-CONFIRMATION MESSAGE RULES:
-- 4-10 words, warm and specific
-- Reference the clarified intent
+=== CONFIRMATION MESSAGE (4-10 words) ===
+- Warm and specific to the clarified intent
 - No exclamation marks
 - Examples: "Appointment locked in.", "Added to your list.", "On it — dentist booked soon."
-
+${timeEstimationSection}
 === OUTPUT ===
 Return ONLY valid JSON:
-{
-  "smart_title": "Updated Title Here",
-  "confirmation_message": "Warm confirmation message."
+${
+  resolvedBucket === 'todo' || resolvedBucket === 'habit'
+    ? `{
+  "smart_title": "Title Here",
+  "confirmation_message": "Warm message here.",
+  "time_estimate_minutes": 30,
+  "energy_type": "administrative"
+}`
+    : `{
+  "smart_title": "Title Here",
+  "confirmation_message": "Warm message here."
+}`
 }`;
 
         const t0 = Date.now();
@@ -2312,7 +2431,7 @@ Return ONLY valid JSON:
               model: 'gpt-4o-mini',
               messages: [{ role: 'system', content: reclassifyPrompt }],
               temperature: 0.3,
-              max_tokens: 100,
+              max_tokens: 150,
               response_format: { type: 'json_object' },
             }),
           });
@@ -2325,6 +2444,8 @@ Return ONLY valid JSON:
             return j({
               smart_title: text.substring(0, 50),
               confirmation_message: 'Updated.',
+              time_estimate_minutes: null,
+              energy_type: null,
               latency_ms: latency,
             });
           }
@@ -2332,14 +2453,32 @@ Return ONLY valid JSON:
           const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
           const parsed = JSON.parse(rawContent);
 
+          // Validate time estimate range
+          let timeEstimate = parsed.time_estimate_minutes;
+          if (typeof timeEstimate === 'number') {
+            timeEstimate = Math.max(5, Math.min(240, Math.round(timeEstimate / 5) * 5));
+          } else {
+            timeEstimate = null;
+          }
+
+          // Validate energy type
+          const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'];
+          const energyType = validEnergyTypes.includes(parsed.energy_type)
+            ? parsed.energy_type
+            : null;
+
           console.log('[Reclassify] Success', {
             title: parsed.smart_title?.substring(0, 30),
+            time_estimate: timeEstimate,
+            energy_type: energyType,
             latency_ms: latency,
           });
 
           return j({
             smart_title: parsed.smart_title || text.substring(0, 50),
             confirmation_message: parsed.confirmation_message || 'Updated.',
+            time_estimate_minutes: timeEstimate,
+            energy_type: energyType,
             latency_ms: latency,
           });
         } catch (err) {
@@ -2348,6 +2487,8 @@ Return ONLY valid JSON:
           return j({
             smart_title: text.substring(0, 50),
             confirmation_message: 'Updated.',
+            time_estimate_minutes: null,
+            energy_type: null,
             latency_ms: latency,
           });
         }

@@ -48,6 +48,7 @@ export interface Phase1_5Result {
       habit_subtype?: string | null;
     };
   }>;
+  confirmation_message?: string;
   latency_ms?: number;
 }
 

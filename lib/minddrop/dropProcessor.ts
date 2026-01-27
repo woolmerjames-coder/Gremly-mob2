@@ -745,6 +745,11 @@ export async function processDrop(
           phase1Result.clarification_question = phase1_5Result.question;
           phase1Result.clarification_options = phase1_5Result.options;
 
+          // Override confirmation message with tap-encouraging prompt
+          if (phase1_5Result.confirmation_message) {
+            phase1Result.confirmation_message = phase1_5Result.confirmation_message;
+          }
+
           // Lower confidence since we're uncertain
           phase1Result.confidence = Math.min(phase1Result.confidence, 0.6);
 
@@ -753,6 +758,7 @@ export async function processDrop(
           console.log('[DropProcessor] Phase 1.5 set clarification', {
             question: phase1_5Result.question,
             options: phase1_5Result.options.map((o) => ({ id: o.id, bucket: o.action.bucket })),
+            confirmation_message: phase1_5Result.confirmation_message,
           });
         }
 

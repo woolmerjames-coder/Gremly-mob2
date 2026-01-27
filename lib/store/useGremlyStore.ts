@@ -4417,6 +4417,8 @@ export const useGremlyStore = create<GremlyState>()(
         const originalBody = (entity as Note).body || '';
         let newTitle = originalTitle || originalBody.substring(0, 50);
         let newConfirmation = 'Updated.';
+        let timeEstimate: number | null = null;
+        let energyType: string | null = null;
 
         try {
           const cortexUrl = env.cortexUrl;
@@ -4436,13 +4438,24 @@ export const useGremlyStore = create<GremlyState>()(
 
             if (reclassifyResponse.ok) {
               const reclassifyResult = await reclassifyResponse.json();
+              console.log('[GremlyStore] Reclassify raw response:', reclassifyResult);
+              console.log('[GremlyStore] Time estimate from reclassify:', {
+                time_estimate_minutes: reclassifyResult.time_estimate_minutes,
+                energy_type: reclassifyResult.energy_type,
+              });
               newTitle = reclassifyResult.smart_title || newTitle;
               newConfirmation = reclassifyResult.confirmation_message || newConfirmation;
-              console.log('[GremlyStore] Reclassified', {
+              timeEstimate = reclassifyResult.time_estimate_minutes || null;
+              energyType = reclassifyResult.energy_type || null;
+              console.log('[GremlyStore] Reclassified with time estimate', {
                 newTitle,
                 newConfirmation,
+                timeEstimate,
+                energyType,
                 latency_ms: reclassifyResult.latency_ms,
               });
+            } else {
+              console.warn('[GremlyStore] Reclassify response not ok:', reclassifyResponse.status);
             }
           }
         } catch (reclassifyError) {
@@ -4491,6 +4504,8 @@ export const useGremlyStore = create<GremlyState>()(
             undefined_due: !dueDay,
             due_day: dueDay,
             due_date: dueDay,
+            time_estimate_minutes: timeEstimate,
+            energy_type: energyType || 'administrative',
             source_note_id: entityType === 'note' ? entityId : null,
           };
         } else if (targetBucket === 'habit') {
@@ -4503,6 +4518,8 @@ export const useGremlyStore = create<GremlyState>()(
             cadence: 'daily',
             target_per_period: 1,
             time_window: 'day',
+            time_estimate_minutes: timeEstimate,
+            energy_type: energyType || 'physical',
             subtype: selectedOption.action.subtype || 'start_habit',
             start_date:
               selectedOption.action.scheduled_date && extractedDate
@@ -4527,6 +4544,11 @@ export const useGremlyStore = create<GremlyState>()(
         }
 
         console.log('[GremlyStore] Creating new entity in', targetTable);
+        console.log('[GremlyStore] newEntityPayload before insert:', {
+          time_estimate_minutes: newEntityPayload.time_estimate_minutes,
+          energy_type: newEntityPayload.energy_type,
+          allKeys: Object.keys(newEntityPayload),
+        });
 
         // Insert into new table
         const { data: insertedEntity, error: insertError } = await supabase
@@ -4544,6 +4566,10 @@ export const useGremlyStore = create<GremlyState>()(
           id: insertedEntity.id,
           drop_id: insertedEntity.drop_id,
           originalDropId: (entity as any).drop_id,
+        });
+        console.log('[GremlyStore] Inserted entity time estimate:', {
+          time_estimate_minutes: insertedEntity.time_estimate_minutes,
+          energy_type: insertedEntity.energy_type,
         });
 
         // Verify drop_id was correctly set on the new entity
