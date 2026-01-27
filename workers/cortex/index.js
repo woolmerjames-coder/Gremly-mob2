@@ -399,8 +399,12 @@ export default {
       }
 
       function normalizePhase1(bucket, subtype, text) {
-        const validBuckets = ['todo', 'habit', 'log'];
+        const validBuckets = ['todo', 'habit', 'log', 'ambiguous'];
         let b = String(bucket || '').toLowerCase();
+        // If ambiguous, store as log/general for DB compatibility
+        if (b === 'ambiguous') {
+          return { bucket: 'log', subtype: 'general' };
+        }
         if (!validBuckets.includes(b)) b = 'log';
 
         let st = null;
@@ -2198,7 +2202,7 @@ CURRENT DATE: ${currentDate}
 
 The user was asked a clarifying question and selected the option above. Now classify based on what they ACTUALLY meant.
 
-=== THE THREE BUCKETS ===
+=== THE FOUR BUCKETS ===
 
 **TODO** — A discrete, completable action
 The user will eventually "check this off." A clear DONE state exists.
@@ -2532,7 +2536,7 @@ Rules:
 
         const phase1Prompt = `You classify "mind drops" for Gremly, a productivity app. Your job is to understand the user's TRUE INTENT using semantic understanding, not keyword matching.
 
-=== THE THREE BUCKETS ===
+=== THE FOUR BUCKETS ===
 
 **TODO** — A discrete, completable action
 The user will eventually "check this off." A clear DONE state exists.
@@ -2545,6 +2549,11 @@ Ask: "Can this be tracked with a yes/no each day/week?"
 **LOG** — Capture for reflection, not action
 A thought, feeling, idea, or fuzzy aspiration. No clear done state or tracking intent.
 Ask: "Is this reflection, exploration, venting, or too vague to act on?"
+
+**AMBIGUOUS** — Intent is unclear, need to ask the user
+You cannot confidently determine which bucket this belongs in.
+Ask: "Do I have EVIDENCE for TODO, HABIT, or LOG? Or am I guessing?"
+Choose AMBIGUOUS when none of the other three buckets reaches 80% confidence.
 
 === SEMANTIC CLASSIFICATION (PRIMARY) ===
 
@@ -2669,20 +2678,19 @@ Words that count as evidence:
 
 **High confidence (0.8-1.0) — You have EVIDENCE:**
 - You can point to specific words that reveal intent
-- is_ambiguous: false
+- Choose bucket: TODO, HABIT, or LOG (not ambiguous)
 
 **Medium confidence (0.7-0.8) — You're INTERPRETING:**
 - The input leans one way based on context
 - But you can't point to a specific word that proves it
-- This is still below 0.8, so set is_ambiguous: true
+- This is still below 0.8, so bucket: "ambiguous"
 
-**Low confidence (below 0.7) — You're GUESSING:**
+**Low confidence (below 0.8) — You're GUESSING:**
 - Multiple interpretations are equally valid
 - You cannot point to specific words that disambiguate
-- Set is_ambiguous: true
-- Use LOG as hedged bucket, but the FLAG is what matters
+- Choose bucket: "ambiguous"
 
-**THE RULE:** Confidence below 0.8 = is_ambiguous: true. Only classify without ambiguity when you have real evidence.
+**THE RULE:** Confidence below 0.8 = bucket: "ambiguous". Only classify to TODO/HABIT/LOG when you have real evidence.
 
 **EXAMPLES:**
 
@@ -2773,8 +2781,8 @@ UNCLEAR (ambiguous):
 **THE KEY QUESTION:**
 "If I had to set this up correctly in the user's productivity system, what information am I MISSING that would CHANGE how I handle it?"
 
-**WHEN is_ambiguous IS TRUE:**
-- confidence: 0.5-0.6
+**WHEN CHOOSING AMBIGUOUS BUCKET:**
+- confidence: 0.5-0.7 (reflects uncertainty)
 - smart_title: Stay CLOSE TO ORIGINAL TEXT
 - ambiguity_type: "bucket" | "action" | "date_type"
 - ambiguity_reason: Short explanation (e.g., "noun + date without verb, unclear if existing or need to schedule")
@@ -2988,13 +2996,12 @@ THE VIBE:
 Return ONLY valid JSON:
 
 {
-  "bucket": "todo" | "habit" | "log",
+  "bucket": "todo" | "habit" | "log" | "ambiguous",
   "confidence": 0.0-1.0,
   "subtype": "journal" | "idea" | "general" | null,
   "habitSubtype": "start_habit" | "break_habit" | null,
   "smart_title": "3-7 Word Title",
   "confirmation_message": "4-8 word warm message",
-  "is_ambiguous": true | false,
   "ambiguity_type": "bucket" | "action" | "date_type" | null,
   "ambiguity_reason": "Short reason why it's ambiguous" | null
 }
@@ -3002,7 +3009,7 @@ Return ONLY valid JSON:
 Rules:
 - subtype is only set when bucket is "log"
 - habitSubtype is only set when bucket is "habit"
-- ambiguity_type and ambiguity_reason are only set when is_ambiguous is true
+- When bucket is "ambiguous", set ambiguity_type ("bucket" or "action") and ambiguity_reason
 - When is_ambiguous is true, smart_title should stay close to original text
 - When is_ambiguous is true, confirmation_message should be a "tap me" variant:
   - "Quick question — tap me"
@@ -3138,7 +3145,7 @@ Rules:
         }
 
         // Extract ambiguity fields (v4.2 - Phase 1 ambiguity detection)
-        const isAmbiguous = parsed.is_ambiguous === true;
+        const isAmbiguous = parsed.bucket === 'ambiguous' || parsed.is_ambiguous === true;
         const ambiguityReason = isAmbiguous && typeof parsed.ambiguity_reason === 'string'
           ? parsed.ambiguity_reason.trim().substring(0, 200)
           : null;
