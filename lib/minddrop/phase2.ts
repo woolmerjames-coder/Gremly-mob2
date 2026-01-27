@@ -32,6 +32,10 @@ export interface Phase2Result {
   confirmationMessage: string | null;
   mood: string[] | null; // AI-extracted moods for journal entries
   energyType: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
+  // Date Intelligence fields (Phase C)
+  targetDate: string | null; // When something IS or is DUE (event/deadline)
+  scheduledDate: string | null; // When user will DO the work
+  dateTypeAmbiguous: boolean; // AI couldn't determine date meaning
 }
 
 // --- Constants ---
@@ -168,6 +172,10 @@ async function callEnrichAPI(
       confirmationMessage: json.confirmation_message ?? null,
       mood: Array.isArray(json.mood) ? json.mood : null,
       energyType,
+      // Date Intelligence fields
+      targetDate: json.target_date ?? null,
+      scheduledDate: json.scheduled_date ?? null,
+      dateTypeAmbiguous: json.date_type_ambiguous === true,
     };
   } catch (err) {
     clearTimeout(timeout);
