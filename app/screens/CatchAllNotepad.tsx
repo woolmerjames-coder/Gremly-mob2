@@ -1320,10 +1320,10 @@ const ClarifyBadge: React.FC = () => {
       pulseOpacity.value = withRepeat(
         withSequence(
           withTiming(0.6, { duration: 800, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
-          withTiming(1, { duration: 800, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) })
+          withTiming(1, { duration: 800, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
         ),
         -1, // infinite
-        true // reverse
+        true, // reverse
       );
     }, 500);
 
@@ -1670,28 +1670,29 @@ const Row3Chips: React.FC<{
             )}
 
             {/* Time estimate chip for todos AND habits */}
-            {(effectiveKind === 'todo' || effectiveKind === 'habit') && item.time_estimate_minutes && (
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  Alert.alert(
-                    '⏱️ Time Estimate',
-                    effectiveKind === 'habit'
-                      ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
-                      : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
-                    [{ text: 'Got it', style: 'default' }],
-                  );
-                }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <View style={styles.timeEstimateChip}>
-                  <Clock size={10} color="#888" strokeWidth={2} />
-                  <Text style={styles.timeEstimateText}>
-                    {formatTimeEstimate(item.time_estimate_minutes)}
-                  </Text>
-                </View>
-              </Pressable>
-            )}
+            {(effectiveKind === 'todo' || effectiveKind === 'habit') &&
+              item.time_estimate_minutes && (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    Alert.alert(
+                      '⏱️ Time Estimate',
+                      effectiveKind === 'habit'
+                        ? 'This is how long each session of this habit might take. Tap the card to adjust it.'
+                        : 'Gremly guesses how long this might take based on your task. Tap the card to adjust it.',
+                      [{ text: 'Got it', style: 'default' }],
+                    );
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <View style={styles.timeEstimateChip}>
+                    <Clock size={10} color="#888" strokeWidth={2} />
+                    <Text style={styles.timeEstimateText}>
+                      {formatTimeEstimate(item.time_estimate_minutes)}
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
 
             {/* People chip */}
             {hasPeople && (
@@ -2050,7 +2051,16 @@ const RevealingCard: React.FC<{
   c: any;
   isPending: boolean; // Whether the item is still being processed (Phase 1.5 may not be done)
   onRevealComplete: () => void;
-}> = ({ item, effectiveKind, displayKind, badgeStyleKey, styles, c, isPending, onRevealComplete }) => {
+}> = ({
+  item,
+  effectiveKind,
+  displayKind,
+  badgeStyleKey,
+  styles,
+  c,
+  isPending,
+  onRevealComplete,
+}) => {
   // CRITICAL: Use drop_id for tracking - persists across pending→entity transition
   const trackingId = item.drop_id || item.id;
 
@@ -4101,6 +4111,12 @@ const RecentDrops: React.FC<{
               views: views,
               due_date: (entity as any).due_date ?? (entity as any).due_at ?? item.due_date,
               due_day: (entity as any).due_day ?? item.due_day,
+              // Habit-specific fields - CRITICAL for frequency chip updates from Phase 2
+              frequency: (entity as any).frequency ?? item.frequency,
+              cadence: (entity as any).cadence ?? item.cadence,
+              target_per_period: (entity as any).target_per_period ?? item.target_per_period,
+              time_estimate_minutes:
+                (entity as any).time_estimate_minutes ?? item.time_estimate_minutes,
               // Clarification fields - CRITICAL for removing the Clarify chip
               needs_clarification:
                 (entity as any).needs_clarification ?? views.needs_clarification ?? false,
