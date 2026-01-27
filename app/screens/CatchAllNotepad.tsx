@@ -120,7 +120,7 @@ import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { Lock, Camera, Clock, LogOut, User, ChevronDown } from 'lucide-react-native';
-import { ClarificationIndicatorChip } from '../../components/minddrop/ClarificationIndicatorChip';
+// ClarificationIndicatorChip moved to badge position - import removed
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
@@ -1307,6 +1307,65 @@ const UnifiedCardWrapper: React.FC<{
 };
 
 /**
+ * ClarifyBadge - Pulsing badge for items needing clarification
+ * Shows in the top-right badge position, replacing the bucket badge.
+ * Uses a gentle opacity pulse to draw attention without being distracting.
+ */
+const ClarifyBadge: React.FC = () => {
+  const pulseOpacity = useSharedValue(1);
+
+  React.useEffect(() => {
+    // Start pulsing animation after a short delay
+    const timeout = setTimeout(() => {
+      pulseOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.6, { duration: 800, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+          withTiming(1, { duration: 800, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) })
+        ),
+        -1, // infinite
+        true // reverse
+      );
+    }, 500);
+
+    return () => {
+      clearTimeout(timeout);
+      cancelAnimation(pulseOpacity);
+    };
+  }, [pulseOpacity]);
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: pulseOpacity.value,
+  }));
+
+  return (
+    <Reanimated.View
+      style={[
+        {
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+          borderRadius: 8,
+          backgroundColor: 'rgba(255, 243, 224, 0.9)',
+          borderWidth: 1,
+          borderColor: 'rgba(180, 140, 80, 0.25)',
+        },
+        pulseStyle,
+      ]}
+    >
+      <Text
+        style={{
+          fontSize: 10,
+          fontWeight: '600',
+          color: '#8B6914',
+          fontFamily: 'Inter-Medium',
+        }}
+      >
+        Clarify
+      </Text>
+    </Reanimated.View>
+  );
+};
+
+/**
  * AnimatedChipsTransition - Magical blur-to-sharp reveal for Phase 2 metadata chips
  *
  * When Phase 2 data arrives, ALL chips "emerge from mist" together:
@@ -1598,9 +1657,6 @@ const Row3Chips: React.FC<{
       onAnimationComplete={onChipAnimationComplete}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        {/* Clarification chip - show first when item needs user input */}
-        {needsClarification && <ClarificationIndicatorChip />}
-
         {/* Context chip (deadline, frequency, type label, etc.) */}
         {renderContextChip()}
 
@@ -2748,15 +2804,20 @@ const AnimatedMindDropCard = React.memo<{
               {effectiveKind === 'note' && (item as any)?.private === true && (
                 <Lock size={12} color="#777" />
               )}
-              <Text
-                style={[
-                  styles.recentCategoryPill,
-                  styles[badgeStyleKey],
-                  isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
-                ]}
-              >
-                {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
-              </Text>
+              {/* Badge priority: Clarify > Multi > Bucket */}
+              {needsClarification ? (
+                <ClarifyBadge />
+              ) : (
+                <Text
+                  style={[
+                    styles.recentCategoryPill,
+                    styles[badgeStyleKey],
+                    isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
+                  ]}
+                >
+                  {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
+                </Text>
+              )}
             </View>
           </View>
 
@@ -8860,6 +8921,10 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     badge_unsorted: {
       backgroundColor: c.goldenPear,
       color: c.mossGreen,
+    },
+    badge_clarify: {
+      backgroundColor: 'rgba(255, 243, 224, 0.9)',
+      color: '#8B6914',
     },
     // Due date styling - medium weight, slightly smaller than title (14px)
     recentDueBadge: {
