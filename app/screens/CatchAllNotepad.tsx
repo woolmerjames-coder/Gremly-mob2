@@ -2336,15 +2336,84 @@ function formatStartDate(startDate: string | null | undefined): string {
 }
 
 /**
+ * Format a date string for display in a chip
+ * Shows relative dates (Today, Tomorrow) or formatted dates (Mon, Jan 30)
+ */
+function formatDateForChip(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+
+  try {
+    // Parse the date string (YYYY-MM-DD format)
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+
+    // Get today and tomorrow in local timezone
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Compare dates
+    const dateTime = date.getTime();
+    const todayTime = today.getTime();
+    const tomorrowTime = tomorrow.getTime();
+
+    if (dateTime === todayTime) return 'Today';
+    if (dateTime === tomorrowTime) return 'Tomorrow';
+
+    // Check if within this week (next 7 days)
+    const nextWeek = new Date(today);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+
+    if (dateTime > todayTime && dateTime < nextWeek.getTime()) {
+      // Show day name (Mon, Tue, etc.)
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return days[date.getDay()];
+    }
+
+    // Show month + day (Jan 30)
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return `${months[date.getMonth()]} ${date.getDate()}`;
+  } catch {
+    return dateStr; // Fallback to raw string if parsing fails
+  }
+}
+
+/**
  * Get contextual metadata string for Mind Drop card meta row
+ * Updated for Date Intelligence: shows target_date vs scheduled_date appropriately
  */
 function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string | null {
   if (kind === 'todo') {
+    // Date Intelligence: prefer target_date/scheduled_date over legacy due_date
+    if (item.target_date) {
+      // Has target date (deadline/event) - show as "due [date]"
+      return `due ${formatDateForChip(item.target_date)}`;
+    }
+    if (item.scheduled_date) {
+      // Has scheduled date only (no deadline) - show as just "[date]"
+      return formatDateForChip(item.scheduled_date);
+    }
+    // Fallback to legacy due_date for backwards compatibility
     if (item.due_date || item.due_day) {
       return formatDue({ dueDay: item.due_day, dueIso: item.due_date, dueTime: item.due_time });
     }
     return 'no deadline yet';
   }
+
   if (kind === 'habit') {
     // Show specific days if days_active is set (e.g., "Mon · Fri")
     if (item.days_active && item.days_active.length > 0) {
@@ -2354,7 +2423,13 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
     // Fall back to frequency display label (e.g., "2x/week")
     return getFrequencyDisplayLabel(item.cadence, item.target_per_period, item.frequency);
   }
-  // Notes/Logs - show the subtype
+
+  // Notes/Logs - check for event date first, then show subtype
+  if (item.target_date) {
+    // Note with target date (event) - show as "Event · [date]"
+    return `Event · ${formatDateForChip(item.target_date)}`;
+  }
+
   const subtype = item.noteSubtype || item.canonical_type || 'log';
   if (subtype === 'journal') return 'Journal';
   if (subtype === 'idea') return 'Idea';
