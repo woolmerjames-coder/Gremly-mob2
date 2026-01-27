@@ -804,9 +804,13 @@ type UnifiedDrop = {
   created_at: string;
   unsorted?: boolean; // for notes carrying the needs_review label
   noteSubtype?: string | null;
-  due_date?: string | null; // ISO timestamp for todos (fallback)
-  due_day?: string | null; // YYYY-MM-DD format - canonical, timezone-safe
+  due_date?: string | null; // ISO timestamp for todos (fallback) - DEPRECATED, use target_date/scheduled_date
+  due_day?: string | null; // YYYY-MM-DD format - canonical, timezone-safe - DEPRECATED
   due_time?: string | null; // HH:mm format for specific time
+  // Date Intelligence fields (Phase C)
+  target_date?: string | null; // When something IS or is DUE (external deadline/event) - YYYY-MM-DD
+  scheduled_date?: string | null; // When user plans to DO the work - YYYY-MM-DD
+  date_type_ambiguous?: boolean; // True if AI couldn't determine date meaning
   frequency?: string | null; // For habits: daily, weekly, monthly, custom
   cadence?: 'daily' | 'weekly' | 'monthly' | null; // Canonical cadence for habits
   target_per_period?: number | null; // Target count per period for habits
