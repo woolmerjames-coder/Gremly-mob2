@@ -768,6 +768,21 @@ export async function processDrop(
           localId,
           triggered_clarification: clarificationFromPhase1_5,
         });
+
+        // CRITICAL: Push clarification fields to Zustand for UI immediately
+        // This must happen BEFORE Phase 2 so the chip is present when animation starts
+        if (clarificationFromPhase1_5) {
+          useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+            needs_clarification: true,
+            clarification_type: 'bucket',
+            clarification_question: phase1_5Result.question || null,
+            clarification_options: (phase1_5Result.options as any) || null,
+            clarification_resolved: false,
+            // Also update confirmation message with tap prompt
+            confirmationMessage: phase1_5Result.confirmation_message || undefined,
+          });
+          console.log('[DropProcessor] Pushed clarification to Zustand for UI', { localId });
+        }
       }
     }
 

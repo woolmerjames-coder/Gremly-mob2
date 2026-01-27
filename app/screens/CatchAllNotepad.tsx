@@ -2143,8 +2143,29 @@ const DelayedCallback: React.FC<{
 
 /**
  * Get friendly confirmation message for Mind Drop card based on kind and item details
+ * CRITICAL: If needs_clarification is true and not resolved, show tap prompt instead
  */
 function getConfirmationMessage(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string {
+  // Check for clarification status first - override all other messages
+  const needsClarification =
+    item.needs_clarification || (item.views as Record<string, unknown>)?.needs_clarification;
+  const clarificationResolved =
+    item.clarification_resolved || (item.views as Record<string, unknown>)?.clarification_resolved;
+
+  if (needsClarification && !clarificationResolved) {
+    // Tap-encouraging messages for ambiguous drops
+    const tapPromptMessages = [
+      'Quick question — tap me',
+      'Need your input — tap here',
+      'One quick thing — tap me',
+      'Help me understand — tap here',
+      'Tap to help me sort this out',
+    ];
+    // Use item ID to pick consistently (not random on every render)
+    const idChar = item.id?.charCodeAt(0) || 0;
+    return tapPromptMessages[idChar % tapPromptMessages.length];
+  }
+
   // Use AI-generated confirmation if available
   if (item.views?.confirmation_message) {
     return item.views.confirmation_message;
@@ -2669,6 +2690,18 @@ const AnimatedMindDropCard = React.memo<{
     if (prevProps.item.views?.minddrop_stage !== nextProps.item.views?.minddrop_stage) return false;
     if (prevProps.item.views?.confirmation_message !== nextProps.item.views?.confirmation_message)
       return false;
+    if (prevProps.item.views?.chip_data_ready !== nextProps.item.views?.chip_data_ready)
+      return false;
+    // Clarification fields - MUST re-render when these change for chip to appear
+    if (prevProps.item.views?.needs_clarification !== nextProps.item.views?.needs_clarification)
+      return false;
+    if (prevProps.item.needs_clarification !== nextProps.item.needs_clarification) return false;
+    if (prevProps.item.clarification_resolved !== nextProps.item.clarification_resolved)
+      return false;
+    if (
+      prevProps.item.views?.clarification_resolved !== nextProps.item.views?.clarification_resolved
+    )
+      return false;
     if (prevProps.item.time_estimate_minutes !== nextProps.item.time_estimate_minutes) return false;
     if (prevProps.item.frequency !== nextProps.item.frequency) return false; // Habit frequency
     if (prevProps.item.cadence !== nextProps.item.cadence) return false; // Habit cadence
@@ -2998,12 +3031,24 @@ const RecentDrops: React.FC<{
             is_multi: drop.isMulti,
             multi_segments: drop.multiSegments,
             multi_summary: drop.multiSummary,
+            // Clarification fields (Phase 1.5 - MUST be in views for Row3Chips)
+            needs_clarification: drop.needs_clarification,
+            clarification_type: drop.clarification_type,
+            clarification_question: drop.clarification_question,
+            clarification_options: drop.clarification_options,
+            clarification_resolved: drop.clarification_resolved,
           },
           time_estimate_minutes: drop.timeEstimateMinutes ?? null,
           frequency: drop.extractedFrequency ?? null, // For habits: "3x/week", "daily", etc.
           days_active: drop.extractedDays ?? null, // For habits: day numbers for scheduling
           mood: drop.mood ? (drop.mood as unknown as Mood[]) : null, // For journals: mood chips
           is_multi: drop.isMulti,
+          // Top-level clarification fields for direct access
+          needs_clarification: drop.needs_clarification,
+          clarification_resolved: drop.clarification_resolved,
+          clarification_question: drop.clarification_question,
+          clarification_options: drop.clarification_options,
+          clarification_type: drop.clarification_type,
           // Multi-drop fields (from Phase 0/1, before entity creation)
           multi_items: drop.multiSegments?.map((seg, idx) => {
             // Debug: Log segment data including Phase 1 titles
