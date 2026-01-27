@@ -2415,6 +2415,10 @@ const multiBounceAnimatedIds = new Set<string>();
 // Prevents double bounce when component remounts
 const chipBounceAnimatedIds = new Set<string>();
 
+// Module-level Set to track drops that have bounced for clarification
+// Prevents double bounce when clarification is detected
+const clarificationBounceAnimatedIds = new Set<string>();
+
 /**
  * Reset all animation tracking for a drop_id.
  * Called when a clarification bucket change happens so the new entity
@@ -2425,6 +2429,7 @@ export const resetAnimationTrackingForDrop = (dropId: string) => {
   chipAnimatedIds.delete(dropId);
   multiBounceAnimatedIds.delete(dropId);
   chipBounceAnimatedIds.delete(dropId);
+  clarificationBounceAnimatedIds.delete(dropId);
   console.log('[AnimatedMindDropCard] Reset animation tracking for drop:', dropId);
 };
 
@@ -2546,6 +2551,20 @@ const AnimatedMindDropCard = React.memo<{
         return;
       }
 
+      // Clarification bounce: happens when needsClarification becomes true
+      // Same animation as multi-drop for visual consistency
+      if (needsClarification && !clarificationBounceAnimatedIds.has(bounceTrackingId)) {
+        clarificationBounceAnimatedIds.add(bounceTrackingId);
+
+        // Pronounced bounce: 1.0 → 1.10 → 0.96 → 1.0
+        bounceScale.value = withSequence(
+          withTiming(1.1, { duration: 180 }),
+          withTiming(0.96, { duration: 140 }),
+          withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
+        );
+        return;
+      }
+
       // Phase 1 bounce: happens when Phase 1 completes (streaming/complete state)
       // This triggers immediately when bucket is set, not waiting for Phase 2 chips
       if (
@@ -2563,41 +2582,13 @@ const AnimatedMindDropCard = React.memo<{
           withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
         );
       }
-    }, [isMulti, bounceTrackingId, bounceScale, phase1Complete]);
+    }, [isMulti, needsClarification, bounceTrackingId, bounceScale, phase1Complete]);
 
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
     }));
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Clarification card background fade-in
-    // When a card needs clarification, show a subtle golden/pear background
-    // Fades in smoothly to avoid visual jolt
-    // ─────────────────────────────────────────────────────────────────────────
-    const clarificationBgOpacity = React.useMemo(() => new Animated.Value(0), []);
-
-    React.useEffect(() => {
-      if (needsClarification) {
-        // Fade in the golden background
-        Animated.timing(clarificationBgOpacity, {
-          toValue: 1,
-          duration: 600,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: false, // backgroundColor doesn't support native driver
-        }).start();
-      } else {
-        // Reset if clarification is resolved
-        clarificationBgOpacity.setValue(0);
-      }
-    }, [needsClarification, clarificationBgOpacity]);
-
-    // Interpolate background color for clarification cards
-    const clarificationBgColor = clarificationBgOpacity.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['rgba(255, 255, 255, 0)', 'rgba(244, 249, 244, 1)'], // Same subtle green as multi-drop (#F4F9F4)
-    });
-
-    // Gremly pulse animation for multi-entity cards (always called, conditionally used)
+    // Gremly pulse animation for multi-entity and clarification cards
     const gremlyPulseScale = useGremlyPulse();
 
     // Get visual state from item
@@ -2793,29 +2784,13 @@ const AnimatedMindDropCard = React.memo<{
 
     return (
       <Reanimated.View style={bounceStyle}>
-        {/* Background layer for clarification cards (animated) */}
-        {needsClarification && (
-          <Animated.View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: clarificationBgColor,
-              borderRadius: 12, // Match card border radius
-            }}
-          />
-        )}
         <Pressable
           key={`${item.kind}:${item.id}`}
           testID={`minddrop-recent-${item.kind}-${item.id}`}
           style={[
             styles.recentCard,
-            isMulti && { backgroundColor: '#F4F9F4' },
-            // For clarification, keep card transparent so animated bg shows through
-            needsClarification && !isMulti && { backgroundColor: 'transparent' },
+            // Both multi and clarification cards get the same green background
+            (isMulti || needsClarification) && { backgroundColor: '#F4F9F4' },
           ]}
           onPress={handleCardPress}
           accessibilityRole="button"
@@ -2858,7 +2833,7 @@ const AnimatedMindDropCard = React.memo<{
             </View>
           </View>
 
-          {/* Row 2: Confirmation message or multi hint */}
+          {/* Row 2: Confirmation message, multi hint, or clarification hint */}
           {isMulti ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
               <Animated.Image
@@ -2873,6 +2848,22 @@ const AnimatedMindDropCard = React.memo<{
               />
               <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
                 Should I split these? Tap to decide.
+              </Text>
+            </View>
+          ) : needsClarification ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
+              <Animated.Image
+                source={require('../../assets/buttonforHP.png')}
+                style={{
+                  width: 26,
+                  height: 26,
+                  marginRight: 8,
+                  borderRadius: 13,
+                  transform: [{ scale: gremlyPulseScale }],
+                }}
+              />
+              <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
+                Gremly has a question — tap to clarify
               </Text>
             </View>
           ) : (
