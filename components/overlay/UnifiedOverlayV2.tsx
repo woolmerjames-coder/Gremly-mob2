@@ -1409,6 +1409,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Clarification: handle option selection
   const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
+  const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
   const handleClarificationSelect = useCallback(
     async (optionId: string) => {
       console.log('[UnifiedOverlayV2] handleClarificationSelect called:', { optionId });
@@ -1477,40 +1478,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Clarification: handle skip
   const handleClarificationSkip = useCallback(async () => {
-    // Mark clarification as resolved even when skipping
-    // Entity keeps its current bucket (defaults to what Phase 1 assigned)
-    if (fullEntity?.id) {
-      try {
-        const entityType = baseType === 'log' ? 'note' : baseType;
-        const currentViews = (fullEntity?.views as Record<string, unknown>) || {};
+    const entityId = fullEntity?.id;
+    console.log('[UnifiedOverlayV2] Clarification skipped', { entityId });
 
-        const updates = {
-          views: {
-            ...currentViews,
-            needs_clarification: false,
-            clarification_resolved: true,
-          },
-        };
-
-        if (entityType === 'todo') {
-          await updateTodo(fullEntity.id, updates);
-        } else if (entityType === 'habit') {
-          await updateHabit(fullEntity.id, updates);
-        } else {
-          await updateNote(fullEntity.id, updates);
-        }
-
-        console.log('[ClarificationSkip] Marked entity as resolved', {
-          entityId: fullEntity.id,
-          entityType,
-        });
-      } catch (error) {
-        console.error('[ClarificationSkip] Failed to update entity:', error);
-      }
-    }
-
+    // Close popup immediately
     setShowClarificationPopup(false);
-  }, [fullEntity?.id, fullEntity?.views, baseType, updateTodo, updateHabit, updateNote]);
+
+    if (!entityId) return;
+
+    // Resolve as skipped - this updates the entity and runs Phase 2
+    try {
+      await resolveSkippedClarification(entityId);
+      console.log('[UnifiedOverlayV2] Skip resolution completed');
+    } catch (error) {
+      console.error('[UnifiedOverlayV2] Skip resolution failed:', error);
+    }
+  }, [fullEntity?.id, resolveSkippedClarification]);
 
   // Log kind detection (Phase L1)
   const isLog = baseType === 'log';

@@ -597,6 +597,7 @@ interface GremlyState {
     optionId: string,
     isFreeText?: boolean,
   ) => Promise<void>;
+  resolveSkippedClarification: (entityId: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // ENTITY CHAT MUTATIONS
@@ -5310,6 +5311,229 @@ export const useGremlyStore = create<GremlyState>()(
           await get().updateNote(entityId, updates);
         }
       }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SKIP CLARIFICATION (User presses "Skip for now")
+    // Resolves clarification as skipped, keeps entity as LOG/general,
+    // and runs Phase 2 for tag extraction
+    // ═══════════════════════════════════════════════════════════════════
+    resolveSkippedClarification: async (entityId: string) => {
+      console.log('[GremlyStore] Resolving skipped clarification:', { entityId });
+
+      const state = get();
+
+      // Find the entity across all types (could be todo, habit, or note)
+      let entity: Todo | Habit | Note | undefined;
+      let entityType: 'todo' | 'habit' | 'note' | undefined;
+
+      entity = state.notes.find((n) => n.id === entityId);
+      if (entity) {
+        entityType = 'note';
+      } else {
+        entity = state.todos.find((t) => t.id === entityId);
+        if (entity) {
+          entityType = 'todo';
+        } else {
+          entity = state.habits.find((h) => h.id === entityId);
+          if (entity) {
+            entityType = 'habit';
+          }
+        }
+      }
+
+      if (!entity || !entityType) {
+        console.error('[GremlyStore] Entity not found for skip:', entityId);
+        return;
+      }
+
+      const originalText =
+        (entity as Note).body || (entity as Note).title || (entity as any).name || '';
+      const views = (entity.views as Record<string, unknown>) || {};
+
+      console.log('[GremlyStore] Skipping clarification for entity:', {
+        entityId,
+        entityType,
+        originalTextPreview: originalText.substring(0, 50),
+      });
+
+      // Step 1: Mark clarification as skipped and set ai_pending for shimmer animation
+      const skippedViews: Record<string, unknown> = {
+        ...views,
+        needs_clarification: false,
+        clarification_resolved: true,
+        clarification_skipped: true,
+        ai_pending: true,
+        minddrop_stage: 'classified',
+      };
+
+      if (entityType === 'note') {
+        set((s) => ({
+          notes: s.notes.map((n) =>
+            n.id === entityId
+              ? {
+                  ...n,
+                  needs_clarification: false,
+                  clarification_resolved: true,
+                  views: skippedViews,
+                }
+              : n,
+          ),
+        }));
+      } else if (entityType === 'todo') {
+        set((s) => ({
+          todos: s.todos.map((t) =>
+            t.id === entityId
+              ? {
+                  ...t,
+                  needs_clarification: false,
+                  clarification_resolved: true,
+                  views: skippedViews,
+                }
+              : t,
+          ),
+        }));
+      } else if (entityType === 'habit') {
+        set((s) => ({
+          habits: s.habits.map((h) =>
+            h.id === entityId
+              ? {
+                  ...h,
+                  needs_clarification: false,
+                  clarification_resolved: true,
+                  views: skippedViews,
+                }
+              : h,
+          ),
+        }));
+      }
+
+      // Emit ItemUpdated so card shows shimmer immediately
+      eventBus.emit('ItemUpdated', { id: entityId, source: STORE_EVENT_SOURCE });
+
+      console.log('[GremlyStore] Marked clarification as skipped, running Phase 2');
+
+      // Step 2: Run Phase 2 with original text only (no clarification context)
+      // Entity stays as current type with general subtype
+      try {
+        const cortexUrl = env.cortexUrl;
+        if (cortexUrl) {
+          const phase2Response = await fetch(cortexUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'enrich-phase2',
+              text: originalText,
+              bucket: entityType === 'note' ? 'log' : entityType,
+              subtype: 'general',
+              currentDate: getDateService().getCurrentDate(),
+            }),
+          });
+
+          if (phase2Response.ok) {
+            const phase2Result = await phase2Response.json();
+            console.log('[GremlyStore] Phase 2 result for skipped clarification:', {
+              entityId,
+              tags: phase2Result.tags,
+              timeEstimate: phase2Result.time_estimate_minutes,
+              latency_ms: phase2Result.latency_ms,
+            });
+
+            // Build Phase 2 updates
+            const phase2Updates: Record<string, unknown> = {
+              views: {
+                ...skippedViews,
+                ai_pending: false,
+                minddrop_stage: 'enriched',
+              },
+            };
+
+            if (
+              phase2Result.tags &&
+              Array.isArray(phase2Result.tags) &&
+              phase2Result.tags.length > 0
+            ) {
+              phase2Updates.tags = phase2Result.tags;
+            }
+            if (phase2Result.time_estimate_minutes != null && entityType !== 'note') {
+              phase2Updates.time_estimate_minutes = phase2Result.time_estimate_minutes;
+            }
+            if (phase2Result.energy_type && entityType !== 'note') {
+              phase2Updates.energy_type = phase2Result.energy_type;
+            }
+
+            // Apply Phase 2 updates
+            if (entityType === 'todo') {
+              await get().updateTodo(entityId, phase2Updates);
+            } else if (entityType === 'habit') {
+              await get().updateHabit(entityId, phase2Updates);
+            } else {
+              await get().updateNote(entityId, phase2Updates);
+            }
+
+            console.log('[GremlyStore] Skipped clarification Phase 2 complete:', { entityId });
+          } else {
+            console.warn('[GremlyStore] Phase 2 response not ok:', phase2Response.status);
+            // Still mark as enriched to clear loading state
+            await get().updateNote(entityId, {
+              views: { ...skippedViews, ai_pending: false, minddrop_stage: 'enriched' },
+            });
+          }
+        }
+      } catch (error) {
+        console.error('[GremlyStore] Phase 2 failed for skipped clarification:', error);
+
+        // Clear loading state even on error
+        if (entityType === 'note') {
+          set((s) => ({
+            notes: s.notes.map((n) =>
+              n.id === entityId
+                ? {
+                    ...n,
+                    views: {
+                      ...((n.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      minddrop_stage: 'enriched',
+                    },
+                  }
+                : n,
+            ),
+          }));
+        } else if (entityType === 'todo') {
+          set((s) => ({
+            todos: s.todos.map((t) =>
+              t.id === entityId
+                ? {
+                    ...t,
+                    views: {
+                      ...((t.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      minddrop_stage: 'enriched',
+                    },
+                  }
+                : t,
+            ),
+          }));
+        } else if (entityType === 'habit') {
+          set((s) => ({
+            habits: s.habits.map((h) =>
+              h.id === entityId
+                ? {
+                    ...h,
+                    views: {
+                      ...((h.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      minddrop_stage: 'enriched',
+                    },
+                  }
+                : h,
+            ),
+          }));
+        }
+      }
+
+      // Emit ItemUpdated to trigger card refresh
+      eventBus.emit('ItemUpdated', { id: entityId, source: STORE_EVENT_SOURCE });
     },
 
     // ═══════════════════════════════════════════════════════════════════

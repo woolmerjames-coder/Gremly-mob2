@@ -118,8 +118,9 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const isOpeningRef = useRef(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Get store action for resolving clarification
+  // Get store actions for resolving clarification
   const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
+  const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
 
   // Subscribe to entities to get fresh clarification data when Phase 1.5 completes
   // This handles the race condition where popup opens before Phase 1.5 finishes
@@ -269,11 +270,19 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   );
 
   const handleClarificationSkip = useCallback(() => {
-    // User wants to skip - could open full overlay here, or just close
-    // For now, just close the popup
-    console.log('[GlobalOverlay] Clarification skipped');
+    const entityId = clarificationPopup.entityId;
+    console.log('[GlobalOverlay] Clarification skipped', { entityId });
+
+    // Close popup immediately
     closeClarificationPopup();
-  }, [closeClarificationPopup]);
+
+    if (!entityId) return;
+
+    // Resolve as skipped - this updates the entity and runs Phase 2
+    resolveSkippedClarification(entityId).catch((error) => {
+      console.error('[GlobalOverlay] Skip resolution failed:', error);
+    });
+  }, [clarificationPopup.entityId, closeClarificationPopup, resolveSkippedClarification]);
 
   const openCreate = useCallback(
     ({
