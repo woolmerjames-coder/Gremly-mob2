@@ -4805,6 +4805,34 @@ export const useGremlyStore = create<GremlyState>()(
           // Non-critical - entity already updated with reclassify data
         }
 
+        // Clear processing state on the entity after Phase 2 (success or failure)
+        if (entityType === 'note') {
+          set((s) => ({
+            notes: s.notes.map((n) =>
+              n.id === entityId
+                ? { ...n, views: { ...(n.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
+                : n
+            ),
+          }));
+        } else if (entityType === 'todo') {
+          set((s) => ({
+            todos: s.todos.map((t) =>
+              t.id === entityId
+                ? { ...t, views: { ...(t.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
+                : t
+            ),
+          }));
+        } else if (entityType === 'habit') {
+          set((s) => ({
+            habits: s.habits.map((h) =>
+              h.id === entityId
+                ? { ...h, views: { ...(h.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
+                : h
+            ),
+          }));
+        }
+        console.log('[GremlyStore] Cleared processing state for entity:', { entityId, entityType });
+
         console.log('[GremlyStore] Same bucket clarification resolved:', { entityId });
         return;
       }
@@ -5126,6 +5154,34 @@ export const useGremlyStore = create<GremlyState>()(
           console.log('[GremlyStore] Phase 2 enrichment failed for converted entity:', phase2Error);
           // Non-critical - entity already created with reclassify data
         }
+
+        // Clear processing state on the new entity after Phase 2 (success or failure)
+        if (targetBucket === 'log') {
+          set((s) => ({
+            notes: s.notes.map((n) =>
+              n.id === insertedEntity.id
+                ? { ...n, views: { ...(n.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
+                : n
+            ),
+          }));
+        } else if (targetBucket === 'todo') {
+          set((s) => ({
+            todos: s.todos.map((t) =>
+              t.id === insertedEntity.id
+                ? { ...t, views: { ...(t.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
+                : t
+            ),
+          }));
+        } else if (targetBucket === 'habit') {
+          set((s) => ({
+            habits: s.habits.map((h) =>
+              h.id === insertedEntity.id
+                ? { ...h, views: { ...(h.views as Record<string, unknown> || {}), ai_pending: false, clarification_processing: false } }
+                : h
+            ),
+          }));
+        }
+        console.log('[GremlyStore] Cleared processing state for converted entity:', { newEntityId: insertedEntity.id, targetBucket });
       } catch (error) {
         console.error('[GremlyStore] Bucket change failed:', error);
         // Fall back to just updating clarification status
