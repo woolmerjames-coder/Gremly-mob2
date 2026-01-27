@@ -2228,24 +2228,38 @@ LOG signals from clarification:
 
 === DATE INTELLIGENCE ===
 
-Based on the clarification, determine how any mentioned date should be treated:
+The original input may contain a date. The clarification tells us the user's INTENT. Combine both to determine how to handle dates.
 
-**TARGET DATE** — When something IS or is DUE (external, immovable)
-Use when the clarification reveals:
-- An existing appointment/event: "I have an appointment Tuesday" → target_date = Tuesday
-- A deadline/expiration: "It expires in June" → target_date = June
-- A fixed external date: "Mom's birthday is March 5" → target_date = March 5
+**RULE 1: Never invent dates.**
+Only set dates that were mentioned in the ORIGINAL INPUT. If there was no date, both fields are null.
 
-**SCHEDULED DATE** — When user plans to DO the work (internal, movable)
-Use when the clarification reveals:
-- Intent to act on a specific day: "I need to book, want it for Tuesday" → scheduled_date = Tuesday
-- Planning to do something: "Just going this Monday" → scheduled_date = Monday
+**RULE 2: Use the clarification to determine date TYPE.**
 
-**BOTH** — When there's a deadline AND user is planning when to act
-- "Need to renew before June, will do it this week" → target_date = June, scheduled_date = this week
+If clarification reveals EXISTING EVENT/APPOINTMENT:
+- "I have an appointment Monday" → target_date = Monday (it's when the appointment IS)
+- "I have a trip in June" → target_date = June (it's when the trip IS)
 
-**NEITHER** — When no date is relevant
-- "Just exploring the idea" → no dates
+If clarification reveals ACTION NEEDED but specifies WHEN TO DO IT:
+- "I need to book, will call Monday" → scheduled_date = Monday (when they'll do the task)
+- "I'll handle it tomorrow" → scheduled_date = tomorrow
+
+If clarification reveals ACTION NEEDED but doesn't specify what the date means:
+- "I need to book" (original had "Monday") → We don't know if Monday is when they want the appointment or when they'll call
+- In this case: target_date = the original date, scheduled_date = null, date_type_ambiguous = true
+- Reasoning: Safer to assume the date is when they want it scheduled FOR, and let Sweep ask when they'll DO it
+
+**RULE 3: Flag ambiguity when date meaning wasn't resolved.**
+
+Set date_type_ambiguous: true when:
+- Original input had a date
+- Clarification confirmed action is needed (TODO)
+- But clarification did NOT explicitly say what the date means
+
+Examples:
+- "chiropractor Monday" + "I need to book" → target_date: Monday, scheduled_date: null, date_type_ambiguous: true
+- "chiropractor Monday" + "I have an appointment" → target_date: Monday, scheduled_date: null, date_type_ambiguous: false
+- "chiropractor Monday" + "I'll call Monday to book" → target_date: null, scheduled_date: Monday, date_type_ambiguous: false
+- "standing desk" + "I want to buy one" → target_date: null, scheduled_date: null, date_type_ambiguous: false (no date in original)
 
 === TITLE RULES ===
 
@@ -2356,6 +2370,7 @@ Return ONLY valid JSON:
   "confirmation_message": "Warm, specific message",
   "target_date": "YYYY-MM-DD" | null,
   "scheduled_date": "YYYY-MM-DD" | null,
+  "date_type_ambiguous": boolean,
   "time_estimate_minutes": number | null,
   "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick" | null
 }
@@ -2364,6 +2379,7 @@ Rules:
 - subtype only when bucket is "log"
 - habit_subtype only when bucket is "habit"
 - time_estimate_minutes and energy_type only for todo/habit
+- date_type_ambiguous: true when original had date but clarification didn't resolve its meaning
 - Dates in YYYY-MM-DD format`;
 
         const t0 = Date.now();
@@ -2436,6 +2452,9 @@ Rules:
             scheduledDate = parsed.scheduled_date;
           }
 
+          // Extract date_type_ambiguous flag
+          const dateTypeAmbiguous = parsed.date_type_ambiguous === true;
+
           // Validate time estimate
           let timeEstimate = null;
           if (typeof parsed.time_estimate_minutes === 'number') {
@@ -2465,6 +2484,7 @@ Rules:
             confirmation_message: confirmationMessage,
             target_date: targetDate,
             scheduled_date: scheduledDate,
+            date_type_ambiguous: dateTypeAmbiguous,
             time_estimate: timeEstimate,
             energy_type: energyType,
             latency_ms: latency,
@@ -2478,6 +2498,7 @@ Rules:
             confirmation_message: confirmationMessage,
             target_date: targetDate,
             scheduled_date: scheduledDate,
+            date_type_ambiguous: dateTypeAmbiguous,
             time_estimate_minutes: timeEstimate,
             energy_type: energyType,
             latency_ms: latency,
@@ -2493,6 +2514,7 @@ Rules:
             confirmation_message: 'Updated.',
             target_date: null,
             scheduled_date: null,
+            date_type_ambiguous: false,
             time_estimate_minutes: null,
             energy_type: null,
             latency_ms: latency,
