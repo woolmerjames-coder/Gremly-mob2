@@ -2388,19 +2388,31 @@ Default to "administrative" if unclear.
 
 === CONTEXT ===
 ORIGINAL INPUT: "${text}"
-USER CLARIFIED: "${selectedLabel}"
+USER CLARIFIED MEANING: "${selectedLabel}"
 RESOLVED TYPE: ${resolvedBucket}${resolvedSubtype ? ` (${resolvedSubtype})` : ''}
+
+=== CRITICAL: INTERPRET USER'S CLARIFICATION ===
+The user's clarification tells you WHAT THEY ACTUALLY MEANT:
+- "I need to book/schedule/make..." → This is a TASK to do something
+- "I have an appointment/meeting..." → This ALREADY EXISTS, it's a reminder/note
+- "I want to start doing..." → This is about building a habit
+- "Just noting..." → This is just a reference note
+
+The title MUST reflect what the user clarified, NOT the original ambiguous input.
 
 === TITLE (3-7 words, Title Case) ===
 - No temporal words (tomorrow, Tuesday, etc.) - dates are stored separately
-- Action-focused for todos: "Book Dentist Appointment"
-- Activity-focused for habits: "Daily Run"
-- Topic-focused for notes: "Dentist Info"
+- For TASKS (user needs to do something): "Book Dentist Appointment", "Schedule Meeting"
+- For REMINDERS (event already exists): "Dentist Appointment", "Meeting With Team"  
+- For NOTES: Just the topic, no action verbs
 
 === CONFIRMATION MESSAGE (4-10 words) ===
 - Warm and specific to the clarified intent
 - No exclamation marks
-- Examples: "Appointment locked in.", "Added to your list.", "On it — dentist booked soon."
+- Match the user's clarification:
+  - If task: "On it — I'll remind you to book."
+  - If reminder: "Got it — appointment noted."
+  - If note: "Noted for reference."
 ${timeEstimationSection}
 === OUTPUT ===
 Return ONLY valid JSON:
