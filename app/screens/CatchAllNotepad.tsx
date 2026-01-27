@@ -2908,6 +2908,14 @@ const AnimatedMindDropCard = React.memo<{
       return false;
     if (prevProps.item.views?.chip_data_ready !== nextProps.item.views?.chip_data_ready)
       return false;
+    // CRITICAL: Re-render when ai_pending or clarification_processing changes
+    // This triggers the shimmer animation when user clicks a clarification option
+    if (prevProps.item.views?.ai_pending !== nextProps.item.views?.ai_pending) return false;
+    if (
+      prevProps.item.views?.clarification_processing !==
+      nextProps.item.views?.clarification_processing
+    )
+      return false;
     // Clarification fields - MUST re-render when these change for chip to appear
     if (prevProps.item.views?.needs_clarification !== nextProps.item.views?.needs_clarification)
       return false;
