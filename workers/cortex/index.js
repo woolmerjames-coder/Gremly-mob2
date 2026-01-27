@@ -2184,154 +2184,138 @@ AMBIGUITY REASON: "bare noun, unclear if buying or noting idea"
       // =========================
       if (type === 'reclassify-after-clarification') {
         const text = body.text || '';
-        const resolvedBucket = body.bucket || 'todo';
-        const resolvedSubtype = body.subtype || null;
         const selectedLabel = body.selectedLabel || '';
+        // eslint-disable-next-line no-restricted-syntax -- Cloudflare Worker doesn't have dateService
+        const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
+        const targetBucket = body.targetBucket || null;
 
-        // Include time estimation for todos and habits
-        const timeEstimationSection =
-          resolvedBucket === 'todo' || resolvedBucket === 'habit'
-            ? `
-=== TIME ESTIMATE (required for todos and habits) ===
-Estimate in 5-minute increments from 5 to 240 minutes.
-Use factor-based reasoning, not category lookup.
-
-**ESTIMATION FRAMEWORK**
-
-Think through these factors for EVERY task:
-
-**FACTOR 1: What's the core action?**
-Estimate the minimum time if everything went perfectly.
-- Send a text: 1-2 min
-- Make a phone call: 10-15 min
-- Walk somewhere: depends on distance
-- Write something: depends on length/complexity
-- Physical task: depends on scope
-
-**FACTOR 2: Do I need to leave my current location?**
-- Staying put (home/desk): no addition
-- Leaving the house: +15-20 min minimum (getting ready, keys, shoes, return, settle back in)
-- Going somewhere specific: add realistic travel time (round trip)
-
-**FACTOR 3: Are other people or animals involved?**
-- Solo task: you control the pace
-- Another person: +10-15 min (coordination, waiting, social dynamics, conversations run long)
-- Animal (dog walk, vet): +10-15 min (unpredictability, their pace not yours)
-- Group/meeting: +15-20 min (gathering, small talk, herding cats)
-
-**FACTOR 4: Physical world or digital?**
-- Digital: more predictable, usually faster
-- Physical: more variables, more can go wrong, round UP
-
-**FACTOR 5: Is this bounded or open-ended?**
-- Bounded ("pay bill", "send email"): clearer end point, estimate tighter
-- Open-ended ("clean garage", "work on project"): no natural stopping point, estimate higher
-
-**FACTOR 6: What commonly goes wrong?**
-- Can't find something: +5-10 min
-- Technical issues: +5-10 min
-- Waiting (on hold, in line): +10-15 min
-- Unexpected conversation: +10 min
-
-**THE PROCESS**
-1. Identify the core action and base time
-2. Apply each relevant factor
-3. Add up the total
-4. Round UP to nearest 5 minutes
-5. When uncertain between two estimates, choose the higher one
-
-**EXAMPLES WITH REASONING**
-
-"Walk Bella" (dog walk)
-- Core: walking (20-25 min)
-- Leave house: yes (+10 min prep/return)
-- Animal involved: yes (+10 min for sniffing, unpredictability)
-- Physical: yes (round up)
-→ Total: 40-45 min → 45 min
-
-"Call mom"
-- Core: phone conversation (15 min)
-- Leave house: no
-- Other person: yes (+15 min, mom calls run long)
-- Digital: yes
-→ Total: 30 min → 30 min
-
-"Buy groceries"
-- Core: shopping (20 min in store)
-- Leave house: yes (+10 min)
-- Travel: yes (+20 min round trip)
-- Physical: yes (round up)
-- Can go wrong: lines, can't find items (+10 min)
-→ Total: 60 min → 60 min
-
-**RANGE ANCHORS**
-- Minimum: 5 min (truly instant digital tasks)
-- Maximum: 240 min (4 hours, major project blocks)
-- Most common range: 15-60 min
-
-**CRITICAL RULES**
-- ALWAYS round UP, never down
-- When uncertain, choose the higher estimate
-- "Quick" tasks that involve leaving the house are never under 30 min
-- Tasks involving other people are rarely under 20 min
-
-=== ENERGY TYPE (required for todos and habits) ===
-Choose ONE:
-- deep_focus: thinking, writing, coding, creating, designing, planning
-- administrative: emails, forms, scheduling, booking, paying bills, logistics
-- physical: exercise, errands, movement, cleaning, walking, running
-- social: calls, meetings, conversations, interviews
-- quick: very small tasks under 10 min, low cognitive effort
-
-Default to "administrative" if unclear.
-`
-            : '';
-
-        const reclassifyPrompt = `Generate metadata for a productivity app item after the user clarified their intent.
+        const reclassifyPrompt = `You classify and enrich a productivity item after the user clarified their intent.
 
 === CONTEXT ===
 ORIGINAL INPUT: "${text}"
-USER CLARIFIED MEANING: "${selectedLabel}"
-RESOLVED TYPE: ${resolvedBucket}${resolvedSubtype ? ` (${resolvedSubtype})` : ''}
+USER SELECTED: "${selectedLabel}"
+CURRENT DATE: ${currentDate}
 
-=== CRITICAL: INTERPRET USER'S CLARIFICATION ===
-The user's clarification tells you WHAT THEY ACTUALLY MEANT:
-- "I need to book/schedule/make..." → This is a TASK to do something
-- "I have an appointment/meeting..." → This ALREADY EXISTS, it's a reminder/note
-- "I want to start doing..." → This is about building a habit
-- "Just noting..." → This is just a reference note
+The user was asked a clarifying question and selected the option above. Now classify based on what they ACTUALLY meant.
 
-The title MUST reflect what the user clarified, NOT the original ambiguous input.
+=== THE THREE BUCKETS ===
 
-=== TITLE (3-7 words, Title Case) ===
-- No temporal words (tomorrow, Tuesday, etc.) - dates are stored separately
-- For TASKS (user needs to do something): "Book Dentist Appointment", "Schedule Meeting"
-- For REMINDERS (event already exists): "Dentist Appointment", "Meeting With Team"  
-- For NOTES: Just the topic, no action verbs
+**TODO** — A discrete, completable action
+The user will eventually "check this off." A clear DONE state exists.
 
-=== CONFIRMATION MESSAGE (4-10 words) ===
-- Warm and specific to the clarified intent
-- No exclamation marks
-- Match the user's clarification:
-  - If task: "On it — I'll remind you to book."
-  - If reminder: "Got it — appointment noted."
-  - If note: "Noted for reference."
-${timeEstimationSection}
-=== OUTPUT ===
+TODO signals from clarification:
+- "I need to book/call/schedule..." → action required → TODO
+- "I need to renew/cancel/fix..." → action required → TODO  
+- "I need to get a gift/buy..." → action required → TODO
+- "I want to buy one" → action required → TODO
+
+**HABIT** — A trackable, recurring behavior
+The user wants to TRACK this over time.
+
+HABIT signals from clarification:
+- "Starting to go regularly" → building routine → HABIT
+- "Want to do this daily/weekly" → recurring intent → HABIT
+- "Building a habit" → explicit → HABIT
+
+**LOG** — Capture for reflection, not action
+A thought, event, idea, or information. No action required from the user.
+
+LOG signals from clarification:
+- "I have an appointment/meeting" → existing event → LOG/general
+- "I have a trip" → noting travel → LOG/general
+- "Just noting the date" → awareness → LOG/general
+- "Just exploring the idea" → brainstorming → LOG/idea
+
+=== DATE INTELLIGENCE ===
+
+Based on the clarification, determine how any mentioned date should be treated:
+
+**TARGET DATE** — When something IS or is DUE (external, immovable)
+Use when the clarification reveals:
+- An existing appointment/event: "I have an appointment Tuesday" → target_date = Tuesday
+- A deadline/expiration: "It expires in June" → target_date = June
+- A fixed external date: "Mom's birthday is March 5" → target_date = March 5
+
+**SCHEDULED DATE** — When user plans to DO the work (internal, movable)
+Use when the clarification reveals:
+- Intent to act on a specific day: "I need to book, want it for Tuesday" → scheduled_date = Tuesday
+- Planning to do something: "Just going this Monday" → scheduled_date = Monday
+
+**BOTH** — When there's a deadline AND user is planning when to act
+- "Need to renew before June, will do it this week" → target_date = June, scheduled_date = this week
+
+**NEITHER** — When no date is relevant
+- "Just exploring the idea" → no dates
+
+=== TITLE RULES ===
+
+Generate a 3-7 word title that reflects the CLARIFIED intent:
+
+- For TODOs: Action verb + object ("Book Dentist Appointment", "Renew Passport", "Buy Gift For Mom")
+- For HABITs: Activity name ("Regular Gym Sessions", "Daily Meditation")
+- For LOGs: Topic/event name ("Dentist Appointment Tuesday", "Trip In June", "Standing Desk Idea")
+
+NO temporal words in titles (tomorrow, Tuesday, next week) — dates are stored separately.
+
+=== CONFIRMATION MESSAGE ===
+
+Warm, specific, personality-driven. Reference the clarified intent.
+
+NEVER start with "Got it", "On it", "Noted" alone.
+
+Good examples:
+- "Dentist appointment — it's in the books."
+- "Passport renewal, adulting mode activated."
+- "Gift shopping for mom, on the radar."
+- "Trip noted — June it is."
+- "Gym habit starting strong."
+- "Idea tucked away for later."
+
+${targetBucket === 'todo' || targetBucket === 'habit' ? `
+=== TIME ESTIMATE ===
+
+Estimate in 5-minute increments (5 to 240 minutes).
+
+Factor-based reasoning:
+1. Core action time
+2. Leave house? +15-20 min
+3. Other people involved? +10-15 min
+4. Physical vs digital
+5. What commonly goes wrong? +5-15 min
+
+Round UP. When uncertain, choose higher estimate.
+
+=== ENERGY TYPE ===
+
+Choose ONE:
+- deep_focus: thinking, writing, creating, planning
+- administrative: emails, forms, scheduling, booking, logistics
+- physical: exercise, errands, movement, cleaning
+- social: calls, meetings, conversations
+- quick: small tasks under 10 min
+` : ''}
+
+=== OUTPUT FORMAT ===
+
 Return ONLY valid JSON:
-${
-  resolvedBucket === 'todo' || resolvedBucket === 'habit'
-    ? `{
-  "smart_title": "Title Here",
-  "confirmation_message": "Warm message here.",
-  "time_estimate_minutes": 30,
-  "energy_type": "administrative"
-}`
-    : `{
-  "smart_title": "Title Here",
-  "confirmation_message": "Warm message here."
-}`
-}`;
+
+{
+  "bucket": "todo" | "habit" | "log",
+  "subtype": "general" | "idea" | "journal" | null,
+  "habit_subtype": "start_habit" | "break_habit" | null,
+  "smart_title": "3-7 Word Title",
+  "confirmation_message": "Warm, specific message",
+  "target_date": "YYYY-MM-DD" | null,
+  "scheduled_date": "YYYY-MM-DD" | null,
+  "time_estimate_minutes": number | null,
+  "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick" | null
+}
+
+Rules:
+- subtype only when bucket is "log"
+- habit_subtype only when bucket is "habit"
+- time_estimate_minutes and energy_type only for todo/habit
+- Dates in YYYY-MM-DD format`;
 
         const t0 = Date.now();
 
@@ -2346,7 +2330,7 @@ ${
               model: 'gpt-4o-mini',
               messages: [{ role: 'system', content: reclassifyPrompt }],
               temperature: 0.3,
-              max_tokens: 150,
+              max_tokens: 250,
               response_format: { type: 'json_object' },
             }),
           });
@@ -2357,8 +2341,13 @@ ${
           if (!res.ok) {
             console.log('[Reclassify] API error', { error: oj.error });
             return j({
+              bucket: 'log',
+              subtype: 'general',
+              habit_subtype: null,
               smart_title: text.substring(0, 50),
               confirmation_message: 'Updated.',
+              target_date: null,
+              scheduled_date: null,
               time_estimate_minutes: null,
               energy_type: null,
               latency_ms: latency,
@@ -2368,12 +2357,40 @@ ${
           const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
           const parsed = JSON.parse(rawContent);
 
-          // Validate time estimate range
-          let timeEstimate = parsed.time_estimate_minutes;
-          if (typeof timeEstimate === 'number') {
-            timeEstimate = Math.max(5, Math.min(240, Math.round(timeEstimate / 5) * 5));
-          } else {
-            timeEstimate = null;
+          // Validate bucket
+          const validBuckets = ['todo', 'habit', 'log'];
+          let bucket = validBuckets.includes(parsed.bucket) ? parsed.bucket : 'log';
+
+          // Validate subtype
+          let subtype = null;
+          if (bucket === 'log') {
+            const validSubtypes = ['general', 'idea', 'journal'];
+            subtype = validSubtypes.includes(parsed.subtype) ? parsed.subtype : 'general';
+          }
+
+          // Validate habit_subtype
+          let habitSubtype = null;
+          if (bucket === 'habit') {
+            const validHabitSubtypes = ['start_habit', 'break_habit'];
+            habitSubtype = validHabitSubtypes.includes(parsed.habit_subtype)
+              ? parsed.habit_subtype
+              : 'start_habit';
+          }
+
+          // Validate dates
+          let targetDate = null;
+          let scheduledDate = null;
+          if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+            targetDate = parsed.target_date;
+          }
+          if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
+            scheduledDate = parsed.scheduled_date;
+          }
+
+          // Validate time estimate
+          let timeEstimate = null;
+          if (typeof parsed.time_estimate_minutes === 'number') {
+            timeEstimate = Math.max(5, Math.min(240, Math.round(parsed.time_estimate_minutes / 5) * 5));
           }
 
           // Validate energy type
@@ -2383,15 +2400,25 @@ ${
             : null;
 
           console.log('[Reclassify] Success', {
+            bucket,
+            subtype,
+            habit_subtype: habitSubtype,
             title: parsed.smart_title?.substring(0, 30),
+            target_date: targetDate,
+            scheduled_date: scheduledDate,
             time_estimate: timeEstimate,
             energy_type: energyType,
             latency_ms: latency,
           });
 
           return j({
+            bucket,
+            subtype,
+            habit_subtype: habitSubtype,
             smart_title: parsed.smart_title || text.substring(0, 50),
             confirmation_message: parsed.confirmation_message || 'Updated.',
+            target_date: targetDate,
+            scheduled_date: scheduledDate,
             time_estimate_minutes: timeEstimate,
             energy_type: energyType,
             latency_ms: latency,
@@ -2400,8 +2427,13 @@ ${
           const latency = Date.now() - t0;
           console.log('[Reclassify] Error', { error: String(err), latency_ms: latency });
           return j({
+            bucket: 'log',
+            subtype: 'general',
+            habit_subtype: null,
             smart_title: text.substring(0, 50),
             confirmation_message: 'Updated.',
+            target_date: null,
+            scheduled_date: null,
             time_estimate_minutes: null,
             energy_type: null,
             latency_ms: latency,
