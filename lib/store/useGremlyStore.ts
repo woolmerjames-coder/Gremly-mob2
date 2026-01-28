@@ -4723,6 +4723,16 @@ export const useGremlyStore = create<GremlyState>()(
           needs_clarification: false,
           clarification_resolved: true,
           confirmation_message: newConfirmation,
+          // For notes, store date intelligence in views (notes don't have date columns)
+          ...(entityType === 'note' && reclassifyResult.target_date
+            ? { target_date: reclassifyResult.target_date }
+            : {}),
+          ...(entityType === 'note' && reclassifyResult.scheduled_date
+            ? { scheduled_date: reclassifyResult.scheduled_date }
+            : {}),
+          ...(entityType === 'note' && reclassifyResult.event_time
+            ? { event_time: reclassifyResult.event_time }
+            : {}),
         };
 
         // Build updates object
