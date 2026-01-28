@@ -121,6 +121,8 @@ const mockOverlayController = {
   openEdit: jest.fn(),
   openView: jest.fn(),
   close: jest.fn(),
+  openClarificationPopup: jest.fn(),
+  closeClarificationPopup: jest.fn(),
 };
 
 // Import after mocks

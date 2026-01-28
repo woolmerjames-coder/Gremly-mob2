@@ -79,6 +79,8 @@ const overlayStub = {
   openEdit: jest.fn(),
   openView: jest.fn(),
   close: jest.fn(),
+  openClarificationPopup: jest.fn(),
+  closeClarificationPopup: jest.fn(),
 };
 
 // Skipped: Test mocking for RecentDrops selector setup is incomplete.

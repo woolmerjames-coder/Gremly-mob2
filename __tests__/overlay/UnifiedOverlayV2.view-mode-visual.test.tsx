@@ -126,7 +126,7 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
 
     it('shows Edit button in header in view mode', () => {
       const onClose = jest.fn();
-      const { getByLabelText } = render(
+      const { getAllByLabelText } = render(
         <UnifiedOverlayV2
           visible={true}
           mode="view"
@@ -135,9 +135,9 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
         />,
       );
 
-      // Edit button should be in the header area
-      const editButton = getByLabelText('Edit');
-      expect(editButton).toBeTruthy();
+      // Edit button(s) should be present (header and/or footer)
+      const editButtons = getAllByLabelText('Edit');
+      expect(editButtons.length).toBeGreaterThan(0);
     });
   });
 
@@ -190,7 +190,7 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
   describe('Edit button interaction', () => {
     it('pressing Edit button calls openEdit with correct record', () => {
       const onClose = jest.fn();
-      const { getByLabelText } = render(
+      const { getAllByLabelText } = render(
         <UnifiedOverlayV2
           visible={true}
           mode="view"
@@ -199,8 +199,9 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
         />,
       );
 
-      const editButton = getByLabelText('Edit');
-      fireEvent.press(editButton);
+      // Use first Edit button (footer Edit button)
+      const editButtons = getAllByLabelText('Edit');
+      fireEvent.press(editButtons[0]);
 
       expect(mockOpenEdit).toHaveBeenCalledTimes(1);
       expect(mockOpenEdit).toHaveBeenCalledWith(

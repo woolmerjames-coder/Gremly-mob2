@@ -59,6 +59,8 @@ const overlayStub = {
   openEdit: jest.fn(),
   openView: jest.fn(),
   close: jest.fn(),
+  openClarificationPopup: jest.fn(),
+  closeClarificationPopup: jest.fn(),
 };
 
 function makeNote(id: string, text: string, createdAt: Date) {

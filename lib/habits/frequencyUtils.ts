@@ -166,7 +166,19 @@ export function getFrequencyDisplayLabel(
   cadence: string | null | undefined,
   targetPerPeriod: number | null | undefined,
   frequencyString?: string | null, // Raw frequency string from Phase 2 enrichment (e.g., "3x/week", "daily")
-): string {
+): string | null {
+  // If frequency is 'pending', return null to hide the chip
+  // This is a placeholder value used during bucket change before Phase 2 runs
+  if (frequencyString === 'pending') {
+    return null;
+  }
+
+  // If no cadence and no frequency string, return null to hide the chip
+  // This prevents showing "Daily" as a default before Phase 2 enrichment runs
+  if (!cadence && !frequencyString) {
+    return null;
+  }
+
   // If we have a raw frequency string AND no canonical cadence, use the frequency string
   // This is the case for pending drops where Phase 2 returned extracted_frequency but
   // cadence/target_per_period aren't set yet
@@ -321,7 +333,7 @@ export function getHabitFrequencyLabel(habit: {
   cadence?: string | null;
   target_per_period?: number | null;
   frequency?: string | null;
-}): string {
+}): string | null {
   return getFrequencyDisplayLabel(habit.cadence, habit.target_per_period);
 }
 

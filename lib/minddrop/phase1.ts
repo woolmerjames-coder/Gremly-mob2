@@ -221,6 +221,14 @@ export async function runPhase1(
     source,
     smart_title: apiResult.smart_title || null,
     confirmation_message: apiResult.confirmation_message || null,
+    // Ambiguity detection (triggers Phase 1.5 in background)
+    is_ambiguous: apiResult.is_ambiguous || false,
+    ambiguity_reason: apiResult.ambiguity_reason || null,
+    // Legacy clarification fields (may be populated by Phase 1.5 later)
+    needs_clarification: apiResult.needs_clarification || false,
+    clarification_type: apiResult.clarification_type || null,
+    clarification_question: apiResult.clarification_question || null,
+    clarification_options: apiResult.clarification_options || null,
   });
 
   return {
@@ -233,5 +241,13 @@ export async function runPhase1(
     // Early enrichment fields (enables typewriter to start after Phase 1)
     smart_title: apiResult.smart_title || null,
     confirmation_message: apiResult.confirmation_message || null,
+    // Ambiguity detection (triggers Phase 1.5 in background)
+    is_ambiguous: apiResult.is_ambiguous || false,
+    ambiguity_reason: apiResult.ambiguity_reason || null,
+    // Clarification fields (populated by Phase 1.5 asynchronously)
+    needs_clarification: apiResult.needs_clarification || false,
+    clarification_type: apiResult.clarification_type || null,
+    clarification_question: apiResult.clarification_question || null,
+    clarification_options: apiResult.clarification_options || null,
   };
 }

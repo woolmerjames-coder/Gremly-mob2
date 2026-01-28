@@ -56,7 +56,7 @@ export interface SweepBuildHabitRowProps {
   isAheadOfTarget?: boolean;
 
   // Frequency display text (e.g., "Every day", "3x per week")
-  frequencyLabel: string;
+  frequencyLabel: string | null;
 
   // Last time user completed this habit - ISO date
   lastCompletedAt?: string | null;

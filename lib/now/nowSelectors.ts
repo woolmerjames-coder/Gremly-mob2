@@ -57,10 +57,7 @@ function clampProgress(value: number, target: number): number {
   return Math.max(0, Math.min(value, target));
 }
 
-function buildCadenceLabelForHabit(
-  habit: Habit,
-  progress: HabitProgressSnapshot,
-): string | undefined {
+function buildCadenceLabelForHabit(habit: Habit, progress: HabitProgressSnapshot): string | null {
   // Use centralized frequency label logic
   const baseLabel = getHabitFrequencyLabel(habit);
 

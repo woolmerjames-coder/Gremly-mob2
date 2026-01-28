@@ -36,6 +36,7 @@ import Reanimated, {
 import {
   X as CloseIcon,
   Plus,
+  Minus,
   Calendar,
   Pencil,
   RotateCw,
@@ -142,6 +143,7 @@ import { EntityChatButton, EntityChatScreen, EntityNotesSection, EntityNotesModa
 import { ChecklistProgress } from './ChecklistProgress';
 import { RevertToTextButton } from './RevertToTextButton';
 import { TodoPreviewModal } from './TodoPreviewModal';
+import { ClarificationPopup } from '../minddrop/ClarificationPopup';
 import {
   extractListItems,
   hasActionableList,
@@ -300,17 +302,29 @@ const PRESET_TIMES = [
   { label: '9:00 PM', hour: 21, minute: 0, key: '9:00-PM' },
 ] as const;
 
-// Time estimate options for todos
-const TIME_ESTIMATE_OPTIONS = [
-  { value: 5, label: '5 min' },
-  { value: 10, label: '10 min' },
-  { value: 15, label: '15 min' },
-  { value: 30, label: '30 min' },
-  { value: 45, label: '45 min' },
-  { value: 60, label: '1 hour' },
-  { value: 90, label: '1.5 hours' },
-  { value: 120, label: '2 hours' },
-] as const;
+// Time estimate options for todos - quick select grid
+const TIME_ESTIMATE_QUICK_OPTIONS = [5, 10, 15, 20, 30, 45, 60, 90] as const;
+
+// Stepper constraints for time estimates
+const TIME_ESTIMATE_MIN = 5;
+const TIME_ESTIMATE_MAX = 240;
+const TIME_ESTIMATE_STEP = 5;
+
+// Utility function for consistent time formatting
+function formatTimeEstimate(minutes: number | null | undefined): string {
+  if (!minutes) return '';
+
+  if (minutes < 60) {
+    return `${minutes} min`;
+  } else if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} hr${hours > 1 ? 's' : ''}`;
+  } else {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+  }
+}
 
 // Time window options for todos and habits (preferred time of day)
 const TIME_WINDOW_OPTIONS: {
@@ -1091,8 +1105,64 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // NOTE: isViewMode is now derived above with displayMode state for habits
 
-  // Extract full entity from props (passed by OverlayHost in edit mode)
-  const fullEntity = (props as any).entity ?? null;
+  // Get the entity ID from props (passed by OverlayHost in edit mode)
+  const propsEntity = (props as any).entity ?? initialEntity ?? null;
+  const entityIdToFetch = propsEntity?.id ?? null;
+
+  // Fetch the LIVE entity from Zustand store (so we get updated clarification data)
+  const fullEntity = useGremlyStore((state) => {
+    if (!entityIdToFetch) return propsEntity; // Fall back to props if no ID
+
+    // Check all entity types for the most up-to-date data
+    const todo = state.todos.find((t) => t.id === entityIdToFetch);
+    if (todo) return todo;
+
+    const habit = state.habits.find((h) => h.id === entityIdToFetch);
+    if (habit) return habit;
+
+    const note = state.notes.find((n) => n.id === entityIdToFetch);
+    if (note) return note;
+
+    // Fall back to props entity if not found in store
+    return propsEntity;
+  });
+
+  // Debug: Log entity sources to understand what's available
+  console.log('[UnifiedOverlayV2] Entity sources:', {
+    propsEntityId: propsEntity?.id,
+    entityIdToFetch,
+    fullEntityId: fullEntity?.id,
+    fullEntityType: fullEntity?.type,
+    fullEntityViews: fullEntity?.views ? Object.keys(fullEntity.views) : 'none',
+    fromZustand: fullEntity?.id && fullEntity?.id === entityIdToFetch,
+  });
+
+  // Clarification detection (Phase 2)
+  // Check both direct fields and views JSONB (data stored in views)
+  const needsClarification =
+    (fullEntity?.views?.needs_clarification === true ||
+      fullEntity?.needs_clarification === true ||
+      fullEntity?.clarification_needed === true) &&
+    fullEntity?.views?.clarification_resolved !== true &&
+    fullEntity?.clarification_resolved !== true;
+  const clarificationQuestion =
+    fullEntity?.views?.clarification_question ?? fullEntity?.clarification_question ?? null;
+  const clarificationOptions =
+    fullEntity?.views?.clarification_options ?? fullEntity?.clarification_options ?? null;
+  const clarificationType =
+    fullEntity?.views?.clarification_type ?? fullEntity?.clarification_type ?? null;
+
+  // Debug: Log clarification check
+  console.log('[UnifiedOverlayV2] Clarification data from fullEntity:', {
+    visible,
+    entityId: fullEntity?.id,
+    needsClarification,
+    clarificationResolved:
+      fullEntity?.clarification_resolved || fullEntity?.views?.clarification_resolved,
+    clarificationQuestion,
+    clarificationOptionsCount: clarificationOptions?.length || 0,
+    clarificationType,
+  });
 
   // Zustand store mutations (replaces useRepo)
   const createTodo = useGremlyStore((s) => s.createTodo);
@@ -1316,6 +1386,115 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     [currentEntityId, entityTypeForChat, convertNoteToChecklist],
   );
 
+  // Clarification popup: auto-show when overlay opens for item needing clarification
+  useEffect(() => {
+    console.log('[UnifiedOverlayV2] Clarification useEffect triggered:', {
+      visible,
+      needsClarification,
+      clarificationQuestion,
+      clarificationOptionsLength: clarificationOptions?.length,
+    });
+
+    if (visible && needsClarification && clarificationQuestion) {
+      console.log('[UnifiedOverlayV2] Should show clarification popup!');
+      // Small delay to let overlay animate in first
+      const timer = setTimeout(() => {
+        setShowClarificationPopup(true);
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setShowClarificationPopup(false);
+    }
+  }, [visible, needsClarification, clarificationQuestion]);
+
+  // Clarification: handle option selection
+  const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
+  const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
+  const handleClarificationSelect = useCallback(
+    async (optionId: string) => {
+      console.log('[UnifiedOverlayV2] handleClarificationSelect called:', { optionId });
+
+      // Get the entity ID from fullEntity (which combines props.entity and initialEntity)
+      const entityId = fullEntity?.id;
+      console.log('[UnifiedOverlayV2] Entity ID resolved:', {
+        entityId,
+        fromFullEntity: fullEntity?.id,
+        propsEntityId: propsEntity?.id,
+        initialEntityId: initialEntity?.id,
+      });
+
+      if (!entityId) {
+        console.error('[UnifiedOverlayV2] No entity ID available for clarification');
+        setShowClarificationPopup(false);
+        return;
+      }
+
+      // Show loading state
+      setClarificationLoading(true);
+
+      console.log('[UnifiedOverlayV2] Calling store action resolvePendingDropClarification...');
+
+      try {
+        await resolvePendingDropClarification(entityId, optionId);
+        console.log('[UnifiedOverlayV2] Store action completed successfully');
+
+        // Haptic feedback
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+        // Show success state
+        setClarificationLoading(false);
+        setClarificationSuccess('Got it — updated!');
+
+        // Wait for user to see success message, then close
+        setTimeout(() => {
+          setClarificationSuccess(null);
+          setShowClarificationPopup(false);
+
+          // Close the overlay - the entity may have been converted to a different type
+          onClose?.();
+
+          // Emit events to trigger list refresh so the new entity appears
+          // ItemUpdated: specific entity update notification
+          eventBus.emit('ItemUpdated', { id: entityId, source: 'clarification-resolved' });
+
+          // entity:updated: broader refresh signal for bucket conversions
+          // RecentDrops and other list components listen for this
+          eventBus.emit('entity:updated', {
+            entity: { id: entityId },
+            type: 'unknown', // May have changed type during conversion
+            source: 'clarification-resolved',
+          });
+
+          console.log('[UnifiedOverlayV2] Clarification resolved, events emitted');
+        }, 1200); // Show success for 1.2 seconds
+      } catch (error) {
+        console.error('[UnifiedOverlayV2] Store action failed:', error);
+        setClarificationLoading(false);
+        setShowClarificationPopup(false);
+      }
+    },
+    [fullEntity?.id, propsEntity?.id, initialEntity?.id, resolvePendingDropClarification, onClose],
+  );
+
+  // Clarification: handle skip
+  const handleClarificationSkip = useCallback(async () => {
+    const entityId = fullEntity?.id;
+    console.log('[UnifiedOverlayV2] Clarification skipped', { entityId });
+
+    // Close popup immediately
+    setShowClarificationPopup(false);
+
+    if (!entityId) return;
+
+    // Resolve as skipped - this updates the entity and runs Phase 2
+    try {
+      await resolveSkippedClarification(entityId);
+      console.log('[UnifiedOverlayV2] Skip resolution completed');
+    } catch (error) {
+      console.error('[UnifiedOverlayV2] Skip resolution failed:', error);
+    }
+  }, [fullEntity?.id, resolveSkippedClarification]);
+
   // Log kind detection (Phase L1)
   const isLog = baseType === 'log';
   const logKind = isLog ? state.log.kind : 'basic';
@@ -1373,10 +1552,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   const [showTimeEstimateModal, setShowTimeEstimateModal] = useState(false);
+  const [timeEstimateValue, setTimeEstimateValue] = useState<number>(30); // Stepper value for time estimate modal
   const [showTimeWindowModal, setShowTimeWindowModal] = useState(false);
   const [showHabitStartDatePicker, setShowHabitStartDatePicker] = useState(false);
   const [showHabitEndDatePicker, setShowHabitEndDatePicker] = useState(false);
-  const [dateModalTarget, setDateModalTarget] = useState<'todo' | 'reminder' | null>(null);
+  const [dateModalTarget, setDateModalTarget] = useState<
+    'todo_deadline' | 'todo_dodate' | 'note_event' | 'reminder' | null
+  >(null);
   const [showSpaceModal, setShowSpaceModal] = useState(false);
 
   // Keyboard height tracking for dynamic sheet sizing
@@ -1457,6 +1639,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Entity Chat state
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [showNotesModal, setShowNotesModal] = useState(false);
+
+  // Clarification popup state (Phase 2)
+  const [showClarificationPopup, setShowClarificationPopup] = useState(false);
+  const [clarificationLoading, setClarificationLoading] = useState(false);
+  const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
 
   // View mode: store fetched entity for display
   const [viewModeEntity, setViewModeEntity] = useState<any>(null);
@@ -3745,7 +3932,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           cooldown_buffer_minutes: todoBuffers.cooldown_buffer_minutes,
           space_id: resolvedSpaceId,
           origin: 'catchall' as const,
-          views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
+          views: {
+            ...viewsWithPrefillFlag,
+            // Date Intelligence fields in views
+            target_date: s.todo.target_date ?? null,
+            scheduled_date: s.todo.scheduled_date ?? null,
+          },
           // Commitment fields (only for todos/habits)
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
@@ -3796,7 +3988,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         cooldown_buffer_minutes: todoBuffers2.cooldown_buffer_minutes,
         space_id: resolvedSpaceId2,
         origin: 'catchall' as const,
-        views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
+        views: {
+          ...viewsWithPrefillFlag,
+          // Date Intelligence fields in views
+          target_date: s.todo.target_date ?? null,
+          scheduled_date: s.todo.scheduled_date ?? null,
+        },
         ...tagsPayload, // Conditionally include tags/tags_meta
         // Commitment fields (only for todos/habits)
         ...{
@@ -3962,6 +4159,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
           : viewsWithPrefillFlag;
 
+      // Add Date Intelligence fields to views
+      const viewsWithDateIntelligence = {
+        ...viewsWithPrivate,
+        target_date: s.log.target_date ?? null,
+        event_time: s.log.event_time ?? null,
+      };
+
       // Resolve space_id: explicit null means "None" selected, undefined means use fallback
       const resolvedSpaceId5 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
       if (__DEV__ && s.spaceId === null) {
@@ -3979,7 +4183,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ...logConfirmationPatch, // Override with confirmed log status and correct subtype
         space_id: resolvedSpaceId5,
         origin: 'catchall' as const,
-        views: viewsWithPrivate, // Add views with minddrop_prefilled_v1 and private_journal flags
+        views: viewsWithDateIntelligence, // Add views with Date Intelligence, private_journal, and prefill flags
         ...moodPatch,
         ...fmtPatch,
         ...datePatch,
@@ -5286,15 +5490,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           </Pressable>
                         ) : null}
 
-                        {/* Header Edit button - view mode only */}
-                        {isViewMode && fullEntity ? (
+                        {/* Header Edit button - view mode only (not for habits - they have Edit button in footer) */}
+                        {isViewMode && fullEntity && baseType !== 'habit' ? (
                           <Pressable
                             onPress={() => {
-                              if (baseType === 'habit') {
-                                // For habits, toggle local displayMode
-                                setDisplayMode('edit');
-                              } else if (initialEntity && (initialEntity as any).id) {
-                                // For other types, reopen in edit mode
+                              if (initialEntity && (initialEntity as any).id) {
+                                // Reopen in edit mode
                                 globalOverlay.openEdit({
                                   record: initialEntity as any,
                                   spaceId: initialSpaceId,
@@ -6092,21 +6293,84 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           ) : null}
 
                           <Box>
+                            {/* Event Date for Notes */}
+                            {baseType === 'log' && (
+                              <Box style={{ marginBottom: 16 }}>
+                                <View style={styles.dueAndLockRow}>
+                                  <View style={styles.dueDateLeft}>
+                                    <Pressable
+                                      style={styles.dueDatePill}
+                                      onPress={() => {
+                                        setMoodPickerExpanded(false);
+                                        if (state.log.target_date) {
+                                          const parsed = getDateService().fromDateString(
+                                            state.log.target_date,
+                                          );
+                                          if (parsed) {
+                                            setSelectedDate(parsed);
+                                          }
+                                        } else {
+                                          setSelectedDate(new Date());
+                                        }
+                                        setDateModalTarget('note_event');
+                                        setShowDateModal(true);
+                                      }}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={
+                                        state.log.target_date
+                                          ? `Event date: ${formatDueDay(state.log.target_date)}`
+                                          : 'Add event date'
+                                      }
+                                    >
+                                      <Calendar
+                                        size={16}
+                                        color={
+                                          state.log.target_date
+                                            ? colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.7)'
+                                              : '#666666'
+                                            : colorMode === 'dark'
+                                              ? 'rgba(255,255,255,0.5)'
+                                              : '#777777'
+                                        }
+                                        style={styles.dueDateIcon}
+                                      />
+                                      <Text
+                                        style={[
+                                          styles.dueDateText,
+                                          !state.log.target_date && {
+                                            color:
+                                              colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.5)'
+                                                : '#777777',
+                                            fontWeight: '400',
+                                          },
+                                        ]}
+                                      >
+                                        {state.log.target_date
+                                          ? formatDueDay(state.log.target_date)
+                                          : 'Add event date'}
+                                      </Text>
+                                    </Pressable>
+                                  </View>
+                                </View>
+                              </Box>
+                            )}
+
                             {baseType === 'todo' || baseType === 'habit' ? (
                               <Box style={{ marginBottom: 0 }}>
-                                {/* Due date + Lock In row */}
+                                {/* Deadline (target_date) + Lock In row */}
                                 <View style={styles.dueAndLockRow}>
-                                  {/* Left side: Due date */}
+                                  {/* Left side: Deadline (target_date) */}
                                   <View style={styles.dueDateLeft}>
                                     {baseType === 'todo' ? (
                                       <Pressable
                                         style={styles.dueDatePill}
                                         onPress={() => {
-                                          setMoodPickerExpanded(false); // Collapse mood picker
-                                          // Pre-fill date picker with current due_day if set
-                                          if (state.todo.due_day) {
+                                          setMoodPickerExpanded(false);
+                                          if (state.todo.target_date) {
                                             const parsed = getDateService().fromDateString(
-                                              state.todo.due_day,
+                                              state.todo.target_date,
                                             );
                                             if (parsed) {
                                               setSelectedDate(parsed);
@@ -6114,20 +6378,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           } else {
                                             setSelectedDate(new Date());
                                           }
-                                          setDateModalTarget('todo');
+                                          setDateModalTarget('todo_deadline');
                                           setShowDateModal(true);
                                         }}
                                         accessibilityRole="button"
                                         accessibilityLabel={
-                                          state.todo.due_day
-                                            ? `Due date: ${formatDueDay(state.todo.due_day)}`
-                                            : 'Add due date'
+                                          state.todo.target_date
+                                            ? `Deadline: ${formatDueDay(state.todo.target_date)}`
+                                            : 'Add deadline'
                                         }
                                       >
                                         <Calendar
                                           size={16}
                                           color={
-                                            state.todo.due_day
+                                            state.todo.target_date
                                               ? colorMode === 'dark'
                                                 ? 'rgba(255,255,255,0.7)'
                                                 : '#666666'
@@ -6140,7 +6404,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         <Text
                                           style={[
                                             styles.dueDateText,
-                                            !state.todo.due_day && {
+                                            !state.todo.target_date && {
                                               color:
                                                 colorMode === 'dark'
                                                   ? 'rgba(255,255,255,0.5)'
@@ -6149,9 +6413,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             },
                                           ]}
                                         >
-                                          {state.todo.due_day
-                                            ? formatDueDay(state.todo.due_day)
-                                            : 'Add due date'}
+                                          {state.todo.target_date
+                                            ? formatDueDay(state.todo.target_date)
+                                            : 'Add deadline'}
                                         </Text>
                                       </Pressable>
                                     ) : null}
@@ -6227,13 +6491,80 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   </View>
                                 ) : null}
 
+                                {/* Do date (scheduled_date) row for todos */}
+                                {baseType === 'todo' && (
+                                  <View style={styles.dueAndLockRow}>
+                                    <View style={styles.dueDateLeft}>
+                                      <Pressable
+                                        style={styles.dueDatePill}
+                                        onPress={() => {
+                                          setMoodPickerExpanded(false);
+                                          if (state.todo.scheduled_date) {
+                                            const parsed = getDateService().fromDateString(
+                                              state.todo.scheduled_date,
+                                            );
+                                            if (parsed) {
+                                              setSelectedDate(parsed);
+                                            }
+                                          } else {
+                                            setSelectedDate(new Date());
+                                          }
+                                          setDateModalTarget('todo_dodate');
+                                          setShowDateModal(true);
+                                        }}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                          state.todo.scheduled_date
+                                            ? `Do date: ${formatDueDay(state.todo.scheduled_date)}`
+                                            : 'Add do date'
+                                        }
+                                      >
+                                        <Clock
+                                          size={16}
+                                          color={
+                                            state.todo.scheduled_date
+                                              ? colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.7)'
+                                                : '#666666'
+                                              : colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.5)'
+                                                : '#777777'
+                                          }
+                                          style={styles.dueDateIcon}
+                                        />
+                                        <Text
+                                          style={[
+                                            styles.dueDateText,
+                                            !state.todo.scheduled_date && {
+                                              color:
+                                                colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.5)'
+                                                  : '#777777',
+                                              fontWeight: '400',
+                                            },
+                                          ]}
+                                        >
+                                          {state.todo.scheduled_date
+                                            ? formatDueDay(state.todo.scheduled_date)
+                                            : 'Add do date'}
+                                        </Text>
+                                      </Pressable>
+                                    </View>
+                                  </View>
+                                )}
+
                                 {/* Time estimate row for todos */}
                                 {baseType === 'todo' && (
                                   <View style={styles.dueAndLockRow}>
                                     <View style={styles.dueDateLeft}>
                                       <Pressable
                                         style={styles.dueDatePill}
-                                        onPress={() => setShowTimeEstimateModal(true)}
+                                        onPress={() => {
+                                          setTimeEstimateValue(
+                                            state.todo.time_estimate_minutes ?? 30,
+                                          );
+                                          setShowTimeEstimateModal(true);
+                                        }}
                                         accessibilityRole="button"
                                         accessibilityLabel={
                                           state.todo.time_estimate_minutes
@@ -6267,9 +6598,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           ]}
                                         >
                                           {state.todo.time_estimate_minutes
-                                            ? TIME_ESTIMATE_OPTIONS.find(
-                                                (o) => o.value === state.todo.time_estimate_minutes,
-                                              )?.label || `${state.todo.time_estimate_minutes} min`
+                                            ? formatTimeEstimate(state.todo.time_estimate_minutes)
                                             : 'Add time estimate'}
                                         </Text>
                                       </Pressable>
@@ -7111,7 +7440,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         // Use today as fallback
                                         setSelectedDate(new Date());
                                       }
-                                      setDateModalTarget('todo');
+                                      setDateModalTarget('todo_deadline');
                                       setShowDateModal(true);
                                     }
                                   }}
@@ -7187,7 +7516,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               marginBottom: 16,
                             }}
                           >
-                            Set due date
+                            {dateModalTarget === 'todo_deadline' && 'Set deadline'}
+                            {dateModalTarget === 'todo_dodate' && 'Set do date'}
+                            {dateModalTarget === 'note_event' && 'Set event date'}
+                            {dateModalTarget === 'reminder' && 'Set reminder'}
                           </Text>
                           <Box mt={1}>
                             <Box row gap={2} style={{ flexWrap: 'wrap' }}>
@@ -7515,17 +7847,60 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     }
                                   }
 
-                                  // Apply the change
+                                  // Apply the change based on target type
                                   if (dateModalTarget === 'reminder') {
                                     // Reminders still use ISO timestamps
                                     dispatch({
                                       type: 'SET_REMINDER',
                                       when: finalDate?.toISOString() ?? null,
                                     });
-                                  } else {
-                                    // Todos use due_day (local date string) - pass Date object
-                                    const label = finalDate ? format(finalDate, 'MMM d') : '';
-                                    handleTodoDueChange(finalDate, { label });
+                                  } else if (dateModalTarget === 'todo_deadline') {
+                                    // Deadline (target_date) - when it's due
+                                    if (finalDate) {
+                                      const dateStr = getDateService().toDateString(finalDate);
+                                      dispatch({ type: 'SET_TODO_TARGET_DATE', date: dateStr });
+                                      showDueToast(
+                                        `Deadline set for ${format(finalDate, 'MMM d')}`,
+                                      );
+                                    } else {
+                                      dispatch({ type: 'SET_TODO_TARGET_DATE', date: null });
+                                      showDueToast('Deadline cleared');
+                                    }
+                                  } else if (dateModalTarget === 'todo_dodate') {
+                                    // Do date (scheduled_date) - when user will work on it
+                                    if (finalDate) {
+                                      const dateStr = getDateService().toDateString(finalDate);
+                                      dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: dateStr });
+                                      // Also update legacy due_day for backwards compatibility
+                                      dispatch({
+                                        type: 'SET_TODO_DUE',
+                                        due_at: null,
+                                        due_day: dateStr,
+                                        due_time: null,
+                                      });
+                                      showDueToast(`Do date set for ${format(finalDate, 'MMM d')}`);
+                                    } else {
+                                      dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: null });
+                                      dispatch({
+                                        type: 'SET_TODO_DUE',
+                                        due_at: null,
+                                        due_day: null,
+                                        due_time: null,
+                                      });
+                                      showDueToast('Do date cleared');
+                                    }
+                                  } else if (dateModalTarget === 'note_event') {
+                                    // Event date for notes (target_date)
+                                    if (finalDate) {
+                                      const dateStr = getDateService().toDateString(finalDate);
+                                      dispatch({ type: 'SET_LOG_TARGET_DATE', date: dateStr });
+                                      showDueToast(
+                                        `Event date set for ${format(finalDate, 'MMM d')}`,
+                                      );
+                                    } else {
+                                      dispatch({ type: 'SET_LOG_TARGET_DATE', date: null });
+                                      showDueToast('Event date cleared');
+                                    }
                                   }
 
                                   // Reset and close
@@ -7547,7 +7922,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Pressable>
                   </Modal>
 
-                  {/* Time Estimate Modal */}
+                  {/* Time Estimate Modal - Hybrid Grid + Stepper */}
                   <Modal visible={showTimeEstimateModal} transparent animationType="fade">
                     <Pressable
                       style={{
@@ -7562,7 +7937,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         onPress={(e) => e.stopPropagation()}
                         style={{
                           width: '92%',
-                          maxWidth: 400,
+                          maxWidth: 340,
                           alignSelf: 'center',
                           backgroundColor: '#FFFFFF',
                           paddingHorizontal: 20,
@@ -7584,57 +7959,123 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             fontWeight: '600',
                             color: '#222222',
                             marginBottom: 16,
+                            textAlign: 'center',
                           }}
                         >
                           How long will this take?
                         </Text>
+
+                        {/* Quick Select Grid */}
                         <View style={styles.timeEstimateGrid}>
-                          {TIME_ESTIMATE_OPTIONS.map((option) => {
-                            const currentEstimate =
-                              baseType === 'habit'
-                                ? state.habit.time_estimate_minutes
-                                : state.todo.time_estimate_minutes;
-                            return (
-                              <Pressable
-                                key={option.value}
+                          {TIME_ESTIMATE_QUICK_OPTIONS.map((minutes) => (
+                            <Pressable
+                              key={minutes}
+                              style={[
+                                styles.timeEstimateOption,
+                                timeEstimateValue === minutes && styles.timeEstimateOptionSelected,
+                              ]}
+                              onPress={() => setTimeEstimateValue(minutes)}
+                            >
+                              <Text
                                 style={[
-                                  styles.timeEstimateOption,
-                                  currentEstimate === option.value &&
-                                    styles.timeEstimateOptionSelected,
+                                  styles.timeEstimateOptionText,
+                                  timeEstimateValue === minutes &&
+                                    styles.timeEstimateOptionTextSelected,
                                 ]}
-                                onPress={() => {
-                                  if (baseType === 'habit') {
-                                    dispatch({
-                                      type: 'SET_HABIT_TIME_ESTIMATE',
-                                      minutes: option.value,
-                                    });
-                                  } else {
-                                    dispatch({
-                                      type: 'SET_TODO_TIME_ESTIMATE',
-                                      minutes: option.value,
-                                    });
-                                  }
-                                  setShowTimeEstimateModal(false);
+                              >
+                                {formatTimeEstimate(minutes)}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+
+                        {/* Stepper for custom values */}
+                        <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                          <Text style={{ fontSize: 13, color: '#666666', marginBottom: 8 }}>
+                            Custom
+                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                            <Pressable
+                              style={{
+                                width: 44,
+                                height: 44,
+                                borderRadius: 22,
+                                backgroundColor: '#F5F5F5',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                opacity: timeEstimateValue <= TIME_ESTIMATE_MIN ? 0.5 : 1,
+                              }}
+                              onPress={() =>
+                                setTimeEstimateValue((prev) =>
+                                  Math.max(TIME_ESTIMATE_MIN, prev - TIME_ESTIMATE_STEP),
+                                )
+                              }
+                              disabled={timeEstimateValue <= TIME_ESTIMATE_MIN}
+                            >
+                              <Minus
+                                size={20}
+                                color={
+                                  timeEstimateValue <= TIME_ESTIMATE_MIN ? '#CCCCCC' : '#2E5540'
+                                }
+                              />
+                            </Pressable>
+
+                            <View style={{ minWidth: 80, alignItems: 'center' }}>
+                              <Text
+                                style={{
+                                  fontSize: 20,
+                                  fontWeight: '600',
+                                  color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
+                                    timeEstimateValue as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number],
+                                  )
+                                    ? '#2E5540'
+                                    : '#333333',
                                 }}
                               >
-                                <Text
-                                  style={[
-                                    styles.timeEstimateOptionText,
-                                    currentEstimate === option.value &&
-                                      styles.timeEstimateOptionTextSelected,
-                                  ]}
-                                >
-                                  {option.label}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
+                                {formatTimeEstimate(timeEstimateValue)}
+                              </Text>
+                            </View>
+
+                            <Pressable
+                              style={{
+                                width: 44,
+                                height: 44,
+                                borderRadius: 22,
+                                backgroundColor: '#F5F5F5',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                opacity: timeEstimateValue >= TIME_ESTIMATE_MAX ? 0.5 : 1,
+                              }}
+                              onPress={() =>
+                                setTimeEstimateValue((prev) =>
+                                  Math.min(TIME_ESTIMATE_MAX, prev + TIME_ESTIMATE_STEP),
+                                )
+                              }
+                              disabled={timeEstimateValue >= TIME_ESTIMATE_MAX}
+                            >
+                              <Plus
+                                size={20}
+                                color={
+                                  timeEstimateValue >= TIME_ESTIMATE_MAX ? '#CCCCCC' : '#2E5540'
+                                }
+                              />
+                            </Pressable>
+                          </View>
+                          <Text style={{ fontSize: 12, color: '#999999', marginTop: 4 }}>
+                            5 min – 4 hrs
+                          </Text>
                         </View>
-                        {(baseType === 'habit'
-                          ? state.habit.time_estimate_minutes
-                          : state.todo.time_estimate_minutes) && (
+
+                        {/* Action buttons */}
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                        >
                           <Pressable
-                            style={styles.timeEstimateClearButton}
+                            style={{ paddingVertical: 12, paddingHorizontal: 16 }}
                             onPress={() => {
                               if (baseType === 'habit') {
                                 dispatch({ type: 'SET_HABIT_TIME_ESTIMATE', minutes: null });
@@ -7644,9 +8085,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               setShowTimeEstimateModal(false);
                             }}
                           >
-                            <Text style={styles.timeEstimateClearButtonText}>Clear estimate</Text>
+                            <Text style={{ fontSize: 14, color: '#666666' }}>Clear</Text>
                           </Pressable>
-                        )}
+
+                          <Pressable
+                            style={{
+                              backgroundColor: '#2E5540',
+                              paddingVertical: 12,
+                              paddingHorizontal: 24,
+                              borderRadius: 8,
+                            }}
+                            onPress={() => {
+                              if (baseType === 'habit') {
+                                dispatch({
+                                  type: 'SET_HABIT_TIME_ESTIMATE',
+                                  minutes: timeEstimateValue,
+                                });
+                              } else {
+                                dispatch({
+                                  type: 'SET_TODO_TIME_ESTIMATE',
+                                  minutes: timeEstimateValue,
+                                });
+                              }
+                              setShowTimeEstimateModal(false);
+                            }}
+                          >
+                            <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
+                              Save
+                            </Text>
+                          </Pressable>
+                        </View>
                       </Pressable>
                     </Pressable>
                   </Modal>
@@ -8038,13 +8506,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                           {/* ===== DURATION SECTION ===== */}
                           <Text style={styles.scheduleModalSectionLabel}>Duration</Text>
+
+                          {/* Quick select grid */}
                           <View style={styles.durationGrid}>
-                            {TIME_ESTIMATE_OPTIONS.map((option) => {
-                              const isSelected =
-                                scheduleModalState.timeEstimateMinutes === option.value;
+                            {TIME_ESTIMATE_QUICK_OPTIONS.map((minutes) => {
+                              const isSelected = scheduleModalState.timeEstimateMinutes === minutes;
                               return (
                                 <Pressable
-                                  key={option.value}
+                                  key={minutes}
                                   style={[
                                     styles.durationChip,
                                     isSelected && styles.durationChipSelected,
@@ -8052,7 +8521,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   onPress={() =>
                                     setScheduleModalState((prev) => ({
                                       ...prev,
-                                      timeEstimateMinutes: isSelected ? null : option.value,
+                                      timeEstimateMinutes: minutes,
                                     }))
                                   }
                                 >
@@ -8062,11 +8531,117 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       isSelected && styles.durationChipTextSelected,
                                     ]}
                                   >
-                                    {option.label}
+                                    {formatTimeEstimate(minutes)}
                                   </Text>
                                 </Pressable>
                               );
                             })}
+                          </View>
+
+                          {/* Stepper for custom values */}
+                          <View style={{ alignItems: 'center', marginTop: 12, marginBottom: 8 }}>
+                            <Text style={{ fontSize: 12, color: '#666666', marginBottom: 6 }}>
+                              Custom
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <Pressable
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 18,
+                                  backgroundColor: '#F5F5F5',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  opacity:
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) <=
+                                    TIME_ESTIMATE_MIN
+                                      ? 0.5
+                                      : 1,
+                                }}
+                                onPress={() =>
+                                  setScheduleModalState((prev) => ({
+                                    ...prev,
+                                    timeEstimateMinutes: Math.max(
+                                      TIME_ESTIMATE_MIN,
+                                      (prev.timeEstimateMinutes ?? 30) - TIME_ESTIMATE_STEP,
+                                    ),
+                                  }))
+                                }
+                                disabled={
+                                  (scheduleModalState.timeEstimateMinutes ?? 30) <=
+                                  TIME_ESTIMATE_MIN
+                                }
+                              >
+                                <Minus
+                                  size={16}
+                                  color={
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) <=
+                                    TIME_ESTIMATE_MIN
+                                      ? '#CCCCCC'
+                                      : '#2E5540'
+                                  }
+                                />
+                              </Pressable>
+
+                              <View style={{ minWidth: 70, alignItems: 'center' }}>
+                                <Text
+                                  style={{
+                                    fontSize: 16,
+                                    fontWeight: '600',
+                                    color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
+                                      (scheduleModalState.timeEstimateMinutes ??
+                                        30) as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number],
+                                    )
+                                      ? '#2E5540'
+                                      : '#333333',
+                                  }}
+                                >
+                                  {formatTimeEstimate(scheduleModalState.timeEstimateMinutes ?? 30)}
+                                </Text>
+                              </View>
+
+                              <Pressable
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 18,
+                                  backgroundColor: '#F5F5F5',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  opacity:
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) >=
+                                    TIME_ESTIMATE_MAX
+                                      ? 0.5
+                                      : 1,
+                                }}
+                                onPress={() =>
+                                  setScheduleModalState((prev) => ({
+                                    ...prev,
+                                    timeEstimateMinutes: Math.min(
+                                      TIME_ESTIMATE_MAX,
+                                      (prev.timeEstimateMinutes ?? 30) + TIME_ESTIMATE_STEP,
+                                    ),
+                                  }))
+                                }
+                                disabled={
+                                  (scheduleModalState.timeEstimateMinutes ?? 30) >=
+                                  TIME_ESTIMATE_MAX
+                                }
+                              >
+                                <Plus
+                                  size={16}
+                                  color={
+                                    (scheduleModalState.timeEstimateMinutes ?? 30) >=
+                                    TIME_ESTIMATE_MAX
+                                      ? '#CCCCCC'
+                                      : '#2E5540'
+                                  }
+                                />
+                              </Pressable>
+                            </View>
+                            <Text style={{ fontSize: 11, color: '#999999', marginTop: 4 }}>
+                              5 min – 4 hrs
+                            </Text>
                           </View>
                         </ScrollView>
 
@@ -9424,6 +9999,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         onDeleteNote={handleChatNoteDelete}
         onConvertToChecklist={handleConvertNoteToChecklist}
       />
+
+      {/* Clarification Popup - Phase 2 */}
+      <ClarificationPopup
+        visible={showClarificationPopup}
+        question={clarificationQuestion}
+        options={clarificationOptions}
+        onSelectOption={handleClarificationSelect}
+        onSkip={handleClarificationSkip}
+        onClose={() => setShowClarificationPopup(false)}
+        isSubmitting={clarificationLoading}
+        successMessage={clarificationSuccess}
+      />
     </>
   );
 }
@@ -9700,6 +10287,9 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       body: logBody,
       kind: classifyLogKind(logBody),
       private: (entity as any)?.private ?? false, // Hydrate private field for logs (Phase L7)
+      // Date Intelligence fields for notes
+      target_date: (entity as any)?.target_date ?? (entity?.views as any)?.target_date ?? null,
+      event_time: (entity as any)?.event_time ?? (entity?.views as any)?.event_time ?? null,
     },
     todo: {
       title: todoTitle,
@@ -9713,6 +10303,10 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       due_time: (entity as any)?.due_time ?? null,
       time_estimate_minutes: (entity as any)?.time_estimate_minutes ?? null,
       time_window: (entity as any)?.time_window ?? null,
+      // Date Intelligence fields for todos
+      target_date: (entity as any)?.target_date ?? (entity?.views as any)?.target_date ?? null,
+      scheduled_date:
+        (entity as any)?.scheduled_date ?? (entity?.views as any)?.scheduled_date ?? null,
     },
     habit: {
       title: name || title || '',

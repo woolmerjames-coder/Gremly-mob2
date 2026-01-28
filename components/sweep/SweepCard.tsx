@@ -131,6 +131,8 @@ export interface SweepCardProps {
   total: number;
   /** Flag indicating this card was just converted from note to todo */
   isConverted?: boolean;
+  /** Flag indicating this card just had clarification resolved */
+  isClarified?: boolean;
   /** Called when user wants to skip/defer the item to next sweep */
   onSkip: () => void;
   /** Called when user wants to clear/archive the item */
@@ -324,6 +326,7 @@ export function SweepCard({
   index: _index,
   total: _total,
   isConverted,
+  isClarified,
   onSkip,
   onClear,
   onOpenEdit,
@@ -876,8 +879,11 @@ export function SweepCard({
   const flipRotation = useSharedValue(0);
   const flipScale = useSharedValue(1);
 
+  // Trigger flip animation for conversion or clarification
+  const shouldAnimateFlip = isConverted || isClarified;
+
   React.useEffect(() => {
-    if (isConverted) {
+    if (shouldAnimateFlip) {
       // Full 360° spin
       flipRotation.value = withTiming(360, {
         duration: 800,
@@ -890,7 +896,7 @@ export function SweepCard({
         withTiming(1, { duration: 300 }),
       );
     }
-  }, [isConverted, flipRotation, flipScale]);
+  }, [shouldAnimateFlip, flipRotation, flipScale]);
 
   const convertAnimatedStyle = useAnimatedStyle(() => {
     return {

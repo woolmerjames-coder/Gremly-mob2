@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase/client';
 import { getRitualDay } from '../date/ritualDay';
+import { env } from '../env';
 import type {
   Todo,
   Habit,
@@ -16,6 +17,7 @@ import type {
   EntityChatData,
   EntityChatMessage,
   EntityChatNote,
+  CalendarEvent as UserCalendarEvent,
 } from '../types';
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
@@ -295,6 +297,67 @@ export interface PendingDrop {
   multiSummary?: string; // Summary title for the multi-card
   dominantBucket?: 'todo' | 'habit' | 'log';
   dominantSubtype?: 'journal' | 'idea' | 'general' | null;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Phase 1: Ambiguity Detection (triggers Phase 1.5 in background)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** True if AI returned is_ambiguous in Phase 1 - shows clarify badge immediately */
+  needs_clarification?: boolean;
+
+  /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
+  ambiguity_reason?: string | null;
+
+  /** Set to true when user resolves the clarification */
+  clarification_resolved?: boolean;
+
+  /** Set to true while processing clarification (triggers card loading animation) */
+  clarification_processing?: boolean;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Phase 1.5: Clarification Options (populated asynchronously)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Type of clarification needed - 'bucket' blocks Phase 2 */
+  clarification_type?:
+    | 'bucket'
+    | 'habit_or_todo'
+    | 'date_type'
+    | 'detail'
+    | 'intent'
+    | 'action'
+    | null;
+
+  /** Question to show user */
+  clarification_question?: string | null;
+
+  /** Options array with id, label, and action payload */
+  clarification_options?: Array<{
+    id: string;
+    label: string;
+    action: {
+      bucket?: 'todo' | 'habit' | 'log';
+      subtype?: string;
+      target_date?: boolean;
+      scheduled_date?: boolean;
+    };
+  }> | null;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Date Intelligence (Phase 2)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** External deadline date extracted by AI */
+  target_date?: string | null;
+
+  /** Scheduled work date extracted by AI */
+  scheduled_date?: string | null;
+
+  /** For notes classified as events - the event time */
+  event_time?: string | null;
+
+  /** True if AI couldn't determine date meaning */
+  date_type_ambiguous?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -522,8 +585,22 @@ interface GremlyState {
     },
   ) => void;
   updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
+  /** Update clarification fields on a synced entity by its drop_id (for Phase 1.5 race condition) */
+  updateEntityClarificationByDropId: (
+    dropId: string,
+    clarificationData: {
+      question: string;
+      options: Array<{ id: string; label: string; action: Record<string, unknown> }>;
+    },
+  ) => Promise<boolean>;
   promotePendingDropToEntity: (localId: string, supabaseId: string) => void;
   removePendingDrop: (localId: string) => void;
+  resolvePendingDropClarification: (
+    localId: string,
+    optionId: string,
+    isFreeText?: boolean,
+  ) => Promise<void>;
+  resolveSkippedClarification: (entityId: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // ENTITY CHAT MUTATIONS
@@ -593,7 +670,8 @@ interface GremlyState {
   // CALENDAR INTEGRATION
   // ═══════════════════════════════════════════════════════════════════
   calendarConnections: CalendarConnectionStatus[];
-  calendarEvents: Record<string, CalendarEvent[]>; // Key is YYYY-MM-DD
+  calendarEvents: Record<string, CalendarEvent[]>; // Key is YYYY-MM-DD (synced external events)
+  userCalendarEvents: UserCalendarEvent[]; // User-created quick-add events
   calendarLoading: boolean;
   calendarLastFetched: string | null;
   /** Hidden calendar events keyed by date (YYYY-MM-DD) */
@@ -620,6 +698,14 @@ interface GremlyState {
   hideCalendarEvent: (date: string, eventId: string) => void;
   unhideCalendarEvent: (date: string, eventId: string) => void;
   unhideAllCalendarEventsForDate: (date: string) => void;
+
+  // User Calendar Events (quick-add entries)
+  setUserCalendarEvents: (events: UserCalendarEvent[]) => void;
+  createUserCalendarEvent: (
+    event: Omit<UserCalendarEvent, 'id' | 'type' | 'created_at' | 'updated_at' | 'owner_id'>,
+  ) => Promise<UserCalendarEvent>;
+  updateUserCalendarEvent: (id: string, patch: Partial<UserCalendarEvent>) => Promise<void>;
+  deleteUserCalendarEvent: (id: string) => Promise<void>;
   setEventTimeOverride: (eventId: string, startAt: string, endAt: string) => void;
   clearEventTimeOverride: (eventId: string) => void;
   clearAllEventTimeOverrides: () => void;
@@ -676,6 +762,7 @@ const initialState = {
   // Calendar integration
   calendarConnections: [] as CalendarConnectionStatus[],
   calendarEvents: {} as Record<string, CalendarEvent[]>,
+  userCalendarEvents: [] as UserCalendarEvent[],
   calendarLoading: false,
   calendarLastFetched: null as string | null,
   hiddenCalendarEventsByDate: {} as Record<string, string[]>,
@@ -3438,6 +3525,115 @@ export const useGremlyStore = create<GremlyState>()(
       });
     },
 
+    // ═══════════════════════════════════════════════════════════════════
+    // USER CALENDAR EVENTS (Quick-add entries)
+    // ═══════════════════════════════════════════════════════════════════
+
+    setUserCalendarEvents: (events) => set({ userCalendarEvents: events }),
+
+    createUserCalendarEvent: async (eventData) => {
+      const tempId = `temp_${Date.now()}`;
+      const now = new Date().toISOString();
+      const userId = get().userId;
+
+      if (!userId) throw new Error('Not authenticated');
+
+      const optimisticEvent: UserCalendarEvent = {
+        ...eventData,
+        id: tempId,
+        type: 'calendar_event',
+        owner_id: userId,
+        source: 'user',
+        created_at: now,
+        updated_at: now,
+      };
+
+      // Optimistic update
+      set((state) => ({
+        userCalendarEvents: [...state.userCalendarEvents, optimisticEvent],
+      }));
+
+      // Persist to Supabase
+      const { data, error } = await supabase
+        .from('calendar_events')
+        .insert({
+          owner_id: userId,
+          title: eventData.title,
+          event_date: eventData.event_date,
+          event_time: eventData.event_time,
+          duration_minutes: eventData.duration_minutes,
+          space_id: eventData.space_id,
+          notes: eventData.notes,
+          source: 'user',
+        })
+        .select()
+        .single();
+
+      if (error) {
+        // Rollback on error
+        set((state) => ({
+          userCalendarEvents: state.userCalendarEvents.filter((e) => e.id !== tempId),
+        }));
+        console.error('[GremlyStore] createUserCalendarEvent failed:', error);
+        throw error;
+      }
+
+      // Replace temp with real
+      set((state) => ({
+        userCalendarEvents: state.userCalendarEvents.map((e) =>
+          e.id === tempId ? { ...data, type: 'calendar_event' as const } : e,
+        ),
+      }));
+
+      return { ...data, type: 'calendar_event' as const };
+    },
+
+    updateUserCalendarEvent: async (id, patch) => {
+      const prev = get().userCalendarEvents.find((e) => e.id === id);
+      const now = new Date().toISOString();
+
+      // Optimistic update
+      set((state) => ({
+        userCalendarEvents: state.userCalendarEvents.map((e) =>
+          e.id === id ? { ...e, ...patch, updated_at: now } : e,
+        ),
+      }));
+
+      const { error } = await supabase
+        .from('calendar_events')
+        .update({ ...patch, updated_at: now })
+        .eq('id', id);
+
+      if (error && prev) {
+        // Rollback
+        set((state) => ({
+          userCalendarEvents: state.userCalendarEvents.map((e) => (e.id === id ? prev : e)),
+        }));
+        console.error('[GremlyStore] updateUserCalendarEvent failed:', error);
+        throw error;
+      }
+    },
+
+    deleteUserCalendarEvent: async (id) => {
+      const prev = get().userCalendarEvents.find((e) => e.id === id);
+
+      // Optimistic delete
+      set((state) => ({
+        userCalendarEvents: state.userCalendarEvents.filter((e) => e.id !== id),
+      }));
+
+      const { error } = await supabase.from('calendar_events').delete().eq('id', id);
+
+      if (error && prev) {
+        // Rollback
+        set((state) => ({
+          userCalendarEvents: [...state.userCalendarEvents, prev],
+        }));
+        console.error('[GremlyStore] deleteUserCalendarEvent failed:', error);
+        throw error;
+      }
+    },
+
     setEventTimeOverride: (eventId: string, startAt: string, endAt: string) => {
       set((state) => {
         const updated = {
@@ -4057,6 +4253,68 @@ export const useGremlyStore = create<GremlyState>()(
       });
     },
 
+    /**
+     * Update clarification fields on a synced entity by its drop_id.
+     * This handles the race condition where Phase 1.5 completes after the drop
+     * has already been synced to Supabase and promoted to an entity.
+     */
+    updateEntityClarificationByDropId: async (
+      dropId: string,
+      clarificationData: {
+        question: string;
+        options: Array<{ id: string; label: string; action: Record<string, unknown> }>;
+      },
+    ): Promise<boolean> => {
+      const state = get();
+
+      // Find the entity by drop_id in all collections
+      const note = state.notes.find((n) => (n as any).drop_id === dropId);
+      const todo = state.todos.find((t) => (t as any).drop_id === dropId);
+      const habit = state.habits.find((h) => (h as any).drop_id === dropId);
+
+      const entity = note || todo || habit;
+      const entityType = note ? 'note' : todo ? 'todo' : habit ? 'habit' : null;
+
+      if (!entity || !entityType) {
+        console.warn('[GremlyStore] updateEntityClarificationByDropId: entity not found', {
+          dropId,
+        });
+        return false;
+      }
+
+      console.log('[GremlyStore] updateEntityClarificationByDropId: found entity', {
+        dropId,
+        entityId: entity.id,
+        entityType,
+      });
+
+      // Update the views with clarification data
+      const currentViews = (entity as any).views || {};
+      const updatedViews = {
+        ...currentViews,
+        clarification_question: clarificationData.question,
+        clarification_options: clarificationData.options,
+      };
+
+      // Update via the appropriate update function
+      if (entityType === 'note') {
+        await get().updateNote(entity.id, { views: updatedViews } as any);
+      } else if (entityType === 'todo') {
+        await get().updateTodo(entity.id, { views: updatedViews } as any);
+      } else if (entityType === 'habit') {
+        await get().updateHabit(entity.id, { views: updatedViews } as any);
+      }
+
+      console.log('[GremlyStore] updateEntityClarificationByDropId: updated', {
+        dropId,
+        entityId: entity.id,
+        question: clarificationData.question.substring(0, 30),
+        optionsCount: clarificationData.options.length,
+      });
+
+      return true;
+    },
+
     promotePendingDropToEntity: (localId: string, supabaseId: string) => {
       set((state) => {
         const newPending = new Map(state.pendingDrops);
@@ -4073,6 +4331,1265 @@ export const useGremlyStore = create<GremlyState>()(
         return { pendingDrops: newPending };
       });
       console.log('[GremlyStore] Removed pending drop', { localId });
+    },
+
+    resolvePendingDropClarification: async (localId, optionId, isFreeText = false) => {
+      const state = get();
+
+      // ─────────────────────────────────────────────────────────────────────
+      // PENDING DROPS: Items still in Mind Drop queue (not yet synced)
+      // For pending drops, we update the local state and let the processor
+      // handle the actual entity creation with the correct bucket
+      // ─────────────────────────────────────────────────────────────────────
+      const pendingDrop = state.pendingDrops.get(localId);
+
+      if (pendingDrop && (isFreeText || pendingDrop.clarification_options)) {
+        // Determine the selected label based on whether it's free text or a predefined option
+        let selectedLabel: string;
+        if (isFreeText) {
+          // User typed their own explanation - use it directly
+          selectedLabel = optionId;
+          console.log(
+            '[GremlyStore] Using free text as selectedLabel:',
+            selectedLabel.substring(0, 50),
+          );
+        } else {
+          // User selected a predefined option - look up the label
+          const selectedOption = pendingDrop.clarification_options?.find(
+            (opt) => opt.id === optionId,
+          );
+          if (!selectedOption) {
+            console.warn('[GremlyStore] Pending drop option not found:', { localId, optionId });
+            return;
+          }
+          selectedLabel = selectedOption.label;
+        }
+
+        console.log('[GremlyStore] Resolving pending drop clarification', {
+          localId,
+          optionId: isFreeText ? '(free text)' : optionId,
+          selectedLabel: selectedLabel.substring(0, 50),
+        });
+
+        // Set processing state BEFORE API calls to trigger card loading animation
+        set((s) => {
+          const pendingDrops = new Map(s.pendingDrops);
+          const drop = pendingDrops.get(localId);
+          if (drop) {
+            pendingDrops.set(localId, {
+              ...drop,
+              clarification_processing: true,
+            });
+          }
+          return { pendingDrops };
+        });
+        console.log('[GremlyStore] Set clarification_processing: true for pending drop:', localId);
+
+        // Call reclassify endpoint to get bucket, dates, time estimate
+        try {
+          const cortexUrl = env.cortexUrl;
+          if (cortexUrl) {
+            const reclassifyResponse = await fetch(cortexUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'reclassify-after-clarification',
+                text: pendingDrop.text || pendingDrop.smartTitle || '',
+                selectedLabel: selectedLabel,
+                currentDate: getDateService().getCurrentDate(),
+                targetBucket: pendingDrop.bucket, // Hint for time estimation
+              }),
+            });
+
+            if (reclassifyResponse.ok) {
+              const result = await reclassifyResponse.json();
+              console.log('[GremlyStore] Pending drop reclassify result', {
+                localId,
+                newBucket: result.bucket,
+                newTitle: result.smart_title,
+                targetDate: result.target_date,
+                scheduledDate: result.scheduled_date,
+                timeEstimate: result.time_estimate_minutes,
+                dateTypeAmbiguous: result.date_type_ambiguous,
+                latency_ms: result.latency_ms,
+              });
+
+              // Check if date type is ambiguous
+              // For MVP, we default ambiguous dates to target_date (deadline/event)
+              // The Sweep can then prompt "When do you want to work on this?" to resolve
+              if (result.date_type_ambiguous && result.target_date) {
+                console.log(
+                  '[GremlyStore] Pending drop date type ambiguous, defaulting to target_date:',
+                  result.target_date,
+                );
+              }
+
+              // Update the pending drop with reclassified data
+              set((s) => {
+                const pendingDrops = new Map(s.pendingDrops);
+                const drop = pendingDrops.get(localId);
+                if (!drop) return s;
+
+                const updatedDrop: PendingDrop = {
+                  ...drop,
+                  bucket: result.bucket || drop.bucket,
+                  subtype: result.subtype || drop.subtype,
+                  smartTitle: result.smart_title || drop.smartTitle,
+                  confirmationMessage: result.confirmation_message || drop.confirmationMessage,
+                  timeEstimateMinutes: result.time_estimate_minutes ?? drop.timeEstimateMinutes,
+                  // Date intelligence
+                  target_date: result.target_date || null,
+                  scheduled_date: result.scheduled_date || null,
+                  // Mark clarification as resolved
+                  clarification_resolved: true,
+                  needs_clarification: false,
+                };
+
+                pendingDrops.set(localId, updatedDrop);
+                return { pendingDrops };
+              });
+              return;
+            }
+          }
+        } catch (error) {
+          console.log('[GremlyStore] Pending drop reclassify failed:', error);
+        }
+
+        // Fallback: just mark as resolved without reclassifying
+        set((s) => {
+          const pendingDrops = new Map(s.pendingDrops);
+          const drop = pendingDrops.get(localId);
+          if (!drop) return s;
+
+          const updatedDrop: PendingDrop = {
+            ...drop,
+            clarification_resolved: true,
+            needs_clarification: false,
+          };
+
+          pendingDrops.set(localId, updatedDrop);
+          console.log('[GremlyStore] Pending drop clarification resolved (fallback)', {
+            localId,
+          });
+
+          return { pendingDrops };
+        });
+        return;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // SYNCED ENTITIES: Items already in Supabase (todo, habit, or note)
+      // ─────────────────────────────────────────────────────────────────────
+      const entityId = localId;
+
+      // Find the entity across all types
+      let entity: Todo | Habit | Note | undefined;
+      let entityType: 'todo' | 'habit' | 'note' | undefined;
+
+      entity = state.todos.find((t) => t.id === entityId);
+      if (entity) {
+        entityType = 'todo';
+      } else {
+        entity = state.habits.find((h) => h.id === entityId);
+        if (entity) {
+          entityType = 'habit';
+        } else {
+          entity = state.notes.find((n) => n.id === entityId);
+          if (entity) {
+            entityType = 'note';
+          }
+        }
+      }
+
+      if (!entity || !entityType) {
+        console.warn('[GremlyStore] resolvePendingDropClarification: Entity not found', {
+          entityId,
+        });
+        return;
+      }
+
+      // Get clarification options from views (where they're stored)
+      // Options now just have id and label (no action.bucket)
+      const views = entity.views as Record<string, unknown> | undefined;
+      const clarificationOptions = views?.clarification_options as
+        | Array<{ id: string; label: string }>
+        | undefined;
+
+      // Determine the selected label based on whether it's free text or a predefined option
+      let selectedLabel: string;
+      if (isFreeText) {
+        // User typed their own explanation - use it directly
+        selectedLabel = optionId;
+        console.log(
+          '[GremlyStore] Using free text as selectedLabel for synced entity:',
+          selectedLabel.substring(0, 50),
+        );
+      } else {
+        // User selected a predefined option - look up the label
+        if (!clarificationOptions) {
+          console.warn('[GremlyStore] resolvePendingDropClarification: No clarification options', {
+            entityId,
+          });
+          return;
+        }
+
+        const selectedOption = clarificationOptions.find((opt) => opt.id === optionId);
+        if (!selectedOption) {
+          console.warn('[GremlyStore] resolvePendingDropClarification: Option not found', {
+            entityId,
+            optionId,
+          });
+          return;
+        }
+        selectedLabel = selectedOption.label;
+      }
+
+      // Get original text for reclassification
+      const originalTitle = (entity as Note).title || (entity as any).name || '';
+      const originalBody = (entity as Note).body || '';
+      const originalText = originalBody || originalTitle;
+      const currentBucket =
+        entityType === 'todo' ? 'todo' : entityType === 'habit' ? 'habit' : 'log';
+
+      console.log('[GremlyStore] Resolving synced entity clarification', {
+        entityId,
+        entityType,
+        currentBucket,
+        selectedLabel: selectedLabel.substring(0, 50),
+        originalTextPreview: originalText.substring(0, 50),
+      });
+
+      // Set processing state BEFORE API calls to trigger card loading animation
+      // Update the entity's views.ai_pending flag to trigger shimmer in the card
+      if (entityType === 'note') {
+        set((s) => ({
+          notes: s.notes.map((n) =>
+            n.id === entityId
+              ? {
+                  ...n,
+                  views: {
+                    ...((n.views as Record<string, unknown>) || {}),
+                    ai_pending: true,
+                    clarification_processing: true,
+                  },
+                }
+              : n,
+          ),
+        }));
+      } else if (entityType === 'todo') {
+        set((s) => ({
+          todos: s.todos.map((t) =>
+            t.id === entityId
+              ? {
+                  ...t,
+                  views: {
+                    ...((t.views as Record<string, unknown>) || {}),
+                    ai_pending: true,
+                    clarification_processing: true,
+                  },
+                }
+              : t,
+          ),
+        }));
+      } else if (entityType === 'habit') {
+        set((s) => ({
+          habits: s.habits.map((h) =>
+            h.id === entityId
+              ? {
+                  ...h,
+                  views: {
+                    ...((h.views as Record<string, unknown>) || {}),
+                    ai_pending: true,
+                    clarification_processing: true,
+                  },
+                }
+              : h,
+          ),
+        }));
+      }
+      console.log('[GremlyStore] Set ai_pending: true for entity:', { entityId, entityType });
+
+      // CRITICAL: Emit ItemUpdated so RecentDrops picks up the ai_pending change
+      // This triggers the card to show shimmer immediately
+      eventBus.emit('ItemUpdated', { id: entityId, source: STORE_EVENT_SOURCE });
+
+      // ─────────────────────────────────────────────────────────────────────
+      // CALL RECLASSIFY ENDPOINT
+      // This determines: bucket, subtype, dates, time estimate, title
+      // ─────────────────────────────────────────────────────────────────────
+      let reclassifyResult: {
+        bucket?: 'todo' | 'habit' | 'log';
+        subtype?: string | null;
+        habit_subtype?: string | null;
+        smart_title?: string;
+        confirmation_message?: string;
+        target_date?: string | null;
+        scheduled_date?: string | null;
+        event_time?: string | null;
+        time_estimate_minutes?: number | null;
+        energy_type?: string | null;
+        date_type_ambiguous?: boolean;
+        latency_ms?: number;
+      } = {};
+
+      try {
+        const cortexUrl = env.cortexUrl;
+        if (cortexUrl) {
+          console.log('[GremlyStore] Calling reclassify endpoint...');
+          const reclassifyResponse = await fetch(cortexUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'reclassify-after-clarification',
+              text: originalText,
+              selectedLabel: selectedLabel,
+              currentDate: getDateService().getCurrentDate(),
+              targetBucket: currentBucket, // Hint for time estimation
+            }),
+          });
+
+          if (reclassifyResponse.ok) {
+            reclassifyResult = await reclassifyResponse.json();
+            console.log('[GremlyStore] Reclassify result', {
+              entityId,
+              newBucket: reclassifyResult.bucket,
+              newTitle: reclassifyResult.smart_title,
+              targetDate: reclassifyResult.target_date,
+              scheduledDate: reclassifyResult.scheduled_date,
+              timeEstimate: reclassifyResult.time_estimate_minutes,
+              dateTypeAmbiguous: reclassifyResult.date_type_ambiguous,
+              latency_ms: reclassifyResult.latency_ms,
+            });
+
+            // Check if date type is ambiguous
+            // For MVP, we default ambiguous dates to target_date (deadline/event)
+            // The Sweep can then prompt "When do you want to work on this?" to resolve
+            if (reclassifyResult.date_type_ambiguous && reclassifyResult.target_date) {
+              console.log(
+                '[GremlyStore] Date type ambiguous, defaulting to target_date:',
+                reclassifyResult.target_date,
+              );
+              // Future: Could show a follow-up popup asking:
+              // "Is [date] when [the thing] is, or when you'll do it?"
+              // Options:
+              // 1. "That's when it is" → target_date stays, scheduled_date = null
+              // 2. "That's when I'll do it" → scheduled_date = date, target_date = null
+            }
+          } else {
+            console.warn('[GremlyStore] Reclassify response not ok:', reclassifyResponse.status);
+          }
+        }
+      } catch (reclassifyError) {
+        console.log('[GremlyStore] Reclassify failed:', reclassifyError);
+      }
+
+      // Determine target bucket from reclassify result (fallback to current)
+      const targetBucket = reclassifyResult.bucket || currentBucket;
+      const bucketChanged = targetBucket !== currentBucket;
+
+      // Extract values from reclassify result (with fallbacks)
+      const newTitle =
+        reclassifyResult.smart_title || originalTitle || originalText.substring(0, 50);
+      const newConfirmation = reclassifyResult.confirmation_message || 'Updated.';
+      const timeEstimate = reclassifyResult.time_estimate_minutes ?? null;
+      const energyType = reclassifyResult.energy_type ?? null;
+      const newSubtype = reclassifyResult.subtype ?? reclassifyResult.habit_subtype ?? null;
+
+      // ─────────────────────────────────────────────────────────────────────
+      // SAME BUCKET: Update the existing entity with reclassify data
+      // ─────────────────────────────────────────────────────────────────────
+      if (!bucketChanged) {
+        console.log('[GremlyStore] Same bucket - updating with reclassify data', {
+          entityId,
+          newTitle,
+          newConfirmation,
+          targetDate: reclassifyResult.target_date,
+          scheduledDate: reclassifyResult.scheduled_date,
+        });
+
+        // Build date updates from reclassify result
+        const dateUpdate: Record<string, unknown> = {};
+        if (reclassifyResult.target_date) {
+          dateUpdate.due_day = reclassifyResult.target_date;
+          dateUpdate.due_date = reclassifyResult.target_date;
+          dateUpdate.target_date = reclassifyResult.target_date;
+        }
+        if (reclassifyResult.scheduled_date) {
+          dateUpdate.scheduled_date = reclassifyResult.scheduled_date;
+          dateUpdate.start_date = reclassifyResult.scheduled_date; // For habits
+        }
+
+        const updatedViews: Record<string, unknown> = {
+          ...(views || {}),
+          needs_clarification: false,
+          clarification_resolved: true,
+          confirmation_message: newConfirmation,
+          // For notes, store date intelligence in views (notes don't have date columns)
+          ...(entityType === 'note' && reclassifyResult.target_date
+            ? { target_date: reclassifyResult.target_date }
+            : {}),
+          ...(entityType === 'note' && reclassifyResult.scheduled_date
+            ? { scheduled_date: reclassifyResult.scheduled_date }
+            : {}),
+          ...(entityType === 'note' && reclassifyResult.event_time
+            ? { event_time: reclassifyResult.event_time }
+            : {}),
+        };
+
+        // Build updates object
+        const updates: Record<string, unknown> = {
+          views: updatedViews,
+          needs_clarification: false,
+          clarification_resolved: true,
+          // Only include date fields for todos/habits - notes don't have due_date/due_day columns
+          ...(entityType !== 'note' ? dateUpdate : {}),
+        };
+
+        // Set title/name and time estimate based on entity type
+        if (entityType === 'note') {
+          updates.title = newTitle;
+        } else {
+          updates.name = newTitle;
+          if (timeEstimate !== null) {
+            updates.time_estimate_minutes = timeEstimate;
+          }
+          if (energyType) {
+            updates.energy_type = energyType;
+          }
+        }
+
+        // Update subtype if specified
+        if (newSubtype) {
+          updates.subtype = newSubtype;
+        }
+
+        console.log('[GremlyStore] Same bucket updates:', {
+          entityId,
+          newTitle,
+          newConfirmation,
+          timeEstimate,
+          hasDateUpdate: Object.keys(dateUpdate).length > 0,
+        });
+
+        if (entityType === 'todo') {
+          await get().updateTodo(entityId, updates);
+        } else if (entityType === 'habit') {
+          await get().updateHabit(entityId, updates);
+        } else {
+          await get().updateNote(entityId, updates);
+        }
+
+        console.log('[GremlyStore] Same bucket clarification - reclassify applied:', { entityId });
+
+        // ─────────────────────────────────────────────────────────────────────
+        // PHASE 2 ENRICHMENT: Now call Phase 2 with the correct bucket
+        // This extracts: tags, time_estimate, frequency, days, people, mood
+        // The progressive update triggers chip animations in the card
+        // ─────────────────────────────────────────────────────────────────────
+        try {
+          const cortexUrl = env.cortexUrl;
+          if (cortexUrl) {
+            // Combine original text with user's clarification so Phase 2 can extract frequency, dates, etc.
+            const phase2Text = `${originalText} — ${selectedLabel}`;
+            console.log('[GremlyStore] Phase 2 called with combined text:', {
+              originalText: originalText.substring(0, 30),
+              selectedLabel: selectedLabel.substring(0, 30),
+              phase2Text: phase2Text.substring(0, 60),
+            });
+
+            const phase2Response = await fetch(cortexUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'enrich-phase2',
+                text: phase2Text,
+                bucket: targetBucket,
+                subtype: newSubtype,
+                currentDate: getDateService().getCurrentDate(),
+              }),
+            });
+
+            if (phase2Response.ok) {
+              const phase2Result = await phase2Response.json();
+              console.log('[GremlyStore] Phase 2 enrichment result', {
+                entityId,
+                tags: phase2Result.tags,
+                timeEstimate: phase2Result.time_estimate_minutes,
+                people: phase2Result.people,
+                extractedFrequency: phase2Result.extracted_frequency,
+                extractedDays: phase2Result.extracted_days,
+                latency_ms: phase2Result.latency_ms,
+              });
+
+              // Build Phase 2 updates
+              const phase2Updates: Record<string, unknown> = {};
+
+              if (
+                phase2Result.tags &&
+                Array.isArray(phase2Result.tags) &&
+                phase2Result.tags.length > 0
+              ) {
+                phase2Updates.tags = phase2Result.tags;
+              }
+              if (phase2Result.time_estimate_minutes != null) {
+                phase2Updates.time_estimate_minutes = phase2Result.time_estimate_minutes;
+              }
+              if (phase2Result.energy_type) {
+                phase2Updates.energy_type = phase2Result.energy_type;
+              }
+              if (
+                phase2Result.people &&
+                Array.isArray(phase2Result.people) &&
+                phase2Result.people.length > 0
+              ) {
+                phase2Updates.views = {
+                  ...updatedViews,
+                  people: phase2Result.people,
+                };
+              }
+              // Habit-specific fields
+              if (entityType === 'habit') {
+                if (phase2Result.extracted_frequency) {
+                  // Parse frequency string into canonical fields
+                  const parsed = parseHabitFrequency(phase2Result.extracted_frequency);
+                  phase2Updates.frequency = parsed.frequency;
+                  phase2Updates.cadence = parsed.cadence;
+                  phase2Updates.target_per_period = parsed.target_per_period;
+                }
+                if (phase2Result.extracted_days && Array.isArray(phase2Result.extracted_days)) {
+                  phase2Updates.days_active = phase2Result.extracted_days;
+                }
+              }
+
+              // Apply Phase 2 updates if any
+              if (Object.keys(phase2Updates).length > 0) {
+                console.log('[GremlyStore] Applying Phase 2 updates:', {
+                  entityId,
+                  updateKeys: Object.keys(phase2Updates),
+                });
+
+                if (entityType === 'todo') {
+                  await get().updateTodo(entityId, phase2Updates);
+                } else if (entityType === 'habit') {
+                  await get().updateHabit(entityId, phase2Updates);
+                } else {
+                  await get().updateNote(entityId, phase2Updates);
+                }
+              }
+            } else {
+              console.warn('[GremlyStore] Phase 2 response not ok:', phase2Response.status);
+            }
+          }
+        } catch (phase2Error) {
+          console.log('[GremlyStore] Phase 2 enrichment failed:', phase2Error);
+          // Non-critical - entity already updated with reclassify data
+        }
+
+        // Clear processing state on the entity after Phase 2 (success or failure)
+        if (entityType === 'note') {
+          set((s) => ({
+            notes: s.notes.map((n) =>
+              n.id === entityId
+                ? {
+                    ...n,
+                    views: {
+                      ...((n.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                    },
+                  }
+                : n,
+            ),
+          }));
+        } else if (entityType === 'todo') {
+          set((s) => ({
+            todos: s.todos.map((t) =>
+              t.id === entityId
+                ? {
+                    ...t,
+                    views: {
+                      ...((t.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                    },
+                  }
+                : t,
+            ),
+          }));
+        } else if (entityType === 'habit') {
+          set((s) => ({
+            habits: s.habits.map((h) =>
+              h.id === entityId
+                ? {
+                    ...h,
+                    views: {
+                      ...((h.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                    },
+                  }
+                : h,
+            ),
+          }));
+        }
+        console.log('[GremlyStore] Cleared processing state for entity:', { entityId, entityType });
+
+        console.log('[GremlyStore] Same bucket clarification resolved:', { entityId });
+        return;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // BUCKET CHANGE: Create new entity and archive old one
+      // ─────────────────────────────────────────────────────────────────────
+      console.log('[GremlyStore] Bucket change required:', {
+        from: currentBucket,
+        to: targetBucket,
+      });
+
+      try {
+        if (!supabase) {
+          throw new Error('Supabase client not available');
+        }
+
+        const targetTable =
+          targetBucket === 'todo' ? 'todos' : targetBucket === 'habit' ? 'habits' : 'notes';
+        const sourceTable =
+          entityType === 'note' ? 'notes' : entityType === 'todo' ? 'todos' : 'habits';
+
+        // Get extracted date from views if available (fallback for dates if reclassify didn't return them)
+        const extractedDate = (views?.extracted_date as string) || null;
+
+        // Common fields for new entity
+        // CRITICAL: Set ai_pending: true so the card shows shimmer animation while Phase 2 runs
+        const commonFields = {
+          owner_id: entity.owner_id,
+          tags: entity.tags || [],
+          origin: (entity as any).origin || 'catchall',
+          drop_id: (entity as any).drop_id,
+          ai_placed: entity.ai_placed || false,
+          space_id: entity.space_id || null,
+          needs_clarification: false,
+          clarification_resolved: true,
+          views: {
+            ...(views || {}),
+            needs_clarification: false,
+            clarification_resolved: true,
+            converted_from: entityType,
+            converted_at: new Date().toISOString(),
+            confirmation_message: newConfirmation,
+            // Set processing state so card shows shimmer while Phase 2 runs
+            ai_pending: true,
+            minddrop_stage: 'classified',
+          },
+        };
+
+        let newEntityPayload: Record<string, unknown>;
+
+        if (targetBucket === 'todo') {
+          // Converting to TODO - use reclassify dates
+          const body = originalBody;
+
+          // Date Intelligence fields
+          // target_date = when something IS/DUE (event/deadline) - external, immovable
+          // scheduled_date = when user will DO the work - internal, movable
+          const targetDate = reclassifyResult.target_date
+            ? reclassifyResult.target_date.split('T')[0]
+            : null;
+          const scheduledDate = reclassifyResult.scheduled_date
+            ? reclassifyResult.scheduled_date.split('T')[0]
+            : null;
+
+          // Legacy fields (due_day, due_date) should match scheduled_date, NOT target_date
+          // This is because due_day was historically "when to do it", not "when it's due"
+          // If no scheduled_date, fall back to extracted date for backwards compat
+          const legacyDueDate =
+            scheduledDate || (extractedDate ? extractedDate.split('T')[0] : null);
+
+          newEntityPayload = {
+            ...commonFields,
+            name: newTitle,
+            title: newTitle,
+            body: body !== newTitle ? body : null,
+            subtype: newSubtype || null,
+            status: 'active',
+            undefined_due: !legacyDueDate && !targetDate,
+            // Legacy fields - match scheduled_date for backwards compat
+            due_day: legacyDueDate,
+            due_date: legacyDueDate,
+            // Date Intelligence fields
+            target_date: targetDate,
+            scheduled_date: scheduledDate,
+            time_estimate_minutes: timeEstimate,
+            energy_type: energyType || 'administrative',
+            source_note_id: entityType === 'note' ? entityId : null,
+          };
+        } else if (targetBucket === 'habit') {
+          // Converting to HABIT - use scheduled_date from reclassify
+          const startDate = reclassifyResult.scheduled_date
+            ? reclassifyResult.scheduled_date.split('T')[0]
+            : extractedDate
+              ? extractedDate.split('T')[0]
+              : null;
+
+          newEntityPayload = {
+            ...commonFields,
+            name: newTitle,
+            title: newTitle,
+            frequency: 'pending', // Placeholder until Phase 2 sets real frequency
+            cadence: 'daily', // DB requires valid cadence; Phase 2 will update
+            target_per_period: 1, // Default; Phase 2 will update
+            time_window: 'day',
+            time_estimate_minutes: timeEstimate,
+            energy_type: energyType || 'physical',
+            subtype: newSubtype || 'start_habit',
+            start_date: startDate,
+            start_date_confirmed: false,
+          };
+        } else {
+          // Converting to NOTE (log)
+          const body = originalBody || newTitle;
+
+          newEntityPayload = {
+            ...commonFields,
+            title: newTitle,
+            body: body,
+            subtype: newSubtype || 'catchall',
+            date: reclassifyResult.target_date
+              ? reclassifyResult.target_date.split('T')[0]
+              : extractedDate
+                ? extractedDate.split('T')[0]
+                : null,
+          };
+        }
+
+        console.log('[GremlyStore] Creating new entity in', targetTable);
+        console.log('[GremlyStore] newEntityPayload before insert:', {
+          time_estimate_minutes: newEntityPayload.time_estimate_minutes,
+          energy_type: newEntityPayload.energy_type,
+          allKeys: Object.keys(newEntityPayload),
+        });
+
+        // Insert into new table
+        const { data: insertedEntity, error: insertError } = await supabase
+          .from(targetTable)
+          .insert(newEntityPayload)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('[GremlyStore] Failed to insert new entity:', insertError);
+          throw insertError;
+        }
+
+        console.log('[GremlyStore] New entity created:', {
+          id: insertedEntity.id,
+          drop_id: insertedEntity.drop_id,
+          originalDropId: (entity as any).drop_id,
+        });
+        console.log('[GremlyStore] Inserted entity time estimate:', {
+          time_estimate_minutes: insertedEntity.time_estimate_minutes,
+          energy_type: insertedEntity.energy_type,
+        });
+
+        // Verify drop_id was correctly set on the new entity
+        // This maintains the link so RecentDrops can find the converted item
+        if (!insertedEntity.drop_id && (entity as any).drop_id) {
+          console.log('[GremlyStore] Updating drop_id on new entity...');
+          await supabase
+            .from(targetTable)
+            .update({ drop_id: (entity as any).drop_id })
+            .eq('id', insertedEntity.id);
+        }
+
+        // Archive the old entity (soft delete with reason)
+        const archiveUpdates = {
+          archived: true,
+          archived_at: new Date().toISOString(),
+          archived_reason: 'converted',
+          views: {
+            ...(views || {}),
+            converted_to_type: targetBucket,
+            converted_to_id: insertedEntity.id,
+          },
+        };
+
+        const { error: archiveError } = await supabase
+          .from(sourceTable)
+          .update(archiveUpdates)
+          .eq('id', entityId);
+
+        if (archiveError) {
+          console.error('[GremlyStore] Failed to archive old entity:', archiveError);
+          // Don't throw - we've already created the new one
+        }
+
+        // Update Zustand state - remove from old collection
+        if (entityType === 'note') {
+          set({ notes: get().notes.filter((n) => n.id !== entityId) });
+        } else if (entityType === 'todo') {
+          set({ todos: get().todos.filter((t) => t.id !== entityId) });
+        } else {
+          set({ habits: get().habits.filter((h) => h.id !== entityId) });
+        }
+
+        // Add to new collection
+        if (targetBucket === 'todo') {
+          set({ todos: [...get().todos, { ...insertedEntity, type: 'todo' as const }] });
+        } else if (targetBucket === 'habit') {
+          set({ habits: [...get().habits, { ...insertedEntity, type: 'habit' as const }] });
+        } else {
+          set({ notes: [...get().notes, { ...insertedEntity, type: 'note' as const }] });
+        }
+
+        console.log('[GremlyStore] Bucket change complete:', {
+          oldId: entityId,
+          oldType: entityType,
+          newId: insertedEntity.id,
+          newType: targetBucket,
+          drop_id: insertedEntity.drop_id,
+        });
+
+        // Emit events to update RecentDrops list without requiring reload
+        console.log('[GremlyStore] Emitting entity:deleted for old entity', {
+          id: entityId,
+          type: entityType,
+        });
+        // 1. Delete event for old entity (removes archived note from list)
+        eventBus.emit('entity:deleted', {
+          id: entityId,
+          type: entityType,
+          source: 'clarification-bucket-change',
+        });
+
+        console.log('[GremlyStore] Emitting entity:created for new entity', {
+          id: insertedEntity.id,
+          type: targetBucket,
+          drop_id: insertedEntity.drop_id,
+          title: insertedEntity.title ?? insertedEntity.name,
+        });
+        // 2. Created event for new entity (adds todo/habit to list)
+        eventBus.emit('entity:created', {
+          entity: {
+            ...insertedEntity,
+            type: targetBucket,
+          },
+          type: targetBucket,
+          source: 'clarification-bucket-change',
+        });
+
+        // ─────────────────────────────────────────────────────────────────────
+        // PHASE 2 ENRICHMENT: Now call Phase 2 with the correct bucket
+        // This extracts: tags, time_estimate, frequency, days, people, mood
+        // The progressive update triggers chip animations in the card
+        // ─────────────────────────────────────────────────────────────────────
+        try {
+          const cortexUrl = env.cortexUrl;
+          if (cortexUrl) {
+            // Combine original text with user's clarification so Phase 2 can extract frequency, dates, etc.
+            const phase2Text = `${originalText} — ${selectedLabel}`;
+            console.log('[GremlyStore] Phase 2 called with combined text (converted entity):', {
+              originalText: originalText.substring(0, 30),
+              selectedLabel: selectedLabel.substring(0, 30),
+              phase2Text: phase2Text.substring(0, 60),
+            });
+
+            const phase2Response = await fetch(cortexUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'enrich-phase2',
+                text: phase2Text,
+                bucket: targetBucket,
+                subtype: newSubtype,
+                currentDate: getDateService().getCurrentDate(),
+              }),
+            });
+
+            if (phase2Response.ok) {
+              const phase2Result = await phase2Response.json();
+              console.log('[GremlyStore] Phase 2 enrichment result for converted entity', {
+                newEntityId: insertedEntity.id,
+                tags: phase2Result.tags,
+                timeEstimate: phase2Result.time_estimate_minutes,
+                people: phase2Result.people,
+                extractedFrequency: phase2Result.extracted_frequency,
+                extractedDays: phase2Result.extracted_days,
+                latency_ms: phase2Result.latency_ms,
+              });
+
+              // Build Phase 2 updates
+              // CRITICAL: Include minddrop_stage: 'enriched' so all chips animate together
+              const phase2Updates: Record<string, unknown> = {
+                views: {
+                  ...(insertedEntity.views || {}),
+                  ai_pending: false,
+                  clarification_processing: false,
+                  minddrop_stage: 'enriched',
+                },
+              };
+
+              if (
+                phase2Result.tags &&
+                Array.isArray(phase2Result.tags) &&
+                phase2Result.tags.length > 0
+              ) {
+                phase2Updates.tags = phase2Result.tags;
+              }
+              if (phase2Result.time_estimate_minutes != null) {
+                phase2Updates.time_estimate_minutes = phase2Result.time_estimate_minutes;
+              }
+              if (phase2Result.energy_type) {
+                phase2Updates.energy_type = phase2Result.energy_type;
+              }
+              if (
+                phase2Result.people &&
+                Array.isArray(phase2Result.people) &&
+                phase2Result.people.length > 0
+              ) {
+                (phase2Updates.views as Record<string, unknown>).people = phase2Result.people;
+              }
+              // Habit-specific fields
+              if (targetBucket === 'habit') {
+                if (phase2Result.extracted_frequency) {
+                  // Parse frequency string into canonical fields
+                  const parsed = parseHabitFrequency(phase2Result.extracted_frequency);
+                  phase2Updates.frequency = parsed.frequency;
+                  phase2Updates.cadence = parsed.cadence;
+                  phase2Updates.target_per_period = parsed.target_per_period;
+                }
+                if (phase2Result.extracted_days && Array.isArray(phase2Result.extracted_days)) {
+                  phase2Updates.days_active = phase2Result.extracted_days;
+                }
+              }
+
+              // Apply Phase 2 updates - always has views with enriched stage
+              console.log('[GremlyStore] Applying Phase 2 updates to converted entity:', {
+                newEntityId: insertedEntity.id,
+                updateKeys: Object.keys(phase2Updates),
+              });
+
+              if (targetBucket === 'todo') {
+                await get().updateTodo(insertedEntity.id, phase2Updates);
+              } else if (targetBucket === 'habit') {
+                await get().updateHabit(insertedEntity.id, phase2Updates);
+              } else {
+                await get().updateNote(insertedEntity.id, phase2Updates);
+              }
+            } else {
+              console.warn(
+                '[GremlyStore] Phase 2 response not ok for converted entity:',
+                phase2Response.status,
+              );
+            }
+          }
+        } catch (phase2Error) {
+          console.log('[GremlyStore] Phase 2 enrichment failed for converted entity:', phase2Error);
+          // Non-critical - entity already created with reclassify data
+        }
+
+        // Clear processing state on the new entity after Phase 2 (success or failure)
+        // CRITICAL: Set minddrop_stage to 'enriched' so chips animate together
+        if (targetBucket === 'log') {
+          set((s) => ({
+            notes: s.notes.map((n) =>
+              n.id === insertedEntity.id
+                ? {
+                    ...n,
+                    views: {
+                      ...((n.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                      minddrop_stage: 'enriched',
+                    },
+                  }
+                : n,
+            ),
+          }));
+        } else if (targetBucket === 'todo') {
+          set((s) => ({
+            todos: s.todos.map((t) =>
+              t.id === insertedEntity.id
+                ? {
+                    ...t,
+                    views: {
+                      ...((t.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                      minddrop_stage: 'enriched',
+                    },
+                  }
+                : t,
+            ),
+          }));
+        } else if (targetBucket === 'habit') {
+          set((s) => ({
+            habits: s.habits.map((h) =>
+              h.id === insertedEntity.id
+                ? {
+                    ...h,
+                    views: {
+                      ...((h.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      clarification_processing: false,
+                      minddrop_stage: 'enriched',
+                    },
+                  }
+                : h,
+            ),
+          }));
+        }
+        console.log('[GremlyStore] Cleared processing state for converted entity:', {
+          newEntityId: insertedEntity.id,
+          targetBucket,
+        });
+      } catch (error) {
+        console.error('[GremlyStore] Bucket change failed:', error);
+        // Fall back to just updating clarification status
+        const updatedViews: Record<string, unknown> = {
+          ...(views || {}),
+          needs_clarification: false,
+          clarification_resolved: true,
+          bucket_change_failed: true,
+        };
+
+        const updates = { views: updatedViews };
+
+        if (entityType === 'todo') {
+          await get().updateTodo(entityId, updates);
+        } else if (entityType === 'habit') {
+          await get().updateHabit(entityId, updates);
+        } else {
+          await get().updateNote(entityId, updates);
+        }
+      }
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SKIP CLARIFICATION (User presses "Skip for now")
+    // Resolves clarification as skipped, keeps entity as LOG/general,
+    // and runs Phase 2 for tag extraction
+    // ═══════════════════════════════════════════════════════════════════
+    resolveSkippedClarification: async (entityId: string) => {
+      console.log('[GremlyStore] Resolving skipped clarification:', { entityId });
+
+      const state = get();
+
+      // Find the entity across all types (could be todo, habit, or note)
+      let entity: Todo | Habit | Note | undefined;
+      let entityType: 'todo' | 'habit' | 'note' | undefined;
+
+      entity = state.notes.find((n) => n.id === entityId);
+      if (entity) {
+        entityType = 'note';
+      } else {
+        entity = state.todos.find((t) => t.id === entityId);
+        if (entity) {
+          entityType = 'todo';
+        } else {
+          entity = state.habits.find((h) => h.id === entityId);
+          if (entity) {
+            entityType = 'habit';
+          }
+        }
+      }
+
+      if (!entity || !entityType) {
+        console.error('[GremlyStore] Entity not found for skip:', entityId);
+        return;
+      }
+
+      const originalText =
+        (entity as Note).body || (entity as Note).title || (entity as any).name || '';
+      const views = (entity.views as Record<string, unknown>) || {};
+
+      console.log('[GremlyStore] Skipping clarification for entity:', {
+        entityId,
+        entityType,
+        originalTextPreview: originalText.substring(0, 50),
+      });
+
+      // Step 1: Mark clarification as skipped and set ai_pending for shimmer animation
+      // Also set a normal confirmation message to replace the "tap me" style message
+      const skippedViews: Record<string, unknown> = {
+        ...views,
+        needs_clarification: false,
+        clarification_resolved: true,
+        clarification_skipped: true,
+        confirmation_message: 'Captured for later.',
+        ai_pending: true,
+        minddrop_stage: 'classified',
+      };
+
+      if (entityType === 'note') {
+        set((s) => ({
+          notes: s.notes.map((n) =>
+            n.id === entityId
+              ? {
+                  ...n,
+                  needs_clarification: false,
+                  clarification_resolved: true,
+                  confirmation_message: 'Captured for later.',
+                  views: skippedViews,
+                }
+              : n,
+          ),
+        }));
+      } else if (entityType === 'todo') {
+        set((s) => ({
+          todos: s.todos.map((t) =>
+            t.id === entityId
+              ? {
+                  ...t,
+                  needs_clarification: false,
+                  clarification_resolved: true,
+                  confirmation_message: 'Captured for later.',
+                  views: skippedViews,
+                }
+              : t,
+          ),
+        }));
+      } else if (entityType === 'habit') {
+        set((s) => ({
+          habits: s.habits.map((h) =>
+            h.id === entityId
+              ? {
+                  ...h,
+                  needs_clarification: false,
+                  clarification_resolved: true,
+                  confirmation_message: 'Captured for later.',
+                  views: skippedViews,
+                }
+              : h,
+          ),
+        }));
+      }
+
+      // Emit ItemUpdated so card shows shimmer immediately
+      eventBus.emit('ItemUpdated', { id: entityId, source: STORE_EVENT_SOURCE });
+
+      console.log('[GremlyStore] Marked clarification as skipped, running Phase 2');
+
+      // Step 2: Run Phase 2 with original text only (no clarification context)
+      // Entity stays as current type with general subtype
+      try {
+        const cortexUrl = env.cortexUrl;
+        if (cortexUrl) {
+          const phase2Response = await fetch(cortexUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'enrich-phase2',
+              text: originalText,
+              bucket: entityType === 'note' ? 'log' : entityType,
+              subtype: 'general',
+              currentDate: getDateService().getCurrentDate(),
+            }),
+          });
+
+          if (phase2Response.ok) {
+            const phase2Result = await phase2Response.json();
+            console.log('[GremlyStore] Phase 2 result for skipped clarification:', {
+              entityId,
+              tags: phase2Result.tags,
+              timeEstimate: phase2Result.time_estimate_minutes,
+              latency_ms: phase2Result.latency_ms,
+            });
+
+            // Build Phase 2 updates
+            const phase2Updates: Record<string, unknown> = {
+              views: {
+                ...skippedViews,
+                ai_pending: false,
+                minddrop_stage: 'enriched',
+              },
+            };
+
+            if (
+              phase2Result.tags &&
+              Array.isArray(phase2Result.tags) &&
+              phase2Result.tags.length > 0
+            ) {
+              phase2Updates.tags = phase2Result.tags;
+            }
+            if (phase2Result.time_estimate_minutes != null && entityType !== 'note') {
+              phase2Updates.time_estimate_minutes = phase2Result.time_estimate_minutes;
+            }
+            if (phase2Result.energy_type && entityType !== 'note') {
+              phase2Updates.energy_type = phase2Result.energy_type;
+            }
+
+            // Apply Phase 2 updates
+            if (entityType === 'todo') {
+              await get().updateTodo(entityId, phase2Updates);
+            } else if (entityType === 'habit') {
+              await get().updateHabit(entityId, phase2Updates);
+            } else {
+              await get().updateNote(entityId, phase2Updates);
+            }
+
+            console.log('[GremlyStore] Skipped clarification Phase 2 complete:', { entityId });
+          } else {
+            console.warn('[GremlyStore] Phase 2 response not ok:', phase2Response.status);
+            // Still mark as enriched to clear loading state
+            await get().updateNote(entityId, {
+              views: { ...skippedViews, ai_pending: false, minddrop_stage: 'enriched' },
+            });
+          }
+        }
+      } catch (error) {
+        console.error('[GremlyStore] Phase 2 failed for skipped clarification:', error);
+
+        // Clear loading state even on error
+        if (entityType === 'note') {
+          set((s) => ({
+            notes: s.notes.map((n) =>
+              n.id === entityId
+                ? {
+                    ...n,
+                    views: {
+                      ...((n.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      minddrop_stage: 'enriched',
+                    },
+                  }
+                : n,
+            ),
+          }));
+        } else if (entityType === 'todo') {
+          set((s) => ({
+            todos: s.todos.map((t) =>
+              t.id === entityId
+                ? {
+                    ...t,
+                    views: {
+                      ...((t.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      minddrop_stage: 'enriched',
+                    },
+                  }
+                : t,
+            ),
+          }));
+        } else if (entityType === 'habit') {
+          set((s) => ({
+            habits: s.habits.map((h) =>
+              h.id === entityId
+                ? {
+                    ...h,
+                    views: {
+                      ...((h.views as Record<string, unknown>) || {}),
+                      ai_pending: false,
+                      minddrop_stage: 'enriched',
+                    },
+                  }
+                : h,
+            ),
+          }));
+        }
+      }
+
+      // Emit ItemUpdated to trigger card refresh
+      eventBus.emit('ItemUpdated', { id: entityId, source: STORE_EVENT_SOURCE });
     },
 
     // ═══════════════════════════════════════════════════════════════════
@@ -4920,3 +6437,49 @@ export const useGremlyStore = create<GremlyState>()(
     },
   })),
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SELECTORS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Select todos that have a target_date but no scheduled_date (need scheduling) */
+export const selectTodosNeedingScheduling = (state: GremlyState) =>
+  state.todos.filter((t) => !t.archived && !t.completed_at && t.target_date && !t.scheduled_date);
+
+/** Select notes that are events (have target_date) */
+export const selectEventNotes = (state: GremlyState) =>
+  state.notes.filter((n) => !n.archived && n.target_date);
+
+/** Select items with pending clarifications */
+export const selectItemsNeedingClarification = (state: GremlyState) => {
+  const todos = state.todos.filter((t) => t.needs_clarification && !t.clarification_resolved);
+  const habits = state.habits.filter((h) => h.needs_clarification && !h.clarification_resolved);
+  const notes = state.notes.filter((n) => n.needs_clarification && !n.clarification_resolved);
+  return { todos, habits, notes };
+};
+
+/** Select synced calendar events for a specific date */
+export const selectCalendarEventsForDate = (date: string) => (state: GremlyState) =>
+  state.calendarEvents[date] ?? [];
+
+/** Select user-created calendar events for a specific date */
+export const selectUserCalendarEventsForDate = (date: string) => (state: GremlyState) =>
+  state.userCalendarEvents.filter((e) => e.event_date === date);
+
+/** Select all items for Morning Brief on a given date */
+export const selectMorningBriefItems = (date: string) => (state: GremlyState) => {
+  const todos = state.todos.filter(
+    (t) => !t.archived && !t.completed_at && t.scheduled_date === date,
+  );
+  const habits = state.habits.filter(
+    (h) => !h.archived,
+    // Note: Habits don't have completed_at - completion is tracked via habitProgress
+    // Add days_active logic here if needed
+  );
+  const eventNotes = state.notes.filter((n) => !n.archived && n.target_date === date);
+  const reminderNotes = state.notes.filter((n) => !n.archived && n.reminder_date === date);
+  const calendarEvents = state.calendarEvents[date] ?? [];
+  const userCalendarEvents = state.userCalendarEvents.filter((e) => e.event_date === date);
+
+  return { todos, habits, eventNotes, reminderNotes, calendarEvents, userCalendarEvents };
+};

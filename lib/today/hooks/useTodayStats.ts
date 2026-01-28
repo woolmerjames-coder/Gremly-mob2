@@ -273,6 +273,8 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
         archived: false,
         created_at: c.createdAt,
         isOverdue: c.isOverdue,
+        hasUnscheduledDeadline: false,
+        daysUntilDeadline: null,
       }));
     const sweepCandidateCount = sweepCandidates.length;
 
@@ -289,6 +291,8 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       archived: false,
       created_at: todo.created_at,
       isOverdue: true,
+      hasUnscheduledDeadline: false,
+      daysUntilDeadline: null,
     }));
 
     // Recent drops from store
@@ -304,6 +308,8 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       archived: false,
       created_at: todo.created_at,
       isOverdue: false,
+      hasUnscheduledDeadline: false,
+      daysUntilDeadline: null,
     }));
 
     // Build completion summary for progress header

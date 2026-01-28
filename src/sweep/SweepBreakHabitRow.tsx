@@ -55,7 +55,7 @@ export interface SweepBreakHabitRowProps {
   isAheadOfTarget?: boolean;
 
   // Frequency display text
-  frequencyLabel: string;
+  frequencyLabel: string | null;
 
   // Last time user completed (resisted) this habit - ISO date
   lastCompletedAt?: string | null;

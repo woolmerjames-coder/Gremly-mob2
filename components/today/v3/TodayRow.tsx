@@ -18,7 +18,7 @@ type Props = {
     icon: 'Flame' | 'RotateCcw' | 'RefreshCw' | 'Calendar';
     label: string;
     periodLabel?: string;
-    frequencyLabel?: string;
+    frequencyLabel?: string | null;
   } | null;
   onComplete: (id: string) => Promise<void> | void;
   testID?: string;

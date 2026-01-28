@@ -151,7 +151,18 @@ function toCompletedItem(item: Todo | Habit): NowCompletedItem {
 /** Transform raw Todo to SweepCandidate */
 function toSweepCandidate(todo: Todo, todayDayString: string): SweepCandidate {
   const dueDay = todo.due_day ?? null;
+  const targetDate = (todo as any).target_date ?? null;
   const isOverdue = dueDay !== null && dueDay < todayDayString;
+  const hasUnscheduledDeadline = targetDate !== null && dueDay === null;
+
+  // Calculate days until deadline
+  let daysUntilDeadline: number | null = null;
+  if (targetDate) {
+    const today = new Date(todayDayString);
+    const deadline = new Date(targetDate);
+    daysUntilDeadline = Math.floor((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
   return {
     id: todo.id,
     name: todo.name,
@@ -164,6 +175,8 @@ function toSweepCandidate(todo: Todo, todayDayString: string): SweepCandidate {
     archived: todo.archived ?? false,
     created_at: todo.created_at ?? null,
     isOverdue,
+    hasUnscheduledDeadline,
+    daysUntilDeadline,
     space_id: todo.space_id ?? null,
   };
 }

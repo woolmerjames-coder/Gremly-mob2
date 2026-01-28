@@ -21,6 +21,7 @@
 import { type QueuedDrop, updateDrop, markFailed, getPendingDrops, dequeue } from './dropQueue';
 import { detectMulti } from './detectMulti';
 import { runPhase1 } from './phase1';
+import { shouldRunPhase1_5, runPhase1_5 } from '../ai/phase1_5';
 import type { MindDropBucket, LogSubtype } from './types';
 import { calculateBuffers } from '../planning';
 import { useGremlyStore } from '../store/useGremlyStore';
@@ -45,6 +46,11 @@ export interface Phase2MetadataResult {
   people: string[];
   mood: string[] | null;
   energy_type: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
+  // Date Intelligence fields
+  target_date: string | null;
+  scheduled_date: string | null;
+  event_time: string | null;
+  date_type_ambiguous: boolean;
 }
 
 export interface ProcessingCallbacks {
@@ -80,6 +86,133 @@ const readSupabaseAnonKey = (): string => {
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 };
 
+// --- Helper: Extract temporal info from text for Phase 1.5 ---
+
+const TEMPORAL_PATTERN =
+  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|tonight|next\s+week|this\s+week|next\s+month|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}|\d{1,2}(st|nd|rd|th)?)\b/i;
+
+function extractTemporal(text: string): string | null {
+  const match = text.match(TEMPORAL_PATTERN);
+  return match ? match[0] : null;
+}
+
+// --- Helper: Run Phase 1.5 in background (non-blocking) ---
+
+/**
+ * Runs Phase 1.5 clarification question generation in the background.
+ * Does NOT block Phase 2 - fires and forgets.
+ * When complete, updates Zustand with question/options for the popup.
+ */
+async function runPhase1_5InBackground(
+  localId: string,
+  text: string,
+  ambiguityReason: string,
+  bucket: MindDropBucket,
+): Promise<void> {
+  const startTime = Date.now();
+  const cortexUrl = readCortexUrl();
+  const anonKey = readSupabaseAnonKey();
+
+  console.log('[DropProcessor] Phase 1.5 starting in background', {
+    localId,
+    ambiguityReason,
+  });
+
+  if (!cortexUrl || !anonKey) {
+    console.log('[DropProcessor] Phase 1.5 skipped - missing cortex URL or anon key');
+    return;
+  }
+
+  try {
+    const detectedTemporal = extractTemporal(text);
+    const currentDate = dateService.today();
+
+    const res = await fetch(cortexUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({
+        type: 'clarify-ambiguity',
+        text,
+        ambiguityReason,
+        detectedTemporal,
+        currentDate,
+        targetBucket: bucket,
+      }),
+    });
+
+    if (!res.ok) {
+      console.log('[DropProcessor] Phase 1.5 API error', { status: res.status });
+      return;
+    }
+
+    const phase1_5Result = await res.json();
+    const latencyMs = Date.now() - startTime;
+
+    console.log('[DropProcessor] Phase 1.5 complete', {
+      localId,
+      success: phase1_5Result.success,
+      question: phase1_5Result.question?.substring(0, 30),
+      options_count: phase1_5Result.options?.length,
+      latency_ms: latencyMs,
+    });
+
+    if (phase1_5Result.success && phase1_5Result.options?.length >= 2) {
+      const clarificationOptions = phase1_5Result.options.map(
+        (opt: { id: string; label: string }) => ({
+          id: opt.id,
+          label: opt.label,
+          // Action will be determined by reclassify endpoint when user selects
+          action: { bucket, target_date: false, scheduled_date: false },
+        }),
+      );
+
+      // Try to update pending drop first
+      const pendingDrop = useGremlyStore.getState().pendingDrops.get(localId);
+
+      if (pendingDrop) {
+        // Pending drop still exists - update it directly
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          clarification_question: phase1_5Result.question,
+          clarification_options: clarificationOptions,
+        });
+
+        console.log('[DropProcessor] Phase 1.5 pushed options to pending drop', {
+          localId,
+          optionLabels: phase1_5Result.options.map((o: { label: string }) => o.label),
+        });
+      } else {
+        // Pending drop already synced - update the entity by drop_id
+        console.log('[DropProcessor] Phase 1.5: pending drop already synced, updating entity', {
+          localId,
+        });
+
+        const updated = await useGremlyStore.getState().updateEntityClarificationByDropId(localId, {
+          question: phase1_5Result.question,
+          options: clarificationOptions,
+        });
+
+        if (updated) {
+          console.log('[DropProcessor] Phase 1.5 pushed options to synced entity', {
+            localId,
+            optionLabels: phase1_5Result.options.map((o: { label: string }) => o.label),
+          });
+        } else {
+          console.warn('[DropProcessor] Phase 1.5 could not find entity to update', { localId });
+        }
+      }
+    }
+  } catch (error) {
+    console.log('[DropProcessor] Phase 1.5 background error', {
+      localId,
+      error: String(error),
+    });
+    // Silent failure — user can still tap card, will see loading state
+  }
+}
+
 // --- Helper: Run Phase 2 (non-streaming) ---
 
 async function runPhase2(
@@ -103,6 +236,18 @@ async function runPhase2(
   // Create API call promise
   const apiPromise = (async (): Promise<Phase2MetadataResult | null> => {
     try {
+      // Get date context for Phase 2 using DateService (timezone-safe)
+      const currentDate = dateService.today(); // YYYY-MM-DD in local timezone
+      const now = new Date();
+      const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+      console.log('[DropProcessor] Phase 2 calling with date context:', {
+        currentDate,
+        dayOfWeek,
+        timezone,
+      });
+
       const res = await fetch(cortexUrl, {
         method: 'POST',
         headers: {
@@ -114,6 +259,9 @@ async function runPhase2(
           text,
           bucket,
           subtype,
+          currentDate,
+          dayOfWeek,
+          timezone,
         }),
       });
 
@@ -138,7 +286,13 @@ async function runPhase2(
         : null;
 
       // Validate energy_type
-      const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'] as const;
+      const validEnergyTypes = [
+        'deep_focus',
+        'administrative',
+        'physical',
+        'social',
+        'quick',
+      ] as const;
       const rawEnergyType = json.energy_type;
       const energy_type = validEnergyTypes.includes(rawEnergyType)
         ? (rawEnergyType as 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick')
@@ -155,6 +309,11 @@ async function runPhase2(
         people: Array.isArray(json.people) ? json.people : [],
         mood: json.mood ?? null,
         energy_type,
+        // Date Intelligence fields
+        target_date: json.target_date ?? null,
+        scheduled_date: json.scheduled_date ?? null,
+        event_time: json.event_time ?? null,
+        date_type_ambiguous: json.date_type_ambiguous ?? false,
       };
     } catch (err) {
       console.log('[DropProcessor] Phase 2 API error', { error: String(err) });
@@ -202,6 +361,22 @@ async function syncDropToSupabase(
   const now = new Date().toISOString();
   const today = dateService.today();
 
+  // Debug: Log the full drop object to see what clarification fields are present
+  console.log('[DropProcessor] Drop object before payload build:', {
+    localId: drop.localId,
+    // Log ALL possible clarification field names (both camelCase and snake_case)
+    needsClarification: drop.needsClarification,
+    needs_clarification: (drop as any).needs_clarification,
+    clarificationType: drop.clarificationType,
+    clarification_type: (drop as any).clarification_type,
+    clarificationQuestion: drop.clarificationQuestion,
+    clarification_question: (drop as any).clarification_question,
+    clarificationOptions: drop.clarificationOptions?.length ?? 'undefined',
+    clarification_options: (drop as any).clarification_options?.length ?? 'undefined',
+    // Also check if it's nested somewhere
+    dropKeys: Object.keys(drop),
+  });
+
   try {
     let table: string;
     let payload: Record<string, unknown>;
@@ -240,11 +415,27 @@ async function syncDropToSupabase(
         due_day: dueDay,
         due_date: dueDay,
         due_time: parsedFields.dueTime || null,
+        // Phase 2: Clarification fields (direct columns)
+        needs_clarification: drop.needsClarification || false,
+        clarification_type: drop.clarificationType || null,
+        clarification_question: drop.clarificationQuestion || null,
+        clarification_options: drop.clarificationOptions || null,
+        clarification_resolved: false,
         views: {
           minddrop_stage: 'enriched',
           ai_pending: false,
           confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
+          // Date Intelligence fields (stored in views JSONB)
+          target_date: enrichment?.target_date || null,
+          scheduled_date: enrichment?.scheduled_date || null,
+          date_type_ambiguous: enrichment?.date_type_ambiguous || false,
+          // Phase 2: Clarification fields (also in views for redundancy)
+          needs_clarification: drop.needsClarification || false,
+          clarification_type: drop.clarificationType || null,
+          clarification_question: drop.clarificationQuestion || null,
+          clarification_options: drop.clarificationOptions || null,
+          clarification_resolved: false,
         },
         created_at: now,
         updated_at: now,
@@ -284,11 +475,23 @@ async function syncDropToSupabase(
         prep_buffer_minutes: buffers.prep_buffer_minutes,
         cooldown_buffer_minutes: buffers.cooldown_buffer_minutes,
         tags: enrichment?.tags || [],
+        // Phase 2: Clarification fields (direct columns)
+        needs_clarification: drop.needsClarification || false,
+        clarification_type: drop.clarificationType || null,
+        clarification_question: drop.clarificationQuestion || null,
+        clarification_options: drop.clarificationOptions || null,
+        clarification_resolved: false,
         views: {
           minddrop_stage: 'enriched',
           ai_pending: false,
           confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
+          // Phase 2: Clarification fields (also in views for redundancy)
+          needs_clarification: drop.needsClarification || false,
+          clarification_type: drop.clarificationType || null,
+          clarification_question: drop.clarificationQuestion || null,
+          clarification_options: drop.clarificationOptions || null,
+          clarification_resolved: false,
         },
         created_at: now,
         updated_at: now,
@@ -311,11 +514,28 @@ async function syncDropToSupabase(
         origin: source === 'space' ? 'space_chat' : 'catchall',
         tags: enrichment?.tags || [],
         mood: enrichment?.mood || null,
+        // Phase 2: Clarification fields (direct columns)
+        needs_clarification: drop.needsClarification || false,
+        clarification_type: drop.clarificationType || null,
+        clarification_question: drop.clarificationQuestion || null,
+        clarification_options: drop.clarificationOptions || null,
+        clarification_resolved: false,
         views: {
           minddrop_stage: 'enriched',
           ai_pending: false,
           confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
+          // Date Intelligence fields (stored in views JSONB)
+          target_date: enrichment?.target_date || null,
+          scheduled_date: enrichment?.scheduled_date || null,
+          event_time: enrichment?.event_time || null,
+          date_type_ambiguous: enrichment?.date_type_ambiguous || false,
+          // Phase 2: Clarification fields (also in views for redundancy)
+          needs_clarification: drop.needsClarification || false,
+          clarification_type: drop.clarificationType || null,
+          clarification_question: drop.clarificationQuestion || null,
+          clarification_options: drop.clarificationOptions || null,
+          clarification_resolved: false,
         },
         created_at: now,
         updated_at: now,
@@ -323,6 +543,14 @@ async function syncDropToSupabase(
     }
 
     console.log('[DropProcessor] Syncing to Supabase', { localId, table, entityType });
+
+    // Debug: Log clarification fields being sent to Supabase
+    console.log('[DropProcessor] Entity payload clarification fields:', {
+      needs_clarification: (payload as any).needs_clarification,
+      clarification_type: (payload as any).clarification_type,
+      clarification_question: (payload as any).clarification_question,
+      clarification_options_count: (payload as any).clarification_options?.length ?? 0,
+    });
 
     const { data, error } = await supabase.from(table).insert(payload).select().single();
 
@@ -590,9 +818,62 @@ export async function processDrop(
 
     const phase1Result = await runPhase1(text, { hasAttachments: false });
 
-    console.log('[DropProcessor] Phase 1 timing', { localId, elapsed: Date.now() - startTime });
+    console.log('[DropProcessor] Phase 1 complete', {
+      localId,
+      bucket: phase1Result.bucket,
+      is_ambiguous: phase1Result.is_ambiguous,
+      ambiguity_reason: phase1Result.ambiguity_reason,
+      latency_ms: Date.now() - startTime,
+    });
 
-    // CHECKPOINT 1: Save classification results (and early enrichment fields if present)
+    // =========================================
+    // UPDATE UI IMMEDIATELY with Phase 1 data
+    // Card can now render with clarify badge if is_ambiguous
+    // =========================================
+
+    // Update Zustand for immediate UI feedback (in-memory, instant)
+    useGremlyStore.getState().updatePendingDropClassification(localId, {
+      bucket: phase1Result.bucket,
+      subtype: phase1Result.subtype,
+    });
+
+    // Push early enrichment AND ambiguity fields to Zustand
+    // This allows:
+    // 1. Typewriter animation to start after Phase 1 (~1.5s)
+    // 2. Clarify badge to appear immediately if is_ambiguous
+    const earlyEnrichment: Record<string, unknown> = {};
+    if (phase1Result.smart_title) {
+      earlyEnrichment.smartTitle = phase1Result.smart_title;
+    }
+    if (phase1Result.confirmation_message) {
+      earlyEnrichment.confirmationMessage = phase1Result.confirmation_message;
+    }
+    // NEW: Push ambiguity state for immediate UI feedback (clarify badge)
+    if (phase1Result.is_ambiguous) {
+      earlyEnrichment.needs_clarification = true;
+      earlyEnrichment.ambiguity_reason = phase1Result.ambiguity_reason;
+      earlyEnrichment.clarification_resolved = false;
+      // Options will be populated by Phase 1.5 in background
+      earlyEnrichment.clarification_question = null;
+      earlyEnrichment.clarification_options = null;
+    }
+    if (Object.keys(earlyEnrichment).length > 0) {
+      useGremlyStore.getState().updatePendingDropEnrichment(localId, earlyEnrichment);
+    }
+
+    callbacks?.onPhase1Complete?.(localId, phase1Result.bucket);
+
+    // =========================================
+    // PHASE 1.5: Clarification Question Generation
+    // Runs in BACKGROUND if is_ambiguous - does NOT block Phase 2
+    // =========================================
+
+    // Fire and forget - Phase 1.5 runs in background, Phase 2 starts immediately
+    if (phase1Result.is_ambiguous && phase1Result.ambiguity_reason) {
+      runPhase1_5InBackground(localId, text, phase1Result.ambiguity_reason, phase1Result.bucket);
+    }
+
+    // CHECKPOINT 1: Save classification results (ambiguity fields saved, options come later)
     // This is the first save - protects expensive Phase 1 AI work
     await updateDrop(localId, {
       bucket: phase1Result.bucket,
@@ -604,39 +885,44 @@ export async function processDrop(
       ...(phase1Result.confirmation_message && {
         confirmationMessage: phase1Result.confirmation_message,
       }),
+      // Ambiguity detection (Phase 1.5 populates question/options in background)
+      needsClarification: phase1Result.is_ambiguous || false,
+      ambiguityReason: phase1Result.ambiguity_reason || null,
+      // Options will be populated by Phase 1.5 asynchronously
+      clarificationType: null,
+      clarificationQuestion: null,
+      clarificationOptions: null,
       status: 'classified', // Clear checkpoint status
     });
 
-    // Update Zustand for immediate UI feedback (in-memory, instant)
-    useGremlyStore.getState().updatePendingDropClassification(localId, {
+    console.log('[DropQueue] Updated drop with classification', {
+      localId,
       bucket: phase1Result.bucket,
-      subtype: phase1Result.subtype,
+      is_ambiguous: phase1Result.is_ambiguous,
+      ambiguity_reason: phase1Result.ambiguity_reason,
     });
-
-    // If Phase 1 returned early enrichment fields, push them to Zustand immediately
-    // This allows typewriter animation to start after Phase 1 (~1.5s) instead of Phase 2 (~4s)
-    if (phase1Result.smart_title || phase1Result.confirmation_message) {
-      const earlyEnrichment: Record<string, string | null> = {};
-      if (phase1Result.smart_title) {
-        earlyEnrichment.smartTitle = phase1Result.smart_title;
-      }
-      if (phase1Result.confirmation_message) {
-        earlyEnrichment.confirmationMessage = phase1Result.confirmation_message;
-      }
-      useGremlyStore.getState().updatePendingDropEnrichment(localId, earlyEnrichment);
-    }
-
-    callbacks?.onPhase1Complete?.(localId, phase1Result.bucket);
 
     // =========================================
     // PHASE 2: Enrichment (non-streaming)
-    // Simple JSON request/response for metadata fields
-    // smart_title and confirmation_message already came from Phase 1
+    // SKIP for ambiguous items - Phase 2 will run after clarification
     // =========================================
 
-    const enrichmentResult = await runPhase2(text, phase1Result.bucket, phase1Result.subtype);
+    let enrichmentResult = null;
 
-    console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
+    if (phase1Result.is_ambiguous) {
+      console.log(
+        '[DropProcessor] Skipping Phase 2 for ambiguous item - will run after clarification',
+        {
+          localId,
+          ambiguity_reason: phase1Result.ambiguity_reason,
+        },
+      );
+      // Don't run Phase 2 yet - it will run after user clarifies
+      // The card will show without metadata chips until then
+    } else {
+      enrichmentResult = await runPhase2(text, phase1Result.bucket, phase1Result.subtype);
+      console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
+    }
 
     // Update Zustand with ALL metadata fields (time estimate, tags, frequency, people, etc.)
     // CRITICAL: Set status to 'enriched' so UI knows ALL chip data is ready
@@ -647,6 +933,7 @@ export async function processDrop(
         time_estimate: enrichmentResult.time_estimate_minutes,
         people: enrichmentResult.people,
         tags: enrichmentResult.tags,
+        target_date: enrichmentResult.target_date,
       });
       useGremlyStore.getState().updatePendingDropEnrichment(localId, {
         status: 'enriched', // CRITICAL: Mark as fully enriched for chip animation
@@ -658,6 +945,11 @@ export async function processDrop(
         extractedDays: enrichmentResult.extracted_days,
         people: enrichmentResult.people, // Include people for chip rendering
         mood: enrichmentResult.mood, // Include mood for journal chip rendering
+        // Date Intelligence fields (snake_case to match PendingDrop interface)
+        target_date: enrichmentResult.target_date,
+        scheduled_date: enrichmentResult.scheduled_date,
+        event_time: enrichmentResult.event_time,
+        date_type_ambiguous: enrichmentResult.date_type_ambiguous,
       });
     }
 
@@ -675,6 +967,11 @@ export async function processDrop(
         people: enrichmentResult.people,
         mood: enrichmentResult.mood,
         status: 'enriched', // Clear checkpoint status
+        // Date Intelligence fields
+        targetDate: enrichmentResult.target_date,
+        scheduledDate: enrichmentResult.scheduled_date,
+        eventTime: enrichmentResult.event_time,
+        dateTypeAmbiguous: enrichmentResult.date_type_ambiguous,
       });
     }
 
@@ -694,6 +991,15 @@ export async function processDrop(
         // Include Phase 1 smart title and confirmation message
         smartTitle: phase1Result.smart_title ?? undefined,
         confirmationMessage: phase1Result.confirmation_message ?? undefined,
+        // Include ambiguity detection from Phase 1
+        // Note: question/options may still be loading from Phase 1.5 background task
+        needsClarification: phase1Result.is_ambiguous || false,
+        ambiguityReason: phase1Result.ambiguity_reason || null,
+        // Get latest clarification data from Zustand (Phase 1.5 may have updated it)
+        clarificationQuestion:
+          useGremlyStore.getState().pendingDrops.get(localId)?.clarification_question || null,
+        clarificationOptions:
+          useGremlyStore.getState().pendingDrops.get(localId)?.clarification_options || null,
       },
       enrichmentResult,
     );

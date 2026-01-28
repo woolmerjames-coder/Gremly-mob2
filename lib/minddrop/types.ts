@@ -180,4 +180,39 @@ export interface Phase1Result {
 
   /** Early confirmation message from Phase 1 (enables faster typewriter animation) */
   confirmation_message?: string | null;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 1: Ambiguity detection (triggers Phase 1.5 in background)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** True if Phase 1 detected ambiguity - UI shows clarify badge immediately */
+  is_ambiguous?: boolean;
+
+  /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
+  ambiguity_reason?: string | null;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 1.5: Clarification fields (populated asynchronously in background)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** True if AI needs user to disambiguate the intent */
+  needs_clarification?: boolean;
+
+  /** Type of clarification needed */
+  clarification_type?: 'bucket' | 'date' | 'social_plan' | null;
+
+  /** Question to present to the user */
+  clarification_question?: string | null;
+
+  /** Available options for the user to choose from */
+  clarification_options?: Array<{
+    id: string;
+    label: string;
+    action: {
+      bucket?: 'todo' | 'habit' | 'log';
+      subtype?: string | null;
+      target_date?: boolean;
+      scheduled_date?: boolean;
+    };
+  }> | null;
 }

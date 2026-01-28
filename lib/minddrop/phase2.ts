@@ -32,6 +32,10 @@ export interface Phase2Result {
   confirmationMessage: string | null;
   mood: string[] | null; // AI-extracted moods for journal entries
   energyType: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
+  // Date Intelligence fields (Phase C)
+  targetDate: string | null; // When something IS or is DUE (event/deadline)
+  scheduledDate: string | null; // When user will DO the work
+  dateTypeAmbiguous: boolean; // AI couldn't determine date meaning
 }
 
 // --- Constants ---
@@ -149,7 +153,13 @@ async function callEnrichAPI(
 
     // Map API response to Phase2Result
     // Validate energy_type
-    const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'] as const;
+    const validEnergyTypes = [
+      'deep_focus',
+      'administrative',
+      'physical',
+      'social',
+      'quick',
+    ] as const;
     const rawEnergyType = json.energy_type;
     const energyType = validEnergyTypes.includes(rawEnergyType)
       ? (rawEnergyType as 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick')
@@ -168,6 +178,10 @@ async function callEnrichAPI(
       confirmationMessage: json.confirmation_message ?? null,
       mood: Array.isArray(json.mood) ? json.mood : null,
       energyType,
+      // Date Intelligence fields
+      targetDate: json.target_date ?? null,
+      scheduledDate: json.scheduled_date ?? null,
+      dateTypeAmbiguous: json.date_type_ambiguous === true,
     };
   } catch (err) {
     clearTimeout(timeout);
@@ -341,6 +355,12 @@ export async function runPhase2(
           // Preserve Phase 1's confirmation_message if it exists
           confirmation_message: finalConfirmationMessage ?? undefined,
           people: result.people?.length > 0 ? result.people : undefined,
+          // Date Intelligence fields - always store in views
+          ...(result.targetDate ? { target_date: result.targetDate } : {}),
+          ...(result.scheduledDate ? { scheduled_date: result.scheduledDate } : {}),
+          ...(result.dateTypeAmbiguous !== undefined
+            ? { date_type_ambiguous: result.dateTypeAmbiguous }
+            : {}),
         },
         tags: allTags.length > 0 ? allTags : undefined,
       };
@@ -367,7 +387,26 @@ export async function runPhase2(
         );
         updatePayload.prep_buffer_minutes = buffers.prep_buffer_minutes;
         updatePayload.cooldown_buffer_minutes = buffers.cooldown_buffer_minutes;
-        if (result.extractedDate) {
+
+        // Date Intelligence: Use targetDate/scheduledDate for proper date columns
+        // targetDate = deadline (when something is DUE)
+        // scheduledDate = when user will DO it
+        if (result.targetDate) {
+          updatePayload.target_date = result.targetDate;
+          // Also set due_day for Today page visibility
+          updatePayload.due_day = result.targetDate;
+          updatePayload.due_date = result.targetDate;
+        }
+        if (result.scheduledDate) {
+          updatePayload.scheduled_date = result.scheduledDate;
+          // If no target_date, use scheduled_date for due_day (it's when they'll do it)
+          if (!result.targetDate) {
+            updatePayload.due_day = result.scheduledDate;
+            updatePayload.due_date = result.scheduledDate;
+          }
+        }
+        // Legacy fallback for extractedDate (backwards compatibility)
+        if (result.extractedDate && !result.targetDate && !result.scheduledDate) {
           updatePayload.due_date = result.extractedDate;
           // CRITICAL: due_day is the canonical field for Today page visibility
           // Extract YYYY-MM-DD portion, handling both "2025-12-13" and "2025-12-13T09:00:00" formats
@@ -417,6 +456,14 @@ export async function runPhase2(
         if (result.mood && result.mood.length > 0) {
           updatePayload.mood = result.mood;
         }
+        // Date Intelligence: Notes also have target_date column for event dates
+        if (result.targetDate) {
+          updatePayload.target_date = result.targetDate;
+        }
+        // Notes have a date column (general purpose) - use scheduled_date for "do" date
+        if (result.scheduledDate) {
+          updatePayload.date = result.scheduledDate;
+        }
       }
 
       mark('before_final_save');
@@ -450,6 +497,10 @@ export async function runPhase2(
         target_per_period: updatePayload.target_per_period,
         // AI-extracted mood for journals
         mood: result.mood ?? null,
+        // Date Intelligence fields
+        targetDate: result.targetDate ?? null,
+        scheduledDate: result.scheduledDate ?? null,
+        dateTypeAmbiguous: result.dateTypeAmbiguous ?? false,
       });
       mark('event_emitted');
 

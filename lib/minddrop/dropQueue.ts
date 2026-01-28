@@ -143,6 +143,54 @@ export interface QueuedDrop {
   mood?: string[] | null;
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Date Intelligence (Phase 2)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** External deadline/due date (ISO) */
+  targetDate?: string | null;
+
+  /** Scheduled work date (ISO) */
+  scheduledDate?: string | null;
+
+  /** Event time for notes classified as events */
+  eventTime?: string | null;
+
+  /** True if AI couldn't determine date meaning */
+  dateTypeAmbiguous?: boolean;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 1: Ambiguity detection (triggers Phase 1.5 in background)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** True if AI needs user to disambiguate the intent */
+  needsClarification?: boolean;
+
+  /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
+  ambiguityReason?: string | null;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 1.5: Clarification fields (populated asynchronously in background)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** Type of clarification needed */
+  clarificationType?: 'bucket' | 'date' | 'social_plan' | null;
+
+  /** Question to present to the user */
+  clarificationQuestion?: string | null;
+
+  /** Available options for the user to choose from */
+  clarificationOptions?: Array<{
+    id: string;
+    label: string;
+    action: {
+      bucket?: 'todo' | 'habit' | 'log';
+      subtype?: string | null;
+      target_date?: boolean;
+      scheduled_date?: boolean;
+    };
+  }> | null;
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Sync results
   // ──────────────────────────────────────────────────────────────────────────
 

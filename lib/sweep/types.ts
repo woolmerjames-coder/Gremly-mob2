@@ -62,9 +62,9 @@ export interface SweepCandidateBase {
   dropId?: string | null;
   /** ISO timestamp when this item was last skipped in Sweep */
   skippedInSweepAt?: string | null;
-  /** True if item's due_day (or due_date) is strictly before today (todos only) */
+  /** True if item's due date is strictly before today (todos: due_day/scheduled_date, notes: target_date) */
   isOverdue: boolean;
-  /** True if item's due_day (or due_date) is exactly today (todos only) */
+  /** True if item's due date is exactly today (todos: due_day/scheduled_date, notes: target_date) */
   isDueToday: boolean;
   /** True if item was created today */
   isCreatedToday: boolean;
@@ -86,6 +86,28 @@ export interface SweepCandidateNote extends SweepCandidateBase {
   raw: SweepNoteRow;
   /** Photo attachments for this note (from log_photos table) */
   attachments?: SweepAttachment[];
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Date Intelligence Fields (Phase C)
+  // ─────────────────────────────────────────────────────────────────────
+
+  /** Event date for this note (YYYY-MM-DD) - e.g., "Mom's birthday March 5" */
+  targetDate?: string | null;
+
+  /** Event time if specified */
+  eventTime?: string | null;
+
+  /** Date when this note should resurface in sweep (YYYY-MM-DD) - user set a reminder */
+  resurfaceAt?: string | null;
+
+  /** True if target_date equals today */
+  isEventToday: boolean;
+
+  /** True if target_date is before today (event has passed) */
+  isEventPassed: boolean;
+
+  /** Days until event (negative if passed), null if no target_date */
+  daysUntilEvent: number | null;
 }
 
 export interface SweepCandidateHabit extends SweepCandidateBase {

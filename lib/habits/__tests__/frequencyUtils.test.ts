@@ -215,16 +215,23 @@ describe('getFrequencyDisplayLabel', () => {
   });
 
   describe('edge cases', () => {
-    it('handles null cadence (defaults to daily)', () => {
-      expect(getFrequencyDisplayLabel(null, 1)).toBe('Daily');
+    it('handles null cadence with target (defaults to daily)', () => {
+      // When we have a target but no cadence, we assume daily
+      expect(getFrequencyDisplayLabel(null, 1, 'daily')).toBe('Daily');
     });
 
     it('handles null target (defaults to 1)', () => {
       expect(getFrequencyDisplayLabel('weekly', null)).toBe('Weekly');
     });
 
-    it('handles both null', () => {
-      expect(getFrequencyDisplayLabel(null, null)).toBe('Daily');
+    it('returns null when both cadence and frequency are null', () => {
+      // When we have no frequency data at all, return null to hide the chip
+      expect(getFrequencyDisplayLabel(null, null)).toBeNull();
+    });
+
+    it('uses frequency string when cadence is null', () => {
+      expect(getFrequencyDisplayLabel(null, null, '3x/week')).toBe('3x/week');
+      expect(getFrequencyDisplayLabel(null, null, 'daily')).toBe('Daily');
     });
   });
 });
@@ -394,7 +401,8 @@ describe('getHabitFrequencyLabel', () => {
 
   it('handles missing fields', () => {
     const habit = {};
-    expect(getHabitFrequencyLabel(habit)).toBe('Daily');
+    // Returns null when no cadence or frequency string to prevent showing default before Phase 2
+    expect(getHabitFrequencyLabel(habit)).toBe(null);
   });
 });
 

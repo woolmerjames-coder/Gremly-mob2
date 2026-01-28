@@ -314,11 +314,12 @@ describe('getFrequencyLabel', () => {
     expect(label).toBe('Daily');
   });
 
-  it('handles missing canonical fields (defaults to daily)', () => {
+  it('handles missing canonical fields (returns null to hide chip)', () => {
     const habit = {} as Partial<Habit>;
 
     const label = getFrequencyLabel(habit as Habit);
-    expect(label).toBe('Daily');
+    // Returns null when no cadence/frequency to avoid showing incorrect defaults
+    expect(label).toBeNull();
   });
 });
 

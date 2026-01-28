@@ -22,6 +22,49 @@ export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 export type LegacyCanonicalType = 'note' | 'journal';
 
 /**
+ * ClarificationType - Types of clarifications the AI can request from the user
+ * - 'bucket': Which entity type (todo, habit, log)
+ * - 'habit_or_todo': Specifically disambiguating between habit and todo
+ * - 'date_type': Whether a date is a target date or scheduled date
+ * - 'detail': Request for more details about the task
+ * - 'intent': Clarify what the user wants to accomplish
+ * - 'action': Clarify what action to take
+ */
+export type ClarificationType =
+  | 'bucket'
+  | 'habit_or_todo'
+  | 'date_type'
+  | 'detail'
+  | 'intent'
+  | 'action';
+
+/**
+ * ClarificationOption - A single option presented to the user for clarification
+ */
+export interface ClarificationOption {
+  id: string;
+  label: string;
+  action: {
+    bucket?: 'todo' | 'habit' | 'log';
+    subtype?: string;
+    target_date?: boolean;
+    scheduled_date?: boolean;
+  };
+}
+
+/**
+ * ClarificationFields - Fields for tracking AI clarification state on entities
+ * Mixed into Todo, Habit, and Note interfaces
+ */
+export interface ClarificationFields {
+  needs_clarification?: boolean;
+  clarification_type?: ClarificationType | null;
+  clarification_question?: string | null;
+  clarification_options?: ClarificationOption[] | null;
+  clarification_resolved?: boolean;
+}
+
+/**
  * LogSubtype - UI-facing classification for Mind Drop
  * Maps to NoteSubtype for database persistence:
  * - 'journal' → 'journal'
@@ -32,7 +75,7 @@ export type LogSubtype = 'journal' | 'idea' | 'general';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
 export type Cadence = 'daily' | 'weekly' | 'monthly';
-export type EntityType = 'habit' | 'todo' | 'note' | 'space';
+export type EntityType = 'habit' | 'todo' | 'note' | 'space' | 'calendar_event';
 
 export interface TagsMeta {
   sticky?: string[];
@@ -60,7 +103,7 @@ export interface Habit {
   views?: {
     ai_pending?: boolean;
     ai_failed?: boolean;
-    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending';
+    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending' | 'enriched';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -121,6 +164,25 @@ export interface Habit {
 
   // Estimated minutes per session
   time_estimate_minutes?: number | null;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Clarifying Questions (Phase 2)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** True if AI couldn't confidently classify and needs user input */
+  needs_clarification?: boolean;
+
+  /** Type of clarification needed */
+  clarification_type?: ClarificationType | null;
+
+  /** Human-readable question to show user */
+  clarification_question?: string | null;
+
+  /** Options for user to choose from */
+  clarification_options?: ClarificationOption[] | null;
+
+  /** True once user has resolved the clarification */
+  clarification_resolved?: boolean;
 }
 
 /**
@@ -154,7 +216,7 @@ export interface Todo {
   views?: {
     ai_pending?: boolean;
     ai_failed?: boolean;
-    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending';
+    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending' | 'enriched';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -191,6 +253,35 @@ export interface Todo {
 
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Date Intelligence (Phase 2)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** When something IS or is DUE - external, immovable deadline (e.g., "taxes due April 15") */
+  target_date?: string | null; // YYYY-MM-DD
+
+  /** When user plans to DO the work - internal, movable (e.g., "work on taxes Saturday") */
+  scheduled_date?: string | null; // YYYY-MM-DD (synced with due_day via DB trigger)
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Clarifying Questions (Phase 2)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** True if AI couldn't confidently classify and needs user input */
+  needs_clarification?: boolean;
+
+  /** Type of clarification needed */
+  clarification_type?: ClarificationType | null;
+
+  /** Human-readable question to show user */
+  clarification_question?: string | null;
+
+  /** Options for user to choose from */
+  clarification_options?: ClarificationOption[] | null;
+
+  /** True once user has resolved the clarification */
+  clarification_resolved?: boolean;
 }
 
 /**
@@ -216,7 +307,7 @@ export interface Note {
   views?: {
     ai_pending?: boolean;
     ai_failed?: boolean;
-    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending';
+    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending' | 'enriched';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -249,6 +340,57 @@ export interface Note {
   skipped_in_sweep_at?: string | null;
   swept_at?: string | null; // ISO timestamp when note was reviewed in sweep ("Just Save")
   resurface_at?: string | null; // ISO date when note should reappear in sweep ("Remind Me")
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Date Intelligence (Phase 2) - For events and reminders
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** When the event IS (e.g., "Mom's birthday March 5", "dentist Tuesday 2pm") */
+  target_date?: string | null; // YYYY-MM-DD
+
+  /** Specific time for events (e.g., "2pm" -> "14:00") */
+  event_time?: string | null; // HH:mm format
+
+  /** When to surface a reminder about this note */
+  reminder_date?: string | null; // YYYY-MM-DD
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Clarifying Questions (Phase 2)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** True if AI couldn't confidently classify and needs user input */
+  needs_clarification?: boolean;
+
+  /** Type of clarification needed */
+  clarification_type?: ClarificationType | null;
+
+  /** Human-readable question to show user */
+  clarification_question?: string | null;
+
+  /** Options for user to choose from */
+  clarification_options?: ClarificationOption[] | null;
+
+  /** True once user has resolved the clarification */
+  clarification_resolved?: boolean;
+}
+
+/**
+ * CalendarEvent - Quick-add calendar entries for Morning Brief
+ * Separate from notes/todos - these are pure time blocks
+ */
+export interface CalendarEvent {
+  id: ID;
+  type: 'calendar_event';
+  owner_id: ID;
+  title: string;
+  event_date: string; // YYYY-MM-DD
+  event_time?: string | null; // HH:mm format
+  duration_minutes?: number | null;
+  source: 'user' | 'sync';
+  space_id?: ID | null;
+  notes?: string | null;
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
 }
 
 /**

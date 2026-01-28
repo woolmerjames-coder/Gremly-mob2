@@ -196,6 +196,10 @@ export default {
         sat: 6,
       };
 
+      // --- Clarification confidence threshold ---
+      // Below this confidence, AI should ask a clarifying question instead of guessing
+      const BUCKET_CONFIDENCE_THRESHOLD = 0.7;
+
       // Parse day names from text and return array of day numbers
       function parseDaysFromText(text) {
         if (!text) return null;
@@ -395,8 +399,12 @@ export default {
       }
 
       function normalizePhase1(bucket, subtype, text) {
-        const validBuckets = ['todo', 'habit', 'log'];
+        const validBuckets = ['todo', 'habit', 'log', 'ambiguous'];
         let b = String(bucket || '').toLowerCase();
+        // If ambiguous, store as log/general for DB compatibility
+        if (b === 'ambiguous') {
+          return { bucket: 'log', subtype: 'general' };
+        }
         if (!validBuckets.includes(b)) b = 'log';
 
         let st = null;
@@ -1776,6 +1784,13 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
   - "necklace or scarf for mom"  SINGLE (choosing between options)
   - "yoga or pilates"  SINGLE (deciding which)
   
+  **Event + scheduling action for SAME event = ONE item:**
+  - "Haircut appointment is Tuesday, book tomorrow"  SINGLE (event date + action date)
+  - "Dentist is Friday, need to call and schedule"  SINGLE (one appointment context)
+  - "Meeting is at 3pm, need to prep for it"  SINGLE (event + preparation)
+  - The scheduling action RELATES to the same event mentioned
+  - This is ONE item with target_date (when it IS) + scheduled_date (when to DO it)
+  
   === SPLIT (is_multi: true) ===
   
   Split ONLY when there are genuinely SEPARATE, UNRELATED intents.
@@ -1978,6 +1993,568 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
       }
 
       // =========================
+      // === PHASE 1.5: CLARIFY AMBIGUITY ===
+      // =========================
+      if (type === 'clarify-ambiguity') {
+        const text = body.text || '';
+        const detectedTemporal = body.detectedTemporal || null;
+        const ambiguityReason = body.ambiguityReason || 'unclear intent';
+
+        const phase1_5Prompt = `You generate clarifying questions for ambiguous inputs in a productivity app.
+
+=== CONTEXT ===
+INPUT: "${text}"
+DETECTED TEMPORAL: ${detectedTemporal || 'none'}
+AMBIGUITY REASON: ${ambiguityReason}
+
+=== STEP 1: DETERMINE AMBIGUITY TYPE ===
+
+Read the AMBIGUITY REASON and INPUT to determine what kind of clarification is needed:
+
+**DATE TYPE AMBIGUITY** — The input has a date, but we don't know what it means:
+- Signals in reason: "date meaning", "when to do vs when it is", "event or action", "deadline or scheduled"
+- Signals in input: Action verb + noun + date (e.g., "book half marathon Feb 1", "schedule dentist Monday")
+- Question should ask: Is the date when something IS/happens, or when to DO the action?
+
+**BUCKET AMBIGUITY** — We don't know if this is a todo, habit, or note:
+- Signals in reason: "unclear intent", "bare noun", "no verb", "could be multiple buckets"
+- Signals in input: No clear action verb, vague aspiration, noun + date without context
+- Question should ask: What do you want to do with this?
+
+=== STEP 2: GENERATE APPROPRIATE QUESTION ===
+
+**FOR DATE TYPE AMBIGUITY:**
+
+The user has an action + date. We need to know if the date is:
+- TARGET DATE: When something IS, HAPPENS, or is DUE (external, immovable)
+- SCHEDULED DATE: When the user will DO the action (internal, movable)
+
+Question pattern: "Is [date] when [the thing] is, or when you'll [action]?"
+
+Options should be:
+1. One option for "that's when it IS" → will become target_date
+2. One option for "that's when I'll DO it" → will become scheduled_date
+
+Examples:
+
+INPUT: "book half marathon Feb 1"
+{
+  "question": "Is Feb 1 when the race is, or when you'll book?",
+  "options": [
+    { "id": "event_date", "label": "That's when the race is" },
+    { "id": "action_date", "label": "That's when I'll book it" }
+  ]
+}
+
+INPUT: "schedule dentist Monday"
+{
+  "question": "Is Monday when the appointment is, or when you'll call?",
+  "options": [
+    { "id": "event_date", "label": "That's when the appointment is" },
+    { "id": "action_date", "label": "That's when I'll schedule it" }
+  ]
+}
+
+INPUT: "passport June"
+{
+  "question": "What's happening with the passport in June?",
+  "options": [
+    { "id": "trip_date", "label": "I have a trip then" },
+    { "id": "expiry_date", "label": "It expires — need to renew" }
+  ]
+}
+
+**FOR BUCKET AMBIGUITY:**
+
+Generate options that lead to DIFFERENT classification outcomes.
+
+Question pattern: Natural question about intent
+Options should cover: TODO (action), HABIT (recurring), LOG/idea (just capturing)
+
+Examples:
+
+INPUT: "standing desk"
+{
+  "question": "What's the plan?",
+  "options": [
+    { "id": "action", "label": "I want to buy one" },
+    { "id": "idea", "label": "Just a thought for now" }
+  ]
+}
+
+INPUT: "gym Monday"
+{
+  "question": "One-time or building a habit?",
+  "options": [
+    { "id": "one_time", "label": "Just going this Monday" },
+    { "id": "habit", "label": "Starting to go regularly" }
+  ]
+}
+
+=== NATURAL LANGUAGE RULES ===
+
+Options must sound like a human describing their situation.
+
+**NEVER use these words in options:**
+- "track", "habit", "todo", "log", "routine", "target date", "scheduled date"
+- "classify", "categorize", "bucket"
+
+**GOOD — Natural:**
+- "That's when the race is"
+- "That's when I'll book it"
+- "I want to do this regularly"
+- "Just a thought for now"
+
+**BAD — System-y:**
+- "Set as target date"
+- "Track this as a habit"
+- "Save as scheduled date"
+
+=== OUTPUT FORMAT ===
+
+Return ONLY valid JSON:
+
+{
+  "question": "Short question under 50 chars",
+  "options": [
+    { "id": "option_1", "label": "First option label" },
+    { "id": "option_2", "label": "Second option label" }
+  ]
+}
+
+- question: Natural, friendly, specific to the input
+- options: 2-3 options, each with id (snake_case) and label
+- For date ambiguity: use ids like "event_date", "action_date", "trip_date", "expiry_date"
+- For bucket ambiguity: use ids like "action", "habit", "idea", "noting"`;
+
+        const t0 = Date.now();
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: phase1_5Prompt }],
+              temperature: 0.1,
+              max_tokens: 200,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[Phase1.5] API error', { error: oj.error, latency_ms: latency });
+            return j({ success: false, reason: 'api_error', latency_ms: latency });
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+
+          let parsed;
+          try {
+            parsed = JSON.parse(rawContent);
+          } catch {
+            console.log('[Phase1.5] Parse error', { raw: rawContent });
+            return j({ success: false, reason: 'parse_error', latency_ms: latency });
+          }
+
+          // Validate options
+          if (!Array.isArray(parsed.options) || parsed.options.length < 2) {
+            console.log('[Phase1.5] Invalid options', { latency_ms: latency });
+            return j({ success: false, reason: 'invalid_options', latency_ms: latency });
+          }
+
+          // Clean options (just id and label, no action/bucket)
+          const cleanedOptions = parsed.options
+            .slice(0, 3)
+            .map((opt) => ({
+              id: String(opt.id || '')
+                .substring(0, 30)
+                .replace(/[^a-z0-9_]/gi, '_'),
+              label: String(opt.label || '').substring(0, 80),
+            }))
+            .filter((opt) => opt.id && opt.label);
+
+          if (cleanedOptions.length < 2) {
+            console.log('[Phase1.5] Not enough valid options', { latency_ms: latency });
+            return j({ success: false, reason: 'insufficient_options', latency_ms: latency });
+          }
+
+          const question =
+            typeof parsed.question === 'string'
+              ? parsed.question.trim().substring(0, 60)
+              : 'What did you mean?';
+
+          console.log('[Phase1.5] Success', {
+            question: question.substring(0, 40),
+            options_count: cleanedOptions.length,
+            latency_ms: latency,
+          });
+
+          return j({
+            success: true,
+            question,
+            options: cleanedOptions,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[Phase1.5] Error', { error: String(err), latency_ms: latency });
+          return j({ success: false, reason: 'request_error', latency_ms: latency });
+        }
+      }
+
+      // =========================
+      // === RECLASSIFY AFTER CLARIFICATION ===
+      // Generates updated title + confirmation message after user clarifies intent
+      // =========================
+      if (type === 'reclassify-after-clarification') {
+        const text = body.text || '';
+        const selectedLabel = body.selectedLabel || '';
+        // eslint-disable-next-line no-restricted-syntax -- Cloudflare Worker doesn't have dateService
+        const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
+        const targetBucket = body.targetBucket || null;
+
+        const reclassifyPrompt = `You classify and enrich a productivity item after the user clarified their intent.
+
+=== CONTEXT ===
+ORIGINAL INPUT: "${text}"
+USER CLARIFICATION: "${selectedLabel}"
+CURRENT DATE: ${currentDate}
+
+The user was asked to clarify their intent. Their response above might be:
+- A predefined option they tapped (e.g., "I want to build this into my routine")
+- Free text they typed to explain (e.g., "I want to drink 8 glasses a day")
+
+Either way, use their clarification to understand what they ACTUALLY meant, then classify accordingly.
+
+=== THE FOUR BUCKETS ===
+
+**TODO** — A discrete, completable action
+The user will eventually "check this off." A clear DONE state exists.
+
+TODO signals from clarification:
+- "I need to book/call/schedule..." → action required → TODO
+- "I need to renew/cancel/fix..." → action required → TODO  
+- "I need to get a gift/buy..." → action required → TODO
+- "I want to buy one" → action required → TODO
+
+**HABIT** — A trackable, recurring behavior
+The user wants to TRACK this over time.
+
+HABIT signals from clarification:
+- "Starting to go regularly" → building routine → HABIT
+- "Want to do this daily/weekly" → recurring intent → HABIT
+- "Building a habit" → explicit → HABIT
+
+**LOG** — Capture for reflection, not action
+A thought, event, idea, or information. No action required from the user.
+
+LOG signals from clarification:
+- "I have an appointment/meeting" → existing event → LOG/general
+- "I have a trip" → noting travel → LOG/general
+- "Just noting the date" → awareness → LOG/general
+
+LOG/idea signals (brainstorming, exploring, not committed):
+- "Just exploring the idea" → LOG/idea
+- "Researching options" → LOG/idea
+- "Still deciding" → LOG/idea
+- "Thinking about it" → LOG/idea
+- "Maybe someday" → LOG/idea
+- "Not sure yet" → LOG/idea
+- Any response indicating exploration without commitment → LOG/idea
+
+=== SUBTYPE DECISION FOR LOGS ===
+
+When bucket is "log", determine subtype based on the clarification:
+
+**LOG/idea** — User is exploring, not committed:
+- Selected option contains: "exploring", "researching", "deciding", "thinking about", "maybe", "not sure"
+- User hasn't committed to action, just capturing the thought
+- Examples: "Just exploring the idea", "Researching options", "Still deciding"
+
+**LOG/journal** — User is reflecting on feelings/experiences:
+- Selected option contains emotional or reflective language
+- Examples: "Just venting", "Processing this", "Reflecting on it"
+
+**LOG/general** — User is noting information or existing events:
+- Selected option confirms something EXISTS or is scheduled
+- Examples: "I have an appointment", "Just noting the date", "It's already booked"
+
+Default to "general" if unclear, but prefer "idea" when user indicates exploration.
+
+=== DATE INTELLIGENCE ===
+
+The original input may contain a date. The clarification tells us the user's INTENT. Combine both to determine how to handle dates.
+
+**RULE 1: Never invent dates.**
+Only set dates that were mentioned in the ORIGINAL INPUT. If there was no date, both fields are null.
+
+**RULE 2: Use the clarification to determine date TYPE.**
+
+If clarification reveals EXISTING EVENT/APPOINTMENT (LOG):
+- "I have an appointment Monday" → target_date = Monday (it's when the appointment IS)
+- "I have a trip in June" → target_date = June (it's when the trip IS)
+
+If clarification reveals PLANNING FOR AN EVENT (TODO):
+- "I need to plan a celebration" (original had "May") → target_date = May (when the event IS), scheduled_date = null
+- "I need to get a gift" (original had "March 5") → target_date = March 5 (when the birthday IS), scheduled_date = null
+- The date is CONTEXT for the task, not when to DO the task
+- Do NOT set this as a due_date — it's reference info
+
+If clarification reveals ACTION with explicit timing:
+- "I need to book, will call Monday" → scheduled_date = Monday (when they'll do the task)
+- "I'll handle it tomorrow" → scheduled_date = tomorrow
+
+If clarification reveals ACTION but date meaning is ambiguous:
+- "I need to book" (original had "Monday") → Could be "appointment on Monday" or "call on Monday"
+- In this case: target_date = the original date, scheduled_date = null, date_type_ambiguous = true
+
+**RULE 3: Planning tasks get target_date, not scheduled_date.**
+
+When the clarification is about PLANNING or PREPARING for something:
+- "plan a celebration", "get a gift", "prepare for", "organize"
+- The original date is WHEN THE THING IS, not when to do the planning
+- Set target_date = original date, scheduled_date = null
+- Do NOT flag as ambiguous — we know the date is the event date
+
+**RULE 4: Flag ambiguity only when truly unclear.**
+
+Set date_type_ambiguous: true when:
+- Original input had a date
+- Clarification confirmed action is needed (TODO)
+- But clarification did NOT reveal whether the date is event or action timing
+- AND it's not clearly a "planning for event" scenario
+
+Examples:
+- "sister graduation May" + "I need to plan a celebration" → target_date: May (graduation date), scheduled_date: null, date_type_ambiguous: false
+- "mom birthday March 5" + "I need to get a gift" → target_date: March 5 (birthday), scheduled_date: null, date_type_ambiguous: false
+- "chiropractor Monday" + "I need to book" → target_date: Monday, scheduled_date: null, date_type_ambiguous: true (unclear if appointment or call date)
+- "chiropractor Monday" + "I have an appointment" → target_date: Monday, scheduled_date: null, date_type_ambiguous: false
+- "standing desk" + "I want to buy one" → target_date: null, scheduled_date: null, date_type_ambiguous: false (no date)
+
+=== TITLE RULES ===
+
+Generate a 3-7 word title that reflects the CLARIFIED intent:
+
+- For TODOs: Action verb + object ("Book Dentist Appointment", "Renew Passport", "Buy Gift For Mom")
+- For HABITs: Activity name ("Regular Gym Sessions", "Daily Meditation")
+- For LOGs: Topic/event name ("Dentist Appointment Tuesday", "Trip In June", "Standing Desk Idea")
+
+NO temporal words in titles (tomorrow, Tuesday, next week) — dates are stored separately.
+
+=== CONFIRMATION MESSAGE (4-10 words) ===
+
+This is Gremly's voice — warm, specific, gently playful. Like a supportive friend who actually listened.
+
+CORE RULES:
+- Reference something SPECIFIC from their input (proves you understood)
+- Add a touch of warmth or gentle humor
+- Feel human, not robotic
+- No exclamation marks (too perky)
+- No generic acknowledgments
+
+NEVER SAY:
+- "Got it", "Added", "Noted" (alone)
+- "Task added to your list"
+- "I've captured that for you"
+- "Added as a todo/habit"
+- "Successfully saved"
+- Anything that sounds like a system notification
+
+GOOD — Specific + Personality:
+
+For TODOs:
+- "Bella's gonna love that walk."
+- "Mom would love to hear from you."
+- "Reservations — fancy."
+- "That bug won't fix itself."
+- "Vitamins for the win."
+- "Adulting at its finest."
+- "Consider it on the radar."
+- "Dentist called, you answered."
+
+For HABITs:
+- "Gym time, let's build the streak."
+- "Morning runs hit different."
+- "Your future self will thank you."
+- "Consistency starts now."
+- "One day at a time."
+
+For LOG/journal:
+- "Your brain needed to dump that."
+- "Big feelings, safely captured."
+- "Sometimes you just gotta write it out."
+- "Heard. All of it."
+- "That's a lot — it's safe here."
+
+For LOG/idea:
+- "Idea logged, let it marinate."
+- "Could be something there."
+- "Tucked away for when you're ready."
+- "Creative brain doing its thing."
+
+For LOG/general (ambiguous):
+- "Captured — you'll sort it in Sweep."
+- "Holding onto this one."
+- "Parked for now."
+- "Safe with me."
+
+THE VIBE:
+- Supportive friend, not assistant robot
+- Knows what you said, reflects it back with warmth
+- Brief but human
+- Gently playful when appropriate, not forced
+
+=== OUTPUT FORMAT ===
+
+Return ONLY valid JSON:
+
+{
+  "bucket": "todo" | "habit" | "log",
+  "subtype": "general" | "idea" | "journal" | null,
+  "habit_subtype": "start_habit" | "break_habit" | null,
+  "smart_title": "3-7 Word Title",
+  "confirmation_message": "Warm, specific message",
+  "target_date": "YYYY-MM-DD" | null,
+  "scheduled_date": "YYYY-MM-DD" | null,
+  "date_type_ambiguous": boolean
+}
+
+Rules:
+- subtype only when bucket is "log"
+- habit_subtype only when bucket is "habit"
+- date_type_ambiguous: true when original had date but clarification didn't resolve its meaning
+- Dates in YYYY-MM-DD format`;
+
+        const t0 = Date.now();
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: reclassifyPrompt }],
+              temperature: 0.3,
+              max_tokens: 250,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[Reclassify] API error', { error: oj.error });
+            return j({
+              bucket: 'log',
+              subtype: 'general',
+              habit_subtype: null,
+              smart_title: text.substring(0, 50),
+              confirmation_message: 'Updated.',
+              target_date: null,
+              scheduled_date: null,
+              latency_ms: latency,
+            });
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+          const parsed = JSON.parse(rawContent);
+
+          // Validate bucket
+          const validBuckets = ['todo', 'habit', 'log'];
+          let bucket = validBuckets.includes(parsed.bucket) ? parsed.bucket : 'log';
+
+          // Validate subtype
+          let subtype = null;
+          if (bucket === 'log') {
+            const validSubtypes = ['general', 'idea', 'journal'];
+            subtype = validSubtypes.includes(parsed.subtype) ? parsed.subtype : 'general';
+          }
+
+          // Validate habit_subtype
+          let habitSubtype = null;
+          if (bucket === 'habit') {
+            const validHabitSubtypes = ['start_habit', 'break_habit'];
+            habitSubtype = validHabitSubtypes.includes(parsed.habit_subtype)
+              ? parsed.habit_subtype
+              : 'start_habit';
+          }
+
+          // Validate dates
+          let targetDate = null;
+          let scheduledDate = null;
+          if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+            targetDate = parsed.target_date;
+          }
+          if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
+            scheduledDate = parsed.scheduled_date;
+          }
+
+          // Extract date_type_ambiguous flag
+          const dateTypeAmbiguous = parsed.date_type_ambiguous === true;
+
+          // Extract confirmation message (same as Phase 1)
+          let confirmationMessage = parsed.confirmation_message || null;
+          if (confirmationMessage) {
+            confirmationMessage = String(confirmationMessage).trim();
+            if (confirmationMessage.length < 3 || confirmationMessage.length > 100) {
+              confirmationMessage = null;
+            }
+          }
+
+          console.log('[Reclassify] Success', {
+            bucket,
+            subtype,
+            habit_subtype: habitSubtype,
+            title: parsed.smart_title?.substring(0, 30),
+            confirmation_message: confirmationMessage,
+            target_date: targetDate,
+            scheduled_date: scheduledDate,
+            date_type_ambiguous: dateTypeAmbiguous,
+            latency_ms: latency,
+          });
+
+          return j({
+            bucket,
+            subtype,
+            habit_subtype: habitSubtype,
+            smart_title: parsed.smart_title || text.substring(0, 50),
+            confirmation_message: confirmationMessage,
+            target_date: targetDate,
+            scheduled_date: scheduledDate,
+            date_type_ambiguous: dateTypeAmbiguous,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[Reclassify] Error', { error: String(err), latency_ms: latency });
+          return j({
+            bucket: 'log',
+            subtype: 'general',
+            habit_subtype: null,
+            smart_title: text.substring(0, 50),
+            confirmation_message: 'Updated.',
+            target_date: null,
+            scheduled_date: null,
+            date_type_ambiguous: false,
+            time_estimate_minutes: null,
+            energy_type: null,
+            latency_ms: latency,
+          });
+        }
+      }
+
+      // =========================
       // === PHASE 1 CLASSIFICATION (v4.1 - NOW INCLUDES TITLE + MESSAGE) ===
       // =========================
       if (type === 'classify-phase1') {
@@ -1985,206 +2562,531 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
         const hasAttachments = body.hasAttachments || false;
         const heuristicHint = body.heuristicHint || null;
 
-        const phase1Prompt = `You classify "mind drops" for Gremly AND generate a smart title + confirmation message.
+        const phase1Prompt = `You classify "mind drops" for Gremly, a productivity app. Your job is to understand the user's TRUE INTENT using semantic understanding, not keyword matching.
 
-  === THE THREE BUCKETS ===
-  
-  **TODO** - A discrete, completable action
-  User will eventually "check this off." Clear done state exists.
-  
-  **TODO SIGNAL PHRASES (these indicate a task, not a note):**
-  - "make sure to...", "make sure I..."
-  - "don't forget to...", "remember to..."
-  - "need to...", "have to...", "should..." (+ specific action)
-  - "remind me to..."
-  
-  Even without explicit "todo" framing, these phrases indicate an action the user wants to complete.
-  
-  **HABIT** - A trackable, recurring behavior the user EXPLICITLY wants to track
-  STRICT REQUIREMENTS - see "HABIT GATE" below. Must have explicit frequency OR stop/quit + concrete behavior.
-  
-  **LOG** - Capture for reflection, not action
-  A thought, feeling, idea, observation, OR a fuzzy aspiration that needs more thought.
-  
-  === DECISION FRAMEWORK ===
-  
-  **STEP 0: Check for STRONG TODO SIGNALS (HIGH CONFIDENCE)**
-  
-  These phrases strongly indicate a task — classify as TODO:
-  
-  Explicit reminders: "make sure to...", "don't forget to...", "remember to...", "remind me to..."
-  Clear obligation: "need to...", "have to...", "gotta...", "got to..."
-  Direct commands to self: "call...", "text...", "email...", "buy...", "book...", "schedule...", "submit...", "pay...", "send...", "finish...", "complete..."
-  
-  These are TODOs even with soft hedging:
-  - "should call mom" → TODO (clear action)
-  - "need to buy groceries" → TODO (clear action)
-  - "don't forget to submit timesheet" → TODO (explicit reminder)
-  
-  **STEP 1: Check for REFERENCE/INFO signals (LOG/general)**
-  
-  Classify as LOG/general if the input is purely INFORMATIONAL (no action):
-  - Contact info: "john's number is 555-1234"
-  - Status updates: "meeting moved to thursday"
-  - Facts to remember: "remember sarah likes orchids" (storing info, not tasking yourself)
-  - Announcements: "jake is sick", "office closed monday"
-  
-  **STEP 2: HABIT GATE (STRICT)**
-  
-  ONLY classify as HABIT if:
-  
-  A) EXPLICIT FREQUENCY: "daily", "every day", "every morning", "3x/week", "weekly", etc.
-  
-  OR
-  
-  B) STOP/QUIT + CONCRETE TRACKABLE BEHAVIOR: "stop smoking", "quit scrolling", "no phone after 9pm"
-  
-  WITHOUT explicit frequency or stop/quit → NOT a habit
-  
-  **STEP 3: Check for IDEA signals (LOG/idea)**
-  
-  Classify as LOG/idea if:
-  - Explicit idea framing: "idea for...", "idea:", "concept:", "what if..."
-  - Comparing options WITHOUT action verb: "necklace or scarf for mom", "yoga or pilates"
-  - Brainstorming: "random thought:", "what about...", "could we try..."
-  - Floating possibilities: "might be nice to...", "would be cool if..."
-  
-  KEY DISTINCTION — hedging + action verb:
-  - "maybe buy groceries" → TODO (has clear action verb "buy")
-  - "should probably call mom" → TODO (has clear action verb "call")
-  - "thinking I should text sarah" → TODO (has clear action verb "text")
-  
-  vs. hedging WITHOUT action verb:
-  - "maybe a necklace for mom" → LOG/idea (no verb, just considering)
-  - "thinking about career change" → LOG/idea (abstract, no specific action)
-  - "pottery class sometime" → LOG/idea (vague interest)
-  
-  **The test: Is there a CLEAR ACTION VERB (buy, call, text, send, book, submit, etc.)?**
-  - YES + any level of hedging → TODO
-  - NO + exploring/uncertain → LOG/idea
-  
-  **STEP 4: Check for JOURNAL signals (LOG/journal)**
-  
-  Classify as LOG/journal if:
-  - Emotional expression: "feeling anxious", "stressed", "grateful"
-  - Past reflection: "I realized...", "had a great day"
-  - Self-talk/venting: "why do I always...", "ugh"
-  
-  **STEP 5: Work/Project tasks with clear scope (TODO)**
-  
-  If describing SPECIFIC, BOUNDED work with a clear done state:
-  - "improve the onboarding screen" → TODO (specific change, can be done)
-  - "fix the checkout bug" → TODO (specific fix)
-  - "write the Q3 report" → TODO (specific deliverable)
-  
-  NOT todos (too vague):
-  - "improve my productivity" → LOG/general (no clear done state)
-  - "work on the app" → LOG/general (too broad)
-  
-  **STEP 6: Genuinely ambiguous → LOG/general**
-  
-  When uncertain, default to LOG/general. This is the SAFE CAPTURE bucket.
-  - User can promote to TODO in Evening Sweep
-  - Better to safely capture than create false tasks
-  - LOG/general means "noted — you decide what it becomes"
-  
-  Examples of genuinely ambiguous (→ LOG/general):
-  - "standing desk" (noun phrase, unclear if shopping or just noting)
-  - "dentist" (could be reminder, could be just noting they need one eventually)
-  - "mom's birthday" (unclear intent without more context)
-  
-  === THE KEY PRINCIPLE ===
-  
-  Action verb present → almost certainly TODO (even with hedging)
-  No action verb + exploring → LOG/idea
-  No action verb + genuinely unclear → LOG/general (safe capture)
-  
-  The goal is to correctly capture clear todos while NOT forcing ambiguous items into todo.
-  When genuinely unsure, LOG/general is the right choice — it's a safe holding area.
-  
-  === EXAMPLES ===
-  
-  TODO (clear action verb, even with hedging):
-  - "Call mom", "Buy groceries", "Book flights"
-  - "should call mom" → TODO
-  - "maybe buy groceries" → TODO
-  - "need to submit timesheet" → TODO
-  - "don't forget to text sarah" → TODO
-  - "improve the first screen of the sweep" → TODO (specific work)
-  - "fix the login bug" → TODO (specific work)
-  
-  HABIT (explicit frequency or stop/quit + behavior):
-  - "Run every morning", "Meditate daily", "Exercise 3x per week"
-  - "Stop smoking", "No phone after 9pm"
-  
-  LOG/general (ambiguous, safe capture):
-  - "standing desk" (noun phrase, unclear intent)
-  - "dentist" (unclear if task or just noting)
-  - "drink more water" (fuzzy aspiration, no frequency)
-  - "john's number is 555-1234" (reference info)
-  - "meeting moved to thursday" (status update)
-  
-  LOG/journal (emotional/reflective):
-  - "feeling overwhelmed", "stressed about work"
-  - "why do I always procrastinate"
-  
-  LOG/idea (exploring without action verb):
-  - "necklace or scarf for mom" (comparing options, no verb)
-  - "what if we added dark mode" (brainstorming)
-  - "pottery class sometime" (vague interest)
-  - "thinking about switching careers" (abstract exploration)
-  
-  NOT ideas (these have action verbs → TODO):
-  - "maybe buy a necklace" → TODO (has "buy")
-  - "should add dark mode" → TODO (has "add")
-  - "sign up for pottery" → TODO (has "sign up")
-  
-  === HABIT SUBTYPE ===
-  
-  If classifying as HABIT:
-  - **start_habit**: Building/doing something (exercise, meditate, read)
-  - **break_habit**: Stopping/avoiding something (stop smoking, quit scrolling)
-  
-  === SMART TITLE (3-7 words) ===
-  
-  Generate a title that describes the SUBJECT/TOPIC:
-  - TODO: Verb + object (Buy Groceries, Call Mom, Book Dentist)
-  - HABIT: Activity name only - NO frequency in title (Run, Reading, No Phone After 9pm). Frequency appears in chips, not title.
-  - LOG/JOURNAL: Topic or situation (Job Interview Tomorrow, Work Stress)
-  - LOG/IDEA: The concept (Garden Redesign, App Feature Idea)
-  - LOG/GENERAL: The topic/noun (Dark Mode, Standing Desk, Pottery Class)
-  
-  AVOID: "Reflect on...", "Journal about...", "Track..."
-  NEVER include mood words: anxious, stressed, grateful, overwhelmed, tired, etc.
-  
-  === CONFIRMATION MESSAGE (4-8 words) ===
-  
-  A warm, specific acknowledgment from Gremly:
-  - Reference something SPECIFIC from their text (noun, name, place, feeling)
-  - Add warmth or personality
-  - Never just restate the title
-  - No exclamation marks
-  
-  GOOD: "Mum's waiting, you've got this." / "Triple run week, let's go." / "Presentation nerves are real."
-  BAD: "Task noted." / "Got it." / "Added to list."
-  
-  For LOG/general (ambiguous captures):
-  - "Captured — you decide in Sweep."
-  - "Noted for later."
-  - "Holding onto this one."
-  - "Saved — see what it becomes."
-  
-  === OUTPUT ===
-  
-  Return ONLY valid JSON:
-  { 
-   "bucket": "todo"|"habit"|"log", 
-   "confidence": 0.0-1.0, 
-   "subtype": "journal"|"idea"|"general"|null, 
-   "habitSubtype": "start_habit"|"break_habit"|null,
-   "smart_title": "3-7 Word Title",
-   "confirmation_message": "4-8 word warm message"
-  }`;
+=== THE FOUR BUCKETS ===
+
+**TODO** — A discrete, completable action
+The user will eventually "check this off." A clear DONE state exists.
+Ask: "Can this be marked DONE when complete?"
+
+**HABIT** — A trackable, recurring behavior
+The user wants to TRACK this over time. It's concrete and observable.
+Ask: "Can this be tracked with a yes/no each day/week?"
+
+**LOG** — Capture for reflection, not action
+A thought, feeling, idea, or fuzzy aspiration. No clear done state or tracking intent.
+Ask: "Is this reflection, exploration, venting, or too vague to act on?"
+
+**AMBIGUOUS** — Intent is unclear, need to ask the user
+You cannot confidently determine which bucket this belongs in.
+Ask: "Do I have EVIDENCE for TODO, HABIT, or LOG? Or am I guessing?"
+Choose AMBIGUOUS when none of the other three buckets reaches 80% confidence.
+
+=== SEMANTIC CLASSIFICATION (PRIMARY) ===
+
+Use your language understanding to determine intent. Don't pattern-match keywords.
+
+**TODO SEMANTIC TEST:**
+A TODO has ALL of these:
+1. A discrete action (not ongoing)
+2. A clear completion point (you'll know when it's done)
+3. Something the user would "check off"
+
+Examples that pass the test:
+- "Have vit c and iron supplement" → Done when taken ✓
+- "Call mom" → Done when call ends ✓
+- "Buy groceries" → Done when purchased ✓
+- "Fix the login bug" → Done when bug is fixed ✓
+- "Submit the report" → Done when submitted ✓
+- "Book dentist appointment" → Done when booked ✓
+- "Cancel Netflix" → Done when cancelled ✓
+- "Improve the onboarding screen" → Done when improvement ships ✓
+
+Examples that FAIL the test:
+- "Be healthier" → No clear done state ✗
+- "Improve my relationship with dad" → No discrete completion ✗
+- "Work on the app" → Too vague, no end point ✗
+
+**HABIT SEMANTIC TEST:**
+A HABIT has ALL of these:
+1. A CONCRETE, OBSERVABLE behavior (not abstract)
+2. Something trackable with yes/no (did I do it today?)
+3. EXPLICIT intent to repeat (frequency stated OR stop/quit pattern)
+
+The "trackable" test:
+- "Stop smoking" → Trackable: "Did I smoke today? No ✓" → HABIT
+- "Run every morning" → Trackable: "Did I run this morning? Yes ✓" → HABIT
+- "Stop overthinking" → NOT trackable (mental state, not behavior) → LOG
+- "Be more patient" → NOT trackable (abstract quality) → LOG
+
+STRICT REQUIREMENT — Habits need explicit signals:
+- Explicit frequency: "daily", "every day", "every morning", "3x/week", "weekly", "twice a day"
+- OR stop/quit + concrete behavior: "stop smoking", "quit drinking", "no phone after 9pm"
+
+WITHOUT explicit frequency or stop/quit → NOT a habit, even if repeatable.
+- "Go to the gym" (no frequency) → TODO (single instance)
+- "Drink water" (no frequency) → LOG/general (vague aspiration)
+- "Go to the gym every day" → HABIT (explicit frequency)
+
+**LOG SEMANTIC TEST:**
+A LOG is for content that doesn't fit TODO or HABIT:
+
+LOG/journal — Emotional expression or reflection:
+- Processing feelings: "feeling anxious about the presentation"
+- Past reflection: "I realized I've been avoiding this"
+- Venting/self-talk: "why do I always procrastinate"
+- Gratitude/mood: "grateful for the good weather"
+
+LOG/idea — Exploration without commitment:
+- Brainstorming: "what if we added dark mode"
+- Weighing options: "necklace or scarf for mom" (no action verb, comparing)
+- Vague interest: "pottery class sometime"
+- Not decided: "thinking about switching careers"
+
+LOG/general — Reference information where NO ACTION is plausible:
+- Reference info with existence verb: "john's number is 555-1234", "mum's birthday is August 22nd"
+- Status updates with existence verb: "meeting is moved to thursday", "office is closed friday"
+- Completed events: "went to dentist", "finished the report"
+
+**NOT for LOG/general — these should be AMBIGUOUS:**
+- Bare nouns without verbs: "dentist", "standing desk", "groceries"
+- Service + date without action verb: "dermatologist next week", "car inspection Tuesday"
+- Vague aspirations that could be habits: "drink more water", "exercise more"
+
+=== STRUCTURAL SIGNALS (SUPPORTING EVIDENCE) ===
+
+These patterns provide EVIDENCE to support your semantic classification. They don't override semantic understanding — they confirm it.
+
+**Strong TODO signals:**
+- Imperative structure: verb + object with no subject
+  "Have my supplements", "Call mom", "Fix the bug", "Water the plants"
+- Reminder phrasing: "make sure to...", "don't forget to...", "remember to...", "remind me to..."
+- Obligation language: "need to...", "have to...", "gotta...", "should..." (+ specific action)
+
+**Strong HABIT signals:**
+- Explicit frequency: "daily", "every [day/morning/week]", "3x per week", "twice a day"
+- Stop/quit + concrete behavior: "stop smoking", "quit scrolling", "no phone after 9"
+- Tracking language: "track my...", "start doing X every..."
+
+**Strong LOG signals:**
+- Past tense reflection: "I realized...", "I felt...", "I noticed..."
+- Emotional language: "feeling...", "stressed about...", "grateful for...", "anxious"
+- Exploration hedging (WITHOUT action verb): "thinking about...", "what if...", "maybe...", "might be nice to..."
+- Comparing options: "X or Y for...", "either... or..."
+
+**CRITICAL DISTINCTION — Hedging + Action Verb:**
+- "Maybe buy groceries" → TODO (has action verb "buy" — the "maybe" is soft commitment, not exploration)
+- "Should probably call mom" → TODO (has action verb "call")
+- "Thinking I need to submit the report" → TODO (has action verb "submit")
+
+vs. Hedging WITHOUT action verb:
+- "Maybe a necklace for mom" → LOG/idea (no verb, just considering options)
+- "Thinking about career change" → LOG/idea (no specific action)
+
+The test: **Is there a clear action verb (buy, call, text, send, book, submit, take, have, make, do, get, pick up, cancel, fix, etc.)?**
+- YES + hedging → Still TODO (they intend to do it)
+- NO + hedging → LOG/idea (they're exploring)
+
+=== CONFIDENCE & FALLBACK ===
+
+Confidence reflects how much EVIDENCE exists in the input — not how sure you feel about an interpretation.
+
+**THE EVIDENCE TEST:**
+Before classifying, ask: "What SPECIFIC WORDS in this input tell me the user's intent?"
+
+Words that count as evidence:
+- Action verbs: "book", "call", "buy", "schedule", "cancel", "fix", "submit", "send", "pick up"
+- Existence verbs: "is", "have", "got", "was"
+- Frequency words: "daily", "every morning", "3x/week", "weekly"
+- Emotional language: "feeling", "stressed", "anxious", "grateful", "overwhelmed"
+- Stop/quit language: "stop", "quit", "no more", "avoid"
+
+**How evidence maps to confidence:**
+
+**High confidence (0.8-1.0) — You have EVIDENCE:**
+- You can point to specific words that reveal intent
+- Choose bucket: TODO, HABIT, or LOG (not ambiguous)
+
+**Medium confidence (0.7-0.8) — You're INTERPRETING:**
+- The input leans one way based on context
+- But you can't point to a specific word that proves it
+- This is still below 0.8, so bucket: "ambiguous"
+
+**Low confidence (below 0.8) — You're GUESSING:**
+- Multiple interpretations are equally valid
+- You cannot point to specific words that disambiguate
+- Choose bucket: "ambiguous"
+
+**THE RULE:** Confidence below 0.8 = bucket: "ambiguous". Only classify to TODO/HABIT/LOG when you have real evidence.
+
+**EXAMPLES:**
+
+"book chiropractor Monday"
+→ Evidence: "book" (action verb)
+→ You know: User needs to do something
+→ Result: TODO, high confidence, not ambiguous
+
+"chiropractor appointment is Monday"
+→ Evidence: "is" (existence verb)
+→ You know: User is stating a fact
+→ Result: LOG/general, high confidence, not ambiguous
+
+"chiropractor Monday"
+→ Evidence: None — no action verb, no existence verb
+→ You don't know: Could be "I have an appointment" or "I need to book"
+→ Result: Guessing, low confidence, ambiguous
+
+"standing desk"
+→ Evidence: None
+→ You don't know: Could be "want to buy", "just an idea", "researching"
+→ Result: Guessing, low confidence, ambiguous
+
+"mum's birthday is August 22nd"
+→ Evidence: "is" (existence verb)
+→ You know: User is stating a fact
+→ Result: LOG/general, high confidence, not ambiguous
+
+"mum birthday August 22"
+→ Evidence: None
+→ You don't know: Could be "just noting" or "need to get gift" or "need to plan"
+→ Result: Guessing, low confidence, ambiguous
+
+"feeling overwhelmed about the move"
+→ Evidence: "feeling overwhelmed" (emotional language)
+→ You know: User is processing emotions
+→ Result: LOG/journal, high confidence, not ambiguous
+
+"the move"
+→ Evidence: None
+→ You don't know: Could be reflection, could be tasks, could be noting
+→ Result: Guessing, low confidence, ambiguous
+
+=== AMBIGUITY DETECTION ===
+
+Flag ambiguity when you're MISSING INFORMATION needed to handle this item correctly. Use semantic reasoning — apply the LOGIC to any input, don't match against example strings.
+
+**THREE SEMANTIC TESTS:**
+
+**TEST 1: BUCKET CLARITY**
+Ask: "Do I KNOW if this is something to DO vs TRACK vs KNOW?"
+
+CLEAR (not ambiguous):
+- Has action verb (call, buy, book, send, fix, submit, schedule) → DO something
+- Has explicit frequency (daily, every morning, 3x/week) → TRACK something
+- Has emotional/reflective content → KNOW something
+
+UNCLEAR (ambiguous):
+- Bare noun with no verb or intent signal
+- Could reasonably be multiple buckets
+→ is_ambiguous: true, ambiguity_type: "bucket"
+
+**TEST 2: ACTION CLARITY** (apply when input has noun + date/time but no clear action verb)
+Ask: "Do I know if the user HAS something or NEEDS TO DO something?"
+
+CLEAR (not ambiguous):
+- Has action verb: "book dentist", "call therapist", "schedule vet" → NEEDS TO DO
+- Has existence language: "appointment is Tuesday", "I have a meeting" → HAS
+
+UNCLEAR (ambiguous):
+- Noun + date with NO VERB: [service/appointment] + [day/date]
+- Could be existing appointment OR need to book/schedule
+→ is_ambiguous: true, ambiguity_type: "action"
+
+**TEST 3: DATE TYPE CLARITY** (apply AFTER bucket is determined, when input has action verb + date)
+
+This test applies when:
+- Bucket is clearly TODO (has action verb)
+- Input contains a date reference
+- But we don't know what the date MEANS
+
+Ask: "Do I know if this date is when something IS/HAPPENS or when to DO the action?"
+
+**CLEAR (not date_type ambiguous):**
+- Deadline language: "due April 15", "by Friday", "before the 10th" → TARGET DATE
+- Event language: "appointment is Tuesday", "race is Feb 1", "[thing] is [date]" → TARGET DATE
+- Action timing: "call tomorrow", "do tonight", "book on Monday" → SCHEDULED DATE
+
+**UNCLEAR (date_type ambiguous):**
+- Action verb + noun + date WITHOUT clear signals:
+  - "book half marathon Feb 1" — Is Feb 1 the race or the booking?
+  - "schedule dentist Monday" — Is Monday the appointment or when to call?
+  - "renew passport June" — Is June a trip or expiration?
+
+**CRITICAL:** When bucket is TODO and date exists but meaning is unclear:
+→ Set bucket: "todo" (we know it's an action)
+→ Set is_ambiguous: true
+→ Set ambiguity_type: "date_type"
+→ Set ambiguity_reason: Explain the date ambiguity (e.g., "unclear if Feb 1 is the event date or when to do the booking")
+
+This is DIFFERENT from bucket ambiguity:
+- Bucket ambiguity: We don't know TODO vs HABIT vs LOG
+- Date type ambiguity: We KNOW it's a TODO, but don't know what the date means
+
+**EXAMPLES:**
+
+"book half marathon Feb 1"
+→ Evidence: "book" (action verb) → TODO
+→ Date present: "Feb 1"
+→ Date meaning clear? NO — could be race date or booking date
+→ Result: bucket: "todo", is_ambiguous: true, ambiguity_type: "date_type"
+
+"dentist appointment Tuesday 2pm"
+→ Evidence: "appointment is" (existence) → LOG/general
+→ Date present: "Tuesday 2pm"
+→ Date meaning clear? YES — appointment IS on Tuesday
+→ Result: bucket: "log", is_ambiguous: false
+
+"taxes due April 15"
+→ Evidence: "due" (deadline language) → TODO
+→ Date present: "April 15"
+→ Date meaning clear? YES — deadline is April 15
+→ Result: bucket: "todo", is_ambiguous: false, target_date context
+
+"call mom tomorrow"
+→ Evidence: "call" (action verb) → TODO
+→ Date present: "tomorrow"
+→ Date meaning clear? YES — call HAPPENS tomorrow (action timing)
+→ Result: bucket: "todo", is_ambiguous: false, scheduled_date context
+
+**THE KEY QUESTION:**
+"If I had to set this up correctly in the user's productivity system, what information am I MISSING that would CHANGE how I handle it?"
+
+**WHEN CHOOSING AMBIGUOUS BUCKET:**
+- confidence: 0.5-0.7 (reflects uncertainty)
+- smart_title: Stay CLOSE TO ORIGINAL TEXT
+- ambiguity_type: "bucket" | "action" | "date_type"
+- ambiguity_reason: Short explanation (e.g., "noun + date without verb, unclear if existing or need to schedule")
+- confirmation_message: "Quick question — tap me" or similar
+
+**CRITICAL:** These are SEMANTIC TESTS. Apply the REASONING to any input. Do NOT pattern-match against specific strings.
+
+**TEST 4: BARE NOUN TEST**
+If the input is a noun/noun phrase with:
+- No action verb (call, buy, book, schedule, etc.)
+- No existence verb (is, have, got)
+- No explicit emotional content
+
+→ is_ambiguous: true, ambiguity_type: "bucket"
+
+Examples:
+- "dentist" → No verb → AMBIGUOUS
+- "standing desk" → No verb → AMBIGUOUS
+- "groceries" → No verb → AMBIGUOUS
+- "new laptop" → No verb → AMBIGUOUS
+
+**TEST 5: SERVICE + TIME WITHOUT VERB**
+If the input has a service/appointment noun + time reference but NO verb:
+
+→ is_ambiguous: true, ambiguity_type: "action"
+
+Examples:
+- "dermatologist next week" → No verb → AMBIGUOUS
+- "car inspection Tuesday" → No verb → AMBIGUOUS
+- "accountant April" → No verb → AMBIGUOUS
+- "therapist soon" → No verb → AMBIGUOUS
+
+**THE CORE QUESTION:**
+"What specific words in this input tell me the user's intent?"
+
+If you can point to evidence, classify with confidence. If you can't, you're guessing — and the user should clarify.
+
+=== EXAMPLES ===
+
+**TODO** (discrete, completable, clear done state):
+- "Have vit c and iron supplement" → TODO (imperative, done when taken)
+- "Call mom" → TODO
+- "Buy groceries" → TODO
+- "Maybe buy groceries" → TODO (has "buy" — hedging doesn't change it)
+- "Should probably call the dentist" → TODO (has "call")
+- "Fix the login bug" → TODO (specific, done when fixed)
+- "Improve the onboarding screen" → TODO (specific work, done when shipped)
+- "Submit the expense report" → TODO
+- "Don't forget to text Sarah" → TODO (reminder phrasing)
+- "Make sure to lock the door" → TODO (reminder phrasing)
+- "Cancel the subscription" → TODO (one-time action)
+- "Stop by the pharmacy" → TODO (errand, not habit)
+- "Water the plants" → TODO (single instance, no frequency)
+
+**HABIT** (trackable, recurring, explicit frequency or stop/quit):
+- "Run every morning" → HABIT (explicit frequency)
+- "Meditate daily" → HABIT (explicit frequency)
+- "Go to gym 3x per week" → HABIT (explicit frequency)
+- "Stop smoking" → HABIT (stop + concrete trackable behavior)
+- "Quit biting my nails" → HABIT (quit + concrete behavior)
+- "No phone after 9pm" → HABIT (concrete rule to track)
+- "Drink 8 glasses of water daily" → HABIT (explicit frequency)
+
+**LOG/journal** (emotional, reflective):
+- "Feeling anxious about tomorrow" → LOG/journal
+- "Stressed about work" → LOG/journal
+- "I realized I've been avoiding this" → LOG/journal
+- "Why do I always procrastinate" → LOG/journal (self-talk)
+- "Grateful for the support" → LOG/journal
+- "Had a rough day" → LOG/journal
+
+**LOG/idea** (exploring, not committed):
+- "Necklace or scarf for mom" → LOG/idea (comparing options, no verb)
+- "What if we added dark mode" → LOG/idea (brainstorming)
+- "Pottery class sometime" → LOG/idea (vague interest)
+- "Thinking about switching careers" → LOG/idea (exploring, no action)
+- "App idea: calorie tracker" → LOG/idea (concept capture)
+
+**LOG/general** (reference info with existence verbs, completed events):
+- "John's number is 555-1234" → LOG/general (reference info, has "is")
+- "Meeting is moved to Thursday" → LOG/general (status update, has "is")
+- "Mum's birthday is August 22nd" → LOG/general (stating fact, has "is")
+- "Went to dentist yesterday" → LOG/general (completed event, past tense)
+- "Finished the report" → LOG/general (completed event)
+
+**AMBIGUOUS** (must flag, do NOT put in LOG/general):
+- "Dentist" → is_ambiguous: true, ambiguity_type: "bucket" (bare noun, no verb)
+- "Standing desk" → is_ambiguous: true, ambiguity_type: "bucket" (bare noun, no verb)
+- "Dermatologist next week" → is_ambiguous: true, ambiguity_type: "action" (service + time, no verb)
+- "Car inspection Tuesday" → is_ambiguous: true, ambiguity_type: "action" (service + time, no verb)
+- "Drink more water" → is_ambiguous: true, ambiguity_type: "bucket" (could be habit to track)
+- "Exercise more" → is_ambiguous: true, ambiguity_type: "bucket" (could be habit to track)
+
+**NOT habits** (missing explicit frequency):
+- "Go to the gym" → TODO (single instance, no frequency stated)
+- "Drink water" → LOG/general (vague, no frequency)
+- "Run" → TODO (single run, no frequency)
+- "Stop overthinking" → LOG/journal (not trackable — mental state)
+- "Be more patient" → LOG/general (abstract quality, not trackable)
+
+=== HABIT SUBTYPE ===
+
+If classifying as HABIT, also determine:
+- **start_habit**: Building/doing something (run, meditate, read, exercise, drink water)
+- **break_habit**: Stopping/avoiding something (stop smoking, quit scrolling, no phone after 9)
+
+=== SMART TITLE (3-7 words) ===
+
+Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it happens.
+
+Type-specific guidance:
+- TODO: Action + object ("Buy Groceries", "Call Mom", "Fix Login Bug")
+- HABIT: Activity only, NO frequency in title ("Morning Run", "Meditation", "No Late Phone")
+- LOG/journal: Topic or situation ("Work Stress", "Presentation Anxiety")
+- LOG/idea: The concept ("Gift Ideas For Mom", "Dark Mode Feature")
+- LOG/general: The topic ("Career Thoughts", "Standing Desk")
+
+TITLE RULES:
+
+1. Never include TEMPORAL words (these become stale):
+   - "tomorrow", "today", "tonight", "this morning", "this evening", "this afternoon"
+   - "next week", "this week", "next Monday", "on Friday", "next Tuesday"
+   - "later", "soon", "in an hour", "in 30 minutes"
+   - "for tomorrow", "for tonight", "for next week"
+   
+   Extract the WHAT, not the WHEN:
+   - "book restaurant for tomorrow" → "Book Restaurant"
+   - "call mom this evening" → "Call Mom"
+   - "dentist appointment next Tuesday" → "Dentist Appointment"
+   - "submit report by Friday" → "Submit Report"
+   - "pick up groceries later" → "Pick Up Groceries"
+
+2. Never include FREQUENCY words for habits (tracked separately):
+   - "run every morning" → "Morning Run"
+   - "meditate daily" → "Meditation"
+   - "gym 3x per week" → "Gym"
+
+3. Never start with meta-verbs:
+   - "Reflect on...", "Journal about...", "Track...", "Remember to..."
+
+4. Never include mood words:
+   - anxious, stressed, grateful, overwhelmed, worried, excited
+
+5. Title case, 3-7 words
+
+=== CONFIRMATION MESSAGE (4-10 words) ===
+
+This is Gremly's voice — warm, specific, gently playful. Like a supportive friend who actually listened.
+
+CORE RULES:
+- Reference something SPECIFIC from their input (proves you understood)
+- Add a touch of warmth or gentle humor
+- Feel human, not robotic
+- No exclamation marks (too perky)
+- No generic acknowledgments
+
+NEVER SAY:
+- "Got it", "Added", "Noted" (alone)
+- "Task added to your list"
+- "I've captured that for you"
+- "Added as a todo/habit"
+- "Successfully saved"
+- Anything that sounds like a system notification
+
+GOOD — Specific + Personality:
+
+For TODOs:
+- "Bella's gonna love that walk."
+- "Mom would love to hear from you."
+- "Reservations — fancy."
+- "That bug won't fix itself."
+- "Vitamins for the win."
+- "Adulting at its finest."
+- "Consider it on the radar."
+- "Dentist called, you answered."
+
+For HABITs:
+- "Gym time, let's build the streak."
+- "Morning runs hit different."
+- "Your future self will thank you."
+- "Consistency starts now."
+- "One day at a time."
+
+For LOG/journal:
+- "Your brain needed to dump that."
+- "Big feelings, safely captured."
+- "Sometimes you just gotta write it out."
+- "Heard. All of it."
+- "That's a lot — it's safe here."
+
+For LOG/idea:
+- "Idea logged, let it marinate."
+- "Could be something there."
+- "Tucked away for when you're ready."
+- "Creative brain doing its thing."
+
+For LOG/general (ambiguous):
+- "Captured — you'll sort it in Sweep."
+- "Holding onto this one."
+- "Parked for now."
+- "Safe with me."
+
+THE VIBE:
+- Supportive friend, not assistant robot
+- Knows what you said, reflects it back with warmth
+- Brief but human
+- Gently playful when appropriate, not forced
+
+=== OUTPUT FORMAT ===
+
+Return ONLY valid JSON:
+
+{
+  "bucket": "todo" | "habit" | "log" | "ambiguous",
+  "confidence": 0.0-1.0,
+  "subtype": "journal" | "idea" | "general" | null,
+  "habitSubtype": "start_habit" | "break_habit" | null,
+  "smart_title": "3-7 Word Title",
+  "confirmation_message": "4-8 word warm message",
+  "ambiguity_type": "bucket" | "action" | "date_type" | null,
+  "ambiguity_reason": "Short reason why it's ambiguous" | null
+}
+
+Rules:
+- subtype is only set when bucket is "log"
+- habitSubtype is only set when bucket is "habit"
+- When bucket is "ambiguous", set ambiguity_type ("bucket" or "action") and ambiguity_reason
+- When is_ambiguous is true, smart_title should stay close to original text
+- When is_ambiguous is true, confirmation_message should be a "tap me" variant:
+  - "Quick question — tap me"
+  - "Need your input — tap here"
+  - "One quick thing — tap me"
+  - "Help me understand — tap here"`;
 
         const phase1Messages = [
           { role: 'system', content: phase1Prompt },
@@ -2229,6 +3131,10 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             habitSubtype: norm.bucket === 'habit' ? fallbackHabitSubtype : null,
             smart_title: null,
             confirmation_message: null,
+            needs_clarification: false,
+            clarification_type: null,
+            clarification_question: null,
+            clarification_options: null,
             source: 'heuristic-fallback',
             latency_ms: latency,
           });
@@ -2257,6 +3163,10 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             habitSubtype: norm.bucket === 'habit' ? fallbackHabitSubtype : null,
             smart_title: null,
             confirmation_message: null,
+            needs_clarification: false,
+            clarification_type: null,
+            clarification_question: null,
+            clarification_options: null,
             source: 'parse-fallback',
             latency_ms: latency,
           });
@@ -2305,6 +3215,26 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
           }
         }
 
+        // Extract ambiguity fields (v4.2 - Phase 1 ambiguity detection)
+        const isAmbiguous = parsed.bucket === 'ambiguous' || parsed.is_ambiguous === true;
+        const ambiguityReason =
+          isAmbiguous && typeof parsed.ambiguity_reason === 'string'
+            ? parsed.ambiguity_reason.trim().substring(0, 200)
+            : null;
+        const ambiguityType =
+          isAmbiguous &&
+          typeof parsed.ambiguity_type === 'string' &&
+          ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
+            ? parsed.ambiguity_type
+            : null;
+
+        // Legacy clarification fields - always false/null in Phase 1
+        // Actual clarification options are generated by Phase 1.5
+        const needsClarification = false;
+        const clarificationType = null;
+        const clarificationQuestion = null;
+        const clarificationOptions = null;
+
         const sameAsBucket = heuristicHint?.bucket === norm.bucket;
 
         console.log('[Phase1]', {
@@ -2314,6 +3244,9 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
           confidence,
           smart_title: smartTitle?.substring(0, 30),
           has_message: !!confirmationMessage,
+          is_ambiguous: isAmbiguous,
+          ambiguity_type: ambiguityType,
+          ambiguity_reason: ambiguityReason?.substring(0, 50),
           heuristicBucket: heuristicHint?.bucket,
           agreed: sameAsBucket,
           latency_ms: latency,
@@ -2326,6 +3259,14 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
           confidence,
           smart_title: smartTitle,
           confirmation_message: confirmationMessage,
+          is_ambiguous: isAmbiguous,
+          ambiguity_type: ambiguityType,
+          ambiguity_reason: ambiguityReason,
+          // Legacy fields for backwards compatibility - Phase 1.5 handles actual clarification
+          needs_clarification: needsClarification,
+          clarification_type: clarificationType,
+          clarification_question: clarificationQuestion,
+          clarification_options: clarificationOptions,
           source: sameAsBucket ? 'heuristic-confirmed' : 'api',
           latency_ms: latency,
         });
@@ -2351,10 +3292,38 @@ Do NOT include planning or scheduling logic.
 Today is ${currentDate} (${dayOfWeek}).
 User timezone: ${timezone}.
 
-Date rules:
-- "tomorrow" = today + 1 day
-- Named days refer to the NEXT occurrence
-- Use YYYY-MM-DD format
+=== DATE CALCULATION RULES ===
+You MUST calculate dates correctly. Do the math.
+
+**For "tomorrow":**
+- Add 1 day to today's date
+- Example: If today is 2026-01-27, tomorrow is 2026-01-28
+
+**For named days (Monday, Tuesday, etc.):**
+- Calculate the NEXT occurrence of that day
+- CRITICAL: If today IS that day, the next occurrence is 7 DAYS FROM NOW (next week)
+- Named days NEVER mean today - they always mean the NEXT future occurrence
+
+**Examples when today is Tuesday (2026-01-28):**
+- "Tuesday" = 2026-02-03 (NEXT Tuesday, 7 days away - NOT today!)
+- "Wednesday" = 2026-01-29 (tomorrow)
+- "Thursday" = 2026-01-30 (in 2 days)
+- "Friday" = 2026-01-31 (in 3 days)
+- "Saturday" = 2026-02-01 (in 4 days)
+- "Sunday" = 2026-02-02 (in 5 days)
+- "Monday" = 2026-02-03 (in 6 days)
+
+**Examples when today is Monday (2026-01-27):**
+- "Monday" = 2026-02-03 (NEXT Monday, 7 days away - NOT today!)
+- "Tuesday" = 2026-01-28 (tomorrow)
+- "Wednesday" = 2026-01-29 (in 2 days)
+
+**CRITICAL RULES:**
+1. Do NOT return today's date unless the input explicitly says "today"
+2. If the named day matches today, add 7 days (next week)
+3. Named days ALWAYS refer to FUTURE dates, never today
+
+**Output format:** YYYY-MM-DD (e.g., "2026-01-28")
 
 === ITEM TYPE ===
 Bucket: "${bucket}"${subtype ? ` (Subtype: "${subtype}")` : ''}
@@ -2370,48 +3339,122 @@ Do NOT invent or over-infer.
 FOR TODOS & HABITS:
 --------------------------------
 1. time_estimate_minutes
-Choose one: 5, 10, 15, 30, 45, 60, 90, 120
-ESTIMATION RULES — ERR ON THE GENEROUS SIDE:
-Tasks always take longer than expected. Account for:
-- Setup/transition time (finding things, context switching)
-- Realistic pace (not rushing)
-- Common interruptions and distractions
+Estimate in 5-minute increments from 5 to 240 minutes.
+Use factor-based reasoning, not category lookup.
 
-MINIMUM ESTIMATES BY CATEGORY:
-- Quick digital tasks (send text, quick email, simple lookup): 5-10 min
-- Phone calls: 15-30 min (includes pleasantries, hold time, wrap-up)
-- Administrative (forms, scheduling, paperwork, bills, timesheets): 15-30 min
-- Shopping errands: 30-60 min (travel + browsing + checkout)
-- Meal prep / cooking: 30-60 min
-- Exercise:
-  - Quick (stretching, short walk): 15-20 min
-  - Moderate (run, yoga, swim): 30-45 min
-  - Full workout (gym session): 45-60 min
-- Deep work (writing, coding, planning, designing): 45-90 min
-- Meetings/calls with prep: 30-45 min
-- Creative work (design, art, music): 60-120 min
-- Research / learning: 30-60 min
-- Cleaning / organizing: 30-45 min
-- Medical/dental appointments: 60-90 min (including travel and wait)
+=== ESTIMATION FRAMEWORK ===
 
-ESTIMATION PRINCIPLES:
-- If user specifies duration ("30 min run") → honor their estimate
-- If no duration mentioned → use generous category estimate
-- If uncertain between two time buckets → round UP to the higher one
-- NEVER estimate less than 5 minutes for any real task
-- Tasks involving leaving the house → minimum 30 min
-- Tasks involving other people → add buffer for coordination
+Think through these factors for EVERY task:
 
-EXAMPLES:
-- "call mom" → 30 min (not 5 or 10)
-- "buy groceries" → 45 min (not 15)
-- "submit timesheet" → 15 min (not 5)
-- "gym" → 60 min (not 30)
-- "write report" → 60 min (not 30)
-- "pay credit card bill" → 10 min (quick online task)
-- "text sarah about dinner" → 5 min (truly quick digital)
-- "dentist appointment" → 90 min (travel + wait + appointment)
-- "pick up dry cleaning" → 30 min (errand with travel)
+**FACTOR 1: What's the core action?**
+Estimate the minimum time if everything went perfectly.
+- Send a text: 1-2 min
+- Make a phone call: 10-15 min
+- Walk somewhere: depends on distance
+- Write something: depends on length/complexity
+- Physical task: depends on scope
+
+**FACTOR 2: Do I need to leave my current location?**
+- Staying put (home/desk): no addition
+- Leaving the house: +15-20 min minimum (getting ready, keys, shoes, return, settle back in)
+- Going somewhere specific: add realistic travel time (round trip)
+
+**FACTOR 3: Are other people or animals involved?**
+- Solo task: you control the pace
+- Another person: +10-15 min (coordination, waiting, social dynamics, conversations run long)
+- Animal (dog walk, vet): +10-15 min (unpredictability, their pace not yours)
+- Group/meeting: +15-20 min (gathering, small talk, herding cats)
+
+**FACTOR 4: Physical world or digital?**
+- Digital: more predictable, usually faster
+- Physical: more variables, more can go wrong, round UP
+
+**FACTOR 5: Is this bounded or open-ended?**
+- Bounded ("pay bill", "send email"): clearer end point, estimate tighter
+- Open-ended ("clean garage", "work on project"): no natural stopping point, estimate higher
+
+**FACTOR 6: What commonly goes wrong?**
+- Can't find something: +5-10 min
+- Technical issues: +5-10 min
+- Waiting (on hold, in line): +10-15 min
+- Unexpected conversation: +10 min
+
+=== THE PROCESS ===
+
+1. Identify the core action and base time
+2. Apply each relevant factor
+3. Add up the total
+4. Round UP to nearest 5 minutes
+5. When uncertain between two estimates, choose the higher one
+
+=== EXAMPLES WITH REASONING ===
+
+**"Walk Bella" (dog walk)**
+- Core: walking (20-25 min)
+- Leave house: yes (+10 min prep/return)
+- Animal involved: yes (+10 min for sniffing, unpredictability)
+- Physical: yes (round up)
+→ Total: 40-45 min → **45 min**
+
+**"Call mom"**
+- Core: phone conversation (15 min)
+- Leave house: no
+- Other person: yes (+15 min, mom calls run long)
+- Digital: yes
+→ Total: 30 min → **30 min**
+
+**"Buy groceries"**
+- Core: shopping (20 min in store)
+- Leave house: yes (+10 min)
+- Travel: yes (+20 min round trip)
+- Physical: yes (round up)
+- Can go wrong: lines, can't find items (+10 min)
+→ Total: 60 min → **60 min**
+
+**"Pay electric bill"**
+- Core: online payment (3-5 min)
+- Leave house: no
+- Solo: yes
+- Digital: yes
+- Bounded: yes
+→ Total: 5-10 min → **10 min**
+
+**"Dentist appointment"**
+- Core: appointment (30-45 min)
+- Leave house: yes (+10 min)
+- Travel: yes (+30 min round trip)
+- Other people: yes (waiting room +15 min)
+- Physical: yes
+→ Total: 85-100 min → **90 min**
+
+**"Write quarterly report"**
+- Core: writing/analysis (60-90 min)
+- Leave house: no
+- Solo: yes
+- Digital: yes
+- Open-ended: somewhat (scope can expand)
+- Deep focus required: yes (add buffer for getting into flow)
+→ Total: 90-120 min → **90 min** (or 120 if complex)
+
+**"Text Sarah about dinner"**
+- Core: typing a message (1-2 min)
+- Everything else: no
+→ Total: 5 min → **5 min**
+
+=== RANGE ANCHORS ===
+
+- Minimum: 5 min (truly instant digital tasks)
+- Maximum: 240 min (4 hours, major project blocks)
+- Most common range: 15-60 min
+
+=== CRITICAL RULES ===
+
+- ALWAYS round UP, never down
+- When uncertain, choose the higher estimate
+- "Quick" tasks that involve leaving the house are never under 30 min
+- Tasks involving other people are rarely under 20 min
+- If the user specifies a duration ("30 min run"), honor their estimate
+- Don't be afraid to estimate 45, 50, 55 min — use the full range
 
 2. time_window
 Only if explicitly mentioned:
@@ -2428,6 +3471,74 @@ Choose ONE (strict enum):
 Default to "administrative" if unclear.
 
 --------------------------------
+DATE INTELLIGENCE (TODOS ONLY):
+--------------------------------
+
+Dates in user input can mean TWO different things:
+
+**TARGET DATE** — When something IS or is DUE (external, immovable)
+- Deadlines: "due April 15", "by Friday", "before the 10th", "before EOW", "by end of week"
+- Events: "dentist Tuesday 2pm", "wedding June 15", "mom's birthday March 5"
+- Expiration: "passport expires June", "lease ends March 1"
+
+Signals: "due", "by", "before", "deadline", "expires", "is on", "appointment", "EOW", "EOM", "end of week", "end of month"
+
+**SCHEDULED DATE** — When user plans to DO the work (internal, movable)
+- Action + time: "call mom tomorrow", "go to gym Monday"
+- Planning: "work on taxes Saturday", "start running next week"
+- Intent: "do this tonight", "handle it tomorrow morning"
+
+Signals: Action verb + time reference, "do", "work on", "handle", "start"
+
+**CRITICAL: Deadline language OVERRIDES action pattern.**
+If the time reference includes "before", "by", "due", "until", "EOW", "EOM" — it's a DEADLINE (target_date), NOT a scheduled_date.
+- "book flights before EOW" → target_date only (deadline), scheduled_date: null
+- "finish report by Friday" → target_date only (deadline), scheduled_date: null
+- "call mom tomorrow" → scheduled_date only (no deadline language)
+
+**AMBIGUOUS** — Could be either (flag for clarification)
+- "dentist Tuesday" — appointment they have? or need to book?
+- "passport June" — trip date? or expiration?
+- Noun + date with no context
+
+**RULES:**
+1. If clear deadline language → target_date only
+2. If clear action + time → scheduled_date only  
+3. If both exist → set both (e.g., "work on taxes Saturday, due April 15")
+4. If ambiguous → set target_date (safer default) and flag date_type_ambiguous
+
+**OUTPUT FIELDS:**
+- target_date: YYYY-MM-DD or null (when something IS or is DUE)
+- scheduled_date: YYYY-MM-DD or null (when user will DO the work)
+- date_type_ambiguous: boolean (true if unclear which type)
+
+**EXAMPLES:**
+
+"taxes due April 15" → target_date: "2026-04-15", scheduled_date: null
+"call mom tomorrow" → target_date: null, scheduled_date: "2026-01-28"
+"dentist Tuesday 2pm" → target_date: "2026-02-03", scheduled_date: null (appointment)
+"work on report, due Friday" → target_date: "2026-01-31", scheduled_date: null (can add scheduled later)
+"go to gym Monday" → target_date: null, scheduled_date: "2026-02-03"
+"passport June" → target_date: "2026-06-01", date_type_ambiguous: true
+"book flights before EOW" → target_date: end of current week (e.g., "2026-01-31" if today is Tue), scheduled_date: null
+"finish report by end of week" → target_date: Friday of current week, scheduled_date: null
+"submit by EOM" → target_date: last day of current month, scheduled_date: null
+
+**EVENT + SCHEDULING ACTION (both dates exist):**
+When input mentions WHEN something IS and WHEN to DO something about it:
+- "Haircut appointment is Tuesday, book tomorrow" →
+  - target_date: next Tuesday (when appointment IS)
+  - scheduled_date: tomorrow (when to BOOK it)
+- "Meeting is Friday, prep Thursday" →
+  - target_date: Friday (when meeting IS)
+  - scheduled_date: Thursday (when to PREP)
+- "Conference in June, register by March 1" →
+  - target_date: June (when conference IS)
+  - scheduled_date: March 1 (when to REGISTER)
+
+CRITICAL: These are TWO DIFFERENT dates. Extract BOTH correctly.
+
+--------------------------------
 FOR HABITS ONLY:
 --------------------------------
 4. extracted_frequency
@@ -2440,14 +3551,47 @@ Array of numbers if mentioned (0=Sun … 6=Sat), else null
 YYYY-MM-DD if mentioned, else null
 
 --------------------------------
-FOR JOURNAL ONLY:
+FOR LOGS (ALL SUBTYPES):
 --------------------------------
-7. mood
+
+**DATE EXTRACTION FOR LOGS:**
+
+Logs can contain dates that represent EVENTS or REFERENCE INFORMATION.
+ALWAYS extract dates when present, regardless of log subtype.
+
+When the input describes an event, appointment, or scheduled occurrence:
+- Extract the date as target_date
+- Extract time if mentioned as event_time
+
+Signals to extract dates for logs:
+- Existence verbs + date: "is Tuesday", "is on March 5", "is next week"
+- Status updates: "moved to Thursday", "scheduled for Friday"
+- Event references: "appointment", "meeting", "birthday", "trip"
+
+Examples:
+- "Dentist appointment is Tuesday" → target_date: next Tuesday's date
+- "Mom's birthday March 5" → target_date: "YYYY-03-05"
+- "Meeting moved to Thursday 2pm" → target_date: next Thursday, event_time: "14:00"
+- "Conference in June" → target_date: "YYYY-06-01"
+
+Named days (Monday, Tuesday, etc.) → calculate next occurrence from current date.
+
+IMPORTANT: Do NOT skip date extraction just because bucket is "log".
+If a date is mentioned, extract it.
+
+7. mood (JOURNAL ONLY)
 Choose up to 3:
 great, good, okay, low, tired,
 anxious, overwhelmed, frustrated,
 scattered, grateful, hopeful,
 focused, calm
+
+8. target_date (ALL LOG SUBTYPES)
+Extract ANY date mentioned, in YYYY-MM-DD format.
+This is when an event IS or HAPPENS — reference information.
+
+9. event_time (ALL LOG SUBTYPES)
+Extract time if mentioned, in HH:mm format (24-hour).
 
 --------------------------------
 TAGS (ALL TYPES):
@@ -2456,11 +3600,68 @@ TAGS (ALL TYPES):
 - 2–4 lowercase, hyphenated
 - Category + topic
 - No filler words
-- No people names
+- No people names (people go in the people array instead)
+
+--------------------------------
+PEOPLE EXTRACTION:
+--------------------------------
+9. people
+Extract names of people mentioned in the text. Include:
+- Explicit names: "John", "Sarah", "Dr. Smith", "Dave"
+- Relationship words: "mom", "dad", "sister", "brother", "boss", "wife", "husband"
+- Possessive patterns: 
+  - "Dave's birthday" → extract "Dave"
+  - "dad's anniversary" → extract "dad"
+  - "mom's birthday" → extract "mom"
+  - "Sarah's wedding" → extract "Sarah"
+- Referenced people: "the one Sarah recommended" → extract "Sarah"
+- Birthday/event context: "birthday April 27" with name in context → extract that name
+
+Return as array of strings, max 10 people.
 
 === OUTPUT ===
 Return ONLY valid JSON.
-Include null for fields that do not apply.`;
+
+For TODOS:
+{
+  "tags": ["tag1", "tag2"],
+  "time_estimate_minutes": number | null,
+  "time_window": "morning" | "day" | "evening" | null,
+  "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
+  "target_date": "YYYY-MM-DD" | null,
+  "scheduled_date": "YYYY-MM-DD" | null,
+  "date_type_ambiguous": boolean,
+  "people": ["name1", "name2"] | []
+}
+
+For HABITS:
+{
+  "tags": ["tag1", "tag2"],
+  "time_estimate_minutes": number | null,
+  "time_window": "morning" | "day" | "evening" | null,
+  "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
+  "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
+  "extracted_days": [0, 1, 2] | null,
+  "extracted_start_date": "YYYY-MM-DD" | null,
+  "people": ["name1", "name2"] | []
+}
+
+For LOGS (journal):
+{
+  "tags": ["tag1", "tag2"],
+  "mood": ["anxious", "grateful"] | null,
+  "target_date": "YYYY-MM-DD" | null,
+  "event_time": "HH:mm" | null,
+  "people": ["name1", "name2"] | []
+}
+
+For LOGS (idea/general):
+{
+  "tags": ["tag1", "tag2"],
+  "target_date": "YYYY-MM-DD" | null,
+  "event_time": "HH:mm" | null,
+  "people": ["name1", "name2"] | []
+}`;
 
         const t0 = Date.now();
 
@@ -2513,12 +3714,10 @@ Include null for fields that do not apply.`;
           // Validate time estimate
           let timeEstimate = null;
           if (bucket === 'todo' || bucket === 'habit') {
-            const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
             const num = Number(parsed.time_estimate_minutes);
-            if (Number.isFinite(num)) {
-              timeEstimate = allowed.reduce((prev, curr) =>
-                Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev,
-              );
+            if (Number.isFinite(num) && num > 0) {
+              // Round to nearest 5 minutes, clamp between 5 and 240
+              timeEstimate = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
             }
           }
 
@@ -2547,11 +3746,44 @@ Include null for fields that do not apply.`;
             }
           }
 
-          // Validate extracted_date
-          let extractedDate = null;
-          if (bucket === 'todo' && parsed.extracted_date) {
-            if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)) {
-              extractedDate = parsed.extracted_date;
+          // Validate date intelligence fields (todos only)
+          let targetDate = null;
+          let scheduledDate = null;
+          let dateTypeAmbiguous = false;
+          if (bucket === 'todo') {
+            // Target date (when something IS or is DUE)
+            if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+              targetDate = parsed.target_date;
+            }
+
+            // Scheduled date (when user will DO the work)
+            if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
+              scheduledDate = parsed.scheduled_date;
+            }
+
+            // Ambiguity flag
+            dateTypeAmbiguous = parsed.date_type_ambiguous === true;
+
+            // Backward compatibility: if old extracted_date exists and no new fields, use it as scheduled_date
+            if (
+              !targetDate &&
+              !scheduledDate &&
+              parsed.extracted_date &&
+              /^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)
+            ) {
+              scheduledDate = parsed.extracted_date;
+            }
+          }
+
+          // Event dates for logs (notes that are events)
+          let noteTargetDate = null;
+          let eventTime = null;
+          if (bucket === 'log') {
+            if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+              noteTargetDate = parsed.target_date;
+            }
+            if (parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
+              eventTime = parsed.event_time;
             }
           }
 
@@ -2607,12 +3839,16 @@ Include null for fields that do not apply.`;
 
           console.log('[Phase2]', {
             tags_count: tags.length,
-            has_time: timeEstimate !== null,
+            has_time_estimate: timeEstimate !== null,
             has_window: timeWindow !== null,
             has_energy: energyType !== null,
-            has_date: extractedDate !== null,
+            has_target_date: targetDate !== null || noteTargetDate !== null,
+            has_scheduled_date: scheduledDate !== null,
+            date_ambiguous: dateTypeAmbiguous,
+            has_event_time: eventTime !== null,
             has_frequency: extractedFrequency !== null,
             has_days: extractedDays !== null,
+            has_start_date: extractedStartDate !== null,
             has_people: people.length > 0,
             has_mood: mood !== null,
             latency_ms: latency,
@@ -2623,10 +3859,16 @@ Include null for fields that do not apply.`;
             time_estimate_minutes: timeEstimate,
             time_window: timeWindow,
             energy_type: energyType,
-            extracted_date: extractedDate,
+            // New date intelligence fields for todos
+            target_date: bucket === 'todo' ? targetDate : noteTargetDate,
+            scheduled_date: scheduledDate,
+            date_type_ambiguous: dateTypeAmbiguous,
+            event_time: eventTime,
+            // Keep existing habit fields
             extracted_start_date: extractedStartDate,
             extracted_frequency: extractedFrequency,
             extracted_days: extractedDays,
+            // Other fields
             people,
             mood,
             latency_ms: latency,

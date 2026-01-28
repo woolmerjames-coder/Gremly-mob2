@@ -9,6 +9,7 @@
     "node_modules",
     "_archive/**/*",
     "gremly-chat-system-review/**/*",
+    "gremly-handoff-jan26/**/*",
     "app/(dev)/**/*",
     "__tests__/pending/**/*",
     "supabase/functions/**/*",

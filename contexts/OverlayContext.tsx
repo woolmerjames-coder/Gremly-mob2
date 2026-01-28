@@ -5,6 +5,9 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
+import { ClarificationPopup } from '../components/minddrop/ClarificationPopup';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
+import * as Haptics from 'expo-haptics';
 
 type EntityType = CanonicalType;
 
@@ -65,12 +68,31 @@ interface EditOptions {
   fromChat?: boolean; // Opens notes in preview mode when true
 }
 
+// Clarification popup state for standalone popup (no overlay behind it)
+interface ClarificationPopupState {
+  visible: boolean;
+  entityId: string | null;
+  entityType: 'note' | 'todo' | 'habit' | null;
+  question: string | null; // null = Phase 1.5 still loading
+  options: Array<{ id: string; label: string; action: any }> | null; // null = loading
+}
+
+interface ClarificationPopupOptions {
+  entityId: string;
+  entityType: 'note' | 'todo' | 'habit';
+  question: string | null; // null = Phase 1.5 still loading
+  options: Array<{ id: string; label: string; action: any }> | null; // null = loading
+}
+
 interface OverlayContextValue {
   state: OverlayState;
   openCreate: (options?: CreateOptions) => void;
   openEdit: (options: EditOptions) => void;
   openView: (options: EditOptions) => void;
   close: () => void;
+  // Clarification popup methods
+  openClarificationPopup: (options: ClarificationPopupOptions) => void;
+  closeClarificationPopup: () => void;
 }
 
 const OverlayContext = createContext<OverlayContextValue | undefined>(undefined);
@@ -82,8 +104,185 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     entity: undefined,
   });
 
+  // Clarification popup state (standalone, no overlay behind)
+  const [clarificationPopup, setClarificationPopup] = useState<ClarificationPopupState>({
+    visible: false,
+    entityId: null,
+    entityType: null,
+    question: null,
+    options: null,
+  });
+  const [clarificationLoading, setClarificationLoading] = useState(false);
+  const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
+
   const isOpeningRef = useRef(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Get store actions for resolving clarification
+  const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
+  const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
+
+  // Subscribe to entities to get fresh clarification data when Phase 1.5 completes
+  // This handles the race condition where popup opens before Phase 1.5 finishes
+  const notes = useGremlyStore((s) => s.notes);
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+  // Also subscribe to pendingDrops - Phase 1.5 updates here before sync completes
+  const pendingDrops = useGremlyStore((s) => s.pendingDrops);
+
+  // Derive the actual question/options from the entity if popup state is stale
+  // This ensures we always show the latest data, even if Phase 1.5 completed after popup opened
+  const effectiveClarificationData = React.useMemo(() => {
+    if (!clarificationPopup.visible || !clarificationPopup.entityId) {
+      return { question: clarificationPopup.question, options: clarificationPopup.options };
+    }
+
+    // If we already have options in popup state, use them
+    if (clarificationPopup.options && clarificationPopup.options.length >= 2) {
+      return { question: clarificationPopup.question, options: clarificationPopup.options };
+    }
+
+    // FIRST: Check pendingDrops - Phase 1.5 updates here before sync completes
+    // The entityId might be the localId (drop_id) stored on the pending drop
+    for (const [dropId, drop] of pendingDrops.entries()) {
+      // Check if this pending drop matches by ID or if entityId is the drop_id
+      if (dropId === clarificationPopup.entityId || (drop as any).id === clarificationPopup.entityId) {
+        const pendingQuestion = (drop as any).clarification_question;
+        const pendingOptions = (drop as any).clarification_options;
+        
+        if (pendingQuestion && Array.isArray(pendingOptions) && pendingOptions.length >= 2) {
+          console.log('[GlobalOverlay] Using fresh Phase 1.5 data from pendingDrop', {
+            dropId,
+            question: String(pendingQuestion).substring(0, 30),
+            optionsCount: pendingOptions.length,
+          });
+          return {
+            question: pendingQuestion as string,
+            options: pendingOptions as ClarificationPopupState['options'],
+          };
+        }
+      }
+    }
+
+    // SECOND: Try to get fresh data from synced entities
+    type EntityWithViews = { id: string; views?: Record<string, unknown> };
+    let entity: EntityWithViews | undefined;
+    if (clarificationPopup.entityType === 'note') {
+      entity = notes.find((n) => n.id === clarificationPopup.entityId);
+    } else if (clarificationPopup.entityType === 'todo') {
+      entity = todos.find((t) => t.id === clarificationPopup.entityId);
+    } else if (clarificationPopup.entityType === 'habit') {
+      entity = habits.find((h) => h.id === clarificationPopup.entityId);
+    }
+
+    if (!entity) {
+      return { question: clarificationPopup.question, options: clarificationPopup.options };
+    }
+
+    const freshQuestion =
+      (entity as Record<string, unknown>).clarification_question ||
+      entity.views?.clarification_question;
+    const freshOptions =
+      (entity as Record<string, unknown>).clarification_options ||
+      entity.views?.clarification_options;
+
+    if (freshQuestion && Array.isArray(freshOptions) && freshOptions.length >= 2) {
+      console.log('[GlobalOverlay] Using fresh Phase 1.5 data from entity', {
+        entityId: clarificationPopup.entityId,
+        question: String(freshQuestion).substring(0, 30),
+        optionsCount: freshOptions.length,
+      });
+      return {
+        question: freshQuestion as string,
+        options: freshOptions as ClarificationPopupState['options'],
+      };
+    }
+
+    return { question: clarificationPopup.question, options: clarificationPopup.options };
+  }, [
+    clarificationPopup.visible,
+    clarificationPopup.entityId,
+    clarificationPopup.entityType,
+    clarificationPopup.question,
+    clarificationPopup.options,
+    pendingDrops,
+    notes,
+    todos,
+    habits,
+  ]);
+
+  // Clarification popup methods
+  const openClarificationPopup = useCallback(
+    ({ entityId, entityType, question, options }: ClarificationPopupOptions) => {
+      console.log('[GlobalOverlay] Opening clarification popup', { entityId, question });
+      setClarificationPopup({
+        visible: true,
+        entityId,
+        entityType,
+        question,
+        options,
+      });
+    },
+    [],
+  );
+
+  const closeClarificationPopup = useCallback(() => {
+    setClarificationPopup({
+      visible: false,
+      entityId: null,
+      entityType: null,
+      question: null,
+      options: null,
+    });
+    setClarificationLoading(false);
+    setClarificationSuccess(null);
+  }, []);
+
+  const handleClarificationSelect = useCallback(
+    (optionId: string) => {
+      if (!clarificationPopup.entityId) return;
+
+      // Check if this is free text input (prefixed with "freetext:")
+      const isFreeText = optionId.startsWith('freetext:');
+      const selectionValue = isFreeText ? optionId.slice('freetext:'.length) : optionId;
+      
+      console.log('[GlobalOverlay] Clarification selection:', {
+        entityId: clarificationPopup.entityId,
+        isFreeText,
+        value: selectionValue.substring(0, 50),
+      });
+
+      // Fire and forget - don't await
+      // The popup shows instant success and dismisses itself
+      // The card shows processing animation and updates progressively
+      resolvePendingDropClarification(
+        clarificationPopup.entityId, 
+        selectionValue,
+        isFreeText
+      ).catch((error) => {
+        console.error('[GlobalOverlay] Clarification resolution failed:', error);
+      });
+      
+      // Note: Popup dismisses itself after showing "Great, on it"
+      // We don't close it here anymore
+    },
+    [clarificationPopup.entityId, resolvePendingDropClarification],
+  );
+
+  const handleClarificationSkip = useCallback(() => {
+    const entityId = clarificationPopup.entityId;
+    console.log('[GlobalOverlay] Clarification skipped', { entityId });
+
+    // Close popup immediately
+    closeClarificationPopup();
+
+    if (!entityId) return;
+
+    // Resolve as skipped - this updates the entity and runs Phase 2
+    resolveSkippedClarification(entityId).catch((error) => {
+      console.error('[GlobalOverlay] Skip resolution failed:', error);
+    });
+  }, [clarificationPopup.entityId, closeClarificationPopup, resolveSkippedClarification]);
 
   const openCreate = useCallback(
     ({
@@ -280,8 +479,29 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <OverlayContext.Provider value={{ state, openCreate, openEdit, openView, close }}>
+    <OverlayContext.Provider
+      value={{
+        state,
+        openCreate,
+        openEdit,
+        openView,
+        close,
+        openClarificationPopup,
+        closeClarificationPopup,
+      }}
+    >
       {children}
+      {/* Standalone Clarification Popup - renders on top of everything */}
+      <ClarificationPopup
+        visible={clarificationPopup.visible}
+        question={effectiveClarificationData.question}
+        options={effectiveClarificationData.options}
+        onSelectOption={handleClarificationSelect}
+        onSkip={handleClarificationSkip}
+        onClose={closeClarificationPopup}
+        isSubmitting={clarificationLoading}
+        successMessage={clarificationSuccess}
+      />
     </OverlayContext.Provider>
   );
 }

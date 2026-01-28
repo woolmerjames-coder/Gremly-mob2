@@ -27,7 +27,7 @@ export interface SweepHabitRowProps {
   isAheadOfTarget?: boolean;
 
   // Frequency display text (e.g., "Every day", "3x per week")
-  frequencyLabel: string;
+  frequencyLabel: string | null;
 
   // Is this habit visually completed? (controlled by parent)
   isCompleted: boolean;

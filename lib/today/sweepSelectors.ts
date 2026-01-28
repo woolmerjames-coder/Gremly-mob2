@@ -6,6 +6,24 @@
  * SweepDrawer modal use these selectors to ensure consistency.
  *
  * ─────────────────────────────────────────────────────────────────────────────
+ * TWO-DATE SYSTEM (Phase C Date Intelligence)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Gremly now distinguishes between two types of dates:
+ *
+ * 1. **Do Date** (`scheduled_date`) - When the user plans to WORK on something
+ *    - Internal, movable, set by user in Sweep
+ *    - Controls when item appears on Today page
+ *
+ * 2. **Deadline** (`target_date`) - When something IS or is DUE
+ *    - External, often immovable
+ *    - Provides context/urgency, shown as badge on cards
+ *
+ * **Backwards Compatibility:**
+ * - Legacy `due_day` field is treated as a do date
+ * - Effective do date = `scheduled_date ?? due_day`
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
  * SWEEP ELIGIBILITY RULES
  * ─────────────────────────────────────────────────────────────────────────────
  *
@@ -15,28 +33,15 @@
  *
  * 2. **Status**: Must be `status === 'active'` (not completed, not archived)
  *
- * 3. **Due Today or Overdue**:
- *    - `due_day === today` (scheduled for today), OR
- *    - `due_day < today` (overdue from a previous day), OR
- *    - `carry_forward === true` (explicitly carried forward)
+ * 3. **Needs Attention**: One of:
+ *    - Do date reached or passed (`scheduled_date <= today` OR `due_day <= today`)
+ *    - Has deadline but no do date (needs scheduling prompt)
+ *    - Carry forward flag set
+ *    - Recently created with no dates (last 3 days)
  *
  * 4. **Not Completed Today**: `completed_at` is null or not today's date
  *
  * 5. **Not Archived**: `archived !== true`
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * USAGE
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * ```ts
- * import { selectSweepCandidates, getSweepCandidateCount } from './sweepSelectors';
- *
- * // Get full list for modal
- * const candidates = selectSweepCandidates(todos, todayDayString);
- *
- * // Get count for pill
- * const count = getSweepCandidateCount(todos, todayDayString);
- * ```
  */
 
 import { getDateService } from '../date';
@@ -45,10 +50,19 @@ export interface SweepCandidate {
   id: string;
   type: 'todo';
   name: string;
-  /** Primary due date (YYYY-MM-DD, timezone-safe) */
+
+  // New two-date system
+  /** Do date - when user plans to work on it (YYYY-MM-DD) */
+  scheduled_date?: string | null;
+  /** Deadline - when it's due (YYYY-MM-DD) */
+  target_date?: string | null;
+
+  // Legacy fields (backwards compatibility)
+  /** @deprecated Use scheduled_date instead */
   due_day?: string | null;
-  /** @deprecated Use due_day instead - kept for backwards compatibility */
+  /** @deprecated Use scheduled_date instead */
   due_date?: string | null;
+
   status?: 'active' | 'completed' | 'archived';
   carry_forward?: boolean;
   completed_at?: string | null;
@@ -57,8 +71,14 @@ export interface SweepCandidate {
   tags?: string[];
   /** ISO 8601 timestamp when the item was created */
   created_at?: string | null;
-  /** True if due_day is strictly before today */
+
+  // Computed fields
+  /** True if do date (scheduled_date/due_day) is strictly before today */
   isOverdue: boolean;
+  /** True if has deadline but no do date scheduled */
+  hasUnscheduledDeadline: boolean;
+  /** Number of days until deadline (negative if passed), null if no deadline */
+  daysUntilDeadline: number | null;
 }
 
 /**
@@ -69,18 +89,73 @@ export interface SweepEligibleTodo {
   id: string;
   name: string;
   type?: string;
-  /** Primary due date (YYYY-MM-DD, timezone-safe) */
+
+  // New two-date system
+  scheduled_date?: string | null;
+  target_date?: string | null;
+
+  // Legacy fields
   due_day?: string | null;
-  /** @deprecated Use due_day instead - kept for backwards compatibility */
   due_date?: string | null;
+
   status?: 'active' | 'completed' | 'archived' | string;
   carry_forward?: boolean;
   completed_at?: string | null;
   archived?: boolean;
   space_id?: string | null;
   tags?: string[];
-  /** ISO 8601 timestamp when the item was created */
   created_at?: string | null;
+}
+
+/**
+ * Get the effective "do date" - when the user plans to work on this todo.
+ *
+ * Priority: scheduled_date > due_day > due_date (extract date)
+ */
+function getEffectiveDoDate(todo: SweepEligibleTodo): string | null {
+  if (todo.scheduled_date) {
+    return todo.scheduled_date;
+  }
+  if (todo.due_day) {
+    return todo.due_day;
+  }
+  if (todo.due_date) {
+    return getDateService().extractDateFromIso(todo.due_date);
+  }
+  return null;
+}
+
+/**
+ * Get the deadline (target_date) for a todo.
+ */
+function getDeadline(todo: SweepEligibleTodo): string | null {
+  return todo.target_date ?? null;
+}
+
+/**
+ * Calculate days until deadline.
+ */
+function getDaysUntilDeadline(todo: SweepEligibleTodo, todayDay: string): number | null {
+  const deadline = getDeadline(todo);
+  if (deadline === null) {
+    return null;
+  }
+
+  const deadlineDate = new Date(deadline);
+  const today = new Date(todayDay);
+  const diffTime = deadlineDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  return diffDays;
+}
+
+/**
+ * Check if a todo has a deadline but no do date scheduled.
+ */
+function hasUnscheduledDeadline(todo: SweepEligibleTodo): boolean {
+  const hasDeadline = todo.target_date != null;
+  const hasDoDate = getEffectiveDoDate(todo) != null;
+  return hasDeadline && !hasDoDate;
 }
 
 /**
@@ -114,24 +189,30 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
     }
   }
 
-  // Must be due today, overdue, or carry-forward
-  const dueDay = todo.due_day ?? getDateService().extractDateFromIso(todo.due_date);
-
+  // Check: carry forward always eligible
   if (todo.carry_forward === true) {
     return true;
   }
 
-  if (dueDay) {
-    // Due today or overdue
-    return dueDay <= todayDay;
+  // Check: do date reached or overdue
+  const doDate = getEffectiveDoDate(todo);
+  if (doDate && doDate <= todayDay) {
+    return true;
   }
 
-  // No due date - include if created in last 3 days
-  if (todo.created_at) {
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-    const createdDate = new Date(todo.created_at);
-    return createdDate >= threeDaysAgo;
+  // Check: has deadline but no do date (needs scheduling prompt)
+  if (hasUnscheduledDeadline(todo)) {
+    return true;
+  }
+
+  // Check: no dates at all - include if created in last 3 days
+  if (!doDate && !todo.target_date) {
+    if (todo.created_at) {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      const createdDate = new Date(todo.created_at);
+      return createdDate >= threeDaysAgo;
+    }
   }
 
   return false;
@@ -145,7 +226,7 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
  *
  * @param todos - Array of todos to filter
  * @param todayDay - Today's date as YYYY-MM-DD string
- * @returns Array of sweep-eligible todos
+ * @returns Array of sweep-eligible todos with computed metadata
  */
 export function selectSweepCandidates(
   todos: SweepEligibleTodo[],
@@ -154,16 +235,25 @@ export function selectSweepCandidates(
   const candidates = todos
     .filter((todo) => isSweepEligible(todo, todayDay))
     .map((todo) => {
-      // Compute isOverdue using same logic as useTodayStats.overdueTodos
-      const dueDay = todo.due_day ?? getDateService().extractDateFromIso(todo.due_date);
-      const isOverdue = dueDay !== null && dueDay < todayDay;
+      // Compute metadata
+      const doDate = getEffectiveDoDate(todo);
+      const isOverdue = doDate !== null && doDate < todayDay;
+      const unscheduledDeadline = hasUnscheduledDeadline(todo);
+      const daysUntilDeadline = getDaysUntilDeadline(todo, todayDay);
 
       return {
         id: todo.id,
         type: 'todo' as const,
         name: todo.name,
+
+        // New fields
+        scheduled_date: todo.scheduled_date,
+        target_date: todo.target_date,
+
+        // Legacy fields (for backwards compat)
         due_day: todo.due_day,
         due_date: todo.due_date,
+
         status: (todo.status ?? 'active') as 'active' | 'completed' | 'archived',
         carry_forward: todo.carry_forward,
         completed_at: todo.completed_at,
@@ -171,12 +261,15 @@ export function selectSweepCandidates(
         space_id: todo.space_id,
         tags: todo.tags,
         created_at: todo.created_at,
+
+        // Computed
         isOverdue,
+        hasUnscheduledDeadline: unscheduledDeadline,
+        daysUntilDeadline,
       };
     });
 
-  // Enhanced logging for debugging sweep count discrepancy
-  // This logs what the client-side selector sees vs what engine fetches
+  // Enhanced logging for debugging
   console.log('[SweepSelectors] selectSweepCandidates:', {
     todayDay,
     inputCount: todos.length,
@@ -185,13 +278,15 @@ export function selectSweepCandidates(
     candidateDetails: candidates.map((c) => ({
       id: c.id.slice(0, 8),
       isOverdue: c.isOverdue,
+      hasUnscheduledDeadline: c.hasUnscheduledDeadline,
+      daysUntilDeadline: c.daysUntilDeadline,
+      scheduledDate: c.scheduled_date,
+      targetDate: c.target_date,
       dueDay: c.due_day,
       carryForward: c.carry_forward,
     })),
     // NOTE: This selector only counts TODOS, not notes!
     // The actual Sweep engine also includes notes from Mind Drop.
-    // A discrepancy between this count and actual sweep cards is expected
-    // if there are notes in the sweep.
   });
 
   return candidates;
