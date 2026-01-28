@@ -23,6 +23,8 @@ function createMockSweepCandidate(overrides: Partial<SweepCandidate> = {}): Swee
     completed_at: null,
     archived: false,
     isOverdue: false,
+    hasUnscheduledDeadline: false,
+    daysUntilDeadline: null,
     ...overrides,
   };
 }

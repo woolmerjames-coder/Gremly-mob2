@@ -159,7 +159,7 @@ describe('resolvePendingDropClarification', () => {
       const entityId = 'todo-1';
 
       // Search order: todos -> habits -> notes
-      let entity = todos.find((t) => t.id === entityId);
+      let entity: { id: string } | undefined = todos.find((t) => t.id === entityId);
       let entityType = entity ? 'todo' : undefined;
 
       if (!entity) {
@@ -177,13 +177,13 @@ describe('resolvePendingDropClarification', () => {
     });
 
     it('finds entity in notes if not in todos or habits', () => {
-      const todos: any[] = [];
-      const habits: any[] = [];
+      const todos: { id: string }[] = [];
+      const habits: { id: string }[] = [];
       const notes = [{ id: 'note-1', title: 'Test note' }];
 
       const entityId = 'note-1';
 
-      let entity = todos.find((t) => t.id === entityId);
+      let entity: { id: string } | undefined = todos.find((t) => t.id === entityId);
       let entityType = entity ? 'todo' : undefined;
 
       if (!entity) {

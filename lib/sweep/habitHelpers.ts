@@ -111,7 +111,7 @@ export interface HabitWithMeta {
   streakDays: number;
   completedThisPeriod: number;
   targetPerPeriod: number;
-  frequencyLabel: string;
+  frequencyLabel: string | null;
   isCompletedForPeriod: boolean;
   isCompletedToday: boolean;
   isAheadOfTarget: boolean; // True if completedThisPeriod >= targetPerPeriod (for weekly/monthly)
@@ -321,7 +321,7 @@ export function getFrequencyLabel(habit: {
   cadence?: string | null;
   target_per_period?: number | null;
   frequency?: string | null;
-}): string {
+}): string | null {
   // Delegate to single source of truth
   // Note: We use canonical fields (cadence, target_per_period) as the source of truth,
   // NOT the frequency string. The string is only kept for debugging.

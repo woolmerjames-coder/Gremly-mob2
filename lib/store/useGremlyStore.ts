@@ -4625,6 +4625,7 @@ export const useGremlyStore = create<GremlyState>()(
         confirmation_message?: string;
         target_date?: string | null;
         scheduled_date?: string | null;
+        event_time?: string | null;
         time_estimate_minutes?: number | null;
         energy_type?: string | null;
         date_type_ambiguous?: boolean;

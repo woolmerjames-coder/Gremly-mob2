@@ -113,6 +113,9 @@ const mockNoteCandidate: SweepCandidate = {
   isOverdue: false,
   isDueToday: false,
   isCreatedToday: true,
+  isEventToday: false,
+  isEventPassed: false,
+  daysUntilEvent: null,
   raw: {
     id: 'note-1',
     title: 'Meeting notes',
@@ -134,6 +137,9 @@ const mockIdeaCandidate: SweepCandidate = {
   isOverdue: false,
   isDueToday: false,
   isCreatedToday: true,
+  isEventToday: false,
+  isEventPassed: false,
+  daysUntilEvent: null,
   raw: {
     id: 'idea-1',
     title: 'App feature idea',
@@ -155,6 +161,9 @@ const mockJournalCandidate: SweepCandidate = {
   isOverdue: false,
   isDueToday: false,
   isCreatedToday: true,
+  isEventToday: false,
+  isEventPassed: false,
+  daysUntilEvent: null,
   raw: {
     id: 'journal-1',
     title: 'Evening reflection',
@@ -176,6 +185,9 @@ const mockLogCandidate: SweepCandidate = {
   isOverdue: false,
   isDueToday: false,
   isCreatedToday: true,
+  isEventToday: false,
+  isEventPassed: false,
+  daysUntilEvent: null,
   raw: {
     id: 'log-1',
     title: 'Evening reflection',
@@ -1133,6 +1145,9 @@ describe('SweepCard', () => {
       isOverdue: false,
       isDueToday: false,
       isCreatedToday: true,
+      isEventToday: false,
+      isEventPassed: false,
+      daysUntilEvent: null,
       raw: {
         id: 'note-with-photos',
         title: 'Photo memory',

@@ -13,7 +13,7 @@ export interface HabitMetadata {
   value: number;
   target?: number;
   periodLabel?: string; // "past 7d" or "past 30d"
-  frequencyLabel: string; // "Daily", "3x/week", "2x/month"
+  frequencyLabel: string | null; // "Daily", "3x/week", "2x/month", null if pending
 }
 
 /** Minimal habit shape needed for metadata computation */

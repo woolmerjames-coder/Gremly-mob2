@@ -333,7 +333,7 @@ export function getHabitFrequencyLabel(habit: {
   cadence?: string | null;
   target_per_period?: number | null;
   frequency?: string | null;
-}): string {
+}): string | null {
   return getFrequencyDisplayLabel(habit.cadence, habit.target_per_period);
 }
 

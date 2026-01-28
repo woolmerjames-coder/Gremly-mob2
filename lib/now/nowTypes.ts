@@ -17,7 +17,7 @@ export interface NowLockedItem {
   id: string;
   type: 'habit' | 'todo';
   name: string;
-  cadenceLabel?: string;
+  cadenceLabel?: string | null;
   statusText?: string | null;
   locked: true;
   /** @deprecated Use dueDay instead */
@@ -43,7 +43,7 @@ export interface NowActiveItem {
   id: string;
   type: 'habit' | 'todo';
   name: string;
-  cadenceLabel?: string;
+  cadenceLabel?: string | null;
   statusText?: string | null;
   locked: false;
   /** @deprecated Use dueDay instead */
@@ -71,7 +71,7 @@ export interface NowFutureItem {
   id: string;
   type: 'habit' | 'todo';
   name: string;
-  cadenceLabel?: string;
+  cadenceLabel?: string | null;
   statusText?: string | null;
   /** @deprecated Use dueDay instead */
   dueAt?: string | null;

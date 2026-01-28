@@ -249,6 +249,9 @@ const mockNoteCandidate: SweepCandidate = {
   isOverdue: false,
   isDueToday: false,
   isCreatedToday: true,
+  isEventToday: false,
+  isEventPassed: false,
+  daysUntilEvent: null,
   raw: {
     id: 'note-1',
     title: 'Test note',

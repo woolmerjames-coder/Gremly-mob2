@@ -834,6 +834,9 @@ export const selectSweepCandidatesUnified = createSelector(
           isOverdue: false,
           isDueToday: false,
           isCreatedToday,
+          isEventToday: false,
+          isEventPassed: false,
+          daysUntilEvent: null,
           raw: note as any,
           attachments,
         } satisfies SweepCandidateNote);
