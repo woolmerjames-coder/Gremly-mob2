@@ -1784,6 +1784,13 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
   - "necklace or scarf for mom"  SINGLE (choosing between options)
   - "yoga or pilates"  SINGLE (deciding which)
   
+  **Event + scheduling action for SAME event = ONE item:**
+  - "Haircut appointment is Tuesday, book tomorrow"  SINGLE (event date + action date)
+  - "Dentist is Friday, need to call and schedule"  SINGLE (one appointment context)
+  - "Meeting is at 3pm, need to prep for it"  SINGLE (event + preparation)
+  - The scheduling action RELATES to the same event mentioned
+  - This is ONE item with target_date (when it IS) + scheduled_date (when to DO it)
+  
   === SPLIT (is_multi: true) ===
   
   Split ONLY when there are genuinely SEPARATE, UNRELATED intents.
