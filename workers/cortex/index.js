@@ -3509,11 +3509,25 @@ Signals: Action verb + time reference, "do", "work on", "handle", "start"
 **EXAMPLES:**
 
 "taxes due April 15" → target_date: "2026-04-15", scheduled_date: null
-"call mom tomorrow" → target_date: null, scheduled_date: "2026-01-27"
-"dentist Tuesday 2pm" → target_date: "2026-01-28", scheduled_date: null (appointment)
+"call mom tomorrow" → target_date: null, scheduled_date: "2026-01-28"
+"dentist Tuesday 2pm" → target_date: "2026-02-03", scheduled_date: null (appointment)
 "work on report, due Friday" → target_date: "2026-01-31", scheduled_date: null (can add scheduled later)
-"go to gym Monday" → target_date: null, scheduled_date: "2026-01-27"
+"go to gym Monday" → target_date: null, scheduled_date: "2026-02-03"
 "passport June" → target_date: "2026-06-01", date_type_ambiguous: true
+
+**EVENT + SCHEDULING ACTION (both dates exist):**
+When input mentions WHEN something IS and WHEN to DO something about it:
+- "Haircut appointment is Tuesday, book tomorrow" →
+  - target_date: next Tuesday (when appointment IS)
+  - scheduled_date: tomorrow (when to BOOK it)
+- "Meeting is Friday, prep Thursday" →
+  - target_date: Friday (when meeting IS)
+  - scheduled_date: Thursday (when to PREP)
+- "Conference in June, register by March 1" →
+  - target_date: June (when conference IS)
+  - scheduled_date: March 1 (when to REGISTER)
+
+CRITICAL: These are TWO DIFFERENT dates. Extract BOTH correctly.
 
 --------------------------------
 FOR HABITS ONLY:
