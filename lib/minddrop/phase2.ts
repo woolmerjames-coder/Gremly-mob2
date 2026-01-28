@@ -349,6 +349,12 @@ export async function runPhase2(
           // Preserve Phase 1's confirmation_message if it exists
           confirmation_message: finalConfirmationMessage ?? undefined,
           people: result.people?.length > 0 ? result.people : undefined,
+          // Date Intelligence fields - always store in views
+          ...(result.targetDate ? { target_date: result.targetDate } : {}),
+          ...(result.scheduledDate ? { scheduled_date: result.scheduledDate } : {}),
+          ...(result.dateTypeAmbiguous !== undefined
+            ? { date_type_ambiguous: result.dateTypeAmbiguous }
+            : {}),
         },
         tags: allTags.length > 0 ? allTags : undefined,
       };
@@ -375,7 +381,26 @@ export async function runPhase2(
         );
         updatePayload.prep_buffer_minutes = buffers.prep_buffer_minutes;
         updatePayload.cooldown_buffer_minutes = buffers.cooldown_buffer_minutes;
-        if (result.extractedDate) {
+
+        // Date Intelligence: Use targetDate/scheduledDate for proper date columns
+        // targetDate = deadline (when something is DUE)
+        // scheduledDate = when user will DO it
+        if (result.targetDate) {
+          updatePayload.target_date = result.targetDate;
+          // Also set due_day for Today page visibility
+          updatePayload.due_day = result.targetDate;
+          updatePayload.due_date = result.targetDate;
+        }
+        if (result.scheduledDate) {
+          updatePayload.scheduled_date = result.scheduledDate;
+          // If no target_date, use scheduled_date for due_day (it's when they'll do it)
+          if (!result.targetDate) {
+            updatePayload.due_day = result.scheduledDate;
+            updatePayload.due_date = result.scheduledDate;
+          }
+        }
+        // Legacy fallback for extractedDate (backwards compatibility)
+        if (result.extractedDate && !result.targetDate && !result.scheduledDate) {
           updatePayload.due_date = result.extractedDate;
           // CRITICAL: due_day is the canonical field for Today page visibility
           // Extract YYYY-MM-DD portion, handling both "2025-12-13" and "2025-12-13T09:00:00" formats
