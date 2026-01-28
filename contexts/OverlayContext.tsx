@@ -498,6 +498,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         options={effectiveClarificationData.options}
         onSelectOption={handleClarificationSelect}
         onSkip={handleClarificationSkip}
+        onClose={closeClarificationPopup}
         isSubmitting={clarificationLoading}
         successMessage={clarificationSuccess}
       />

@@ -10010,6 +10010,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         options={clarificationOptions}
         onSelectOption={handleClarificationSelect}
         onSkip={handleClarificationSkip}
+        onClose={() => setShowClarificationPopup(false)}
         isSubmitting={clarificationLoading}
         successMessage={clarificationSuccess}
       />

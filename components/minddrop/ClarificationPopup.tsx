@@ -28,6 +28,8 @@ interface ClarificationPopupProps {
   options: ClarificationOption[] | null;
   onSelectOption: (optionId: string) => void | Promise<void>;
   onSkip: () => void;
+  /** Just close the popup without triggering skip logic (used after selection) */
+  onClose?: () => void;
   /** Manual loading override (e.g., while submitting selection) */
   isSubmitting?: boolean;
   successMessage?: string | null;
@@ -46,9 +48,12 @@ export function ClarificationPopup({
   options,
   onSelectOption,
   onSkip,
+  onClose,
   isSubmitting = false,
   successMessage = null,
 }: ClarificationPopupProps) {
+  // Use onClose if provided, otherwise fall back to onSkip for backwards compatibility
+  const closePopup = onClose ?? onSkip;
   const scale = useSharedValue(0.9);
   const opacity = useSharedValue(0);
   
@@ -96,10 +101,10 @@ export function ClarificationPopup({
     // Fire off the selection (will process in background)
     onSelectOption(optionId);
     
-    // Dismiss popup after brief success display
+    // Dismiss popup after brief success display (just close, don't trigger skip logic)
     setTimeout(() => {
       setInstantSuccess(false);
-      onSkip(); // This closes the popup
+      closePopup();
     }, 1000);
   };
 
@@ -117,10 +122,10 @@ export function ClarificationPopup({
     // Fire off the selection
     onSelectOption(`freetext:${trimmed}`);
     
-    // Dismiss popup after brief success display
+    // Dismiss popup after brief success display (just close, don't trigger skip logic)
     setTimeout(() => {
       setInstantSuccess(false);
-      onSkip();
+      closePopup();
     }, 1000);
   };
 
