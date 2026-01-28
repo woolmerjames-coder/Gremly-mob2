@@ -116,6 +116,7 @@ import { SweepInstructionsModal } from '../../components/sweep/SweepInstructions
 import { SweepCompletedModal } from '../../components/sweep/SweepCompletedModal';
 import { SweepEndCard } from '../../components/sweep/SweepEndCard';
 import { SweepEndItemList } from '../../components/sweep/SweepEndItemList';
+import { ClarificationPopup } from '../../components/minddrop/ClarificationPopup';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -1180,6 +1181,9 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const archiveNote = useGremlyStore((state) => state.archiveNote);
   const updateHabit = useGremlyStore((state) => state.updateHabit);
   const archiveHabit = useGremlyStore((state) => state.archiveHabit);
+  const resolvePendingDropClarification = useGremlyStore(
+    (state) => state.resolvePendingDropClarification,
+  );
 
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
@@ -1227,6 +1231,15 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const [shownTransitions, setShownTransitions] = useState<Set<'todo' | 'habit' | 'note'>>(
     new Set(),
   );
+
+  // Clarification state for items that need it
+  const [showClarification, setShowClarification] = useState(false);
+  const [clarificationQuestion, setClarificationQuestion] = useState<string | null>(null);
+  const [clarificationOptions, setClarificationOptions] = useState<any[] | null>(null);
+  const [isSubmittingClarification, setIsSubmittingClarification] = useState(false);
+  const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
+  const [cardFlipKey, setCardFlipKey] = useState(0); // Used to trigger card re-render after clarification
+  const [isClarified, setIsClarified] = useState(false); // Triggers flip animation after clarification
 
   // Track item details for summary display
   const itemDetailsRef = useRef<Map<string, { name: string; kind: 'todo' | 'habit' | 'note' }>>(
@@ -1346,14 +1359,16 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           updates.push(
             updateTodo(decision.candidateId, {
               resurface_at: resurfaceDateStr,
-              due_day: null,
+              scheduled_date: null, // New canonical field - clear when setting reminder
+              due_day: null, // Keep for backwards compat
               due_date: null,
             } as any),
           );
         } else if (decision.candidateKind === 'todo' && decision.dueDate) {
           updates.push(
             updateTodo(decision.candidateId, {
-              due_day: toDayString(decision.dueDate),
+              scheduled_date: toDayString(decision.dueDate), // New canonical field
+              due_day: toDayString(decision.dueDate), // Keep for backwards compat
               skipped_in_sweep_at: null,
               resurface_at: null, // Clear reminder so it doesn't keep resurfacing
             } as any),
@@ -1542,6 +1557,32 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     }
   }, [isLoading, candidatesWithMeta]);
 
+  // Check if current candidate needs clarification when index changes
+  useEffect(() => {
+    const candidate = candidatesWithMeta[currentIndex]?.candidate;
+    const views = candidate?.raw?.views as Record<string, any> | undefined;
+    const rawAny = candidate?.raw as Record<string, any> | undefined;
+
+    // Check both views and raw for needs_clarification (different entity types store it differently)
+    const needsClarificationFlag =
+      views?.needs_clarification === true || rawAny?.needs_clarification === true;
+    const storedQuestion = views?.clarification_question || rawAny?.clarification_question;
+    const storedOptions = views?.clarification_options || rawAny?.clarification_options;
+
+    if (needsClarificationFlag && storedQuestion && storedOptions) {
+      setClarificationQuestion(storedQuestion);
+      setClarificationOptions(storedOptions);
+      setShowClarification(true);
+    } else {
+      setShowClarification(false);
+      setClarificationQuestion(null);
+      setClarificationOptions(null);
+    }
+
+    // Reset success state when moving to new card
+    setClarificationSuccess(null);
+  }, [currentIndex, candidatesWithMeta]);
+
   // ─────────────────────────────────────────────────────────────────────────
   // Unified Outcome Handler
   // ─────────────────────────────────────────────────────────────────────────
@@ -1698,6 +1739,48 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       unsubscribeClosed();
     };
   }, []); // Empty deps - uses refs to avoid re-subscribing
+
+  // Listen for clarification bucket changes (note→todo, etc.)
+  // When clarification resolves with a bucket change, update the convertedCandidate state
+  useEffect(() => {
+    const handleEntityCreated = (payload: {
+      entity: { id: string; type: string; drop_id?: string };
+      type: string;
+      source?: string;
+    }) => {
+      // Only handle clarification bucket changes
+      if (payload.source !== 'clarification-bucket-change') return;
+
+      const currentCandidateId = candidatesWithMeta[currentIndex]?.candidate?.id;
+      if (!currentCandidateId) return;
+
+      // Check if the created entity has the same drop_id as the current candidate
+      // This indicates a clarification bucket change for the current card
+      const currentDropId = candidatesWithMeta[currentIndex]?.candidate?.dropId;
+      if (currentDropId && payload.entity.drop_id === currentDropId) {
+        console.log('[SweepFlow] Clarification bucket change detected:', {
+          originalId: currentCandidateId,
+          newId: payload.entity.id,
+          newType: payload.type,
+        });
+
+        // Update convertedCandidate to trigger card data refresh
+        setConvertedCandidate({
+          originalId: currentCandidateId,
+          originalKind: candidatesWithMeta[currentIndex].candidate.kind,
+          newId: payload.entity.id,
+          newKind: payload.type as 'todo' | 'habit' | 'note',
+          animating: true,
+        });
+      }
+    };
+
+    eventBus.on('entity:created', handleEntityCreated);
+
+    return () => {
+      eventBus.off('entity:created', handleEntityCreated);
+    };
+  }, [candidatesWithMeta, currentIndex]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Card Action Handlers (record decisions, don't commit immediately)
@@ -2152,6 +2235,52 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     setShowEntityChat(true);
   }, []);
 
+  /**
+   * Clarification Selection Handler - User picks an option to clarify ambiguous item
+   */
+  const handleClarificationSelect = useCallback(
+    async (optionId: string) => {
+      const candidate = candidatesWithMeta[currentIndex]?.candidate;
+      if (!candidate) return;
+
+      setIsSubmittingClarification(true);
+      try {
+        // Call the store function to resolve clarification
+        await resolvePendingDropClarification(candidate.id, optionId);
+
+        // Show success briefly
+        setClarificationSuccess('Got it!');
+
+        // After success animation, hide popup and trigger card refresh with flip animation
+        setTimeout(() => {
+          setShowClarification(false);
+          setClarificationSuccess(null);
+          // Increment key to force card re-render with updated data
+          setCardFlipKey((prev) => prev + 1);
+          // Trigger flip animation
+          setIsClarified(true);
+          // Reset animation flag after animation duration
+          setTimeout(() => setIsClarified(false), 850);
+        }, 1000);
+      } catch (error) {
+        console.error('[Sweep] Clarification resolution failed:', error);
+        // Still close popup on error - user can retry via edit
+        setShowClarification(false);
+      } finally {
+        setIsSubmittingClarification(false);
+      }
+    },
+    [candidatesWithMeta, currentIndex, resolvePendingDropClarification],
+  );
+
+  /**
+   * Clarification Skip Handler - User skips clarification, proceeds with card as-is
+   */
+  const handleClarificationSkip = useCallback(() => {
+    // User skips - close popup, proceed with card as-is
+    setShowClarification(false);
+  }, []);
+
   // Auto-advance to summary when all cards are processed (fallback)
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0 && currentIndex >= candidatesWithMeta.length) {
@@ -2286,6 +2415,19 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const currentCandidateWithMeta = effectiveCandidateWithMeta;
   const currentCandidate = currentCandidateWithMeta.candidate;
 
+  // Check if current candidate needs clarification before showing sweep actions
+  // Clarification data is stored in views (from the AI classification pipeline)
+  const candidateViews = currentCandidate?.raw?.views as Record<string, any> | undefined;
+  const rawAny = currentCandidate?.raw as Record<string, any> | undefined;
+  const needsClarification =
+    candidateViews?.needs_clarification === true || rawAny?.needs_clarification === true;
+  const candidateClarificationQuestion = candidateViews?.clarification_question as
+    | string
+    | undefined;
+  const candidateClarificationOptions = candidateViews?.clarification_options as
+    | Array<{ id: string; label: string }>
+    | undefined;
+
   return (
     <View style={styles.decisionStepContainer}>
       {/* Decision Step Header - Back on left, Close on right */}
@@ -2332,12 +2474,13 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               />
             </Reanimated.View>
             <SweepCard
-              key={`${currentCandidate.id}-${currentIndex}`}
+              key={`${currentCandidate.id}-${currentIndex}-${cardFlipKey}`}
               candidate={currentCandidate}
               meta={currentCandidateWithMeta.meta}
               index={currentIndex}
               total={candidatesWithMeta.length}
               isConverted={convertedCandidate?.animating ?? false}
+              isClarified={isClarified}
               onSkip={handleSkip}
               onClear={handleClear}
               onOpenEdit={handleOpenEdit}
@@ -2352,6 +2495,18 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
               previousDecision={currentDecision}
               onOpenChat={handleOpenChat}
+            />
+
+            {/* Clarification Popup - shown when current card needs clarification */}
+            <ClarificationPopup
+              visible={showClarification}
+              question={clarificationQuestion ?? null}
+              options={clarificationOptions ?? null}
+              onSelectOption={handleClarificationSelect}
+              onSkip={handleClarificationSkip}
+              onClose={handleClarificationSkip}
+              isSubmitting={isSubmittingClarification}
+              successMessage={clarificationSuccess}
             />
           </>
         )}
@@ -2905,7 +3060,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 break;
               case 'tomorrow':
                 if (isTodo) {
-                  await updateTodo(itemId, { due_day: tomorrow, due_date: tomorrow });
+                  await updateTodo(itemId, {
+                    scheduled_date: tomorrow, // New canonical field
+                    due_day: tomorrow, // Keep for backwards compat
+                    due_date: tomorrow,
+                  });
                 }
                 // Habits automatically stay locked for tomorrow
                 break;

@@ -230,17 +230,54 @@ export async function fetchSweepCandidatesForUser(
                 }))
             : undefined;
 
+        // Extract date intelligence fields
+        const targetDate = row.target_date ?? null;
+        const eventTime = row.event_time ?? null;
+        const resurfaceAt = row.resurface_at ?? null;
+
+        // Compute event date status
+        const isEventToday = targetDate === todayDay;
+        const isEventPassed = targetDate !== null && targetDate < todayDay;
+        const daysUntilEvent = targetDate
+          ? Math.ceil(
+              (new Date(targetDate).getTime() - new Date(todayDay).getTime()) /
+                (1000 * 60 * 60 * 24),
+            )
+          : null;
+
+        // Skip notes where the event date has passed - these should not appear in sweep
+        // User can still find them in Notes view, but they don't need sweep attention
+        if (isEventPassed) {
+          console.log('[Sweep] Skipping past-event note:', {
+            id: row.id.slice(0, 8),
+            targetDate,
+            todayDay,
+          });
+          continue;
+        }
+
+        // For notes, isOverdue/isDueToday now reflect target_date (event date)
+        const isOverdue = isEventPassed;
+        const isDueToday = isEventToday;
+
         candidates.push({
           id: row.id,
           kind: 'note',
           createdAt: row.created_at ?? new Date().toISOString(),
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
-          isOverdue: false, // Notes don't have due dates
-          isDueToday: false, // Notes don't have due dates
+          isOverdue,
+          isDueToday,
           isCreatedToday,
           raw: row,
           attachments,
+          // Date intelligence fields
+          targetDate,
+          eventTime,
+          resurfaceAt,
+          isEventToday,
+          isEventPassed,
+          daysUntilEvent,
         });
       }
     };
@@ -249,7 +286,7 @@ export async function fetchSweepCandidatesForUser(
     // IDEAS - 7 day window (ideas are worth revisiting longer)
     // ─────────────────────────────────────────────────────────────────────
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const ideaOrClause = `created_at.gt.${sevenDaysAgo},skipped_in_sweep_at.not.is.null`;
+    const ideaOrClause = `created_at.gt.${sevenDaysAgo},skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
     const { data: ideas, error: ideaError } = await client
       .from('notes')
@@ -268,7 +305,7 @@ export async function fetchSweepCandidatesForUser(
     // ─────────────────────────────────────────────────────────────────────
     // CATCHALL LOGS - today only (recent captures that need triage)
     // ─────────────────────────────────────────────────────────────────────
-    const generalOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+    const generalOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
     const { data: generalLogs, error: generalError } = await client
       .from('notes')
@@ -288,7 +325,7 @@ export async function fetchSweepCandidatesForUser(
     // LISTS - today only (recent captures that need triage)
     // Note: 'catchall' and 'journal' subtypes are excluded from sweep
     // ─────────────────────────────────────────────────────────────────────
-    const listOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+    const listOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
     const { data: lists, error: listError } = await client
       .from('notes')
@@ -307,7 +344,7 @@ export async function fetchSweepCandidatesForUser(
     // ─────────────────────────────────────────────────────────────────────
     // REFERENCE notes - today only
     // ─────────────────────────────────────────────────────────────────────
-    const refOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null`;
+    const refOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
     const { data: refs, error: refError } = await client
       .from('notes')
@@ -321,6 +358,29 @@ export async function fetchSweepCandidatesForUser(
       console.error('[Sweep] Failed to fetch reference notes:', refError);
     } else if (refs) {
       processNoteRows(refs);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // EVENT NOTES - Notes with target_date that need reminder prompts
+    // Include notes where target_date is within the next 7 days
+    // ─────────────────────────────────────────────────────────────────────
+    const sevenDaysFromNow = new Date();
+    sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+    const sevenDaysFromNowStr = getDateService().toLocalDate(sevenDaysFromNow);
+
+    const { data: eventNotes, error: eventError } = await client
+      .from('notes')
+      .select('*, log_photos(id, url, position)')
+      .eq('owner_id', ownerId)
+      .eq('archived', false)
+      .not('target_date', 'is', null)
+      .gte('target_date', todayDay)
+      .lte('target_date', sevenDaysFromNowStr);
+
+    if (eventError) {
+      console.error('[Sweep] Failed to fetch event notes:', eventError);
+    } else if (eventNotes) {
+      processNoteRows(eventNotes);
     }
   } catch (error) {
     console.error('[Sweep] Unexpected error fetching notes:', error);
@@ -378,6 +438,9 @@ export async function fetchSweepCandidatesForUser(
       subtype: (c.raw as any)?.subtype,
       isCreatedToday: c.isCreatedToday,
       hasPhotos: ((c as any).attachments?.length ?? 0) > 0,
+      targetDate: (c.raw as any)?.target_date,
+      resurfaceAt: (c.raw as any)?.resurface_at,
+      isEventToday: (c as any).isEventToday,
     })),
   });
 

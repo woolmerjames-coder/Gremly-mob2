@@ -331,12 +331,15 @@ describe('buildSweepTodoOrClause', () => {
 
     const result = buildSweepTodoOrClause(todayDay, cutoff);
 
-    // Should include: due today/overdue, new items, skipped items, AND undated recent items
+    // Should include: scheduled_date (new) or due_day (legacy) <= today
+    expect(result).toContain('scheduled_date.lte.2025-12-05');
     expect(result).toContain('due_day.lte.2025-12-05');
+    // New items created after cutoff
     expect(result).toContain('created_at.gt.2025-12-04T18:00:00Z');
+    // Previously skipped items
     expect(result).toContain('skipped_in_sweep_at.not.is.null');
-    // New: includes undated items created in last 3 days
-    expect(result).toContain('and(due_day.is.null,created_at.gt.');
+    // Has deadline but no do date (needs scheduling)
+    expect(result).toContain('target_date.not.is.null');
   });
 
   it('should use lte (<=) for due_day to include both due-today and overdue', () => {

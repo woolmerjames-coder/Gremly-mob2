@@ -280,9 +280,9 @@ describe('fetchSweepCandidatesForUser', () => {
     // Act
     const candidates = await fetchSweepCandidatesForUser('user-1', client);
 
-    // Assert: 5 error calls (1 todo + 4 note subtypes: ideas, general, lists, reference)
+    // Assert: 6 error calls (1 todo + 5 note queries: ideas, general, lists, reference, event notes)
     expect(candidates).toHaveLength(0);
-    expect(console.error).toHaveBeenCalledTimes(5);
+    expect(console.error).toHaveBeenCalledTimes(6);
   });
 
   it('should handle null created_at with fallback to current time', async () => {
