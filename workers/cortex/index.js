@@ -3490,6 +3490,12 @@ Signals: "due", "by", "before", "deadline", "expires", "is on", "appointment", "
 
 Signals: Action verb + time reference, "do", "work on", "handle", "start"
 
+**CRITICAL: Deadline language OVERRIDES action pattern.**
+If the time reference includes "before", "by", "due", "until", "EOW", "EOM" — it's a DEADLINE (target_date), NOT a scheduled_date.
+- "book flights before EOW" → target_date only (deadline), scheduled_date: null
+- "finish report by Friday" → target_date only (deadline), scheduled_date: null
+- "call mom tomorrow" → scheduled_date only (no deadline language)
+
 **AMBIGUOUS** — Could be either (flag for clarification)
 - "dentist Tuesday" — appointment they have? or need to book?
 - "passport June" — trip date? or expiration?
