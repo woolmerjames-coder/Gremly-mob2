@@ -3477,11 +3477,11 @@ DATE INTELLIGENCE (TODOS ONLY):
 Dates in user input can mean TWO different things:
 
 **TARGET DATE** — When something IS or is DUE (external, immovable)
-- Deadlines: "due April 15", "by Friday", "before the 10th"
+- Deadlines: "due April 15", "by Friday", "before the 10th", "before EOW", "by end of week"
 - Events: "dentist Tuesday 2pm", "wedding June 15", "mom's birthday March 5"
 - Expiration: "passport expires June", "lease ends March 1"
 
-Signals: "due", "by", "before", "deadline", "expires", "is on", "appointment"
+Signals: "due", "by", "before", "deadline", "expires", "is on", "appointment", "EOW", "EOM", "end of week", "end of month"
 
 **SCHEDULED DATE** — When user plans to DO the work (internal, movable)
 - Action + time: "call mom tomorrow", "go to gym Monday"
@@ -3514,6 +3514,9 @@ Signals: Action verb + time reference, "do", "work on", "handle", "start"
 "work on report, due Friday" → target_date: "2026-01-31", scheduled_date: null (can add scheduled later)
 "go to gym Monday" → target_date: null, scheduled_date: "2026-02-03"
 "passport June" → target_date: "2026-06-01", date_type_ambiguous: true
+"book flights before EOW" → target_date: end of current week (e.g., "2026-01-31" if today is Tue), scheduled_date: null
+"finish report by end of week" → target_date: Friday of current week, scheduled_date: null
+"submit by EOM" → target_date: last day of current month, scheduled_date: null
 
 **EVENT + SCHEDULING ACTION (both dates exist):**
 When input mentions WHEN something IS and WHEN to DO something about it:

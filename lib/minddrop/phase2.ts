@@ -153,7 +153,13 @@ async function callEnrichAPI(
 
     // Map API response to Phase2Result
     // Validate energy_type
-    const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'] as const;
+    const validEnergyTypes = [
+      'deep_focus',
+      'administrative',
+      'physical',
+      'social',
+      'quick',
+    ] as const;
     const rawEnergyType = json.energy_type;
     const energyType = validEnergyTypes.includes(rawEnergyType)
       ? (rawEnergyType as 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick')
@@ -449,6 +455,14 @@ export async function runPhase2(
         // AI-extracted mood for journal logs
         if (result.mood && result.mood.length > 0) {
           updatePayload.mood = result.mood;
+        }
+        // Date Intelligence: Notes also have target_date column for event dates
+        if (result.targetDate) {
+          updatePayload.target_date = result.targetDate;
+        }
+        // Notes have a date column (general purpose) - use scheduled_date for "do" date
+        if (result.scheduledDate) {
+          updatePayload.date = result.scheduledDate;
         }
       }
 
