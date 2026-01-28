@@ -3577,10 +3577,15 @@ PEOPLE EXTRACTION:
 --------------------------------
 9. people
 Extract names of people mentioned in the text. Include:
-- Explicit names: "John", "Sarah", "Dr. Smith"
+- Explicit names: "John", "Sarah", "Dr. Smith", "Dave"
 - Relationship words: "mom", "dad", "sister", "brother", "boss", "wife", "husband"
-- Possessive patterns: "dad's anniversary" → extract "dad", "mom's birthday" → extract "mom"
+- Possessive patterns: 
+  - "Dave's birthday" → extract "Dave"
+  - "dad's anniversary" → extract "dad"
+  - "mom's birthday" → extract "mom"
+  - "Sarah's wedding" → extract "Sarah"
 - Referenced people: "the one Sarah recommended" → extract "Sarah"
+- Birthday/event context: "birthday April 27" with name in context → extract that name
 
 Return as array of strings, max 10 people.
 
