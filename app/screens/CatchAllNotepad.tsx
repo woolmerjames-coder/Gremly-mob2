@@ -1668,7 +1668,8 @@ const Row3Chips: React.FC<{
   };
 
   // Check for target_date (event/deadline context) - shown separately on right
-  const hasTargetDate = (effectiveKind === 'todo' || effectiveKind === 'note') && 
+  const hasTargetDate =
+    (effectiveKind === 'todo' || effectiveKind === 'note') &&
     (item.target_date || item.views?.target_date);
   const targetDateValue = item.target_date || item.views?.target_date;
 
@@ -1719,9 +1720,7 @@ const Row3Chips: React.FC<{
             {hasTargetDate && targetDateValue && (
               <View style={styles.targetDateChip}>
                 <Calendar size={10} color="#7A9A7A" strokeWidth={2} />
-                <Text style={styles.targetDateText}>
-                  {formatDateForChip(targetDateValue)}
-                </Text>
+                <Text style={styles.targetDateText}>{formatDateForChip(targetDateValue)}</Text>
               </View>
             )}
 
@@ -4132,6 +4131,9 @@ const RecentDrops: React.FC<{
             tags: payload.tags,
             due_date: payload.dueDate ?? item.due_date,
             frequency: payload.frequency ?? item.frequency,
+            // Date Intelligence: target_date for deadline/event context
+            target_date: payload.targetDate ?? item.target_date,
+            scheduled_date: payload.scheduledDate ?? item.scheduled_date,
             // Canonical frequency fields (SINGLE SOURCE OF TRUTH for display)
             ...(payload.cadence !== undefined && { cadence: payload.cadence }),
             ...(payload.target_per_period !== undefined && {
@@ -4150,6 +4152,10 @@ const RecentDrops: React.FC<{
               ai_pending: false,
               confirmation_message: payload.confirmationMessage ?? item.views?.confirmation_message,
               people: payload.people ?? item.views?.people,
+              // Date Intelligence in views as backup
+              target_date: payload.targetDate ?? item.views?.target_date,
+              scheduled_date: payload.scheduledDate ?? item.views?.scheduled_date,
+              date_type_ambiguous: payload.dateTypeAmbiguous ?? item.views?.date_type_ambiguous,
             },
           };
         }),

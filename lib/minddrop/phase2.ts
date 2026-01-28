@@ -497,6 +497,10 @@ export async function runPhase2(
         target_per_period: updatePayload.target_per_period,
         // AI-extracted mood for journals
         mood: result.mood ?? null,
+        // Date Intelligence fields
+        targetDate: result.targetDate ?? null,
+        scheduledDate: result.scheduledDate ?? null,
+        dateTypeAmbiguous: result.dateTypeAmbiguous ?? false,
       });
       mark('event_emitted');
 

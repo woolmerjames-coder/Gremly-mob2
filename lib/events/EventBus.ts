@@ -64,6 +64,10 @@ export type EventMap = {
     people?: string[];
     extracted_days?: number[] | null; // Day numbers (0=Sunday, 1=Monday, ... 6=Saturday)
     mood?: string[] | null; // Multi-select moods for journal entries
+    // Date Intelligence fields
+    targetDate?: string | null; // When something IS or is DUE (deadline/event date)
+    scheduledDate?: string | null; // When user will DO the work
+    dateTypeAmbiguous?: boolean; // True if unclear which type of date
   };
   // Phase 2 streaming field update event
   'entity:field_updated': {
