@@ -3294,17 +3294,27 @@ You MUST calculate dates correctly. Do the math.
 
 **For named days (Monday, Tuesday, etc.):**
 - Calculate the NEXT occurrence of that day
-- If today is Monday (2026-01-27):
-  - "Tuesday" = 2026-01-28 (tomorrow)
-  - "Wednesday" = 2026-01-29 (in 2 days)
-  - "Thursday" = 2026-01-30 (in 3 days)
-  - "Friday" = 2026-01-31 (in 4 days)
-  - "Saturday" = 2026-02-01 (in 5 days)
-  - "Sunday" = 2026-02-02 (in 6 days)
-  - "Monday" = 2026-02-03 (in 7 days, next week)
+- CRITICAL: If today IS that day, the next occurrence is 7 DAYS FROM NOW (next week)
+- Named days NEVER mean today - they always mean the NEXT future occurrence
 
-**CRITICAL:** Do NOT return today's date unless the input explicitly says "today".
-Named days ALWAYS refer to FUTURE dates.
+**Examples when today is Tuesday (2026-01-28):**
+- "Tuesday" = 2026-02-03 (NEXT Tuesday, 7 days away - NOT today!)
+- "Wednesday" = 2026-01-29 (tomorrow)
+- "Thursday" = 2026-01-30 (in 2 days)
+- "Friday" = 2026-01-31 (in 3 days)
+- "Saturday" = 2026-02-01 (in 4 days)
+- "Sunday" = 2026-02-02 (in 5 days)
+- "Monday" = 2026-02-03 (in 6 days)
+
+**Examples when today is Monday (2026-01-27):**
+- "Monday" = 2026-02-03 (NEXT Monday, 7 days away - NOT today!)
+- "Tuesday" = 2026-01-28 (tomorrow)
+- "Wednesday" = 2026-01-29 (in 2 days)
+
+**CRITICAL RULES:**
+1. Do NOT return today's date unless the input explicitly says "today"
+2. If the named day matches today, add 7 days (next week)
+3. Named days ALWAYS refer to FUTURE dates, never today
 
 **Output format:** YYYY-MM-DD (e.g., "2026-01-28")
 
