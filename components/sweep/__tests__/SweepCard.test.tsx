@@ -1492,4 +1492,86 @@ describe('SweepCard', () => {
   // 2. impactAsync(Light) - called when crossing 80% threshold
   // 3. notificationAsync(Success) - called on swipe RIGHT completion (keep)
   // 4. impactAsync(Medium) - called on swipe LEFT completion (archive)
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // isClarified Prop Tests (Phase C Date Intelligence)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('isClarified prop (clarification flow animation)', () => {
+    it('renders normally with isClarified=false', () => {
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          isClarified={false}
+        />,
+      );
+      expect(getByText('Buy groceries')).toBeTruthy();
+    });
+
+    it('renders with isClarified=true (triggers flip animation)', () => {
+      // When isClarified is true, the card should render with animation state
+      // The actual animation is handled by Reanimated and tested via integration tests
+      const { getByText, toJSON } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          isClarified={true}
+        />,
+      );
+      expect(getByText('Buy groceries')).toBeTruthy();
+      expect(toJSON()).toBeTruthy();
+    });
+
+    it('handles transition from isClarified=false to isClarified=true', () => {
+      const { rerender, getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          isClarified={false}
+        />,
+      );
+      expect(getByText('Buy groceries')).toBeTruthy();
+
+      // Re-render with isClarified=true (simulating clarification completion)
+      rerender(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          isClarified={true}
+        />,
+      );
+      expect(getByText('Buy groceries')).toBeTruthy();
+    });
+
+    it('isClarified and isConverted can both be false simultaneously', () => {
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockTodoCandidate}
+          meta={createMockMeta()}
+          {...defaultProps}
+          isConverted={false}
+          isClarified={false}
+        />,
+      );
+      expect(getByText('Buy groceries')).toBeTruthy();
+    });
+
+    it('renders note candidates with isClarified=true', () => {
+      // Notes can also have clarification resolved
+      const { getByText } = render(
+        <SweepCard
+          candidate={mockNoteCandidate}
+          meta={createMockLogMeta()}
+          {...defaultProps}
+          isClarified={true}
+        />,
+      );
+      expect(getByText('Meeting notes')).toBeTruthy();
+    });
+  });
 });
