@@ -23,6 +23,7 @@ module.exports = [
       'habit-sync-bundle/**', // Copied bundle with stale imports
       'scripts/**', // Dev scripts
       'date-audit/**', // Temporary audit folder
+      'gremly-handoff-jan26/**', // Handoff artifacts with broken relative imports
     ],
   },
   js.configs.recommended,
@@ -51,6 +52,10 @@ module.exports = [
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // Disable React Compiler rules (introduced in react-hooks 7.0.0) - these are warnings about
+      // optimization failures, not correctness issues. We can address these incrementally.
+      'react-hooks/preserve-manual-memoization': 'off',
+      'react-hooks/set-state-in-effect': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       // ═══════════════════════════════════════════════════════════════════════════════

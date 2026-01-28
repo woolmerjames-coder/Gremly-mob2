@@ -94,7 +94,7 @@ describe('UnifiedOverlayV2 - View Mode', () => {
 
     it('shows Edit button in view mode', () => {
       const onClose = jest.fn();
-      const { getByLabelText } = render(
+      const { getAllByLabelText } = render(
         <UnifiedOverlayV2
           visible={true}
           mode="view"
@@ -103,8 +103,9 @@ describe('UnifiedOverlayV2 - View Mode', () => {
         />,
       );
 
-      // Edit button SHOULD be rendered in view mode (using accessibility label)
-      expect(getByLabelText('Edit')).toBeTruthy();
+      // Edit button SHOULD be rendered in view mode (there are two: header and footer)
+      const editButtons = getAllByLabelText('Edit');
+      expect(editButtons.length).toBeGreaterThan(0);
     });
 
     it('hides Cancel button in view mode', () => {
@@ -296,7 +297,7 @@ describe('UnifiedOverlayV2 - View Mode', () => {
       const onClose = jest.fn();
       const testSpaceId = 'test-space-456';
 
-      const { getByLabelText } = render(
+      const { getAllByLabelText } = render(
         <UnifiedOverlayV2
           visible={true}
           mode="view"
@@ -306,9 +307,9 @@ describe('UnifiedOverlayV2 - View Mode', () => {
         />,
       );
 
-      // Find and press the Edit button
-      const editButton = getByLabelText('Edit');
-      fireEvent.press(editButton);
+      // Find and press the Edit button (use first one - footer Edit button)
+      const editButtons = getAllByLabelText('Edit');
+      fireEvent.press(editButtons[0]);
 
       // Assert openEdit was called once
       expect(mockOpenEdit).toHaveBeenCalledTimes(1);

@@ -5490,15 +5490,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           </Pressable>
                         ) : null}
 
-                        {/* Header Edit button - view mode only */}
-                        {isViewMode && fullEntity ? (
+                        {/* Header Edit button - view mode only (not for habits - they have Edit button in footer) */}
+                        {isViewMode && fullEntity && baseType !== 'habit' ? (
                           <Pressable
                             onPress={() => {
-                              if (baseType === 'habit') {
-                                // For habits, toggle local displayMode
-                                setDisplayMode('edit');
-                              } else if (initialEntity && (initialEntity as any).id) {
-                                // For other types, reopen in edit mode
+                              if (initialEntity && (initialEntity as any).id) {
+                                // Reopen in edit mode
                                 globalOverlay.openEdit({
                                   record: initialEntity as any,
                                   spaceId: initialSpaceId,

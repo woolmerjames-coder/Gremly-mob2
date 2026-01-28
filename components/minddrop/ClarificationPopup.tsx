@@ -1,5 +1,14 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View, Keyboard } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  Keyboard,
+} from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -49,14 +58,14 @@ export function ClarificationPopup({
   onSelectOption,
   onSkip,
   onClose,
-  isSubmitting = false,
+  isSubmitting: _isSubmitting = false,
   successMessage = null,
 }: ClarificationPopupProps) {
   // Use onClose if provided, otherwise fall back to onSkip for backwards compatibility
   const closePopup = onClose ?? onSkip;
   const scale = useSharedValue(0.9);
   const opacity = useSharedValue(0);
-  
+
   // Free text input state
   const [freeText, setFreeText] = React.useState('');
   const [isTextInputFocused, setIsTextInputFocused] = React.useState(false);
@@ -66,6 +75,7 @@ export function ClarificationPopup({
   // Options loading: question or options not ready
   const isOptionsLoading = !question || !options || options.length < 2;
 
+  // Animation effect
   useEffect(() => {
     if (visible) {
       scale.value = withTiming(1, {
@@ -79,12 +89,20 @@ export function ClarificationPopup({
     } else {
       scale.value = 0.9;
       opacity.value = 0;
-      // Reset state when popup closes
-      setFreeText('');
-      setIsTextInputFocused(false);
-      setInstantSuccess(false);
     }
   }, [visible, scale, opacity]);
+
+  // Reset state when popup closes (separate effect to avoid React Compiler warning)
+  useEffect(() => {
+    if (!visible) {
+      // Use microtask to avoid synchronous setState during render
+      queueMicrotask(() => {
+        setFreeText('');
+        setIsTextInputFocused(false);
+        setInstantSuccess(false);
+      });
+    }
+  }, [visible]);
 
   const animatedCardStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -94,13 +112,13 @@ export function ClarificationPopup({
   const handleOptionPress = (optionId: string) => {
     console.log('[ClarificationPopup] Option pressed:', { optionId });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
+
     // Show instant success feedback
     setInstantSuccess(true);
-    
+
     // Fire off the selection (will process in background)
     onSelectOption(optionId);
-    
+
     // Dismiss popup after brief success display (just close, don't trigger skip logic)
     setTimeout(() => {
       setInstantSuccess(false);
@@ -111,17 +129,17 @@ export function ClarificationPopup({
   const handleFreeTextSubmit = () => {
     const trimmed = freeText.trim();
     if (trimmed.length < 2) return;
-    
+
     console.log('[ClarificationPopup] Free text submitted:', { text: trimmed });
     Keyboard.dismiss();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
+
     // Show instant success feedback
     setInstantSuccess(true);
-    
+
     // Fire off the selection
     onSelectOption(`freetext:${trimmed}`);
-    
+
     // Dismiss popup after brief success display (just close, don't trigger skip logic)
     setTimeout(() => {
       setInstantSuccess(false);
@@ -215,10 +233,7 @@ export function ClarificationPopup({
           {/* Free text input */}
           <View style={styles.freeTextContainer}>
             <TextInput
-              style={[
-                styles.freeTextInput,
-                isTextInputFocused && styles.freeTextInputFocused,
-              ]}
+              style={[styles.freeTextInput, isTextInputFocused && styles.freeTextInputFocused]}
               placeholder="Or explain more..."
               placeholderTextColor="#9CA39C"
               value={freeText}

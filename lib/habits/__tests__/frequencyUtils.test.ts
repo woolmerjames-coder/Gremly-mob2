@@ -401,7 +401,8 @@ describe('getHabitFrequencyLabel', () => {
 
   it('handles missing fields', () => {
     const habit = {};
-    expect(getHabitFrequencyLabel(habit)).toBe('Daily');
+    // Returns null when no cadence or frequency string to prevent showing default before Phase 2
+    expect(getHabitFrequencyLabel(habit)).toBe(null);
   });
 });
 
