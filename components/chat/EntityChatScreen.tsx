@@ -257,6 +257,7 @@ export function EntityChatScreen({
   const appendEntityChatMessage = useGremlyStore((s) => s.appendEntityChatMessage);
   const createStreamingMessage = useGremlyStore((s) => s.createEntityChatStreamingMessage);
   const updateStreamingContent = useGremlyStore((s) => s.updateEntityChatStreamingContent);
+  const updateStreamingSearching = useGremlyStore((s) => s.updateEntityChatStreamingSearching);
   const finalizeStreamingMessage = useGremlyStore((s) => s.finalizeEntityChatStreamingMessage);
   const saveEntityChatNote = useGremlyStore((s) => s.saveEntityChatNote);
   const accountCreatedAt = useGremlyStore((s) => s.accountCreatedAt);
@@ -280,8 +281,6 @@ export function EntityChatScreen({
 
   // ─── Local State ───────────────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [lastSaveable, setLastSaveable] = useState<EntityChatResponse['saveable'] | null>(null);
   const [lastSaveSuggestion, setLastSaveSuggestion] = useState<
     EntityChatResponse['save_suggestion'] | null
@@ -379,8 +378,15 @@ export function EntityChatScreen({
         // 6. Call streaming API
         streamRef.current = callEntityChatStreaming(request, {
           onSearching: (query) => {
-            setIsSearching(true);
-            setSearchQuery(query);
+            if (streamingMessageIdRef.current) {
+              updateStreamingSearching(
+                entityId,
+                entityType,
+                streamingMessageIdRef.current,
+                true,
+                query,
+              );
+            }
           },
           onDelta: (delta) => {
             // Accumulate content and update the streaming message in place
@@ -395,8 +401,16 @@ export function EntityChatScreen({
             }
           },
           onComplete: async (response) => {
-            setIsSearching(false);
-            setSearchQuery(null);
+            // Clear searching state when content arrives
+            if (streamingMessageIdRef.current) {
+              updateStreamingSearching(
+                entityId,
+                entityType,
+                streamingMessageIdRef.current,
+                false,
+                null,
+              );
+            }
             const msgId = streamingMessageIdRef.current;
             if (!msgId) return;
 
@@ -457,8 +471,16 @@ export function EntityChatScreen({
             }, 100);
           },
           onError: async (error) => {
-            setIsSearching(false);
-            setSearchQuery(null);
+            // Clear searching state on error
+            if (streamingMessageIdRef.current) {
+              updateStreamingSearching(
+                entityId,
+                entityType,
+                streamingMessageIdRef.current,
+                false,
+                null,
+              );
+            }
             console.error('[EntityChatScreen] Stream error:', error);
 
             const msgId = streamingMessageIdRef.current;
@@ -495,6 +517,7 @@ export function EntityChatScreen({
       appendEntityChatMessage,
       createStreamingMessage,
       updateStreamingContent,
+      updateStreamingSearching,
       finalizeStreamingMessage,
       storedMessages,
       spaceName,
@@ -663,6 +686,7 @@ export function EntityChatScreen({
     ({ item }: { item: EntityChatMessage }) => {
       // Check if this is the streaming message
       const isStreamingMessage = item.metadata?.isStreaming === true;
+      const isSearchingMessage = item.metadata?.isSearching === true;
 
       // Convert EntityChatMessage to SpaceChatMessage shape for ChatBubble
       const bubbleMessage: SpaceChatMessage & { isStreaming?: boolean } = {
@@ -706,7 +730,14 @@ export function EntityChatScreen({
 
       return (
         <View>
-          <ChatBubble message={bubbleMessage as SpaceChatMessage} />
+          {isSearchingMessage ? (
+            <View style={styles.searchingIndicator}>
+              <ActivityIndicator size="small" color="#8B5CF6" />
+              <Text style={styles.searchingText}>Searching: {item.metadata?.searchQuery}</Text>
+            </View>
+          ) : (
+            <ChatBubble message={bubbleMessage as SpaceChatMessage} />
+          )}
           {showSaveButton && (
             <View style={styles.saveButtonWrapper}>
               <SaveButton
@@ -849,23 +880,6 @@ export function EntityChatScreen({
                   );
                 })}
               </View>
-            </View>
-          )}
-
-          {/* Searching Indicator */}
-          {isSearching && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-              }}
-            >
-              <ActivityIndicator size="small" color="#8B5CF6" />
-              <Text style={{ marginLeft: 8, color: '#6B7280', fontSize: 14 }}>
-                Searching: {searchQuery}
-              </Text>
             </View>
           )}
 
@@ -1020,6 +1034,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 4,
+  },
+  searchingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  searchingText: {
+    marginLeft: 8,
+    color: '#6B7280',
+    fontSize: 14,
+    fontStyle: 'italic',
   },
 
   // Composer

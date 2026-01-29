@@ -154,8 +154,6 @@ export default function ChatThreadScreen({ route }: Props) {
   const [chat, setChat] = useState<SpaceChat | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [spaceName, setSpaceName] = useState<string | null>(null);
 
   // Enable LayoutAnimation on Android
@@ -299,6 +297,7 @@ export default function ChatThreadScreen({ route }: Props) {
     updateMessage,
     createStreamingMessage,
     updateStreamingContent,
+    updateStreamingSearching,
     finalizeStreamingMessage,
     cancelStreaming,
   } = useChatMessages(chatId, spaceId);
@@ -747,12 +746,17 @@ export default function ChatThreadScreen({ route }: Props) {
                 wordBufferRef.current.push(...delta.split(/(?<=\s)/));
               },
               onSearching: (query) => {
-                setIsSearching(true);
-                setSearchQuery(query);
+                const msgId = streamingMessageIdRef.current;
+                if (msgId) {
+                  updateStreamingSearching(msgId, true, query);
+                }
               },
               onComplete: async (finalText: string, richResult?: { save_suggestion?: any }) => {
-                setIsSearching(false);
-                setSearchQuery(null);
+                // Clear searching state
+                const msgId = streamingMessageIdRef.current;
+                if (msgId) {
+                  updateStreamingSearching(msgId, false, null);
+                }
                 stopWordFlushInterval();
                 const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
                 streamingMessageIdRef.current = null;
@@ -823,8 +827,10 @@ export default function ChatThreadScreen({ route }: Props) {
                 setSending(false);
               },
               onError: async (error, partialText) => {
-                setIsSearching(false);
-                setSearchQuery(null);
+                // Clear searching state
+                if (streamingMessageIdRef.current) {
+                  updateStreamingSearching(streamingMessageIdRef.current, false, null);
+                }
                 console.error(
                   '[ChatThread] Streaming error:',
                   error,
@@ -1356,6 +1362,20 @@ export default function ChatThreadScreen({ route }: Props) {
       }
 
       // Render message bubble with inline saveable card support
+      // Check if message is in searching state
+      const isSearchingMessage = message.isSearching === true;
+
+      if (isSearchingMessage) {
+        return (
+          <View style={styles.messageContainer}>
+            <View style={styles.searchingIndicator}>
+              <ActivityIndicator size="small" color="#8B5CF6" />
+              <Text style={styles.searchingText}>Searching: {message.searchQuery}</Text>
+            </View>
+          </View>
+        );
+      }
+
       return (
         <View style={styles.messageContainer}>
           <ChatBubble
@@ -1436,23 +1456,6 @@ export default function ChatThreadScreen({ route }: Props) {
               <View style={styles.headerRight}>{shouldShowMascot() && <Mascot size="md" />}</View>
             </View>
           </View>
-
-          {/* Searching Indicator */}
-          {isSearching && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-              }}
-            >
-              <ActivityIndicator size="small" color="#8B5CF6" />
-              <Text style={{ marginLeft: 8, color: '#6B7280', fontSize: 14 }}>
-                Searching: {searchQuery}
-              </Text>
-            </View>
-          )}
 
           {/* Messages FlatList */}
           <AppFlatList
@@ -1614,6 +1617,18 @@ const styles = StyleSheet.create({
   },
   messageContainer: {
     marginBottom: lightTokens.spacing[3],
+  },
+  searchingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  searchingText: {
+    marginLeft: 8,
+    color: '#6B7280',
+    fontSize: 14,
+    fontStyle: 'italic',
   },
   loading: {
     flex: 1,

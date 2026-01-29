@@ -565,6 +565,11 @@ export interface SpaceChatMessage {
     savedItemType?: 'habit' | 'todo' | 'log'; // Type of the saved item
   } | null;
   saveableDismissed?: boolean;
+  // Streaming state
+  isStreaming?: boolean;
+  // Web search state
+  isSearching?: boolean;
+  searchQuery?: string | null;
 }
 
 /**
@@ -776,6 +781,8 @@ export interface EntityChatMessage {
     is_contextual_opener?: boolean;
     has_saveable_content?: boolean;
     isStreaming?: boolean; // True for temp streaming message
+    isSearching?: boolean; // True when web search is in progress
+    searchQuery?: string | null; // The query being searched
   };
 }
 

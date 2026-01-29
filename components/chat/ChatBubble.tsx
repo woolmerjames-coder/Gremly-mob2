@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import Animated, { FadeIn, SlideInRight, Layout } from 'react-native-reanimated';
 import { Text } from '../../ui/Text';
 import { SpaceChatMessage } from '../../lib/types';
@@ -41,6 +41,8 @@ function ChatBubbleInner({
   // Streaming state
   const isStreaming = (message as any).isStreaming === true;
   const streamingFailed = (message as any).streamingCancelled === true;
+  const isSearching = (message as any).isSearching === true;
+  const searchQuery = (message as any).searchQuery as string | null;
 
   // Debug logging for save button visibility
   if (isAssistant && __DEV__) {
@@ -99,31 +101,44 @@ function ChatBubbleInner({
       >
         {isAssistant ? (
           <View style={{ paddingVertical: 2 }}>
-            {renderFormattedContent(message.content)}
-            {isStreaming && (
-              <View style={{ flexDirection: 'row', marginTop: 4 }}>
-                <InlineStreamingCursor visible={true} />
-              </View>
-            )}
-            {streamingFailed && message.content && (
-              <View
-                style={{
-                  marginTop: 8,
-                  paddingTop: 8,
-                  borderTopWidth: 1,
-                  borderTopColor: 'rgba(0,0,0,0.1)',
-                }}
-              >
-                <Text style={{ fontSize: 13, color: '#666', fontStyle: 'italic' }}>
-                  Hmm, I lost my train of thought.{' '}
-                  <Text
-                    style={{ color: '#E0C47A', fontWeight: '500' }}
-                    onPress={() => onRetryStream?.(message.id)}
-                  >
-                    Tap to continue
-                  </Text>
+            {isSearching ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
+                <ActivityIndicator size="small" color="#8B5CF6" />
+                <Text
+                  style={{ marginLeft: 8, color: '#6B7280', fontSize: 14, fontStyle: 'italic' }}
+                >
+                  Searching: {searchQuery}
                 </Text>
               </View>
+            ) : (
+              <>
+                {renderFormattedContent(message.content)}
+                {isStreaming && (
+                  <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                    <InlineStreamingCursor visible={true} />
+                  </View>
+                )}
+                {streamingFailed && message.content && (
+                  <View
+                    style={{
+                      marginTop: 8,
+                      paddingTop: 8,
+                      borderTopWidth: 1,
+                      borderTopColor: 'rgba(0,0,0,0.1)',
+                    }}
+                  >
+                    <Text style={{ fontSize: 13, color: '#666', fontStyle: 'italic' }}>
+                      Hmm, I lost my train of thought.{' '}
+                      <Text
+                        style={{ color: '#E0C47A', fontWeight: '500' }}
+                        onPress={() => onRetryStream?.(message.id)}
+                      >
+                        Tap to continue
+                      </Text>
+                    </Text>
+                  </View>
+                )}
+              </>
             )}
           </View>
         ) : (

@@ -623,6 +623,13 @@ interface GremlyState {
     messageId: string,
     content: string,
   ) => void;
+  updateEntityChatStreamingSearching: (
+    entityId: string,
+    entityType: 'todo' | 'habit' | 'note',
+    messageId: string,
+    isSearching: boolean,
+    searchQuery: string | null,
+  ) => void;
   finalizeEntityChatStreamingMessage: (
     entityId: string,
     entityType: 'todo' | 'habit' | 'note',
@@ -5842,6 +5849,67 @@ export const useGremlyStore = create<GremlyState>()(
           notes: state.notes.map((n) =>
             n.id === entityId
               ? { ...n, views: updateMessageContent(n.views as Record<string, unknown>) }
+              : n,
+          ),
+        });
+      }
+    },
+
+    // Updates streaming message searching state (synchronous, no persistence)
+    updateEntityChatStreamingSearching: (
+      entityId: string,
+      entityType: 'todo' | 'habit' | 'note',
+      messageId: string,
+      isSearching: boolean,
+      searchQuery: string | null,
+    ): void => {
+      const state = get();
+
+      // Helper to update message searching state
+      const updateMessageSearching = (
+        currentViews: Record<string, unknown> | undefined,
+      ): Record<string, unknown> => {
+        const existingChat = (currentViews?.chat as EntityChatData) ?? {
+          messages: [],
+          message_count: 0,
+          last_message_at: null,
+          notes: [],
+        };
+
+        return {
+          ...currentViews,
+          chat: {
+            ...existingChat,
+            messages: existingChat.messages.map((m) =>
+              m.id === messageId
+                ? { ...m, metadata: { ...m.metadata, isSearching, searchQuery } }
+                : m,
+            ),
+          },
+        };
+      };
+
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId
+              ? { ...t, views: updateMessageSearching(t.views as Record<string, unknown>) }
+              : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId
+              ? { ...h, views: updateMessageSearching(h.views as Record<string, unknown>) }
+              : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId
+              ? { ...n, views: updateMessageSearching(n.views as Record<string, unknown>) }
               : n,
           ),
         });

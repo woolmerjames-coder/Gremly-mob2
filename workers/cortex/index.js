@@ -1023,6 +1023,8 @@ export default {
                           `data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`,
                         ),
                       );
+                      // Small delay for smooth streaming effect
+                      await new Promise((resolve) => setTimeout(resolve, 15));
                     }
 
                     // Extract sources for final event
@@ -4441,6 +4443,8 @@ For LOGS (idea/general):
                     await writer.write(
                       encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
                     );
+                    // Small delay for smooth streaming effect
+                    await new Promise((resolve) => setTimeout(resolve, 15));
                   }
 
                   // Extract sources for final event
