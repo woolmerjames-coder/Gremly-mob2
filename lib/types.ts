@@ -570,6 +570,9 @@ export interface SpaceChatMessage {
   // Web search state
   isSearching?: boolean;
   searchQuery?: string | null;
+  // Web search results
+  sources?: Array<{ title: string; url: string }>;
+  search_query?: string | null;
 }
 
 /**
@@ -783,6 +786,8 @@ export interface EntityChatMessage {
     isStreaming?: boolean; // True for temp streaming message
     isSearching?: boolean; // True when web search is in progress
     searchQuery?: string | null; // The query being searched
+    sources?: Array<{ title: string; url: string }>; // Web search sources
+    search_query?: string | null; // The final search query used
   };
 }
 

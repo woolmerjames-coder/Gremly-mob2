@@ -1155,7 +1155,7 @@ You have access to web search. When the user asks about topics that benefit from
                     ...toolResultMessages,
                   ];
 
-                  // Second API call for final response
+                  // Second API call for final response - with real streaming
                   const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
                     method: 'POST',
                     headers: {
@@ -1167,20 +1167,36 @@ You have access to web search. When the user asks about topics that benefit from
                       messages: followUpMessages,
                       temperature: 0.7,
                       max_completion_tokens: 800,
+                      stream: true,
                     }),
                   });
 
-                  const followUpData = await followUpRes.json();
-                  fullContent = followUpData?.choices?.[0]?.message?.content ?? '';
+                  // Stream the follow-up response to client
+                  const followUpReader = followUpRes.body.getReader();
+                  const followUpDecoder = new TextDecoder();
 
-                  // Stream the content to client in chunks for smoother UX
-                  const words = fullContent.split(' ');
-                  for (let i = 0; i < words.length; i += 3) {
-                    const chunk = words.slice(i, i + 3).join(' ') + ' ';
-                    await writer.write(
-                      encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
-                    );
-                    await new Promise((resolve) => setTimeout(resolve, 15));
+                  while (true) {
+                    const { done: readerDone, value } = await followUpReader.read();
+                    if (readerDone) break;
+
+                    const chunk = followUpDecoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n').filter((line) => line.trim().startsWith('data:'));
+
+                    for (const line of lines) {
+                      const jsonStr = line.replace(/^data:\s*/, '').trim();
+                      if (jsonStr === '[DONE]') continue;
+
+                      try {
+                        const json = JSON.parse(jsonStr);
+                        const delta = json.choices?.[0]?.delta?.content;
+                        if (delta) {
+                          fullContent += delta;
+                          await writer.write(encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`));
+                        }
+                      } catch {
+                        // Skip malformed JSON
+                      }
+                    }
                   }
 
                   // Combine all sources
@@ -4706,7 +4722,7 @@ For LOGS (idea/general):
                   ...toolResultMessages,
                 ];
 
-                // Second API call for final response
+                // Second API call for final response - with real streaming
                 const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
                   method: 'POST',
                   headers: {
@@ -4718,20 +4734,36 @@ For LOGS (idea/general):
                     messages: followUpMessages,
                     temperature,
                     max_completion_tokens: 800,
+                    stream: true,
                   }),
                 });
 
-                const followUpData = await followUpRes.json();
-                fullContent = followUpData?.choices?.[0]?.message?.content ?? '';
+                // Stream the follow-up response to client
+                const followUpReader = followUpRes.body.getReader();
+                const followUpDecoder = new TextDecoder();
 
-                // Stream the content to client in chunks for smoother UX
-                const words = fullContent.split(' ');
-                for (let i = 0; i < words.length; i += 3) {
-                  const chunk = words.slice(i, i + 3).join(' ') + ' ';
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
-                  );
-                  await new Promise((resolve) => setTimeout(resolve, 15));
+                while (true) {
+                  const { done: readerDone, value } = await followUpReader.read();
+                  if (readerDone) break;
+
+                  const chunk = followUpDecoder.decode(value, { stream: true });
+                  const lines = chunk.split('\n').filter((line) => line.trim().startsWith('data:'));
+
+                  for (const line of lines) {
+                    const jsonStr = line.replace(/^data:\s*/, '').trim();
+                    if (jsonStr === '[DONE]') continue;
+
+                    try {
+                      const json = JSON.parse(jsonStr);
+                      const delta = json.choices?.[0]?.delta?.content;
+                      if (delta) {
+                        fullContent += delta;
+                        await writer.write(encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`));
+                      }
+                    } catch {
+                      // Skip malformed JSON
+                    }
+                  }
                 }
 
                 // Combine all sources

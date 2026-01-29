@@ -177,7 +177,18 @@ export function buildSpaceChatSystemPrompt(
   spaceContext?: SpaceContext | null,
   accountCreatedAt?: string | null,
 ): string {
+  const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  
   let prompt = GREMLY_SPACE_CHAT_PERSONA;
+
+  // Add current date and web search guidance
+  prompt += `
+
+=== CURRENT DATE ===
+Today is ${currentDate}. Always use this date for any time-relative queries (upcoming events, deadlines, scheduling, "this week", "before June", etc.).
+
+=== WEB SEARCH ===
+You have access to web search. When the user asks about topics that benefit from current information (health, fitness, events, recommendations, how-to guides, research topics, trip planning), USE the search tool to provide accurate, up-to-date answers. Do not suggest the user search themselves - search for them and synthesize the results.`;
 
   // Add birthday/relationship context
   const birthdayContext = buildBirthdayContext(accountCreatedAt ?? null);

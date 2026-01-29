@@ -751,7 +751,7 @@ export default function ChatThreadScreen({ route }: Props) {
                   updateStreamingSearching(msgId, true, query);
                 }
               },
-              onComplete: async (finalText: string, richResult?: { save_suggestion?: any }) => {
+              onComplete: async (finalText: string, richResult?: { save_suggestion?: any; sources?: Array<{ title: string; url: string }>; search_query?: string | null }) => {
                 // Clear searching state
                 const msgId = streamingMessageIdRef.current;
                 if (msgId) {
@@ -763,10 +763,16 @@ export default function ChatThreadScreen({ route }: Props) {
                 streamingControllerRef.current = null;
                 mascot.replying();
 
+                // Store sources from web search if available
+                if (richResult?.sources && richResult.sources.length > 0 && finalizedMessage?.id) {
+                  updateMessage(finalizedMessage.id, {
+                    sources: richResult.sources,
+                    search_query: richResult.search_query,
+                  });
+                }
+
                 // Run saveable detection on completed message
                 // Pass save_suggestion from Cortex when available
-                // TODO: Store richResult.sources with the message for display
-                // Sources available: richResult?.sources, richResult?.search_query
                 if (finalizedMessage?.id) {
                   try {
                     const saveSuggestion = richResult?.save_suggestion ?? null;

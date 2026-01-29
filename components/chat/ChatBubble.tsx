@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, TouchableOpacity, Linking } from 'react-native';
 import Animated, { FadeIn, SlideInRight, Layout } from 'react-native-reanimated';
 import { Text } from '../../ui/Text';
 import { SpaceChatMessage } from '../../lib/types';
@@ -43,6 +43,7 @@ function ChatBubbleInner({
   const streamingFailed = (message as any).streamingCancelled === true;
   const isSearching = (message as any).isSearching === true;
   const searchQuery = (message as any).searchQuery as string | null;
+  const sources = (message as any).sources as Array<{ title: string; url: string }> | undefined;
 
   // Debug logging for save button visibility
   if (isAssistant && __DEV__) {
@@ -136,6 +137,26 @@ function ChatBubbleInner({
                         Tap to continue
                       </Text>
                     </Text>
+                  </View>
+                )}
+                {/* Sources from web search */}
+                {sources && sources.length > 0 && !isStreaming && (
+                  <View style={styles.sourcesContainer}>
+                    <Text style={styles.sourcesLabel}>Sources</Text>
+                    <View style={styles.sourcesList}>
+                      {sources.slice(0, 3).map((source, idx) => (
+                        <TouchableOpacity
+                          key={idx}
+                          onPress={() => Linking.openURL(source.url)}
+                          style={styles.sourceChip}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.sourceText} numberOfLines={1}>
+                            {source.title}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   </View>
                 )}
               </>
@@ -270,6 +291,37 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: '400',
     letterSpacing: -0.2,
+  },
+  // Sources display
+  sourcesContainer: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0, 0, 0, 0.06)',
+  },
+  sourcesLabel: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginBottom: 6,
+    fontWeight: '500',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  sourcesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  sourceChip: {
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    maxWidth: '100%',
+  },
+  sourceText: {
+    fontSize: 12,
+    color: '#6B7280',
   },
 });
 

@@ -17,6 +17,7 @@ import {
   Alert,
   LayoutAnimation,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import Animated, { FadeOutUp, FadeInRight, SlideOutRight, Layout } from 'react-native-reanimated';
 import {
@@ -439,10 +440,9 @@ export function EntityChatScreen({
             // Finalize the streaming message (removes isStreaming flag, persists to DB)
             await finalizeStreamingMessage(entityId, entityType, msgId, response.content, {
               has_saveable_content: shouldShowSave,
+              sources: response.sources,
+              search_query: response.search_query,
             });
-
-            // TODO: Store response.sources with the message for display
-            // Sources available: response.sources, response.search_query
 
             // Track saveable content for SaveButton
             if (shouldShowSave) {
@@ -736,7 +736,27 @@ export function EntityChatScreen({
               <Text style={styles.searchingText}>Searching: {item.metadata?.searchQuery}</Text>
             </View>
           ) : (
-            <ChatBubble message={bubbleMessage as SpaceChatMessage} />
+            <>
+              <ChatBubble message={bubbleMessage as SpaceChatMessage} />
+              {item.metadata?.sources && item.metadata.sources.length > 0 && (
+                <View style={styles.sourcesContainer}>
+                  <Text style={styles.sourcesLabel}>Sources</Text>
+                  <View style={styles.sourcesList}>
+                    {item.metadata.sources.slice(0, 3).map((source: { title: string; url: string }, idx: number) => (
+                      <TouchableOpacity
+                        key={idx}
+                        onPress={() => Linking.openURL(source.url)}
+                        style={styles.sourceChip}
+                      >
+                        <Text style={styles.sourceText} numberOfLines={1}>
+                          {source.title}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </>
           )}
           {showSaveButton && (
             <View style={styles.saveButtonWrapper}>
@@ -1046,6 +1066,35 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 14,
     fontStyle: 'italic',
+  },
+
+  // Sources display
+  sourcesContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  sourcesLabel: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  sourcesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  sourceChip: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    maxWidth: '45%',
+  },
+  sourceText: {
+    fontSize: 12,
+    color: '#6B7280',
   },
 
   // Composer
