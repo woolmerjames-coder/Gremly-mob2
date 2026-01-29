@@ -115,6 +115,11 @@ function ChatBubbleInner({
   const sources = (message as any).sources as Array<{ title: string; url: string }> | undefined;
   const images = (message as any).images as string[] | undefined;
 
+  // Debug images
+  if (isAssistant && __DEV__) {
+    console.log('[ChatBubble] Images:', { images, hasImages: !!images, count: images?.length });
+  }
+
   // Debug logging for save button visibility
   if (isAssistant && __DEV__) {
     console.log('[ChatBubble] Rendering assistant message:', {

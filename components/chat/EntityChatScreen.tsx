@@ -258,10 +258,6 @@ export function EntityChatScreen({
   const appendEntityChatMessage = useGremlyStore((s) => s.appendEntityChatMessage);
   const createStreamingMessage = useGremlyStore((s) => s.createEntityChatStreamingMessage);
   const updateStreamingContent = useGremlyStore((s) => s.updateEntityChatStreamingContent);
-  // Entity creation (for smart save)
-  const createTodo = useGremlyStore((s) => s.createTodo);
-  const createHabit = useGremlyStore((s) => s.createHabit);
-  const createNote = useGremlyStore((s) => s.createNote);
   const updateStreamingSearching = useGremlyStore((s) => s.updateEntityChatStreamingSearching);
   const finalizeStreamingMessage = useGremlyStore((s) => s.finalizeEntityChatStreamingMessage);
   const saveEntityChatNote = useGremlyStore((s) => s.saveEntityChatNote);
@@ -476,6 +472,8 @@ export function EntityChatScreen({
               msgId,
               contentLength: response.content?.length,
               apiSaveable: response.saveable,
+              images: response.images,
+              rawResponse: JSON.stringify(response).substring(0, 500),
             });
 
             // Debug log for save_suggestion
@@ -659,50 +657,7 @@ export function EntityChatScreen({
       const fallbackContent = lastAssistant?.content ?? 'Saved from chat';
 
       try {
-        // ─── SMART SAVE: Create new entity (skip Phase 1 classification) ─────
-        if (lastSaveSuggestion?.type && lastSaveSuggestion?.title) {
-          console.log('[EntityChatScreen] Smart save - creating new entity (skipping Phase 1):', {
-            type: lastSaveSuggestion.type,
-            title: lastSaveSuggestion.title,
-            hasSteps: !!lastSaveSuggestion.steps?.length,
-          });
-
-          const title = lastSaveSuggestion.title;
-          const type = lastSaveSuggestion.type;
-
-          if (type === 'todo') {
-            // Format steps as part of the body if present
-            let body = fallbackContent;
-            if (lastSaveSuggestion.steps?.length) {
-              const stepsText = lastSaveSuggestion.steps.map((step: string, i: number) => `${i + 1}. ${step}`).join('\n');
-              body = `Steps:\n${stepsText}\n\n---\n${fallbackContent}`;
-            }
-
-            await createTodo({
-              name: title,
-              body,
-            });
-            console.log('[EntityChatScreen] Created todo:', title);
-          } else if (type === 'habit') {
-            await createHabit({
-              name: title,
-              notes: fallbackContent, // Include assistant's response as notes
-            });
-            console.log('[EntityChatScreen] Created habit:', title);
-          } else {
-            // note
-            await createNote({
-              title,
-              body: fallbackContent,
-            });
-            console.log('[EntityChatScreen] Created note:', title);
-          }
-
-          setSaveState('confirmed');
-          return;
-        }
-
-        // ─── FALLBACK: Save as note to current entity (existing behavior) ────
+        // ─── Save as note to current entity ────
         const existingNotes = getEntityChat(entityId, entityType)?.notes ?? [];
         if (existingNotes.length >= MAX_NOTES_PER_ENTITY) {
           Alert.alert(
@@ -717,9 +672,10 @@ export function EntityChatScreen({
           content: fallbackContent,
           is_checklist: false,
           source_message_id: lastAssistantMessageId || '',
+          note_type: 'regular' as const,
         };
 
-        console.log('[EntityChatScreen] Fallback - saving note to entity:', { entityId, entityType, noteData });
+        console.log('[EntityChatScreen] Saving note to entity:', { entityId, entityType, noteData });
         await saveEntityChatNote(entityId, entityType, noteData);
         console.log('[EntityChatScreen] Note saved successfully');
         setSaveState('confirmed');
@@ -734,10 +690,6 @@ export function EntityChatScreen({
       saveEntityChatNote,
       lastAssistantMessageId,
       getEntityChat,
-      lastSaveSuggestion,
-      createTodo,
-      createHabit,
-      createNote,
     ],
   );
 
@@ -815,55 +767,7 @@ export function EntityChatScreen({
               <Text style={styles.searchingText}>Searching: {item.metadata?.searchQuery}</Text>
             </View>
           ) : (
-            <>
-              <ChatBubble message={bubbleMessage as SpaceChatMessage} />
-              {item.metadata?.sources && item.metadata.sources.length > 0 && (
-                <View style={styles.sourcesRow}>
-                  <Text style={styles.sourcesLabel}>Sources:</Text>
-                  {item.metadata.sources
-                    .slice(0, 3)
-                    .map((source: { title: string; url: string }, idx: number) => {
-                      // Extract domain
-                      let domain = '';
-                      try {
-                        domain = new URL(source.url).hostname.replace('www.', '');
-                      } catch {
-                        domain = source.url;
-                      }
-                      
-                      // Generate consistent color from domain for fallback
-                      const colors = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#6366F1'];
-                      const hash = domain.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-                      const dotColor = colors[hash % colors.length];
-                      
-                      // Use DuckDuckGo's favicon service
-                      const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
-                      const displayName = domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
-                      
-                      return (
-                        <React.Fragment key={idx}>
-                          {idx > 0 && <Text style={styles.sourceSeparator}>·</Text>}
-                          <TouchableOpacity
-                            onPress={() => Linking.openURL(source.url)}
-                            style={styles.sourceItem}
-                            activeOpacity={0.7}
-                          >
-                            <Image
-                              source={{ uri: faviconUrl }}
-                              style={styles.sourceFavicon}
-                              resizeMode="cover"
-                              defaultSource={{ uri: `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14'><circle cx='7' cy='7' r='5' fill='${encodeURIComponent(dotColor)}'/></svg>` }}
-                            />
-                            <Text style={styles.sourceName} numberOfLines={1}>
-                              {displayName}
-                            </Text>
-                          </TouchableOpacity>
-                        </React.Fragment>
-                      );
-                    })}
-                </View>
-              )}
-            </>
+            <ChatBubble message={bubbleMessage as SpaceChatMessage} />
           )}
           {showSaveButton && (
             <View style={styles.saveButtonWrapper}>

@@ -177,6 +177,14 @@ async function executeTavilySearch(query, apiKey, options = {}) {
     // Get images if available (Tavily returns these separately)
     const images = includeImages && data.images ? data.images.slice(0, 3) : [];
 
+    console.log('[Tavily] Search result:', { 
+      query, 
+      includeImages, 
+      resultsCount: results.length,
+      imagesReturned: data.images?.length || 0,
+      rawImages: data.images 
+    });
+
     return {
       query: query,
       results: results,
@@ -1405,6 +1413,11 @@ IMPORTANT: Never include markdown image syntax (![...](...)) in your response. I
 
                     searchQueries.push(query);
                     const shouldIncludeImages = isVisualQuery(query) || isVisualQuery(lastUserMsg);
+                    console.log('[EntityChat] Calling Tavily:', { 
+                      query: query, 
+                      includeImages: shouldIncludeImages,
+                      isVisualQueryResult: isVisualQuery(query)
+                    });
                     const results = await executeTavilySearch(query, env.TAVILY_API_KEY, {
                       includeImages: shouldIncludeImages,
                     });
@@ -1530,11 +1543,24 @@ IMPORTANT: Never include markdown image syntax (![...](...)) in your response. I
                     sr.results.results.map((r) => ({ title: r.title, url: r.url })),
                   );
 
+                  console.log('[EntityChat] successfulSearches structure:', { 
+                    count: successfulSearches.length,
+                    firstItem: successfulSearches[0] ? Object.keys(successfulSearches[0]) : 'empty',
+                    firstItemImages: successfulSearches[0]?.images,
+                    firstItemResultsImages: successfulSearches[0]?.results?.images
+                  });
+
                   // Collect images from search results
+                  // Structure: sr.results contains Tavily response with images
                   successfulSearches.forEach((sr) => {
                     if (sr.results.images && sr.results.images.length > 0) {
                       searchImages.push(...sr.results.images);
                     }
+                  });
+
+                  console.log('[EntityChat] Images collected:', { 
+                    searchImagesCount: searchImages.length, 
+                    searchImages: searchImages.slice(0, 2) 
                   });
                 }
               }
@@ -1628,6 +1654,7 @@ IMPORTANT: Never include markdown image syntax (![...](...)) in your response. I
                 has_saveable: saveable?.detected,
                 has_promotion: promotion?.suggested,
                 used_search: !!searchQuery,
+                images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
               });
             } catch (streamErr) {
               console.log('[EntityChat:Streaming] Stream error', { error: String(streamErr) });

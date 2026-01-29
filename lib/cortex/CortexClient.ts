@@ -1373,6 +1373,7 @@ export function callEntityChatStreaming(
           save_suggestion: data.save_suggestion ?? null,
           latency_ms,
           sources: data.sources,
+          images: data.images,
           search_query: data.search_query,
           fetchedUrl: data.fetchedUrl,
         });

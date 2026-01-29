@@ -811,6 +811,10 @@ export interface EntityChatNote {
   postamble?: string; // Text after last bullet (when converted to checklist)
   created_at: string;
   source_message_id: string; // Which assistant message this came from
+  // Smart Save fields (optional - only present for Smart Save notes)
+  note_type?: 'regular' | 'smart_save'; // Type of save
+  linked_entity_id?: string; // ID of entity created via Smart Save
+  linked_entity_type?: 'todo' | 'habit' | 'note'; // Type of entity created via Smart Save
 }
 
 /**
