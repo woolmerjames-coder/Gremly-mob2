@@ -929,15 +929,21 @@ You have access to web search. When the user asks about topics that benefit from
  - Exploratory "it depends" responses
  - When you're just chatting or checking in
  
- **Format:** After your response, add:
- <!--SAVE:{"type":"todo|habit|note","title":"Short title","steps":["Step 1","Step 2"]}-->
+ **Format:** After your complete response, on a NEW LINE, add exactly:
+ <!--SAVE:{"type":"todo","title":"Your title here","steps":["Step 1","Step 2"]}-->
+ 
+ CRITICAL FORMAT RULES:
+ - Must start with exactly: <!--SAVE:
+ - Must end with exactly: -->
+ - JSON must be valid (proper quotes, no trailing commas)
+ - Put on its own line after your response
+ - Do not include any other text on that line
  
  **Rules:**
  - type: "todo", "habit", or "note"
  - title: 2-6 words, action-oriented for todos/habits
  - steps: Only include for todos with clear action steps (optional, max 5)
  - No steps array for habits or notes
- - The suggestion block must be on its own line after your response
  
  **Examples:**
  
@@ -1231,16 +1237,23 @@ You have access to web search. When the user asks about topics that benefit from
                   // Stream the follow-up response to client
                   const followUpReader = followUpRes.body.getReader();
                   const followUpDecoder = new TextDecoder();
+                  let followUpBuffer = '';
 
                   while (true) {
                     const { done: readerDone, value } = await followUpReader.read();
                     if (readerDone) break;
 
-                    const chunk = followUpDecoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n').filter((line) => line.trim().startsWith('data:'));
-
+                    followUpBuffer += followUpDecoder.decode(value, { stream: true });
+                    
+                    // Process complete lines only
+                    const lines = followUpBuffer.split('\n');
+                    followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+                    
                     for (const line of lines) {
-                      const jsonStr = line.replace(/^data:\s*/, '').trim();
+                      const trimmed = line.trim();
+                      if (!trimmed.startsWith('data:')) continue;
+                      
+                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
                       if (jsonStr === '[DONE]') continue;
 
                       try {
@@ -1252,6 +1265,26 @@ You have access to web search. When the user asks about topics that benefit from
                         }
                       } catch {
                         // Skip malformed JSON
+                      }
+                    }
+                  }
+
+                  // Process any remaining buffer
+                  if (followUpBuffer.trim()) {
+                    const trimmed = followUpBuffer.trim();
+                    if (trimmed.startsWith('data:')) {
+                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                      if (jsonStr !== '[DONE]') {
+                        try {
+                          const json = JSON.parse(jsonStr);
+                          const delta = json.choices?.[0]?.delta?.content;
+                          if (delta) {
+                            fullContent += delta;
+                            await writer.write(encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`));
+                          }
+                        } catch {
+                          // Skip
+                        }
                       }
                     }
                   }
@@ -1524,8 +1557,8 @@ You have access to web search. When the user asks about topics that benefit from
       function extractSaveSuggestion(content) {
         if (!content) return { suggestion: null, cleanContent: content };
         
-        // Look for <!--SAVE:{...}--> pattern
-        const savePattern = /<!--SAVE:(\{[^}]+\})-->/;
+        // Look for <!--SAVE:{...}--> pattern (forgiving of whitespace and slight variations)
+        const savePattern = /<!--\s*SAVE\s*:\s*(\{[\s\S]*?\})\s*-->/i;;
         const match = content.match(savePattern);
         
         if (!match) {
@@ -1533,7 +1566,9 @@ You have access to web search. When the user asks about topics that benefit from
         }
         
         try {
-          const suggestion = JSON.parse(match[1]);
+          // Clean up the JSON string (remove any stray newlines or formatting)
+          const jsonStr = match[1].replace(/[\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+          const suggestion = JSON.parse(jsonStr);
           
           // Validate required fields
           if (!suggestion.type || !suggestion.title) {
@@ -4889,16 +4924,23 @@ For LOGS (idea/general):
                 // Stream the follow-up response to client
                 const followUpReader = followUpRes.body.getReader();
                 const followUpDecoder = new TextDecoder();
+                let followUpBuffer = '';
 
                 while (true) {
                   const { done: readerDone, value } = await followUpReader.read();
                   if (readerDone) break;
 
-                  const chunk = followUpDecoder.decode(value, { stream: true });
-                  const lines = chunk.split('\n').filter((line) => line.trim().startsWith('data:'));
-
+                  followUpBuffer += followUpDecoder.decode(value, { stream: true });
+                  
+                  // Process complete lines only
+                  const lines = followUpBuffer.split('\n');
+                  followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+                  
                   for (const line of lines) {
-                    const jsonStr = line.replace(/^data:\s*/, '').trim();
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith('data:')) continue;
+                    
+                    const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
                     if (jsonStr === '[DONE]') continue;
 
                     try {
@@ -4910,6 +4952,26 @@ For LOGS (idea/general):
                       }
                     } catch {
                       // Skip malformed JSON
+                    }
+                  }
+                }
+
+                // Process any remaining buffer
+                if (followUpBuffer.trim()) {
+                  const trimmed = followUpBuffer.trim();
+                  if (trimmed.startsWith('data:')) {
+                    const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                    if (jsonStr !== '[DONE]') {
+                      try {
+                        const json = JSON.parse(jsonStr);
+                        const delta = json.choices?.[0]?.delta?.content;
+                        if (delta) {
+                          fullContent += delta;
+                          await writer.write(encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`));
+                        }
+                      } catch {
+                        // Skip
+                      }
                     }
                   }
                 }
