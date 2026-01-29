@@ -238,14 +238,19 @@ export default function SaveButton({
               {/* Steps (if present) */}
               {smartSuggestion.steps && smartSuggestion.steps.length > 0 && (
                 <View style={styles.smartSteps}>
-                  {smartSuggestion.steps.slice(0, 5).map((step, idx) => (
+                  {smartSuggestion.steps.slice(0, 3).map((step, idx) => (
                     <View key={idx} style={styles.smartStepRow}>
                       <View style={styles.smartStepCheck} />
-                      <Text style={styles.smartStepText} numberOfLines={2}>
+                      <Text style={styles.smartStepText} numberOfLines={1}>
                         {step}
                       </Text>
                     </View>
                   ))}
+                  {smartSuggestion.steps.length > 3 && (
+                    <Text style={styles.smartStepsMore}>
+                      +{smartSuggestion.steps.length - 3} more items
+                    </Text>
+                  )}
                 </View>
               )}
 
@@ -550,6 +555,13 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     flex: 1,
     lineHeight: 20,
+  },
+  smartStepsMore: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginTop: 4,
+    marginLeft: 30,
+    fontStyle: 'italic',
   },
   smartSaveBtn: {
     flexDirection: 'row',

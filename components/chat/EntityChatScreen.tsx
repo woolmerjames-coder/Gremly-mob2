@@ -18,6 +18,7 @@ import {
   LayoutAnimation,
   ActivityIndicator,
   Linking,
+  Image,
 } from 'react-native';
 import Animated, { FadeOutUp, FadeInRight, SlideOutRight, Layout } from 'react-native-reanimated';
 import {
@@ -36,7 +37,6 @@ import * as Haptics from 'expo-haptics';
 
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { callEntityChatStreaming } from '../../lib/cortex/CortexClient';
-import { toChecklistItems } from '../../lib/chat/extractChecklist';
 import { ChatComposer } from './ChatComposer';
 import { ChatBubble } from './ChatBubble';
 import SaveButton from './SaveButton';
@@ -614,25 +614,27 @@ export function EntityChatScreen({
         console.log('[EntityChatScreen] Using save_suggestion for content formatting:', {
           hasTitle: !!lastSaveSuggestion.title,
           hasContent: !!lastSaveSuggestion.content,
-          hasChecklistItems: !!lastSaveSuggestion.checklist_items?.length,
+          hasSteps: !!lastSaveSuggestion.steps?.length,
+          type: lastSaveSuggestion.type,
         });
 
-        // Use save_suggestion content if available (may be better formatted)
-        if (lastSaveSuggestion.content) {
+        // Use title from save_suggestion as content (it's the headline)
+        if (lastSaveSuggestion.title) {
+          content = lastSaveSuggestion.title;
+        } else if (lastSaveSuggestion.content) {
           content = lastSaveSuggestion.content;
         }
 
-        // If save_suggestion indicates checklist with items, use them
-        if (lastSaveSuggestion.checklist_items?.length) {
+        // If save_suggestion has steps (for todos), convert them to checklist items
+        if (lastSaveSuggestion.steps?.length) {
           isChecklist = true;
-          // Convert string[] to proper checklist format
-          checklistItems = toChecklistItems(lastSaveSuggestion.checklist_items);
-          // For checklists, format content as bullet list if not already
-          if (!content.includes('- ') && !content.includes('• ')) {
-            content = lastSaveSuggestion.checklist_items
-              .map((item: string) => `- ${item}`)
-              .join('\n');
-          }
+          // Convert steps string[] to proper checklist format
+          checklistItems = lastSaveSuggestion.steps.map((step: string, index: number) => ({
+            id: `step-${Date.now()}-${index}`,
+            label: step,
+            completed: false,
+          }));
+          console.log('[EntityChatScreen] Created checklist items from steps:', checklistItems.length);
         }
       }
 
@@ -742,23 +744,49 @@ export function EntityChatScreen({
             <>
               <ChatBubble message={bubbleMessage as SpaceChatMessage} />
               {item.metadata?.sources && item.metadata.sources.length > 0 && (
-                <View style={styles.sourcesContainer}>
-                  <Text style={styles.sourcesLabel}>Sources</Text>
-                  <View style={styles.sourcesList}>
-                    {item.metadata.sources
-                      .slice(0, 3)
-                      .map((source: { title: string; url: string }, idx: number) => (
-                        <TouchableOpacity
-                          key={idx}
-                          onPress={() => Linking.openURL(source.url)}
-                          style={styles.sourceChip}
-                        >
-                          <Text style={styles.sourceText} numberOfLines={1}>
-                            {source.title}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                  </View>
+                <View style={styles.sourcesRow}>
+                  <Text style={styles.sourcesLabel}>Sources:</Text>
+                  {item.metadata.sources
+                    .slice(0, 3)
+                    .map((source: { title: string; url: string }, idx: number) => {
+                      // Extract domain
+                      let domain = '';
+                      try {
+                        domain = new URL(source.url).hostname.replace('www.', '');
+                      } catch {
+                        domain = source.url;
+                      }
+                      
+                      // Generate consistent color from domain for fallback
+                      const colors = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#6366F1'];
+                      const hash = domain.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+                      const dotColor = colors[hash % colors.length];
+                      
+                      // Use DuckDuckGo's favicon service
+                      const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
+                      const displayName = domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
+                      
+                      return (
+                        <React.Fragment key={idx}>
+                          {idx > 0 && <Text style={styles.sourceSeparator}>·</Text>}
+                          <TouchableOpacity
+                            onPress={() => Linking.openURL(source.url)}
+                            style={styles.sourceItem}
+                            activeOpacity={0.7}
+                          >
+                            <Image
+                              source={{ uri: faviconUrl }}
+                              style={styles.sourceFavicon}
+                              resizeMode="cover"
+                              defaultSource={{ uri: `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14'><circle cx='7' cy='7' r='5' fill='${encodeURIComponent(dotColor)}'/></svg>` }}
+                            />
+                            <Text style={styles.sourceName} numberOfLines={1}>
+                              {displayName}
+                            </Text>
+                          </TouchableOpacity>
+                        </React.Fragment>
+                      );
+                    })}
                 </View>
               )}
             </>
@@ -1089,33 +1117,40 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
-  // Sources display
-  sourcesContainer: {
+  // Sources display - compact with favicons
+  sourcesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
     paddingHorizontal: 16,
     paddingTop: 4,
     paddingBottom: 8,
+    gap: 4,
   },
   sourcesLabel: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#9CA3AF',
-    marginBottom: 4,
-    fontWeight: '500',
+    marginRight: 6,
   },
-  sourcesList: {
+  sourceItem: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    alignItems: 'center',
+    gap: 4,
   },
-  sourceChip: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    maxWidth: '45%',
+  sourceFavicon: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
   },
-  sourceText: {
+  sourceName: {
     fontSize: 12,
     color: '#6B7280',
+    fontWeight: '500',
+  },
+  sourceSeparator: {
+    fontSize: 12,
+    color: '#D1D5DB',
+    marginHorizontal: 4,
   },
 
   // Composer

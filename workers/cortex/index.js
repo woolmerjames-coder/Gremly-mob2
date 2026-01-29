@@ -942,7 +942,7 @@ You have access to web search. When the user asks about topics that benefit from
  **Rules:**
  - type: "todo", "habit", or "note"
  - title: 2-6 words, action-oriented for todos/habits
- - steps: Only include for todos with clear action steps (optional, max 5)
+ - steps: Extract ALL distinct actionable items (max 12). Don't summarize or combine items - capture each one.
  - No steps array for habits or notes
  
  **Examples:**
@@ -1587,9 +1587,9 @@ You have access to web search. When the user asks about topics that benefit from
             if (!Array.isArray(suggestion.steps)) {
               delete suggestion.steps;
             } else {
-              // Limit to 5 steps, clean strings
+              // Limit to 12 steps, clean strings
               suggestion.steps = suggestion.steps
-                .slice(0, 5)
+                .slice(0, 12)
                 .map(s => String(s).trim())
                 .filter(s => s.length > 0 && s.length < 200);
               

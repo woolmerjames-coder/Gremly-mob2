@@ -3,8 +3,8 @@
  * Message bubble component with glass effect styling and entrance animations
  */
 
-import React from 'react';
-import { View, StyleSheet, ActivityIndicator, TouchableOpacity, Linking } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Image } from 'react-native';
 import Animated, { FadeIn, SlideInRight, Layout } from 'react-native-reanimated';
 import { Text } from '../../ui/Text';
 import { SpaceChatMessage } from '../../lib/types';
@@ -25,6 +25,69 @@ interface ChatBubbleProps {
   onDismissSaveable?: (messageId: string) => void;
   /** Called when user taps to retry a failed streaming message */
   onRetryStream?: (messageId: string) => void;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sources Display Component with Favicons
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SourcesDisplayProps {
+  sources: Array<{ title: string; url: string }>;
+}
+
+function SourcesDisplay({ sources }: SourcesDisplayProps) {
+  const [failedFavicons, setFailedFavicons] = useState<Record<number, boolean>>({});
+  
+  // Generate consistent color from domain for fallback
+  const getDomainColor = (domain: string) => {
+    const colors = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#6366F1'];
+    const hash = domain.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+    return colors[hash % colors.length];
+  };
+  
+  return (
+    <View style={styles.sourcesRow}>
+      <Text style={styles.sourcesLabel}>Sources:</Text>
+      {sources.slice(0, 3).map((source, idx) => {
+        // Extract domain
+        let domain = '';
+        try {
+          domain = new URL(source.url).hostname.replace('www.', '');
+        } catch {
+          domain = source.url;
+        }
+        
+        // Use DuckDuckGo's favicon service (more reliable, no CORS issues)
+        const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
+        const displayName = domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
+        
+        return (
+          <React.Fragment key={idx}>
+            {idx > 0 && <Text style={styles.sourceSeparator}>·</Text>}
+            <TouchableOpacity
+              onPress={() => Linking.openURL(source.url)}
+              style={styles.sourceItem}
+              activeOpacity={0.7}
+            >
+              {!failedFavicons[idx] ? (
+                <Image
+                  source={{ uri: faviconUrl }}
+                  style={styles.sourceFavicon}
+                  resizeMode="cover"
+                  onError={() => setFailedFavicons(prev => ({ ...prev, [idx]: true }))}
+                />
+              ) : (
+                <View style={[styles.sourceFallbackDot, { backgroundColor: getDomainColor(domain) }]} />
+              )}
+              <Text style={styles.sourceName} numberOfLines={1}>
+                {displayName}
+              </Text>
+            </TouchableOpacity>
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
 }
 
 function ChatBubbleInner({
@@ -139,25 +202,9 @@ function ChatBubbleInner({
                     </Text>
                   </View>
                 )}
-                {/* Sources from web search */}
+                {/* Sources from web search - compact with favicons */}
                 {sources && sources.length > 0 && !isStreaming && (
-                  <View style={styles.sourcesContainer}>
-                    <Text style={styles.sourcesLabel}>Sources</Text>
-                    <View style={styles.sourcesList}>
-                      {sources.slice(0, 3).map((source, idx) => (
-                        <TouchableOpacity
-                          key={idx}
-                          onPress={() => Linking.openURL(source.url)}
-                          style={styles.sourceChip}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.sourceText} numberOfLines={1}>
-                            {source.title}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
+                  <SourcesDisplay sources={sources} />
                 )}
               </>
             )}
@@ -292,36 +339,46 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     letterSpacing: -0.2,
   },
-  // Sources display
-  sourcesContainer: {
+  // Sources display - compact with favicons
+  sourcesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
     marginTop: 12,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(0, 0, 0, 0.06)',
+    gap: 4,
   },
   sourcesLabel: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#9CA3AF',
-    marginBottom: 6,
-    fontWeight: '500',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    marginRight: 6,
   },
-  sourcesList: {
+  sourceItem: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    alignItems: 'center',
+    gap: 4,
   },
-  sourceChip: {
-    backgroundColor: 'rgba(139, 92, 246, 0.08)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    maxWidth: '100%',
+  sourceFavicon: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
   },
-  sourceText: {
+  sourceFallbackDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  sourceName: {
     fontSize: 12,
     color: '#6B7280',
+    fontWeight: '500',
+  },
+  sourceSeparator: {
+    fontSize: 12,
+    color: '#D1D5DB',
+    marginHorizontal: 4,
   },
 });
 
