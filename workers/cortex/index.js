@@ -119,6 +119,107 @@
  * - Streaming and non-streaming support
  */
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAVILY SEARCH HELPER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Execute a web search using Tavily API
+ *
+ * @param {string} query - The search query
+ * @param {string} apiKey - Tavily API key
+ * @param {Object} options - Search options
+ * @param {number} options.maxResults - Maximum results to return (default: 5)
+ * @param {string} options.searchDepth - 'basic' or 'advanced' (default: 'basic')
+ * @returns {Promise<Object|null>} Formatted search results or null on error
+ */
+async function executeTavilySearch(query, apiKey, options = {}) {
+  const maxResults = options.maxResults ?? 5;
+  const searchDepth = options.searchDepth ?? 'basic';
+
+  try {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: query,
+        search_depth: searchDepth,
+        max_results: maxResults,
+        include_answer: false,
+        include_raw_content: false,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error('[Tavily] Search failed:', {
+        status: response.status,
+        error: errorText,
+      });
+      return null;
+    }
+
+    const data = await response.json();
+
+    // Format results
+    const results = (data.results || []).map((result, index) => ({
+      index: index + 1,
+      title: result.title || '',
+      url: result.url || '',
+      snippet: (result.content || '').substring(0, 300),
+    }));
+
+    return {
+      query: query,
+      results: results,
+    };
+  } catch (error) {
+    console.error('[Tavily] Search error:', error);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OPENAI FUNCTION TOOL DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const WEB_SEARCH_TOOL = {
+  type: 'function',
+  function: {
+    name: 'web_search',
+    description: `Search the web for current, factual information. USE this tool when:
+- Health, fitness, supplements, medications, medical information
+- Product recommendations or comparisons
+- How-to guides, tutorials, best practices
+- Current events, recent news, things that change over time
+- Research topics, learning something new
+- Trip planning, local recommendations, places to visit
+- Recipes, cooking techniques, food information
+- Technology, apps, tools, software recommendations
+- Any topic where up-to-date external sources would improve the answer
+
+DO NOT use for:
+- Questions about the user's own tasks, habits, notes, or personal data
+- Emotional support or reflection conversations
+- Simple factual questions you can confidently answer (math, definitions, historical facts)
+- When the user is venting or processing feelings
+- Conversational responses like greetings`,
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Concise search query, 2-8 words. Be specific and include key terms.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+};
+
 export default {
   async fetch(request, env) {
     // --- CORS preflight ---
@@ -772,6 +873,8 @@ export default {
               temperature: 0.7,
               max_completion_tokens: 600,
               stream: true,
+              tools: [WEB_SEARCH_TOOL],
+              tool_choice: 'auto',
             }),
           });
 
@@ -793,6 +896,11 @@ export default {
             const reader = openaiRes.body.getReader();
             let buffer = '';
             let fullContent = '';
+
+            // Track tool call accumulation
+            let toolCallId = null;
+            let toolCallName = null;
+            let toolCallArguments = '';
 
             try {
               // eslint-disable-next-line no-constant-condition
@@ -818,11 +926,111 @@ export default {
                       const sseData = JSON.stringify({ delta, done: false });
                       await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                     }
+
+                    // Check for tool calls
+                    const toolCallDelta = json.choices?.[0]?.delta?.tool_calls?.[0];
+                    if (toolCallDelta) {
+                      if (toolCallDelta.id) toolCallId = toolCallDelta.id;
+                      if (toolCallDelta.function?.name) toolCallName = toolCallDelta.function.name;
+                      if (toolCallDelta.function?.arguments)
+                        toolCallArguments += toolCallDelta.function.arguments;
+                    }
                   } catch (parseErr) {
                     console.log('[EntityChat:Streaming] Chunk parse error', {
                       line: trimmed.slice(0, 100),
                     });
                   }
+                }
+              }
+
+              // Track search metadata
+              let sources = undefined;
+              let searchQuery = undefined;
+
+              // Handle web search tool call
+              if (toolCallName === 'web_search' && toolCallArguments) {
+                try {
+                  const args = JSON.parse(toolCallArguments);
+                  searchQuery = args.query;
+
+                  console.log('[EntityChat:Streaming] Web search triggered', {
+                    query: searchQuery,
+                  });
+
+                  // Notify client we're searching
+                  await writer.write(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ searching: true, query: searchQuery })}\n\n`,
+                    ),
+                  );
+
+                  // Execute search
+                  const searchT0 = Date.now();
+                  const searchResults = await executeTavilySearch(searchQuery, env.TAVILY_API_KEY);
+                  const searchLatency = Date.now() - searchT0;
+
+                  console.log('[EntityChat:Streaming] Search complete', {
+                    resultCount: searchResults?.results?.length || 0,
+                    latency: searchLatency,
+                  });
+
+                  if (searchResults && searchResults.results.length > 0) {
+                    // Build follow-up messages
+                    const followUpMessages = [
+                      ...openaiMessages,
+                      {
+                        role: 'assistant',
+                        content: null,
+                        tool_calls: [
+                          {
+                            id: toolCallId,
+                            type: 'function',
+                            function: { name: 'web_search', arguments: toolCallArguments },
+                          },
+                        ],
+                      },
+                      {
+                        role: 'tool',
+                        tool_call_id: toolCallId,
+                        content: JSON.stringify(searchResults),
+                      },
+                    ];
+
+                    // Second API call for final response
+                    const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                      method: 'POST',
+                      headers: {
+                        Authorization: `Bearer ${key}`,
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        model: 'gpt-4.1',
+                        messages: followUpMessages,
+                        temperature: 0.7,
+                        max_completion_tokens: 800,
+                      }),
+                    });
+
+                    const followUpData = await followUpRes.json();
+                    fullContent = followUpData?.choices?.[0]?.message?.content ?? '';
+
+                    // Stream the content to client in chunks for smoother UX
+                    const words = fullContent.split(' ');
+                    for (let i = 0; i < words.length; i += 3) {
+                      const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                      await writer.write(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`,
+                        ),
+                      );
+                    }
+
+                    // Extract sources for final event
+                    sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
+                  }
+                } catch (searchErr) {
+                  console.log('[EntityChat:Streaming] Search error:', searchErr);
+                  // Continue without search results
                 }
               }
 
@@ -843,6 +1051,8 @@ export default {
                 save_suggestion,
                 promotion,
                 latency_ms: latency,
+                sources: sources,
+                search_query: searchQuery,
               });
               await writer.write(encoder.encode(`data: ${finalData}\n\n`));
 
@@ -851,6 +1061,7 @@ export default {
                 content_length: fullContent.length,
                 has_saveable: saveable?.detected,
                 has_promotion: promotion?.suggested,
+                used_search: !!searchQuery,
               });
             } catch (streamErr) {
               console.log('[EntityChat:Streaming] Stream error', { error: String(streamErr) });
@@ -890,11 +1101,13 @@ export default {
               messages: openaiMessages,
               temperature: 0.7,
               max_completion_tokens: 600,
+              tools: [WEB_SEARCH_TOOL],
+              tool_choice: 'auto',
             }),
           });
 
           const oj = await res.json();
-          const latency = Date.now() - t0;
+          let latency = Date.now() - t0;
 
           if (!res.ok) {
             console.log('[EntityChat] API error', { error: oj.error, latency_ms: latency });
@@ -904,7 +1117,74 @@ export default {
             );
           }
 
-          const content = oj?.choices?.[0]?.message?.content ?? '';
+          // Check for tool call
+          const toolCall = oj?.choices?.[0]?.message?.tool_calls?.[0];
+          let content = oj?.choices?.[0]?.message?.content ?? '';
+          let sources = undefined;
+          let searchQuery = undefined;
+
+          if (toolCall?.function?.name === 'web_search') {
+            try {
+              const args = JSON.parse(toolCall.function.arguments);
+              searchQuery = args.query;
+
+              console.log('[EntityChat] Web search triggered', { query: searchQuery });
+
+              const searchT0 = Date.now();
+              const searchResults = await executeTavilySearch(searchQuery, env.TAVILY_API_KEY);
+              const searchLatency = Date.now() - searchT0;
+
+              console.log('[EntityChat] Search complete', {
+                resultCount: searchResults?.results?.length || 0,
+                latency: searchLatency,
+              });
+
+              if (searchResults && searchResults.results.length > 0) {
+                // Build follow-up messages
+                const followUpMessages = [
+                  ...openaiMessages,
+                  {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                      {
+                        id: toolCall.id,
+                        type: 'function',
+                        function: toolCall.function,
+                      },
+                    ],
+                  },
+                  {
+                    role: 'tool',
+                    tool_call_id: toolCall.id,
+                    content: JSON.stringify(searchResults),
+                  },
+                ];
+
+                // Second API call
+                const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${key}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    model: 'gpt-4.1',
+                    messages: followUpMessages,
+                    temperature: 0.7,
+                    max_completion_tokens: 800,
+                  }),
+                });
+
+                const followUpData = await followUpRes.json();
+                content = followUpData?.choices?.[0]?.message?.content ?? '';
+                sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
+                latency = Date.now() - t0;
+              }
+            } catch (searchErr) {
+              console.log('[EntityChat] Search error:', searchErr);
+            }
+          }
 
           // Detect saveable content
           const saveable = detectSaveableContent(content);
@@ -920,6 +1200,7 @@ export default {
             content_length: content.length,
             has_saveable: saveable?.detected,
             has_promotion: promotion?.suggested,
+            used_search: !!searchQuery,
           });
 
           return j({
@@ -928,6 +1209,8 @@ export default {
             save_suggestion,
             promotion,
             latency_ms: latency,
+            sources,
+            search_query: searchQuery,
           });
         } catch (err) {
           const latency = Date.now() - t0;
@@ -3992,13 +4275,15 @@ For LOGS (idea/general):
       // STREAMING RESPONSE FOR SPACE CHAT
       // ============================================================================
       if (isSpaceChatStreaming && isSpaceChatLane) {
-        console.log('[STREAMING] Starting SSE stream for space_chat');
+        console.log('[SpaceChat:Streaming] Starting SSE stream');
 
         const openaiPayload = {
           model: actualModel,
           messages,
           temperature,
           stream: true,
+          tools: [WEB_SEARCH_TOOL],
+          tool_choice: 'auto',
         };
 
         if (actualModel === 'gpt-4.1' || actualModel === 'gpt-4o') {
@@ -4006,6 +4291,8 @@ For LOGS (idea/general):
         } else {
           openaiPayload.max_tokens = maxTokensValue;
         }
+
+        const t0 = Date.now();
 
         const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
@@ -4015,7 +4302,10 @@ For LOGS (idea/general):
 
         if (!openaiRes.ok) {
           const errText = await openaiRes.text().catch(() => '');
-          console.log('[STREAMING] OpenAI error', { status: openaiRes.status, error: errText });
+          console.log('[SpaceChat:Streaming] OpenAI error', {
+            status: openaiRes.status,
+            error: errText,
+          });
           return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
         }
 
@@ -4028,6 +4318,11 @@ For LOGS (idea/general):
           const reader = openaiRes.body.getReader();
           let buffer = '';
           let fullContent = '';
+
+          // Track tool call accumulation
+          let toolCallId = null;
+          let toolCallName = null;
+          let toolCallArguments = '';
 
           try {
             // eslint-disable-next-line no-constant-condition
@@ -4053,21 +4348,130 @@ For LOGS (idea/general):
                     const sseData = JSON.stringify({ delta, done: false });
                     await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                   }
+
+                  // Check for tool calls
+                  const toolCallDelta = json.choices?.[0]?.delta?.tool_calls?.[0];
+                  if (toolCallDelta) {
+                    if (toolCallDelta.id) toolCallId = toolCallDelta.id;
+                    if (toolCallDelta.function?.name) toolCallName = toolCallDelta.function.name;
+                    if (toolCallDelta.function?.arguments)
+                      toolCallArguments += toolCallDelta.function.arguments;
+                  }
                 } catch (parseErr) {
-                  console.log('[STREAMING] Chunk parse error', { line: trimmed.slice(0, 100) });
+                  console.log('[SpaceChat:Streaming] Chunk parse error', {
+                    line: trimmed.slice(0, 100),
+                  });
                 }
               }
             }
+
+            // Track search metadata
+            let sources = undefined;
+            let searchQuery = undefined;
+
+            // Handle web search tool call
+            if (toolCallName === 'web_search' && toolCallArguments) {
+              try {
+                const args = JSON.parse(toolCallArguments);
+                searchQuery = args.query;
+
+                console.log('[SpaceChat:Streaming] Web search triggered', { query: searchQuery });
+
+                // Notify client we're searching
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ searching: true, query: searchQuery })}\n\n`,
+                  ),
+                );
+
+                // Execute search
+                const searchT0 = Date.now();
+                const searchResults = await executeTavilySearch(searchQuery, env.TAVILY_API_KEY);
+                const searchLatency = Date.now() - searchT0;
+
+                console.log('[SpaceChat:Streaming] Search complete', {
+                  resultCount: searchResults?.results?.length || 0,
+                  latency: searchLatency,
+                });
+
+                if (searchResults && searchResults.results.length > 0) {
+                  // Build follow-up messages
+                  const followUpMessages = [
+                    ...messages,
+                    {
+                      role: 'assistant',
+                      content: null,
+                      tool_calls: [
+                        {
+                          id: toolCallId,
+                          type: 'function',
+                          function: { name: 'web_search', arguments: toolCallArguments },
+                        },
+                      ],
+                    },
+                    {
+                      role: 'tool',
+                      tool_call_id: toolCallId,
+                      content: JSON.stringify(searchResults),
+                    },
+                  ];
+
+                  // Second API call for final response
+                  const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${key}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: actualModel,
+                      messages: followUpMessages,
+                      temperature,
+                      max_completion_tokens: 800,
+                    }),
+                  });
+
+                  const followUpData = await followUpRes.json();
+                  fullContent = followUpData?.choices?.[0]?.message?.content ?? '';
+
+                  // Stream the content to client in chunks for smoother UX
+                  const words = fullContent.split(' ');
+                  for (let i = 0; i < words.length; i += 3) {
+                    const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                    await writer.write(
+                      encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
+                    );
+                  }
+
+                  // Extract sources for final event
+                  sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
+                }
+              } catch (searchErr) {
+                console.log('[SpaceChat:Streaming] Search error:', searchErr);
+                // Continue without search results
+              }
+            }
+
             const save_suggestion = null;
+            const latency = Date.now() - t0;
 
             const finalData = JSON.stringify({
               done: true,
               full_content: fullContent,
               save_suggestion,
+              sources,
+              search_query: searchQuery,
+              latency_ms: latency,
             });
             await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+            console.log('[SpaceChat:Streaming] Complete', {
+              latency_ms: latency,
+              content_length: fullContent.length,
+              used_search: !!searchQuery,
+            });
           } catch (streamErr) {
-            console.log('[STREAMING] Stream error', { error: String(streamErr) });
+            console.log('[SpaceChat:Streaming] Stream error', { error: String(streamErr) });
             const errorData = JSON.stringify({
               error: String(streamErr),
               done: true,
@@ -4092,13 +4496,20 @@ For LOGS (idea/general):
       // END SPACE CHAT STREAMING
       // ============================================================================
 
-      // --- NON-STREAMING (original logic, unchanged) ---
+      // --- NON-STREAMING (original logic, with web search for space_chat) ---
+      const t0NonStream = Date.now();
       const openaiPayload = { model: actualModel, messages, temperature, stream: false };
 
       if (actualModel === 'gpt-4.1' || actualModel === 'gpt-4o') {
         openaiPayload.max_completion_tokens = maxTokensValue;
       } else {
         openaiPayload.max_tokens = maxTokensValue;
+      }
+
+      // Add web search tools for space_chat lane
+      if (isSpaceChatLane) {
+        openaiPayload.tools = [WEB_SEARCH_TOOL];
+        openaiPayload.tool_choice = 'auto';
       }
 
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -4114,6 +4525,84 @@ For LOGS (idea/general):
           { error: (oj && (oj.error?.message || oj.message)) || 'openai_error', code: res.status },
           200,
         );
+      }
+
+      // Handle web search for space_chat lane
+      let content = oj?.choices?.[0]?.message?.content ?? oj?.choices?.[0]?.text ?? '';
+      let sources = undefined;
+      let searchQuery = undefined;
+
+      if (isSpaceChatLane) {
+        const toolCall = oj?.choices?.[0]?.message?.tool_calls?.[0];
+
+        if (toolCall?.function?.name === 'web_search') {
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            searchQuery = args.query;
+
+            console.log('[SpaceChat] Web search triggered', { query: searchQuery });
+
+            const searchT0 = Date.now();
+            const searchResults = await executeTavilySearch(searchQuery, env.TAVILY_API_KEY);
+            const searchLatency = Date.now() - searchT0;
+
+            console.log('[SpaceChat] Search complete', {
+              resultCount: searchResults?.results?.length || 0,
+              latency: searchLatency,
+            });
+
+            if (searchResults && searchResults.results.length > 0) {
+              // Build follow-up messages
+              const followUpMessages = [
+                ...messages,
+                {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: toolCall.id,
+                      type: 'function',
+                      function: toolCall.function,
+                    },
+                  ],
+                },
+                {
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(searchResults),
+                },
+              ];
+
+              // Second API call
+              const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${key}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: actualModel,
+                  messages: followUpMessages,
+                  temperature,
+                  max_completion_tokens: 800,
+                }),
+              });
+
+              const followUpData = await followUpRes.json();
+              content = followUpData?.choices?.[0]?.message?.content ?? '';
+              sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
+            }
+          } catch (searchErr) {
+            console.log('[SpaceChat] Search error:', searchErr);
+          }
+        }
+
+        const latency = Date.now() - t0NonStream;
+        console.log('[SpaceChat] Complete', {
+          latency_ms: latency,
+          content_length: content.length,
+          used_search: !!searchQuery,
+        });
       }
 
       if (type === 'classify') {
@@ -4178,7 +4667,10 @@ For LOGS (idea/general):
         });
       }
 
-      const content = oj?.choices?.[0]?.message?.content ?? oj?.choices?.[0]?.text ?? '';
+      // For non-space_chat lanes, extract content here (space_chat already has it from tool handling above)
+      if (!isSpaceChatLane) {
+        content = oj?.choices?.[0]?.message?.content ?? oj?.choices?.[0]?.text ?? '';
+      }
 
       let save_suggestion = null;
       if (lane === 'space_chat') {
@@ -4191,6 +4683,8 @@ For LOGS (idea/general):
         model: oj.model,
         usage: oj.usage || null,
         save_suggestion,
+        sources,
+        search_query: searchQuery,
       });
     } catch (err) {
       return j({ error: 'proxy_error', detail: String(err?.message || 'unknown') }, 200);
@@ -4235,4 +4729,4 @@ function safeParseJson(raw) {
   } catch {
     return null;
   }
-} // Paste your worker code here
+}

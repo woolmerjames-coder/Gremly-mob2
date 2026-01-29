@@ -16,6 +16,7 @@ import {
   SafeAreaView,
   Alert,
   LayoutAnimation,
+  ActivityIndicator,
 } from 'react-native';
 import Animated, { FadeOutUp, FadeInRight, SlideOutRight, Layout } from 'react-native-reanimated';
 import {
@@ -279,6 +280,8 @@ export function EntityChatScreen({
 
   // ─── Local State ───────────────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [lastSaveable, setLastSaveable] = useState<EntityChatResponse['saveable'] | null>(null);
   const [lastSaveSuggestion, setLastSaveSuggestion] = useState<
     EntityChatResponse['save_suggestion'] | null
@@ -375,6 +378,10 @@ export function EntityChatScreen({
 
         // 6. Call streaming API
         streamRef.current = callEntityChatStreaming(request, {
+          onSearching: (query) => {
+            setIsSearching(true);
+            setSearchQuery(query);
+          },
           onDelta: (delta) => {
             // Accumulate content and update the streaming message in place
             accumulatedContent += delta;
@@ -388,6 +395,8 @@ export function EntityChatScreen({
             }
           },
           onComplete: async (response) => {
+            setIsSearching(false);
+            setSearchQuery(null);
             const msgId = streamingMessageIdRef.current;
             if (!msgId) return;
 
@@ -418,6 +427,9 @@ export function EntityChatScreen({
               has_saveable_content: shouldShowSave,
             });
 
+            // TODO: Store response.sources with the message for display
+            // Sources available: response.sources, response.search_query
+
             // Track saveable content for SaveButton
             if (shouldShowSave) {
               // Use API saveable if available, otherwise create a basic one
@@ -445,6 +457,8 @@ export function EntityChatScreen({
             }, 100);
           },
           onError: async (error) => {
+            setIsSearching(false);
+            setSearchQuery(null);
             console.error('[EntityChatScreen] Stream error:', error);
 
             const msgId = streamingMessageIdRef.current;
@@ -835,6 +849,23 @@ export function EntityChatScreen({
                   );
                 })}
               </View>
+            </View>
+          )}
+
+          {/* Searching Indicator */}
+          {isSearching && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+              }}
+            >
+              <ActivityIndicator size="small" color="#8B5CF6" />
+              <Text style={{ marginLeft: 8, color: '#6B7280', fontSize: 14 }}>
+                Searching: {searchQuery}
+              </Text>
             </View>
           )}
 

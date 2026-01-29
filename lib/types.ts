@@ -869,6 +869,10 @@ export interface EntityChatResponse {
   /** Save suggestion payload from Cortex (if any) */
   save_suggestion?: any | null;
   latency_ms: number;
+  /** Web search sources from Tavily (if web search was used) */
+  sources?: Array<{ title: string; url: string }>;
+  /** The search query used for web search (if web search was used) */
+  search_query?: string;
 }
 
 /**

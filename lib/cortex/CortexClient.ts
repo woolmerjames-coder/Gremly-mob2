@@ -28,6 +28,7 @@ export interface StreamingCallbacks {
   onChunk: (text: string, fullTextSoFar: string) => void;
   onComplete: (fullText: string) => void;
   onError: (error: string, partialText: string) => void;
+  onSearching?: (query: string) => void;
 }
 
 /**
@@ -40,6 +41,8 @@ export interface SpaceChatStreamingResult {
   saveable?: any | null;
   promotion?: any | null;
   latency_ms?: number;
+  sources?: Array<{ title: string; url: string }>;
+  search_query?: string;
 }
 
 /**
@@ -50,6 +53,7 @@ export interface SpaceChatStreamingCallbacks {
   onChunk: (text: string, fullTextSoFar: string) => void;
   onComplete: (result: SpaceChatStreamingResult) => void;
   onError: (error: string, partialText: string) => void;
+  onSearching?: (query: string) => void;
 }
 
 export interface Phase2StreamingCallbacks {
@@ -420,6 +424,10 @@ export function callSpaceChatStreaming(
         es.close();
         return;
       }
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query);
+        return;
+      }
       if (data.delta) {
         fullText += data.delta;
         callbacks.onChunk(data.delta, fullText);
@@ -437,6 +445,8 @@ export function callSpaceChatStreaming(
           saveable: data.saveable ?? null,
           promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
+          sources: data.sources,
+          search_query: data.search_query,
         };
         log('SPACE_CHAT_STREAM_DONE', {
           contentLength: finalContent.length,
@@ -1252,6 +1262,7 @@ export interface EntityChatStreamingCallbacks {
   onDelta: (delta: string) => void;
   onComplete: (response: EntityChatResponse) => void;
   onError: (error: Error) => void;
+  onSearching?: (query: string) => void;
 }
 
 /**
@@ -1316,6 +1327,12 @@ export function callEntityChatStreaming(
         return;
       }
 
+      // Handle searching event
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query);
+        return;
+      }
+
       // Handle delta (partial content)
       if (data.delta) {
         fullContent += data.delta;
@@ -1337,6 +1354,8 @@ export function callEntityChatStreaming(
           promotion: data.promotion,
           save_suggestion: data.save_suggestion ?? null,
           latency_ms,
+          sources: data.sources,
+          search_query: data.search_query,
         });
         es.close();
       }

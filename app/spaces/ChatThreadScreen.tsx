@@ -154,6 +154,8 @@ export default function ChatThreadScreen({ route }: Props) {
   const [chat, setChat] = useState<SpaceChat | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [spaceName, setSpaceName] = useState<string | null>(null);
 
   // Enable LayoutAnimation on Android
@@ -744,7 +746,13 @@ export default function ChatThreadScreen({ route }: Props) {
                 // Split on whitespace boundaries to buffer words
                 wordBufferRef.current.push(...delta.split(/(?<=\s)/));
               },
+              onSearching: (query) => {
+                setIsSearching(true);
+                setSearchQuery(query);
+              },
               onComplete: async (finalText: string, richResult?: { save_suggestion?: any }) => {
+                setIsSearching(false);
+                setSearchQuery(null);
                 stopWordFlushInterval();
                 const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
                 streamingMessageIdRef.current = null;
@@ -753,6 +761,8 @@ export default function ChatThreadScreen({ route }: Props) {
 
                 // Run saveable detection on completed message
                 // Pass save_suggestion from Cortex when available
+                // TODO: Store richResult.sources with the message for display
+                // Sources available: richResult?.sources, richResult?.search_query
                 if (finalizedMessage?.id) {
                   try {
                     const saveSuggestion = richResult?.save_suggestion ?? null;
@@ -813,6 +823,8 @@ export default function ChatThreadScreen({ route }: Props) {
                 setSending(false);
               },
               onError: async (error, partialText) => {
+                setIsSearching(false);
+                setSearchQuery(null);
                 console.error(
                   '[ChatThread] Streaming error:',
                   error,
@@ -1424,6 +1436,23 @@ export default function ChatThreadScreen({ route }: Props) {
               <View style={styles.headerRight}>{shouldShowMascot() && <Mascot size="md" />}</View>
             </View>
           </View>
+
+          {/* Searching Indicator */}
+          {isSearching && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+              }}
+            >
+              <ActivityIndicator size="small" color="#8B5CF6" />
+              <Text style={{ marginLeft: 8, color: '#6B7280', fontSize: 14 }}>
+                Searching: {searchQuery}
+              </Text>
+            </View>
+          )}
 
           {/* Messages FlatList */}
           <AppFlatList
