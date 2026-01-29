@@ -190,7 +190,11 @@ const WEB_SEARCH_TOOL = {
   type: 'function',
   function: {
     name: 'web_search',
-    description: `Search the web for current, factual information. USE this tool when:
+    description: `Search the web for current, factual information. The current date is ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.
+
+IMPORTANT: When searching for events, deadlines, or time-sensitive information, ALWAYS include the relevant year (2026) in your search query to get current results.
+
+USE this tool when:
 - Health, fitness, supplements, medications, medical information
 - Product recommendations or comparisons
 - How-to guides, tutorials, best practices
@@ -199,6 +203,7 @@ const WEB_SEARCH_TOOL = {
 - Trip planning, local recommendations, places to visit
 - Recipes, cooking techniques, food information
 - Technology, apps, tools, software recommendations
+- Upcoming events, races, conferences, deadlines
 - Any topic where up-to-date external sources would improve the answer
 
 DO NOT use for:
@@ -783,7 +788,7 @@ export default {
             break_down:
               'The user wants help breaking this down into smaller, manageable steps. Focus on creating a clear action plan.',
             research:
-              'The user wants to research or learn more about this. Help them explore relevant aspects and find useful information.',
+              'The user wants researched information about this topic. Use web search to find current, accurate information and provide a helpful summary. Do not just suggest websites - actually search and synthesize the information for them.',
             think_through:
               'The user wants to think through this more deeply. Help them consider different angles and implications.',
             whats_blocking:
@@ -802,7 +807,19 @@ export default {
             : '';
         }
 
+        const currentDate = new Date().toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
         const entityChatSystemPrompt = `You are Gremly, helping a user work through a specific item in their productivity app.
+
+=== CURRENT DATE ===
+Today is ${currentDate}. Always use this date for any time-relative queries (upcoming events, deadlines, "before June", etc.).
+
+=== WEB SEARCH ===
+You have access to web search. When the user asks about topics that benefit from current information (health, events, recommendations, how-to guides, research topics), USE the search tool to provide accurate, up-to-date answers. Do not suggest the user search themselves - search for them and synthesize the results.
  
  === ENTITY CONTEXT ===
  ${entityContext}${sweepContextStr}${presetInstruction}
@@ -897,10 +914,9 @@ export default {
             let buffer = '';
             let fullContent = '';
 
-            // Track tool call accumulation
-            let toolCallId = null;
-            let toolCallName = null;
-            let toolCallArguments = '';
+            // Track tool call accumulation - support multiple tool calls
+            let toolCalls = []; // Array of { id, name, arguments }
+            let currentToolCallIndex = -1;
 
             try {
               // eslint-disable-next-line no-constant-condition
@@ -927,13 +943,23 @@ export default {
                       await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                     }
 
-                    // Check for tool calls
-                    const toolCallDelta = json.choices?.[0]?.delta?.tool_calls?.[0];
-                    if (toolCallDelta) {
-                      if (toolCallDelta.id) toolCallId = toolCallDelta.id;
-                      if (toolCallDelta.function?.name) toolCallName = toolCallDelta.function.name;
-                      if (toolCallDelta.function?.arguments)
-                        toolCallArguments += toolCallDelta.function.arguments;
+                    // Check for tool calls - handle multiple
+                    const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
+                    if (toolCallDeltas) {
+                      for (const toolCallDelta of toolCallDeltas) {
+                        const idx = toolCallDelta.index ?? 0;
+
+                        // Initialize new tool call if needed
+                        if (!toolCalls[idx]) {
+                          toolCalls[idx] = { id: null, name: null, arguments: '' };
+                        }
+
+                        if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
+                        if (toolCallDelta.function?.name)
+                          toolCalls[idx].name = toolCallDelta.function.name;
+                        if (toolCallDelta.function?.arguments)
+                          toolCalls[idx].arguments += toolCallDelta.function.arguments;
+                      }
                     }
                   } catch (parseErr) {
                     console.log('[EntityChat:Streaming] Chunk parse error', {
@@ -945,96 +971,191 @@ export default {
 
               // Track search metadata
               let sources = undefined;
-              let searchQuery = undefined;
+              let searchQueries = [];
 
-              // Handle web search tool call
-              if (toolCallName === 'web_search' && toolCallArguments) {
+              // Filter to only web_search tool calls with arguments
+              const webSearchCalls = toolCalls.filter(
+                (tc) => tc.name === 'web_search' && tc.arguments,
+              );
+
+              if (webSearchCalls.length > 0) {
+                console.log('[EntityChat:Streaming] Web search triggered', {
+                  searchCount: webSearchCalls.length,
+                });
+
+                // Notify client we're searching (show first query)
+                let firstQuery = '';
                 try {
-                  const args = JSON.parse(toolCallArguments);
-                  searchQuery = args.query;
+                  const firstArgs = JSON.parse(webSearchCalls[0].arguments);
+                  firstQuery = firstArgs.query || '';
+                } catch {
+                  const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                  firstQuery = match ? match[1] : 'multiple topics';
+                }
+                const searchNotice =
+                  webSearchCalls.length > 1
+                    ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
+                    : firstQuery;
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                  ),
+                );
 
-                  console.log('[EntityChat:Streaming] Web search triggered', {
-                    query: searchQuery,
-                  });
-
-                  // Notify client we're searching
-                  await writer.write(
-                    encoder.encode(
-                      `data: ${JSON.stringify({ searching: true, query: searchQuery })}\n\n`,
-                    ),
-                  );
-
-                  // Execute search
-                  const searchT0 = Date.now();
-                  const searchResults = await executeTavilySearch(searchQuery, env.TAVILY_API_KEY);
-                  const searchLatency = Date.now() - searchT0;
-
-                  console.log('[EntityChat:Streaming] Search complete', {
-                    resultCount: searchResults?.results?.length || 0,
-                    latency: searchLatency,
-                  });
-
-                  if (searchResults && searchResults.results.length > 0) {
-                    // Build follow-up messages
-                    const followUpMessages = [
-                      ...openaiMessages,
-                      {
-                        role: 'assistant',
-                        content: null,
-                        tool_calls: [
-                          {
-                            id: toolCallId,
-                            type: 'function',
-                            function: { name: 'web_search', arguments: toolCallArguments },
-                          },
-                        ],
-                      },
-                      {
-                        role: 'tool',
-                        tool_call_id: toolCallId,
-                        content: JSON.stringify(searchResults),
-                      },
-                    ];
-
-                    // Second API call for final response
-                    const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
-                      method: 'POST',
-                      headers: {
-                        Authorization: `Bearer ${key}`,
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({
-                        model: 'gpt-4.1',
-                        messages: followUpMessages,
-                        temperature: 0.7,
-                        max_completion_tokens: 800,
-                      }),
-                    });
-
-                    const followUpData = await followUpRes.json();
-                    fullContent = followUpData?.choices?.[0]?.message?.content ?? '';
-
-                    // Stream the content to client in chunks for smoother UX
-                    const words = fullContent.split(' ');
-                    for (let i = 0; i < words.length; i += 3) {
-                      const chunk = words.slice(i, i + 3).join(' ') + ' ';
-                      await writer.write(
-                        encoder.encode(
-                          `data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`,
-                        ),
-                      );
-                      // Small delay for smooth streaming effect
-                      await new Promise((resolve) => setTimeout(resolve, 15));
+                // Execute all searches in parallel
+                const searchT0 = Date.now();
+                const searchPromises = webSearchCalls.map(async (tc) => {
+                  try {
+                    let query;
+                    try {
+                      const args = JSON.parse(tc.arguments);
+                      query = args.query;
+                    } catch (parseErr) {
+                      // Try regex extraction for malformed JSON
+                      const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                      if (match) {
+                        query = match[1];
+                        console.log(
+                          '[EntityChat:Streaming] Recovered query from malformed JSON:',
+                          query,
+                        );
+                      } else {
+                        console.log(
+                          '[EntityChat:Streaming] Could not parse tool arguments:',
+                          tc.arguments.slice(0, 200),
+                        );
+                        return { toolCallId: tc.id, query: null, results: null };
+                      }
                     }
 
-                    // Extract sources for final event
-                    sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
+                    searchQueries.push(query);
+                    const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
+                    return { toolCallId: tc.id, query, results };
+                  } catch (err) {
+                    console.log('[EntityChat:Streaming] Individual search error:', err);
+                    return { toolCallId: tc.id, query: null, results: null };
                   }
-                } catch (searchErr) {
-                  console.log('[EntityChat:Streaming] Search error:', searchErr);
-                  // Continue without search results
+                });
+
+                const searchResults = await Promise.all(searchPromises);
+                const searchLatency = Date.now() - searchT0;
+
+                const successfulSearches = searchResults.filter(
+                  (sr) => sr.results && sr.results.results.length > 0,
+                );
+                console.log('[EntityChat:Streaming] Searches complete', {
+                  total: searchResults.length,
+                  successful: successfulSearches.length,
+                  latency: searchLatency,
+                });
+
+                if (successfulSearches.length > 0) {
+                  // Build follow-up messages with ALL tool results
+                  const assistantToolCalls = successfulSearches.map((sr) => ({
+                    id: sr.toolCallId,
+                    type: 'function',
+                    function: {
+                      name: 'web_search',
+                      arguments: JSON.stringify({ query: sr.query }),
+                    },
+                  }));
+
+                  const toolResultMessages = successfulSearches.map((sr) => ({
+                    role: 'tool',
+                    tool_call_id: sr.toolCallId,
+                    content: JSON.stringify(sr.results),
+                  }));
+
+                  const followUpMessages = [
+                    ...openaiMessages,
+                    {
+                      role: 'assistant',
+                      content: null,
+                      tool_calls: assistantToolCalls,
+                    },
+                    ...toolResultMessages,
+                  ];
+
+                  // Second API call for final response
+                  const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${key}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: 'gpt-4.1',
+                      messages: followUpMessages,
+                      temperature: 0.7,
+                      max_completion_tokens: 800,
+                    }),
+                  });
+
+                  const followUpData = await followUpRes.json();
+                  fullContent = followUpData?.choices?.[0]?.message?.content ?? '';
+
+                  // Stream the content to client in chunks for smoother UX
+                  const words = fullContent.split(' ');
+                  for (let i = 0; i < words.length; i += 3) {
+                    const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                    await writer.write(
+                      encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, 15));
+                  }
+
+                  // Combine all sources
+                  sources = successfulSearches.flatMap((sr) =>
+                    sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                  );
                 }
               }
+
+              // Fallback: if tool calls were made but we have no content, respond without search
+              if (webSearchCalls.length > 0 && !fullContent) {
+                console.log(
+                  '[EntityChat:Streaming] Search fallback - responding without search results',
+                );
+
+                const fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${key}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    model: 'gpt-4.1',
+                    messages: [
+                      ...openaiMessages,
+                      {
+                        role: 'system',
+                        content:
+                          'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
+                      },
+                    ],
+                    temperature: 0.7,
+                    max_completion_tokens: 600,
+                  }),
+                });
+
+                const fallbackData = await fallbackRes.json();
+                fullContent =
+                  fallbackData?.choices?.[0]?.message?.content ??
+                  'I had trouble searching for that information. Could you try rephrasing your question?';
+
+                // Stream the fallback content
+                const words = fullContent.split(' ');
+                for (let i = 0; i < words.length; i += 3) {
+                  const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
+                  );
+                  await new Promise((resolve) => setTimeout(resolve, 15));
+                }
+              }
+
+              // For final event, use first search query or combined
+              const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
 
               // Detect saveable content in final response
               const saveable = detectSaveableContent(fullContent);
@@ -4321,10 +4442,8 @@ For LOGS (idea/general):
           let buffer = '';
           let fullContent = '';
 
-          // Track tool call accumulation
-          let toolCallId = null;
-          let toolCallName = null;
-          let toolCallArguments = '';
+          // Track tool calls accumulation (array for multiple calls)
+          let toolCalls = [];
 
           try {
             // eslint-disable-next-line no-constant-condition
@@ -4351,13 +4470,19 @@ For LOGS (idea/general):
                     await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                   }
 
-                  // Check for tool calls
-                  const toolCallDelta = json.choices?.[0]?.delta?.tool_calls?.[0];
-                  if (toolCallDelta) {
-                    if (toolCallDelta.id) toolCallId = toolCallDelta.id;
-                    if (toolCallDelta.function?.name) toolCallName = toolCallDelta.function.name;
-                    if (toolCallDelta.function?.arguments)
-                      toolCallArguments += toolCallDelta.function.arguments;
+                  // Check for tool calls (handle multiple)
+                  const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
+                  if (toolCallDeltas && Array.isArray(toolCallDeltas)) {
+                    for (const tcd of toolCallDeltas) {
+                      const idx = tcd.index ?? 0;
+                      if (!toolCalls[idx]) {
+                        toolCalls[idx] = { id: null, name: null, arguments: '' };
+                      }
+                      if (tcd.id) toolCalls[idx].id = tcd.id;
+                      if (tcd.function?.name) toolCalls[idx].name = tcd.function.name;
+                      if (tcd.function?.arguments)
+                        toolCalls[idx].arguments += tcd.function.arguments;
+                    }
                   }
                 } catch (parseErr) {
                   console.log('[SpaceChat:Streaming] Chunk parse error', {
@@ -4369,92 +4494,191 @@ For LOGS (idea/general):
 
             // Track search metadata
             let sources = undefined;
-            let searchQuery = undefined;
+            let searchQueries = [];
 
-            // Handle web search tool call
-            if (toolCallName === 'web_search' && toolCallArguments) {
+            // Filter to only web_search tool calls with arguments
+            const webSearchCalls = toolCalls.filter(
+              (tc) => tc.name === 'web_search' && tc.arguments,
+            );
+
+            if (webSearchCalls.length > 0) {
+              console.log('[SpaceChat:Streaming] Web search triggered', {
+                searchCount: webSearchCalls.length,
+              });
+
+              // Notify client we're searching (show first query)
+              let firstQuery = '';
               try {
-                const args = JSON.parse(toolCallArguments);
-                searchQuery = args.query;
+                const firstArgs = JSON.parse(webSearchCalls[0].arguments);
+                firstQuery = firstArgs.query || '';
+              } catch {
+                const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                firstQuery = match ? match[1] : 'multiple topics';
+              }
+              const searchNotice =
+                webSearchCalls.length > 1
+                  ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
+                  : firstQuery;
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                ),
+              );
 
-                console.log('[SpaceChat:Streaming] Web search triggered', { query: searchQuery });
-
-                // Notify client we're searching
-                await writer.write(
-                  encoder.encode(
-                    `data: ${JSON.stringify({ searching: true, query: searchQuery })}\n\n`,
-                  ),
-                );
-
-                // Execute search
-                const searchT0 = Date.now();
-                const searchResults = await executeTavilySearch(searchQuery, env.TAVILY_API_KEY);
-                const searchLatency = Date.now() - searchT0;
-
-                console.log('[SpaceChat:Streaming] Search complete', {
-                  resultCount: searchResults?.results?.length || 0,
-                  latency: searchLatency,
-                });
-
-                if (searchResults && searchResults.results.length > 0) {
-                  // Build follow-up messages
-                  const followUpMessages = [
-                    ...messages,
-                    {
-                      role: 'assistant',
-                      content: null,
-                      tool_calls: [
-                        {
-                          id: toolCallId,
-                          type: 'function',
-                          function: { name: 'web_search', arguments: toolCallArguments },
-                        },
-                      ],
-                    },
-                    {
-                      role: 'tool',
-                      tool_call_id: toolCallId,
-                      content: JSON.stringify(searchResults),
-                    },
-                  ];
-
-                  // Second API call for final response
-                  const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                      Authorization: `Bearer ${key}`,
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: actualModel,
-                      messages: followUpMessages,
-                      temperature,
-                      max_completion_tokens: 800,
-                    }),
-                  });
-
-                  const followUpData = await followUpRes.json();
-                  fullContent = followUpData?.choices?.[0]?.message?.content ?? '';
-
-                  // Stream the content to client in chunks for smoother UX
-                  const words = fullContent.split(' ');
-                  for (let i = 0; i < words.length; i += 3) {
-                    const chunk = words.slice(i, i + 3).join(' ') + ' ';
-                    await writer.write(
-                      encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
-                    );
-                    // Small delay for smooth streaming effect
-                    await new Promise((resolve) => setTimeout(resolve, 15));
+              // Execute all searches in parallel
+              const searchT0 = Date.now();
+              const searchPromises = webSearchCalls.map(async (tc) => {
+                try {
+                  let query;
+                  try {
+                    const args = JSON.parse(tc.arguments);
+                    query = args.query;
+                  } catch (parseErr) {
+                    // Try regex extraction for malformed JSON
+                    const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                    if (match) {
+                      query = match[1];
+                      console.log(
+                        '[SpaceChat:Streaming] Recovered query from malformed JSON:',
+                        query,
+                      );
+                    } else {
+                      console.log(
+                        '[SpaceChat:Streaming] Could not parse tool arguments:',
+                        tc.arguments.slice(0, 200),
+                      );
+                      return { toolCallId: tc.id, query: null, results: null };
+                    }
                   }
 
-                  // Extract sources for final event
-                  sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
+                  searchQueries.push(query);
+                  const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
+                  return { toolCallId: tc.id, query, results };
+                } catch (err) {
+                  console.log('[SpaceChat:Streaming] Individual search error:', err);
+                  return { toolCallId: tc.id, query: null, results: null };
                 }
-              } catch (searchErr) {
-                console.log('[SpaceChat:Streaming] Search error:', searchErr);
-                // Continue without search results
+              });
+
+              const searchResults = await Promise.all(searchPromises);
+              const searchLatency = Date.now() - searchT0;
+
+              const successfulSearches = searchResults.filter(
+                (sr) => sr.results && sr.results.results.length > 0,
+              );
+              console.log('[SpaceChat:Streaming] Searches complete', {
+                total: searchResults.length,
+                successful: successfulSearches.length,
+                latency: searchLatency,
+              });
+
+              if (successfulSearches.length > 0) {
+                // Build follow-up messages with ALL tool results
+                const assistantToolCalls = successfulSearches.map((sr) => ({
+                  id: sr.toolCallId,
+                  type: 'function',
+                  function: {
+                    name: 'web_search',
+                    arguments: JSON.stringify({ query: sr.query }),
+                  },
+                }));
+
+                const toolResultMessages = successfulSearches.map((sr) => ({
+                  role: 'tool',
+                  tool_call_id: sr.toolCallId,
+                  content: JSON.stringify(sr.results),
+                }));
+
+                const followUpMessages = [
+                  ...messages,
+                  {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: assistantToolCalls,
+                  },
+                  ...toolResultMessages,
+                ];
+
+                // Second API call for final response
+                const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${key}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    model: actualModel,
+                    messages: followUpMessages,
+                    temperature,
+                    max_completion_tokens: 800,
+                  }),
+                });
+
+                const followUpData = await followUpRes.json();
+                fullContent = followUpData?.choices?.[0]?.message?.content ?? '';
+
+                // Stream the content to client in chunks for smoother UX
+                const words = fullContent.split(' ');
+                for (let i = 0; i < words.length; i += 3) {
+                  const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
+                  );
+                  await new Promise((resolve) => setTimeout(resolve, 15));
+                }
+
+                // Combine all sources
+                sources = successfulSearches.flatMap((sr) =>
+                  sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                );
               }
             }
+
+            // Fallback: if tool calls were made but we have no content, respond without search
+            if (webSearchCalls.length > 0 && !fullContent) {
+              console.log(
+                '[SpaceChat:Streaming] Search fallback - responding without search results',
+              );
+
+              const fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${key}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: actualModel,
+                  messages: [
+                    ...messages,
+                    {
+                      role: 'system',
+                      content:
+                        'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
+                    },
+                  ],
+                  temperature,
+                  max_completion_tokens: 600,
+                }),
+              });
+
+              const fallbackData = await fallbackRes.json();
+              fullContent =
+                fallbackData?.choices?.[0]?.message?.content ??
+                'I had trouble searching for that information. Could you try rephrasing your question?';
+
+              // Stream the fallback content
+              const words = fullContent.split(' ');
+              for (let i = 0; i < words.length; i += 3) {
+                const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                await writer.write(
+                  encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
+                );
+                await new Promise((resolve) => setTimeout(resolve, 15));
+              }
+            }
+
+            // For final event, use first search query or combined
+            const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
 
             const save_suggestion = null;
             const latency = Date.now() - t0;
