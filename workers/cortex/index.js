@@ -136,6 +136,7 @@
 async function executeTavilySearch(query, apiKey, options = {}) {
   const maxResults = options.maxResults ?? 5;
   const searchDepth = options.searchDepth ?? 'basic';
+  const includeImages = options.includeImages ?? false;
 
   try {
     const response = await fetch('https://api.tavily.com/search', {
@@ -150,6 +151,7 @@ async function executeTavilySearch(query, apiKey, options = {}) {
         max_results: maxResults,
         include_answer: false,
         include_raw_content: false,
+        include_images: includeImages,
       }),
     });
 
@@ -172,14 +174,64 @@ async function executeTavilySearch(query, apiKey, options = {}) {
       snippet: (result.content || '').substring(0, 300),
     }));
 
+    // Get images if available (Tavily returns these separately)
+    const images = includeImages && data.images ? data.images.slice(0, 3) : [];
+
     return {
       query: query,
       results: results,
+      images: images,
     };
   } catch (error) {
     console.error('[Tavily] Search error:', error);
     return null;
   }
+}
+
+/**
+ * Detect if a query would benefit from images
+ * Returns true for exercises, recipes, products, places, etc.
+ */
+function isVisualQuery(query) {
+  if (!query) return false;
+  
+  const q = query.toLowerCase();
+  
+  // Explicit image requests
+  if (q.includes('show me') || q.includes('what does') || q.includes('look like') || q.includes('picture of')) {
+    return true;
+  }
+  
+  // Exercise/fitness - form matters
+  if (q.includes('deadlift') || q.includes('squat') || q.includes('pushup') || 
+      q.includes('push-up') || q.includes('plank') || q.includes('lunge') || 
+      q.includes('yoga pose') || q.includes('exercise form') || q.includes('stretch')) {
+    return true;
+  }
+  
+  // Recipes - visual helps
+  if (q.includes('recipe') || q.includes('how to cook') || q.includes('how to make') && 
+      (q.includes('food') || q.includes('dish') || q.includes('meal'))) {
+    return true;
+  }
+  
+  // Products - what they look like
+  if (q.match(/best .*(product|tool|gear|equipment|device)/)) {
+    return true;
+  }
+  
+  // Places/destinations
+  if (q.includes('places to visit') || q.includes('destination') || 
+      (q.includes('what is') && q.includes('like') && q.match(/city|country|beach|mountain/))) {
+    return true;
+  }
+  
+  // DIY/crafts
+  if (q.includes('diy') || q.includes('craft') || q.includes('how to build')) {
+    return true;
+  }
+  
+  return false;
 }
 
 /**
@@ -1003,6 +1055,10 @@ Today is ${currentDate}. Always use this date for any time-relative queries (upc
 
 === WEB SEARCH ===
 You have access to web search. When the user asks about topics that benefit from current information (health, events, recommendations, how-to guides, research topics), USE the search tool to provide accurate, up-to-date answers. Do not suggest the user search themselves - search for them and synthesize the results.
+
+When users ask to "show me" or request visuals (exercise form, recipes, products, places), ALWAYS search. Images from search results will be displayed automatically alongside your response - never say you "can't show images."
+
+IMPORTANT: Never include markdown image syntax (![...](...)) in your response. Images are displayed automatically from search results - just describe what to look for in the images.
  
  === ENTITY CONTEXT ===
  ${entityContext}${sweepContextStr}${presetInstruction}
@@ -1097,6 +1153,10 @@ You have access to web search. When the user asks about topics that benefit from
  
  Most entity chats should NEVER suggest a Space. It's a rare recommendation.`;
 
+        // URL context placeholders - populated in streaming path if URLs detected
+        let urlContext = '';
+        let fetchedUrl = null;
+
         // Build messages array for OpenAI, injecting URL context if present
         const processedMessages = messages.slice(-20).map((msg, idx, arr) => {
           // Add URL context to the last user message
@@ -1135,10 +1195,14 @@ You have access to web search. When the user asks about topics that benefit from
           // Determine optimal model and tokens for this query
           const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
           
+          // Create TransformStream early so we can send fetching indicators
+          const { readable, writable } = new TransformStream();
+          const writer = writable.getWriter();
+          const encoder = new TextEncoder();
+          const decoder = new TextDecoder();
+
           // Detect URLs in the user's message
           const detectedUrls = extractUrlsFromText(lastUserMsg);
-          let urlContext = '';
-          let fetchedUrl = null;
 
           if (detectedUrls.length > 0) {
             console.log('[EntityChat:Streaming] URLs detected:', detectedUrls);
@@ -1213,15 +1277,14 @@ You have access to web search. When the user asks about topics that benefit from
             return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
           }
 
-          const { readable, writable } = new TransformStream();
-          const writer = writable.getWriter();
-          const encoder = new TextEncoder();
-          const decoder = new TextDecoder();
-
           (async () => {
+            // Send initial SSE ping to establish line ending detection
+            await writer.write(encoder.encode(': ping\n\n'));
+
             const reader = openaiRes.body.getReader();
             let buffer = '';
             let fullContent = '';
+            let searchImages = [];
 
             // Track tool call accumulation - support multiple tool calls
             let toolCalls = []; // Array of { id, name, arguments }
@@ -1248,8 +1311,11 @@ You have access to web search. When the user asks about topics that benefit from
 
                     if (delta) {
                       fullContent += delta;
-                      const sseData = JSON.stringify({ delta, done: false });
-                      await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                      // Don't stream SAVE comments to client
+                      if (!fullContent.includes('<!--SAVE:')) {
+                        const sseData = JSON.stringify({ delta, done: false });
+                        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                      }
                     }
 
                     // Check for tool calls - handle multiple
@@ -1338,7 +1404,10 @@ You have access to web search. When the user asks about topics that benefit from
                     }
 
                     searchQueries.push(query);
-                    const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
+                    const shouldIncludeImages = isVisualQuery(query) || isVisualQuery(lastUserMsg);
+                    const results = await executeTavilySearch(query, env.TAVILY_API_KEY, {
+                      includeImages: shouldIncludeImages,
+                    });
                     return { toolCallId: tc.id, query, results };
                   } catch (err) {
                     console.log('[EntityChat:Streaming] Individual search error:', err);
@@ -1460,6 +1529,13 @@ You have access to web search. When the user asks about topics that benefit from
                   sources = successfulSearches.flatMap((sr) =>
                     sr.results.results.map((r) => ({ title: r.title, url: r.url })),
                   );
+
+                  // Collect images from search results
+                  successfulSearches.forEach((sr) => {
+                    if (sr.results.images && sr.results.images.length > 0) {
+                      searchImages.push(...sr.results.images);
+                    }
+                  });
                 }
               }
 
@@ -1527,14 +1603,20 @@ You have access to web search. When the user asks about topics that benefit from
               const promotion = detectSpacePromotion(fullContent, messages.length);
 
               const latency = Date.now() - t0;
+              // Strip SAVE comment and markdown images before sending to client
+              const displayContent = fullContent
+                .replace(/<!--SAVE:\{.*?\}-->/gs, '')
+                .replace(/!\[.*?\]\(.*?\)/g, '')  // Strip markdown images
+                .trim();
               const finalData = JSON.stringify({
                 done: true,
-                full_content: fullContent,
+                full_content: displayContent,
                 saveable,
                 save_suggestion,
                 promotion,
                 latency_ms: latency,
                 sources: sources,
+                images: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
                 search_query: searchQuery,
                 fetchedUrl: fetchedUrl,
               });
@@ -4811,17 +4893,47 @@ For LOGS (idea/general):
         if (isSpaceChatLane) {
           const spaceChatFormattingPrompt = `FORMATTING RULES (Gremly mobile chat):
  
- Keep responses concise and scannable for mobile.
- - Use **bold** for key phrases (1-2 per response)
- - Short paragraphs (2-3 sentences max)
- - Bullets only when listing 3+ items (max 5 bullets)
- - 50-150 words for most responses
- - No markdown headers (#), tables, or code blocks
- 
- When giving structured advice, keep it tight:
- **Start small**  2-3 short runs per week, same days.
- **Be consistent**  Consistency beats intensity early on.
- **Track it**  Seeing progress helps motivation.`;
+Keep responses concise and scannable for mobile.
+- Use **bold** for key phrases (1-2 per response)
+- Short paragraphs (2-3 sentences max)
+- Bullets only when listing 3+ items (max 5 bullets)
+- 50-150 words for most responses
+- No markdown headers (#), tables, or code blocks
+
+When giving structured advice, keep it tight:
+**Start small**  2-3 short runs per week, same days.
+**Be consistent**  Consistency beats intensity early on.
+**Track it**  Seeing progress helps motivation.
+
+=== SAVE SUGGESTIONS ===
+Do NOT mention saving in your response text. Instead, when your response contains genuinely useful content worth saving, append a hidden suggestion block AFTER your response.
+
+**When to suggest saving:**
+- TODO: Any clear, completable action you recommend (verb + object)
+- HABIT: A recommendation with explicit frequency ("daily", "3x per week", etc.)
+- NOTE: Key reference information, summaries, or explanations worth keeping
+- STEPS: When you provide 2+ actionable steps, include them in the steps array
+
+**When NOT to suggest:**
+- Simple factual answers or definitions
+- Clarifying questions back to the user
+- Emotional support or empathy responses
+- Very short responses (under 30 words)
+- Exploratory "it depends" responses
+- When you're just chatting or checking in
+
+**Format:** After your complete response, on a NEW LINE, add exactly:
+<!--SAVE:{"type":"todo","title":"Your title here","steps":["Step 1","Step 2"]}-->
+
+CRITICAL FORMAT RULES:
+- Must start with exactly: <!--SAVE:
+- Must end with exactly: -->
+- JSON must be valid (proper quotes, no trailing commas)
+- Put on its own line after your response
+- Do not include any other text on that line
+- type: "todo", "habit", or "note"
+- title: 2-6 words, action-oriented for todos/habits
+- steps: Extract ALL distinct actionable items (max 12). Don't summarize or combine items.`;
 
           const exists = messages.some(
             (m) =>
@@ -4865,6 +4977,11 @@ For LOGS (idea/general):
         const writer = writable.getWriter();
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
+
+        // Send initial SSE ping to establish line ending detection
+        (async () => {
+          await writer.write(encoder.encode(': ping\n\n'));
+        })();
 
         // Detect URLs in the user's message
         const detectedUrlsSpace = extractUrlsFromText(lastUserMsgSpace);

@@ -508,6 +508,7 @@ export function EntityChatScreen({
               has_saveable_content: shouldShowSave,
               sources: finalSources,
               search_query: response.search_query,
+              images: response.images,
             });
 
             // Track saveable content for SaveButton
@@ -765,7 +766,7 @@ export function EntityChatScreen({
       const isSearchingMessage = item.metadata?.isSearching === true;
 
       // Convert EntityChatMessage to SpaceChatMessage shape for ChatBubble
-      const bubbleMessage: SpaceChatMessage & { isStreaming?: boolean } = {
+      const bubbleMessage: SpaceChatMessage & { isStreaming?: boolean; sources?: Array<{ title: string; url: string }>; images?: string[] } = {
         id: item.id,
         chat_id: `entity-chat-${entityId}`, // Virtual chat ID for entity chats
         space_id: entity?.space_id ?? '',
@@ -774,6 +775,8 @@ export function EntityChatScreen({
         content: item.content,
         created_at: item.created_at,
         isStreaming: isStreamingMessage,
+        sources: item.metadata?.sources as Array<{ title: string; url: string }> | undefined,
+        images: item.metadata?.images as string[] | undefined,
       };
 
       // Check if this message was already saved (persisted state)

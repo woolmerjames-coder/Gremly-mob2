@@ -417,6 +417,7 @@ export function callSpaceChatStreaming(
       spaceId: opts.spaceId,
       chatId: opts.chatId,
     }),
+    lineEndingCharacter: '\n',
   });
 
   es.addEventListener('message', (event: any) => {
@@ -968,6 +969,7 @@ export function callEnrichPhase2Streaming(
       dayOfWeek,
     }),
     pollingInterval: 0,
+    lineEndingCharacter: '\n',
   });
 
   const finalResult: Phase2EnrichmentResult = {};
@@ -1323,6 +1325,7 @@ export function callEntityChatStreaming(
       type: 'entity-chat',
       stream: true,
     }),
+    lineEndingCharacter: '\n',
   });
 
   es.addEventListener('message', (event: any) => {

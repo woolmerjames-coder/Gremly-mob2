@@ -790,6 +790,7 @@ export interface EntityChatMessage {
     isSearching?: boolean; // True when web search is in progress
     searchQuery?: string | null; // The query being searched
     sources?: Array<{ title: string; url: string }>; // Web search sources
+    images?: string[]; // Images from visual search
     search_query?: string | null; // The final search query used
   };
 }
@@ -886,6 +887,8 @@ export interface EntityChatResponse {
   latency_ms: number;
   /** Web search sources from Tavily (if web search was used) */
   sources?: Array<{ title: string; url: string }>;
+  /** Images from web search (if visual query) */
+  images?: string[];
   /** The search query used for web search (if web search was used) */
   search_query?: string;
   /** Fetched URL info from Tavily Extract (if URL was fetched) */

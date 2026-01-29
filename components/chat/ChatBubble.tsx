@@ -113,6 +113,7 @@ function ChatBubbleInner({
   const isFetching = (message as any).isFetching === true;
   const fetchingUrl = (message as any).fetchingUrl as string | null;
   const sources = (message as any).sources as Array<{ title: string; url: string }> | undefined;
+  const images = (message as any).images as string[] | undefined;
 
   // Debug logging for save button visibility
   if (isAssistant && __DEV__) {
@@ -221,6 +222,24 @@ function ChatBubbleInner({
                         Tap to continue
                       </Text>
                     </Text>
+                  </View>
+                )}
+                {/* Images from search */}
+                {images && images.length > 0 && !isStreaming && (
+                  <View style={styles.imagesContainer}>
+                    {images.slice(0, 2).map((imageUrl, idx) => (
+                      <TouchableOpacity
+                        key={idx}
+                        onPress={() => Linking.openURL(imageUrl)}
+                        activeOpacity={0.9}
+                      >
+                        <Image
+                          source={{ uri: imageUrl }}
+                          style={styles.searchImage}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                    ))}
                   </View>
                 )}
                 {/* Sources from web search - compact with favicons */}
@@ -420,6 +439,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9CA3AF',
     fontWeight: '500',
+  },
+  imagesContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  searchImage: {
+    width: 140,
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
   },
 });
 
