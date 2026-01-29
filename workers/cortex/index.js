@@ -225,6 +225,75 @@ DO NOT use for:
   },
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// DYNAMIC MODEL & TOKEN ROUTING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Determine the best model and token limit based on query complexity
+ * Conservative approach: default to gpt-4.1, only use mini for clearly simple cases
+ * @param {Object} options
+ * @param {string} options.preset - The preset action (research, break_down, etc.)
+ * @param {string} options.userMessage - The user's message
+ * @param {number} options.messageCount - Number of messages in conversation
+ * @param {string} options.entityType - Type of entity (todo, habit, note)
+ * @returns {{ model: string, maxTokens: number, reason: string }}
+ */
+function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
+  const msg = (userMessage || '').toLowerCase();
+  
+  // DEFAULT to gpt-4.1 — only downgrade for clearly simple cases
+  
+  // Simple enough for mini:
+  const canUseMini = 
+    // No preset selected (freeform simple question)
+    !preset &&
+    // Short message (under 50 chars)
+    msg.length < 50 &&
+    // Single question or statement
+    (msg.match(/\?/g) || []).length <= 1 &&
+    // Early in conversation (first 2 messages)
+    messageCount < 3 &&
+    // No complexity signals
+    !msg.includes('why') &&
+    !msg.includes('how do i') &&
+    !msg.includes('help me') &&
+    !msg.includes('feeling') &&
+    !msg.includes('struggling') &&
+    !msg.includes('stuck') &&
+    !msg.includes('explain') &&
+    !msg.includes('compare') &&
+    !msg.includes('pros and cons') &&
+    !msg.includes('think through') &&
+    !msg.includes('in depth');
+
+  // Token limits based on expected response length
+  const needsMoreTokens =
+    preset === 'research' ||
+    preset === 'break_down' ||
+    preset === 'action_steps' ||
+    msg.includes('plan') ||
+    msg.includes('steps') ||
+    msg.includes('list') ||
+    msg.includes('all the') ||
+    msg.length > 100;
+
+  if (canUseMini) {
+    return {
+      model: 'gpt-4o-mini',
+      maxTokens: 400,
+      reason: 'simple_short_query'
+    };
+  }
+
+  // Default: use the good model
+  return {
+    model: 'gpt-4.1',
+    maxTokens: needsMoreTokens ? 800 : 600,
+    reason: preset ? `preset:${preset}` : 'standard_query'
+  };
+}
+
 export default {
   async fetch(request, env) {
     // --- CORS preflight ---
@@ -878,6 +947,16 @@ You have access to web search. When the user asks about topics that benefit from
         if (isEntityChatStreaming) {
           console.log('[EntityChat:Streaming] Starting SSE stream');
 
+          // Determine optimal model and tokens for this query
+          const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
+          const routing = getModelAndTokens({
+            preset,
+            userMessage: lastUserMsg,
+            messageCount: messages.length,
+            entityType: entity?.type,
+          });
+          console.log('[EntityChat:Streaming] Model routing:', routing);
+
           const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -885,10 +964,10 @@ You have access to web search. When the user asks about topics that benefit from
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1',
+              model: routing.model,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: 600,
+              max_completion_tokens: routing.maxTokens,
               stream: true,
               tools: [WEB_SEARCH_TOOL],
               tool_choice: 'auto',
@@ -1212,6 +1291,16 @@ You have access to web search. When the user asks about topics that benefit from
         // =========================
         // NON-STREAMING ENTITY CHAT
         // =========================
+        // Determine optimal model and tokens for this query
+        const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
+        const routing = getModelAndTokens({
+          preset,
+          userMessage: lastUserMsg,
+          messageCount: messages.length,
+          entityType: entity?.type,
+        });
+        console.log('[EntityChat] Model routing:', routing);
+
         try {
           const res = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -1220,10 +1309,10 @@ You have access to web search. When the user asks about topics that benefit from
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1',
+              model: routing.model,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: 600,
+              max_completion_tokens: routing.maxTokens,
               tools: [WEB_SEARCH_TOOL],
               tool_choice: 'auto',
             }),
@@ -4400,8 +4489,26 @@ For LOGS (idea/general):
       if (isSpaceChatStreaming && isSpaceChatLane) {
         console.log('[SpaceChat:Streaming] Starting SSE stream');
 
+        // Space Chat routing - conservative, default to 4.1
+        const lastUserMsgSpace = messages.filter(m => m.role === 'user').pop()?.content || '';
+        const msgLowerSpace = lastUserMsgSpace.toLowerCase();
+        const canUseMiniSpace = 
+          lastUserMsgSpace.length < 50 &&
+          (lastUserMsgSpace.match(/\?/g) || []).length <= 1 &&
+          messages.filter(m => m.role === 'user').length < 3 &&
+          !msgLowerSpace.includes('why') &&
+          !msgLowerSpace.includes('how do i') &&
+          !msgLowerSpace.includes('help me') &&
+          !msgLowerSpace.includes('feeling') &&
+          !msgLowerSpace.includes('explain') &&
+          !msgLowerSpace.includes('research');
+
+        const spaceModel = canUseMiniSpace ? 'gpt-4o-mini' : 'gpt-4.1';
+        const spaceMaxTokens = lastUserMsgSpace.length > 100 || msgLowerSpace.includes('plan') || msgLowerSpace.includes('steps') ? 800 : 600;
+        console.log('[SpaceChat:Streaming] Model routing:', { model: spaceModel, maxTokens: spaceMaxTokens, canUseMini: canUseMiniSpace });
+
         const openaiPayload = {
-          model: actualModel,
+          model: spaceModel,
           messages,
           temperature,
           stream: true,
@@ -4409,10 +4516,10 @@ For LOGS (idea/general):
           tool_choice: 'auto',
         };
 
-        if (actualModel === 'gpt-4.1' || actualModel === 'gpt-4o') {
-          openaiPayload.max_completion_tokens = maxTokensValue;
+        if (spaceModel === 'gpt-4.1' || spaceModel === 'gpt-4o') {
+          openaiPayload.max_completion_tokens = spaceMaxTokens;
         } else {
-          openaiPayload.max_tokens = maxTokensValue;
+          openaiPayload.max_tokens = spaceMaxTokens;
         }
 
         const t0 = Date.now();
@@ -4726,12 +4833,39 @@ For LOGS (idea/general):
 
       // --- NON-STREAMING (original logic, with web search for space_chat) ---
       const t0NonStream = Date.now();
-      const openaiPayload = { model: actualModel, messages, temperature, stream: false };
 
-      if (actualModel === 'gpt-4.1' || actualModel === 'gpt-4o') {
-        openaiPayload.max_completion_tokens = maxTokensValue;
+      // Space Chat routing - conservative, default to 4.1
+      const lastUserMsgNonStream = messages.filter(m => m.role === 'user').pop()?.content || '';
+      const msgLowerNonStream = lastUserMsgNonStream.toLowerCase();
+      const canUseMiniNonStream = 
+        isSpaceChatLane &&
+        lastUserMsgNonStream.length < 50 &&
+        (lastUserMsgNonStream.match(/\?/g) || []).length <= 1 &&
+        messages.filter(m => m.role === 'user').length < 3 &&
+        !msgLowerNonStream.includes('why') &&
+        !msgLowerNonStream.includes('how do i') &&
+        !msgLowerNonStream.includes('help me') &&
+        !msgLowerNonStream.includes('feeling') &&
+        !msgLowerNonStream.includes('explain') &&
+        !msgLowerNonStream.includes('research');
+
+      const nonStreamModel = isSpaceChatLane 
+        ? (canUseMiniNonStream ? 'gpt-4o-mini' : 'gpt-4.1')
+        : actualModel;
+      const nonStreamMaxTokens = isSpaceChatLane
+        ? (lastUserMsgNonStream.length > 100 || msgLowerNonStream.includes('plan') || msgLowerNonStream.includes('steps') ? 800 : 600)
+        : maxTokensValue;
+      
+      if (isSpaceChatLane) {
+        console.log('[SpaceChat] Model routing:', { model: nonStreamModel, maxTokens: nonStreamMaxTokens, canUseMini: canUseMiniNonStream });
+      }
+
+      const openaiPayload = { model: nonStreamModel, messages, temperature, stream: false };
+
+      if (nonStreamModel === 'gpt-4.1' || nonStreamModel === 'gpt-4o') {
+        openaiPayload.max_completion_tokens = nonStreamMaxTokens;
       } else {
-        openaiPayload.max_tokens = maxTokensValue;
+        openaiPayload.max_tokens = nonStreamMaxTokens;
       }
 
       // Add web search tools for space_chat lane
