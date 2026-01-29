@@ -900,6 +900,7 @@ You have access to web search. When the user asks about topics that benefit from
  - Surface what might be blocking them
  - Help them think through approach
  - Suggest actionable checklists or notes worth saving
+ - After answering a researched question, briefly suggest 1 related follow-up the user might want to explore (e.g., "Want me to look into timing/dosage/alternatives?")
  
  === TONE & FORMAT ===
  - Warm but concise (this is mobile)
@@ -938,6 +939,19 @@ You have access to web search. When the user asks about topics that benefit from
           { role: 'system', content: entityChatSystemPrompt },
           ...messages.slice(-20), // Keep last 20 messages for context
         ];
+
+        // Check if previous messages contain search results to avoid redundant searches
+        const previousSearchContext = messages
+          .filter(m => m.role === 'assistant' && m.metadata?.sources?.length > 0)
+          .slice(-1)[0];
+
+        if (previousSearchContext) {
+          // Add a system hint about existing search context
+          openaiMessages.push({
+            role: 'system',
+            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map(s => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`
+          });
+        }
 
         const t0 = Date.now();
 
@@ -4523,9 +4537,23 @@ For LOGS (idea/general):
         const spaceMaxTokens = lastUserMsgSpace.length > 100 || msgLowerSpace.includes('plan') || msgLowerSpace.includes('steps') ? 800 : 600;
         console.log('[SpaceChat:Streaming] Model routing:', { model: spaceModel, maxTokens: spaceMaxTokens, canUseMini: canUseMiniSpace });
 
+        // Check if previous messages contain search results to avoid redundant searches
+        const previousSearchContext = messages
+          .filter(m => m.role === 'assistant' && m.sources?.length > 0)
+          .slice(-1)[0];
+
+        // Build messages with optional search context hint
+        let spaceChatMessages = [...messages];
+        if (previousSearchContext) {
+          spaceChatMessages.push({
+            role: 'system',
+            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.sources.map(s => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`
+          });
+        }
+
         const openaiPayload = {
           model: spaceModel,
-          messages,
+          messages: spaceChatMessages,
           temperature,
           stream: true,
           tools: [WEB_SEARCH_TOOL],
