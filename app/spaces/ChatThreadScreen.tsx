@@ -984,6 +984,26 @@ export default function ChatThreadScreen({ route }: Props) {
     [spaceChatEnhanced, updateMessage],
   );
 
+  // Handle type change from ChatBubble's SaveButton (smart suggestion type selector)
+  const handleTypeChange = useCallback(
+    (messageId: string, newType: 'todo' | 'habit' | 'note') => {
+      if (__DEV__) {
+        console.log('[Chat] Type changed for message:', messageId, 'to:', newType);
+      }
+      // Find the message and update its saveable type
+      const message = messages.find((m) => m.id === messageId);
+      if (message?.saveable) {
+        updateMessage(messageId, {
+          saveable: {
+            ...message.saveable,
+            type: newType,
+          },
+        });
+      }
+    },
+    [messages, updateMessage],
+  );
+
   // Handle edit from ChatBubble's embedded edit button (opens overlay)
   // If the item is already saved, open the overlay in edit mode with the existing item
   // Otherwise, open create mode with prefill data
@@ -1094,6 +1114,74 @@ export default function ChatThreadScreen({ route }: Props) {
       const assistantMessage = message.content || '';
 
       try {
+        // ─── SMART SAVE: If we have title from AI suggestion, skip classification ───
+        const smartSuggestion = currentSaveable.title && currentSaveable.prefillData?.steps
+          ? {
+              type: currentSaveable.type,
+              title: currentSaveable.title,
+              steps: currentSaveable.prefillData.steps as string[],
+            }
+          : null;
+
+        if (smartSuggestion?.title) {
+          console.log('[Chat] Smart save - creating new entity (skipping Phase 1):', {
+            type: smartSuggestion.type,
+            title: smartSuggestion.title,
+            hasSteps: !!smartSuggestion.steps?.length,
+          });
+
+          const title = smartSuggestion.title;
+          const type = smartSuggestion.type;
+          let result: { id: string } | null = null;
+
+          if (type === 'todo') {
+            // Format steps as part of the body if present
+            let body = assistantMessage;
+            if (smartSuggestion.steps?.length) {
+              const stepsText = smartSuggestion.steps.map((step, i) => `${i + 1}. ${step}`).join('\n');
+              body = `Steps:\n${stepsText}\n\n---\n${assistantMessage}`;
+            }
+
+            result = await createTodo({
+              name: title,
+              body,
+              space_id: spaceId,
+            });
+            console.log('[Chat] Created todo:', title, result?.id);
+          } else if (type === 'habit') {
+            result = await createHabit({
+              name: title,
+              notes: assistantMessage, // Include assistant's response as notes
+              space_id: spaceId,
+            });
+            console.log('[Chat] Created habit:', title, result?.id);
+          } else {
+            // note
+            result = await createNote({
+              title,
+              body: assistantMessage,
+              space_id: spaceId,
+            });
+            console.log('[Chat] Created note:', title, result?.id);
+          }
+
+          // Update message saveable with saved state
+          if (result?.id) {
+            updateMessage(message.id, {
+              saveable: {
+                type: type,
+                title: title,
+                isSaving: false,
+                savedItemId: result.id,
+                savedItemType: type === 'todo' ? 'todo' : type === 'habit' ? 'habit' : 'log',
+              },
+            });
+            spaceChatEnhanced.dismissSaveButton();
+          }
+          return;
+        }
+
+        // ─── FALLBACK: Use classification for save ────────────────────────────
         // 3. Call spaceChatSave to classify and get metadata
         const classification = await callSpaceChatSave({
           userMessage: userMessageContent,
@@ -1391,6 +1479,7 @@ export default function ChatThreadScreen({ route }: Props) {
             onEditPress={() => handleBubbleEdit(message)}
             onDismissSaveable={handleDismissSaveable}
             onRetryStream={handleRetryStream}
+            onTypeChange={handleTypeChange}
           />
         </View>
       );
@@ -1402,6 +1491,7 @@ export default function ChatThreadScreen({ route }: Props) {
       handleBubbleEdit,
       handleDismissSaveable,
       handleRetryStream,
+      handleTypeChange,
     ],
   );
 

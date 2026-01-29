@@ -258,6 +258,10 @@ export function EntityChatScreen({
   const appendEntityChatMessage = useGremlyStore((s) => s.appendEntityChatMessage);
   const createStreamingMessage = useGremlyStore((s) => s.createEntityChatStreamingMessage);
   const updateStreamingContent = useGremlyStore((s) => s.updateEntityChatStreamingContent);
+  // Entity creation (for smart save)
+  const createTodo = useGremlyStore((s) => s.createTodo);
+  const createHabit = useGremlyStore((s) => s.createHabit);
+  const createNote = useGremlyStore((s) => s.createNote);
   const updateStreamingSearching = useGremlyStore((s) => s.updateEntityChatStreamingSearching);
   const finalizeStreamingMessage = useGremlyStore((s) => s.finalizeEntityChatStreamingMessage);
   const saveEntityChatNote = useGremlyStore((s) => s.saveEntityChatNote);
@@ -587,16 +591,6 @@ export function EntityChatScreen({
     async (saveable: EntityChatResponse['saveable']) => {
       if (!saveable) return;
 
-      // Check notes limit
-      const existingNotes = getEntityChat(entityId, entityType)?.notes ?? [];
-      if (existingNotes.length >= MAX_NOTES_PER_ENTITY) {
-        Alert.alert(
-          'Limit Reached',
-          'You can save up to 5 notes per item. Consider creating a Space for deeper work.',
-        );
-        return;
-      }
-
       setSaveState('loading');
 
       // Get the full content from the last assistant message
@@ -604,59 +598,76 @@ export function EntityChatScreen({
       const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
       const fallbackContent = lastAssistant?.content ?? 'Saved from chat';
 
-      // Use save_suggestion for better formatting if available
-      // Otherwise fall back to raw assistant message content
-      let content = fallbackContent;
-      let isChecklist = false;
-      let checklistItems: Array<{ id: string; label: string; completed: boolean }> | undefined;
-
-      if (lastSaveSuggestion) {
-        console.log('[EntityChatScreen] Using save_suggestion for content formatting:', {
-          hasTitle: !!lastSaveSuggestion.title,
-          hasContent: !!lastSaveSuggestion.content,
-          hasSteps: !!lastSaveSuggestion.steps?.length,
-          type: lastSaveSuggestion.type,
-        });
-
-        // Use title from save_suggestion as content (it's the headline)
-        if (lastSaveSuggestion.title) {
-          content = lastSaveSuggestion.title;
-        } else if (lastSaveSuggestion.content) {
-          content = lastSaveSuggestion.content;
-        }
-
-        // If save_suggestion has steps (for todos), convert them to checklist items
-        if (lastSaveSuggestion.steps?.length) {
-          isChecklist = true;
-          // Convert steps string[] to proper checklist format
-          checklistItems = lastSaveSuggestion.steps.map((step: string, index: number) => ({
-            id: `step-${Date.now()}-${index}`,
-            label: step,
-            completed: false,
-          }));
-          console.log('[EntityChatScreen] Created checklist items from steps:', checklistItems.length);
-        }
-      }
-
-      const noteData = {
-        content,
-        is_checklist: isChecklist,
-        checklist_items: checklistItems,
-        source_message_id: lastAssistantMessageId || '',
-      };
-
-      console.log('[EntityChatScreen] Saving note:', { entityId, entityType, noteData });
-
       try {
+        // ─── SMART SAVE: Create new entity (skip Phase 1 classification) ─────
+        if (lastSaveSuggestion?.type && lastSaveSuggestion?.title) {
+          console.log('[EntityChatScreen] Smart save - creating new entity (skipping Phase 1):', {
+            type: lastSaveSuggestion.type,
+            title: lastSaveSuggestion.title,
+            hasSteps: !!lastSaveSuggestion.steps?.length,
+          });
+
+          const title = lastSaveSuggestion.title;
+          const type = lastSaveSuggestion.type;
+
+          if (type === 'todo') {
+            // Create todo with optional checklist items from steps
+            const checklistItems = lastSaveSuggestion.steps?.map((step: string, index: number) => ({
+              id: `step-${Date.now()}-${index}`,
+              label: step,
+              completed: false,
+            }));
+
+            await createTodo({
+              name: title,
+              body: fallbackContent, // Include assistant's full response as context
+              is_checklist: !!checklistItems?.length,
+              checklist_items: checklistItems,
+            });
+            console.log('[EntityChatScreen] Created todo:', title);
+          } else if (type === 'habit') {
+            await createHabit({
+              name: title,
+              notes: fallbackContent, // Include assistant's response as notes
+            });
+            console.log('[EntityChatScreen] Created habit:', title);
+          } else {
+            // note
+            await createNote({
+              title,
+              body: fallbackContent,
+            });
+            console.log('[EntityChatScreen] Created note:', title);
+          }
+
+          setSaveState('confirmed');
+          return;
+        }
+
+        // ─── FALLBACK: Save as note to current entity (existing behavior) ────
+        const existingNotes = getEntityChat(entityId, entityType)?.notes ?? [];
+        if (existingNotes.length >= MAX_NOTES_PER_ENTITY) {
+          Alert.alert(
+            'Limit Reached',
+            'You can save up to 5 notes per item. Consider creating a Space for deeper work.',
+          );
+          setSaveState('initial');
+          return;
+        }
+
+        const noteData = {
+          content: fallbackContent,
+          is_checklist: false,
+          source_message_id: lastAssistantMessageId || '',
+        };
+
+        console.log('[EntityChatScreen] Fallback - saving note to entity:', { entityId, entityType, noteData });
         await saveEntityChatNote(entityId, entityType, noteData);
         console.log('[EntityChatScreen] Note saved successfully');
         setSaveState('confirmed');
-
-        // Keep lastSaveable and lastAssistantMessageId so confirmed state shows
-        // User can dismiss via the X button which calls handleDismissSaveable
       } catch (error) {
         console.error('[EntityChatScreen] Save error:', error);
-        setSaveState('initial'); // Reset on error
+        setSaveState('initial');
       }
     },
     [
@@ -666,6 +677,9 @@ export function EntityChatScreen({
       lastAssistantMessageId,
       getEntityChat,
       lastSaveSuggestion,
+      createTodo,
+      createHabit,
+      createNote,
     ],
   );
 

@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Image } from 'react-native';
 import Animated, { FadeIn, SlideInRight, Layout } from 'react-native-reanimated';
+import { Search } from 'lucide-react-native';
 import { Text } from '../../ui/Text';
 import { SpaceChatMessage } from '../../lib/types';
 import { lightTokens } from '../../design/tokens';
@@ -25,6 +26,8 @@ interface ChatBubbleProps {
   onDismissSaveable?: (messageId: string) => void;
   /** Called when user taps to retry a failed streaming message */
   onRetryStream?: (messageId: string) => void;
+  /** Called when user changes the suggested type on the save card */
+  onTypeChange?: (messageId: string, newType: 'todo' | 'habit' | 'note') => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,6 +100,7 @@ function ChatBubbleInner({
   onEditPress,
   onDismissSaveable,
   onRetryStream,
+  onTypeChange,
 }: ChatBubbleProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
@@ -165,6 +169,12 @@ function ChatBubbleInner({
       >
         {isAssistant ? (
           <View style={{ paddingVertical: 2 }}>
+            {sources && sources.length > 0 && !isStreaming && (
+              <View style={styles.searchedBadge}>
+                <Search size={10} color="#9CA3AF" />
+                <Text style={styles.searchedBadgeText}>Searched</Text>
+              </View>
+            )}
             {isSearching ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
                 <ActivityIndicator size="small" color="#8B5CF6" />
@@ -247,6 +257,13 @@ function ChatBubbleInner({
             });
           }
 
+          // Build smart suggestion from saveable data if we have title
+          const smartSuggestion = saveable.title ? {
+            type: saveable.type,
+            title: saveable.title,
+            steps: saveable.prefillData?.steps || [],
+          } : undefined;
+
           return (
             <View style={styles.saveableCardContainer}>
               <SaveButton
@@ -254,6 +271,8 @@ function ChatBubbleInner({
                 state={buttonState}
                 savedType={savedType}
                 savedItemId={saveable.savedItemId}
+                smartSuggestion={smartSuggestion}
+                onTypeChange={onTypeChange ? (newType) => onTypeChange(message.id, newType) : undefined}
                 onSave={() => onSavePress?.(saveable)}
                 onEdit={() => onEditPress?.(saveable)}
                 onDismiss={() => onDismissSaveable?.(message.id)}
@@ -379,6 +398,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#D1D5DB',
     marginHorizontal: 4,
+  },
+  searchedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 6,
+  },
+  searchedBadgeText: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '500',
   },
 });
 

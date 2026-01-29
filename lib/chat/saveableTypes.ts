@@ -112,6 +112,12 @@ export interface SaveablePrefill {
    * ISO 8601 date string (e.g., "2025-12-15") or null if no due date.
    */
   dueDate?: string | null;
+
+  /**
+   * Steps/subtasks for todos.
+   * When provided, these become checklist items on the saved todo.
+   */
+  steps?: string[];
 }
 
 // ============================================================================

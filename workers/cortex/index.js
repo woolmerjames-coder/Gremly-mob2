@@ -5029,7 +5029,23 @@ For LOGS (idea/general):
             // For final event, use first search query or combined
             const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
 
-            const save_suggestion = null;
+            // Extract smart save suggestion (inline from model)
+            const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestion(fullContent);
+            
+            // Use cleaned content for display
+            fullContent = cleanContent;
+            
+            // Use smart suggestion if available
+            const save_suggestion = smartSuggestion || null;
+            
+            if (smartSuggestion) {
+              console.log('[SpaceChat:Streaming] Extracted save suggestion:', {
+                type: smartSuggestion.type,
+                title: smartSuggestion.title,
+                hasSteps: !!smartSuggestion.steps?.length,
+              });
+            }
+
             const latency = Date.now() - t0;
 
             const finalData = JSON.stringify({

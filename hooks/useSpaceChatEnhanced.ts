@@ -363,6 +363,7 @@ export function useSpaceChatEnhanced({
             tags: saveSuggestion.tags || [],
             frequency: saveSuggestion.frequency || null,
             dueDate: saveSuggestion.dueDate || saveSuggestion.due_date || null,
+            steps: saveSuggestion.steps || [],
           },
           detectedAt: new Date().toISOString(),
           messageId,
