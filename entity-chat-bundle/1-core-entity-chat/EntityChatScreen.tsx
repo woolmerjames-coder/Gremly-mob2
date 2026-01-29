@@ -340,33 +340,14 @@ export function EntityChatScreen({
           entityContext.due_date = todo.due_day ?? todo.due_date ?? undefined;
           entityContext.time_estimate = todo.time_estimate_minutes ?? undefined;
           entityContext.tags = todo.tags ?? undefined;
-          entityContext.subtype = todo.subtype ?? undefined;
-          entityContext.energy_type = todo.energy_type ?? undefined;
-          entityContext.time_window = todo.time_window ?? undefined;
-          entityContext.notes = todo.notes ?? undefined;
-          if (todo.commitment) {
-            entityContext.commitment = true;
-            entityContext.commitment_note = todo.commitment_note ?? undefined;
-          }
         } else if (entityType === 'habit') {
           const habit = entity as Habit;
           entityContext.frequency = habit.frequency ?? undefined;
           entityContext.tags = habit.tags ?? undefined;
-          entityContext.subtype = habit.subtype ?? undefined;
-          entityContext.time_window = habit.time_window ?? undefined;
-          entityContext.notes = habit.notes ?? undefined;
-          entityContext.triggers = habit.triggers ?? undefined;
-          entityContext.replacement_text = habit.replacement_text ?? undefined;
-          if (habit.commitment_note) {
-            entityContext.commitment_note = habit.commitment_note;
-          }
         } else {
           const note = entity as Note;
           entityContext.body = note.body ?? undefined;
           entityContext.tags = note.tags ?? undefined;
-          entityContext.subtype = note.subtype ?? undefined;
-          entityContext.mood = note.mood ?? undefined;
-          entityContext.is_favorite = note.is_favorite ?? undefined;
         }
 
         if (spaceName) {

@@ -10149,7 +10149,10 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
         notes: habitLongText,
         schedule: scheduleFromCadence,
         frequency_json: frequencyJson, // Built from cadence/target_per_period or frequency columns
-        subtype: (entity as any)?.subtype ?? 'start_habit', // Habit mode
+        subtype:
+          (entity as any)?.subtype === 'start_habit' || (entity as any)?.subtype === 'break_habit'
+            ? (entity as any)?.subtype
+            : 'start_habit', // Validate habit subtype (not log subtypes like 'journal')
         start_date: (entity as any)?.start_date ?? null,
         end_date: (entity as any)?.end_date ?? null,
         time_window: (entity as any)?.time_window ?? null,
@@ -10314,7 +10317,10 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       schedule:
         entityFrequency === 'daily' ? 'daily' : entityFrequency === 'weekly' ? 'weekly' : 'custom',
       frequency_json: habitFrequencyJson, // Built from frequency + frequency_value columns
-      subtype: (entity as any)?.subtype ?? 'start_habit',
+      subtype:
+        (entity as any)?.subtype === 'start_habit' || (entity as any)?.subtype === 'break_habit'
+          ? (entity as any)?.subtype
+          : 'start_habit', // Validate habit subtype (not log subtypes)
       start_date: (entity as any)?.start_date ?? null,
       end_date: (entity as any)?.end_date ?? null,
       time_window: (entity as any)?.time_window ?? null,
