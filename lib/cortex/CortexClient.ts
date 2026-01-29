@@ -29,6 +29,7 @@ export interface StreamingCallbacks {
   onComplete: (fullText: string) => void;
   onError: (error: string, partialText: string) => void;
   onSearching?: (query: string) => void;
+  onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
 }
 
 /**
@@ -43,6 +44,7 @@ export interface SpaceChatStreamingResult {
   latency_ms?: number;
   sources?: Array<{ title: string; url: string }>;
   search_query?: string;
+  fetchedUrl?: { url: string; title: string } | null;
 }
 
 /**
@@ -54,6 +56,7 @@ export interface SpaceChatStreamingCallbacks {
   onComplete: (result: SpaceChatStreamingResult) => void;
   onError: (error: string, partialText: string) => void;
   onSearching?: (query: string) => void;
+  onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
 }
 
 export interface Phase2StreamingCallbacks {
@@ -428,6 +431,10 @@ export function callSpaceChatStreaming(
         callbacks.onSearching?.(data.query);
         return;
       }
+      if (data.fetching !== undefined) {
+        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
       if (data.delta) {
         fullText += data.delta;
         callbacks.onChunk(data.delta, fullText);
@@ -447,6 +454,7 @@ export function callSpaceChatStreaming(
           latency_ms: data.latency_ms,
           sources: data.sources,
           search_query: data.search_query,
+          fetchedUrl: data.fetchedUrl ?? null,
         };
         log('SPACE_CHAT_STREAM_DONE', {
           contentLength: finalContent.length,
@@ -1263,6 +1271,7 @@ export interface EntityChatStreamingCallbacks {
   onComplete: (response: EntityChatResponse) => void;
   onError: (error: Error) => void;
   onSearching?: (query: string) => void;
+  onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
 }
 
 /**
@@ -1333,6 +1342,12 @@ export function callEntityChatStreaming(
         return;
       }
 
+      // Handle fetching event
+      if (data.fetching !== undefined) {
+        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+
       // Handle delta (partial content)
       if (data.delta) {
         fullContent += data.delta;
@@ -1356,6 +1371,7 @@ export function callEntityChatStreaming(
           latency_ms,
           sources: data.sources,
           search_query: data.search_query,
+          fetchedUrl: data.fetchedUrl,
         });
         es.close();
       }

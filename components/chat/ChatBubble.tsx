@@ -110,6 +110,8 @@ function ChatBubbleInner({
   const streamingFailed = (message as any).streamingCancelled === true;
   const isSearching = (message as any).isSearching === true;
   const searchQuery = (message as any).searchQuery as string | null;
+  const isFetching = (message as any).isFetching === true;
+  const fetchingUrl = (message as any).fetchingUrl as string | null;
   const sources = (message as any).sources as Array<{ title: string; url: string }> | undefined;
 
   // Debug logging for save button visibility
@@ -182,6 +184,15 @@ function ChatBubbleInner({
                   style={{ marginLeft: 8, color: '#6B7280', fontSize: 14, fontStyle: 'italic' }}
                 >
                   Searching: {searchQuery}
+                </Text>
+              </View>
+            ) : isFetching ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
+                <ActivityIndicator size="small" color="#8B5CF6" />
+                <Text
+                  style={{ marginLeft: 8, color: '#6B7280', fontSize: 14, fontStyle: 'italic' }}
+                >
+                  Fetching link...
                 </Text>
               </View>
             ) : (

@@ -182,6 +182,120 @@ async function executeTavilySearch(query, apiKey, options = {}) {
   }
 }
 
+/**
+ * Extract content from a URL using Tavily Extract API
+ *
+ * @param {string} url - The URL to extract content from
+ * @param {string} apiKey - Tavily API key
+ * @returns {Promise<Object|null>} Extracted content or null on error
+ */
+async function executeTavilyExtract(url, apiKey) {
+  try {
+    console.log('[Tavily:Extract] Fetching URL:', url);
+    
+    const response = await fetch('https://api.tavily.com/extract', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        urls: [url],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error('[Tavily:Extract] Failed:', {
+        status: response.status,
+        error: errorText,
+      });
+      return null;
+    }
+
+    const data = await response.json();
+    
+    // Tavily returns results array with extracted content
+    const result = data.results?.[0];
+    if (!result) {
+      console.log('[Tavily:Extract] No content extracted');
+      return null;
+    }
+
+    // Truncate content to ~4000 tokens (~16000 chars) to avoid context overflow
+    const maxChars = 16000;
+    const rawContent = result.raw_content || '';
+    const truncatedContent = rawContent.length > maxChars 
+      ? rawContent.substring(0, maxChars) + '\n\n[Content truncated...]'
+      : rawContent;
+
+    console.log('[Tavily:Extract] Success:', {
+      url: result.url,
+      contentLength: rawContent.length,
+      truncated: rawContent.length > maxChars,
+    });
+
+    return {
+      url: result.url || url,
+      title: extractTitleFromContent(truncatedContent) || getDomainFromUrl(url),
+      content: truncatedContent,
+      success: true,
+    };
+  } catch (error) {
+    console.error('[Tavily:Extract] Error:', error);
+    return null;
+  }
+}
+
+/**
+ * Extract a title from content (first heading or first line)
+ */
+function extractTitleFromContent(content) {
+  if (!content) return null;
+  
+  // Try to find a heading
+  const headingMatch = content.match(/^#\s+(.+)$/m) || content.match(/^(.{10,80})[\n\r]/);
+  if (headingMatch) {
+    return headingMatch[1].trim().substring(0, 100);
+  }
+  
+  // Fall back to first 60 chars
+  return content.substring(0, 60).trim() + '...';
+}
+
+/**
+ * Get domain name from URL for fallback title
+ */
+function getDomainFromUrl(url) {
+  try {
+    const domain = new URL(url).hostname.replace('www.', '');
+    return domain.charAt(0).toUpperCase() + domain.slice(1);
+  } catch {
+    return 'Link';
+  }
+}
+
+/**
+ * Detect URLs in text and extract them
+ */
+function extractUrlsFromText(text) {
+  if (!text) return [];
+  
+  // Match URLs (http, https, or www)
+  const urlRegex = /https?:\/\/[^\s<>\"']+|www\.[^\s<>\"']+/gi;
+  const matches = text.match(urlRegex) || [];
+  
+  // Clean up URLs (remove trailing punctuation)
+  return matches.map(url => {
+    // Add https if missing
+    if (url.startsWith('www.')) {
+      url = 'https://' + url;
+    }
+    // Remove trailing punctuation
+    return url.replace(/[.,;:!?)]+$/, '');
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // OPENAI FUNCTION TOOL DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -983,10 +1097,18 @@ You have access to web search. When the user asks about topics that benefit from
  
  Most entity chats should NEVER suggest a Space. It's a rare recommendation.`;
 
-        // Build messages array for OpenAI
+        // Build messages array for OpenAI, injecting URL context if present
+        const processedMessages = messages.slice(-20).map((msg, idx, arr) => {
+          // Add URL context to the last user message
+          if (urlContext && idx === arr.length - 1 && msg.role === 'user') {
+            return { ...msg, content: msg.content + urlContext };
+          }
+          return msg;
+        });
+
         const openaiMessages = [
           { role: 'system', content: entityChatSystemPrompt },
-          ...messages.slice(-20), // Keep last 20 messages for context
+          ...processedMessages,
         ];
 
         // Check if previous messages contain search results to avoid redundant searches
@@ -1012,6 +1134,51 @@ You have access to web search. When the user asks about topics that benefit from
 
           // Determine optimal model and tokens for this query
           const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
+          
+          // Detect URLs in the user's message
+          const detectedUrls = extractUrlsFromText(lastUserMsg);
+          let urlContext = '';
+          let fetchedUrl = null;
+
+          if (detectedUrls.length > 0) {
+            console.log('[EntityChat:Streaming] URLs detected:', detectedUrls);
+            
+            // Fetch the first URL (limit to one to control costs)
+            const urlToFetch = detectedUrls[0];
+            
+            // Send "fetching" indicator to client
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+              fetching: true, 
+              fetchingUrl: urlToFetch,
+              done: false 
+            })}\n\n`));
+            
+            const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
+            
+            if (extracted && extracted.success) {
+              fetchedUrl = {
+                url: extracted.url,
+                title: extracted.title,
+              };
+              
+              // Add extracted content as context for the model
+              urlContext = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
+              
+              console.log('[EntityChat:Streaming] URL content extracted, adding to context');
+            } else {
+              // Extraction failed - let model know
+              urlContext = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
+              
+              console.log('[EntityChat:Streaming] URL extraction failed');
+            }
+            
+            // Clear fetching indicator
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+              fetching: false, 
+              done: false 
+            })}\n\n`));
+          }
+
           const routing = getModelAndTokens({
             preset,
             userMessage: lastUserMsg,
@@ -1369,6 +1536,7 @@ You have access to web search. When the user asks about topics that benefit from
                 latency_ms: latency,
                 sources: sources,
                 search_query: searchQuery,
+                fetchedUrl: fetchedUrl,
               });
               await writer.write(encoder.encode(`data: ${finalData}\n\n`));
 
@@ -4692,13 +4860,69 @@ For LOGS (idea/general):
         const spaceMaxTokens = lastUserMsgSpace.length > 100 || msgLowerSpace.includes('plan') || msgLowerSpace.includes('steps') ? 800 : 600;
         console.log('[SpaceChat:Streaming] Model routing:', { model: spaceModel, maxTokens: spaceMaxTokens, canUseMini: canUseMiniSpace });
 
+        // Create TransformStream early so we can send fetching indicators
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+
+        // Detect URLs in the user's message
+        const detectedUrlsSpace = extractUrlsFromText(lastUserMsgSpace);
+        let urlContextSpace = '';
+        let fetchedUrlSpace = null;
+
+        if (detectedUrlsSpace.length > 0) {
+          console.log('[SpaceChat:Streaming] URLs detected:', detectedUrlsSpace);
+          
+          // Fetch the first URL
+          const urlToFetch = detectedUrlsSpace[0];
+          
+          // Send "fetching" indicator to client
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+            fetching: true, 
+            fetchingUrl: urlToFetch,
+            done: false 
+          })}\n\n`));
+          
+          const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
+          
+          if (extracted && extracted.success) {
+            fetchedUrlSpace = {
+              url: extracted.url,
+              title: extracted.title,
+            };
+            
+            urlContextSpace = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
+            
+            console.log('[SpaceChat:Streaming] URL content extracted');
+          } else {
+            urlContextSpace = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
+            
+            console.log('[SpaceChat:Streaming] URL extraction failed');
+          }
+          
+          // Clear fetching indicator
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+            fetching: false, 
+            done: false 
+          })}\n\n`));
+        }
+
         // Check if previous messages contain search results to avoid redundant searches
         const previousSearchContext = messages
           .filter(m => m.role === 'assistant' && m.sources?.length > 0)
           .slice(-1)[0];
 
-        // Build messages with optional search context hint
-        let spaceChatMessages = [...messages];
+        // Build messages with optional search context hint, injecting URL context if present
+        const processedMessagesSpace = messages.map((msg, idx, arr) => {
+          // Add URL context to the last user message
+          if (urlContextSpace && idx === arr.length - 1 && msg.role === 'user') {
+            return { ...msg, content: msg.content + urlContextSpace };
+          }
+          return msg;
+        });
+        
+        let spaceChatMessages = [...processedMessagesSpace];
         if (previousSearchContext) {
           spaceChatMessages.push({
             role: 'system',
@@ -4737,11 +4961,6 @@ For LOGS (idea/general):
           });
           return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
         }
-
-        const { readable, writable } = new TransformStream();
-        const writer = writable.getWriter();
-        const encoder = new TextEncoder();
-        const decoder = new TextDecoder();
 
         (async () => {
           const reader = openaiRes.body.getReader();
@@ -5055,6 +5274,7 @@ For LOGS (idea/general):
               sources,
               search_query: searchQuery,
               latency_ms: latency,
+              fetchedUrl: fetchedUrlSpace,
             });
             await writer.write(encoder.encode(`data: ${finalData}\n\n`));
 

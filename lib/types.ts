@@ -570,6 +570,9 @@ export interface SpaceChatMessage {
   // Web search state
   isSearching?: boolean;
   searchQuery?: string | null;
+  // URL fetch state
+  isFetching?: boolean;
+  fetchingUrl?: string | null;
   // Web search results
   sources?: Array<{ title: string; url: string }>;
   search_query?: string | null;
@@ -885,6 +888,8 @@ export interface EntityChatResponse {
   sources?: Array<{ title: string; url: string }>;
   /** The search query used for web search (if web search was used) */
   search_query?: string;
+  /** Fetched URL info from Tavily Extract (if URL was fetched) */
+  fetchedUrl?: { url: string; title: string } | null;
 }
 
 /**

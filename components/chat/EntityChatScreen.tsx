@@ -393,6 +393,59 @@ export function EntityChatScreen({
               );
             }
           },
+          onFetching: (isFetching, fetchingUrl) => {
+            if (streamingMessageIdRef.current) {
+              // Reuse searching state update for fetching indicator
+              // The metadata will have isFetching/fetchingUrl instead of isSearching/searchQuery
+              updateStreamingSearching(
+                entityId,
+                entityType,
+                streamingMessageIdRef.current,
+                false, // Clear searching
+                null,
+              );
+              // Update message with fetching state directly
+              const state = useGremlyStore.getState();
+              const updateFetching = (msg: any) => 
+                msg.id === streamingMessageIdRef.current
+                  ? { ...msg, metadata: { ...msg.metadata, isFetching, fetchingUrl } }
+                  : msg;
+              if (entityType === 'todo') {
+                const todo = state.todos.find(t => t.id === entityId);
+                if (todo?.views?.chat) {
+                  const chat = todo.views.chat as any;
+                  useGremlyStore.setState({
+                    todos: state.todos.map(t => t.id === entityId ? {
+                      ...t,
+                      views: { ...t.views, chat: { ...chat, messages: chat.messages.map(updateFetching) } }
+                    } : t)
+                  });
+                }
+              } else if (entityType === 'habit') {
+                const habit = state.habits.find(h => h.id === entityId);
+                if (habit?.views?.chat) {
+                  const chat = habit.views.chat as any;
+                  useGremlyStore.setState({
+                    habits: state.habits.map(h => h.id === entityId ? {
+                      ...h,
+                      views: { ...h.views, chat: { ...chat, messages: chat.messages.map(updateFetching) } }
+                    } : h)
+                  });
+                }
+              } else if (entityType === 'note') {
+                const note = state.notes.find(n => n.id === entityId);
+                if (note?.views?.chat) {
+                  const chat = note.views.chat as any;
+                  useGremlyStore.setState({
+                    notes: state.notes.map(n => n.id === entityId ? {
+                      ...n,
+                      views: { ...n.views, chat: { ...chat, messages: chat.messages.map(updateFetching) } }
+                    } : n)
+                  });
+                }
+              }
+            }
+          },
           onDelta: (delta) => {
             // Accumulate content and update the streaming message in place
             accumulatedContent += delta;
@@ -444,10 +497,16 @@ export function EntityChatScreen({
               workerSuggestsSave,
             });
 
+            // If we fetched a URL, add it to sources
+            let finalSources = response.sources || [];
+            if (response.fetchedUrl) {
+              finalSources = [response.fetchedUrl, ...finalSources];
+            }
+
             // Finalize the streaming message (removes isStreaming flag, persists to DB)
             await finalizeStreamingMessage(entityId, entityType, msgId, response.content, {
               has_saveable_content: shouldShowSave,
-              sources: response.sources,
+              sources: finalSources,
               search_query: response.search_query,
             });
 
@@ -611,18 +670,16 @@ export function EntityChatScreen({
           const type = lastSaveSuggestion.type;
 
           if (type === 'todo') {
-            // Create todo with optional checklist items from steps
-            const checklistItems = lastSaveSuggestion.steps?.map((step: string, index: number) => ({
-              id: `step-${Date.now()}-${index}`,
-              label: step,
-              completed: false,
-            }));
+            // Format steps as part of the body if present
+            let body = fallbackContent;
+            if (lastSaveSuggestion.steps?.length) {
+              const stepsText = lastSaveSuggestion.steps.map((step: string, i: number) => `${i + 1}. ${step}`).join('\n');
+              body = `Steps:\n${stepsText}\n\n---\n${fallbackContent}`;
+            }
 
             await createTodo({
               name: title,
-              body: fallbackContent, // Include assistant's full response as context
-              is_checklist: !!checklistItems?.length,
-              checklist_items: checklistItems,
+              body,
             });
             console.log('[EntityChatScreen] Created todo:', title);
           } else if (type === 'habit') {

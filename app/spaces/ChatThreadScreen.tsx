@@ -751,11 +751,22 @@ export default function ChatThreadScreen({ route }: Props) {
                   updateStreamingSearching(msgId, true, query);
                 }
               },
-              onComplete: async (finalText: string, richResult?: { save_suggestion?: any; sources?: Array<{ title: string; url: string }>; search_query?: string | null }) => {
-                // Clear searching state
+              onFetching: (isFetching, fetchingUrl) => {
+                const msgId = streamingMessageIdRef.current;
+                if (msgId) {
+                  // Update message with fetching state
+                  updateMessage(msgId, {
+                    isFetching,
+                    fetchingUrl,
+                  });
+                }
+              },
+              onComplete: async (finalText: string, richResult?: { save_suggestion?: any; sources?: Array<{ title: string; url: string }>; search_query?: string | null; fetchedUrl?: { url: string; title: string } | null }) => {
+                // Clear searching/fetching state
                 const msgId = streamingMessageIdRef.current;
                 if (msgId) {
                   updateStreamingSearching(msgId, false, null);
+                  updateMessage(msgId, { isFetching: false, fetchingUrl: null });
                 }
                 stopWordFlushInterval();
                 const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
@@ -763,11 +774,17 @@ export default function ChatThreadScreen({ route }: Props) {
                 streamingControllerRef.current = null;
                 mascot.replying();
 
+                // Combine fetchedUrl with sources
+                let finalSources = richResult?.sources || [];
+                if (richResult?.fetchedUrl) {
+                  finalSources = [richResult.fetchedUrl, ...finalSources];
+                }
+
                 // Store sources from web search if available
-                if (richResult?.sources && richResult.sources.length > 0 && finalizedMessage?.id) {
+                if (finalSources.length > 0 && finalizedMessage?.id) {
                   updateMessage(finalizedMessage.id, {
-                    sources: richResult.sources,
-                    search_query: richResult.search_query,
+                    sources: finalSources,
+                    search_query: richResult?.search_query,
                   });
                 }
 
