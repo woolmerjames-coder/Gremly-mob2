@@ -912,10 +912,53 @@ You have access to web search. When the user asks about topics that benefit from
  - No exclamation marks
  - Get to the point fast, no preamble
  
- === SAVE HANDLING ===
- Do NOT mention saving in your response. The app handles save UI separately.
- Never say: "Save this", "Worth saving", "Keep this", "You can save this", "Worth keeping"
- Just provide the helpful content and stop.
+ === SAVE SUGGESTIONS ===
+ Do NOT mention saving in your response text. Instead, when your response contains genuinely useful content worth saving, append a hidden suggestion block AFTER your response.
+ 
+ **When to suggest saving:**
+ - TODO: Any clear, completable action you recommend (verb + object)
+ - HABIT: A recommendation with explicit frequency ("daily", "3x per week", etc.)
+ - NOTE: Key reference information, summaries, or explanations worth keeping
+ - STEPS: When you provide 2+ actionable steps, include them in the steps array
+ 
+ **When NOT to suggest:**
+ - Simple factual answers or definitions
+ - Clarifying questions back to the user
+ - Emotional support or empathy responses
+ - Very short responses (under 30 words)
+ - Exploratory "it depends" responses
+ - When you're just chatting or checking in
+ 
+ **Format:** After your response, add:
+ <!--SAVE:{"type":"todo|habit|note","title":"Short title","steps":["Step 1","Step 2"]}-->
+ 
+ **Rules:**
+ - type: "todo", "habit", or "note"
+ - title: 2-6 words, action-oriented for todos/habits
+ - steps: Only include for todos with clear action steps (optional, max 5)
+ - No steps array for habits or notes
+ - The suggestion block must be on its own line after your response
+ 
+ **Examples:**
+ 
+ Response about creatine dosage:
+ "Take **5g daily**, ideally post-workout or with a meal. Timing doesn't matter much — consistency does."
+ <!--SAVE:{"type":"habit","title":"Take creatine 5g daily"}-->
+ 
+ Response breaking down a task:
+ "Here's how to tackle this:
+ - **Research plans** — look at Hal Higdon or Nike Run Club
+ - **Get fitted for shoes** — visit a running store
+ - **Sign up early** — popular races fill up"
+ <!--SAVE:{"type":"todo","title":"Prepare for half marathon","steps":["Research training plans","Get fitted for running shoes","Sign up for race"]}-->
+ 
+ Response with useful info (no action):
+ "Creatine is one of the most studied supplements. It helps with **muscle recovery** and can support cognitive function. No loading phase needed."
+ <!--SAVE:{"type":"note","title":"Creatine benefits overview"}-->
+ 
+ Response that should NOT have a suggestion (just chatting):
+ "That's a solid goal! What's drawing you to the half marathon — is it a specific race or just the distance?"
+ (no suggestion block)
  
  === SPACE PROMOTION (USE VERY SPARINGLY) ===
  Only suggest creating a Space if ALL of these are true:
@@ -1266,11 +1309,19 @@ You have access to web search. When the user asks about topics that benefit from
               // For final event, use first search query or combined
               const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
 
-              // Detect saveable content in final response
-              const saveable = detectSaveableContent(fullContent);
+              // Extract smart save suggestion (inline from model)
+              const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestion(fullContent);
 
-              // Extract save suggestion (fast post-pass)
-              const save_suggestion = null;
+              // Fall back to pattern detection if no smart suggestion
+              const saveable = smartSuggestion 
+                ? { detected: true, type: smartSuggestion.type, smart: true }
+                : detectSaveableContent(cleanContent);
+
+              // Use smart suggestion if available
+              const save_suggestion = smartSuggestion || null;
+
+              // Use cleaned content (without suggestion block) for display
+              fullContent = cleanContent;
 
               // Detect space promotion suggestion
               const promotion = detectSpacePromotion(fullContent, messages.length);
@@ -1428,11 +1479,19 @@ You have access to web search. When the user asks about topics that benefit from
             }
           }
 
-          // Detect saveable content
-          const saveable = detectSaveableContent(content);
+          // Extract smart save suggestion (inline from model)
+          const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestion(content);
 
-          // Extract save suggestion (fast post-pass)
-          const save_suggestion = null;
+          // Fall back to pattern detection if no smart suggestion
+          const saveable = smartSuggestion 
+            ? { detected: true, type: smartSuggestion.type, smart: true }
+            : detectSaveableContent(cleanContent);
+
+          // Use smart suggestion if available
+          const save_suggestion = smartSuggestion || null;
+
+          // Use cleaned content (without suggestion block) for display
+          content = cleanContent;
 
           // Detect space promotion suggestion
           const promotion = detectSpacePromotion(content, messages.length);
@@ -1458,6 +1517,67 @@ You have access to web search. When the user asks about topics that benefit from
           const latency = Date.now() - t0;
           console.log('[EntityChat] Error', { error: String(err), latency_ms: latency });
           return j({ error: 'entity_chat_failed', detail: String(err), latency_ms: latency }, 200);
+        }
+      }
+
+      // Helper: Extract smart save suggestion from response
+      function extractSaveSuggestion(content) {
+        if (!content) return { suggestion: null, cleanContent: content };
+        
+        // Look for <!--SAVE:{...}--> pattern
+        const savePattern = /<!--SAVE:(\{[^}]+\})-->/;
+        const match = content.match(savePattern);
+        
+        if (!match) {
+          return { suggestion: null, cleanContent: content };
+        }
+        
+        try {
+          const suggestion = JSON.parse(match[1]);
+          
+          // Validate required fields
+          if (!suggestion.type || !suggestion.title) {
+            console.log('[SaveSuggestion] Invalid suggestion - missing type or title');
+            return { suggestion: null, cleanContent: content };
+          }
+          
+          // Validate type
+          if (!['todo', 'habit', 'note'].includes(suggestion.type)) {
+            console.log('[SaveSuggestion] Invalid type:', suggestion.type);
+            return { suggestion: null, cleanContent: content };
+          }
+          
+          // Clean up steps if present
+          if (suggestion.steps) {
+            if (!Array.isArray(suggestion.steps)) {
+              delete suggestion.steps;
+            } else {
+              // Limit to 5 steps, clean strings
+              suggestion.steps = suggestion.steps
+                .slice(0, 5)
+                .map(s => String(s).trim())
+                .filter(s => s.length > 0 && s.length < 200);
+              
+              if (suggestion.steps.length === 0) {
+                delete suggestion.steps;
+              }
+            }
+          }
+          
+          // Remove the suggestion block from displayed content
+          const cleanContent = content.replace(savePattern, '').trim();
+          
+          console.log('[SaveSuggestion] Extracted:', {
+            type: suggestion.type,
+            title: suggestion.title,
+            hasSteps: !!suggestion.steps,
+            stepCount: suggestion.steps?.length || 0
+          });
+          
+          return { suggestion, cleanContent };
+        } catch (parseErr) {
+          console.log('[SaveSuggestion] Parse error:', parseErr.message);
+          return { suggestion: null, cleanContent: content };
         }
       }
 
