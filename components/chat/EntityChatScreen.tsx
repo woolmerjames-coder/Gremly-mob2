@@ -426,7 +426,10 @@ export function EntityChatScreen({
 
             // Use liberal saveable detection OR save_suggestion from Worker
             const apiSuggestsSave = response.saveable?.detected === true;
-            const workerSuggestsSave = response.save_suggestion?.should_suggest_save === true;
+            // Smart suggestion has type and title (new format)
+            const workerSuggestsSave = !!(
+              response.save_suggestion?.type && response.save_suggestion?.title
+            );
             const shouldShowSave =
               apiSuggestsSave ||
               workerSuggestsSave ||
@@ -742,17 +745,19 @@ export function EntityChatScreen({
                 <View style={styles.sourcesContainer}>
                   <Text style={styles.sourcesLabel}>Sources</Text>
                   <View style={styles.sourcesList}>
-                    {item.metadata.sources.slice(0, 3).map((source: { title: string; url: string }, idx: number) => (
-                      <TouchableOpacity
-                        key={idx}
-                        onPress={() => Linking.openURL(source.url)}
-                        style={styles.sourceChip}
-                      >
-                        <Text style={styles.sourceText} numberOfLines={1}>
-                          {source.title}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                    {item.metadata.sources
+                      .slice(0, 3)
+                      .map((source: { title: string; url: string }, idx: number) => (
+                        <TouchableOpacity
+                          key={idx}
+                          onPress={() => Linking.openURL(source.url)}
+                          style={styles.sourceChip}
+                        >
+                          <Text style={styles.sourceText} numberOfLines={1}>
+                            {source.title}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
                   </View>
                 </View>
               )}
@@ -771,6 +776,21 @@ export function EntityChatScreen({
                   handleSaveNote(lastSaveable ?? undefined);
                 }}
                 onDismiss={handleDismissSaveable}
+                smartSuggestion={
+                  lastSaveSuggestion && lastSaveSuggestion.type && lastSaveSuggestion.title
+                    ? {
+                        type: lastSaveSuggestion.type as 'todo' | 'habit' | 'note',
+                        title: lastSaveSuggestion.title,
+                        steps: lastSaveSuggestion.steps,
+                      }
+                    : undefined
+                }
+                onTypeChange={(newType) => {
+                  // Update the suggestion type when user cycles through
+                  if (lastSaveSuggestion) {
+                    setLastSaveSuggestion({ ...lastSaveSuggestion, type: newType });
+                  }
+                }}
               />
             </View>
           )}
@@ -783,6 +803,7 @@ export function EntityChatScreen({
       savedNotes,
       lastAssistantMessageId,
       lastSaveable,
+      lastSaveSuggestion,
       saveState,
       handleSaveNote,
       handleDismissSaveable,
