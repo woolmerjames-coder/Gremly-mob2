@@ -29,9 +29,6 @@
  * v2.2 (2026-01-03):
  * - HABIT now requires EXPLICIT tracking intent (frequency, commitment, behavior change)
  * - Without explicit signals, repeatable activities default to TODO
-
-import { getSessionContext } from './context/sessionContext.js';
-import { buildSessionContextString } from './context/contextBuilder.js';
  * - Semantic understanding over keyword matching
  *
  * v2.3 (2026-01-03):
@@ -122,6 +119,9 @@ import { buildSessionContextString } from './context/contextBuilder.js';
  * - Space promotion detection for complex tasks
  * - Streaming and non-streaming support
  */
+
+import { getSessionContext } from './context/sessionContext.js';
+import { buildSessionContextString } from './context/contextBuilder.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TAVILY SEARCH HELPER
