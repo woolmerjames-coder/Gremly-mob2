@@ -738,6 +738,7 @@ export default function ChatThreadScreen({ route }: Props) {
             {
               spaceId: chat.space_id || spaceId,
               chatId: activeChatId || chat.id,
+              userId: userId ?? undefined,
               systemPrompt: spaceChatEnhanced.systemPrompt,
             },
             {

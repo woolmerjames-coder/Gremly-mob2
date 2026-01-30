@@ -371,13 +371,13 @@ export async function callSpaceChat(
  * - SpaceChatStreamingCallbacks: Enhanced interface where onComplete receives rich result with save_suggestion
  *
  * @param messages - The conversation messages
- * @param opts - Options including spaceId, chatId, and optional system prompt override
+ * @param opts - Options including spaceId, chatId, userId, and optional system prompt override
  * @param callbacks - Callbacks for streaming events (onChunk, onComplete, onError)
  * @returns Object with close() method to cancel the stream
  */
 export function callSpaceChatStreaming(
   messages: ChatMessage[],
-  opts: { spaceId: string; chatId: string; systemPrompt?: string },
+  opts: { spaceId: string; chatId: string; userId?: string; systemPrompt?: string },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
@@ -416,6 +416,7 @@ export function callSpaceChatStreaming(
       stream: true,
       spaceId: opts.spaceId,
       chatId: opts.chatId,
+      userId: opts.userId,
     }),
     lineEndingCharacter: '\n',
   });

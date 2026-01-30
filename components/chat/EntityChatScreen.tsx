@@ -254,6 +254,7 @@ export function EntityChatScreen({
   const habits = useGremlyStore((s) => s.habits);
   const notes = useGremlyStore((s) => s.notes);
   const spaces = useGremlyStore((s) => s.spaces);
+  const userId = useGremlyStore((s) => s.userId);
   const getEntityChat = useGremlyStore((s) => s.getEntityChat);
   const appendEntityChatMessage = useGremlyStore((s) => s.appendEntityChatMessage);
   const createStreamingMessage = useGremlyStore((s) => s.createEntityChatStreamingMessage);
@@ -341,7 +342,7 @@ export function EntityChatScreen({
           entityContext.time_estimate = todo.time_estimate_minutes ?? undefined;
           entityContext.tags = todo.tags ?? undefined;
           entityContext.subtype = todo.subtype ?? undefined;
-          entityContext.energy_type = todo.energy_type ?? undefined;
+          entityContext.energy_type = (todo as any).energy_type ?? undefined;
           entityContext.time_window = todo.time_window ?? undefined;
           entityContext.notes = todo.notes ?? undefined;
           if (todo.commitment) {
@@ -385,6 +386,7 @@ export function EntityChatScreen({
         const request: EntityChatRequest = {
           type: 'entity-chat',
           stream: true,
+          userId: userId ?? undefined,
           entity: entityContext,
           messages: requestMessages,
           preset,

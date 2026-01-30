@@ -13,3 +13,7 @@ invocation_logs = true
 # - OPENAI_API_KEY
 # - SUPABASE_URL
 # - SUPABASE_SERVICE_KEY
+
+[[kv_namespaces]]
+binding = "CONTEXT_CACHE"
+id = "d97644351d99456da19eb66f52d0189e"

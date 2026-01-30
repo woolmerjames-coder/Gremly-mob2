@@ -847,6 +847,7 @@ export type EntityChatPreset =
 export interface EntityChatRequest {
   type: 'entity-chat';
   stream?: boolean;
+  userId?: string;
   entity: {
     id: string;
     type: 'todo' | 'habit' | 'note';
@@ -860,6 +861,17 @@ export interface EntityChatRequest {
     created_at: string;
     times_swept?: number;
     days_since_created?: number;
+    // Enriched fields
+    subtype?: string;
+    energy_type?: string;
+    time_window?: string;
+    notes?: string;
+    commitment?: boolean;
+    commitment_note?: string;
+    triggers?: string[];
+    replacement_text?: string;
+    mood?: string[];
+    is_favorite?: boolean;
   };
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   preset?: EntityChatPreset;

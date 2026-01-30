@@ -7,6 +7,7 @@
  * - Space Chat (streaming OR non-streaming based on stream flag)
  * - Space Chat Save (v2.8) - classify + enrich in single call for chat saves
  * - Entity Chat (v4.0) - NEW: scoped chat for individual entities (todos, habits, notes)
+ * - Session Context (v4.1) - Cross-entity awareness from Supabase with KV caching
  * - General chat/completion
  * - Transcription via OpenAI Whisper
  *
@@ -28,6 +29,9 @@
  * v2.2 (2026-01-03):
  * - HABIT now requires EXPLICIT tracking intent (frequency, commitment, behavior change)
  * - Without explicit signals, repeatable activities default to TODO
+
+import { getSessionContext } from './context/sessionContext.js';
+import { buildSessionContextString } from './context/contextBuilder.js';
  * - Semantic understanding over keyword matching
  *
  * v2.3 (2026-01-03):
@@ -1176,6 +1180,32 @@ Almost never suggest creating a Space. Only if ALL true:
 - Ignore emotional signals to jump straight to logistics
 - Offer to save things (app handles this via Save button)`;
 
+        // === SESSION CONTEXT ===
+        let sessionContextStr = '';
+        if (body.userId) {
+          try {
+            const sessionData = await getSessionContext(body.userId, env);
+            sessionContextStr = buildSessionContextString(sessionData, { 
+              entityType: entity.type 
+            });
+            if (sessionContextStr) {
+              console.log('[EntityChat] Session context loaded', { 
+                userId: body.userId.slice(0, 8),
+                contextLength: sessionContextStr.length 
+              });
+            }
+          } catch (err) {
+            console.error('[EntityChat] Session context error', err);
+            // Continue without session context - not critical
+          }
+        }
+
+        // Inject session context into system prompt
+        let fullEntitySystemPrompt = entityChatSystemPrompt;
+        if (sessionContextStr) {
+          fullEntitySystemPrompt += '\n\n' + sessionContextStr;
+        }
+
         // URL context placeholders - populated in streaming path if URLs detected
         let urlContext = '';
         let fetchedUrl = null;
@@ -1190,7 +1220,7 @@ Almost never suggest creating a Space. Only if ALL true:
         });
 
         const openaiMessages = [
-          { role: 'system', content: entityChatSystemPrompt },
+          { role: 'system', content: fullEntitySystemPrompt },
           ...processedMessages,
         ];
 
@@ -4934,48 +4964,39 @@ For LOGS (idea/general):
         // FIX 1: Updated Space Chat formatting prompt - balanced, helpful without being pushy
         if (isSpaceChatLane) {
           const spaceChatFormattingPrompt = `FORMATTING RULES (Gremly mobile chat):
- 
+
 Keep responses concise and scannable for mobile.
-- Use **bold** for key phrases (1-2 per response)
+- Use **bold** for key phrases (1-2 per response max)
 - Short paragraphs (2-3 sentences max)
-- Bullets only when listing 3+ items (max 5 bullets)
+- Bullets only when listing 3+ items (max 4 bullets)
 - 50-150 words for most responses
 - No markdown headers (#), tables, or code blocks
-
-When giving structured advice, keep it tight:
-**Start small**  2-3 short runs per week, same days.
-**Be consistent**  Consistency beats intensity early on.
-**Track it**  Seeing progress helps motivation.
+- No exclamation marks—keep it calm
 
 === SAVE SUGGESTIONS ===
-Do NOT mention saving in your response text. Instead, when your response contains genuinely useful content worth saving, append a hidden suggestion block AFTER your response.
+Do NOT mention saving in your response text. When your response contains useful content worth saving, append a hidden block AFTER your response.
 
 **When to suggest saving:**
-- TODO: Any clear, completable action you recommend (verb + object)
-- HABIT: A recommendation with explicit frequency ("daily", "3x per week", etc.)
-- NOTE: Key reference information, summaries, or explanations worth keeping
-- STEPS: When you provide 2+ actionable steps, include them in the steps array
+- TODO: Clear, completable action (verb + object)
+- HABIT: Recommendation with explicit frequency ("daily", "3x per week")
+- NOTE: Reference info, summaries, or explanations worth keeping
+- STEPS: When you provide 2+ actionable steps
 
 **When NOT to suggest:**
-- Simple factual answers or definitions
+- Simple factual answers
 - Clarifying questions back to the user
-- Emotional support or empathy responses
-- Very short responses (under 30 words)
-- Exploratory "it depends" responses
-- When you're just chatting or checking in
+- Emotional support responses
+- Very short responses (under 50 words)
+- Exploratory conversation
 
-**Format:** After your complete response, on a NEW LINE, add exactly:
+**Format:** After your response, on a NEW LINE:
 <!--SAVE:{"type":"todo","title":"Your title here","steps":["Step 1","Step 2"]}-->
 
-CRITICAL FORMAT RULES:
-- Must start with exactly: <!--SAVE:
-- Must end with exactly: -->
-- JSON must be valid (proper quotes, no trailing commas)
-- Put on its own line after your response
-- Do not include any other text on that line
+Rules:
 - type: "todo", "habit", or "note"
 - title: 2-6 words, action-oriented for todos/habits
-- steps: Extract ALL distinct actionable items (max 12). Don't summarize or combine items.`;
+- steps: Extract distinct actionable items (max 8)
+- JSON must be valid (proper quotes, no trailing commas)`;
 
           const exists = messages.some(
             (m) =>
@@ -5072,6 +5093,25 @@ CRITICAL FORMAT RULES:
           .filter(m => m.role === 'assistant' && m.sources?.length > 0)
           .slice(-1)[0];
 
+        // === SESSION CONTEXT FOR SPACE CHAT ===
+        let spaceSessionContextStr = '';
+        if (body.userId) {
+          try {
+            const sessionData = await getSessionContext(body.userId, env);
+            spaceSessionContextStr = buildSessionContextString(sessionData, { 
+              spaceId: body.spaceId 
+            });
+            if (spaceSessionContextStr) {
+              console.log('[SpaceChat] Session context loaded', { 
+                userId: body.userId.slice(0, 8),
+                contextLength: spaceSessionContextStr.length 
+              });
+            }
+          } catch (err) {
+            console.error('[SpaceChat] Session context error', err);
+          }
+        }
+
         // Build messages with optional search context hint, injecting URL context if present
         const processedMessagesSpace = messages.map((msg, idx, arr) => {
           // Add URL context to the last user message
@@ -5082,6 +5122,15 @@ CRITICAL FORMAT RULES:
         });
         
         let spaceChatMessages = [...processedMessagesSpace];
+
+        // Add session context as a separate system message
+        if (spaceSessionContextStr) {
+          spaceChatMessages.unshift({
+            role: 'system',
+            content: spaceSessionContextStr
+          });
+        }
+
         if (previousSearchContext) {
           spaceChatMessages.push({
             role: 'system',
