@@ -20,10 +20,12 @@ module.exports = [
       'legacy/**', // Exclude legacy from linting unless explicitly configured
       'minddrop-voice-bundle/**', // Copied bundle with stale imports
       'aging-system-bundle/**', // Documentation bundle with stale imports
+      'entity-chat-bundle/**', // Documentation bundle with copied code
       'habit-sync-bundle/**', // Copied bundle with stale imports
       'scripts/**', // Dev scripts
       'date-audit/**', // Temporary audit folder
       'gremly-handoff-jan26/**', // Handoff artifacts with broken relative imports
+      'workers/cortex/patch-*.js', // Patch utility scripts
     ],
   },
   js.configs.recommended,
