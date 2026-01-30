@@ -11,10 +11,12 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 // Mock navigation
 const mockGoBack = jest.fn();
 const mockSetOptions = jest.fn();
+const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     goBack: mockGoBack,
     setOptions: mockSetOptions,
+    navigate: mockNavigate,
   }),
 }));
 
@@ -227,6 +229,31 @@ describe('SettingsScreen', () => {
       const { getAllByRole } = render(<SettingsScreen />);
       // Find switches and toggle them
       // Note: Full toggle testing would require finding the Switch component
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // What Gremly Knows Section
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('What Gremly Knows section', () => {
+    it('renders What Gremly Knows row', () => {
+      const { getByText } = render(<SettingsScreen />);
+      expect(getByText('What Gremly Knows')).toBeTruthy();
+    });
+
+    it('renders What Gremly Knows subtitle', () => {
+      const { getByText } = render(<SettingsScreen />);
+      expect(getByText('View and edit what Gremly has learned about you')).toBeTruthy();
+    });
+
+    it('navigates to WhatGremlyKnows screen when pressed', () => {
+      const { getByText } = render(<SettingsScreen />);
+      const row = getByText('What Gremly Knows');
+
+      fireEvent.press(row);
+
+      expect(mockNavigate).toHaveBeenCalledWith('WhatGremlyKnows');
     });
   });
 });

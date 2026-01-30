@@ -25,6 +25,8 @@
     "habit-sync-bundle/**/*",
     // Exclude aging-system-bundle - standalone bundle with broken relative imports
     "aging-system-bundle/**/*",
+    // Exclude entity-chat-bundle - documentation bundle with copied code
+    "entity-chat-bundle/**/*",
     // Exclude date-audit - temporary audit folder with stale imports
     "date-audit/**/*"
   ]

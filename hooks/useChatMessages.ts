@@ -75,6 +75,11 @@ export interface UseChatMessagesResult {
   // Streaming support
   createStreamingMessage: () => Promise<{ messageId: string; chatId: string } | undefined>;
   updateStreamingContent: (messageId: string, content: string, mode?: 'append' | 'replace') => void;
+  updateStreamingSearching: (
+    messageId: string,
+    isSearching: boolean,
+    searchQuery: string | null,
+  ) => void;
   finalizeStreamingMessage: (
     messageId: string,
     finalContent: string,
@@ -645,6 +650,17 @@ export function useChatMessages(
     [],
   );
 
+  const updateStreamingSearching = useCallback(
+    (messageId: string, isSearching: boolean, searchQuery: string | null) => {
+      if (!streamingMessagesRef.current.has(messageId)) return;
+
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === messageId ? { ...msg, isSearching, searchQuery } : msg)),
+      );
+    },
+    [],
+  );
+
   const finalizeStreamingMessage = useCallback(
     async (messageId: string, finalContent: string) => {
       streamingMessagesRef.current.delete(messageId);
@@ -710,6 +726,7 @@ export function useChatMessages(
     // Streaming support
     createStreamingMessage,
     updateStreamingContent,
+    updateStreamingSearching,
     finalizeStreamingMessage,
     cancelStreaming,
   };

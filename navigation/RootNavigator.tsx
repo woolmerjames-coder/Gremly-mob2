@@ -29,6 +29,7 @@ import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
 import SweepTestScreen from '../app/screens/SweepTestScreen';
 import CalendarScreen from '../app/screens/CalendarScreen';
 import SettingsScreen from '../app/screens/SettingsScreen';
+import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -48,6 +49,7 @@ export type RootStackParamList = {
   ArchivedItems: { searchQuery?: string } | undefined;
   CalendarScreen: undefined;
   Settings: undefined;
+  WhatGremlyKnows: undefined;
   SweepTest: undefined; // DEV only
 };
 
@@ -151,6 +153,14 @@ export default function RootNavigator() {
           <Stack.Screen
             name="Settings"
             component={SettingsScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="WhatGremlyKnows"
+            component={WhatGremlyKnowsScreen}
             options={{
               headerShown: false,
               animation: 'slide_from_right',

@@ -1,0 +1,14 @@
+name = "gremly-inngest-jobs"
+main = "index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# These will be overwritten by secrets
+
+# Add secrets via CLI:
+# npx wrangler secret put SUPABASE_URL
+# npx wrangler secret put SUPABASE_SERVICE_KEY
+# npx wrangler secret put OPENAI_API_KEY
+# npx wrangler secret put INNGEST_SIGNING_KEY
+# npx wrangler secret put INNGEST_EVENT_KEY

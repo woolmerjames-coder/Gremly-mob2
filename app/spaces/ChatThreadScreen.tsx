@@ -297,6 +297,7 @@ export default function ChatThreadScreen({ route }: Props) {
     updateMessage,
     createStreamingMessage,
     updateStreamingContent,
+    updateStreamingSearching,
     finalizeStreamingMessage,
     cancelStreaming,
   } = useChatMessages(chatId, spaceId);
@@ -737,6 +738,7 @@ export default function ChatThreadScreen({ route }: Props) {
             {
               spaceId: chat.space_id || spaceId,
               chatId: activeChatId || chat.id,
+              userId: userId ?? undefined,
               systemPrompt: spaceChatEnhanced.systemPrompt,
             },
             {
@@ -744,12 +746,48 @@ export default function ChatThreadScreen({ route }: Props) {
                 // Split on whitespace boundaries to buffer words
                 wordBufferRef.current.push(...delta.split(/(?<=\s)/));
               },
-              onComplete: async (finalText: string, richResult?: { save_suggestion?: any }) => {
+              onSearching: (query) => {
+                const msgId = streamingMessageIdRef.current;
+                if (msgId) {
+                  updateStreamingSearching(msgId, true, query);
+                }
+              },
+              onFetching: (isFetching, fetchingUrl) => {
+                const msgId = streamingMessageIdRef.current;
+                if (msgId) {
+                  // Update message with fetching state
+                  updateMessage(msgId, {
+                    isFetching,
+                    fetchingUrl,
+                  });
+                }
+              },
+              onComplete: async (finalText: string, richResult?: { save_suggestion?: any; sources?: Array<{ title: string; url: string }>; search_query?: string | null; fetchedUrl?: { url: string; title: string } | null }) => {
+                // Clear searching/fetching state
+                const msgId = streamingMessageIdRef.current;
+                if (msgId) {
+                  updateStreamingSearching(msgId, false, null);
+                  updateMessage(msgId, { isFetching: false, fetchingUrl: null });
+                }
                 stopWordFlushInterval();
                 const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
                 streamingMessageIdRef.current = null;
                 streamingControllerRef.current = null;
                 mascot.replying();
+
+                // Combine fetchedUrl with sources
+                let finalSources = richResult?.sources || [];
+                if (richResult?.fetchedUrl) {
+                  finalSources = [richResult.fetchedUrl, ...finalSources];
+                }
+
+                // Store sources from web search if available
+                if (finalSources.length > 0 && finalizedMessage?.id) {
+                  updateMessage(finalizedMessage.id, {
+                    sources: finalSources,
+                    search_query: richResult?.search_query,
+                  });
+                }
 
                 // Run saveable detection on completed message
                 // Pass save_suggestion from Cortex when available
@@ -813,6 +851,10 @@ export default function ChatThreadScreen({ route }: Props) {
                 setSending(false);
               },
               onError: async (error, partialText) => {
+                // Clear searching state
+                if (streamingMessageIdRef.current) {
+                  updateStreamingSearching(streamingMessageIdRef.current, false, null);
+                }
                 console.error(
                   '[ChatThread] Streaming error:',
                   error,
@@ -960,6 +1002,26 @@ export default function ChatThreadScreen({ route }: Props) {
     [spaceChatEnhanced, updateMessage],
   );
 
+  // Handle type change from ChatBubble's SaveButton (smart suggestion type selector)
+  const handleTypeChange = useCallback(
+    (messageId: string, newType: 'todo' | 'habit' | 'note') => {
+      if (__DEV__) {
+        console.log('[Chat] Type changed for message:', messageId, 'to:', newType);
+      }
+      // Find the message and update its saveable type
+      const message = messages.find((m) => m.id === messageId);
+      if (message?.saveable) {
+        updateMessage(messageId, {
+          saveable: {
+            ...message.saveable,
+            type: newType,
+          },
+        });
+      }
+    },
+    [messages, updateMessage],
+  );
+
   // Handle edit from ChatBubble's embedded edit button (opens overlay)
   // If the item is already saved, open the overlay in edit mode with the existing item
   // Otherwise, open create mode with prefill data
@@ -1070,6 +1132,74 @@ export default function ChatThreadScreen({ route }: Props) {
       const assistantMessage = message.content || '';
 
       try {
+        // ─── SMART SAVE: If we have title from AI suggestion, skip classification ───
+        const smartSuggestion = currentSaveable.title && currentSaveable.prefillData?.steps
+          ? {
+              type: currentSaveable.type,
+              title: currentSaveable.title,
+              steps: currentSaveable.prefillData.steps as string[],
+            }
+          : null;
+
+        if (smartSuggestion?.title) {
+          console.log('[Chat] Smart save - creating new entity (skipping Phase 1):', {
+            type: smartSuggestion.type,
+            title: smartSuggestion.title,
+            hasSteps: !!smartSuggestion.steps?.length,
+          });
+
+          const title = smartSuggestion.title;
+          const type = smartSuggestion.type;
+          let result: { id: string } | null = null;
+
+          if (type === 'todo') {
+            // Format steps as part of the body if present
+            let body = assistantMessage;
+            if (smartSuggestion.steps?.length) {
+              const stepsText = smartSuggestion.steps.map((step, i) => `${i + 1}. ${step}`).join('\n');
+              body = `Steps:\n${stepsText}\n\n---\n${assistantMessage}`;
+            }
+
+            result = await createTodo({
+              name: title,
+              body,
+              space_id: spaceId,
+            });
+            console.log('[Chat] Created todo:', title, result?.id);
+          } else if (type === 'habit') {
+            result = await createHabit({
+              name: title,
+              notes: assistantMessage, // Include assistant's response as notes
+              space_id: spaceId,
+            });
+            console.log('[Chat] Created habit:', title, result?.id);
+          } else {
+            // note
+            result = await createNote({
+              title,
+              body: assistantMessage,
+              space_id: spaceId,
+            });
+            console.log('[Chat] Created note:', title, result?.id);
+          }
+
+          // Update message saveable with saved state
+          if (result?.id) {
+            updateMessage(message.id, {
+              saveable: {
+                type: type,
+                title: title,
+                isSaving: false,
+                savedItemId: result.id,
+                savedItemType: type === 'todo' ? 'todo' : type === 'habit' ? 'habit' : 'log',
+              },
+            });
+            spaceChatEnhanced.dismissSaveButton();
+          }
+          return;
+        }
+
+        // ─── FALLBACK: Use classification for save ────────────────────────────
         // 3. Call spaceChatSave to classify and get metadata
         const classification = await callSpaceChatSave({
           userMessage: userMessageContent,
@@ -1344,6 +1474,20 @@ export default function ChatThreadScreen({ route }: Props) {
       }
 
       // Render message bubble with inline saveable card support
+      // Check if message is in searching state
+      const isSearchingMessage = message.isSearching === true;
+
+      if (isSearchingMessage) {
+        return (
+          <View style={styles.messageContainer}>
+            <View style={styles.searchingIndicator}>
+              <ActivityIndicator size="small" color="#8B5CF6" />
+              <Text style={styles.searchingText}>Searching: {message.searchQuery}</Text>
+            </View>
+          </View>
+        );
+      }
+
       return (
         <View style={styles.messageContainer}>
           <ChatBubble
@@ -1353,6 +1497,7 @@ export default function ChatThreadScreen({ route }: Props) {
             onEditPress={() => handleBubbleEdit(message)}
             onDismissSaveable={handleDismissSaveable}
             onRetryStream={handleRetryStream}
+            onTypeChange={handleTypeChange}
           />
         </View>
       );
@@ -1364,6 +1509,7 @@ export default function ChatThreadScreen({ route }: Props) {
       handleBubbleEdit,
       handleDismissSaveable,
       handleRetryStream,
+      handleTypeChange,
     ],
   );
 
@@ -1585,6 +1731,18 @@ const styles = StyleSheet.create({
   },
   messageContainer: {
     marginBottom: lightTokens.spacing[3],
+  },
+  searchingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  searchingText: {
+    marginLeft: 8,
+    color: '#6B7280',
+    fontSize: 14,
+    fontStyle: 'italic',
   },
   loading: {
     flex: 1,

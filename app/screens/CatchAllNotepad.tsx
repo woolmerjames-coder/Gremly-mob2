@@ -4924,12 +4924,24 @@ const RecentDrops: React.FC<{
               {/* a pending item is promoted to a real item (prevents modal from closing) */}
               {(() => {
                 // Combine pending and real items, mark which list they're from
-                const allItems = [
+                const combined = [
                   ...pendingItems.map((item) => ({ ...item, _isPendingList: true as const })),
                   ...filteredItems.map((item) => ({ ...item, _isPendingList: false as const })),
                 ].sort(
                   (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
                 );
+
+                // Defensive deduplication: ensure no duplicate keys (drop_id or kind:id)
+                const seenKeys = new Set<string>();
+                const allItems = combined.filter((item) => {
+                  const key = item.drop_id || `${item.kind}:${item.id}`;
+                  if (seenKeys.has(key)) {
+                    // Skip duplicate - prefer first occurrence (pending items come first)
+                    return false;
+                  }
+                  seenKeys.add(key);
+                  return true;
+                });
 
                 return allItems.map((item) => {
                   const effectiveKind = item.optimisticKind ?? item.kind;

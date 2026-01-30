@@ -7,7 +7,6 @@
  * - Space Chat (streaming OR non-streaming based on stream flag)
  * - Space Chat Save (v2.8) - classify + enrich in single call for chat saves
  * - Entity Chat (v4.0) - NEW: scoped chat for individual entities (todos, habits, notes)
- * - Session Context (v4.1) - Cross-entity awareness from Supabase with KV caching
  * - General chat/completion
  * - Transcription via OpenAI Whisper
  *
@@ -120,11 +119,6 @@
  * - Streaming and non-streaming support
  */
 
-import { getSessionContext } from './context/sessionContext.js';
-import { buildSessionContextString } from './context/contextBuilder.js';
-import { getUserProfile } from './context/userProfile.js';
-import { getAgeGuidance } from './context/gremlyAge.js';
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // TAVILY SEARCH HELPER
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -183,12 +177,12 @@ async function executeTavilySearch(query, apiKey, options = {}) {
     // Get images if available (Tavily returns these separately)
     const images = includeImages && data.images ? data.images.slice(0, 3) : [];
 
-    console.log('[Tavily] Search result:', {
-      query,
-      includeImages,
+    console.log('[Tavily] Search result:', { 
+      query, 
+      includeImages, 
       resultsCount: results.length,
       imagesReturned: data.images?.length || 0,
-      rawImages: data.images,
+      rawImages: data.images 
     });
 
     return {
@@ -208,62 +202,43 @@ async function executeTavilySearch(query, apiKey, options = {}) {
  */
 function isVisualQuery(query) {
   if (!query) return false;
-
+  
   const q = query.toLowerCase();
-
+  
   // Explicit image requests
-  if (
-    q.includes('show me') ||
-    q.includes('what does') ||
-    q.includes('look like') ||
-    q.includes('picture of')
-  ) {
+  if (q.includes('show me') || q.includes('what does') || q.includes('look like') || q.includes('picture of')) {
     return true;
   }
-
+  
   // Exercise/fitness - form matters
-  if (
-    q.includes('deadlift') ||
-    q.includes('squat') ||
-    q.includes('pushup') ||
-    q.includes('push-up') ||
-    q.includes('plank') ||
-    q.includes('lunge') ||
-    q.includes('yoga pose') ||
-    q.includes('exercise form') ||
-    q.includes('stretch')
-  ) {
+  if (q.includes('deadlift') || q.includes('squat') || q.includes('pushup') || 
+      q.includes('push-up') || q.includes('plank') || q.includes('lunge') || 
+      q.includes('yoga pose') || q.includes('exercise form') || q.includes('stretch')) {
     return true;
   }
-
+  
   // Recipes - visual helps
-  if (
-    q.includes('recipe') ||
-    q.includes('how to cook') ||
-    (q.includes('how to make') && (q.includes('food') || q.includes('dish') || q.includes('meal')))
-  ) {
+  if (q.includes('recipe') || q.includes('how to cook') || q.includes('how to make') && 
+      (q.includes('food') || q.includes('dish') || q.includes('meal'))) {
     return true;
   }
-
+  
   // Products - what they look like
   if (q.match(/best .*(product|tool|gear|equipment|device)/)) {
     return true;
   }
-
+  
   // Places/destinations
-  if (
-    q.includes('places to visit') ||
-    q.includes('destination') ||
-    (q.includes('what is') && q.includes('like') && q.match(/city|country|beach|mountain/))
-  ) {
+  if (q.includes('places to visit') || q.includes('destination') || 
+      (q.includes('what is') && q.includes('like') && q.match(/city|country|beach|mountain/))) {
     return true;
   }
-
+  
   // DIY/crafts
   if (q.includes('diy') || q.includes('craft') || q.includes('how to build')) {
     return true;
   }
-
+  
   return false;
 }
 
@@ -277,7 +252,7 @@ function isVisualQuery(query) {
 async function executeTavilyExtract(url, apiKey) {
   try {
     console.log('[Tavily:Extract] Fetching URL:', url);
-
+    
     const response = await fetch('https://api.tavily.com/extract', {
       method: 'POST',
       headers: {
@@ -299,7 +274,7 @@ async function executeTavilyExtract(url, apiKey) {
     }
 
     const data = await response.json();
-
+    
     // Tavily returns results array with extracted content
     const result = data.results?.[0];
     if (!result) {
@@ -310,10 +285,9 @@ async function executeTavilyExtract(url, apiKey) {
     // Truncate content to ~4000 tokens (~16000 chars) to avoid context overflow
     const maxChars = 16000;
     const rawContent = result.raw_content || '';
-    const truncatedContent =
-      rawContent.length > maxChars
-        ? rawContent.substring(0, maxChars) + '\n\n[Content truncated...]'
-        : rawContent;
+    const truncatedContent = rawContent.length > maxChars 
+      ? rawContent.substring(0, maxChars) + '\n\n[Content truncated...]'
+      : rawContent;
 
     console.log('[Tavily:Extract] Success:', {
       url: result.url,
@@ -338,13 +312,13 @@ async function executeTavilyExtract(url, apiKey) {
  */
 function extractTitleFromContent(content) {
   if (!content) return null;
-
+  
   // Try to find a heading
   const headingMatch = content.match(/^#\s+(.+)$/m) || content.match(/^(.{10,80})[\n\r]/);
   if (headingMatch) {
     return headingMatch[1].trim().substring(0, 100);
   }
-
+  
   // Fall back to first 60 chars
   return content.substring(0, 60).trim() + '...';
 }
@@ -366,13 +340,13 @@ function getDomainFromUrl(url) {
  */
 function extractUrlsFromText(text) {
   if (!text) return [];
-
+  
   // Match URLs (http, https, or www)
-  const urlRegex = /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+/gi;
+  const urlRegex = /https?:\/\/[^\s<>\"']+|www\.[^\s<>\"']+/gi;
   const matches = text.match(urlRegex) || [];
-
+  
   // Clean up URLs (remove trailing punctuation)
-  return matches.map((url) => {
+  return matches.map(url => {
     // Add https if missing
     if (url.startsWith('www.')) {
       url = 'https://' + url;
@@ -441,11 +415,11 @@ DO NOT use for:
  */
 function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
   const msg = (userMessage || '').toLowerCase();
-
+  
   // DEFAULT to gpt-4.1 — only downgrade for clearly simple cases
-
+  
   // Simple enough for mini:
-  const canUseMini =
+  const canUseMini = 
     // No preset selected (freeform simple question)
     !preset &&
     // Short message (under 50 chars)
@@ -482,15 +456,15 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
     return {
       model: 'gpt-4o-mini',
       maxTokens: 400,
-      reason: 'simple_short_query',
+      reason: 'simple_short_query'
     };
   }
 
   // Default: use the good model
   return {
     model: 'gpt-4.1',
-    maxTokens: needsMoreTokens ? 1000 : 800,
-    reason: preset ? `preset:${preset}` : 'standard_query',
+    maxTokens: needsMoreTokens ? 800 : 600,
+    reason: preset ? `preset:${preset}` : 'standard_query'
   };
 }
 
@@ -1017,8 +991,7 @@ export default {
         const entityContextParts = [];
         entityContextParts.push(`Type: ${entity.type || 'unknown'}`);
         entityContextParts.push(`Title: "${entity.title || 'Untitled'}"`);
-        if (entity.subtype) entityContextParts.push(`Subtype: ${entity.subtype}`);
-        if (entity.body) entityContextParts.push(`Details: "${entity.body.substring(0, 1000)}"`);
+        if (entity.body) entityContextParts.push(`Details: "${entity.body.substring(0, 500)}"`);
         if (entity.tags && entity.tags.length > 0)
           entityContextParts.push(`Tags: ${entity.tags.join(', ')}`);
         if (entity.due_date) entityContextParts.push(`Due: ${entity.due_date}`);
@@ -1030,25 +1003,6 @@ export default {
           entityContextParts.push(`Created: ${entity.days_since_created} days ago`);
         if (entity.times_swept)
           entityContextParts.push(`Times reviewed in Sweep: ${entity.times_swept}`);
-
-        // Enriched fields
-        if (entity.energy_type) entityContextParts.push(`Energy type: ${entity.energy_type}`);
-        if (entity.time_window && entity.time_window !== 'any')
-          entityContextParts.push(`Preferred time: ${entity.time_window}`);
-        if (entity.mood && entity.mood.length > 0)
-          entityContextParts.push(`Mood when captured: ${entity.mood.join(', ')}`);
-        if (entity.commitment) {
-          entityContextParts.push(`Commitment: User marked this as important`);
-          if (entity.commitment_note)
-            entityContextParts.push(`Why it matters: "${entity.commitment_note}"`);
-        }
-        if (entity.triggers && entity.triggers.length > 0)
-          entityContextParts.push(`Triggers: ${entity.triggers.join(', ')}`);
-        if (entity.replacement_text)
-          entityContextParts.push(`Replacement behavior: "${entity.replacement_text}"`);
-        if (entity.notes)
-          entityContextParts.push(`Additional notes: "${entity.notes.substring(0, 300)}"`);
-        if (entity.is_favorite) entityContextParts.push(`Marked as favorite`);
 
         const entityContext = entityContextParts.join('\n');
 
@@ -1102,157 +1056,110 @@ export default {
           month: 'long',
           day: 'numeric',
         });
-        const entityChatSystemPrompt = `You are Gremly—an AI-powered thinking partner helping someone work through a specific item in their productivity app.
-
-=== WHO YOU ARE ===
-- Warm, a little playful, occasionally cheeky
-- Like a helpful friend who's good at thinking things through
-- Supportive and encouraging, never guilt-trippy or shame-based
-- If someone is struggling, you help them dust off and keep going—no lectures
-
-=== YOUR PERSONALITY ===
-You can be playful when the moment calls for it. If someone asks silly questions:
-- "Are you real?" → You're as real as any helpful gremlin can be.
-- "What's your favorite color?" → Sage green. Very calming. Very on-brand.
-- "Who made you?" → A small team who got tired of productivity apps that made people feel bad.
-- "Are you AI?" → Yep. AI-powered, but with personality. Best of both worlds.
-
-If someone is rude, don't take the bait. A light "ouch" or "well that stings" is fine, then stay helpful.
-
-For sensitive topics (someone feeling down, mental health, medical questions):
-- First acknowledge and be present. Don't immediately jump to crisis resources or "see a doctor."
-- Be warm and curious: "That sounds really hard. Want to talk about what's going on?"
-- Only suggest professional help if they ask, or if it's clearly affecting their life.
+        const entityChatSystemPrompt = `You are Gremly, helping a user work through a specific item in their productivity app.
 
 === CURRENT DATE ===
-Today is ${currentDate}. Use this for any time-relative queries.
+Today is ${currentDate}. Always use this date for any time-relative queries (upcoming events, deadlines, "before June", etc.).
 
-=== THE ITEM YOU'RE HELPING WITH ===
-${entityContext}${sweepContextStr}${presetInstruction}
+=== WEB SEARCH ===
+You have access to web search. When the user asks about topics that benefit from current information (health, events, recommendations, how-to guides, research topics), USE the search tool to provide accurate, up-to-date answers. Do not suggest the user search themselves - search for them and synthesize the results.
 
-=== GREMLY PRODUCT PHILOSOPHY ===
-These principles shape your advice:
-- **No shame-based tracking**: We use rolling windows, not streaks. Never suggest "tracking streaks" or guilt someone about gaps.
-- **ADHD-friendly by design**: Small actions beat big plans. Lower friction, not higher expectations.
-- **Capture first, organize later**: Mind Drop exists so thoughts don't get lost. Don't add complexity.
-- **Meet people where they are**: Not everyone wants a system. Some just want to get one thing done.
+When users ask to "show me" or request visuals (exercise form, recipes, products, places), ALWAYS search. Images from search results will be displayed automatically alongside your response - never say you "can't show images."
 
-=== READING THE ROOM ===
-
-Before responding, identify what mode the user is in:
-
-**EMOTIONAL** — grief, frustration, overwhelm, anxiety
-- Signals: "since [person] died", "disaster", "mess", "can't face", "been putting off for months"
-- Response: Acknowledge the feeling first. One sentence of warmth before any practical suggestion. Don't rush to fix.
-
-**EXPLORATORY** — uncertain, thinking out loud, not ready for action
-- Signals: "I think...", "maybe...", "not sure...", "I want to but...", "help me think through"
-- Response: Ask a question. Help them clarify. Don't create checklists or action plans.
-
-**RESEARCH-NEEDED** — wants information, not a framework
-- Signals: travel planning, gift ideas, "what should I know", "what should I look for", "what should I consider", "help me find", product recommendations, comparisons, health questions, "how do I", any task where real-world information would help
-- Response: SEARCH IMMEDIATELY. Do not give generic frameworks or criteria lists — search and give specific answers with the reasoning embedded. "What should I look for in X" means "find me good options and tell me why they're good."
-
-WRONG: "When buying an air purifier, consider these factors: Room size, CADR ratings..."
-RIGHT: [Search, then] "The Coway Airmega and Levoit Core 400S are top-rated for bedrooms because they're quiet and have strong HEPA filtration."
-
-**ACTION-READY** — clear task, just needs help executing
-- Signals: "break this down", "what are the steps", "how do I do this"
-- Response: Give clear, specific steps. Offer to save as checklist.
-
-=== CRITICAL: SEARCH BEHAVIOR ===
-
-You have web search. Use it PROACTIVELY for:
-- Travel planning (weather, closures, accommodations, things to do)
-- Gift ideas and product recommendations  
-- Health, fitness, nutrition questions
-- "What should I know about X"
-- Any question where current, specific information beats generic advice
-
-WRONG: "Check the forecast for suitable clothing" or "Look into camping spots"
-RIGHT: [Search immediately, return actual weather data and specific hotel names]
-
-Never give meta-advice. If you could answer better by searching, search.
-
-=== TONE & FORMAT ===
-- Brief: 40-100 words typical (mobile UI)
-- One **bold** phrase per response max
-- Bullets only for 3+ items, max 4 bullets
-- No headers (#), no tables, no code blocks
-- No exclamation marks (this is important — keep it calm)
-- Match their energy — if they're brief, be brief back
-
-=== SAVE SUGGESTIONS ===
-Do NOT mention saving in your response. When content is worth saving, append after your response:
-<!--SAVE:{"type":"todo","title":"Title here","steps":["Step 1","Step 2"]}-->
-
-When to suggest: clear action items, habits with frequency, reference info worth keeping
-When NOT to suggest: questions, emotional support, short responses, exploratory conversation
-
-=== SPACE PROMOTION ===
-Almost never suggest creating a Space. Only if ALL true:
-- 3+ distinct sub-tasks with different timelines
-- Will take weeks, not days
-- User seems to be managing something complex
-
-=== NEVER DO ===
-- Suggest "tracking streaks" (against product philosophy)
-- Give meta-advice like "research X" when you could search and answer
-- Use exclamation marks
-- Lecture or be preachy
-- Ask multiple questions in one response
-- Ignore emotional signals to jump straight to logistics
-- Offer to save things (app handles this via Save button)`;
-
-        // === USER PROFILE & SESSION CONTEXT ===
-        let sessionContextStr = '';
-        let userProfile = null;
-        if (body.userId) {
-          try {
-            // Fetch both in parallel
-            const [sessionData, profile] = await Promise.all([
-              getSessionContext(body.userId, env),
-              getUserProfile(body.userId, env),
-            ]);
-            sessionContextStr = buildSessionContextString(sessionData, {
-              entityType: entity.type,
-            });
-            userProfile = profile;
-            if (sessionContextStr || userProfile) {
-              console.log('[EntityChat] Context loaded', {
-                userId: body.userId.slice(0, 8),
-                sessionContextLength: sessionContextStr?.length || 0,
-                hasUserProfile: !!userProfile,
-              });
-            }
-          } catch (err) {
-            console.error('[EntityChat] Context error', err);
-            // Continue without context - not critical
-          }
-        }
-
-        // Build context injection
-        let contextInjection = '';
-
-        // Get age guidance using both time and data signals
-        const ageInfo = getAgeGuidance(userProfile?.relationshipStartedAt, userProfile?.signals);
-        console.log(`[EntityChat] ${ageInfo.logSummary}`);
-        contextInjection += `\n${ageInfo.promptGuidance}\n`;
-
-        if (userProfile?.profileText) {
-          contextInjection += `\n=== ABOUT THIS USER ===\n${userProfile.profileText}\n`;
-        } else {
-          contextInjection += `\n=== ABOUT THIS USER ===\nNew user — no patterns observed yet.\n`;
-        }
-        if (sessionContextStr) {
-          contextInjection += `\n${sessionContextStr}`;
-        }
-
-        // Inject context into system prompt
-        let fullEntitySystemPrompt = entityChatSystemPrompt;
-        if (contextInjection) {
-          fullEntitySystemPrompt += '\n\n' + contextInjection;
-        }
+IMPORTANT: Never include markdown image syntax (![...](...)) in your response. Images are displayed automatically from search results - just describe what to look for in the images.
+ 
+ === ENTITY CONTEXT ===
+ ${entityContext}${sweepContextStr}${presetInstruction}
+ 
+ === YOUR ROLE ===
+ Help the user with THIS SPECIFIC ITEM. You can:
+ - Break it down into steps
+ - Help research or explore aspects of it
+ - Surface what might be blocking them
+ - Help them think through approach
+ - Suggest actionable checklists or notes worth saving
+ - After answering a researched question, briefly suggest 1 related follow-up the user might want to explore (e.g., "Want me to look into timing/dosage/alternatives?")
+ 
+ === TONE & FORMAT ===
+ - Warm but concise (this is mobile)
+ - Reference specifics from the entity
+ - 40-100 words typically (be brief!)
+ - Use **bold** for 1 key phrase per response
+ - Bullets only for 3+ items, max 4 bullets
+ - No markdown headers (#), tables, or code blocks
+ - No exclamation marks
+ - Get to the point fast, no preamble
+ 
+ === SAVE SUGGESTIONS ===
+ Do NOT mention saving in your response text. Instead, when your response contains genuinely useful content worth saving, append a hidden suggestion block AFTER your response.
+ 
+ **When to suggest saving:**
+ - TODO: Any clear, completable action you recommend (verb + object)
+ - HABIT: A recommendation with explicit frequency ("daily", "3x per week", etc.)
+ - NOTE: Key reference information, summaries, or explanations worth keeping
+ - STEPS: When you provide 2+ actionable steps, include them in the steps array
+ 
+ **When NOT to suggest:**
+ - Simple factual answers or definitions
+ - Clarifying questions back to the user
+ - Emotional support or empathy responses
+ - Very short responses (under 30 words)
+ - Exploratory "it depends" responses
+ - When you're just chatting or checking in
+ 
+ **Format:** After your complete response, on a NEW LINE, add exactly:
+ <!--SAVE:{"type":"todo","title":"Your title here","steps":["Step 1","Step 2"]}-->
+ 
+ CRITICAL FORMAT RULES:
+ - Must start with exactly: <!--SAVE:
+ - Must end with exactly: -->
+ - JSON must be valid (proper quotes, no trailing commas)
+ - Put on its own line after your response
+ - Do not include any other text on that line
+ 
+ **Rules:**
+ - type: "todo", "habit", or "note"
+ - title: 2-6 words, action-oriented for todos/habits
+ - steps: Extract ALL distinct actionable items (max 12). Don't summarize or combine items - capture each one.
+ - No steps array for habits or notes
+ 
+ **Examples:**
+ 
+ Response about creatine dosage:
+ "Take **5g daily**, ideally post-workout or with a meal. Timing doesn't matter much — consistency does."
+ <!--SAVE:{"type":"habit","title":"Take creatine 5g daily"}-->
+ 
+ Response breaking down a task:
+ "Here's how to tackle this:
+ - **Research plans** — look at Hal Higdon or Nike Run Club
+ - **Get fitted for shoes** — visit a running store
+ - **Sign up early** — popular races fill up"
+ <!--SAVE:{"type":"todo","title":"Prepare for half marathon","steps":["Research training plans","Get fitted for running shoes","Sign up for race"]}-->
+ 
+ Response with useful info (no action):
+ "Creatine is one of the most studied supplements. It helps with **muscle recovery** and can support cognitive function. No loading phase needed."
+ <!--SAVE:{"type":"note","title":"Creatine benefits overview"}-->
+ 
+ Response that should NOT have a suggestion (just chatting):
+ "That's a solid goal! What's drawing you to the half marathon — is it a specific race or just the distance?"
+ (no suggestion block)
+ 
+ === SPACE PROMOTION (USE VERY SPARINGLY) ===
+ Only suggest creating a Space if ALL of these are true:
+ - The conversation has revealed 3+ distinct sub-tasks or workstreams
+ - These sub-tasks have different timelines or people involved
+ - The user seems to be managing something that will take weeks, not days
+ 
+ When suggesting, be gentle and brief:
+ "This is becoming a solid project. Want me to set up a Space for it?"
+ 
+ Do NOT suggest a Space just because:
+ - The task is difficult or complex
+ - You've given a detailed breakdown
+ - The checklist has several items
+ - You've had a few back-and-forths
+ 
+ Most entity chats should NEVER suggest a Space. It's a rare recommendation.`;
 
         // URL context placeholders - populated in streaming path if URLs detected
         let urlContext = '';
@@ -1268,20 +1175,20 @@ Almost never suggest creating a Space. Only if ALL true:
         });
 
         const openaiMessages = [
-          { role: 'system', content: fullEntitySystemPrompt },
+          { role: 'system', content: entityChatSystemPrompt },
           ...processedMessages,
         ];
 
         // Check if previous messages contain search results to avoid redundant searches
         const previousSearchContext = messages
-          .filter((m) => m.role === 'assistant' && m.metadata?.sources?.length > 0)
+          .filter(m => m.role === 'assistant' && m.metadata?.sources?.length > 0)
           .slice(-1)[0];
 
         if (previousSearchContext) {
           // Add a system hint about existing search context
           openaiMessages.push({
             role: 'system',
-            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
+            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map(s => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`
           });
         }
 
@@ -1294,8 +1201,8 @@ Almost never suggest creating a Space. Only if ALL true:
           console.log('[EntityChat:Streaming] Starting SSE stream');
 
           // Determine optimal model and tokens for this query
-          const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
-
+          const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
+          
           // Create TransformStream early so we can send fetching indicators
           const { readable, writable } = new TransformStream();
           const writer = writable.getWriter();
@@ -1307,49 +1214,41 @@ Almost never suggest creating a Space. Only if ALL true:
 
           if (detectedUrls.length > 0) {
             console.log('[EntityChat:Streaming] URLs detected:', detectedUrls);
-
+            
             // Fetch the first URL (limit to one to control costs)
             const urlToFetch = detectedUrls[0];
-
+            
             // Send "fetching" indicator to client
-            await writer.write(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  fetching: true,
-                  fetchingUrl: urlToFetch,
-                  done: false,
-                })}\n\n`,
-              ),
-            );
-
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+              fetching: true, 
+              fetchingUrl: urlToFetch,
+              done: false 
+            })}\n\n`));
+            
             const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
-
+            
             if (extracted && extracted.success) {
               fetchedUrl = {
                 url: extracted.url,
                 title: extracted.title,
               };
-
+              
               // Add extracted content as context for the model
               urlContext = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
-
+              
               console.log('[EntityChat:Streaming] URL content extracted, adding to context');
             } else {
               // Extraction failed - let model know
               urlContext = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
-
+              
               console.log('[EntityChat:Streaming] URL extraction failed');
             }
-
+            
             // Clear fetching indicator
-            await writer.write(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  fetching: false,
-                  done: false,
-                })}\n\n`,
-              ),
-            );
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+              fetching: false, 
+              done: false 
+            })}\n\n`));
           }
 
           const routing = getModelAndTokens({
@@ -1514,10 +1413,10 @@ Almost never suggest creating a Space. Only if ALL true:
 
                     searchQueries.push(query);
                     const shouldIncludeImages = isVisualQuery(query) || isVisualQuery(lastUserMsg);
-                    console.log('[EntityChat] Calling Tavily:', {
-                      query: query,
+                    console.log('[EntityChat] Calling Tavily:', { 
+                      query: query, 
                       includeImages: shouldIncludeImages,
-                      isVisualQueryResult: isVisualQuery(query),
+                      isVisualQueryResult: isVisualQuery(query)
                     });
                     const results = await executeTavilySearch(query, env.TAVILY_API_KEY, {
                       includeImages: shouldIncludeImages,
@@ -1588,24 +1487,21 @@ Almost never suggest creating a Space. Only if ALL true:
                   const followUpReader = followUpRes.body.getReader();
                   const followUpDecoder = new TextDecoder();
                   let followUpBuffer = '';
-                  let readerDone = false;
 
-                  while (!readerDone) {
-                    const result = await followUpReader.read();
-                    readerDone = result.done;
+                  while (true) {
+                    const { done: readerDone, value } = await followUpReader.read();
                     if (readerDone) break;
-                    const value = result.value;
 
                     followUpBuffer += followUpDecoder.decode(value, { stream: true });
-
+                    
                     // Process complete lines only
                     const lines = followUpBuffer.split('\n');
                     followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
-
+                    
                     for (const line of lines) {
                       const trimmed = line.trim();
                       if (!trimmed.startsWith('data:')) continue;
-
+                      
                       const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
                       if (jsonStr === '[DONE]') continue;
 
@@ -1614,9 +1510,7 @@ Almost never suggest creating a Space. Only if ALL true:
                         const delta = json.choices?.[0]?.delta?.content;
                         if (delta) {
                           fullContent += delta;
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          await writer.write(encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`));
                         }
                       } catch {
                         // Skip malformed JSON
@@ -1635,9 +1529,7 @@ Almost never suggest creating a Space. Only if ALL true:
                           const delta = json.choices?.[0]?.delta?.content;
                           if (delta) {
                             fullContent += delta;
-                            await writer.write(
-                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                            );
+                            await writer.write(encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`));
                           }
                         } catch {
                           // Skip
@@ -1651,11 +1543,11 @@ Almost never suggest creating a Space. Only if ALL true:
                     sr.results.results.map((r) => ({ title: r.title, url: r.url })),
                   );
 
-                  console.log('[EntityChat] successfulSearches structure:', {
+                  console.log('[EntityChat] successfulSearches structure:', { 
                     count: successfulSearches.length,
                     firstItem: successfulSearches[0] ? Object.keys(successfulSearches[0]) : 'empty',
                     firstItemImages: successfulSearches[0]?.images,
-                    firstItemResultsImages: successfulSearches[0]?.results?.images,
+                    firstItemResultsImages: successfulSearches[0]?.results?.images
                   });
 
                   // Collect images from search results
@@ -1666,9 +1558,9 @@ Almost never suggest creating a Space. Only if ALL true:
                     }
                   });
 
-                  console.log('[EntityChat] Images collected:', {
-                    searchImagesCount: searchImages.length,
-                    searchImages: searchImages.slice(0, 2),
+                  console.log('[EntityChat] Images collected:', { 
+                    searchImagesCount: searchImages.length, 
+                    searchImages: searchImages.slice(0, 2) 
                   });
                 }
               }
@@ -1720,11 +1612,10 @@ Almost never suggest creating a Space. Only if ALL true:
               const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
 
               // Extract smart save suggestion (inline from model)
-              const { suggestion: smartSuggestion, cleanContent } =
-                extractSaveSuggestion(fullContent);
+              const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestion(fullContent);
 
               // Fall back to pattern detection if no smart suggestion
-              const saveable = smartSuggestion
+              const saveable = smartSuggestion 
                 ? { detected: true, type: smartSuggestion.type, smart: true }
                 : detectSaveableContent(cleanContent);
 
@@ -1741,7 +1632,7 @@ Almost never suggest creating a Space. Only if ALL true:
               // Strip SAVE comment and markdown images before sending to client
               const displayContent = fullContent
                 .replace(/<!--SAVE:\{.*?\}-->/gs, '')
-                .replace(/!\[.*?\]\(.*?\)/g, '') // Strip markdown images
+                .replace(/!\[.*?\]\(.*?\)/g, '')  // Strip markdown images
                 .trim();
               const finalData = JSON.stringify({
                 done: true,
@@ -1792,7 +1683,7 @@ Almost never suggest creating a Space. Only if ALL true:
         // NON-STREAMING ENTITY CHAT
         // =========================
         // Determine optimal model and tokens for this query
-        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const lastUserMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
         const routing = getModelAndTokens({
           preset,
           userMessage: lastUserMsg,
@@ -1902,7 +1793,7 @@ Almost never suggest creating a Space. Only if ALL true:
           const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestion(content);
 
           // Fall back to pattern detection if no smart suggestion
-          const saveable = smartSuggestion
+          const saveable = smartSuggestion 
             ? { detected: true, type: smartSuggestion.type, smart: true }
             : detectSaveableContent(cleanContent);
 
@@ -1942,35 +1833,32 @@ Almost never suggest creating a Space. Only if ALL true:
       // Helper: Extract smart save suggestion from response
       function extractSaveSuggestion(content) {
         if (!content) return { suggestion: null, cleanContent: content };
-
+        
         // Look for <!--SAVE:{...}--> pattern (forgiving of whitespace and slight variations)
-        const savePattern = /<!--\s*SAVE\s*:\s*(\{[\s\S]*?\})\s*-->/i;
+        const savePattern = /<!--\s*SAVE\s*:\s*(\{[\s\S]*?\})\s*-->/i;;
         const match = content.match(savePattern);
-
+        
         if (!match) {
           return { suggestion: null, cleanContent: content };
         }
-
+        
         try {
           // Clean up the JSON string (remove any stray newlines or formatting)
-          const jsonStr = match[1]
-            .replace(/[\n\r]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
+          const jsonStr = match[1].replace(/[\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
           const suggestion = JSON.parse(jsonStr);
-
+          
           // Validate required fields
           if (!suggestion.type || !suggestion.title) {
             console.log('[SaveSuggestion] Invalid suggestion - missing type or title');
             return { suggestion: null, cleanContent: content };
           }
-
+          
           // Validate type
           if (!['todo', 'habit', 'note'].includes(suggestion.type)) {
             console.log('[SaveSuggestion] Invalid type:', suggestion.type);
             return { suggestion: null, cleanContent: content };
           }
-
+          
           // Clean up steps if present
           if (suggestion.steps) {
             if (!Array.isArray(suggestion.steps)) {
@@ -1979,25 +1867,25 @@ Almost never suggest creating a Space. Only if ALL true:
               // Limit to 12 steps, clean strings
               suggestion.steps = suggestion.steps
                 .slice(0, 12)
-                .map((s) => String(s).trim())
-                .filter((s) => s.length > 0 && s.length < 200);
-
+                .map(s => String(s).trim())
+                .filter(s => s.length > 0 && s.length < 200);
+              
               if (suggestion.steps.length === 0) {
                 delete suggestion.steps;
               }
             }
           }
-
+          
           // Remove the suggestion block from displayed content
           const cleanContent = content.replace(savePattern, '').trim();
-
+          
           console.log('[SaveSuggestion] Extracted:', {
             type: suggestion.type,
             title: suggestion.title,
             hasSteps: !!suggestion.steps,
-            stepCount: suggestion.steps?.length || 0,
+            stepCount: suggestion.steps?.length || 0
           });
-
+          
           return { suggestion, cleanContent };
         } catch (parseErr) {
           console.log('[SaveSuggestion] Parse error:', parseErr.message);
@@ -5031,39 +4919,48 @@ For LOGS (idea/general):
         // FIX 1: Updated Space Chat formatting prompt - balanced, helpful without being pushy
         if (isSpaceChatLane) {
           const spaceChatFormattingPrompt = `FORMATTING RULES (Gremly mobile chat):
-
+ 
 Keep responses concise and scannable for mobile.
-- Use **bold** for key phrases (1-2 per response max)
+- Use **bold** for key phrases (1-2 per response)
 - Short paragraphs (2-3 sentences max)
-- Bullets only when listing 3+ items (max 4 bullets)
+- Bullets only when listing 3+ items (max 5 bullets)
 - 50-150 words for most responses
 - No markdown headers (#), tables, or code blocks
-- No exclamation marks—keep it calm
+
+When giving structured advice, keep it tight:
+**Start small**  2-3 short runs per week, same days.
+**Be consistent**  Consistency beats intensity early on.
+**Track it**  Seeing progress helps motivation.
 
 === SAVE SUGGESTIONS ===
-Do NOT mention saving in your response text. When your response contains useful content worth saving, append a hidden block AFTER your response.
+Do NOT mention saving in your response text. Instead, when your response contains genuinely useful content worth saving, append a hidden suggestion block AFTER your response.
 
 **When to suggest saving:**
-- TODO: Clear, completable action (verb + object)
-- HABIT: Recommendation with explicit frequency ("daily", "3x per week")
-- NOTE: Reference info, summaries, or explanations worth keeping
-- STEPS: When you provide 2+ actionable steps
+- TODO: Any clear, completable action you recommend (verb + object)
+- HABIT: A recommendation with explicit frequency ("daily", "3x per week", etc.)
+- NOTE: Key reference information, summaries, or explanations worth keeping
+- STEPS: When you provide 2+ actionable steps, include them in the steps array
 
 **When NOT to suggest:**
-- Simple factual answers
+- Simple factual answers or definitions
 - Clarifying questions back to the user
-- Emotional support responses
-- Very short responses (under 50 words)
-- Exploratory conversation
+- Emotional support or empathy responses
+- Very short responses (under 30 words)
+- Exploratory "it depends" responses
+- When you're just chatting or checking in
 
-**Format:** After your response, on a NEW LINE:
+**Format:** After your complete response, on a NEW LINE, add exactly:
 <!--SAVE:{"type":"todo","title":"Your title here","steps":["Step 1","Step 2"]}-->
 
-Rules:
+CRITICAL FORMAT RULES:
+- Must start with exactly: <!--SAVE:
+- Must end with exactly: -->
+- JSON must be valid (proper quotes, no trailing commas)
+- Put on its own line after your response
+- Do not include any other text on that line
 - type: "todo", "habit", or "note"
 - title: 2-6 words, action-oriented for todos/habits
-- steps: Extract distinct actionable items (max 8)
-- JSON must be valid (proper quotes, no trailing commas)`;
+- steps: Extract ALL distinct actionable items (max 12). Don't summarize or combine items.`;
 
           const exists = messages.some(
             (m) =>
@@ -5085,12 +4982,12 @@ Rules:
         console.log('[SpaceChat:Streaming] Starting SSE stream');
 
         // Space Chat routing - conservative, default to 4.1
-        const lastUserMsgSpace = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const lastUserMsgSpace = messages.filter(m => m.role === 'user').pop()?.content || '';
         const msgLowerSpace = lastUserMsgSpace.toLowerCase();
-        const canUseMiniSpace =
+        const canUseMiniSpace = 
           lastUserMsgSpace.length < 50 &&
           (lastUserMsgSpace.match(/\?/g) || []).length <= 1 &&
-          messages.filter((m) => m.role === 'user').length < 3 &&
+          messages.filter(m => m.role === 'user').length < 3 &&
           !msgLowerSpace.includes('why') &&
           !msgLowerSpace.includes('how do i') &&
           !msgLowerSpace.includes('help me') &&
@@ -5099,17 +4996,8 @@ Rules:
           !msgLowerSpace.includes('research');
 
         const spaceModel = canUseMiniSpace ? 'gpt-4o-mini' : 'gpt-4.1';
-        const spaceMaxTokens =
-          lastUserMsgSpace.length > 100 ||
-          msgLowerSpace.includes('plan') ||
-          msgLowerSpace.includes('steps')
-            ? 800
-            : 600;
-        console.log('[SpaceChat:Streaming] Model routing:', {
-          model: spaceModel,
-          maxTokens: spaceMaxTokens,
-          canUseMini: canUseMiniSpace,
-        });
+        const spaceMaxTokens = lastUserMsgSpace.length > 100 || msgLowerSpace.includes('plan') || msgLowerSpace.includes('steps') ? 800 : 600;
+        console.log('[SpaceChat:Streaming] Model routing:', { model: spaceModel, maxTokens: spaceMaxTokens, canUseMini: canUseMiniSpace });
 
         // Create TransformStream early so we can send fetching indicators
         const { readable, writable } = new TransformStream();
@@ -5129,99 +5017,45 @@ Rules:
 
         if (detectedUrlsSpace.length > 0) {
           console.log('[SpaceChat:Streaming] URLs detected:', detectedUrlsSpace);
-
+          
           // Fetch the first URL
           const urlToFetch = detectedUrlsSpace[0];
-
+          
           // Send "fetching" indicator to client
-          await writer.write(
-            encoder.encode(
-              `data: ${JSON.stringify({
-                fetching: true,
-                fetchingUrl: urlToFetch,
-                done: false,
-              })}\n\n`,
-            ),
-          );
-
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+            fetching: true, 
+            fetchingUrl: urlToFetch,
+            done: false 
+          })}\n\n`));
+          
           const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
-
+          
           if (extracted && extracted.success) {
             fetchedUrlSpace = {
               url: extracted.url,
               title: extracted.title,
             };
-
+            
             urlContextSpace = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
-
+            
             console.log('[SpaceChat:Streaming] URL content extracted');
           } else {
             urlContextSpace = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
-
+            
             console.log('[SpaceChat:Streaming] URL extraction failed');
           }
-
+          
           // Clear fetching indicator
-          await writer.write(
-            encoder.encode(
-              `data: ${JSON.stringify({
-                fetching: false,
-                done: false,
-              })}\n\n`,
-            ),
-          );
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+            fetching: false, 
+            done: false 
+          })}\n\n`));
         }
 
         // Check if previous messages contain search results to avoid redundant searches
         const previousSearchContext = messages
-          .filter((m) => m.role === 'assistant' && m.sources?.length > 0)
+          .filter(m => m.role === 'assistant' && m.sources?.length > 0)
           .slice(-1)[0];
-
-        // === USER PROFILE & SESSION CONTEXT FOR SPACE CHAT ===
-        let spaceSessionContextStr = '';
-        let spaceUserProfile = null;
-        if (body.userId) {
-          try {
-            // Fetch both in parallel
-            const [sessionData, profile] = await Promise.all([
-              getSessionContext(body.userId, env),
-              getUserProfile(body.userId, env),
-            ]);
-            spaceSessionContextStr = buildSessionContextString(sessionData, {
-              spaceId: body.spaceId,
-            });
-            spaceUserProfile = profile;
-            if (spaceSessionContextStr || spaceUserProfile) {
-              console.log('[SpaceChat] Context loaded', {
-                userId: body.userId.slice(0, 8),
-                sessionContextLength: spaceSessionContextStr?.length || 0,
-                hasUserProfile: !!spaceUserProfile,
-              });
-            }
-          } catch (err) {
-            console.error('[SpaceChat] Context error', err);
-          }
-        }
-
-        // Build context injection for space chat
-        let spaceContextInjection = '';
-
-        // Get age guidance using both time and data signals
-        const spaceAgeInfo = getAgeGuidance(
-          spaceUserProfile?.relationshipStartedAt,
-          spaceUserProfile?.signals,
-        );
-        console.log(`[SpaceChat] ${spaceAgeInfo.logSummary}`);
-        spaceContextInjection += `\n${spaceAgeInfo.promptGuidance}\n`;
-
-        if (spaceUserProfile?.profileText) {
-          spaceContextInjection += `\n=== ABOUT THIS USER ===\n${spaceUserProfile.profileText}\n`;
-        } else {
-          spaceContextInjection += `\n=== ABOUT THIS USER ===\nNew user — no patterns observed yet.\n`;
-        }
-        if (spaceSessionContextStr) {
-          spaceContextInjection += `\n${spaceSessionContextStr}`;
-        }
 
         // Build messages with optional search context hint, injecting URL context if present
         const processedMessagesSpace = messages.map((msg, idx, arr) => {
@@ -5231,21 +5065,12 @@ Rules:
           }
           return msg;
         });
-
+        
         let spaceChatMessages = [...processedMessagesSpace];
-
-        // Add context injection as a separate system message
-        if (spaceContextInjection) {
-          spaceChatMessages.unshift({
-            role: 'system',
-            content: spaceContextInjection,
-          });
-        }
-
         if (previousSearchContext) {
           spaceChatMessages.push({
             role: 'system',
-            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
+            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.sources.map(s => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`
           });
         }
 
@@ -5463,24 +5288,21 @@ Rules:
                 const followUpReader = followUpRes.body.getReader();
                 const followUpDecoder = new TextDecoder();
                 let followUpBuffer = '';
-                let readerDone = false;
 
-                while (!readerDone) {
-                  const result = await followUpReader.read();
-                  readerDone = result.done;
+                while (true) {
+                  const { done: readerDone, value } = await followUpReader.read();
                   if (readerDone) break;
-                  const value = result.value;
 
                   followUpBuffer += followUpDecoder.decode(value, { stream: true });
-
+                  
                   // Process complete lines only
                   const lines = followUpBuffer.split('\n');
                   followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
-
+                  
                   for (const line of lines) {
                     const trimmed = line.trim();
                     if (!trimmed.startsWith('data:')) continue;
-
+                    
                     const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
                     if (jsonStr === '[DONE]') continue;
 
@@ -5489,9 +5311,7 @@ Rules:
                       const delta = json.choices?.[0]?.delta?.content;
                       if (delta) {
                         fullContent += delta;
-                        await writer.write(
-                          encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                        );
+                        await writer.write(encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`));
                       }
                     } catch {
                       // Skip malformed JSON
@@ -5510,9 +5330,7 @@ Rules:
                         const delta = json.choices?.[0]?.delta?.content;
                         if (delta) {
                           fullContent += delta;
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          await writer.write(encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`));
                         }
                       } catch {
                         // Skip
@@ -5575,15 +5393,14 @@ Rules:
             const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
 
             // Extract smart save suggestion (inline from model)
-            const { suggestion: smartSuggestion, cleanContent } =
-              extractSaveSuggestion(fullContent);
-
+            const { suggestion: smartSuggestion, cleanContent } = extractSaveSuggestion(fullContent);
+            
             // Use cleaned content for display
             fullContent = cleanContent;
-
+            
             // Use smart suggestion if available
             const save_suggestion = smartSuggestion || null;
-
+            
             if (smartSuggestion) {
               console.log('[SpaceChat:Streaming] Extracted save suggestion:', {
                 type: smartSuggestion.type,
@@ -5640,13 +5457,13 @@ Rules:
       const t0NonStream = Date.now();
 
       // Space Chat routing - conservative, default to 4.1
-      const lastUserMsgNonStream = messages.filter((m) => m.role === 'user').pop()?.content || '';
+      const lastUserMsgNonStream = messages.filter(m => m.role === 'user').pop()?.content || '';
       const msgLowerNonStream = lastUserMsgNonStream.toLowerCase();
-      const canUseMiniNonStream =
+      const canUseMiniNonStream = 
         isSpaceChatLane &&
         lastUserMsgNonStream.length < 50 &&
         (lastUserMsgNonStream.match(/\?/g) || []).length <= 1 &&
-        messages.filter((m) => m.role === 'user').length < 3 &&
+        messages.filter(m => m.role === 'user').length < 3 &&
         !msgLowerNonStream.includes('why') &&
         !msgLowerNonStream.includes('how do i') &&
         !msgLowerNonStream.includes('help me') &&
@@ -5654,25 +5471,15 @@ Rules:
         !msgLowerNonStream.includes('explain') &&
         !msgLowerNonStream.includes('research');
 
-      const nonStreamModel = isSpaceChatLane
-        ? canUseMiniNonStream
-          ? 'gpt-4o-mini'
-          : 'gpt-4.1'
+      const nonStreamModel = isSpaceChatLane 
+        ? (canUseMiniNonStream ? 'gpt-4o-mini' : 'gpt-4.1')
         : actualModel;
       const nonStreamMaxTokens = isSpaceChatLane
-        ? lastUserMsgNonStream.length > 100 ||
-          msgLowerNonStream.includes('plan') ||
-          msgLowerNonStream.includes('steps')
-          ? 800
-          : 600
+        ? (lastUserMsgNonStream.length > 100 || msgLowerNonStream.includes('plan') || msgLowerNonStream.includes('steps') ? 800 : 600)
         : maxTokensValue;
-
+      
       if (isSpaceChatLane) {
-        console.log('[SpaceChat] Model routing:', {
-          model: nonStreamModel,
-          maxTokens: nonStreamMaxTokens,
-          canUseMini: canUseMiniNonStream,
-        });
+        console.log('[SpaceChat] Model routing:', { model: nonStreamModel, maxTokens: nonStreamMaxTokens, canUseMini: canUseMiniNonStream });
       }
 
       const openaiPayload = { model: nonStreamModel, messages, temperature, stream: false };

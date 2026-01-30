@@ -31,7 +31,15 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { Bookmark, CheckCircle, Pencil } from 'lucide-react-native';
+import {
+  Bookmark,
+  CheckCircle,
+  Pencil,
+  CheckSquare,
+  RefreshCw,
+  FileText,
+  ChevronDown,
+} from 'lucide-react-native';
 import type { SaveableType } from '../../lib/chat/saveableTypes';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,6 +60,14 @@ export interface SaveButtonProps {
   savedType?: SavedItemType;
   /** The ID of the saved item (for Edit to open overlay) */
   savedItemId?: string;
+  /** Smart suggestion from AI - includes type, title, and optional steps */
+  smartSuggestion?: {
+    type: 'todo' | 'habit' | 'note';
+    title: string;
+    steps?: string[];
+  };
+  /** Called when user changes the suggested type */
+  onTypeChange?: (newType: 'todo' | 'habit' | 'note') => void;
   /** The name of the entity this was saved to (for confirmed state) */
   entityName?: string;
   /** Called when user taps Save (instant save) - only in initial state */
@@ -94,6 +110,8 @@ export default function SaveButton({
   state = 'initial',
   savedType,
   savedItemId: _savedItemId,
+  smartSuggestion,
+  onTypeChange,
   entityName,
   onSave,
   onEdit,
@@ -169,6 +187,94 @@ export default function SaveButton({
 
       case 'initial':
       default:
+        // Smart suggestion with title and steps
+        if (smartSuggestion) {
+          const TypeIcon =
+            smartSuggestion.type === 'todo'
+              ? CheckSquare
+              : smartSuggestion.type === 'habit'
+                ? RefreshCw
+                : FileText;
+          const typeLabel =
+            smartSuggestion.type === 'todo'
+              ? 'Todo'
+              : smartSuggestion.type === 'habit'
+                ? 'Habit'
+                : 'Note';
+
+          return (
+            <View style={styles.smartCard}>
+              {/* Header row: type selector on left, dismiss on right */}
+              <View style={styles.smartCardHeader}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.smartTypeSelector,
+                    pressed && styles.smartTypeSelectorPressed,
+                  ]}
+                  onPress={() => {
+                    const types: Array<'todo' | 'habit' | 'note'> = ['todo', 'habit', 'note'];
+                    const currentIndex = types.indexOf(smartSuggestion.type);
+                    const nextType = types[(currentIndex + 1) % types.length];
+                    onTypeChange?.(nextType);
+                  }}
+                >
+                  <TypeIcon size={14} color="#5C6B5A" strokeWidth={2} />
+                  <Text style={styles.smartTypeLabel}>{typeLabel}</Text>
+                  <ChevronDown size={12} color="#8BA888" />
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [styles.smartDismiss, pressed && { opacity: 0.5 }]}
+                  onPress={onDismiss}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Text style={styles.smartDismissX}>×</Text>
+                </Pressable>
+              </View>
+
+              {/* Title */}
+              <Text style={styles.smartCardTitle}>{smartSuggestion.title}</Text>
+
+              {/* Steps (if present) */}
+              {smartSuggestion.steps && smartSuggestion.steps.length > 0 && (
+                <View style={styles.smartSteps}>
+                  {smartSuggestion.steps.slice(0, 3).map((step, idx) => (
+                    <View key={idx} style={styles.smartStepRow}>
+                      <View style={styles.smartStepCheck} />
+                      <Text style={styles.smartStepText} numberOfLines={1}>
+                        {step}
+                      </Text>
+                    </View>
+                  ))}
+                  {smartSuggestion.steps.length > 3 && (
+                    <Text style={styles.smartStepsMore}>
+                      +{smartSuggestion.steps.length - 3} more items
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Save button - full width at bottom */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.smartSaveBtn,
+                  pressed && styles.smartSaveBtnPressed,
+                  disabled && styles.smartSaveBtnDisabled,
+                ]}
+                onPress={() => {
+                  console.log('[SaveButton] Smart save pressed!');
+                  onSave();
+                }}
+                disabled={disabled}
+              >
+                <Bookmark size={16} color="#FFFFFF" strokeWidth={2} />
+                <Text style={styles.smartSaveBtnText}>Save</Text>
+              </Pressable>
+            </View>
+          );
+        }
+
+        // Fallback: generic "Save this" button (existing behavior)
         return (
           <Pressable
             style={({ pressed }) => [
@@ -192,6 +298,15 @@ export default function SaveButton({
         );
     }
   };
+
+  // Smart suggestion card handles its own container styling
+  if (smartSuggestion && state === 'initial') {
+    return (
+      <Animated.View style={{ opacity: fadeAnim }} accessibilityRole="none">
+        {renderContent()}
+      </Animated.View>
+    );
+  }
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]} accessibilityRole="none">
@@ -354,5 +469,118 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999',
     fontWeight: '400',
+  },
+
+  // ─── Smart Suggestion Card ───────────────────────────────────────────────────
+  smartCard: {
+    backgroundColor: '#FFFDF7',
+    borderRadius: 16,
+    padding: 16,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 168, 136, 0.25)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  smartCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  smartTypeSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(139, 168, 136, 0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 6,
+  },
+  smartTypeSelectorPressed: {
+    backgroundColor: 'rgba(139, 168, 136, 0.2)',
+  },
+  smartTypeLabel: {
+    fontSize: 13,
+    color: '#5C6B5A',
+    fontWeight: '600',
+  },
+  smartDismiss: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  smartDismissX: {
+    fontSize: 22,
+    color: '#BEBEBE',
+    fontWeight: '300',
+    marginTop: -2,
+  },
+  smartCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2D2D2D',
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  smartSteps: {
+    marginBottom: 16,
+    gap: 8,
+  },
+  smartStepRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  smartStepCheck: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    marginRight: 12,
+    marginTop: 1,
+  },
+  smartStepText: {
+    fontSize: 14,
+    color: '#4B5563',
+    flex: 1,
+    lineHeight: 20,
+  },
+  smartStepsMore: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginTop: 4,
+    marginLeft: 30,
+    fontStyle: 'italic',
+  },
+  smartSaveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8BA888',
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 8,
+  },
+  smartSaveBtnPressed: {
+    backgroundColor: '#7A9777',
+  },
+  smartSaveBtnDisabled: {
+    backgroundColor: '#C4C4C4',
+  },
+  smartSaveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
