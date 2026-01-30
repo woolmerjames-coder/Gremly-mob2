@@ -64,6 +64,7 @@
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.8",
     "expo-web-browser": "~15.0.10",
+    "inngest": "3.49.3",
     "lottie-react-native": "7.3.4",
     "lucide-react-native": "0.545.0",
     "nanoid": "5.1.6",

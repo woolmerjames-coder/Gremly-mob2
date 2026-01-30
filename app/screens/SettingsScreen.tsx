@@ -9,7 +9,7 @@ import React, { useState, useLayoutEffect } from 'react';
 import { View, Text, StyleSheet, Switch, Pressable, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Brain } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
@@ -163,6 +163,27 @@ export default function SettingsScreen() {
           <CalendarConnectionsCard />
         </View>
 
+        {/* What Gremly Knows */}
+        <Pressable
+          style={styles.settingsRow}
+          onPress={() => navigation.navigate('WhatGremlyKnows' as never)}
+        >
+          <View style={styles.settingsRowLeft}>
+            <Brain size={20} color={BRAND.colors.mossGreen} />
+            <View style={styles.settingsRowTextContainer}>
+              <Text style={styles.settingsRowTitle}>What Gremly Knows</Text>
+              <Text style={styles.settingsRowSubtitle}>
+                View and edit what Gremly has learned about you
+              </Text>
+            </View>
+          </View>
+          <ChevronLeft
+            size={20}
+            color={colors.text.tertiary}
+            style={{ transform: [{ rotate: '180deg' }] }}
+          />
+        </Pressable>
+
         {/* Save Button */}
         <Pressable style={styles.saveButton} onPress={handleSave}>
           <Text style={styles.saveButtonText}>Save</Text>
@@ -248,5 +269,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-Medium',
     color: colors.white,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.border.DEFAULT,
+  },
+  settingsRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  settingsRowTextContainer: {
+    marginLeft: spacing.md,
+    flex: 1,
+  },
+  settingsRowTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: BRAND.colors.charcoalInk,
+  },
+  settingsRowSubtitle: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: colors.text.secondary,
+    marginTop: 2,
   },
 });
