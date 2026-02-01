@@ -2799,9 +2799,14 @@ const AnimatedMindDropCard = React.memo<{
     // MULTI-DROP EARLY RETURN: Show multi-card immediately, even during pending/enriching
     // Multi-drops have enough info from Phase 0 to render the multi-card shape
     // This bypasses skeleton states so the multi-card appears at ~2s (Phase 0) not ~5s (Phase 1+2)
-    // CLARIFICATION ITEMS: Skip all animation states, go straight to complete
-    // This prevents the typewriter from animating before showing the clarify layout
-    if (needsClarification) {
+    // Check if clarification is being processed (user just selected an option)
+    const clarificationProcessing =
+      item.views?.clarification_processing === true || item.views?.ai_pending === true;
+
+    // CLARIFICATION ITEMS: Skip animation states UNLESS processing
+    // - needsClarification && !processing → show clarify card (skip skeleton)
+    // - needsClarification && processing → show skeleton (user just selected option)
+    if (needsClarification && !clarificationProcessing) {
       // Fall through to complete card render below
     } else if (isMulti) {
       // Fall through to complete card render below (skip skeleton states)
@@ -2982,7 +2987,7 @@ const AnimatedMindDropCard = React.memo<{
                 }}
               />
               <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
-                Gremly has a question — tap to clarify
+                Gremly has a question, tap to clarify
               </Text>
             </View>
           ) : (
@@ -3006,8 +3011,12 @@ const AnimatedMindDropCard = React.memo<{
                 onChipAnimationComplete={handleChipAnimationComplete}
               />
             )}
-            {/* Spacer when chips are hidden */}
-            {needsClarification && <View style={{ flex: 1 }} />}
+            {/* Left side helper text when clarification needed */}
+            {needsClarification && (
+              <Text style={{ flex: 1, fontSize: 12, color: '#8E9C8E', marginLeft: 34 }}>
+                no pressure, can sweep it later
+              </Text>
+            )}
             {/* Right side: photo icon + timestamp */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
