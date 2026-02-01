@@ -191,6 +191,9 @@ export interface Phase1Result {
   /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
   ambiguity_reason?: string | null;
 
+  /** Type of ambiguity: bucket, action, or date_type */
+  ambiguity_type?: 'bucket' | 'action' | 'date_type' | null;
+
   // ──────────────────────────────────────────────────────────────────────────
   // Phase 1.5: Clarification fields (populated asynchronously in background)
   // ──────────────────────────────────────────────────────────────────────────

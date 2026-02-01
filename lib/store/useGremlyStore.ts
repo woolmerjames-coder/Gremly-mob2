@@ -585,6 +585,12 @@ interface GremlyState {
     },
   ) => void;
   updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
+  /** Atomically update a specific segment in a multi-drop (avoids race conditions in parallel updates) */
+  updateMultiSegment: (
+    localId: string,
+    segmentIndex: number,
+    updates: Partial<PendingDropSegment>,
+  ) => void;
   /** Update clarification fields on a synced entity by its drop_id (for Phase 1.5 race condition) */
   updateEntityClarificationByDropId: (
     dropId: string,
@@ -4260,6 +4266,41 @@ export const useGremlyStore = create<GremlyState>()(
       });
     },
 
+    updateMultiSegment: (
+      localId: string,
+      segmentIndex: number,
+      updates: Partial<PendingDropSegment>,
+    ) => {
+      set((state) => {
+        const drop = state.pendingDrops.get(localId);
+        if (!drop) {
+          console.warn('[GremlyStore] updateMultiSegment: drop not found', {
+            localId,
+            segmentIndex,
+          });
+          return state;
+        }
+        if (!drop.multiSegments || segmentIndex >= drop.multiSegments.length) {
+          console.warn('[GremlyStore] updateMultiSegment: invalid segment index', {
+            localId,
+            segmentIndex,
+            segmentCount: drop.multiSegments?.length ?? 0,
+          });
+          return state;
+        }
+
+        // Atomic read-modify-write: read multiSegments INSIDE the set() function
+        const updatedSegments = [...drop.multiSegments];
+        updatedSegments[segmentIndex] = { ...updatedSegments[segmentIndex], ...updates };
+
+        const updated: PendingDrop = { ...drop, multiSegments: updatedSegments };
+        const newPending = new Map(state.pendingDrops);
+        newPending.set(localId, updated);
+
+        return { pendingDrops: newPending };
+      });
+    },
+
     /**
      * Update clarification fields on a synced entity by its drop_id.
      * This handles the race condition where Phase 1.5 completes after the drop
@@ -4324,8 +4365,43 @@ export const useGremlyStore = create<GremlyState>()(
 
     promotePendingDropToEntity: (localId: string, supabaseId: string) => {
       set((state) => {
+        const pendingDrop = state.pendingDrops.get(localId);
         const newPending = new Map(state.pendingDrops);
         newPending.delete(localId);
+
+        // Transfer clarification data to the local entity if Phase 1.5 completed
+        if (pendingDrop?.clarification_question && pendingDrop?.clarification_options?.length) {
+          // Find and update the entity in the appropriate array
+          const bucket = pendingDrop.bucket || 'log';
+          const clarificationData = {
+            clarification_question: pendingDrop.clarification_question,
+            clarification_options: pendingDrop.clarification_options,
+          };
+
+          if (bucket === 'todo') {
+            return {
+              pendingDrops: newPending,
+              todos: state.todos.map((t) =>
+                t.id === supabaseId ? { ...t, ...clarificationData } : t,
+              ),
+            };
+          } else if (bucket === 'habit') {
+            return {
+              pendingDrops: newPending,
+              habits: state.habits.map((h) =>
+                h.id === supabaseId ? { ...h, ...clarificationData } : h,
+              ),
+            };
+          } else {
+            return {
+              pendingDrops: newPending,
+              notes: state.notes.map((n) =>
+                n.id === supabaseId ? { ...n, ...clarificationData } : n,
+              ),
+            };
+          }
+        }
+
         return { pendingDrops: newPending };
       });
       console.log('[GremlyStore] Promoted pending drop to entity', { localId, supabaseId });
@@ -4392,6 +4468,13 @@ export const useGremlyStore = create<GremlyState>()(
         });
         console.log('[GremlyStore] Set clarification_processing: true for pending drop:', localId);
 
+        // Get bucket/subtype from the selected option (if not free text)
+        const selectedOption = isFreeText
+          ? null
+          : pendingDrop.clarification_options?.find((opt) => opt.id === optionId);
+        const selectedBucket = selectedOption?.action?.bucket || null;
+        const selectedSubtype = selectedOption?.action?.subtype || null;
+
         // Call reclassify endpoint to get bucket, dates, time estimate
         try {
           const cortexUrl = env.cortexUrl;
@@ -4403,6 +4486,8 @@ export const useGremlyStore = create<GremlyState>()(
                 type: 'reclassify-after-clarification',
                 text: pendingDrop.text || pendingDrop.smartTitle || '',
                 selectedLabel: selectedLabel,
+                selectedBucket: selectedBucket,
+                selectedSubtype: selectedSubtype,
                 currentDate: getDateService().getCurrentDate(),
                 targetBucket: pendingDrop.bucket, // Hint for time estimation
               }),
@@ -4515,12 +4600,17 @@ export const useGremlyStore = create<GremlyState>()(
         return;
       }
 
-      // Get clarification options from views (where they're stored)
-      // Options now just have id and label (no action.bucket)
+      // Get views from entity for use throughout this function
       const views = entity.views as Record<string, unknown> | undefined;
-      const clarificationOptions = views?.clarification_options as
-        | Array<{ id: string; label: string }>
-        | undefined;
+
+      // Get clarification options - check both direct property and views
+      const clarificationOptions =
+        ((entity as Record<string, unknown>).clarification_options as
+          | Array<{ id: string; label: string; action?: any }>
+          | undefined) ||
+        ((entity.views as Record<string, unknown> | undefined)?.clarification_options as
+          | Array<{ id: string; label: string; action?: any }>
+          | undefined);
 
       // Determine the selected label based on whether it's free text or a predefined option
       let selectedLabel: string;
@@ -4639,6 +4729,15 @@ export const useGremlyStore = create<GremlyState>()(
         latency_ms?: number;
       } = {};
 
+      // Get bucket/subtype from the selected option (if not free text)
+      const selectedOption = isFreeText
+        ? null
+        : clarificationOptions?.find((opt) => opt.id === optionId);
+      const selectedBucket =
+        (selectedOption as { action?: { bucket?: string } } | null)?.action?.bucket || null;
+      const selectedSubtype =
+        (selectedOption as { action?: { subtype?: string } } | null)?.action?.subtype || null;
+
       try {
         const cortexUrl = env.cortexUrl;
         if (cortexUrl) {
@@ -4650,6 +4749,8 @@ export const useGremlyStore = create<GremlyState>()(
               type: 'reclassify-after-clarification',
               text: originalText,
               selectedLabel: selectedLabel,
+              selectedBucket: selectedBucket,
+              selectedSubtype: selectedSubtype,
               currentDate: getDateService().getCurrentDate(),
               targetBucket: currentBucket, // Hint for time estimation
             }),
@@ -5353,7 +5454,7 @@ export const useGremlyStore = create<GremlyState>()(
         console.error('[GremlyStore] Bucket change failed:', error);
         // Fall back to just updating clarification status
         const updatedViews: Record<string, unknown> = {
-          ...(views || {}),
+          ...((entity.views as Record<string, unknown>) || {}),
           needs_clarification: false,
           clarification_resolved: true,
           bucket_change_failed: true,

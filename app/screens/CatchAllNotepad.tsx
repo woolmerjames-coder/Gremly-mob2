@@ -2572,6 +2572,7 @@ const AnimatedMindDropCard = React.memo<{
     entityType: 'note' | 'todo' | 'habit';
     question: string | null; // null = Phase 1.5 still loading
     options: Array<{ id: string; label: string; action: any }> | null; // null = loading
+    originalText?: string | null; // The original drop text to show context
   }) => void;
 }>(
   ({
@@ -2871,6 +2872,9 @@ const AnimatedMindDropCard = React.memo<{
           (item as any)?.clarification_question || (item.views as any)?.clarification_question;
         const options =
           (item as any)?.clarification_options || (item.views as any)?.clarification_options;
+        // Get original text for context display
+        const originalText =
+          (item as any)?.text || (item.views as any)?.text || item.title || item.text;
 
         // console.log('[AnimatedMindDropCard] Opening clarification popup', {
         //   itemId: item.id,
@@ -2884,6 +2888,7 @@ const AnimatedMindDropCard = React.memo<{
           entityType: item.kind,
           question: question || null,
           options: options || null,
+          originalText: originalText || null,
         });
         return; // Don't open the full overlay
       }

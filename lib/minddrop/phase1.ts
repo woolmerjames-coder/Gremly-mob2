@@ -26,7 +26,7 @@ export interface ClassifyContext {
 
 // --- Helpers ---
 
-const PHASE1_TIMEOUT_MS = 4000;
+const PHASE1_TIMEOUT_MS = 8000;
 
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
 
@@ -224,6 +224,7 @@ export async function runPhase1(
     // Ambiguity detection (triggers Phase 1.5 in background)
     is_ambiguous: apiResult.is_ambiguous || false,
     ambiguity_reason: apiResult.ambiguity_reason || null,
+    ambiguity_type: apiResult.ambiguity_type || null,
     // Legacy clarification fields (may be populated by Phase 1.5 later)
     needs_clarification: apiResult.needs_clarification || false,
     clarification_type: apiResult.clarification_type || null,
@@ -244,6 +245,7 @@ export async function runPhase1(
     // Ambiguity detection (triggers Phase 1.5 in background)
     is_ambiguous: apiResult.is_ambiguous || false,
     ambiguity_reason: apiResult.ambiguity_reason || null,
+    ambiguity_type: apiResult.ambiguity_type || null,
     // Clarification fields (populated by Phase 1.5 asynchronously)
     needs_clarification: apiResult.needs_clarification || false,
     clarification_type: apiResult.clarification_type || null,

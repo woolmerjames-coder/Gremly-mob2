@@ -383,7 +383,7 @@ async function synthesizePatterns(input, apiKey) {
           .join(', ')
       : 'No mood data';
 
-  const prompt = `Analyze this user's productivity data and write a brief profile (~100-150 words).
+  const prompt = `You are writing notes for a supportive companion about someone they care about.
 
 DATA:
 - Todos: ${input.todoCount} total, ${input.completedCount} completed or archived (90 days)
@@ -391,14 +391,20 @@ DATA:
 - Mood patterns: ${moodSummary}
 - Life areas: ${input.spaces.join(', ') || 'None defined'}
 
-RULES:
-- Never sound judgmental
-- Use neutral framing ("often gets rescheduled" not "avoids")
-- Focus on patterns, not character
-- Be specific — use their data
-- ~100-150 words, no headers
+Write a warm, supportive profile (~100-150 words) that:
+1. Leads with what they care about (interests, life areas) — not metrics
+2. Treats low habit completion as totally normal for new habits
+3. Highlights any positive patterns, however small
+4. If there is struggle, frame it as "building" or "working on"
 
-Output ONLY the profile text.`;
+EXAMPLES (good vs bad):
+❌ "Struggling to engage with wellness habits, lots of unmet commitments"
+✅ "Building several wellness habits — all still early. Showing up for meditation most consistently."
+
+❌ "Low completion rate suggests difficulty following through"
+✅ "Has a lot on their plate across work and personal life — still finding their rhythm"
+
+Output ONLY the profile text, no headers.`;
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',

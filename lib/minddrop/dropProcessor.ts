@@ -106,8 +106,9 @@ function extractTemporal(text: string): string | null {
 async function runPhase1_5InBackground(
   localId: string,
   text: string,
-  ambiguityReason: string,
+  ambiguityType: string,
   bucket: MindDropBucket,
+  userSpaces: string[] = [],
 ): Promise<void> {
   const startTime = Date.now();
   const cortexUrl = readCortexUrl();
@@ -115,7 +116,9 @@ async function runPhase1_5InBackground(
 
   console.log('[DropProcessor] Phase 1.5 starting in background', {
     localId,
-    ambiguityReason,
+    text: text?.substring(0, 30),
+    ambiguityType,
+    bucket,
   });
 
   if (!cortexUrl || !anonKey) {
@@ -136,10 +139,11 @@ async function runPhase1_5InBackground(
       body: JSON.stringify({
         type: 'clarify-ambiguity',
         text,
-        ambiguityReason,
+        ambiguityType,
         detectedTemporal,
         currentDate,
         targetBucket: bucket,
+        userSpaces,
       }),
     });
 
@@ -154,18 +158,33 @@ async function runPhase1_5InBackground(
     console.log('[DropProcessor] Phase 1.5 complete', {
       localId,
       success: phase1_5Result.success,
-      question: phase1_5Result.question?.substring(0, 30),
+      reason: phase1_5Result.reason,
+      question: phase1_5Result.clarification_question?.substring(0, 30),
       options_count: phase1_5Result.options?.length,
       latency_ms: latencyMs,
     });
 
     if (phase1_5Result.success && phase1_5Result.options?.length >= 2) {
+      // Map options from worker format to client format
+      // Worker returns: { id, label, bucket, subtype, space_suggestion }
+      // Client expects: { id, label, action: { bucket, subtype, target_date, scheduled_date } }
       const clarificationOptions = phase1_5Result.options.map(
-        (opt: { id: string; label: string }) => ({
+        (opt: {
+          id: string;
+          label: string;
+          bucket: string;
+          subtype: string | null;
+          space_suggestion: string | null;
+        }) => ({
           id: opt.id,
           label: opt.label,
-          // Action will be determined by reclassify endpoint when user selects
-          action: { bucket, target_date: false, scheduled_date: false },
+          action: {
+            bucket: opt.bucket || bucket,
+            subtype: opt.subtype || null,
+            target_date: false,
+            scheduled_date: false,
+          },
+          space_suggestion: opt.space_suggestion || null,
         }),
       );
 
@@ -175,7 +194,7 @@ async function runPhase1_5InBackground(
       if (pendingDrop) {
         // Pending drop still exists - update it directly
         useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-          clarification_question: phase1_5Result.question,
+          clarification_question: phase1_5Result.clarification_question,
           clarification_options: clarificationOptions,
         });
 
@@ -190,7 +209,7 @@ async function runPhase1_5InBackground(
         });
 
         const updated = await useGremlyStore.getState().updateEntityClarificationByDropId(localId, {
-          question: phase1_5Result.question,
+          question: phase1_5Result.clarification_question,
           options: clarificationOptions,
         });
 
@@ -727,23 +746,61 @@ export async function processDrop(
       // THEN run Phase 1 on each segment for accurate classification (async, ~2s more)
       const classifiedSegments = await Promise.all(
         multiResult.segments.map(async (seg, index) => {
-          const phase1 = await runPhase1(seg.text, { hasAttachments: false });
+          const segmentStartTime = Date.now();
+          console.log('[DropProcessor:MultiPhase1] Starting segment', {
+            localId,
+            index,
+            text: seg.text.substring(0, 30),
+          });
+
+          let phase1;
+          try {
+            phase1 = await runPhase1(seg.text, { hasAttachments: false });
+          } catch (err) {
+            console.error('[DropProcessor:MultiPhase1] Segment Phase1 failed', {
+              localId,
+              index,
+              error: String(err),
+              elapsed: Date.now() - segmentStartTime,
+            });
+            // Return a fallback instead of throwing
+            phase1 = {
+              bucket: (seg.likely_bucket || 'log') as 'todo' | 'habit' | 'log',
+              subtype: (seg.likely_subtype || null) as 'journal' | 'idea' | 'general' | null,
+              habitSubtype: null,
+              smart_title: null,
+              confirmation_message: null,
+            };
+          }
+
+          console.log('[DropProcessor:MultiPhase1] Segment complete', {
+            localId,
+            index,
+            bucket: phase1.bucket,
+            smartTitle: phase1.smart_title?.substring(0, 20),
+            elapsed: Date.now() - segmentStartTime,
+          });
 
           // Update this segment in Zustand as Phase 1 confirms it
-          const currentDrop = useGremlyStore.getState().pendingDrops.get(localId);
-          if (currentDrop?.multiSegments) {
-            const updatedSegments = [...currentDrop.multiSegments];
-            updatedSegments[index] = {
-              ...updatedSegments[index],
+          // Use atomic updateMultiSegment to avoid race conditions with parallel updates
+          try {
+            useGremlyStore.getState().updateMultiSegment(localId, index, {
               bucket: phase1.bucket,
               subtype: phase1.subtype,
               confirmed: true, // Now confirmed by Phase 1
-              // Store Phase 1's smart_title and confirmation_message for split/keep actions
               smartTitle: phase1.smart_title ?? null,
               confirmationMessage: phase1.confirmation_message ?? null,
-            };
-            useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-              multiSegments: updatedSegments,
+            });
+            console.log('[DropProcessor:MultiPhase1] Zustand updated for segment', {
+              localId,
+              index,
+              confirmed: true,
+            });
+          } catch (storeErr) {
+            console.error('[DropProcessor:MultiPhase1] Zustand update failed', {
+              localId,
+              index,
+              error: String(storeErr),
             });
           }
 
@@ -869,8 +926,15 @@ export async function processDrop(
     // =========================================
 
     // Fire and forget - Phase 1.5 runs in background, Phase 2 starts immediately
-    if (phase1Result.is_ambiguous && phase1Result.ambiguity_reason) {
-      runPhase1_5InBackground(localId, text, phase1Result.ambiguity_reason, phase1Result.bucket);
+    if (phase1Result.is_ambiguous && phase1Result.ambiguity_type) {
+      const spaceNames = Array.from(useGremlyStore.getState().spaces.values()).map((s) => s.name);
+      runPhase1_5InBackground(
+        localId,
+        text,
+        phase1Result.ambiguity_type,
+        phase1Result.bucket,
+        spaceNames,
+      );
     }
 
     // CHECKPOINT 1: Save classification results (ambiguity fields saved, options come later)
