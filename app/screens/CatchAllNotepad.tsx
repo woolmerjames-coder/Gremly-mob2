@@ -2597,10 +2597,11 @@ const AnimatedMindDropCard = React.memo<{
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
 
     // Check if item needs clarification (for special styling)
+    // Use truthy check (not strict ===) to match getConfirmationMessage
     const needsClarification =
-      (item.views?.needs_clarification === true || item.needs_clarification === true) &&
-      item.clarification_resolved !== true &&
-      item.views?.clarification_resolved !== true;
+      (item.views?.needs_clarification || item.needs_clarification) &&
+      !item.clarification_resolved &&
+      !item.views?.clarification_resolved;
 
     // DEBUG: Track component mount/unmount (disabled to reduce Metro noise)
     // React.useEffect(() => {
@@ -2798,7 +2799,11 @@ const AnimatedMindDropCard = React.memo<{
     // MULTI-DROP EARLY RETURN: Show multi-card immediately, even during pending/enriching
     // Multi-drops have enough info from Phase 0 to render the multi-card shape
     // This bypasses skeleton states so the multi-card appears at ~2s (Phase 0) not ~5s (Phase 1+2)
-    if (isMulti) {
+    // CLARIFICATION ITEMS: Skip all animation states, go straight to complete
+    // This prevents the typewriter from animating before showing the clarify layout
+    if (needsClarification) {
+      // Fall through to complete card render below
+    } else if (isMulti) {
       // Fall through to complete card render below (skip skeleton states)
     } else {
       // Phase 1: Still creating entity - show raw text with skeleton for secondary fields

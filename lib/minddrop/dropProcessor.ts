@@ -945,17 +945,20 @@ export async function processDrop(
       habitSubtype: phase1Result.habitSubtype,
       confidence: phase1Result.confidence,
       // Phase 1 now returns early enrichment fields for faster typewriter animation
-      ...(phase1Result.smart_title && { smartTitle: phase1Result.smart_title }),
-      ...(phase1Result.confirmation_message && {
-        confirmationMessage: phase1Result.confirmation_message,
-      }),
+      // BUT: Don't set these for ambiguous items - they go straight to clarify state
+      ...(!phase1Result.is_ambiguous &&
+        phase1Result.smart_title && { smartTitle: phase1Result.smart_title }),
+      ...(!phase1Result.is_ambiguous &&
+        phase1Result.confirmation_message && {
+          confirmationMessage: phase1Result.confirmation_message,
+        }),
       // Ambiguity detection (Phase 1.5 populates question/options in background)
-      needsClarification: phase1Result.is_ambiguous || false,
-      ambiguityReason: phase1Result.ambiguity_reason || null,
+      needs_clarification: phase1Result.is_ambiguous || false,
+      ambiguity_reason: phase1Result.ambiguity_reason || null,
       // Options will be populated by Phase 1.5 asynchronously
-      clarificationType: null,
-      clarificationQuestion: null,
-      clarificationOptions: null,
+      clarification_type: null,
+      clarification_question: null,
+      clarification_options: null,
       status: 'classified', // Clear checkpoint status
     });
 
