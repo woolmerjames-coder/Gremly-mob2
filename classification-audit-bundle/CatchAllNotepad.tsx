@@ -923,12 +923,6 @@ function getMindDropVisualState(entity: {
 }): MindDropVisualState {
   const views = entity.views ?? {};
 
-  // Phase 1.5a streaming - title/confirmation arriving, show typewriter
-  // CHECK THIS FIRST - streaming should override ai_pending
-  if (views.minddrop_stage === 'streaming') {
-    return 'streaming';
-  }
-
   // Clarification processing - user just selected an option, API calls in progress
   if (views.clarification_processing === true || views.ai_pending === true) {
     return 'enriching';
@@ -942,6 +936,11 @@ function getMindDropVisualState(entity: {
   // Phase 2 in progress - entity exists, show enriching animation
   if (views.minddrop_stage === 'enriching') {
     return 'enriching';
+  }
+
+  // Phase 2 streaming - fields arriving progressively
+  if (views.minddrop_stage === 'streaming') {
+    return 'streaming';
   }
 
   // Explicitly failed

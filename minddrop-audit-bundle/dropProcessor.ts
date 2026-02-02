@@ -32,28 +32,6 @@ import { buildTodoFields } from '../cortex/textNormalization';
 import { parseFrequencyString } from '../habits/frequencyUtils';
 import { env, getEnv } from '../env';
 
-/**
- * Quick heuristic check: could this text possibly be multi-entity?
- * If no delimiters, skip multi detection entirely.
- */
-function mightBeMulti(text: string): boolean {
-  const lower = text.toLowerCase();
-  return (
-    lower.includes(',') ||
-    lower.includes('.') ||
-    lower.includes(';') ||
-    lower.includes(' and ') ||
-    lower.includes(' also ') ||
-    lower.includes(' then ') ||
-    lower.includes(' plus ') ||
-    lower.includes(' as well') ||
-    lower.includes(' but ') ||
-    lower.includes('+') ||
-    lower.includes(' & ') ||
-    lower.includes('\n')
-  );
-}
-
 // --- Types ---
 
 /** Phase 2 enrichment result (metadata fields only, no smart_title/confirmation_message) */
@@ -765,59 +743,14 @@ export async function processDrop(
 
   try {
     // =========================================
-    // GATE: Check if multi detection needed
-    // =========================================
-    const shouldCheckMulti = mightBeMulti(text);
-
-    console.log('[DropProcessor] Gate check', {
-      localId,
-      shouldCheckMulti,
-      elapsed: Date.now() - startTime,
-    });
-
-    // =========================================
-    // PARALLEL EXECUTION: Multi + Pre-phase
+    // PHASE 0: Multi-entity detection
+    // NO AsyncStorage save here (not worth checkpoint)
     // =========================================
 
-    let multiResult: {
-      is_multi: boolean;
-      segments?: { text: string; likely_bucket?: string; likely_subtype?: string }[];
-      summary?: string;
-      dominant_bucket?: string;
-      dominant_subtype?: string;
-    } = { is_multi: false };
-    let phase1Result: Awaited<ReturnType<typeof runPhase1>>;
+    const multiResult = await detectMulti(text);
 
-    if (shouldCheckMulti) {
-      // Run multi detection AND pre-phase in parallel
-      const [multiRes, phase1Res] = await Promise.all([
-        detectMulti(text),
-        runPhase1(text, { hasAttachments: false }),
-      ]);
+    console.log('[DropProcessor] Phase 0 timing', { localId, elapsed: Date.now() - startTime });
 
-      multiResult = multiRes;
-      phase1Result = phase1Res;
-
-      console.log('[DropProcessor] Parallel complete', {
-        localId,
-        isMulti: multiResult.is_multi,
-        bucket: phase1Result.bucket,
-        elapsed: Date.now() - startTime,
-      });
-    } else {
-      // No delimiters - skip multi, just run pre-phase
-      phase1Result = await runPhase1(text, { hasAttachments: false });
-
-      console.log('[DropProcessor] Pre-phase only (no delimiters)', {
-        localId,
-        bucket: phase1Result.bucket,
-        elapsed: Date.now() - startTime,
-      });
-    }
-
-    // =========================================
-    // MULTI PATH: If multi detected
-    // =========================================
     if (multiResult.is_multi && multiResult.segments && multiResult.segments.length > 1) {
       console.log('[DropProcessor] Multi-entity detected', {
         localId,
@@ -874,13 +807,8 @@ export async function processDrop(
           });
 
           let phase1;
-          let phase15a: { smart_title: string | null; confirmation_message: string | null } | null =
-            null;
           try {
             phase1 = await runPhase1(seg.text, { hasAttachments: false });
-
-            // Get title and confirmation from Phase 1.5a (Phase 1 no longer returns these)
-            phase15a = await runPhase1_5a(seg.text, phase1.bucket, phase1.subtype);
           } catch (err) {
             console.error('[DropProcessor:MultiPhase1] Segment Phase1 failed', {
               localId,
@@ -898,16 +826,11 @@ export async function processDrop(
             };
           }
 
-          // Use Phase 1.5a results if available, otherwise fallback to Phase 1
-          const smartTitle = phase15a?.smart_title ?? phase1.smart_title ?? null;
-          const confirmationMessage =
-            phase15a?.confirmation_message ?? phase1.confirmation_message ?? null;
-
           console.log('[DropProcessor:MultiPhase1] Segment complete', {
             localId,
             index,
             bucket: phase1.bucket,
-            smartTitle: smartTitle?.substring(0, 20),
+            smartTitle: phase1.smart_title?.substring(0, 20),
             elapsed: Date.now() - segmentStartTime,
           });
 
@@ -918,8 +841,8 @@ export async function processDrop(
               bucket: phase1.bucket,
               subtype: phase1.subtype,
               confirmed: true, // Now confirmed by Phase 1
-              smartTitle: smartTitle,
-              confirmationMessage: confirmationMessage,
+              smartTitle: phase1.smart_title ?? null,
+              confirmationMessage: phase1.confirmation_message ?? null,
             });
             console.log('[DropProcessor:MultiPhase1] Zustand updated for segment', {
               localId,
@@ -939,9 +862,9 @@ export async function processDrop(
             bucket: phase1.bucket,
             subtype: phase1.subtype,
             habitSubtype: phase1.habitSubtype,
-            // Use Phase 1.5a's smart_title and confirmation_message
-            smart_title: smartTitle,
-            confirmation_message: confirmationMessage,
+            // Include Phase 1's smart_title and confirmation_message
+            smart_title: phase1.smart_title ?? null,
+            confirmation_message: phase1.confirmation_message ?? null,
           };
         }),
       );
@@ -999,9 +922,11 @@ export async function processDrop(
     callbacks?.onPhase0Complete?.(localId, false);
 
     // =========================================
-    // SINGLE PATH: Use pre-phase result (already computed)
+    // PHASE 1: Classification
     // CHECKPOINT 1: Save after Phase 1 (expensive AI work)
     // =========================================
+
+    const phase1Result = await runPhase1(text, { hasAttachments: false });
 
     console.log('[DropProcessor] Phase 1 complete', {
       localId,
@@ -1105,13 +1030,6 @@ export async function processDrop(
           smartTitle: phase15aResult.smart_title || undefined,
           confirmationMessage: phase15aResult.confirmation_message || undefined,
           minddrop_stage: 'streaming', // Triggers card reveal animation
-        });
-
-        console.log('🔵 [DropProcessor] Phase 1.5a: Updated Zustand with streaming state', {
-          localId,
-          smartTitle: phase15aResult.smart_title?.substring(0, 30),
-          minddrop_stage: 'streaming',
-          timestamp: Date.now(),
         });
 
         // CRITICAL: Yield to the event loop so React can render the 'streaming' state

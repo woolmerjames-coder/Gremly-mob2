@@ -163,24 +163,8 @@ export interface Phase1Result {
   /** Classification confidence score (0-1) */
   confidence: number;
 
-  /**
-   * Source of the classification:
-   * - 'heuristic': Fast-path via preparse+heuristic mapping (no Phase 1 AI)
-   * - 'api': Full Phase 1 AI classification
-   * - 'heuristic-confirmed': Phase 1 AI agreed with heuristic
-   * - 'heuristic-fallback': Fallback when API unavailable/timed out
-   * - 'preparse-fallback': Preparse failed, returned safe default
-   * - 'phase1-fallback': Phase 1 call failed after preparse succeeded
-   * - 'phase1-error-fallback': Phase 1 threw an error
-   */
-  source:
-    | 'heuristic'
-    | 'api'
-    | 'heuristic-confirmed'
-    | 'heuristic-fallback'
-    | 'preparse-fallback'
-    | 'phase1-fallback'
-    | 'phase1-error-fallback';
+  /** Source of the classification */
+  source: 'heuristic' | 'api' | 'heuristic-confirmed' | 'heuristic-fallback';
 
   /** True if multiple items were detected in the input */
   is_multi: boolean;

@@ -127,761 +127,6 @@ import { getAgeGuidance } from './context/gremlyAge.js';
 import { getSpaceContent, buildSpaceContentString } from './context/spaceContent.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// PRE-PHASE SEMANTIC PARSE TYPES
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Pre-Phase Semantic Parse Result
- *
- * Extracts structural and semantic facts from user input WITHOUT classifying.
- * Used by the heuristic mapping function to determine bucket.
- *
- * Design principle: Parse structure, don't classify. When uncertain, return "uncertain".
- *
- * @typedef {Object} PrePhaseParseResult
- *
- * @property {string|null} core_verb
- * The main action verb the user would "do" (not auxiliaries like "need", "want", "have").
- * Extract the verb they would actually perform.
- * Examples:
- * - "buy milk" → "buy"
- * - "need to call mom" → "call"
- * - "thinking about starting yoga" → "start" (or "do yoga")
- * - "passport renewal" → null (noun phrase, no verb)
- * - "feeling overwhelmed" → null (state, not action)
- *
- * @property {"start"|"after_hedge"|"after_obligation"|"inside_hypothetical"|"none"} verb_position
- * Where the core verb appears relative to other structural elements.
- * - "start": Verb is at/near beginning, imperative feel ("call mom", "buy groceries")
- * - "after_hedge": Verb follows hedging language ("maybe start running", "might try yoga")
- * - "after_obligation": Verb follows obligation framing ("need to call", "have to finish")
- * - "inside_hypothetical": Verb is in hypothetical frame ("what if I started", "wonder if I should")
- * - "none": No core verb present
- *
- * @property {"directing"|"exploring"|"processing"|"factual"|"uncertain"} frame_type
- * The overall communicative frame of the input.
- * - "directing": User commanding themselves to act ("call mom", "buy groceries", "finish report")
- * - "exploring": Floating possibilities, wondering, brainstorming ("maybe yoga?", "what if I tried...")
- * - "processing": Working through feelings/experiences ("feeling stressed about work", "had a rough day")
- * - "factual": Stating information about the world ("meeting at 3pm", "john's birthday is friday")
- * - "uncertain": Cannot determine the frame
- *
- * @property {boolean|"uncertain"} has_completion_point
- * Could the user say "I'm done with this" at some point?
- * - true: Clear end state exists ("buy milk" → bought, "call mom" → called)
- * - false: Ongoing/continuous ("be healthier", "feel better")
- * - "uncertain": Can't determine
- *
- * @property {boolean} uncertainty_present
- * Is there hedging, doubt, or tentative language?
- * Examples: "maybe", "might", "not sure", "possibly", "thinking about", "could"
- *
- * @property {"verb"|"object_details"|"entire_proposition"|null} uncertainty_target
- * WHAT is uncertain - critical for distinguishing ambiguous from committed.
- * - "verb": Uncertain WHETHER to do the action ("maybe start running", "might try yoga")
- * - "object_details": Committed to act but uncertain about specifics ("buy a gift, maybe book or scarf")
- * - "entire_proposition": Whole thing is hypothetical ("what if I moved to Spain")
- * - null: No uncertainty present
- *
- * @property {boolean} obligation_framing
- * Uses obligation/necessity language.
- * Examples: "need to", "have to", "must", "should", "gotta", "ought to"
- *
- * @property {boolean} frequency_present
- * Explicit repetition intent detected.
- * Examples: "daily", "every morning", "twice a week", "on Mondays", "3x per week"
- *
- * @property {"explicit"|"day_names"|"stop_quit"|null} frequency_type
- * Type of frequency signal if present.
- * - "explicit": Clear frequency ("daily", "every morning", "3x per week", "twice a week")
- * - "day_names": Specific days mentioned ("on Tuesdays and Thursdays", "every Monday")
- * - "stop_quit": Cessation language implying ongoing behavior ("stop smoking", "quit caffeine", "cut out sugar")
- * - null: No frequency signal
- *
- * @property {boolean} direction_without_schedule
- * Wanting more/less of something without specifying when/how often.
- * Examples: "drink more water", "be more present", "reduce screen time", "eat healthier"
- * Note: This is a fuzzy aspiration, not a trackable habit.
- *
- * @property {boolean} emotional_content
- * Contains emotional expression, venting, or processing feelings.
- * Examples: "feeling overwhelmed", "so frustrated with work", "grateful for today"
- *
- * @property {boolean} hypothetical_framing
- * Framed as hypothetical or speculative.
- * Examples: "what if", "I wonder if", "could be cool to", "imagine if"
- *
- * @property {boolean} factual_statement
- * Stating a fact about the world (not a task or feeling).
- * Examples: "meeting moved to 3pm", "john's birthday is friday", "rent is due on the 1st"
- *
- * @property {boolean} self_reflection
- * Asking about or analyzing own patterns/feelings.
- * Examples: "why do I always procrastinate", "I notice I feel anxious before meetings"
- *
- * @property {boolean} is_noun_phrase_only
- * Just a noun/noun phrase with no verb or framing.
- * Examples: "passport renewal", "groceries", "mom's birthday gift"
- *
- * @property {"high"|"medium"|"low"} parse_confidence
- * How confident the parse is overall.
- * - "high": Clear structure, unambiguous parsing
- * - "medium": Some structural elements unclear but main parse is solid
- * - "low": Significant uncertainty in the parse
- */
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// PRE-PHASE HEURISTIC MAPPING
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Check if preparse result indicates a committed action.
- *
- * A committed action has:
- * - A core verb (something to DO)
- * - A directing frame OR obligation framing (user is telling themselves to act)
- * - No hedging on whether to do the action (uncertainty may exist on details, but not on the verb itself)
- *
- * @param {PrePhaseParseResult} preparse - The preparse result object
- * @returns {boolean} True if this represents a committed action
- */
-function isCommittedAction(preparse) {
-  // Must have a core verb
-  if (!preparse.core_verb) return false;
-
-  // Must be in a directing frame OR have obligation framing
-  const hasDirectingIntent = preparse.frame_type === 'directing' || preparse.obligation_framing;
-  if (!hasDirectingIntent) return false;
-
-  // Must NOT have uncertainty on the verb itself (hedged action)
-  if (preparse.uncertainty_present && preparse.uncertainty_target === 'verb') return false;
-
-  return true;
-}
-
-/**
- * @typedef {Object} FastPathClassification
- * @property {false} needsPhase1 - Fast path taken, no AI needed
- * @property {'todo'|'habit'|'log'} bucket - The determined bucket
- * @property {'journal'|'idea'|'general'|null} subtype - Log subtype if applicable
- * @property {'start_habit'|'break_habit'|null} habitSubtype - Habit subtype if applicable
- */
-
-/**
- * @typedef {Object} NeedsPhase1Classification
- * @property {true} needsPhase1 - Needs Phase 1 AI classification
- * @property {string} reason - Why fast path couldn't be used
- */
-
-/**
- * Map preparse result to a classification decision.
- *
- * This function implements deterministic heuristic mapping from linguistic facts
- * to bucket classification. It either returns a fast-path classification or
- * indicates that Phase 1 AI is needed.
- *
- * The mapping prioritizes:
- * 1. Bail to Phase 1 for low-confidence or ambiguous parses
- * 2. Recognize emotional/reflective content → journal
- * 3. Recognize hypothetical exploration → idea
- * 4. Recognize factual statements → general
- * 5. Recognize frequency + commitment → habit
- * 6. Recognize committed actions → todo
- * 7. Recognize exploration → idea
- * 8. Fallback to Phase 1 if no clear mapping
- *
- * @param {PrePhaseParseResult} preparse - The preparse result object
- * @returns {FastPathClassification|NeedsPhase1Classification} Classification decision
- */
-function mapPreparseToClassification(preparse) {
-  // --- COMMITTED ACTION OVERRIDE (check FIRST) ---
-  // If uncertainty_target is "object_details", the ACTION is committed but details are fuzzy.
-  // This overrides exploring frame and hypothetical_framing - treat as todo.
-  if (preparse.uncertainty_target === 'object_details') {
-    return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-  }
-
-  // --- FAST PATH: Emotional self-reflection is journal ---
-  if (preparse.emotional_content && preparse.self_reflection) {
-    return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
-  }
-
-  // --- FAST PATH: Exploring frame is always an idea ---
-  if (preparse.frame_type === 'exploring') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'idea', habitSubtype: null };
-  }
-
-  // --- BAIL EARLY: Check ambiguous cases ---
-
-  // Vague desire for more/less without concrete measure - needs clarification
-  if (preparse.direction_without_schedule && !preparse.frequency_type) {
-    return { needsPhase1: true, reason: 'direction_without_schedule' };
-  }
-
-  // Noun phrase with no clear factual framing
-  if (preparse.is_noun_phrase_only && !preparse.factual_statement) {
-    return { needsPhase1: true, reason: 'noun_phrase_ambiguous' };
-  }
-
-  // Low confidence parse
-  if (preparse.parse_confidence === 'low') {
-    return { needsPhase1: true, reason: 'low_parse_confidence' };
-  }
-
-  // --- FAST PATH: Strong classification signals ---
-
-  // 1. Factual statement or factual frame → general (strong signal)
-  if (preparse.factual_statement || preparse.frame_type === 'factual') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
-  }
-
-  // 2. Emotional content + processing frame → journal
-  if (preparse.emotional_content && preparse.frame_type === 'processing') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
-  }
-
-  // 3. Self-reflection + processing frame → journal
-  if (preparse.self_reflection && preparse.frame_type === 'processing') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
-  }
-
-  // 4. Frequency (including stop/quit) + commitment → habit
-  if (
-    preparse.frequency_type &&
-    (preparse.frame_type === 'directing' || preparse.obligation_framing)
-  ) {
-    const habitSubtype = preparse.frequency_type === 'stop_quit' ? 'break_habit' : 'start_habit';
-    return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype };
-  }
-
-  // 5. Stop/quit language → habit (backup check)
-  if (preparse.frequency_type === 'stop_quit') {
-    return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype: 'break_habit' };
-  }
-
-  // 6. Directing frame or obligation framing → todo (if no hedging on verb)
-  if (preparse.frame_type === 'directing' || preparse.obligation_framing) {
-    if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
-  }
-
-  // --- BAIL TO PHASE 1: Remaining ambiguous cases ---
-
-  // Uncertain frame with no other signals
-  if (preparse.frame_type === 'uncertain') {
-    return { needsPhase1: true, reason: 'uncertain_frame' };
-  }
-
-  // Hedged action (uncertainty on the verb itself)
-  if (preparse.uncertainty_present && preparse.uncertainty_target === 'verb') {
-    return { needsPhase1: true, reason: 'hedged_action' };
-  }
-
-  // Fallback
-  return { needsPhase1: true, reason: 'no_clear_mapping' };
-}
-
-/**
- * Preparse system prompt - extracted for reuse.
- * @type {string}
- */
-const PREPARSE_SYSTEM_PROMPT = `You are a semantic parser. Extract structural facts from this input. Do not classify it.
-
-Return JSON with these fields:
-
-- core_verb: The main action verb (what the user would DO), or null
-- verb_position: Where the verb appears - "start", "after_hedge", "after_obligation", "inside_hypothetical", or "none"
-- frame_type: What is the user DOING with this thought? "directing" (issuing a command to themselves - the action is decided, they're telling themselves to do it. CRITICAL: If there is a clear action verb at the start and the user is telling themselves to do it, this is "directing" even if there is uncertainty about options, timing, or details), "exploring" (floating a possibility - no commitment made yet, the user is weighing WHETHER to act), "processing" (working through feelings or reflecting), "factual" (stating information to remember), or "uncertain".
-- has_completion_point: true, false, or "uncertain"
-- uncertainty_present: boolean
-- uncertainty_target: "verb" (uncertain WHETHER to do the action), "object_details" (committed to action but uncertain about specifics like which option, where, when, how), "entire_proposition", or null. CRITICAL: Uncertainty about details/options while the action itself is clear = "object_details", not "verb".
-- obligation_framing: boolean
-- frequency_present: boolean
-- frequency_type: "explicit" (daily, weekly, 3x/week), "day_names" (Mondays, weekends), "stop_quit" (stop, quit, no more, give up, break the habit - any language about ceasing a behavior), or null. NOTE: "stop X" or "quit X" or "no X" IS a frequency signal - it means "reduce to zero frequency". Set frequency_present: true when frequency_type is not null.
-- direction_without_schedule: boolean (true ONLY when the user expresses wanting more or less of something without a concrete threshold. NOT true when there is a clear action verb with uncertain details.)
-- emotional_content: boolean
-- hypothetical_framing: boolean - THE STRIP TEST: If you removed all the uncertain or hedging language about details/options, does a committed action remain? If YES → FALSE (this is a committed action with fuzzy details, NOT hypothetical). If NO, the uncertainty IS the content → TRUE (genuinely hypothetical, user is weighing whether to act at all).
-- factual_statement: boolean
-- self_reflection: boolean
-- is_noun_phrase_only: boolean
-- parse_confidence: "high", "medium", or "low"
-
-CRITICAL PRINCIPLE: Uncertainty about WHAT/WHERE/WHEN/WHICH within a committed action is NOT the same as uncertainty about WHETHER to act. An action verb at the start with uncertain details is "directing" with uncertainty_target "object_details" and hypothetical_framing FALSE.
-
-When uncertain about any field, return "uncertain" or the appropriate null value.`;
-
-// Mini-prompt A: Intent & Frame
-const PREPARSE_INTENT_PROMPT = `Extract these facts from the input. Return JSON only.
-
-- frame_type: What is the user DOING with this thought? "directing" (commanding themselves to act), "exploring" (wondering whether to do something), "processing" (working through emotions or reflecting on experience), "factual" (stating complete information where both the subject and its value are present), or "uncertain" (cannot determine intent, including when there is no verb or statement structure).
-- factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present. If only one side exists, this is false. Goals about what to DO are not facts about what IS.
-- is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?`;
-
-// Mini-prompt B: Content Signals
-const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON only.
-
-- emotional_content: Is the user expressing feelings, mood, or emotional state?
-- self_reflection: Is the user examining their own thoughts, patterns, or behavior?
-- frequency_present: Does it reference repetition, recurrence, or cessation? Set true if frequency_type is not null.
-- frequency_type: "explicit" (daily, weekly, every X), "day_names" (ONLY for recurring days - "every Monday", "on Fridays", NOT for deadlines), "stop_quit" (stop, quit, no more), or null. IMPORTANT: "by Friday", "before Tuesday", "this Monday" = one-time deadline = null, NOT day_names.
-- direction_without_schedule: Is the user expressing a desire for MORE or LESS of a BEHAVIOR without specifying a concrete amount or schedule? This only applies to actions. Emotional states are not behaviors. Specific actions with clear scope are not vague desires.`;
-
-// Mini-prompt C: Structure & Confidence
-const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JSON only.
-
-- uncertainty_present: Is there any hedging, questioning, or uncertain language?
-- uncertainty_target: WHERE is uncertainty directed? "verb" (uncertain WHETHER to act), "object_details" (action certain, details fuzzy), "entire_proposition" (whole idea speculative), or null.
-- obligation_framing: Does it use should, need to, must, have to?
-- parse_confidence: "high" (clear), "medium" (some ambiguity), or "low" (very unclear).`;
-
-/**
- * Run a single mini-parse via OpenAI.
- *
- * @param {string} text - The input text to parse
- * @param {Object} env - Environment with OPENAI_API_KEY
- * @param {string} systemPrompt - The system prompt for this mini-parse
- * @returns {Promise<Object>} Parsed JSON result
- */
-async function runPreparseMini(text, env, systemPrompt) {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      temperature: 0.1,
-      max_tokens: 100,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: text.substring(0, 500) },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || '{}';
-  return JSON.parse(content);
-}
-
-/**
- * Run semantic preparse via OpenAI.
- *
- * Extracts structural and semantic facts from input text without classifying.
- * This is used by both the standalone classify-preparse endpoint and the
- * unified classify-phase1-v2 endpoint.
- *
- * @param {string} text - The input text to parse
- * @param {Object} env - Environment with OPENAI_API_KEY
- * @returns {Promise<{success: true, result: PrePhaseParseResult, latency_ms: number} | {success: false, error: string, latency_ms: number}>}
- */
-async function runPreparse(text, env) {
-  const t0 = Date.now();
-
-  try {
-    // Run all three mini-parses in parallel
-    const [intentResult, contentResult, structureResult] = await Promise.all([
-      runPreparseMini(text, env, PREPARSE_INTENT_PROMPT),
-      runPreparseMini(text, env, PREPARSE_CONTENT_PROMPT),
-      runPreparseMini(text, env, PREPARSE_STRUCTURE_PROMPT),
-    ]);
-
-    const latency = Date.now() - t0;
-
-    // Merge and normalize all results
-    const result = {
-      // From intent
-      frame_type: ['directing', 'exploring', 'processing', 'factual', 'uncertain'].includes(
-        intentResult.frame_type,
-      )
-        ? intentResult.frame_type
-        : 'uncertain',
-      factual_statement: Boolean(intentResult.factual_statement),
-      is_noun_phrase_only: Boolean(intentResult.is_noun_phrase_only),
-
-      // From content
-      emotional_content: Boolean(contentResult.emotional_content),
-      self_reflection: Boolean(contentResult.self_reflection),
-      frequency_present: Boolean(contentResult.frequency_present),
-      frequency_type: ['explicit', 'day_names', 'stop_quit'].includes(contentResult.frequency_type)
-        ? contentResult.frequency_type
-        : null,
-      direction_without_schedule: Boolean(contentResult.direction_without_schedule),
-
-      // From structure
-      uncertainty_present: Boolean(structureResult.uncertainty_present),
-      uncertainty_target: ['verb', 'object_details', 'entire_proposition'].includes(
-        structureResult.uncertainty_target,
-      )
-        ? structureResult.uncertainty_target
-        : null,
-      obligation_framing: Boolean(structureResult.obligation_framing),
-      parse_confidence: ['high', 'medium', 'low'].includes(structureResult.parse_confidence)
-        ? structureResult.parse_confidence
-        : 'medium',
-
-      // Removed fields (not used in routing) - set to null/defaults for compatibility
-      core_verb: null,
-      verb_position: 'none',
-      has_completion_point: 'uncertain',
-      hypothetical_framing: false,
-    };
-
-    console.log('[PreParse] Success', { latency_ms: latency });
-    return { success: true, result, latency_ms: latency };
-  } catch (err) {
-    const latency = Date.now() - t0;
-    console.error('[PreParse] Error', { error: String(err), latency_ms: latency });
-    return { success: false, error: String(err), latency_ms: latency };
-  }
-}
-
-/**
- * Get specific reasoning guidance based on the routing reason.
- * Returns reasoning TESTS to help Phase 1 focus on the right question.
- *
- * @param {string} reason - The routing reason from heuristic
- * @returns {string} Specific reasoning tests for Phase 1
- */
-function getReasoningGuidance(reason) {
-  switch (reason) {
-    case 'noun_phrase_only':
-      return `This is a noun phrase with no verb or framing.
-
-Apply THE ACTION IMPLICATION TEST:
-Does this noun inherently imply something needs to be done, or could it equally be reference information to remember? 
-
-If only one interpretation makes sense, choose it. If both are genuinely plausible, return AMBIGUOUS with type "bucket".`;
-
-    case 'direction_without_schedule':
-      return `This expresses wanting more or less of something, without specifying when or how often.
-
-Apply THE TRACKABILITY TEST:
-Could this appear on a habit tracker with a yes/no checkbox? Can the user answer "did I do this today?" with certainty?
-
-Without a defined threshold or frequency, there is nothing concrete to track. Return AMBIGUOUS with type "bucket" and let the user clarify whether they want a trackable habit or are noting an intention.`;
-
-    case 'hedged_action':
-      return `This has an action verb, but uncertainty is on the verb itself.
-
-Apply THE UNCERTAINTY LOCATION TEST:
-Is the uncertainty about THE WORLD (external factors, timing, availability) or about THE USER'S OWN INTENT (whether to do it at all)?
-
-- World uncertainty: The user has committed but faces external unknowns. The intent is clear; circumstances are not. This is TODO.
-- Self uncertainty: The user hasn't decided. They're exploring or processing. This is LOG/idea or LOG/journal.
-
-The key test: If external conditions resolved favorably, would the user definitely act? YES → TODO. UNSURE → not TODO.
-
-Apply THE HEDGE REMOVAL TEST:
-Mentally remove the hedging language. Does a clear self-directed command remain? If yes, the hedge was stylistic softening of a commitment. If the whole thought collapses without the hedge, the hedge WAS the content.`;
-
-    case 'uncertain_frame':
-      return `The dominant frame is unclear.
-
-Apply THE FRAME TEST:
-Individual words exist inside an overall frame. The frame determines classification, not the words inside it.
-
-- DIRECTING frame: User is telling themselves to do something. Even soft language inside a directing frame is TODO.
-- EXPLORING frame: User is considering possibilities. Even action verbs inside an exploring frame is LOG/idea.
-- PROCESSING frame: User is working through feelings. Even future-oriented words inside a processing frame is LOG/journal.
-
-The test: What is the user DOING with this thought right now? Capturing an action? Floating a possibility? Working through feelings?`;
-
-    case 'low_parse_confidence':
-      return `Structure was unclear to the parser. Do a fresh holistic read.
-
-Apply all core tests:
-1. THE UNCERTAINTY LOCATION TEST - Is uncertainty about the world or about user intent?
-2. THE FRAME TEST - What is the dominant frame: directing, exploring, or processing?
-3. THE COMMITMENT TEST - Has the user decided to act, or are they still weighing?
-4. THE COMPLETENESS TEST - Is this a complete expression (emotional, factual) or genuinely missing intent?
-
-If multiple interpretations remain equally valid after applying these tests, return AMBIGUOUS.`;
-
-    case 'no_clear_mapping':
-      return `Structural facts are clear but don't map to a single bucket.
-
-Apply THE SYNTHESIS TEST:
-Facts may co-exist (emotional content + action verb, or frequency language + hedging). One purpose dominates.
-
-Ask: What does the user ultimately WANT from capturing this? That answer determines the bucket.
-
-Apply THE FUZZY DETAILS TEST:
-Uncertainty about WHAT/WHEN/HOW within a committed action is still TODO - the commitment is clear, just the specifics are fuzzy.
-Only uncertainty about WHETHER to act at all removes it from TODO.
-
-If signals genuinely conflict with equal weight, return AMBIGUOUS.`;
-
-    default:
-      return `Apply holistic reasoning using the core tests: Uncertainty Location, Frame, Commitment, and Completeness.`;
-  }
-}
-
-/**
- * Run Phase 1 classification via OpenAI.
- *
- * This is the core Phase 1 AI classification logic, extracted for reuse by both
- * classify-phase1 and classify-phase1-v2 endpoints.
- *
- * @param {string} text - The input text to classify
- * @param {Object} env - Environment with OPENAI_API_KEY
- * @param {Object|null} preparseContext - Optional preparse result for context
- * @param {string} preparseContext.frame_type - Frame type from preparse
- * @param {string|null} preparseContext.core_verb - Core verb from preparse
- * @param {boolean} preparseContext.uncertainty_present - Whether uncertainty is present
- * @param {string|null} preparseContext.uncertainty_target - What is uncertain
- * @param {boolean} preparseContext.frequency_present - Whether frequency is detected
- * @param {boolean} preparseContext.emotional_content - Whether emotional content is present
- * @param {string} preparseContext.parse_confidence - Parse confidence level
- * @param {string|null} routingReason - Why heuristic needed Phase 1
- * @returns {Promise<{success: true, result: Object, latency_ms: number} | {success: false, error: string, latency_ms: number}>}
- */
-async function runPhase1Classification(text, env, preparseContext = null, routingReason = null) {
-  const t0 = Date.now();
-
-  // Build structural facts section
-  const structuralFacts = preparseContext
-    ? `Frame type: ${preparseContext.frame_type}
-Core verb: ${preparseContext.core_verb || 'none detected'}
-Verb position: ${preparseContext.verb_position}
-Uncertainty present: ${preparseContext.uncertainty_present}
-Uncertainty target: ${preparseContext.uncertainty_target || 'N/A'}
-Obligation framing: ${preparseContext.obligation_framing}
-Frequency present: ${preparseContext.frequency_present}
-Frequency type: ${preparseContext.frequency_type || 'N/A'}
-Direction without schedule: ${preparseContext.direction_without_schedule}
-Emotional content: ${preparseContext.emotional_content}
-Hypothetical framing: ${preparseContext.hypothetical_framing}
-Self reflection: ${preparseContext.self_reflection}
-Noun phrase only: ${preparseContext.is_noun_phrase_only}`
-    : 'No pre-parse context available.';
-
-  // Get specific guidance for this routing reason
-  const reasoningGuidance = getReasoningGuidance(routingReason);
-
-  // Build the Phase 1 prompt for nuanced interpretation
-  const phase1Prompt = `You resolve ambiguous mind drops for Gremly. This input could not be automatically classified because it requires nuanced interpretation beyond structural facts.
-
-You have the structural analysis. Your job is to REASON about what the user actually intends.
-
-=== STRUCTURAL FACTS ===
-
-${structuralFacts}
-
-=== STRONG SIGNALS ===
-
-These pre-phase facts are strong classification signals. Do not ignore them:
-
-- hypothetical_framing: true → Almost always LOG/idea. User is floating a "what if".
-- factual_statement: true → Almost always LOG/general. User is recording information.
-- emotional_content: true → Almost always LOG/journal. User is expressing feelings.
-- frame_type: "exploring" → Almost always LOG/idea. User is considering possibilities.
-- frame_type: "factual" → Almost always LOG/general. User is stating facts.
-- frame_type: "directing" with uncertainty only on "object_details" → Almost always TODO. User knows WHAT, fuzzy on details.
-
-Only return AMBIGUOUS if these signals conflict or are absent.
-
-=== WHY THIS NEEDS YOUR JUDGMENT ===
-
-Routing reason: ${routingReason || 'unknown'}
-
-${reasoningGuidance}
-
-=== CORE REASONING PRINCIPLES ===
-
-THE UNCERTAINTY LOCATION PRINCIPLE:
-When hedging or tentative language appears, ask: Is uncertainty about THE WORLD or about THE USER'S OWN INTENT?
-- World uncertainty (timing, availability, external factors): User has committed but faces external unknowns. Intent is clear. → TODO
-- Self uncertainty (whether to do it, weighing options): User hasn't decided. → LOG/idea or AMBIGUOUS
-
-THE FRAME PRINCIPLE:
-The overall frame determines classification, not individual words inside it.
-- Directing frame with soft language inside → still TODO
-- Exploring frame with action verbs inside → still LOG/idea
-- Processing frame with future words inside → still LOG/journal
-
-THE COMMITMENT PRINCIPLE:
-Committed action owns fuzzy details. Uncertainty about WHAT/WHEN/HOW within a committed action is still TODO.
-Only uncertainty about WHETHER to act removes something from TODO.
-
-THE COMPLETENESS PRINCIPLE:
-Short inputs are not necessarily incomplete. Single emotional expressions are complete journal entries. Bare nouns without any verb or context genuinely lack signal and ARE ambiguous.
-
-=== BUCKETS ===
-
-TODO — A discrete, completable action. The user can mark it DONE. Committed action with fuzzy details is still TODO.
-
-HABIT — A trackable, recurring behavior. Requires EXPLICIT frequency or stop/quit language. User must be able to answer "did I do this?" with certainty. Direction without schedule is NOT a habit.
-
-LOG — Capture for reflection, not action:
-- journal: Expressing or processing feelings. The value is in the expression itself.
-- idea: A floating possibility with no commitment. The whole thought is pre-action.
-- general: Recording facts about what IS or WAS. Requires existence framing, not just a noun.
-
-AMBIGUOUS — Cannot determine intent. LAST RESORT.
-
-CRITICAL DISTINCTION: Uncertainty expressed IN the input is not uncertainty about CLASSIFICATION.
-
-Your job is to classify WHAT THE USER CAPTURED, not to mirror their uncertainty back at them.
-
-If the user captured a rule or boundary they want to maintain, classify it as HABIT.
-If the user captured a recurring behavior they want to build or break, classify it as HABIT.
-If the user captured a hypothetical or possibility they're considering, classify it as LOG/idea.
-If the user captured an emotion or reflection, classify it as LOG/journal.
-If the user captured a fact or piece of information to remember, classify it as LOG/general.
-If the user captured an action they intend to do, classify it as TODO.
-
-The input's content may be uncertain. Your classification should not be.
-
-Use AMBIGUOUS only when you genuinely cannot determine if this is something to DO, TRACK, or KNOW - not because the input contains soft language.
-
-Test: Would a thoughtful human be confused about which bucket? If a human would immediately know, so should you.
-
-=== AMBIGUITY TYPES ===
-
-When returning AMBIGUOUS, always specify the type:
-- bucket: Cannot determine if this is something to DO, TRACK, or KNOW
-- action: Has noun + time reference but no verb - unclear if this is something that exists or something that needs to be scheduled
-- date_type: Bucket is clearly TODO, but unclear if the date means when something IS/HAPPENS or when to DO the action
-
-=== OUTPUT ===
-
-Return ONLY valid JSON:
-
-{
-  "bucket": "todo" | "habit" | "log" | "ambiguous",
-  "confidence": 0.0-1.0,
-  "subtype": "journal" | "idea" | "general" | null,
-  "habitSubtype": "start_habit" | "break_habit" | null,
-  "is_ambiguous": boolean,
-  "ambiguity_type": "bucket" | "action" | "date_type" | null,
-  "ambiguity_reason": "Brief explanation of why intent cannot be determined" | null
-}
-
-Rules:
-- subtype is only set when bucket is "log"
-- habitSubtype is only set when bucket is "habit" (start_habit for building behaviors, break_habit for stopping behaviors)
-- is_ambiguous is true when bucket is "ambiguous"
-- When bucket is "ambiguous", always provide ambiguity_type and ambiguity_reason`;
-
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0.1,
-        max_tokens: 500,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: phase1Prompt },
-          { role: 'user', content: text.substring(0, 1000) },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      const latency = Date.now() - t0;
-      const errorText = await response.text().catch(() => '');
-      console.error('[Phase1Class] OpenAI error', {
-        status: response.status,
-        error: errorText,
-        latency_ms: latency,
-      });
-      return { success: false, error: 'openai_error', latency_ms: latency };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '{}';
-    const latency = Date.now() - t0;
-
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch (parseErr) {
-      console.error('[Phase1Class] JSON parse error', {
-        content,
-        error: String(parseErr),
-        latency_ms: latency,
-      });
-      return { success: false, error: 'json_parse_error', latency_ms: latency };
-    }
-
-    // Validate and normalize the result
-    const validBuckets = ['todo', 'habit', 'log', 'ambiguous'];
-    let bucket = validBuckets.includes(parsed.bucket) ? parsed.bucket : 'log';
-
-    // Normalize ambiguous to log/general for storage
-    if (bucket === 'ambiguous') {
-      bucket = 'log';
-    }
-
-    let subtype = null;
-    if (bucket === 'log') {
-      const validSubtypes = ['journal', 'idea', 'general'];
-      subtype = validSubtypes.includes(parsed.subtype) ? parsed.subtype : 'general';
-    }
-
-    let habitSubtype = null;
-    if (bucket === 'habit') {
-      const validHabitSubtypes = ['start_habit', 'break_habit'];
-      habitSubtype = validHabitSubtypes.includes(parsed.habitSubtype)
-        ? parsed.habitSubtype
-        : 'start_habit';
-    }
-
-    let confidence = Number(parsed.confidence);
-    if (!Number.isFinite(confidence)) confidence = 0.7;
-    confidence = Math.max(0, Math.min(1, confidence));
-
-    const isAmbiguous = parsed.bucket === 'ambiguous' || confidence < 0.7;
-    const ambiguityType =
-      isAmbiguous && ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
-        ? parsed.ambiguity_type
-        : null;
-    const ambiguityReason =
-      isAmbiguous && typeof parsed.ambiguity_reason === 'string'
-        ? parsed.ambiguity_reason.trim().substring(0, 200)
-        : null;
-
-    const result = {
-      bucket,
-      subtype,
-      habitSubtype,
-      confidence,
-      is_ambiguous: isAmbiguous,
-      ambiguity_type: ambiguityType,
-      ambiguity_reason: ambiguityReason,
-    };
-
-    console.log('[Phase1Class] Success', {
-      bucket: result.bucket,
-      subtype: result.subtype,
-      habitSubtype: result.habitSubtype,
-      confidence: result.confidence,
-      is_ambiguous: result.is_ambiguous,
-      latency_ms: latency,
-    });
-
-    return { success: true, result, latency_ms: latency };
-  } catch (err) {
-    const latency = Date.now() - t0;
-    console.error('[Phase1Class] Error', { error: String(err), latency_ms: latency });
-    return { success: false, error: String(err?.message || 'unknown'), latency_ms: latency };
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // TAVILY SEARCH HELPER
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -3564,489 +2809,290 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
       }
 
       // =========================
-      // === PRE-PHASE: SEMANTIC PARSE (v1.0) ===
-      // Extracts linguistic facts WITHOUT classifying
-      // =========================
-      if (type === 'classify-preparse') {
-        const text = body.text || '';
-
-        if (!text.trim()) {
-          return j(
-            {
-              error: 'missing_text',
-              detail: 'text field is required',
-            },
-            400,
-          );
-        }
-
-        const preparseResult = await runPreparse(text, env);
-
-        if (!preparseResult.success) {
-          return j({ error: 'preparse_failed', latency_ms: preparseResult.latency_ms });
-        }
-
-        return j({
-          ...preparseResult.result,
-          latency_ms: preparseResult.latency_ms,
-        });
-      }
-
-      // =========================
-      // === PHASE 1 v2: UNIFIED CLASSIFICATION (preparse → heuristic → optional AI) ===
-      // Runs preparse, applies heuristics, falls back to Phase 1 AI if needed
-      // =========================
-      if (type === 'classify-phase1-v2') {
-        const text = body.text || '';
-        const hasAttachments = body.hasAttachments || false;
-        const t0 = Date.now();
-
-        if (!text.trim()) {
-          return j(
-            {
-              error: 'missing_text',
-              detail: 'text field is required',
-            },
-            400,
-          );
-        }
-
-        // Step 1: Run preparse
-        const preparseResult = await runPreparse(text, env);
-        const preparseLatency = preparseResult.latency_ms;
-
-        if (!preparseResult.success) {
-          // Preparse failed - fall through to Phase 1 AI
-          console.log('[Phase1v2] Preparse failed, falling back to Phase 1', {
-            error: preparseResult.error,
-            preparse_latency_ms: preparseLatency,
-          });
-
-          // Call Phase 1 directly by continuing to the classify-phase1 handler logic below
-          // We'll inline a simplified Phase 1 call here
-          const phase1Response = await fetch(
-            new Request(request.url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'classify-phase1', text, hasAttachments }),
-            }),
-          );
-
-          // This won't work - we need to call the internal logic, not make a network request
-          // Instead, we'll return a fallback and let the caller retry with classify-phase1
-          return j({
-            bucket: 'log',
-            subtype: 'general',
-            habitSubtype: null,
-            confidence: 0.5,
-            source: 'preparse-fallback',
-            is_multi: false,
-            preparse_latency_ms: preparseLatency,
-            heuristic_reason: 'preparse_failed',
-            latency_ms: Date.now() - t0,
-          });
-        }
-
-        // Log all pre-phase field values
-        console.log('[Phase1v2] PreParse result', {
-          text_preview: text.substring(0, 50),
-          core_verb: preparseResult.result.core_verb,
-          verb_position: preparseResult.result.verb_position,
-          frame_type: preparseResult.result.frame_type,
-          has_completion_point: preparseResult.result.has_completion_point,
-          uncertainty_present: preparseResult.result.uncertainty_present,
-          uncertainty_target: preparseResult.result.uncertainty_target,
-          obligation_framing: preparseResult.result.obligation_framing,
-          frequency_present: preparseResult.result.frequency_present,
-          frequency_type: preparseResult.result.frequency_type,
-          direction_without_schedule: preparseResult.result.direction_without_schedule,
-          emotional_content: preparseResult.result.emotional_content,
-          hypothetical_framing: preparseResult.result.hypothetical_framing,
-          factual_statement: preparseResult.result.factual_statement,
-          self_reflection: preparseResult.result.self_reflection,
-          is_noun_phrase_only: preparseResult.result.is_noun_phrase_only,
-          parse_confidence: preparseResult.result.parse_confidence,
-          latency_ms: preparseResult.latency_ms,
-        });
-
-        // Step 2: Apply heuristic mapping
-        const heuristicDecision = mapPreparseToClassification(preparseResult.result);
-
-        // Log heuristic decision
-        console.log('[Phase1v2] Heuristic decision', {
-          needsPhase1: heuristicDecision.needsPhase1,
-          reason: heuristicDecision.reason || null,
-          bucket: heuristicDecision.bucket || null,
-          subtype: heuristicDecision.subtype || null,
-        });
-
-        // Step 3: If fast path, return immediately
-        if (!heuristicDecision.needsPhase1) {
-          const totalLatency = Date.now() - t0;
-
-          console.log('[Phase1v2] Fast path', {
-            bucket: heuristicDecision.bucket,
-            subtype: heuristicDecision.subtype,
-            habitSubtype: heuristicDecision.habitSubtype,
-            frame_type: preparseResult.result.frame_type,
-            core_verb: preparseResult.result.core_verb,
-            preparse_latency_ms: preparseLatency,
-            total_latency_ms: totalLatency,
-          });
-
-          return j({
-            bucket: heuristicDecision.bucket,
-            subtype: heuristicDecision.subtype,
-            habitSubtype: heuristicDecision.habitSubtype,
-            confidence: 0.85,
-            source: 'heuristic',
-            is_multi: false,
-            is_ambiguous: false,
-            preparse_latency_ms: preparseLatency,
-            heuristic_reason: `fast_path:${preparseResult.result.frame_type}`,
-            latency_ms: totalLatency,
-          });
-        }
-
-        // Step 4: Need Phase 1 AI - use helper
-        console.log('[Phase1v2] Needs Phase 1', {
-          reason: heuristicDecision.reason,
-          preparse_latency_ms: preparseLatency,
-        });
-
-        const phase1Result = await runPhase1Classification(
-          text,
-          env,
-          preparseResult.result,
-          heuristicDecision.reason,
-        );
-
-        const phase1Latency = phase1Result.latency_ms;
-        const totalLatency = Date.now() - t0;
-
-        if (!phase1Result.success) {
-          console.error('[Phase1v2] Phase 1 call failed', {
-            error: phase1Result.error,
-            preparse_latency_ms: preparseLatency,
-            phase1_latency_ms: phase1Latency,
-          });
-
-          return j({
-            bucket: 'log',
-            subtype: 'general',
-            habitSubtype: null,
-            confidence: 0.5,
-            source: 'phase1-error-fallback',
-            is_multi: false,
-            preparse_latency_ms: preparseLatency,
-            phase1_latency_ms: phase1Latency,
-            heuristic_reason: heuristicDecision.reason,
-            latency_ms: totalLatency,
-          });
-        }
-
-        const result = phase1Result.result;
-
-        console.log('[Phase1v2] Phase 1 complete', {
-          bucket: result.bucket,
-          subtype: result.subtype,
-          confidence: result.confidence,
-          heuristic_reason: heuristicDecision.reason,
-          preparse_latency_ms: preparseLatency,
-          phase1_latency_ms: phase1Latency,
-          total_latency_ms: totalLatency,
-        });
-
-        return j({
-          bucket: result.bucket,
-          subtype: result.subtype,
-          habitSubtype: result.habitSubtype,
-          confidence: result.confidence,
-          source: 'api',
-          is_multi: result.is_multi || false,
-          is_ambiguous: result.is_ambiguous,
-          ambiguity_type: result.ambiguity_type,
-          ambiguity_reason: result.ambiguity_reason,
-          preparse_latency_ms: preparseLatency,
-          phase1_latency_ms: phase1Latency,
-          heuristic_reason: heuristicDecision.reason,
-          latency_ms: totalLatency,
-        });
-      }
-
-      // =========================
-      // === PHASE 0: MULTI-ENTITY DETECTION (v5 - FACT EXTRACTION) ===
-      // Three parallel fact-extraction prompts, deterministic decision logic
+      // === PHASE 0: MULTI-ENTITY DETECTION (v3.6 - PURE AI) ===
+      // AI-only detection, no heuristics
       // =========================
       if (type === 'detect-multi') {
         const text = body.text || '';
         const t0 = Date.now();
 
-        // Prompt A - Emotional presence
-        const promptA = `Is this primarily emotional expression?
-
-Emotional expression: communicating how someone feels - their mood, internal state, or reflection on experiences.
-
-"Primarily emotional" means the PURPOSE of this drop is to express or process feelings. Multiple feelings expressed together is still primarily emotional - the count doesn't matter, the purpose does.
-
-Ask: "Is this drop ABOUT how someone feels, or ABOUT something they need to do?"
-
-Return JSON only:
-{
-  "has_emotion": true/false,
-  "emotion_is_primary": true/false
-}`;
-
-        // Prompt B - Standalone task check
-        const promptB = `Is there a task here that has NOTHING TO DO with the emotion?
-
-Default to NO standalone task. Only return true for CLEARLY UNRELATED tasks.
-
-A "standalone task" means:
-- Would exist even if the emotion wasn't there
-- Has a completely different PURPOSE than the emotion
-- Is NOT a response to, caused by, or coping with the emotion
-
-Ask: "Does the emotion EXPLAIN why this task exists?" If yes → not standalone.
-Ask: "Would removing the emotion change whether the user does this task?" If no → standalone.
-
-Return JSON only:
-{
-  "has_standalone_task": true/false,
-  "reason": "brief explanation"
-}`;
-
-        // Prompt C - Effort count
-        const promptC = `Count SEPARATE user intentions in this text.
-
-The user captured these items TOGETHER in one thought. Default to ONE unless clearly unrelated.
-
-Count as ONE:
-- Items serving the same goal
-- Items that would be done in one session
-- Items the user mentally groups together
-
-Count as SEPARATE only when:
-- Zero shared purpose or context
-- User would track and complete at completely different times
-- No unifying thread connects them
-
-Ask: "Could the user describe all of these with ONE phrase?" If yes → one effort.
-
-Return JSON only:
-{
-  "effort_count": 1,
-  "groupings": ["description"]
-}
-
-or if truly separate:
-
-{
-  "effort_count": 2,
-  "groupings": ["first intention", "second intention"]
-}`;
-
-        try {
-          // Run A, B, C in parallel
-          const [resA, resB, resC] = await Promise.all([
-            fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${key}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                  { role: 'system', content: promptA },
-                  { role: 'user', content: text.substring(0, 1000) },
-                ],
-                temperature: 0.1,
-                max_tokens: 100,
-                response_format: { type: 'json_object' },
-              }),
-            }),
-            fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${key}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                  { role: 'system', content: promptB },
-                  { role: 'user', content: text.substring(0, 1000) },
-                ],
-                temperature: 0.1,
-                max_tokens: 150,
-                response_format: { type: 'json_object' },
-              }),
-            }),
-            fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${key}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                  { role: 'system', content: promptC },
-                  { role: 'user', content: text.substring(0, 1000) },
-                ],
-                temperature: 0.1,
-                max_tokens: 200,
-                response_format: { type: 'json_object' },
-              }),
-            }),
-          ]);
-
-          const jsonA = await resA.json();
-          const jsonB = await resB.json();
-          const jsonC = await resC.json();
-
-          const a = JSON.parse(
-            jsonA?.choices?.[0]?.message?.content ||
-              '{"has_emotion": false, "emotion_is_primary": false}',
-          );
-          const b = JSON.parse(
-            jsonB?.choices?.[0]?.message?.content || '{"has_standalone_task": false}',
-          );
-          const c = JSON.parse(
-            jsonC?.choices?.[0]?.message?.content || '{"effort_count": 1, "groupings": []}',
-          );
-
-          console.log('[Phase0:A]', a);
-          console.log('[Phase0:B]', b);
-          console.log('[Phase0:C]', c);
-
-          // Decision logic
-          let isMulti = false;
-          let reason = '';
-
-          if (a.has_emotion && a.emotion_is_primary && !b.has_standalone_task) {
-            isMulti = false;
-            reason = 'emotional_primary';
-          } else if (a.has_emotion && b.has_standalone_task) {
-            isMulti = true;
-            reason = 'emotion_plus_task';
-          } else if (!a.has_emotion && c.effort_count === 1) {
-            isMulti = false;
-            reason = 'single_effort';
-          } else if (c.effort_count > 1) {
-            isMulti = true;
-            reason = 'multiple_efforts';
-          } else {
-            isMulti = false;
-            reason = 'default_single';
-          }
-
-          // If SINGLE, return immediately
-          if (!isMulti) {
-            const latency = Date.now() - t0;
-            console.log('[Phase0] SINGLE', { reason, latency_ms: latency });
-            return j({ is_multi: false, source: 'api', reason, latency_ms: latency });
-          }
-
-          // If MULTI, run Prompt D for extraction
-          const groupings = Array.isArray(c.groupings) ? c.groupings : [];
-          const promptD = `Extract segments from this text.
-
-These groupings were identified: ${JSON.stringify(groupings)}
-
-Extract the EXACT words from the user's input for each grouping.
-- Do NOT add words
-- Do NOT rephrase
-- Do NOT embellish
-- Use only what the user wrote
-
-Return JSON only:
-{
+        const phase0Prompt = `You detect if a mind drop contains MULTIPLE DISTINCT ITEMS that should be split.
+ 
+  === TOP-DOWN EVALUATION (READ FIRST) ===
+  
+  Before looking for split points, read the ENTIRE drop and ask:
+  "What is this fundamentally ABOUT? One thing with details, or multiple unrelated things?"
+  
+  **THE "SEPARATE CARDS" TEST:**
+  Would this person want to see these as separate cards in their app?
+  - "bad day, client yelled, boss took their side"  One "Bad Day" card? YES  SINGLE
+  - "call mom, buy groceries, book dentist"  Three separate cards? YES  SPLIT
+  
+  **WHEN UNCERTAIN  KEEP TOGETHER**
+  - User can manually split later
+  - User CANNOT easily merge incorrectly split items
+  - Bias toward SINGLE unless clearly multiple unrelated items
+  
+  === MULTIPLE ENTITIES VS SINGLE ELABORATED THOUGHT ===
+  
+  Multiple entities means the user is describing SEPARATE items that could each exist independently — different tasks, different topics, different things to capture. Connectors like "and also" or "and then" between genuinely distinct items signal multiple entities.
+  
+  A single entity with elaboration means the user is describing ONE topic with additional detail, context, conditions, or options. When the details all serve the same core subject — like a single plan with location options, timing considerations, and budget conditions — that's one entity, not three.
+  
+  The test: could each piece stand alone as a meaningful, independent item? If removing one piece would leave the others still making sense as separate captures, they're multiple entities. If the pieces only make sense together as parts of one thought, it's a single entity.
+  
+  === SINGLE (is_multi: false) ===
+  
+  **One story/vent with narrative flow:**
+  - "had the worst day, first the client yelled at me, then my boss took their side, came home and stared at the wall"
+  - Signal: "first... then... and then...", same emotional thread throughout
+  - This is ONE journal entry, not 4
+  
+  **One task with supporting context:**
+  - "call insurance about the claim, need to find the paperwork first, probably on my desk"
+  - "find paperwork" is a sub-step, not a separate todo
+  - This is ONE todo with context
+  
+  **One habit with planning notes:**
+  - "want to go to the gym more, maybe mon wed fri, mornings could work, there's a place near the office"
+  - Exploring details around ONE habit decision
+  - This is ONE habit
+  
+  **One idea being explored:**
+  - "thinking about quitting, maybe I should update my linkedin, could reach out to that recruiter"
+  - All supporting the same exploration
+  - This is ONE idea
+  
+  **Connectedness signals (don't split):**
+  - Pronouns referencing earlier content: "it", "that", "them", "this"
+  - Same domain with narrative flow (all work, all health, all family)
+  - Causal chains: "because", "so", "which means"
+  - Emotional continuity throughout
+  - Supporting details for one action
+  
+  **Emotion + coping response = ONE journal:**
+  - "stressed about work, need to take a walk"  SINGLE journal
+  - "feeling anxious, going to meditate"  SINGLE journal
+  - The coping action is PART OF the emotional expression
+  
+  **Multiple emotions = ONE journal:**
+  - "grateful and exhausted"  SINGLE
+  - "anxious but hopeful"  SINGLE
+  
+  **Shopping lists / related errands:**
+  - "buy milk, eggs, bread, and cheese"  SINGLE todo
+  - "pick up groceries and dry cleaning"  SINGLE todo (same errand trip)
+  
+  **"Or" = alternatives = ONE item:**
+  - "necklace or scarf for mom"  SINGLE (choosing between options)
+  - "yoga or pilates"  SINGLE (deciding which)
+  
+  **Event + scheduling action for SAME event = ONE item:**
+  - "Haircut appointment is Tuesday, book tomorrow"  SINGLE (event date + action date)
+  - "Dentist is Friday, need to call and schedule"  SINGLE (one appointment context)
+  - "Meeting is at 3pm, need to prep for it"  SINGLE (event + preparation)
+  - The scheduling action RELATES to the same event mentioned
+  - This is ONE item with target_date (when it IS) + scheduled_date (when to DO it)
+  
+  === SPLIT (is_multi: true) ===
+  
+  Split ONLY when there are genuinely SEPARATE, UNRELATED intents.
+  
+  **Required signals for splitting:**
+  1. Explicit topic shift: "also", "oh and", "btw", "separately", "and also"
+  2. AND genuinely unrelated/independent items
+  3. AND each segment is meaningful standalone
+  4. AND each would be a separate card the user tracks independently
+  
+  **The Completion Independence Test (for todos):**
+  Can each segment be marked complete on its own, independently?
+  - "call mom, also buy groceries"  YES, independent  SPLIT
+  - "call insurance, need to find paperwork first"  NO, paperwork is FOR the call  SINGLE
+  
+  **Examples that SHOULD split:**
+  - "feeling anxious, also call mom"  journal + todo (unrelated, explicit "also")
+  - "pay rent and submit expense report"  2 todos (different systems, independent)
+  - "stressed about work, also dentist tomorrow, also start running daily"  journal + todo + habit
+  
+  **Domain shift with explicit separator:**
+  - "terrible meeting today, also buy groceries"  Different domains, explicit shift  SPLIT
+  
+  === SEGMENT EXTRACTION (when splitting) ===
+  
+  **PRESERVE HEDGING/BRAINSTORMING LANGUAGE:**
+  - "what if we added dark mode"  keep "what if we added dark mode" (NOT "add dark mode")
+  - "maybe try yoga"  keep "maybe try yoga" (NOT "try yoga")
+  - "thinking about switching jobs"  keep full text
+  
+  Words to ALWAYS preserve: "what if", "maybe", "might", "thinking about", "could", "possibly", "perhaps", "considering"
+  
+  === LIKELY_BUCKET RULES ===
+  
+  **todo** - Clear action verbs:
+  - call, email, text, buy, get, pick up, book, schedule, pay, submit, cancel, finish
+  
+  **habit** - Only if explicit frequency in segment:
+  - "run every morning"  habit
+  - "meditate daily"  habit
+  - Without frequency  todo
+  
+  **log** - Emotions, reflections, ideas, reference info:
+  - feeling/felt + emotion  log
+  - "stressed", "anxious", "grateful"  log
+  - "thinking about", "what if", "maybe"  log
+  - Contact info, status updates, facts to remember  log
+  
+  === OUTPUT FORMAT (JSON) ===
+  
+  Return ONLY valid JSON.
+  
+  If SINGLE:
+  {"is_multi": false}
+  
+  If MULTI (2+ genuinely separate items):
+  {
+  "is_multi": true,
+  "confidence": 0.7-1.0,
+  "dominant_bucket": "todo"|"habit"|"log",
+  "dominant_subtype": "journal"|"idea"|"general"|null,
+  "summary": "Content Summary Like 'Work Stress + Call Mom'",
   "segments": [
-    {"text": "exact user words for grouping 1", "likely_bucket": "todo"|"habit"|"log"},
-    {"text": "exact user words for grouping 2", "likely_bucket": "todo"|"habit"|"log"}
+  {"text": "feeling anxious", "likely_bucket": "log"},
+  {"text": "call mom", "likely_bucket": "todo"}
   ]
-}`;
+  }
+ 
+ Summary must describe CONTENT (nouns/topics), never types like "Two Todos" or "Journal + Task".`;
 
-          const resD = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [
-                { role: 'system', content: promptD },
-                { role: 'user', content: text.substring(0, 1000) },
-              ],
-              temperature: 0.1,
-              max_tokens: 300,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const phase0Messages = [
+          { role: 'system', content: phase0Prompt },
+          { role: 'user', content: text.substring(0, 1000) },
+        ];
 
-          const jsonD = await resD.json();
-          const d = JSON.parse(jsonD?.choices?.[0]?.message?.content || '{"segments": []}');
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${key}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: phase0Messages,
+            temperature: 0.1,
+            max_tokens: 500,
+            response_format: { type: 'json_object' },
+          }),
+        });
 
-          console.log('[Phase0:D]', d);
+        const oj = await res.json();
+        const latency = Date.now() - t0;
 
-          const segments = Array.isArray(d.segments) ? d.segments : [];
-
-          // Validate segments
-          const validatedSegments = segments
-            .map((seg) => ({
-              text: String(seg.text || '').trim(),
-              likely_bucket: ['todo', 'habit', 'log'].includes(seg.likely_bucket)
-                ? seg.likely_bucket
-                : 'todo',
-            }))
-            .filter((seg) => seg.text.length > 0);
-
-          if (validatedSegments.length < 2) {
-            const latency = Date.now() - t0;
-            console.log('[Phase0] Extraction gave <2 segments, falling back to SINGLE', {
-              latency_ms: latency,
-            });
-            return j({ is_multi: false, source: 'extraction-fallback', latency_ms: latency });
-          }
-
-          // Build summary from groupings
-          let summary = groupings.slice(0, 3).join(' + ') || 'Multiple items';
-          if (summary.length > 60) summary = summary.substring(0, 57) + '...';
-
-          // Determine dominant bucket
-          const bucketCounts = { todo: 0, habit: 0, log: 0 };
-          validatedSegments.forEach((s) => bucketCounts[s.likely_bucket]++);
-          const dominantBucket = Object.entries(bucketCounts).sort((a, b) => b[1] - a[1])[0][0];
-
-          const latency = Date.now() - t0;
-          console.log('[Phase0:Multi]', {
-            reason,
-            item_count: validatedSegments.length,
-            summary,
-            dominant_bucket: dominantBucket,
-            latency_ms: latency,
-          });
-
-          return j({
-            is_multi: true,
-            confidence: 0.85,
-            item_count: validatedSegments.length,
-            segments: validatedSegments,
-            summary,
-            dominant_bucket: dominantBucket,
-            dominant_subtype: dominantBucket === 'log' ? 'general' : null,
-            source: 'api',
-            reason,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase0] Error', { error: String(err), latency_ms: latency });
+        if (!res.ok) {
+          console.log('[Phase0] API error', { error: oj.error });
           return j({ is_multi: false, source: 'error-fallback', latency_ms: latency });
         }
+
+        const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+
+        console.log('[Phase0] Input:', text.substring(0, 80));
+        console.log('[Phase0] Raw AI response:', rawContent);
+
+        let parsed;
+        try {
+          parsed = JSON.parse(rawContent);
+        } catch {
+          console.log('[Phase0] Parse error', { raw: rawContent });
+          return j({ is_multi: false, source: 'parse-fallback', latency_ms: latency });
+        }
+
+        // Single entity - quick return
+        if (parsed.is_multi !== true) {
+          console.log('[Phase0] Single entity', { latency_ms: latency });
+          return j({ is_multi: false, source: 'api', latency_ms: latency });
+        }
+
+        // Multi entity - validate segments
+        const segments = Array.isArray(parsed.segments) ? parsed.segments : [];
+
+        if (segments.length < 2) {
+          console.log('[Phase0] Multi claimed but <2 segments', { latency_ms: latency });
+          return j({ is_multi: false, source: 'validation-fallback', latency_ms: latency });
+        }
+
+        // Validate and normalize each segment
+        const validatedSegments = segments
+          .map((seg, idx) => {
+            const segText = String(seg.text || '').trim();
+            const likelyBucket = ['todo', 'habit', 'log'].includes(seg.likely_bucket)
+              ? seg.likely_bucket
+              : 'log';
+            return { text: segText, likely_bucket: likelyBucket };
+          })
+          .filter((seg) => seg.text.length > 0);
+
+        if (validatedSegments.length < 2) {
+          console.log('[Phase0] Segments reduced to <2 after validation', { latency_ms: latency });
+          return j({ is_multi: false, source: 'validation-fallback', latency_ms: latency });
+        }
+
+        let confidence = Number(parsed.confidence);
+        if (!Number.isFinite(confidence)) confidence = 0.75;
+        confidence = clamp01(confidence);
+
+        // Validate dominant_bucket
+        const validBuckets = ['todo', 'habit', 'log'];
+        let dominantBucket = validBuckets.includes(parsed.dominant_bucket)
+          ? parsed.dominant_bucket
+          : 'log';
+
+        // Validate dominant_subtype
+        const validSubtypes = ['journal', 'idea', 'general'];
+        let dominantSubtype = null;
+        if (dominantBucket === 'log') {
+          dominantSubtype = validSubtypes.includes(parsed.dominant_subtype)
+            ? parsed.dominant_subtype
+            : 'general';
+        }
+
+        // Validate summary is content-based, not type-based
+        let summary = String(parsed.summary || '').trim();
+        const typePhrases = /\b(todo|habit|journal|emotion|task|item)\b/i;
+        if (!summary || summary.length < 3 || typePhrases.test(summary)) {
+          // Generate content-based summary from segment texts
+          const snippets = validatedSegments.slice(0, 3).map((seg) => {
+            const words = seg.text.split(/\s+/).slice(0, 3).join(' ');
+            return words.charAt(0).toUpperCase() + words.slice(1);
+          });
+          summary = snippets.join(' + ');
+        }
+        if (summary.length > 60) {
+          summary = summary.substring(0, 57) + '...';
+        }
+
+        console.log('[Phase0:Multi]', {
+          item_count: validatedSegments.length,
+          summary,
+          dominant_bucket: dominantBucket,
+          dominant_subtype: dominantSubtype,
+          segments: validatedSegments.map((s) => ({
+            text: s.text.substring(0, 40),
+            bucket: s.likely_bucket,
+          })),
+          confidence,
+          latency_ms: latency,
+        });
+
+        return j({
+          is_multi: true,
+          confidence,
+          item_count: validatedSegments.length,
+          segments: validatedSegments,
+          summary,
+          dominant_bucket: dominantBucket,
+          dominant_subtype: dominantSubtype,
+          source: 'api',
+          latency_ms: latency,
+        });
       }
 
       // =========================
@@ -4493,60 +3539,13 @@ Bare nouns without any verb or context genuinely lack signal. These ARE ambiguou
 
 The test: Is brevity the problem, or is intent actually missing? Emotional expression with no action is a complete journal. Noun with no framing is genuinely ambiguous.
 
-=== CRITICAL GATES (CHECK FIRST — Before classification) ===
-
-Apply these gates IN ORDER before any other classification. If a gate matches, use its result and STOP.
-
-**GATE A: NECESSITY FRAMING → TODO**
-Is the user framing this as something that NEEDS to happen?
-
-Apply this test: Does the input express necessity, obligation, or requirement — the sense that this action is not optional? If the user is telling themselves "this must be done" in any phrasing, they have committed to act.
-
-If YES → return TODO immediately. Necessity framing IS commitment. Do not check for ambiguity.
-
-**GATE B: DIRECTION WITHOUT SCHEDULE → AMBIGUOUS**
-Is the user expressing a desire to move in a direction — having more or less of something — without specifying when or how often?
-
-Apply this test: Could you put this on a daily tracker and answer "did I do this?" with a clear yes or no? If there's no defined frequency or threshold, the answer is no.
-
-If YES → return AMBIGUOUS immediately. Direction without schedule is not trackable.
-
-**GATE C: IMPERATIVE STRUCTURE → TODO**
-Does this input begin with an action the user is directing themselves to perform?
-
-Apply this test: Read the first clause. Is the user telling themselves to DO something? Is there a verb at or near the start that represents an action they will take? If the input is structured as a self-command — the user directing their own future action — that's a commitment to act.
-
-If YES → return TODO immediately. Imperative structure IS commitment. Any uncertainty later in the input about options, details, timing, or method does not change the commitment — it just means the specifics are fuzzy.
-
-=== SEMANTIC CLASSIFICATION (after gates) ===
+=== SEMANTIC CLASSIFICATION (PRIMARY) ===
 
 Your task is to REASON about intent, not to match patterns or keywords. Apply these semantic tests to ANY input.
 
 **TODO SEMANTIC TEST:**
 
-**FRAME FIRST — IMPERATIVE LOCKS TO TODO:** Before evaluating completion points, identify the input's structure. An imperative (verb + object, no subject) is a DIRECTING frame — the user is commanding themselves to act.
-
-When identifying imperatives, apply grammatical parsing: if the input starts with a word that functions as a verb given what follows it, that's an imperative. Words can be both nouns and verbs — determine which based on the structure that follows.
-
-**CRITICAL:** Once an imperative frame is identified, classification is TODO. Full stop. Do not re-evaluate based on the object. Do not second-guess completion point clarity. Do not mark ambiguous because the object is unfamiliar or abstract. The frame is the evidence. The verb carries the intent. The user knows what they meant and will know when they're done.
-
-Imperatives have an implicit completion point: a session of that action. User-determined completion is valid — the user decides when their session is complete.
-
-**CARVE-OUTS — These override the frame lock:**
-- Explicit frequency or stop/quit language present → evaluate for HABIT first, not TODO
-- State-of-being verbs that describe desired states rather than discrete actions → LOG
-- Ongoing mental states with no natural completion point → LOG/idea (ask: is there a point where the user would say "I'm done with this"? If the mental activity could continue indefinitely with no endpoint, it's LOG. If there's a moment of completion — enough information gathered, decision made, answer found — it's a completable TODO)
-- Hedging that applies to the CORE ACTION (see test below) → do not auto-lock, evaluate normally
-
-**BEFORE triggering the hedging carve-out, you MUST apply this test:**
-
-Read the ENTIRE input as a complete thought. Identify the CORE ACTION — the main verb and what it acts upon. Then ask: does the hedging make the user uncertain about performing this core action, or does it only qualify secondary elements?
-
-Only trigger the hedging carve-out when uncertainty attaches to WHETHER the user will act. If the user IS acting and uncertainty only touches details like options, timing, method, or location — the imperative frame lock holds and classification is TODO.
-
-If none of these carve-outs apply, the imperative locks to TODO.
-
-In a DIRECTING frame, evaluate completion within that frame, not in the abstract.
+**FRAME FIRST:** Before evaluating completion points, identify the input's structure. An imperative (verb + object, no subject) is a DIRECTING frame — the user is commanding themselves to act. In a DIRECTING frame, the implied unit of completion is a session of that action. Evaluate completion within that frame, not in the abstract.
 
 A TODO has ALL of these properties:
 1. **Discrete action** — Something that happens once then is finished. Not an ongoing behavior, not a state of being, not a continuous process. There is a clear beginning and end.
@@ -4564,9 +3563,9 @@ A TODO has ALL of these properties:
 **Conditional or qualified actions are still TODOs:** When a user describes an action with conditions, qualifiers, or uncertainty about outcome — but the action itself is clear — the item is still a TODO. The condition doesn't change the nature of the action; it adds context to it. The user intends to perform the action; whether the outcome is guaranteed is separate from whether the action is completable.
 
 **What disqualifies a TODO:**
-- No identifiable completion point (does not apply to clean imperatives — session completion is valid)
+- No identifiable completion point
 - Ongoing state rather than discrete action
-- Too vague to know what "done" means (does not apply to clean imperatives — user-determined completion is valid)
+- Too vague to know what "done" means
 
 ---
 
@@ -4585,18 +3584,13 @@ A HABIT has ALL of these properties:
 **The tracking test:** Could this appear on a habit tracker with a yes/no checkbox for each day? Would checking it off daily make sense?
 
 **CRITICAL — Explicit signals required:**
-Without explicit frequency or stop/quit language in the input, the item is NOT a habit, regardless of whether the activity could theoretically be repeated. A repeatable activity without explicit repetition intent is either a single TODO or a vague aspiration — and vague aspirations should be AMBIGUOUS so the user can clarify.
-
-**Comparative words are NOT frequencies:**
-Words expressing direction without schedule — wanting more or less of something — have no trackable cadence. You cannot answer "did I do this today?" with certainty. Without explicit frequency, these are vague aspirations and should be AMBIGUOUS, not HABIT.
+Without explicit frequency or stop/quit language in the input, the item is NOT a habit, regardless of whether the activity could theoretically be repeated. A repeatable activity without explicit repetition intent is either a single TODO or a vague aspiration (LOG).
 
 **What disqualifies a HABIT:**
 - No explicit frequency or stop/quit language (even if the activity is repeatable)
-- Comparative words only without explicit frequency → AMBIGUOUS
 - Mental states that can't be observed
 - Abstract qualities rather than behaviors
 - Vague aspirations without commitment
-- Hedging + potential frequency → AMBIGUOUS (user hasn't committed)
 
 ---
 
@@ -4624,30 +3618,23 @@ Pure emotional expressions — single words or short phrases that are clearly ex
 
 Overall framing determines classification, not individual words. When the overall structure of an input is self-reflective — the user is processing their relationship with an idea, questioning their own patterns, or examining their motivations — that reflective framing determines the classification, even if individual words within the input sound action-adjacent. The test is: what is the user DOING with this input? If they're PROCESSING (making sense of feelings, questioning themselves, examining patterns), it's journal — regardless of whether action-related words appear inside the reflection.
 
-**LOG/idea** — A spark to capture (check SECOND):
+**LOG/idea** — Future-oriented possibility (check SECOND):
 
-An idea is a seed. The user had a thought they don't want to lose — something that might become something later. There is no committed action, no anchor. The whole thought is floating. The user is in pure capture mode.
+The user is imagining something that COULD BE — a possibility they're considering, exploring, or dreaming about. They haven't committed to action but are capturing a thought for later. The hallmark is future orientation combined with possibility or hedging language.
 
-**The key distinction from TODO:**
-TODO owns all committed action, even with fuzzy details. If there's ANY action verb the user intends to perform, that's a todo with uncertain specifics — not an idea.
+The temporal orientation is OUTWARD and FORWARD — looking ahead at what might be, not what is or was. The user is exploring potential futures, weighing options they haven't chosen between, or capturing concepts without a concrete plan. They're looking ahead, but without the commitment that would make it a TODO.
 
-Idea has NO action anchor. The entire thought is pre-commitment. The user is capturing a spark, not directing themselves to act. They might build on it later, or let it sit. The value is simply: don't lose this thought.
+**IDEA vs AMBIGUOUS — A sharp distinction:**
 
-**CRITICAL CHECK:** Does this input contain a committed action verb — something the user intends to DO? If yes, this is NOT idea. Route to TODO. An action verb with hedging on the details is still a committed action.
+IDEA has clear EXPLORATION signals — the user is actively imagining, hypothesizing, or considering a possibility. They know what they're doing: exploring. The input demonstrates future-oriented thinking about something that could exist or happen. Exploration is an INTENT, and if the user is clearly exploring (even at length, even with rich detail), that's idea, not ambiguous.
 
-Idea only applies when:
-- The whole thought is floating with no action anchor
-- The user is capturing a spark, not a task
-- There is no verb indicating something they WILL do
+AMBIGUOUS has NO signals — we genuinely cannot determine what the user wants. The input is a fragment or bare reference with no framing that tells us their intent. We're not uncertain about which LOG subtype — we're uncertain whether this is something to DO, TRACK, or KNOW at all.
 
-**IDEA vs GENERAL:**
-Both are notes without action. The difference:
-- Idea is a spark — something that could become something, a seed for later
-- General is factual reference — information about what IS or WAS
+The key test: Can you identify an intent in the input? If the intent is exploration/possibility-thinking → idea. If you cannot identify ANY intent → ambiguous.
 
-**IDEA vs AMBIGUOUS:**
-- Idea has clear "spark" framing — the user knows they're capturing a thought to explore later
-- Ambiguous has no signal at all — we cannot determine what the user wants
+Signals: hedging language WITHOUT action verbs, possibility framing, comparing options without choosing, capturing concepts for potential future pursuit.
+
+Soft suggestion language combined with hedging signals idea, not general. When a user frames something as a suggestion or soft proposal — expressing what could or should happen, combined with uncertainty markers or conditions — they are exploring a possibility, not stating a fact. This combination of soft proposal + uncertainty = idea. This is distinct from general, which states facts about the world. And distinct from TODO, which has committed action intent. The user is floating a possibility without commitment.
 
 **LOG/general** — Factual reference only (check LAST, narrowest category):
 
@@ -4664,21 +3651,9 @@ Signals: existence verbs stating facts, past tense describing completed events, 
 **LOG subtype decision summary:**
 
 1. Is there emotional or reflective content about present feelings or past experiences? → **journal**
-2. Is this a spark to capture — a floating thought with no action anchor? → **idea**
+2. Is there future possibility language, exploration, or hypothetical orientation? → **idea**
 3. Is there factual reference info, clearly stating what IS or WAS (not what to DO)? → **general**
 4. Unsure if this is something to DO vs just something to KNOW? → **ambiguous** (not general)
-
-**REMEMBER:** If there is ANY committed action verb, it's a TODO — not idea. TODO owns all action, even with fuzzy details.
-
----
-
-**CRITICAL — What is NOT ambiguity:**
-
-Uncertain details within a committed action is NOT ambiguity. If the user has committed to an action (via imperative or obligation language) but is uncertain about specifics like which option, what time, what method, or what location — that is a TODO with fuzzy details, not ambiguity.
-
-The test: Is the user uncertain about WHETHER to act, or uncertain about WHAT/WHEN/HOW within a committed action? Only the former is ambiguity. The latter is a clear TODO.
-
-Do NOT flag as ambiguous just because options are being weighed. Weighing options about HOW to complete an action is part of doing the action — the commitment to act is still clear.
 
 ---
 
@@ -4743,8 +3718,6 @@ Do not guess. Do not return a low-confidence classification hoping it's right. I
 
 === AMBIGUITY DETECTION TESTS ===
 
-**EXCEPTION — Clean imperatives bypass these tests:** If the input is a clean imperative (action verb + object, no subject, no hedging, not a carve-out case), it is already classified as TODO by the FRAME FIRST rule. Do not apply these ambiguity tests to clean imperatives.
-
 Apply these semantic tests to determine if clarification is needed:
 
 **TEST 1: BUCKET CLARITY**
@@ -4777,12 +3750,6 @@ If no verb exists (bare noun, noun phrase, or fragment):
 Ask: "Has the user made a concrete commitment or expressed a vague aspiration?"
 
 Vague aspirations use comparative language without explicit frequency or specific plans. These should be AMBIGUOUS, not HABIT or LOG/general, because the user might want to track them or might just be noting a wish.
-
-**TEST 6: REMINDER LANGUAGE TEST**
-(Apply to inputs with obligation/reminder phrasing)
-Ask: "Does this have reminder/obligation language paired with an action verb?"
-
-Inputs with obligation or reminder phrasing followed by an action verb signal TODO intent, even without explicit imperative structure. The obligation language IS the commitment signal. This applies even when the input arrives from a multi-entity split.
 
 **THE CORE PRINCIPLE:**
 If you cannot point to specific words that determine how to handle this item, you are guessing. Flag it as ambiguous and let the user clarify.

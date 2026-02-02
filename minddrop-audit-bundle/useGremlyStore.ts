@@ -4265,13 +4265,6 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => {
-      console.log('🟢 [GremlyStore] updatePendingDropEnrichment called', {
-        localId,
-        enrichmentKeys: Object.keys(enrichment),
-        hasMinddropStage: 'minddrop_stage' in enrichment,
-        minddropStageValue: (enrichment as any).minddrop_stage,
-      });
-
       set((state) => {
         const drop = state.pendingDrops.get(localId);
         if (!drop) {
@@ -4280,14 +4273,6 @@ export const useGremlyStore = create<GremlyState>()(
         }
 
         const updated: PendingDrop = { ...drop, ...enrichment };
-
-        console.log('🟢 [GremlyStore] After spread, updated drop has:', {
-          localId,
-          hasMinddropStage: 'minddrop_stage' in updated,
-          minddropStageValue: (updated as any).minddrop_stage,
-          status: updated.status,
-        });
-
         const newPending = new Map(state.pendingDrops);
         newPending.set(localId, updated);
 

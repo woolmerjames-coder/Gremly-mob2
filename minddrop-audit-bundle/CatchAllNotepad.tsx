@@ -923,12 +923,6 @@ function getMindDropVisualState(entity: {
 }): MindDropVisualState {
   const views = entity.views ?? {};
 
-  // Phase 1.5a streaming - title/confirmation arriving, show typewriter
-  // CHECK THIS FIRST - streaming should override ai_pending
-  if (views.minddrop_stage === 'streaming') {
-    return 'streaming';
-  }
-
   // Clarification processing - user just selected an option, API calls in progress
   if (views.clarification_processing === true || views.ai_pending === true) {
     return 'enriching';
@@ -942,6 +936,11 @@ function getMindDropVisualState(entity: {
   // Phase 2 in progress - entity exists, show enriching animation
   if (views.minddrop_stage === 'enriching') {
     return 'enriching';
+  }
+
+  // Phase 2 streaming - fields arriving progressively
+  if (views.minddrop_stage === 'streaming') {
+    return 'streaming';
   }
 
   // Explicitly failed
@@ -3175,15 +3174,6 @@ const RecentDrops: React.FC<{
   // Pending drops from Zustand (optimistic queue system)
   const pendingDropsMap = useGremlyStore((s) => s.pendingDrops);
 
-  // DEBUG: Track when pendingDropsMap reference changes
-  React.useEffect(() => {
-    console.log('🔴 [CatchAllNotepad] pendingDropsMap CHANGED', {
-      size: pendingDropsMap.size,
-      keys: Array.from(pendingDropsMap.keys()),
-      timestamp: Date.now(),
-    });
-  }, [pendingDropsMap]);
-
   // Configure smooth layout animation when pending drops content changes
   // This prevents jolt when Phase 1 data (smart titles) arrive for segments
   // BUT we skip animation when:
@@ -3304,17 +3294,6 @@ const RecentDrops: React.FC<{
   // Transform pending drops from Zustand Map to UnifiedDrop array
   const pendingItems = React.useMemo((): UnifiedDrop[] => {
     const drops = Array.from(pendingDropsMap.values());
-
-    console.log('🟡 [pendingItems] useMemo running', {
-      dropCount: drops.length,
-      drops: drops.map((d) => ({
-        localId: d.localId,
-        status: d.status,
-        minddrop_stage: (d as any).minddrop_stage,
-        hasSmartTitle: !!d.smartTitle,
-      })),
-    });
-
     return drops
       .map((drop: PendingDrop): UnifiedDrop => {
         // Map bucket to kind
