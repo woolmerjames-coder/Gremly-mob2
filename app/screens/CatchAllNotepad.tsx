@@ -1504,6 +1504,94 @@ const AnimatedChipsTransition: React.FC<{
   );
 };
 
+// Module-level Set to track which badges have animated (persists across pending→entity transition)
+const badgeAnimatedIds = new Set<string>();
+
+/**
+ * AnimatedBadgeTransition - Mist reveal animation for bucket badge
+ *
+ * Shows shimmer placeholder until bucket is confirmed by Phase 1,
+ * then reveals the badge with blur-to-sharp mist animation.
+ */
+const AnimatedBadgeTransition: React.FC<{
+  trackingId: string;
+  bucketConfirmed: boolean;
+  children: React.ReactNode;
+}> = ({ trackingId, bucketConfirmed, children }) => {
+  const alreadyAnimated = badgeAnimatedIds.has(trackingId);
+
+  const [animValues] = React.useState(() => ({
+    opacity: new Animated.Value(alreadyAnimated ? 1 : 0.3),
+    scale: new Animated.Value(alreadyAnimated ? 1 : 0.95),
+    mistOpacity: new Animated.Value(alreadyAnimated ? 0 : 0.9),
+  }));
+
+  const [isVisible, setIsVisible] = React.useState(alreadyAnimated || bucketConfirmed);
+  const animationStarted = React.useRef(alreadyAnimated);
+
+  React.useEffect(() => {
+    if (bucketConfirmed && !animationStarted.current && !badgeAnimatedIds.has(trackingId)) {
+      animationStarted.current = true;
+      badgeAnimatedIds.add(trackingId);
+      setIsVisible(true);
+
+      Animated.parallel([
+        Animated.timing(animValues.opacity, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(animValues.scale, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(animValues.mistOpacity, {
+          toValue: 0,
+          duration: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else if (bucketConfirmed && badgeAnimatedIds.has(trackingId) && !isVisible) {
+      setIsVisible(true);
+    }
+  }, [trackingId, bucketConfirmed, animValues, isVisible]);
+
+  // If not confirmed yet, show shimmer placeholder
+  if (!isVisible) {
+    return <ShimmerBar width={45} height={22} style={{ borderRadius: 11 }} />;
+  }
+
+  return (
+    <View style={{ position: 'relative' }}>
+      <Animated.View
+        style={{
+          opacity: animValues.opacity,
+          transform: [{ scale: animValues.scale }],
+        }}
+      >
+        {children}
+      </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: -1,
+          left: -1,
+          right: -1,
+          bottom: -1,
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          opacity: animValues.mistOpacity,
+          borderRadius: 11,
+        }}
+      />
+    </View>
+  );
+};
+
 /**
  * Row3Chips - UNIFIED chip rendering component for Row 3
  *
@@ -1833,6 +1921,8 @@ const PendingSkeleton: React.FC<{
   index?: number; // For stagger delay
 }> = ({ item, effectiveKind, badgeStyleKey, styles, c, index = 0 }) => {
   const [dots, setDots] = React.useState('');
+  const trackingId = item.drop_id || item.id;
+  const bucketConfirmed = item.views?.bucket_confirmed === true;
 
   // Animated dots: cycle through '', '.', '..', '...'
   React.useEffect(() => {
@@ -1896,9 +1986,11 @@ const PendingSkeleton: React.FC<{
           {displayTitle || '—'}
         </Animated.Text>
         <View style={styles.recentTopRight}>
-          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
-          </Text>
+          <AnimatedBadgeTransition trackingId={trackingId} bucketConfirmed={bucketConfirmed}>
+            <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
+              {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
+            </Text>
+          </AnimatedBadgeTransition>
         </View>
       </View>
 
@@ -1948,6 +2040,9 @@ const EnrichingSkeleton: React.FC<{
   c: any;
   index?: number; // For stagger delay
 }> = ({ item, effectiveKind, badgeStyleKey, styles, c, index = 0 }) => {
+  const trackingId = item.drop_id || item.id;
+  const bucketConfirmed = item.views?.bucket_confirmed === true;
+
   // Breathing border animation (vanilla Animated)
   const borderOpacity = React.useMemo(() => new Animated.Value(0.15), []);
 
@@ -2048,9 +2143,11 @@ const EnrichingSkeleton: React.FC<{
           {displayTitle || '—'}
         </Animated.Text>
         <View style={styles.recentTopRight}>
-          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
-          </Text>
+          <AnimatedBadgeTransition trackingId={trackingId} bucketConfirmed={bucketConfirmed}>
+            <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
+              {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
+            </Text>
+          </AnimatedBadgeTransition>
         </View>
       </View>
 
@@ -2604,6 +2701,9 @@ const AnimatedMindDropCard = React.memo<{
       !item.clarification_resolved &&
       !item.views?.clarification_resolved;
 
+    // Tracking for badge animation (uses trackingId declared below)
+    const bucketConfirmed = item.views?.bucket_confirmed !== false; // true for real entities
+
     // DEBUG: Track component mount/unmount (disabled to reduce Metro noise)
     // React.useEffect(() => {
     //   console.log('[DEBUG:AnimatedMindDropCard] MOUNTED:', {
@@ -2917,15 +3017,17 @@ const AnimatedMindDropCard = React.memo<{
               {needsClarification ? (
                 <ClarifyBadge />
               ) : (
-                <Text
-                  style={[
-                    styles.recentCategoryPill,
-                    styles[badgeStyleKey],
-                    isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
-                  ]}
-                >
-                  {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
-                </Text>
+                <AnimatedBadgeTransition trackingId={trackingId} bucketConfirmed={bucketConfirmed}>
+                  <Text
+                    style={[
+                      styles.recentCategoryPill,
+                      styles[badgeStyleKey],
+                      isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
+                    ]}
+                  >
+                    {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
+                  </Text>
+                </AnimatedBadgeTransition>
               )}
             </View>
           </View>
@@ -3381,6 +3483,8 @@ const RecentDrops: React.FC<{
             // Flag for Row3Chips: only animate chips when Phase 2 is FULLY complete
             // This is separate from minddrop_stage which triggers Row 1-2 typewriter earlier
             chip_data_ready: drop.status === 'enriched' || drop.status === 'synced',
+            // Flag for badge animation - true when Phase 1 confirms the bucket
+            bucket_confirmed: drop.status !== 'pending' && drop.status !== 'classifying',
             // Multi-drop data for UI rendering
             is_multi: drop.isMulti,
             multi_segments: drop.multiSegments,
