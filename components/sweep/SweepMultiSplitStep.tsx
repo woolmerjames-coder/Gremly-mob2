@@ -1,14 +1,22 @@
 /**
  * SweepMultiSplitStep.tsx
  *
- * Shows the multi-split modal in the sweep flow.
- * Uses the exact same design as MultiSplitModal.
- * Adds: progress tracking for multiple drops, toast on confirmation.
+ * Quick Split step for Evening Sweep flow.
+ * Shows unresolved multi-drops and lets user split or keep as one.
+ *
+ * CRITICAL: Store action (onSplit/onKeepAsOne) is called AFTER animation completes,
+ * not during. This prevents re-renders from cycling through cards automatically.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
 import { Text } from '../../ui';
@@ -36,33 +44,20 @@ export interface SweepMultiSplitStepProps {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Assets
+// Constants
 // ───────────────────────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_ICON = require('../../assets/buttonforHP.png');
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Toast
-// ───────────────────────────────────────────────────────────────────────────────
+const CARD_WIDTH = 320;
+const MAX_ITEM_LIST_HEIGHT = 240;
 
-function ConfirmationToast({ visible, count }: { visible: boolean; count: number }) {
-  if (!visible) return null;
-
-  return (
-    <Animated.View
-      entering={FadeIn.duration(150)}
-      exiting={FadeOut.duration(100)}
-      style={styles.toastContainer}
-    >
-      <View style={styles.toastContent}>
-        <Text style={styles.toastText}>
-          {count === 1 ? '1 card added' : `${count} cards added`}
-        </Text>
-      </View>
-    </Animated.View>
-  );
-}
+// Animation timing
+const FADE_IN_DURATION = 200;
+const HOLD_DURATION = 800;
+const FADE_OUT_DURATION = 200;
+const TOTAL_ANIMATION_TIME = FADE_IN_DURATION + HOLD_DURATION + FADE_OUT_DURATION + 100;
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Component
@@ -74,51 +69,115 @@ export function SweepMultiSplitStep({
   onKeepAsOne,
   onComplete,
 }: SweepMultiSplitStepProps) {
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
-  const [showToast, setShowToast] = useState(false);
-  const [toastCount, setToastCount] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [confirmationText, setConfirmationText] = useState('');
+  const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
 
-  const currentDrop = multiDrops[currentIndex];
-  const totalCount = multiDrops.length;
+  // Store pending action to execute AFTER animation completes
+  const pendingActionRef = useRef<(() => void) | null>(null);
 
-  // Edge case: auto-complete if no multi-drops
+  // Track the current drop ID to prevent re-initialization during animation
+  const currentDropIdRef = useRef<string | null>(null);
+
+  // Animation value for confirmation overlay
+  const confirmationOpacity = useSharedValue(0);
+
+  // Always show the first drop in the array
+  const currentDrop = multiDrops[0];
+
+  // Initialize selection when a NEW drop appears (not during animation)
   useEffect(() => {
-    if (!currentDrop || multiDrops.length === 0) {
-      onComplete();
-    }
-  }, [currentDrop, multiDrops.length, onComplete]);
-
-  // Reset selection when current drop changes
-  useEffect(() => {
-    if (currentDrop) {
+    if (currentDrop && currentDrop.localId !== currentDropIdRef.current && !isAnimating) {
+      currentDropIdRef.current = currentDrop.localId;
       setSelectedIndices(new Set(currentDrop.items.map((_, i) => i)));
+      setHasScrolledToBottom(false);
+      // eslint-disable-next-line react-hooks/immutability
+      confirmationOpacity.value = 0;
     }
-  }, [currentIndex, currentDrop?.localId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDrop?.localId, isAnimating]);
 
-  const toggleItem = useCallback((index: number) => {
-    setSelectedIndices((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
-      return next;
-    });
-  }, []);
-
-  const proceedToNext = useCallback(() => {
-    setShowToast(false);
-    setIsAnimating(false);
-
-    if (currentIndex >= totalCount - 1) {
+  // Complete when no more drops (and not animating)
+  useEffect(() => {
+    if (multiDrops.length === 0 && !isAnimating) {
       onComplete();
-    } else {
-      setCurrentIndex((prev) => prev + 1);
     }
-  }, [currentIndex, totalCount, onComplete]);
+  }, [multiDrops.length, isAnimating, onComplete]);
+
+  const toggleItem = useCallback(
+    (index: number) => {
+      if (isAnimating) return;
+      setSelectedIndices((prev) => {
+        const next = new Set(prev);
+        if (next.has(index)) {
+          next.delete(index);
+        } else {
+          next.add(index);
+        }
+        return next;
+      });
+    },
+    [isAnimating],
+  );
+
+  const handleScroll = useCallback(
+    (event: {
+      nativeEvent: {
+        layoutMeasurement: { height: number };
+        contentOffset: { y: number };
+        contentSize: { height: number };
+      };
+    }) => {
+      if (hasScrolledToBottom) return;
+      const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+      const isAtBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 20;
+      if (isAtBottom) {
+        setHasScrolledToBottom(true);
+      }
+    },
+    [hasScrolledToBottom],
+  );
+
+  const triggerConfirmation = useCallback(
+    (text: string, storeAction: () => void) => {
+      setIsAnimating(true);
+      setConfirmationText(text);
+
+      // Store the action - DO NOT execute it yet
+      pendingActionRef.current = storeAction;
+
+      // Fade in confirmation overlay
+      // eslint-disable-next-line react-hooks/immutability
+      confirmationOpacity.value = withTiming(1, {
+        duration: FADE_IN_DURATION,
+        easing: Easing.out(Easing.cubic),
+      });
+
+      // After hold, execute store action and fade out
+      setTimeout(() => {
+        // Execute store action NOW - new card loads underneath
+        if (pendingActionRef.current) {
+          pendingActionRef.current();
+          pendingActionRef.current = null;
+        }
+
+        // Then fade out to reveal the new card
+        // eslint-disable-next-line react-hooks/immutability
+        confirmationOpacity.value = withTiming(0, {
+          duration: FADE_OUT_DURATION,
+          easing: Easing.in(Easing.cubic),
+        });
+      }, FADE_IN_DURATION + HOLD_DURATION);
+
+      // AFTER animation is fully complete, reset state
+      setTimeout(() => {
+        currentDropIdRef.current = null;
+        setIsAnimating(false);
+      }, TOTAL_ANIMATION_TIME);
+    },
+    [confirmationOpacity],
+  );
 
   const handleSplit = useCallback(() => {
     if (isAnimating || !currentDrop) return;
@@ -126,32 +185,32 @@ export function SweepMultiSplitStep({
     const selected = currentDrop.items.filter((_, i) => selectedIndices.has(i));
     if (selected.length === 0) return;
 
-    setIsAnimating(true);
+    // Capture values NOW, before any async stuff
+    const dropId = currentDrop.localId;
+    const selectedItems = [...selected];
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    setToastCount(selected.length);
-    setShowToast(true);
-
-    onSplit(currentDrop.localId, selected);
-
-    setTimeout(proceedToNext, 800);
-  }, [currentDrop, selectedIndices, isAnimating, onSplit, proceedToNext]);
+    const cardText = selectedItems.length === 1 ? 'card' : 'cards';
+    triggerConfirmation(`Split into ${selectedItems.length} ${cardText}`, () => {
+      onSplit(dropId, selectedItems);
+    });
+  }, [currentDrop, selectedIndices, isAnimating, onSplit, triggerConfirmation]);
 
   const handleKeepAsOne = useCallback(() => {
     if (isAnimating || !currentDrop) return;
 
-    setIsAnimating(true);
+    // Capture value NOW
+    const dropId = currentDrop.localId;
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    setToastCount(1);
-    setShowToast(true);
+    triggerConfirmation('Kept as one', () => {
+      onKeepAsOne(dropId);
+    });
+  }, [currentDrop, isAnimating, onKeepAsOne, triggerConfirmation]);
 
-    onKeepAsOne(currentDrop.localId);
-
-    setTimeout(proceedToNext, 800);
-  }, [currentDrop, isAnimating, onKeepAsOne, proceedToNext]);
-
-  const getKeepTogetherLabel = () => {
+  const getKeepTogetherLabel = useCallback(() => {
     if (currentDrop?.dominantBucket === 'todo') return 'One Task';
     if (currentDrop?.dominantBucket === 'habit') return 'One Habit';
     if (currentDrop?.dominantBucket === 'log' && currentDrop?.dominantSubtype === 'journal')
@@ -159,97 +218,132 @@ export function SweepMultiSplitStep({
     if (currentDrop?.dominantBucket === 'log' && currentDrop?.dominantSubtype === 'idea')
       return 'Just Brainstorming';
     return 'One Item';
-  };
+  }, [currentDrop]);
 
-  // Truncate original text for display
-  const getTruncatedText = (text: string, maxLength = 40) => {
-    if (text.length <= maxLength) return text;
-    return text.slice(0, maxLength) + '...';
-  };
+  // Animated style for confirmation overlay
+  const confirmationAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: confirmationOpacity.value,
+  }));
 
   const selectedCount = selectedIndices.size;
+  const needsScroll = currentDrop && currentDrop.items.length > 4;
 
-  // Early return after hooks
-  if (!currentDrop || multiDrops.length === 0) {
+  // Don't render if no drops
+  if (!currentDrop) {
     return null;
   }
 
   return (
     <View style={styles.container}>
-      {/* Text above modal */}
       <Text style={styles.preModalText}>Quick things before we sweep</Text>
 
-      {/* Modal card */}
-      <View style={styles.card}>
-        {/* "YOU DROPPED" section at top */}
-        <Text style={styles.droppedLabel}>YOU DROPPED</Text>
-        {currentDrop.originalText && (
-          <Text style={styles.originalText}>"{getTruncatedText(currentDrop.originalText)}"</Text>
-        )}
-        <View style={styles.divider} />
-
-        {/* Gremly row below divider */}
-        <View style={styles.headerRow}>
-          <Image source={GREMLY_ICON} style={styles.gremlyIcon} />
-          <Text style={styles.header}>
-            Looks like multiple things. Want to <Text style={styles.headerBold}>split</Text> or{' '}
-            <Text style={styles.headerBold}>keep as one</Text>?
-          </Text>
-        </View>
-
-        {/* Item list with checkboxes */}
-        <ScrollView style={styles.itemList} contentContainerStyle={styles.itemListContent}>
-          {currentDrop.items.map((item, index) => (
-            <TouchableOpacity
-              key={index}
-              style={[styles.itemRow, selectedIndices.has(index) && styles.itemRowSelected]}
-              onPress={() => toggleItem(index)}
-              activeOpacity={0.7}
-              disabled={isAnimating}
-            >
-              {/* Checkbox */}
-              <View
-                style={[styles.checkbox, selectedIndices.has(index) && styles.checkboxSelected]}
-              >
-                {selectedIndices.has(index) && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-
-              {/* Item details */}
-              <View style={styles.itemContent}>
-                <Text style={styles.itemTitle} numberOfLines={2}>
-                  {item.smart_title || item.preview_title || item.text}
-                </Text>
-                <Text style={styles.itemBucket}>
-                  {item.bucket === 'todo' ? 'Todo' : item.bucket === 'habit' ? 'Habit' : 'Note'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* Action buttons */}
-        <View style={styles.buttonRow}>
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={handleKeepAsOne}
-            disabled={isAnimating}
-          >
-            <Text style={styles.secondaryButtonText}>{getKeepTogetherLabel()}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.primaryButton, selectedCount === 0 && styles.buttonDisabled]}
-            onPress={handleSplit}
-            disabled={selectedCount === 0 || isAnimating}
-          >
-            <Text style={styles.primaryButtonText}>
-              Split{selectedCount > 0 ? ` (${selectedCount})` : ''}
+      {/* Card wrapper for positioning */}
+      <View style={styles.cardWrapper}>
+        {/* Question Card */}
+        <View style={styles.card}>
+          <View style={styles.cardInner}>
+            {/* YOU DROPPED */}
+            <Text style={styles.droppedLabel}>YOU DROPPED</Text>
+            <Text style={styles.originalText} numberOfLines={2}>
+              "{currentDrop.originalText}"
             </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      {/* Toast */}
-      <ConfirmationToast visible={showToast} count={toastCount} />
+            <View style={styles.divider} />
+
+            {/* Gremly question */}
+            <View style={styles.gremlyRow}>
+              <Image source={GREMLY_ICON} style={styles.gremlyIcon} />
+              <Text style={styles.gremlyText}>
+                Looks like multiple things. Want to <Text style={styles.gremlyTextBold}>split</Text>{' '}
+                or <Text style={styles.gremlyTextBold}>keep as one</Text>?
+              </Text>
+            </View>
+
+            {/* Item list */}
+            <View style={styles.itemListContainer}>
+              <ScrollView
+                style={[styles.itemList, needsScroll && { maxHeight: MAX_ITEM_LIST_HEIGHT }]}
+                contentContainerStyle={styles.itemListContent}
+                showsVerticalScrollIndicator={false}
+                scrollEnabled={needsScroll}
+                onScroll={needsScroll ? handleScroll : undefined}
+                scrollEventThrottle={16}
+              >
+                {currentDrop.items.map((item, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[styles.itemRow, selectedIndices.has(index) && styles.itemRowSelected]}
+                    onPress={() => toggleItem(index)}
+                    activeOpacity={0.7}
+                    disabled={isAnimating}
+                  >
+                    <View
+                      style={[
+                        styles.checkbox,
+                        selectedIndices.has(index) && styles.checkboxSelected,
+                      ]}
+                    >
+                      {selectedIndices.has(index) && <Text style={styles.checkmark}>✓</Text>}
+                    </View>
+                    <View style={styles.itemContent}>
+                      <Text style={styles.itemTitle} numberOfLines={2}>
+                        {item.smart_title || item.preview_title || item.text}
+                      </Text>
+                      <Text style={styles.itemBucket}>
+                        {item.bucket === 'todo'
+                          ? 'Todo'
+                          : item.bucket === 'habit'
+                            ? 'Habit'
+                            : 'Note'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Fade gradient for scroll hint */}
+              {needsScroll && !hasScrolledToBottom && (
+                <LinearGradient
+                  colors={['rgba(255,255,255,0)', 'rgba(255,255,255,1)']}
+                  style={styles.fadeGradient}
+                  pointerEvents="none"
+                />
+              )}
+            </View>
+
+            {/* Buttons */}
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={handleKeepAsOne}
+                disabled={isAnimating}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.secondaryButtonText}>{getKeepTogetherLabel()}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.primaryButton, selectedCount === 0 && styles.buttonDisabled]}
+                onPress={handleSplit}
+                disabled={selectedCount === 0 || isAnimating}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.primaryButtonText}>
+                  Split{selectedCount > 0 ? ` (${selectedCount})` : ''}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Confirmation Overlay - sits on top, covers card completely */}
+        <Animated.View
+          style={[styles.confirmationOverlay, confirmationAnimatedStyle]}
+          pointerEvents="none"
+        >
+          <Image source={GREMLY_ICON} style={styles.confirmationIcon} />
+          <Text style={styles.confirmationText}>{confirmationText}</Text>
+        </Animated.View>
+      </View>
     </View>
   );
 }
@@ -259,102 +353,120 @@ export function SweepMultiSplitStep({
 // ───────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  // Container - matches app background
   container: {
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
   },
-  // Text above modal
   preModalText: {
     fontSize: 15,
     color: BRAND.colors.inkMuted,
-    marginBottom: 16,
-  },
-  // Card with elevated shadow
-  card: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.lg,
-    padding: 28,
-    width: '100%',
-    maxWidth: 340,
-    // Elevated shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 12,
-  },
-  // Header row - same as MultiSplitModal
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 20,
+  },
+
+  // Card wrapper for overlay positioning
+  cardWrapper: {
+    width: CARD_WIDTH,
+    position: 'relative',
+  },
+
+  // Card
+  card: {
+    width: '100%',
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  cardInner: {
+    padding: 24,
+  },
+
+  // YOU DROPPED
+  droppedLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.5,
+    color: BRAND.colors.inkSubtle,
+    marginBottom: 8,
+  },
+  originalText: {
+    fontSize: 17,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    lineHeight: 24,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: BRAND.colors.borderSubtle,
+    marginVertical: 16,
+  },
+
+  // Gremly row
+  gremlyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
   gremlyIcon: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    marginRight: 12,
+    marginRight: 10,
+    marginTop: 2,
   },
-  header: {
+  gremlyText: {
+    flex: 1,
     fontSize: 14,
     color: BRAND.colors.inkMuted,
-    flex: 1,
+    lineHeight: 20,
   },
-  headerBold: {
+  gremlyTextBold: {
     fontWeight: '600',
-  },
-  // Dropped label
-  droppedLabel: {
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    color: BRAND.colors.inkSubtle,
-    marginBottom: 6,
-  },
-  // Original text
-  originalText: {
-    fontSize: 16,
-    ...BRAND.typography.body,
     color: BRAND.colors.charcoalInk,
   },
-  // Divider
-  divider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: BRAND.colors.borderSubtle,
-    marginVertical: 16,
+
+  // Item list
+  itemListContainer: {
+    marginBottom: 16,
+    position: 'relative',
   },
-  // Item list - same as MultiSplitModal
-  itemList: {
-    marginBottom: 24,
-    maxHeight: 300,
-  },
+  itemList: {},
   itemListContent: {
-    paddingBottom: 8,
+    paddingBottom: 4,
+  },
+  fadeGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 40,
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    marginBottom: 10,
-    minHeight: 72,
+    padding: 12,
+    marginBottom: 8,
     borderRadius: BRAND.radius.md,
     borderWidth: 1,
     borderColor: BRAND.colors.borderSubtle,
+    backgroundColor: BRAND.colors.surface,
   },
   itemRowSelected: {
-    backgroundColor: 'rgba(191, 216, 192, 0.2)',
+    backgroundColor: 'rgba(191, 216, 192, 0.15)',
     borderColor: BRAND.colors.sageMist,
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: BRAND.radius.sm,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
     borderWidth: 2,
-    borderColor: BRAND.colors.sageMist,
+    borderColor: BRAND.colors.borderSubtle,
     marginRight: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -367,31 +479,28 @@ const styles = StyleSheet.create({
     color: BRAND.colors.surface,
     fontSize: 14,
     fontWeight: '700',
-    lineHeight: 16,
-    textAlign: 'center',
+    lineHeight: 14,
   },
   itemContent: {
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    minHeight: 44,
   },
   itemTitle: {
+    flex: 1,
     fontSize: 15,
-    ...BRAND.typography.bodyMedium,
+    fontWeight: '500',
     color: BRAND.colors.charcoalInk,
-    flexShrink: 1,
+    marginRight: 8,
   },
   itemBucket: {
     fontSize: 12,
-    ...BRAND.typography.bodyMedium,
-    color: '#4A7C59',
-    textTransform: 'capitalize',
-    marginLeft: 8,
-    marginRight: 4,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
   },
-  // Buttons - same as MultiSplitModal
+
+  // Buttons
   buttonRow: {
     flexDirection: 'row',
     gap: 12,
@@ -403,10 +512,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BRAND.colors.borderSubtle,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   secondaryButtonText: {
     fontSize: 15,
-    ...BRAND.typography.bodyMedium,
+    fontWeight: '600',
     color: BRAND.colors.inkMuted,
   },
   primaryButton: {
@@ -415,33 +525,40 @@ const styles = StyleSheet.create({
     borderRadius: BRAND.radius.md,
     backgroundColor: BRAND.colors.sageMist,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
   buttonDisabled: {
     opacity: 0.5,
   },
-  primaryButtonText: {
-    fontSize: 15,
-    ...BRAND.typography.bodyMedium,
-    color: BRAND.colors.mossGreen,
-  },
-  // Toast
-  toastContainer: {
+
+  // Confirmation overlay - covers the card completely
+  confirmationOverlay: {
     position: 'absolute',
-    bottom: 60,
-    left: 20,
-    right: 20,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: 16,
+    justifyContent: 'center',
     alignItems: 'center',
+    padding: 24,
   },
-  toastContent: {
-    backgroundColor: BRAND.colors.charcoalInk,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: BRAND.radius.pill,
+  confirmationIcon: {
+    width: 88,
+    height: 88,
+    marginBottom: 20,
   },
-  toastText: {
-    fontSize: 15,
+  confirmationText: {
+    fontSize: 20,
     fontWeight: '600',
-    color: BRAND.colors.surface,
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
   },
 });
 
