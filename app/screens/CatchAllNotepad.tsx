@@ -1037,7 +1037,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 // Custom LayoutAnimation config for smooth card slide-down (Phase 1)
 // Made slower and more intentional so users clearly see cards "making room"
 const CardInsertLayoutAnimation = {
-  duration: 450,
+  duration: 550,
   create: {
     type: LayoutAnimation.Types.easeOut,
     property: LayoutAnimation.Properties.opacity,
@@ -1055,24 +1055,24 @@ const CardInsertLayoutAnimation = {
  * TIMING (synced with Phase 0 multi-detect ~700ms):
  *
  * 0ms    - User taps Drop, pending drop added to Zustand
- * 0-500ms - PHASE 1: Existing cards slide down via LayoutAnimation
+ * 0-600ms - PHASE 1: Existing cards slide down via LayoutAnimation
  * 200ms  - PHASE 2 START: Card begins emerging from depth
  *          Initial state: scale 0.65, opacity 0.2 (far beneath surface)
  * 700ms  - Phase 0 returns: bucket + isMulti now known
- *          Card is at ~scale 0.88, opacity 0.74 (still visibly emerging)
+ *          Card is at ~scale 0.84, opacity 0.67 (still visibly emerging)
  *          React re-renders with correct card type (single/multi)
- * 950ms  - PHASE 2 END: Card reaches full size
+ * 1100ms - PHASE 2 END: Card reaches full size
  *          Final state: scale 1.0, opacity 1.0 (fully surfaced)
  *          Card has "revealed" its true form during emergence
  *
- * The card content updates at 700ms while still scaled down (~0.88),
+ * The card content updates at 700ms while still scaled down (~0.84),
  * so the correct type (single/multi) is revealed as the card surfaces.
  * This creates a seamless "morph" effect - users never see a type switch.
  *
- * Math: Animation starts at 200ms, duration 750ms, ends at 950ms.
- * At 700ms: (700-200)/750 = 66.7% through animation.
- * With easeOut(cubic), ~85% of value change completed.
- * Scale at 700ms: 0.65 + 0.35 * 0.85 ≈ 0.88
+ * Math: Animation starts at 200ms, duration 900ms, ends at 1100ms.
+ * At 700ms: (700-200)/900 = 55.6% through animation.
+ * With easeOut(cubic), ~80% of value change completed.
+ * Scale at 700ms: 0.65 + 0.35 * 0.80 ≈ 0.93
  */
 const AnimatedCardInsert: React.FC<{
   itemId: string;
@@ -1105,14 +1105,14 @@ const AnimatedCardInsert: React.FC<{
         // Scale from 0.65 to 1.0 - rising from deep within the phone
         Animated.timing(scale, {
           toValue: 1,
-          duration: 750,
+          duration: 900,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         // Opacity from 0.2 to 1.0 - emerging through glass layers
         Animated.timing(opacity, {
           toValue: 1,
-          duration: 750,
+          duration: 900,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -1323,49 +1323,20 @@ const UnifiedCardWrapper: React.FC<{
 };
 
 /**
- * ClarifyBadge - Pulsing badge for items needing clarification
+ * ClarifyBadge - Static badge for items needing clarification
  * Shows in the top-right badge position, replacing the bucket badge.
- * Uses a gentle opacity pulse to draw attention without being distracting.
  */
 const ClarifyBadge: React.FC = () => {
-  const pulseOpacity = useSharedValue(1);
-
-  React.useEffect(() => {
-    // Start pulsing animation after a short delay
-    const timeout = setTimeout(() => {
-      pulseOpacity.value = withRepeat(
-        withSequence(
-          withTiming(0.6, { duration: 800, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
-          withTiming(1, { duration: 800, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
-        ),
-        -1, // infinite
-        true, // reverse
-      );
-    }, 500);
-
-    return () => {
-      clearTimeout(timeout);
-      cancelAnimation(pulseOpacity);
-    };
-  }, [pulseOpacity]);
-
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: pulseOpacity.value,
-  }));
-
   return (
-    <Reanimated.View
-      style={[
-        {
-          paddingHorizontal: 8,
-          paddingVertical: 3,
-          borderRadius: 8,
-          backgroundColor: 'rgba(255, 243, 224, 0.9)',
-          borderWidth: 1,
-          borderColor: 'rgba(180, 140, 80, 0.25)',
-        },
-        pulseStyle,
-      ]}
+    <View
+      style={{
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
+        backgroundColor: 'rgba(255, 243, 224, 0.9)',
+        borderWidth: 1,
+        borderColor: 'rgba(180, 140, 80, 0.25)',
+      }}
     >
       <Text
         style={{
@@ -1377,7 +1348,7 @@ const ClarifyBadge: React.FC = () => {
       >
         Clarify
       </Text>
-    </Reanimated.View>
+    </View>
   );
 };
 
@@ -1956,6 +1927,16 @@ const PendingSkeleton: React.FC<{
     return () => animation.stop();
   }, [titleOpacity]);
 
+  // Show "Still thinking..." after 5 seconds
+  const [showSlowMessage, setShowSlowMessage] = React.useState(false);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSlowMessage(true);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Show raw text as title immediately (truncated to 50 chars)
   const displayTitle = truncateText(item.text || item.title || '', 50);
 
@@ -2008,6 +1989,22 @@ const PendingSkeleton: React.FC<{
           Organizing{dots}
         </Text>
       </View>
+
+      {/* Subtle slow message after 5 seconds */}
+      {showSlowMessage && (
+        <Reanimated.Text
+          entering={FadeIn.duration(300)}
+          style={{
+            fontSize: 11,
+            color: '#9CA3AF',
+            fontFamily: 'Inter-Regular',
+            marginTop: 4,
+            fontStyle: 'italic',
+          }}
+        >
+          Still thinking...
+        </Reanimated.Text>
+      )}
     </Reanimated.View>
   );
 };
@@ -2763,9 +2760,22 @@ const AnimatedMindDropCard = React.memo<{
         return;
       }
 
+      // Clarification bounce: happens when needsClarification becomes true
+      if (needsClarification && !clarificationBounceAnimatedIds.has(bounceTrackingId)) {
+        clarificationBounceAnimatedIds.add(bounceTrackingId);
+
+        // Same pronounced bounce as multi: 1.0 → 1.10 → 0.96 → 1.0
+        bounceScale.value = withSequence(
+          withTiming(1.1, { duration: 180 }),
+          withTiming(0.96, { duration: 140 }),
+          withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
+        );
+        return;
+      }
+
       // NOTE: Phase 1 bounce removed - regular cards no longer bounce
       // Only multi-drop cards get the attention-grabbing bounce
-    }, [isMulti, bounceTrackingId, bounceScale]);
+    }, [isMulti, needsClarification, bounceTrackingId, bounceScale]);
 
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
