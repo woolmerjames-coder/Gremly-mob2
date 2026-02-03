@@ -2688,6 +2688,11 @@ const AnimatedMindDropCard = React.memo<{
     onOpenModal,
     openClarificationPopup,
   }) => {
+    // Capture render time in a ref (initialized once on mount)
+    // This avoids calling Date.now() multiple times during render
+    // eslint-disable-next-line react-hooks/purity -- Date.now() in useRef initializer is safe (runs once per mount)
+    const mountTimeRef = React.useRef(Date.now());
+
     // Check for multi-entity drops
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
 
@@ -2851,10 +2856,21 @@ const AnimatedMindDropCard = React.memo<{
 
     const isReadyForReveal = itemVisualState === 'streaming' || itemVisualState === 'complete';
 
+    // Check if item is too old for animation (>30s old) - SYNCHRONOUS check
+    // Uses mountTimeRef captured on mount to avoid impure Date.now() calls during render
+    const createdAtMs = item.created_at
+      ? new Date(item.created_at).getTime()
+      : mountTimeRef.current;
+    const ageMs = mountTimeRef.current - createdAtMs;
+    const isTooOldForAnimation = ageMs >= 30000;
+
     // Check if this item needs reveal animation (not yet revealed)
     // Do this check synchronously, not in useEffect
     const needsRevealAnimation =
-      isReadyForReveal && !revealedItemIds.has(trackingId) && !revealComplete;
+      isReadyForReveal &&
+      !revealedItemIds.has(trackingId) &&
+      !revealComplete &&
+      !isTooOldForAnimation;
 
     // If we need to reveal OR we're already revealing, show revealing state
     const shouldReveal = needsRevealAnimation || isRevealing;

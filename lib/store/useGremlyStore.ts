@@ -4635,7 +4635,7 @@ export const useGremlyStore = create<GremlyState>()(
 
       // Get clarification options - check both direct property and views
       const clarificationOptions =
-        ((entity as Record<string, unknown>).clarification_options as
+        ((entity as unknown as Record<string, unknown>).clarification_options as
           | Array<{ id: string; label: string; action?: any }>
           | undefined) ||
         ((entity.views as Record<string, unknown> | undefined)?.clarification_options as

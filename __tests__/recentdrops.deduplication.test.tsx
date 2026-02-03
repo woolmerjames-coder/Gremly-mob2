@@ -299,8 +299,8 @@ describe('RecentDrops - Deduplication by drop_id', () => {
    */
   it('hides archived unsorted drops once converted to habit', async () => {
     const dropId = 'DROP_X';
-    const today = new Date();
-    const createdAt = today.toISOString();
+    // Use timestamp from 60 seconds ago to skip reveal animation (items >30s old skip)
+    const createdAt = new Date(Date.now() - 60000).toISOString();
 
     // Archived unsorted note (should NOT appear in list)
     const archivedUnsorted: Note = {
@@ -335,6 +335,8 @@ describe('RecentDrops - Deduplication by drop_id', () => {
       updated_at: createdAt,
       tags: ['#running', '#morning'],
       tags_meta: { sticky: [], tombstones: [] },
+      // Add views to skip reveal animation (avoids TypewriterText timing issues)
+      views: { minddrop_stage: 'enriched' },
     } as any;
 
     mockSelectRecentNotes.mockReturnValue([archivedUnsorted]);

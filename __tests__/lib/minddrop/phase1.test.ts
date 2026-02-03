@@ -43,7 +43,7 @@ describe('runPhase1', () => {
   });
 
   describe('timeout handling', () => {
-    test('returns heuristic result immediately if API times out', async () => {
+    test('returns fallback result if API times out', async () => {
       // Mock fetch to hang forever (never resolve)
       mockFetch.mockImplementation(
         () =>
@@ -55,21 +55,22 @@ describe('runPhase1', () => {
       // Start the phase1 call
       const resultPromise = runPhase1('buy milk', {});
 
-      // Advance timers past the 4 second timeout (PHASE1_TIMEOUT_MS = 4000)
-      jest.advanceTimersByTime(4500);
+      // Advance timers past the 8 second timeout (PHASE1_TIMEOUT_MS = 8000)
+      jest.advanceTimersByTime(8500);
 
       const result = await resultPromise;
 
-      // Should return heuristic fallback
+      // Should return fallback (new architecture returns log/general on timeout)
       expect(result.source).toBe('heuristic-fallback');
-      expect(result.bucket).toBe('todo'); // 'buy milk' should be classified as todo by heuristic
-      expect(result.confidence).toBeGreaterThan(0);
+      expect(result.bucket).toBe('log'); // Fallback is now log/general
+      expect(result.subtype).toBe('general');
+      expect(result.confidence).toBe(0.5);
     }, 15000); // Increase test timeout to allow for timer advancement
   });
 
   describe('API confirmation', () => {
-    test('returns API result when API confirms heuristic', async () => {
-      // Mock fetch to return matching classification
+    test('returns API result with source from API', async () => {
+      // Mock fetch to return classification
       mockFetch.mockResolvedValue({
         ok: true,
         json: () =>
@@ -78,14 +79,15 @@ describe('runPhase1', () => {
             bucket: 'todo',
             confidence: 0.9,
             subtype: null,
+            source: 'heuristic', // Worker may return heuristic or api source
             latency_ms: 150,
           }),
       });
 
       const result = await runPhase1('buy milk', {});
 
-      // Should confirm heuristic
-      expect(result.source).toBe('heuristic-confirmed');
+      // Should use source from API response
+      expect(result.source).toBe('heuristic');
       expect(result.bucket).toBe('todo');
       expect(result.confidence).toBe(0.9);
       expect(result.subtype).toBeNull();
@@ -117,18 +119,19 @@ describe('runPhase1', () => {
   });
 
   describe('error handling', () => {
-    test('falls back to heuristic on API error', async () => {
+    test('falls back on API error', async () => {
       // Mock fetch to throw error
       mockFetch.mockRejectedValue(new Error('Network error'));
 
       const result = await runPhase1('buy milk', {});
 
-      // Should return heuristic fallback
+      // Should return fallback (log/general)
       expect(result.source).toBe('heuristic-fallback');
-      expect(result.bucket).toBe('todo');
+      expect(result.bucket).toBe('log');
+      expect(result.subtype).toBe('general');
     });
 
-    test('falls back to heuristic on non-ok response', async () => {
+    test('falls back on non-ok response', async () => {
       // Mock fetch to return non-ok status
       mockFetch.mockResolvedValue({
         ok: false,
@@ -138,9 +141,10 @@ describe('runPhase1', () => {
 
       const result = await runPhase1('exercise daily', {});
 
-      // Should return heuristic fallback
+      // Should return fallback (log/general)
       expect(result.source).toBe('heuristic-fallback');
-      expect(result.bucket).toBe('habit'); // heuristic should detect habit
+      expect(result.bucket).toBe('log');
+      expect(result.subtype).toBe('general');
     });
 
     test('falls back to heuristic when response missing bucket', async () => {
@@ -186,7 +190,7 @@ describe('runPhase1', () => {
       );
     });
 
-    test('sends heuristic hint in request', async () => {
+    test('sends correct request structure to classify-phase1-v2', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () =>
@@ -200,10 +204,11 @@ describe('runPhase1', () => {
 
       await runPhase1('buy milk', {});
 
+      // New architecture uses classify-phase1-v2 endpoint
       expect(mockFetch).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
-          body: expect.stringContaining('"heuristicHint"'),
+          body: expect.stringContaining('"type":"classify-phase1-v2"'),
         }),
       );
     });
@@ -392,7 +397,7 @@ describe('runPhase1', () => {
       expect(result.items).toBeUndefined();
     });
 
-    test('heuristic fallback has is_multi: false', async () => {
+    test('fallback has is_multi: false', async () => {
       // Mock fetch to hang forever (timeout)
       mockFetch.mockImplementation(
         () =>
@@ -402,7 +407,7 @@ describe('runPhase1', () => {
       );
 
       const resultPromise = runPhase1('buy milk', {});
-      jest.advanceTimersByTime(4500);
+      jest.advanceTimersByTime(8500); // Updated timeout to 8000ms
 
       const result = await resultPromise;
 

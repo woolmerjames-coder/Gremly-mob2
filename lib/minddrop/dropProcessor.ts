@@ -1068,12 +1068,12 @@ export async function processDrop(
       confidence: phase1Result.confidence,
       // Title and confirmation now come from Phase 1.5a (after this checkpoint)
       // Ambiguity detection (Phase 1.5 populates question/options in background)
-      needs_clarification: phase1Result.is_ambiguous || false,
-      ambiguity_reason: phase1Result.ambiguity_reason || null,
+      needsClarification: phase1Result.is_ambiguous || false,
+      ambiguityReason: phase1Result.ambiguity_reason || null,
       // Options will be populated by Phase 1.5 asynchronously
-      clarification_type: null,
-      clarification_question: null,
-      clarification_options: null,
+      clarificationType: null,
+      clarificationQuestion: null,
+      clarificationOptions: null,
       status: 'classified', // Clear checkpoint status
     });
 

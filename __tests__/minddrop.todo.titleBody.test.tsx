@@ -104,8 +104,8 @@ describe('Todo Title vs Body Separation (Phase 2C)', () => {
 
       expect(result).not.toBe(body); // Should be shorter
       expect(result).toContain('Email');
-      expect(result).toContain('Friday'); // Should include temporal hint
-      // Allow some flexibility - up to 10 words to include temporal hints
+      // Note: Temporal hints (Friday, next week) are NOT preserved in titles
+      // They are extracted separately as due_day/scheduled_date metadata
       expect(result.split(/\s+/).length).toBeLessThanOrEqual(11);
     });
 
