@@ -1,129 +1,104 @@
 /**
- * SweepMultiSplitStep - Pre-sweep step for resolving multi-entity Mind Drops
+ * SweepMultiSplitStep.tsx
  *
- * This step appears at step 0.25 (between intro and lock-in checkpoint)
- * when there are unresolved multi-drops that need splitting decisions.
- *
- * Users can either:
- * - Split: Create separate entities from detected segments
- * - Keep as one: Treat the entire drop as a single entity
+ * Shows the multi-split modal in the sweep flow.
+ * Uses the exact same design as MultiSplitModal.
+ * Adds: progress tracking for multiple drops, toast on confirmation.
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  FadeIn,
-  FadeInUp,
-  FadeOut,
-} from 'react-native-reanimated';
-import { Check, Scissors, FileStack, ChevronRight } from 'lucide-react-native';
+import { View, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
-import { triggerLight, triggerSuccess } from '../../lib/haptics';
-import type { PendingDrop, PendingDropSegment } from '../../lib/store/useGremlyStore';
+import type { MultiDropItem } from '../../lib/minddrop/types';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 // Types
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+
+export interface UnresolvedMultiDrop {
+  localId: string;
+  originalText: string;
+  items: MultiDropItem[];
+  summaryTitle: string;
+  dominantBucket?: string | null;
+  dominantSubtype?: string | null;
+}
 
 export interface SweepMultiSplitStepProps {
-  /** Multi-drops that need resolution */
-  multiDrops: PendingDrop[];
-  /** Called when user chooses to split a multi-drop */
-  onSplit: (dropId: string, segments: PendingDropSegment[]) => void;
-  /** Called when user keeps multi-drop as one entity */
-  onKeepAsOne: (dropId: string) => void;
-  /** Called when all multi-drops are resolved */
+  multiDrops: UnresolvedMultiDrop[];
+  onSplit: (localId: string, selectedItems: MultiDropItem[]) => void;
+  onKeepAsOne: (localId: string) => void;
   onComplete: () => void;
-  /** Called when user closes/cancels */
-  onClose?: () => void;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Assets
+// ───────────────────────────────────────────────────────────────────────────────
 
-// Bucket colors for segment chips
-const BUCKET_COLORS: Record<string, string> = {
-  todo: BRAND.colors.mossGreen,
-  habit: BRAND.colors.periwinkleSmoke,
-  log: BRAND.colors.goldenPear,
-};
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_ICON = require('../../assets/buttonforHP.png');
 
-const BUCKET_LABELS: Record<string, string> = {
-  todo: 'Todo',
-  habit: 'Habit',
-  log: 'Note',
-};
+// ───────────────────────────────────────────────────────────────────────────────
+// Toast
+// ───────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Confirmation Toast Component
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface ConfirmationToastProps {
-  message: string;
-  visible: boolean;
-  type: 'split' | 'kept';
-}
-
-function ConfirmationToast({ message, visible, type }: ConfirmationToastProps) {
+function ConfirmationToast({ visible, count }: { visible: boolean; count: number }) {
   if (!visible) return null;
 
   return (
     <Animated.View
-      entering={FadeInUp.duration(200)}
-      exiting={FadeOut.duration(150)}
-      style={styles.toast}
+      entering={FadeIn.duration(150)}
+      exiting={FadeOut.duration(100)}
+      style={styles.toastContainer}
     >
-      <View style={styles.toastIconContainer}>
-        {type === 'split' ? (
-          <Scissors size={16} color={BRAND.colors.mossGreen} />
-        ) : (
-          <FileStack size={16} color={BRAND.colors.mossGreen} />
-        )}
+      <View style={styles.toastContent}>
+        <Text style={styles.toastText}>
+          {count === 1 ? '1 card added' : `${count} cards added`}
+        </Text>
       </View>
-      <Text style={styles.toastText}>{message}</Text>
     </Animated.View>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Multi-Drop Card Component
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Component
+// ───────────────────────────────────────────────────────────────────────────────
 
-interface MultiDropCardProps {
-  drop: PendingDrop;
-  onSplit: (segments: PendingDropSegment[]) => void;
-  onKeepAsOne: () => void;
-  isActive: boolean;
-}
+export function SweepMultiSplitStep({
+  multiDrops,
+  onSplit,
+  onKeepAsOne,
+  onComplete,
+}: SweepMultiSplitStepProps) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [showToast, setShowToast] = useState(false);
+  const [toastCount, setToastCount] = useState(0);
+  const [isAnimating, setIsAnimating] = useState(false);
 
-function MultiDropCard({ drop, onSplit, onKeepAsOne, isActive }: MultiDropCardProps) {
-  const [selectedSegments, setSelectedSegments] = useState<Set<number>>(
-    new Set(drop.multiSegments?.map((_, i) => i) ?? []),
-  );
+  const currentDrop = multiDrops[currentIndex];
+  const totalCount = multiDrops.length;
 
-  // Animation values
-  const cardScale = useSharedValue(isActive ? 1 : 0.95);
-  const cardOpacity = useSharedValue(isActive ? 1 : 0.6);
-
+  // Edge case: auto-complete if no multi-drops
   useEffect(() => {
-    cardScale.value = withSpring(isActive ? 1 : 0.95, { damping: 15 });
-    cardOpacity.value = withTiming(isActive ? 1 : 0.6, { duration: 200 });
-  }, [isActive, cardScale, cardOpacity]);
+    if (!currentDrop || multiDrops.length === 0) {
+      onComplete();
+    }
+  }, [currentDrop, multiDrops.length, onComplete]);
 
-  const cardAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: cardScale.value }],
-    opacity: cardOpacity.value,
-  }));
+  // Reset selection when current drop changes
+  useEffect(() => {
+    if (currentDrop) {
+      setSelectedIndices(new Set(currentDrop.items.map((_, i) => i)));
+    }
+  }, [currentIndex, currentDrop?.localId]);
 
-  const toggleSegment = useCallback((index: number) => {
-    triggerLight();
-    setSelectedSegments((prev) => {
+  const toggleItem = useCallback((index: number) => {
+    setSelectedIndices((prev) => {
       const next = new Set(prev);
       if (next.has(index)) {
         next.delete(index);
@@ -134,489 +109,340 @@ function MultiDropCard({ drop, onSplit, onKeepAsOne, isActive }: MultiDropCardPr
     });
   }, []);
 
+  const proceedToNext = useCallback(() => {
+    setShowToast(false);
+    setIsAnimating(false);
+
+    if (currentIndex >= totalCount - 1) {
+      onComplete();
+    } else {
+      setCurrentIndex((prev) => prev + 1);
+    }
+  }, [currentIndex, totalCount, onComplete]);
+
   const handleSplit = useCallback(() => {
-    if (!drop.multiSegments) return;
-    triggerSuccess();
-    const segments = drop.multiSegments.filter((_, i) => selectedSegments.has(i));
-    onSplit(segments);
-  }, [drop.multiSegments, selectedSegments, onSplit]);
+    if (isAnimating || !currentDrop) return;
+
+    const selected = currentDrop.items.filter((_, i) => selectedIndices.has(i));
+    if (selected.length === 0) return;
+
+    setIsAnimating(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    setToastCount(selected.length);
+    setShowToast(true);
+
+    onSplit(currentDrop.localId, selected);
+
+    setTimeout(proceedToNext, 800);
+  }, [currentDrop, selectedIndices, isAnimating, onSplit, proceedToNext]);
 
   const handleKeepAsOne = useCallback(() => {
-    triggerLight();
-    onKeepAsOne();
-  }, [onKeepAsOne]);
+    if (isAnimating || !currentDrop) return;
 
-  const segments = drop.multiSegments ?? [];
-  const hasSelection = selectedSegments.size > 0;
+    setIsAnimating(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-  return (
-    <Animated.View style={[styles.multiCard, cardAnimatedStyle]}>
-      {/* Header */}
-      <View style={styles.multiCardHeader}>
-        <Text style={styles.multiCardTitle}>{drop.multiSummary || 'Multiple items detected'}</Text>
-        <View style={styles.multiCardBadge}>
-          <Text style={styles.multiCardBadgeText}>{segments.length} items</Text>
-        </View>
-      </View>
+    setToastCount(1);
+    setShowToast(true);
 
-      {/* Original text */}
-      <Text style={styles.originalText} numberOfLines={3}>
-        "{drop.text}"
-      </Text>
+    onKeepAsOne(currentDrop.localId);
 
-      {/* Segments list */}
-      <View style={styles.segmentsList}>
-        <Text style={styles.segmentsLabel}>Detected items:</Text>
-        {segments.map((segment, index) => {
-          const isSelected = selectedSegments.has(index);
-          const bucketColor = BUCKET_COLORS[segment.bucket] || BRAND.colors.charcoalInk;
+    setTimeout(proceedToNext, 800);
+  }, [currentDrop, isAnimating, onKeepAsOne, proceedToNext]);
 
-          return (
-            <TouchableOpacity
-              key={index}
-              style={[styles.segmentRow, isSelected && styles.segmentRowSelected]}
-              onPress={() => toggleSegment(index)}
-              activeOpacity={0.7}
-            >
-              <View
-                style={[
-                  styles.segmentCheckbox,
-                  isSelected && { backgroundColor: BRAND.colors.mossGreen },
-                ]}
-              >
-                {isSelected && <Check size={14} color="white" strokeWidth={3} />}
-              </View>
-              <View style={styles.segmentContent}>
-                <Text style={styles.segmentText} numberOfLines={2}>
-                  {segment.smartTitle || segment.text}
-                </Text>
-                <View style={[styles.bucketChip, { backgroundColor: `${bucketColor}20` }]}>
-                  <Text style={[styles.bucketChipText, { color: bucketColor }]}>
-                    {BUCKET_LABELS[segment.bucket] || segment.bucket}
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+  const getKeepTogetherLabel = () => {
+    if (currentDrop?.dominantBucket === 'todo') return 'One Task';
+    if (currentDrop?.dominantBucket === 'habit') return 'One Habit';
+    if (currentDrop?.dominantBucket === 'log' && currentDrop?.dominantSubtype === 'journal')
+      return 'Just Venting';
+    if (currentDrop?.dominantBucket === 'log' && currentDrop?.dominantSubtype === 'idea')
+      return 'Just Brainstorming';
+    return 'One Item';
+  };
 
-      {/* Action buttons */}
-      <View style={styles.actionButtons}>
-        <TouchableOpacity
-          style={[styles.splitButton, !hasSelection && styles.buttonDisabled]}
-          onPress={handleSplit}
-          disabled={!hasSelection}
-          activeOpacity={0.8}
-        >
-          <Scissors size={18} color="white" />
-          <Text style={styles.splitButtonText}>Split ({selectedSegments.size})</Text>
-        </TouchableOpacity>
+  // Truncate original text for display
+  const getTruncatedText = (text: string, maxLength = 40) => {
+    if (text.length <= maxLength) return text;
+    return text.slice(0, maxLength) + '...';
+  };
 
-        <TouchableOpacity style={styles.keepButton} onPress={handleKeepAsOne} activeOpacity={0.8}>
-          <FileStack size={18} color={BRAND.colors.charcoalInk} />
-          <Text style={styles.keepButtonText}>Keep as one</Text>
-        </TouchableOpacity>
-      </View>
-    </Animated.View>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Main Component
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function SweepMultiSplitStep({
-  multiDrops,
-  onSplit,
-  onKeepAsOne,
-  onComplete,
-  onClose: _onClose,
-}: SweepMultiSplitStepProps) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [resolvedCount, setResolvedCount] = useState(0);
-  const [toast, setToast] = useState<{ message: string; type: 'split' | 'kept' } | null>(null);
-
-  // Progress animation
-  const progressWidth = useSharedValue(0);
-
-  useEffect(() => {
-    const progress = multiDrops.length > 0 ? (resolvedCount / multiDrops.length) * 100 : 0;
-    progressWidth.value = withSpring(progress, { damping: 15 });
-  }, [resolvedCount, multiDrops.length, progressWidth]);
-
-  const progressStyle = useAnimatedStyle(() => ({
-    width: `${progressWidth.value}%`,
-  }));
-
-  // Auto-advance to next or complete
-  const advanceToNext = useCallback(() => {
-    if (currentIndex + 1 < multiDrops.length) {
-      setCurrentIndex((prev) => prev + 1);
-    } else {
-      // All resolved - complete after a brief delay
-      setTimeout(() => {
-        onComplete();
-      }, 500);
-    }
-  }, [currentIndex, multiDrops.length, onComplete]);
-
-  // Handle split
-  const handleSplit = useCallback(
-    (dropId: string, segments: PendingDropSegment[]) => {
-      onSplit(dropId, segments);
-      setResolvedCount((prev) => prev + 1);
-      setToast({ message: `Split into ${segments.length} items`, type: 'split' });
-
-      // Clear toast and advance
-      setTimeout(() => {
-        setToast(null);
-        advanceToNext();
-      }, 1200);
-    },
-    [onSplit, advanceToNext],
-  );
-
-  // Handle keep as one
-  const handleKeepAsOne = useCallback(
-    (dropId: string) => {
-      onKeepAsOne(dropId);
-      setResolvedCount((prev) => prev + 1);
-      setToast({ message: 'Kept as single item', type: 'kept' });
-
-      // Clear toast and advance
-      setTimeout(() => {
-        setToast(null);
-        advanceToNext();
-      }, 1200);
-    },
-    [onKeepAsOne, advanceToNext],
-  );
-
-  const currentDrop = multiDrops[currentIndex];
-
-  // Edge case: auto-complete if no multi-drops
-  useEffect(() => {
-    if (multiDrops.length === 0) {
-      onComplete();
-    }
-  }, [multiDrops.length, onComplete]);
+  const selectedCount = selectedIndices.size;
 
   // Early return after hooks
-  if (multiDrops.length === 0) {
+  if (!currentDrop || multiDrops.length === 0) {
     return null;
   }
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>Quick Split</Text>
-          <Text style={styles.headerSubtitle}>
-            {resolvedCount} of {multiDrops.length} resolved
+      {/* Text above modal */}
+      <Text style={styles.preModalText}>Quick things before we sweep</Text>
+
+      {/* Modal card */}
+      <View style={styles.card}>
+        {/* "YOU DROPPED" section at top */}
+        <Text style={styles.droppedLabel}>YOU DROPPED</Text>
+        {currentDrop.originalText && (
+          <Text style={styles.originalText}>"{getTruncatedText(currentDrop.originalText)}"</Text>
+        )}
+        <View style={styles.divider} />
+
+        {/* Gremly row below divider */}
+        <View style={styles.headerRow}>
+          <Image source={GREMLY_ICON} style={styles.gremlyIcon} />
+          <Text style={styles.header}>
+            Looks like multiple things. Want to <Text style={styles.headerBold}>split</Text> or{' '}
+            <Text style={styles.headerBold}>keep as one</Text>?
           </Text>
         </View>
 
-        {/* Progress bar */}
-        <View style={styles.progressBar}>
-          <Animated.View style={[styles.progressFill, progressStyle]} />
-        </View>
-      </Animated.View>
+        {/* Item list with checkboxes */}
+        <ScrollView style={styles.itemList} contentContainerStyle={styles.itemListContent}>
+          {currentDrop.items.map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[styles.itemRow, selectedIndices.has(index) && styles.itemRowSelected]}
+              onPress={() => toggleItem(index)}
+              activeOpacity={0.7}
+              disabled={isAnimating}
+            >
+              {/* Checkbox */}
+              <View
+                style={[styles.checkbox, selectedIndices.has(index) && styles.checkboxSelected]}
+              >
+                {selectedIndices.has(index) && <Text style={styles.checkmark}>✓</Text>}
+              </View>
 
-      {/* Instructions */}
-      <Animated.View entering={FadeInUp.delay(100).duration(300)} style={styles.instructions}>
-        <Text style={styles.instructionsText}>
-          We detected multiple items in your Mind Drop.{'\n'}
-          Would you like to split them up?
-        </Text>
-      </Animated.View>
+              {/* Item details */}
+              <View style={styles.itemContent}>
+                <Text style={styles.itemTitle} numberOfLines={2}>
+                  {item.smart_title || item.preview_title || item.text}
+                </Text>
+                <Text style={styles.itemBucket}>
+                  {item.bucket === 'todo' ? 'Todo' : item.bucket === 'habit' ? 'Habit' : 'Note'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
-      {/* Current card */}
-      <ScrollView
-        style={styles.cardContainer}
-        contentContainerStyle={styles.cardContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {currentDrop && (
-          <MultiDropCard
-            key={currentDrop.localId}
-            drop={currentDrop}
-            onSplit={(segments) => handleSplit(currentDrop.localId, segments)}
-            onKeepAsOne={() => handleKeepAsOne(currentDrop.localId)}
-            isActive={true}
-          />
-        )}
-      </ScrollView>
-
-      {/* Skip all button */}
-      {multiDrops.length > 1 && resolvedCount < multiDrops.length - 1 && (
-        <Animated.View entering={FadeIn.delay(500).duration(300)} style={styles.skipAllContainer}>
-          <TouchableOpacity style={styles.skipAllButton} onPress={onComplete} activeOpacity={0.7}>
-            <Text style={styles.skipAllText}>Keep all as-is</Text>
-            <ChevronRight size={16} color={BRAND.colors.inkMuted} />
+        {/* Action buttons */}
+        <View style={styles.buttonRow}>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={handleKeepAsOne}
+            disabled={isAnimating}
+          >
+            <Text style={styles.secondaryButtonText}>{getKeepTogetherLabel()}</Text>
           </TouchableOpacity>
-        </Animated.View>
-      )}
+          <TouchableOpacity
+            style={[styles.primaryButton, selectedCount === 0 && styles.buttonDisabled]}
+            onPress={handleSplit}
+            disabled={selectedCount === 0 || isAnimating}
+          >
+            <Text style={styles.primaryButtonText}>
+              Split{selectedCount > 0 ? ` (${selectedCount})` : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {/* Toast */}
-      <ConfirmationToast
-        message={toast?.message ?? ''}
-        visible={!!toast}
-        type={toast?.type ?? 'split'}
-      />
+      <ConfirmationToast visible={showToast} count={toastCount} />
     </View>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 // Styles
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  // Container - matches app background
   container: {
     flex: 1,
     backgroundColor: BRAND.colors.linenCream,
-    paddingHorizontal: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
-
-  // Header
-  header: {
-    paddingTop: 12,
+  // Text above modal
+  preModalText: {
+    fontSize: 15,
+    color: BRAND.colors.inkMuted,
     marginBottom: 16,
   },
-  headerTop: {
+  // Card with elevated shadow
+  card: {
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: BRAND.radius.lg,
+    padding: 28,
+    width: '100%',
+    maxWidth: 340,
+    // Elevated shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  // Header row - same as MultiSplitModal
+  headerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontFamily: 'PlusJakartaSans-Bold',
-    color: BRAND.colors.charcoalInk,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: BRAND.colors.inkMuted,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: BRAND.colors.borderSubtle,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: BRAND.colors.mossGreen,
-    borderRadius: 2,
-  },
-
-  // Instructions
-  instructions: {
     marginBottom: 20,
   },
-  instructionsText: {
-    fontSize: 15,
-    fontFamily: 'Inter-Regular',
-    color: BRAND.colors.inkSubtle,
-    lineHeight: 22,
-    textAlign: 'center',
+  gremlyIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 12,
   },
-
-  // Card container
-  cardContainer: {
+  header: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
     flex: 1,
   },
-  cardContent: {
-    paddingBottom: 40,
+  headerBold: {
+    fontWeight: '600',
   },
-
-  // Multi card
-  multiCard: {
-    backgroundColor: 'white',
-    borderRadius: BRAND.radius.lg,
-    padding: 20,
-    ...BRAND.elevation.two,
-  },
-  multiCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  multiCardTitle: {
-    fontSize: 18,
-    fontFamily: 'PlusJakartaSans-SemiBold',
-    color: BRAND.colors.charcoalInk,
-    flex: 1,
-  },
-  multiCardBadge: {
-    backgroundColor: `${BRAND.colors.mossGreen}15`,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: BRAND.radius.pill,
-    marginLeft: 12,
-  },
-  multiCardBadgeText: {
+  // Dropped label
+  droppedLabel: {
     fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: BRAND.colors.mossGreen,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: BRAND.colors.inkSubtle,
+    marginBottom: 6,
   },
-
   // Original text
   originalText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: BRAND.colors.inkSubtle,
-    fontStyle: 'italic',
-    marginBottom: 16,
-    lineHeight: 20,
+    fontSize: 16,
+    ...BRAND.typography.body,
+    color: BRAND.colors.charcoalInk,
   },
-
-  // Segments
-  segmentsList: {
-    marginBottom: 20,
+  // Divider
+  divider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: BRAND.colors.borderSubtle,
+    marginVertical: 16,
   },
-  segmentsLabel: {
-    fontSize: 13,
-    fontFamily: 'Inter-Medium',
-    color: BRAND.colors.inkMuted,
-    marginBottom: 10,
+  // Item list - same as MultiSplitModal
+  itemList: {
+    marginBottom: 24,
+    maxHeight: 300,
   },
-  segmentRow: {
+  itemListContent: {
+    paddingBottom: 8,
+  },
+  itemRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    alignItems: 'center',
+    padding: 14,
+    marginBottom: 10,
+    minHeight: 72,
     borderRadius: BRAND.radius.md,
     borderWidth: 1,
     borderColor: BRAND.colors.borderSubtle,
-    backgroundColor: 'white',
   },
-  segmentRowSelected: {
-    borderColor: BRAND.colors.mossGreen,
-    backgroundColor: `${BRAND.colors.mossGreen}08`,
+  itemRowSelected: {
+    backgroundColor: 'rgba(191, 216, 192, 0.2)',
+    borderColor: BRAND.colors.sageMist,
   },
-  segmentCheckbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: BRAND.radius.sm,
     borderWidth: 2,
-    borderColor: BRAND.colors.borderSubtle,
+    borderColor: BRAND.colors.sageMist,
     marginRight: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  segmentContent: {
+  checkboxSelected: {
+    backgroundColor: BRAND.colors.mossGreen,
+    borderColor: BRAND.colors.mossGreen,
+  },
+  checkmark: {
+    color: BRAND.colors.surface,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  itemContent: {
     flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 44,
   },
-  segmentText: {
+  itemTitle: {
     fontSize: 15,
-    fontFamily: 'Inter-Regular',
+    ...BRAND.typography.bodyMedium,
     color: BRAND.colors.charcoalInk,
-    marginBottom: 6,
-    lineHeight: 21,
+    flexShrink: 1,
   },
-  bucketChip: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: BRAND.radius.sm,
+  itemBucket: {
+    fontSize: 12,
+    ...BRAND.typography.bodyMedium,
+    color: '#4A7C59',
+    textTransform: 'capitalize',
+    marginLeft: 8,
+    marginRight: 4,
   },
-  bucketChipText: {
-    fontSize: 11,
-    fontFamily: 'Inter-Medium',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-
-  // Action buttons
-  actionButtons: {
+  // Buttons - same as MultiSplitModal
+  buttonRow: {
     flexDirection: 'row',
     gap: 12,
   },
-  splitButton: {
+  secondaryButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: BRAND.colors.mossGreen,
     paddingVertical: 14,
     borderRadius: BRAND.radius.md,
-    gap: 8,
-  },
-  splitButtonText: {
-    fontSize: 15,
-    fontFamily: 'Inter-SemiBold',
-    color: 'white',
-  },
-  keepButton: {
-    flex: 1,
-    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: BRAND.colors.borderSubtle,
+  },
+  secondaryButtonText: {
+    fontSize: 15,
+    ...BRAND.typography.bodyMedium,
+    color: BRAND.colors.inkMuted,
+  },
+  primaryButton: {
+    flex: 1,
     paddingVertical: 14,
     borderRadius: BRAND.radius.md,
-    gap: 8,
-  },
-  keepButtonText: {
-    fontSize: 15,
-    fontFamily: 'Inter-Medium',
-    color: BRAND.colors.charcoalInk,
+    backgroundColor: BRAND.colors.sageMist,
+    alignItems: 'center',
   },
   buttonDisabled: {
     opacity: 0.5,
   },
-
-  // Skip all
-  skipAllContainer: {
-    paddingVertical: 16,
-    alignItems: 'center',
+  primaryButtonText: {
+    fontSize: 15,
+    ...BRAND.typography.bodyMedium,
+    color: BRAND.colors.mossGreen,
   },
-  skipAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    gap: 4,
-  },
-  skipAllText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: BRAND.colors.inkMuted,
-  },
-
   // Toast
-  toast: {
+  toastContainer: {
     position: 'absolute',
-    bottom: 100,
+    bottom: 60,
     left: 20,
     right: 20,
-    backgroundColor: BRAND.colors.charcoalInk,
-    borderRadius: BRAND.radius.md,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    ...BRAND.elevation.two,
   },
-  toastIconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'white',
-    justifyContent: 'center',
-    alignItems: 'center',
+  toastContent: {
+    backgroundColor: BRAND.colors.charcoalInk,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: BRAND.radius.pill,
   },
   toastText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: 'white',
-    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.surface,
   },
 });
+
+export default SweepMultiSplitStep;

@@ -607,7 +607,7 @@ interface GremlyState {
     updates: Partial<PendingDropSegment>,
   ) => void;
   /** Split a multi-drop into separate pending drops for each selected segment */
-  splitMultiDrop: (localId: string, segments: PendingDropSegment[]) => void;
+  splitMultiDrop: (localId: string, items: import('../minddrop/types').MultiDropItem[]) => void;
   /** Resolve a multi-drop as a single entity (keep as-is) */
   resolveMultiDropAsSingle: (localId: string) => void;
   /** Update clarification fields on a synced entity by its drop_id (for Phase 1.5 race condition) */
@@ -4336,69 +4336,153 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     /**
-     * Split a multi-drop into separate pending drops for each selected segment.
-     * The original multi-drop is removed and replaced with individual drops.
+     * Split a multi-drop note into separate entities for each selected segment.
+     * The original multi-drop note is archived and individual entities are created.
+     * Works with notes that have views.is_multi=true (already synced to Supabase).
      */
-    splitMultiDrop: (localId: string, segments: PendingDropSegment[]) => {
+    splitMultiDrop: (noteId: string, items: import('../minddrop/types').MultiDropItem[]) => {
       set((state) => {
-        const drop = state.pendingDrops.get(localId);
-        if (!drop) {
-          console.warn('[GremlyStore] splitMultiDrop: drop not found', { localId });
+        // Find the note by ID
+        const note = state.notes.find((n) => n.id === noteId);
+        if (!note) {
+          console.warn('[GremlyStore] splitMultiDrop: note not found', { noteId });
           return state;
         }
 
-        const newPending = new Map(state.pendingDrops);
+        // Archive the original multi-drop note
+        const now = new Date().toISOString();
+        const updatedNotes = state.notes.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                archived: true,
+                archived_at: now,
+                archived_reason: 'split' as const,
+                views: { ...n.views, minddrop_stage: 'enriched' as const },
+                updated_at: now,
+              }
+            : n,
+        );
 
-        // Remove the original multi-drop
-        newPending.delete(localId);
-
-        // Create new pending drops for each selected segment
-        segments.forEach((segment, index) => {
-          const newLocalId = `${localId}-split-${index}-${Date.now()}`;
-          const newDrop: PendingDrop = {
-            localId: newLocalId,
-            text: segment.text,
-            spaceId: drop.spaceId,
-            createdAt: new Date().toISOString(),
-            bucket: segment.bucket,
-            subtype: segment.subtype ?? null,
-            smartTitle: segment.smartTitle ?? undefined,
-            status: 'classified',
-            isMulti: false,
+        // Create new notes for each selected item
+        const newNotes: typeof state.notes = [];
+        items.forEach((item, index) => {
+          const newNote = {
+            id: `${noteId}-split-${index}-${Date.now()}`,
+            type: 'note' as const,
+            owner_id: note.owner_id,
+            title: item.smart_title ?? item.preview_title ?? item.text.substring(0, 50),
+            body: item.text,
+            subtype: 'catchall' as const,
+            space_id: note.space_id,
+            ai_placed: true,
+            origin: note.origin,
+            views: {
+              minddrop_stage: 'enriched',
+              ai_pending: false,
+              bucket: item.bucket,
+              subtype: item.subtype,
+            },
+            created_at: now,
+            updated_at: now,
           };
-          newPending.set(newLocalId, newDrop);
+          newNotes.push(newNote as any);
         });
 
-        console.log('[GremlyStore] splitMultiDrop: split into', segments.length, 'drops');
-        return { pendingDrops: newPending };
+        console.log('[GremlyStore] splitMultiDrop: split into', items.length, 'notes');
+
+        // Also update Supabase asynchronously
+        (async () => {
+          try {
+            // Archive the original note
+            await supabase
+              .from('notes')
+              .update({
+                archived: true,
+                archived_at: now,
+                archived_reason: 'split',
+                views: { ...note.views, minddrop_stage: 'resolved' },
+                updated_at: now,
+              })
+              .eq('id', noteId);
+
+            // Insert new notes
+            for (const newNote of newNotes) {
+              await supabase.from('notes').insert({
+                owner_id: newNote.owner_id,
+                title: newNote.title,
+                body: newNote.body,
+                subtype: newNote.subtype,
+                space_id: newNote.space_id,
+                ai_placed: newNote.ai_placed,
+                origin: newNote.origin,
+                views: newNote.views,
+                created_at: newNote.created_at,
+                updated_at: newNote.updated_at,
+              });
+            }
+            console.log('[GremlyStore] splitMultiDrop: Supabase updated');
+          } catch (error) {
+            console.error('[GremlyStore] splitMultiDrop: Supabase error', error);
+          }
+        })();
+
+        return {
+          notes: [...updatedNotes.filter((n) => n.id !== noteId || n.archived), ...newNotes],
+        };
       });
     },
 
     /**
-     * Resolve a multi-drop as a single entity (keep as-is).
-     * Clears the isMulti flag so it won't show in the multi-split step again.
+     * Resolve a multi-drop note as a single entity (keep as-is).
+     * Updates the minddrop_stage to 'resolved' so it won't show in the multi-split step again.
      */
-    resolveMultiDropAsSingle: (localId: string) => {
+    resolveMultiDropAsSingle: (noteId: string) => {
       set((state) => {
-        const drop = state.pendingDrops.get(localId);
-        if (!drop) {
-          console.warn('[GremlyStore] resolveMultiDropAsSingle: drop not found', { localId });
+        const note = state.notes.find((n) => n.id === noteId);
+        if (!note) {
+          console.warn('[GremlyStore] resolveMultiDropAsSingle: note not found', { noteId });
           return state;
         }
 
-        // Keep the drop but mark it as resolved (no longer multi)
-        const updated: PendingDrop = {
-          ...drop,
-          isMulti: false,
-          multiSegments: undefined,
-          multiSummary: undefined,
-        };
+        const now = new Date().toISOString();
+        const updatedNotes = state.notes.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                views: {
+                  ...n.views,
+                  minddrop_stage: 'enriched' as const,
+                  is_multi: false, // Clear the multi flag
+                },
+                updated_at: now,
+              }
+            : n,
+        );
 
-        const newPending = new Map(state.pendingDrops);
-        newPending.set(localId, updated);
+        console.log('[GremlyStore] resolveMultiDropAsSingle: kept as single', { noteId });
 
-        console.log('[GremlyStore] resolveMultiDropAsSingle: kept as single', { localId });
-        return { pendingDrops: newPending };
+        // Also update Supabase asynchronously
+        (async () => {
+          try {
+            await supabase
+              .from('notes')
+              .update({
+                views: {
+                  ...note.views,
+                  minddrop_stage: 'resolved',
+                  is_multi: false,
+                },
+                updated_at: now,
+              })
+              .eq('id', noteId);
+            console.log('[GremlyStore] resolveMultiDropAsSingle: Supabase updated');
+          } catch (error) {
+            console.error('[GremlyStore] resolveMultiDropAsSingle: Supabase error', error);
+          }
+        })();
+
+        return { notes: updatedNotes };
       });
     },
 

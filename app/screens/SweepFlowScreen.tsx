@@ -2881,15 +2881,80 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Track if multi-split step was shown
   const [multiSplitComplete, setMultiSplitComplete] = useState(false);
 
-  // Get unresolved multi-drops from pending drops
-  const pendingDrops = useGremlyStore((state) => state.pendingDrops);
+  // Get unresolved multi-drops from NOTES (not pendingDrops - they're promoted before sweep starts)
+  // Multi-drops are stored as notes with views.is_multi=true and views.minddrop_stage='multi_pending'
+  const notes = useGremlyStore((state) => state.notes);
   const unresolvedMultiDrops = useMemo(() => {
-    if (!pendingDrops) return [];
-    return Array.from(pendingDrops.values()).filter(
-      (drop) => drop.isMulti && drop.multiSegments && drop.multiSegments.length > 1,
-    );
-  }, [pendingDrops]);
+    const multiNotes = notes.filter((note) => {
+      const views = note.views as {
+        is_multi?: boolean;
+        multi_items?: Array<{ text: string; bucket?: string; smartTitle?: string }>;
+        minddrop_stage?: string;
+      } | null;
+      return (
+        views?.is_multi === true &&
+        views?.minddrop_stage === 'multi_pending' &&
+        Array.isArray(views?.multi_items) &&
+        views.multi_items.length > 1 &&
+        !note.archived
+      );
+    });
+    if (__DEV__) {
+      console.log('[SweepFlowScreen] notes count:', notes.length);
+      console.log('[SweepFlowScreen] unresolvedMultiDrops count:', multiNotes.length);
+      if (multiNotes.length > 0) {
+        multiNotes.forEach((note) => {
+          const views = note.views as any;
+          console.log('[SweepFlowScreen] multi-note:', {
+            id: note.id,
+            title: note.title,
+            multiItemsCount: views?.multi_items?.length ?? 0,
+            minddropStage: views?.minddrop_stage,
+          });
+        });
+      }
+    }
+    return multiNotes;
+  }, [notes]);
   const hasUnresolvedMultiDrops = unresolvedMultiDrops.length > 0 && !multiSplitComplete;
+
+  // Map notes to UnresolvedMultiDrop format for SweepMultiSplitStep component
+  const unresolvedMultiDropsForStep = useMemo(() => {
+    return unresolvedMultiDrops.map((note) => {
+      const views = note.views as {
+        multi_items?: Array<{
+          text: string;
+          bucket?: string;
+          subtype?: string | null;
+          habitSubtype?: string | null;
+          preview_title?: string;
+          smart_title?: string | null;
+          confirmation_message?: string | null;
+        }>;
+        multi_summary_title?: string;
+        dominant_bucket?: string;
+        dominant_subtype?: string;
+      } | null;
+
+      return {
+        localId: note.id, // Use note.id as localId for handlers
+        originalText: note.body ?? '',
+        items:
+          views?.multi_items?.map((item) => ({
+            text: item.text,
+            bucket: (item.bucket as 'todo' | 'habit' | 'log') ?? 'log',
+            subtype: (item.subtype as 'journal' | 'idea' | 'general' | null) ?? null,
+            habitSubtype: (item.habitSubtype as 'start_habit' | 'break_habit' | null) ?? null,
+            preview_title: item.preview_title ?? item.text.substring(0, 50),
+            smart_title: item.smart_title ?? null,
+            confirmation_message: item.confirmation_message ?? null,
+          })) ?? [],
+        summaryTitle: views?.multi_summary_title ?? note.title ?? '',
+        dominantBucket: views?.dominant_bucket ?? null,
+        dominantSubtype: views?.dominant_subtype ?? null,
+      };
+    });
+  }, [unresolvedMultiDrops]);
 
   // Track sweep stats across the session
   const [keptCount, setKeptCount] = useState(() => {
@@ -3038,6 +3103,14 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   );
 
   const handleIntroStart = () => {
+    if (__DEV__) {
+      console.log('[SweepFlowScreen] handleIntroStart:', {
+        hasUnresolvedMultiDrops,
+        unresolvedMultiDropsCount: unresolvedMultiDrops.length,
+        hasLockedItems,
+        lockInCheckpointComplete,
+      });
+    }
     // Check for unresolved multi-drops first
     if (hasUnresolvedMultiDrops) {
       setStep(0.25); // Go to multi-split step
@@ -3054,12 +3127,37 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   // Handle splitting a multi-drop into separate entities
   const handleMultiSplit = useCallback(
-    (dropId: string, segments: import('../../lib/store/useGremlyStore').PendingDropSegment[]) => {
-      const { splitMultiDrop } = useGremlyStore.getState();
-      if (splitMultiDrop) {
-        splitMultiDrop(dropId, segments);
-      } else {
-        console.warn('[SweepFlowScreen] splitMultiDrop not available in store');
+    async (dropId: string, selectedItems: import('../../lib/minddrop/types').MultiDropItem[]) => {
+      const { createTodo, createHabit, createNote, archiveNote } = useGremlyStore.getState();
+
+      // Create each item as proper entity - they'll appear in sweep automatically
+      for (const item of selectedItems) {
+        const title = item.smart_title || item.preview_title || item.text;
+
+        if (item.bucket === 'todo') {
+          createTodo?.({ name: title });
+        } else if (item.bucket === 'habit') {
+          createHabit?.({
+            name: title,
+            frequency: 'daily',
+            subtype: item.habitSubtype === 'break_habit' ? 'break_habit' : 'start_habit',
+          });
+        } else {
+          // Log bucket - create as note
+          createNote?.({
+            title,
+            body: item.text,
+            subtype:
+              item.subtype === 'journal' || item.subtype === 'idea' ? item.subtype : 'catchall',
+          });
+        }
+      }
+
+      // Archive the original multi-drop note
+      archiveNote?.(dropId, 'split');
+
+      if (__DEV__) {
+        console.log('[SweepFlowScreen] handleMultiSplit: created', selectedItems.length, 'items');
       }
     },
     [],
@@ -3316,11 +3414,10 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           )}
           {step === 0.25 && (
             <SweepMultiSplitStep
-              multiDrops={unresolvedMultiDrops}
+              multiDrops={unresolvedMultiDropsForStep}
               onSplit={handleMultiSplit}
               onKeepAsOne={handleMultiKeepAsOne}
               onComplete={handleMultiSplitComplete}
-              onClose={handleClose}
             />
           )}
           {step === 0.5 && (
