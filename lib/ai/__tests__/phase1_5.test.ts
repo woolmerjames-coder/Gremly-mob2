@@ -173,6 +173,8 @@ describe('runPhase1_5', () => {
       subtype: 'general',
       detectedTemporal: 'Tuesday',
       currentDate: '2025-12-05',
+      ambiguityReason: 'unclear intent',
+      userSpaces: [],
     });
   });
 

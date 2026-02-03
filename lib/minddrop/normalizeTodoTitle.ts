@@ -2,65 +2,11 @@
  * Helper to normalize todo titles from Mind Drop text.
  *
  * Ensures clean separation between body (full Mind Drop text) and title (short summary).
- * Preserves important temporal qualifiers in titles.
  */
-
-// Temporal tokens that should be preserved in titles
-const TEMPORAL_TOKENS = [
-  'today',
-  'tomorrow',
-  'tonight',
-  'this week',
-  'next week',
-  'this month',
-  'next month',
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-  'sunday',
-  'jan',
-  'january',
-  'feb',
-  'february',
-  'mar',
-  'march',
-  'apr',
-  'april',
-  'may',
-  'jun',
-  'june',
-  'jul',
-  'july',
-  'aug',
-  'august',
-  'sep',
-  'september',
-  'oct',
-  'october',
-  'nov',
-  'november',
-  'dec',
-  'december',
-];
 
 const MAX_TITLE_CHARS = 60;
 const MAX_TITLE_WORDS = 8;
 const FALLBACK_TITLE_WORDS = 7;
-
-/**
- * Extract temporal tokens from text (case-insensitive)
- */
-function extractTemporalTokens(text: string): string[] {
-  const lowerText = text.toLowerCase();
-  return TEMPORAL_TOKENS.filter((token) => {
-    // Use word boundary regex to avoid false matches (e.g., "friday" in "befriday")
-    const regex = new RegExp(`\\b${token}\\b`, 'i');
-    return regex.test(lowerText);
-  });
-}
 
 /**
  * Check if AI title is acceptable (not too long, not identical to body, shorter than body)
@@ -104,43 +50,12 @@ function isAiTitleAcceptable(aiTitle: string, body: string): boolean {
 
 /**
  * Create a fallback title from the body text (first N words)
- * Tries to preserve temporal tokens if possible
  * For multi-line text, only uses the first line
  */
 function createFallbackTitle(body: string, maxWords: number = FALLBACK_TITLE_WORDS): string {
   // For multi-line text, only use the first line for the title
   const firstLine = body.trim().split('\n')[0].trim();
   const words = firstLine.split(/\s+/);
-
-  // Check if body contains temporal tokens
-  const bodyTemporalTokens = extractTemporalTokens(firstLine);
-
-  // If body has temporal tokens, try to include them in the title
-  if (bodyTemporalTokens.length > 0) {
-    // Find the index of the first temporal token in the words array
-    let temporalWordIndex = -1;
-    for (let i = 0; i < words.length; i++) {
-      const word = words[i].toLowerCase().replace(/[.,!?;:]$/g, '');
-      if (bodyTemporalTokens.some((token) => token === word || word.includes(token))) {
-        temporalWordIndex = i;
-        break;
-      }
-    }
-
-    // If we found a temporal token within reasonable range, extend to include it
-    if (temporalWordIndex >= 0 && temporalWordIndex < maxWords + 3) {
-      const extendedWords = words.slice(0, Math.max(maxWords, temporalWordIndex + 1));
-      const title = extendedWords.join(' ');
-
-      // If we're still within character limit, use it
-      if (title.length <= MAX_TITLE_CHARS) {
-        if (words.length > extendedWords.length && !/[.!?]$/.test(title)) {
-          return title + '...';
-        }
-        return title;
-      }
-    }
-  }
 
   // Standard fallback: first N words
   const truncatedWords = words.slice(0, maxWords);

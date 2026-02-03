@@ -61,3 +61,8 @@ supabase/seed.sql
 supa_diag/
 supa_diag_bundle.zip
 .metro-cache
+
+# Bundle files (extracted zip contents for reference)
+*-bundle/
+*-bundle.zip
+*_bundle.zip

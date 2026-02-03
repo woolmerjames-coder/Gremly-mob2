@@ -31,6 +31,7 @@ import {
   type CalendarProvider,
 } from '../calendar/CalendarClient';
 import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../capacity';
+import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import type { TimeBlockPreferences } from '../capacity';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
@@ -290,7 +291,14 @@ export interface PendingDrop {
   extractedDays?: number[] | null; // For habits: [1, 3, 5] = Mon, Wed, Fri
   people?: string[]; // Extracted people names for chip display
   mood?: string[] | null; // For journals: extracted mood tags
-  status: 'pending' | 'classifying' | 'enriching' | 'enriched' | 'syncing' | 'synced';
+  status:
+    | 'pending'
+    | 'classifying'
+    | 'classified'
+    | 'enriching'
+    | 'enriched'
+    | 'syncing'
+    | 'synced';
   isMulti?: boolean;
   // Multi-drop fields (populated by Phase 0)
   multiSegments?: PendingDropSegment[];
@@ -358,6 +366,13 @@ export interface PendingDrop {
 
   /** True if AI couldn't determine date meaning */
   date_type_ambiguous?: boolean;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Phase 1.5a: Visual Stage (set explicitly to trigger animations)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Visual stage for animations - set by Phase 1.5a to trigger typewriter */
+  minddrop_stage?: 'pending' | 'classifying' | 'streaming' | 'enriching' | 'enriched';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -585,6 +600,12 @@ interface GremlyState {
     },
   ) => void;
   updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
+  /** Atomically update a specific segment in a multi-drop (avoids race conditions in parallel updates) */
+  updateMultiSegment: (
+    localId: string,
+    segmentIndex: number,
+    updates: Partial<PendingDropSegment>,
+  ) => void;
   /** Update clarification fields on a synced entity by its drop_id (for Phase 1.5 race condition) */
   updateEntityClarificationByDropId: (
     dropId: string,
@@ -4233,7 +4254,7 @@ export const useGremlyStore = create<GremlyState>()(
         const drop = state.pendingDrops.get(localId);
         if (!drop) return state;
 
-        const updated: PendingDrop = { ...drop, ...classification, status: 'enriching' as const };
+        const updated: PendingDrop = { ...drop, ...classification, status: 'classified' as const };
         const newPending = new Map(state.pendingDrops);
         newPending.set(localId, updated);
         return { pendingDrops: newPending };
@@ -4245,6 +4266,13 @@ export const useGremlyStore = create<GremlyState>()(
     },
 
     updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => {
+      console.log('🟢 [GremlyStore] updatePendingDropEnrichment called', {
+        localId,
+        enrichmentKeys: Object.keys(enrichment),
+        hasMinddropStage: 'minddrop_stage' in enrichment,
+        minddropStageValue: (enrichment as any).minddrop_stage,
+      });
+
       set((state) => {
         const drop = state.pendingDrops.get(localId);
         if (!drop) {
@@ -4253,6 +4281,49 @@ export const useGremlyStore = create<GremlyState>()(
         }
 
         const updated: PendingDrop = { ...drop, ...enrichment };
+
+        console.log('🟢 [GremlyStore] After spread, updated drop has:', {
+          localId,
+          hasMinddropStage: 'minddrop_stage' in updated,
+          minddropStageValue: (updated as any).minddrop_stage,
+          status: updated.status,
+        });
+
+        const newPending = new Map(state.pendingDrops);
+        newPending.set(localId, updated);
+
+        return { pendingDrops: newPending };
+      });
+    },
+
+    updateMultiSegment: (
+      localId: string,
+      segmentIndex: number,
+      updates: Partial<PendingDropSegment>,
+    ) => {
+      set((state) => {
+        const drop = state.pendingDrops.get(localId);
+        if (!drop) {
+          console.warn('[GremlyStore] updateMultiSegment: drop not found', {
+            localId,
+            segmentIndex,
+          });
+          return state;
+        }
+        if (!drop.multiSegments || segmentIndex >= drop.multiSegments.length) {
+          console.warn('[GremlyStore] updateMultiSegment: invalid segment index', {
+            localId,
+            segmentIndex,
+            segmentCount: drop.multiSegments?.length ?? 0,
+          });
+          return state;
+        }
+
+        // Atomic read-modify-write: read multiSegments INSIDE the set() function
+        const updatedSegments = [...drop.multiSegments];
+        updatedSegments[segmentIndex] = { ...updatedSegments[segmentIndex], ...updates };
+
+        const updated: PendingDrop = { ...drop, multiSegments: updatedSegments };
         const newPending = new Map(state.pendingDrops);
         newPending.set(localId, updated);
 
@@ -4324,8 +4395,43 @@ export const useGremlyStore = create<GremlyState>()(
 
     promotePendingDropToEntity: (localId: string, supabaseId: string) => {
       set((state) => {
+        const pendingDrop = state.pendingDrops.get(localId);
         const newPending = new Map(state.pendingDrops);
         newPending.delete(localId);
+
+        // Transfer clarification data to the local entity if Phase 1.5 completed
+        if (pendingDrop?.clarification_question && pendingDrop?.clarification_options?.length) {
+          // Find and update the entity in the appropriate array
+          const bucket = pendingDrop.bucket || 'log';
+          const clarificationData = {
+            clarification_question: pendingDrop.clarification_question,
+            clarification_options: pendingDrop.clarification_options,
+          };
+
+          if (bucket === 'todo') {
+            return {
+              pendingDrops: newPending,
+              todos: state.todos.map((t) =>
+                t.id === supabaseId ? { ...t, ...clarificationData } : t,
+              ),
+            };
+          } else if (bucket === 'habit') {
+            return {
+              pendingDrops: newPending,
+              habits: state.habits.map((h) =>
+                h.id === supabaseId ? { ...h, ...clarificationData } : h,
+              ),
+            };
+          } else {
+            return {
+              pendingDrops: newPending,
+              notes: state.notes.map((n) =>
+                n.id === supabaseId ? { ...n, ...clarificationData } : n,
+              ),
+            };
+          }
+        }
+
         return { pendingDrops: newPending };
       });
       console.log('[GremlyStore] Promoted pending drop to entity', { localId, supabaseId });
@@ -4392,6 +4498,13 @@ export const useGremlyStore = create<GremlyState>()(
         });
         console.log('[GremlyStore] Set clarification_processing: true for pending drop:', localId);
 
+        // Get bucket/subtype from the selected option (if not free text)
+        const selectedOption = isFreeText
+          ? null
+          : pendingDrop.clarification_options?.find((opt) => opt.id === optionId);
+        const selectedBucket = selectedOption?.action?.bucket || null;
+        const selectedSubtype = selectedOption?.action?.subtype || null;
+
         // Call reclassify endpoint to get bucket, dates, time estimate
         try {
           const cortexUrl = env.cortexUrl;
@@ -4403,6 +4516,8 @@ export const useGremlyStore = create<GremlyState>()(
                 type: 'reclassify-after-clarification',
                 text: pendingDrop.text || pendingDrop.smartTitle || '',
                 selectedLabel: selectedLabel,
+                selectedBucket: selectedBucket,
+                selectedSubtype: selectedSubtype,
                 currentDate: getDateService().getCurrentDate(),
                 targetBucket: pendingDrop.bucket, // Hint for time estimation
               }),
@@ -4515,12 +4630,17 @@ export const useGremlyStore = create<GremlyState>()(
         return;
       }
 
-      // Get clarification options from views (where they're stored)
-      // Options now just have id and label (no action.bucket)
+      // Get views from entity for use throughout this function
       const views = entity.views as Record<string, unknown> | undefined;
-      const clarificationOptions = views?.clarification_options as
-        | Array<{ id: string; label: string }>
-        | undefined;
+
+      // Get clarification options - check both direct property and views
+      const clarificationOptions =
+        ((entity as unknown as Record<string, unknown>).clarification_options as
+          | Array<{ id: string; label: string; action?: any }>
+          | undefined) ||
+        ((entity.views as Record<string, unknown> | undefined)?.clarification_options as
+          | Array<{ id: string; label: string; action?: any }>
+          | undefined);
 
       // Determine the selected label based on whether it's free text or a predefined option
       let selectedLabel: string;
@@ -4639,6 +4759,15 @@ export const useGremlyStore = create<GremlyState>()(
         latency_ms?: number;
       } = {};
 
+      // Get bucket/subtype from the selected option (if not free text)
+      const selectedOption = isFreeText
+        ? null
+        : clarificationOptions?.find((opt) => opt.id === optionId);
+      const selectedBucket =
+        (selectedOption as { action?: { bucket?: string } } | null)?.action?.bucket || null;
+      const selectedSubtype =
+        (selectedOption as { action?: { subtype?: string } } | null)?.action?.subtype || null;
+
       try {
         const cortexUrl = env.cortexUrl;
         if (cortexUrl) {
@@ -4650,6 +4779,8 @@ export const useGremlyStore = create<GremlyState>()(
               type: 'reclassify-after-clarification',
               text: originalText,
               selectedLabel: selectedLabel,
+              selectedBucket: selectedBucket,
+              selectedSubtype: selectedSubtype,
               currentDate: getDateService().getCurrentDate(),
               targetBucket: currentBucket, // Hint for time estimation
             }),
@@ -4697,10 +4828,11 @@ export const useGremlyStore = create<GremlyState>()(
       // Extract values from reclassify result (with fallbacks)
       const newTitle =
         reclassifyResult.smart_title || originalTitle || originalText.substring(0, 50);
-      const newConfirmation = reclassifyResult.confirmation_message || 'Updated.';
+      const newSubtype = reclassifyResult.subtype ?? reclassifyResult.habit_subtype ?? null;
+      const newConfirmation =
+        reclassifyResult.confirmation_message || getRandomFallback(targetBucket, newSubtype);
       const timeEstimate = reclassifyResult.time_estimate_minutes ?? null;
       const energyType = reclassifyResult.energy_type ?? null;
-      const newSubtype = reclassifyResult.subtype ?? reclassifyResult.habit_subtype ?? null;
 
       // ─────────────────────────────────────────────────────────────────────
       // SAME BUCKET: Update the existing entity with reclassify data
@@ -5353,7 +5485,7 @@ export const useGremlyStore = create<GremlyState>()(
         console.error('[GremlyStore] Bucket change failed:', error);
         // Fall back to just updating clarification status
         const updatedViews: Record<string, unknown> = {
-          ...(views || {}),
+          ...((entity.views as Record<string, unknown>) || {}),
           needs_clarification: false,
           clarification_resolved: true,
           bucket_change_failed: true,
@@ -5417,12 +5549,14 @@ export const useGremlyStore = create<GremlyState>()(
 
       // Step 1: Mark clarification as skipped and set ai_pending for shimmer animation
       // Also set a normal confirmation message to replace the "tap me" style message
+      // Skipped items stay as LOG/general, so use general fallbacks
+      const skippedConfirmation = getRandomFallback('log', null);
       const skippedViews: Record<string, unknown> = {
         ...views,
         needs_clarification: false,
         clarification_resolved: true,
         clarification_skipped: true,
-        confirmation_message: 'Captured for later.',
+        confirmation_message: skippedConfirmation,
         ai_pending: true,
         minddrop_stage: 'classified',
       };
@@ -5435,7 +5569,7 @@ export const useGremlyStore = create<GremlyState>()(
                   ...n,
                   needs_clarification: false,
                   clarification_resolved: true,
-                  confirmation_message: 'Captured for later.',
+                  confirmation_message: skippedConfirmation,
                   views: skippedViews,
                 }
               : n,
@@ -5449,7 +5583,7 @@ export const useGremlyStore = create<GremlyState>()(
                   ...t,
                   needs_clarification: false,
                   clarification_resolved: true,
-                  confirmation_message: 'Captured for later.',
+                  confirmation_message: skippedConfirmation,
                   views: skippedViews,
                 }
               : t,
@@ -5463,7 +5597,7 @@ export const useGremlyStore = create<GremlyState>()(
                   ...h,
                   needs_clarification: false,
                   clarification_resolved: true,
-                  confirmation_message: 'Captured for later.',
+                  confirmation_message: skippedConfirmation,
                   views: skippedViews,
                 }
               : h,

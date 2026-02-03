@@ -35,6 +35,8 @@ interface ClarificationPopupProps {
   question: string | null;
   /** Options from Phase 1.5 (null or empty = still loading) */
   options: ClarificationOption[] | null;
+  /** Original text the user dropped - shown for context */
+  originalText?: string | null;
   onSelectOption: (optionId: string) => void | Promise<void>;
   onSkip: () => void;
   /** Just close the popup without triggering skip logic (used after selection) */
@@ -55,6 +57,7 @@ export function ClarificationPopup({
   visible,
   question,
   options,
+  originalText,
   onSelectOption,
   onSkip,
   onClose,
@@ -213,6 +216,14 @@ export function ClarificationPopup({
     >
       <Pressable style={styles.backdrop} onPress={Keyboard.dismiss}>
         <Animated.View style={[styles.card, animatedCardStyle]}>
+          {/* Show original drop text for context */}
+          {originalText && (
+            <View style={styles.originalTextContainer}>
+              <Text style={styles.originalTextLabel}>You dropped:</Text>
+              <Text style={styles.originalText}>"{originalText}"</Text>
+            </View>
+          )}
+
           <Text style={styles.question}>{question}</Text>
 
           <View style={styles.optionsContainer}>
@@ -327,6 +338,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
     fontFamily: 'Inter-SemiBold',
+  },
+  originalTextContainer: {
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(142, 156, 142, 0.2)',
+  },
+  originalTextLabel: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#8A8F8A',
+    textAlign: 'center',
+    marginBottom: 4,
+    fontFamily: 'Inter-Regular',
+  },
+  originalText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#2E3A2E',
+    textAlign: 'center',
+    fontFamily: 'Inter-Medium',
+    fontStyle: 'italic',
   },
   optionsContainer: {
     gap: 12,

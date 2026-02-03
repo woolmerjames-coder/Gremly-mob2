@@ -144,6 +144,8 @@ export async function runPhase1_5(
   bucket: string,
   subtype: string | null,
   detectedTemporal: string | null,
+  ambiguityReason?: string | null,
+  userSpaces?: string[],
 ): Promise<Phase1_5Result> {
   const currentDate = dateService.today();
   const apiUrl = env.cortexUrl;
@@ -168,6 +170,8 @@ export async function runPhase1_5(
         subtype,
         detectedTemporal,
         currentDate,
+        ambiguityReason: ambiguityReason || 'unclear intent',
+        userSpaces: userSpaces || [],
       }),
     });
 
@@ -207,6 +211,8 @@ export async function checkAmbiguity(
   phase1Bucket: string,
   phase1Subtype: string | null,
   phase1Confidence: number,
+  ambiguityReason?: string | null,
+  userSpaces?: string[],
 ): Promise<Phase1_5Result | null> {
   const { shouldRun, detectedTemporal } = shouldRunPhase1_5(
     text,
@@ -226,7 +232,14 @@ export async function checkAmbiguity(
     phase1Bucket,
   });
 
-  const result = await runPhase1_5(text, phase1Bucket, phase1Subtype, detectedTemporal);
+  const result = await runPhase1_5(
+    text,
+    phase1Bucket,
+    phase1Subtype,
+    detectedTemporal,
+    ambiguityReason,
+    userSpaces,
+  );
 
   if (!result.is_ambiguous) {
     console.log('[Phase1.5] Not ambiguous:', result.reason);

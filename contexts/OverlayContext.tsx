@@ -75,6 +75,7 @@ interface ClarificationPopupState {
   entityType: 'note' | 'todo' | 'habit' | null;
   question: string | null; // null = Phase 1.5 still loading
   options: Array<{ id: string; label: string; action: any }> | null; // null = loading
+  originalText: string | null; // The original drop text to show context
 }
 
 interface ClarificationPopupOptions {
@@ -82,6 +83,7 @@ interface ClarificationPopupOptions {
   entityType: 'note' | 'todo' | 'habit';
   question: string | null; // null = Phase 1.5 still loading
   options: Array<{ id: string; label: string; action: any }> | null; // null = loading
+  originalText?: string | null; // The original drop text to show context (optional when opening)
 }
 
 interface OverlayContextValue {
@@ -111,6 +113,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     entityType: null,
     question: null,
     options: null,
+    originalText: null,
   });
   const [clarificationLoading, setClarificationLoading] = useState(false);
   const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
@@ -134,37 +137,23 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   // This ensures we always show the latest data, even if Phase 1.5 completed after popup opened
   const effectiveClarificationData = React.useMemo(() => {
     if (!clarificationPopup.visible || !clarificationPopup.entityId) {
-      return { question: clarificationPopup.question, options: clarificationPopup.options };
+      return {
+        question: clarificationPopup.question,
+        options: clarificationPopup.options,
+        originalText: clarificationPopup.originalText,
+      };
     }
 
     // If we already have options in popup state, use them
     if (clarificationPopup.options && clarificationPopup.options.length >= 2) {
-      return { question: clarificationPopup.question, options: clarificationPopup.options };
+      return {
+        question: clarificationPopup.question,
+        options: clarificationPopup.options,
+        originalText: clarificationPopup.originalText,
+      };
     }
 
-    // FIRST: Check pendingDrops - Phase 1.5 updates here before sync completes
-    // The entityId might be the localId (drop_id) stored on the pending drop
-    for (const [dropId, drop] of pendingDrops.entries()) {
-      // Check if this pending drop matches by ID or if entityId is the drop_id
-      if (dropId === clarificationPopup.entityId || (drop as any).id === clarificationPopup.entityId) {
-        const pendingQuestion = (drop as any).clarification_question;
-        const pendingOptions = (drop as any).clarification_options;
-        
-        if (pendingQuestion && Array.isArray(pendingOptions) && pendingOptions.length >= 2) {
-          console.log('[GlobalOverlay] Using fresh Phase 1.5 data from pendingDrop', {
-            dropId,
-            question: String(pendingQuestion).substring(0, 30),
-            optionsCount: pendingOptions.length,
-          });
-          return {
-            question: pendingQuestion as string,
-            options: pendingOptions as ClarificationPopupState['options'],
-          };
-        }
-      }
-    }
-
-    // SECOND: Try to get fresh data from synced entities
+    // FIRST: Try to get fresh data from synced entities
     type EntityWithViews = { id: string; views?: Record<string, unknown> };
     let entity: EntityWithViews | undefined;
     if (clarificationPopup.entityType === 'note') {
@@ -176,8 +165,20 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!entity) {
-      return { question: clarificationPopup.question, options: clarificationPopup.options };
+      return {
+        question: clarificationPopup.question,
+        options: clarificationPopup.options,
+        originalText: clarificationPopup.originalText,
+      };
     }
+
+    // Get original text from entity
+    const entityOriginalText =
+      (entity as Record<string, unknown>).text ||
+      (entity as Record<string, unknown>).title ||
+      entity.views?.text ||
+      entity.views?.title ||
+      clarificationPopup.originalText;
 
     const freshQuestion =
       (entity as Record<string, unknown>).clarification_question ||
@@ -195,10 +196,39 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       return {
         question: freshQuestion as string,
         options: freshOptions as ClarificationPopupState['options'],
+        originalText: entityOriginalText as string | null,
       };
     }
 
-    return { question: clarificationPopup.question, options: clarificationPopup.options };
+    // THIRD: Entity synced but Phase 1.5 completed AFTER sync - check pendingDrops by drop_id
+    // The synced entity has a drop_id that equals the pending drop's localId
+    const entityDropId = (entity as Record<string, unknown>).drop_id as string | undefined;
+    if (entityDropId) {
+      const pendingDrop = pendingDrops.get(entityDropId);
+      if (pendingDrop) {
+        const pendingQuestion = (pendingDrop as any).clarification_question;
+        const pendingOptions = (pendingDrop as any).clarification_options;
+
+        if (pendingQuestion && Array.isArray(pendingOptions) && pendingOptions.length >= 2) {
+          console.log('[GlobalOverlay] Using Phase 1.5 data from pendingDrop via entity.drop_id', {
+            dropId: entityDropId,
+            question: String(pendingQuestion).substring(0, 30),
+            optionsCount: pendingOptions.length,
+          });
+          return {
+            question: pendingQuestion as string,
+            options: pendingOptions as ClarificationPopupState['options'],
+            originalText: entityOriginalText as string | null,
+          };
+        }
+      }
+    }
+
+    return {
+      question: clarificationPopup.question,
+      options: clarificationPopup.options,
+      originalText: entityOriginalText as string | null,
+    };
   }, [
     clarificationPopup.visible,
     clarificationPopup.entityId,
@@ -213,7 +243,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
 
   // Clarification popup methods
   const openClarificationPopup = useCallback(
-    ({ entityId, entityType, question, options }: ClarificationPopupOptions) => {
+    ({ entityId, entityType, question, options, originalText }: ClarificationPopupOptions) => {
       console.log('[GlobalOverlay] Opening clarification popup', { entityId, question });
       setClarificationPopup({
         visible: true,
@@ -221,6 +251,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         entityType,
         question,
         options,
+        originalText: originalText || null,
       });
     },
     [],
@@ -233,6 +264,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       entityType: null,
       question: null,
       options: null,
+      originalText: null,
     });
     setClarificationLoading(false);
     setClarificationSuccess(null);
@@ -245,7 +277,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       // Check if this is free text input (prefixed with "freetext:")
       const isFreeText = optionId.startsWith('freetext:');
       const selectionValue = isFreeText ? optionId.slice('freetext:'.length) : optionId;
-      
+
       console.log('[GlobalOverlay] Clarification selection:', {
         entityId: clarificationPopup.entityId,
         isFreeText,
@@ -256,13 +288,13 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       // The popup shows instant success and dismisses itself
       // The card shows processing animation and updates progressively
       resolvePendingDropClarification(
-        clarificationPopup.entityId, 
+        clarificationPopup.entityId,
         selectionValue,
-        isFreeText
+        isFreeText,
       ).catch((error) => {
         console.error('[GlobalOverlay] Clarification resolution failed:', error);
       });
-      
+
       // Note: Popup dismisses itself after showing "Great, on it"
       // We don't close it here anymore
     },
@@ -496,6 +528,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         visible={clarificationPopup.visible}
         question={effectiveClarificationData.question}
         options={effectiveClarificationData.options}
+        originalText={effectiveClarificationData.originalText}
         onSelectOption={handleClarificationSelect}
         onSkip={handleClarificationSkip}
         onClose={closeClarificationPopup}

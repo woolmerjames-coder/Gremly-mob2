@@ -923,6 +923,12 @@ function getMindDropVisualState(entity: {
 }): MindDropVisualState {
   const views = entity.views ?? {};
 
+  // Phase 1.5a streaming - title/confirmation arriving, show typewriter
+  // CHECK THIS FIRST - streaming should override ai_pending
+  if (views.minddrop_stage === 'streaming') {
+    return 'streaming';
+  }
+
   // Clarification processing - user just selected an option, API calls in progress
   if (views.clarification_processing === true || views.ai_pending === true) {
     return 'enriching';
@@ -936,11 +942,6 @@ function getMindDropVisualState(entity: {
   // Phase 2 in progress - entity exists, show enriching animation
   if (views.minddrop_stage === 'enriching') {
     return 'enriching';
-  }
-
-  // Phase 2 streaming - fields arriving progressively
-  if (views.minddrop_stage === 'streaming') {
-    return 'streaming';
   }
 
   // Explicitly failed
@@ -1036,7 +1037,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 // Custom LayoutAnimation config for smooth card slide-down (Phase 1)
 // Made slower and more intentional so users clearly see cards "making room"
 const CardInsertLayoutAnimation = {
-  duration: 450,
+  duration: 550,
   create: {
     type: LayoutAnimation.Types.easeOut,
     property: LayoutAnimation.Properties.opacity,
@@ -1054,24 +1055,24 @@ const CardInsertLayoutAnimation = {
  * TIMING (synced with Phase 0 multi-detect ~700ms):
  *
  * 0ms    - User taps Drop, pending drop added to Zustand
- * 0-500ms - PHASE 1: Existing cards slide down via LayoutAnimation
+ * 0-600ms - PHASE 1: Existing cards slide down via LayoutAnimation
  * 200ms  - PHASE 2 START: Card begins emerging from depth
  *          Initial state: scale 0.65, opacity 0.2 (far beneath surface)
  * 700ms  - Phase 0 returns: bucket + isMulti now known
- *          Card is at ~scale 0.88, opacity 0.74 (still visibly emerging)
+ *          Card is at ~scale 0.84, opacity 0.67 (still visibly emerging)
  *          React re-renders with correct card type (single/multi)
- * 950ms  - PHASE 2 END: Card reaches full size
+ * 1100ms - PHASE 2 END: Card reaches full size
  *          Final state: scale 1.0, opacity 1.0 (fully surfaced)
  *          Card has "revealed" its true form during emergence
  *
- * The card content updates at 700ms while still scaled down (~0.88),
+ * The card content updates at 700ms while still scaled down (~0.84),
  * so the correct type (single/multi) is revealed as the card surfaces.
  * This creates a seamless "morph" effect - users never see a type switch.
  *
- * Math: Animation starts at 200ms, duration 750ms, ends at 950ms.
- * At 700ms: (700-200)/750 = 66.7% through animation.
- * With easeOut(cubic), ~85% of value change completed.
- * Scale at 700ms: 0.65 + 0.35 * 0.85 ≈ 0.88
+ * Math: Animation starts at 200ms, duration 900ms, ends at 1100ms.
+ * At 700ms: (700-200)/900 = 55.6% through animation.
+ * With easeOut(cubic), ~80% of value change completed.
+ * Scale at 700ms: 0.65 + 0.35 * 0.80 ≈ 0.93
  */
 const AnimatedCardInsert: React.FC<{
   itemId: string;
@@ -1104,14 +1105,14 @@ const AnimatedCardInsert: React.FC<{
         // Scale from 0.65 to 1.0 - rising from deep within the phone
         Animated.timing(scale, {
           toValue: 1,
-          duration: 750,
+          duration: 900,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         // Opacity from 0.2 to 1.0 - emerging through glass layers
         Animated.timing(opacity, {
           toValue: 1,
-          duration: 750,
+          duration: 900,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -1322,49 +1323,20 @@ const UnifiedCardWrapper: React.FC<{
 };
 
 /**
- * ClarifyBadge - Pulsing badge for items needing clarification
+ * ClarifyBadge - Static badge for items needing clarification
  * Shows in the top-right badge position, replacing the bucket badge.
- * Uses a gentle opacity pulse to draw attention without being distracting.
  */
 const ClarifyBadge: React.FC = () => {
-  const pulseOpacity = useSharedValue(1);
-
-  React.useEffect(() => {
-    // Start pulsing animation after a short delay
-    const timeout = setTimeout(() => {
-      pulseOpacity.value = withRepeat(
-        withSequence(
-          withTiming(0.6, { duration: 800, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
-          withTiming(1, { duration: 800, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
-        ),
-        -1, // infinite
-        true, // reverse
-      );
-    }, 500);
-
-    return () => {
-      clearTimeout(timeout);
-      cancelAnimation(pulseOpacity);
-    };
-  }, [pulseOpacity]);
-
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: pulseOpacity.value,
-  }));
-
   return (
-    <Reanimated.View
-      style={[
-        {
-          paddingHorizontal: 8,
-          paddingVertical: 3,
-          borderRadius: 8,
-          backgroundColor: 'rgba(255, 243, 224, 0.9)',
-          borderWidth: 1,
-          borderColor: 'rgba(180, 140, 80, 0.25)',
-        },
-        pulseStyle,
-      ]}
+    <View
+      style={{
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
+        backgroundColor: 'rgba(255, 243, 224, 0.9)',
+        borderWidth: 1,
+        borderColor: 'rgba(180, 140, 80, 0.25)',
+      }}
     >
       <Text
         style={{
@@ -1376,7 +1348,7 @@ const ClarifyBadge: React.FC = () => {
       >
         Clarify
       </Text>
-    </Reanimated.View>
+    </View>
   );
 };
 
@@ -1497,6 +1469,94 @@ const AnimatedChipsTransition: React.FC<{
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
           opacity: animValues.mistOpacity,
           borderRadius: 8,
+        }}
+      />
+    </View>
+  );
+};
+
+// Module-level Set to track which badges have animated (persists across pending→entity transition)
+const badgeAnimatedIds = new Set<string>();
+
+/**
+ * AnimatedBadgeTransition - Mist reveal animation for bucket badge
+ *
+ * Shows shimmer placeholder until bucket is confirmed by Phase 1,
+ * then reveals the badge with blur-to-sharp mist animation.
+ */
+const AnimatedBadgeTransition: React.FC<{
+  trackingId: string;
+  bucketConfirmed: boolean;
+  children: React.ReactNode;
+}> = ({ trackingId, bucketConfirmed, children }) => {
+  const alreadyAnimated = badgeAnimatedIds.has(trackingId);
+
+  const [animValues] = React.useState(() => ({
+    opacity: new Animated.Value(alreadyAnimated ? 1 : 0.3),
+    scale: new Animated.Value(alreadyAnimated ? 1 : 0.95),
+    mistOpacity: new Animated.Value(alreadyAnimated ? 0 : 0.9),
+  }));
+
+  const [isVisible, setIsVisible] = React.useState(alreadyAnimated || bucketConfirmed);
+  const animationStarted = React.useRef(alreadyAnimated);
+
+  React.useEffect(() => {
+    if (bucketConfirmed && !animationStarted.current && !badgeAnimatedIds.has(trackingId)) {
+      animationStarted.current = true;
+      badgeAnimatedIds.add(trackingId);
+      setIsVisible(true);
+
+      Animated.parallel([
+        Animated.timing(animValues.opacity, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(animValues.scale, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(animValues.mistOpacity, {
+          toValue: 0,
+          duration: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else if (bucketConfirmed && badgeAnimatedIds.has(trackingId) && !isVisible) {
+      setIsVisible(true);
+    }
+  }, [trackingId, bucketConfirmed, animValues, isVisible]);
+
+  // If not confirmed yet, show shimmer placeholder
+  if (!isVisible) {
+    return <ShimmerBar width={45} height={22} style={{ borderRadius: 11 }} />;
+  }
+
+  return (
+    <View style={{ position: 'relative' }}>
+      <Animated.View
+        style={{
+          opacity: animValues.opacity,
+          transform: [{ scale: animValues.scale }],
+        }}
+      >
+        {children}
+      </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: -1,
+          left: -1,
+          right: -1,
+          bottom: -1,
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          opacity: animValues.mistOpacity,
+          borderRadius: 11,
         }}
       />
     </View>
@@ -1832,6 +1892,8 @@ const PendingSkeleton: React.FC<{
   index?: number; // For stagger delay
 }> = ({ item, effectiveKind, badgeStyleKey, styles, c, index = 0 }) => {
   const [dots, setDots] = React.useState('');
+  const trackingId = item.drop_id || item.id;
+  const bucketConfirmed = item.views?.bucket_confirmed === true;
 
   // Animated dots: cycle through '', '.', '..', '...'
   React.useEffect(() => {
@@ -1865,6 +1927,16 @@ const PendingSkeleton: React.FC<{
     return () => animation.stop();
   }, [titleOpacity]);
 
+  // Show "Still thinking..." after 5 seconds
+  const [showSlowMessage, setShowSlowMessage] = React.useState(false);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSlowMessage(true);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Show raw text as title immediately (truncated to 50 chars)
   const displayTitle = truncateText(item.text || item.title || '', 50);
 
@@ -1895,9 +1967,11 @@ const PendingSkeleton: React.FC<{
           {displayTitle || '—'}
         </Animated.Text>
         <View style={styles.recentTopRight}>
-          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
-          </Text>
+          <AnimatedBadgeTransition trackingId={trackingId} bucketConfirmed={bucketConfirmed}>
+            <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
+              {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
+            </Text>
+          </AnimatedBadgeTransition>
         </View>
       </View>
 
@@ -1915,6 +1989,22 @@ const PendingSkeleton: React.FC<{
           Organizing{dots}
         </Text>
       </View>
+
+      {/* Subtle slow message after 5 seconds */}
+      {showSlowMessage && (
+        <Reanimated.Text
+          entering={FadeIn.duration(300)}
+          style={{
+            fontSize: 11,
+            color: '#9CA3AF',
+            fontFamily: 'Inter-Regular',
+            marginTop: 4,
+            fontStyle: 'italic',
+          }}
+        >
+          Still thinking...
+        </Reanimated.Text>
+      )}
     </Reanimated.View>
   );
 };
@@ -1947,6 +2037,9 @@ const EnrichingSkeleton: React.FC<{
   c: any;
   index?: number; // For stagger delay
 }> = ({ item, effectiveKind, badgeStyleKey, styles, c, index = 0 }) => {
+  const trackingId = item.drop_id || item.id;
+  const bucketConfirmed = item.views?.bucket_confirmed === true;
+
   // Breathing border animation (vanilla Animated)
   const borderOpacity = React.useMemo(() => new Animated.Value(0.15), []);
 
@@ -2047,9 +2140,11 @@ const EnrichingSkeleton: React.FC<{
           {displayTitle || '—'}
         </Animated.Text>
         <View style={styles.recentTopRight}>
-          <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
-            {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
-          </Text>
+          <AnimatedBadgeTransition trackingId={trackingId} bucketConfirmed={bucketConfirmed}>
+            <Text style={[styles.recentCategoryPill, styles[badgeStyleKey]]}>
+              {effectiveKind === 'todo' ? 'Todo' : effectiveKind === 'habit' ? 'Habit' : 'Note'}
+            </Text>
+          </AnimatedBadgeTransition>
         </View>
       </View>
 
@@ -2572,6 +2667,7 @@ const AnimatedMindDropCard = React.memo<{
     entityType: 'note' | 'todo' | 'habit';
     question: string | null; // null = Phase 1.5 still loading
     options: Array<{ id: string; label: string; action: any }> | null; // null = loading
+    originalText?: string | null; // The original drop text to show context
   }) => void;
 }>(
   ({
@@ -2592,14 +2688,23 @@ const AnimatedMindDropCard = React.memo<{
     onOpenModal,
     openClarificationPopup,
   }) => {
+    // Capture render time in a ref (initialized once on mount)
+    // This avoids calling Date.now() multiple times during render
+    // eslint-disable-next-line react-hooks/purity -- Date.now() in useRef initializer is safe (runs once per mount)
+    const mountTimeRef = React.useRef(Date.now());
+
     // Check for multi-entity drops
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
 
     // Check if item needs clarification (for special styling)
+    // Use truthy check (not strict ===) to match getConfirmationMessage
     const needsClarification =
-      (item.views?.needs_clarification === true || item.needs_clarification === true) &&
-      item.clarification_resolved !== true &&
-      item.views?.clarification_resolved !== true;
+      (item.views?.needs_clarification || item.needs_clarification) &&
+      !item.clarification_resolved &&
+      !item.views?.clarification_resolved;
+
+    // Tracking for badge animation (uses trackingId declared below)
+    const bucketConfirmed = item.views?.bucket_confirmed !== false; // true for real entities
 
     // DEBUG: Track component mount/unmount (disabled to reduce Metro noise)
     // React.useEffect(() => {
@@ -2642,10 +2747,10 @@ const AnimatedMindDropCard = React.memo<{
     }, []);
 
     React.useEffect(() => {
-      // Trigger bounce when:
-      // 1. Multi-drop is detected (isMulti becomes true)
-      // 2. Phase 1 completes (non-multi cards) - don't wait for Phase 2 chips
-      // Uses module-level Sets to persist across component remounts
+      // Trigger bounce ONLY for:
+      // 1. Multi-drop detection
+      // 2. Clarification detection
+      // Regular cards should NOT bounce
 
       // Multi-drop bounce: happens when isMulti becomes true
       if (isMulti && !multiBounceAnimatedIds.has(bounceTrackingId)) {
@@ -2661,11 +2766,10 @@ const AnimatedMindDropCard = React.memo<{
       }
 
       // Clarification bounce: happens when needsClarification becomes true
-      // Same animation as multi-drop for visual consistency
       if (needsClarification && !clarificationBounceAnimatedIds.has(bounceTrackingId)) {
         clarificationBounceAnimatedIds.add(bounceTrackingId);
 
-        // Pronounced bounce: 1.0 → 1.10 → 0.96 → 1.0
+        // Same pronounced bounce as multi: 1.0 → 1.10 → 0.96 → 1.0
         bounceScale.value = withSequence(
           withTiming(1.1, { duration: 180 }),
           withTiming(0.96, { duration: 140 }),
@@ -2674,24 +2778,9 @@ const AnimatedMindDropCard = React.memo<{
         return;
       }
 
-      // Phase 1 bounce: happens when Phase 1 completes (streaming/complete state)
-      // This triggers immediately when bucket is set, not waiting for Phase 2 chips
-      if (
-        phase1Complete &&
-        !isMulti &&
-        !chipBounceAnimatedIds.has(bounceTrackingId) &&
-        !multiBounceAnimatedIds.has(bounceTrackingId)
-      ) {
-        chipBounceAnimatedIds.add(bounceTrackingId);
-
-        // Same bounce as multi-drop: 1.0 → 1.10 → 0.96 → 1.0
-        bounceScale.value = withSequence(
-          withTiming(1.1, { duration: 180 }),
-          withTiming(0.96, { duration: 140 }),
-          withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
-        );
-      }
-    }, [isMulti, needsClarification, bounceTrackingId, bounceScale, phase1Complete]);
+      // NOTE: Phase 1 bounce removed - regular cards no longer bounce
+      // Only multi-drop cards get the attention-grabbing bounce
+    }, [isMulti, needsClarification, bounceTrackingId, bounceScale]);
 
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
@@ -2716,63 +2805,39 @@ const AnimatedMindDropCard = React.memo<{
     const prevStateRef = React.useRef<MindDropVisualState | null>(null);
     const isFirstRender = React.useRef(true);
 
-    // Detect transition to complete state to trigger reveal animation
-    // Only triggers ONCE per item - uses module-level Set to track by drop_id
+    // Transition detection useEffect - simplified since main reveal logic is now synchronous
+    // This handles:
+    // 1. Old items (>30s) that shouldn't animate - mark them complete immediately
+    // 2. Keeping prevStateRef updated for debugging
+    // 3. Syncing revealComplete state when item is in revealedItemIds
     React.useEffect(() => {
-      const prev = prevStateRef.current;
+      const isReadyForReveal = itemVisualState === 'streaming' || itemVisualState === 'complete';
 
-      // Skip if already revealed (check by tracking ID which persists across sync)
-      if (revealedItemIds.has(trackingId)) {
-        // Ensure local state is in sync
-        if (!revealComplete) {
-          setRevealComplete(true);
-        }
-        prevStateRef.current = itemVisualState;
-        return;
+      // Sync local state if this item was already revealed (handles remounts)
+      if (revealedItemIds.has(trackingId) && !revealComplete && !isRevealing) {
+        setRevealComplete(true);
       }
 
-      // For first render: if item is already complete/streaming and was created recently (within 30s),
-      // trigger reveal animation since user just submitted it
+      // First render: check if item is too old for animation
       if (isFirstRender.current) {
         isFirstRender.current = false;
-        // Streaming = Phase 1 done, title ready for typewriter
-        // Complete = Phase 2 done, all data ready
-        if (itemVisualState === 'complete' || itemVisualState === 'streaming') {
+
+        if (isReadyForReveal) {
           const createdAt = new Date(item.created_at).getTime();
           const ageMs = Date.now() - createdAt;
-          if (ageMs < 30000) {
-            // Item is new (created within 30s), trigger reveal
-            // Mark as revealing IMMEDIATELY to prevent duplicate animations on sync
-            revealedItemIds.add(trackingId);
-            // console.log('[AnimatedMindDropCard] First render reveal', { trackingId, ageMs });
-            setIsRevealing(true);
-          } else {
-            // Item is old, mark as already revealed
+
+          if (ageMs >= 30000) {
+            // Item is old (>30s) - skip animation entirely
             revealedItemIds.add(trackingId);
             setRevealComplete(true);
           }
+          // For new items, the synchronous logic in visualState computation
+          // already handled starting the reveal
         }
-        prevStateRef.current = itemVisualState;
-        return;
       }
 
-      // Normal transition detection
-      // Trigger reveal when Phase 1 completes (streaming) or Phase 2 completes (complete)
-      const isNowReadyForReveal = itemVisualState === 'complete' || itemVisualState === 'streaming';
-      const wasNotReady = prev === 'enriching' || prev === 'pending';
-      if (wasNotReady && isNowReadyForReveal) {
-        // Mark as revealing IMMEDIATELY to prevent duplicate animations on sync
-        revealedItemIds.add(trackingId);
-        // Start revealing animation
-        // console.log('[AnimatedMindDropCard] Transition reveal', {
-        //   trackingId,
-        //   prev,
-        //   current: itemVisualState,
-        // });
-        setIsRevealing(true);
-      }
       prevStateRef.current = itemVisualState;
-    }, [itemVisualState, trackingId, item.created_at, revealComplete]);
+    }, [itemVisualState, trackingId, item.created_at, revealComplete, isRevealing]);
 
     // Handle reveal completion - mark as revealed to prevent re-animation
     const handleRevealComplete = React.useCallback(() => {
@@ -2782,22 +2847,67 @@ const AnimatedMindDropCard = React.memo<{
     }, [trackingId]);
 
     // Determine actual visual state
-    // 'streaming' = Phase 1 done, treat like 'complete' for card rendering (chips will wait for chip_data_ready)
-    // CRITICAL: 'enriching' state takes priority over revealComplete
-    // This ensures the card shows shimmer when clarification processing starts
+    // CRITICAL FIX: Detect reveal eligibility SYNCHRONOUSLY during render
+    // Don't wait for useEffect to set isRevealing - that causes the race condition
+    //
+    // The bug was: when itemVisualState === 'streaming' on first render,
+    // isRevealing was still false (useEffect hadn't run), so it fell through
+    // to 'complete' and skipped the reveal animation entirely.
+
+    const isReadyForReveal = itemVisualState === 'streaming' || itemVisualState === 'complete';
+
+    // Check if item is too old for animation (>30s old) - SYNCHRONOUS check
+    // Uses mountTimeRef captured on mount to avoid impure Date.now() calls during render
+    const createdAtMs = item.created_at
+      ? new Date(item.created_at).getTime()
+      : mountTimeRef.current;
+    const ageMs = mountTimeRef.current - createdAtMs;
+    const isTooOldForAnimation = ageMs >= 30000;
+
+    // Check if this item needs reveal animation (not yet revealed)
+    // Do this check synchronously, not in useEffect
+    const needsRevealAnimation =
+      isReadyForReveal &&
+      !revealedItemIds.has(trackingId) &&
+      !revealComplete &&
+      !isTooOldForAnimation;
+
+    // If we need to reveal OR we're already revealing, show revealing state
+    const shouldReveal = needsRevealAnimation || isRevealing;
+
+    // Mark as revealed immediately if we're starting the animation
+    // This prevents duplicate animations when Phase 2 completes quickly
+    if (needsRevealAnimation && !isRevealing) {
+      revealedItemIds.add(trackingId);
+      // Trigger state update for next frame (keeps isRevealing in sync)
+      // Using queueMicrotask to batch with React's updates
+      queueMicrotask(() => {
+        setIsRevealing(true);
+      });
+    }
+
     const visualState: MindDropVisualState =
       itemVisualState === 'enriching' || itemVisualState === 'pending'
         ? itemVisualState // Always show skeleton when processing
-        : isRevealing
-          ? 'revealing'
-          : revealComplete || itemVisualState === 'complete' || itemVisualState === 'streaming'
-            ? 'complete'
+        : shouldReveal
+          ? 'revealing' // Show revealing when ready (synchronous decision!)
+          : revealComplete
+            ? 'complete' // Only complete AFTER reveal animation finishes
             : itemVisualState;
 
     // MULTI-DROP EARLY RETURN: Show multi-card immediately, even during pending/enriching
     // Multi-drops have enough info from Phase 0 to render the multi-card shape
     // This bypasses skeleton states so the multi-card appears at ~2s (Phase 0) not ~5s (Phase 1+2)
-    if (isMulti) {
+    // Check if clarification is being processed (user just selected an option)
+    const clarificationProcessing =
+      item.views?.clarification_processing === true || item.views?.ai_pending === true;
+
+    // CLARIFICATION ITEMS: Skip animation states UNLESS processing
+    // - needsClarification && !processing → show clarify card (skip skeleton)
+    // - needsClarification && processing → show skeleton (user just selected option)
+    if (needsClarification && !clarificationProcessing) {
+      // Fall through to complete card render below
+    } else if (isMulti) {
       // Fall through to complete card render below (skip skeleton states)
     } else {
       // Phase 1: Still creating entity - show raw text with skeleton for secondary fields
@@ -2871,6 +2981,9 @@ const AnimatedMindDropCard = React.memo<{
           (item as any)?.clarification_question || (item.views as any)?.clarification_question;
         const options =
           (item as any)?.clarification_options || (item.views as any)?.clarification_options;
+        // Get original text for context display
+        const originalText =
+          (item as any)?.text || (item.views as any)?.text || item.title || item.text;
 
         // console.log('[AnimatedMindDropCard] Opening clarification popup', {
         //   itemId: item.id,
@@ -2884,6 +2997,7 @@ const AnimatedMindDropCard = React.memo<{
           entityType: item.kind,
           question: question || null,
           options: options || null,
+          originalText: originalText || null,
         });
         return; // Don't open the full overlay
       }
@@ -2929,15 +3043,17 @@ const AnimatedMindDropCard = React.memo<{
               {needsClarification ? (
                 <ClarifyBadge />
               ) : (
-                <Text
-                  style={[
-                    styles.recentCategoryPill,
-                    styles[badgeStyleKey],
-                    isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
-                  ]}
-                >
-                  {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
-                </Text>
+                <AnimatedBadgeTransition trackingId={trackingId} bucketConfirmed={bucketConfirmed}>
+                  <Text
+                    style={[
+                      styles.recentCategoryPill,
+                      styles[badgeStyleKey],
+                      isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
+                    ]}
+                  >
+                    {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
+                  </Text>
+                </AnimatedBadgeTransition>
               )}
             </View>
           </View>
@@ -2972,7 +3088,7 @@ const AnimatedMindDropCard = React.memo<{
                 }}
               />
               <Text style={{ fontSize: 13, color: '#4A7C59', fontWeight: '600' }}>
-                Gremly has a question — tap to clarify
+                Gremly has a question, tap to clarify
               </Text>
             </View>
           ) : (
@@ -2986,8 +3102,8 @@ const AnimatedMindDropCard = React.memo<{
           {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
           {/* Hide chips when card needs clarification - show only timestamp */}
           <View style={styles.recentMetaRow}>
-            {/* Left side: Chips (hidden during clarification) */}
-            {!needsClarification && (
+            {/* Left side: Chips (hidden during clarification/multi) */}
+            {!needsClarification && !isMulti && (
               <Row3Chips
                 item={item}
                 effectiveKind={effectiveKind}
@@ -2996,8 +3112,12 @@ const AnimatedMindDropCard = React.memo<{
                 onChipAnimationComplete={handleChipAnimationComplete}
               />
             )}
-            {/* Spacer when chips are hidden */}
-            {needsClarification && <View style={{ flex: 1 }} />}
+            {/* Left side helper text when clarification or multi */}
+            {(needsClarification || isMulti) && (
+              <Text style={{ flex: 1, fontSize: 12, color: '#8E9C8E', marginLeft: 34 }}>
+                no pressure, can sweep it later
+              </Text>
+            )}
             {/* Right side: photo icon + timestamp */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
@@ -3183,6 +3303,15 @@ const RecentDrops: React.FC<{
   // Pending drops from Zustand (optimistic queue system)
   const pendingDropsMap = useGremlyStore((s) => s.pendingDrops);
 
+  // DEBUG: Track when pendingDropsMap reference changes
+  React.useEffect(() => {
+    console.log('🔴 [CatchAllNotepad] pendingDropsMap CHANGED', {
+      size: pendingDropsMap.size,
+      keys: Array.from(pendingDropsMap.keys()),
+      timestamp: Date.now(),
+    });
+  }, [pendingDropsMap]);
+
   // Configure smooth layout animation when pending drops content changes
   // This prevents jolt when Phase 1 data (smart titles) arrive for segments
   // BUT we skip animation when:
@@ -3303,6 +3432,17 @@ const RecentDrops: React.FC<{
   // Transform pending drops from Zustand Map to UnifiedDrop array
   const pendingItems = React.useMemo((): UnifiedDrop[] => {
     const drops = Array.from(pendingDropsMap.values());
+
+    console.log('🟡 [pendingItems] useMemo running', {
+      dropCount: drops.length,
+      drops: drops.map((d) => ({
+        localId: d.localId,
+        status: d.status,
+        minddrop_stage: (d as any).minddrop_stage,
+        hasSmartTitle: !!d.smartTitle,
+      })),
+    });
+
     return drops
       .map((drop: PendingDrop): UnifiedDrop => {
         // Map bucket to kind
@@ -3321,18 +3461,26 @@ const RecentDrops: React.FC<{
         // CRITICAL: Only report 'enriched' when status === 'enriched' (Phase 2 done)
         // This ensures chips don't animate until all chip data is available
         const hasEnrichmentFields = !!drop.smartTitle || !!drop.confirmationMessage;
+        // Priority: If drop has explicit minddrop_stage set (from Phase 1.5a), use it
+        // Otherwise derive from status
         const minddropStage =
-          drop.status === 'pending'
-            ? 'pending'
-            : drop.status === 'classifying'
-              ? 'classifying' // Multi-drop: Phase 1 running
-              : drop.status === 'enriching' && hasEnrichmentFields
-                ? 'streaming' // Phase 1 done, show typewriter, but chips wait for Phase 2
-                : drop.status === 'enriching'
-                  ? 'enriching' // Phase 2 still in progress, no enrichment fields yet
-                  : drop.status === 'enriched' || drop.status === 'synced'
-                    ? 'enriched' // Phase 2 FULLY complete - NOW chips can animate
-                    : 'pending';
+          (drop as any).minddrop_stage === 'streaming'
+            ? 'streaming' // Phase 1.5a explicitly set this - show typewriter immediately
+            : drop.status === 'pending'
+              ? 'pending'
+              : drop.status === 'classifying'
+                ? 'classifying' // Multi-drop: Phase 1 running
+                : drop.status === 'classified' && hasEnrichmentFields
+                  ? 'streaming' // Phase 1.5a done - show typewriter, chips wait for Phase 2
+                  : drop.status === 'classified'
+                    ? 'enriching' // Phase 1 done, waiting for Phase 1.5a/2
+                    : drop.status === 'enriching' && hasEnrichmentFields
+                      ? 'streaming' // Legacy fallback
+                      : drop.status === 'enriching'
+                        ? 'enriching'
+                        : drop.status === 'enriched' || drop.status === 'synced'
+                          ? 'enriched' // Phase 2 FULLY complete - NOW chips can animate
+                          : 'pending';
 
         // For multi-drops, use the summary as the title
         const displayTitle =
@@ -3361,6 +3509,8 @@ const RecentDrops: React.FC<{
             // Flag for Row3Chips: only animate chips when Phase 2 is FULLY complete
             // This is separate from minddrop_stage which triggers Row 1-2 typewriter earlier
             chip_data_ready: drop.status === 'enriched' || drop.status === 'synced',
+            // Flag for badge animation - true when Phase 1 confirms the bucket
+            bucket_confirmed: drop.status !== 'pending' && drop.status !== 'classifying',
             // Multi-drop data for UI rendering
             is_multi: drop.isMulti,
             multi_segments: drop.multiSegments,
