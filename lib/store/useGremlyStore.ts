@@ -31,6 +31,7 @@ import {
   type CalendarProvider,
 } from '../calendar/CalendarClient';
 import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../capacity';
+import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import type { TimeBlockPreferences } from '../capacity';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
@@ -4827,10 +4828,11 @@ export const useGremlyStore = create<GremlyState>()(
       // Extract values from reclassify result (with fallbacks)
       const newTitle =
         reclassifyResult.smart_title || originalTitle || originalText.substring(0, 50);
-      const newConfirmation = reclassifyResult.confirmation_message || 'Updated.';
+      const newSubtype = reclassifyResult.subtype ?? reclassifyResult.habit_subtype ?? null;
+      const newConfirmation =
+        reclassifyResult.confirmation_message || getRandomFallback(targetBucket, newSubtype);
       const timeEstimate = reclassifyResult.time_estimate_minutes ?? null;
       const energyType = reclassifyResult.energy_type ?? null;
-      const newSubtype = reclassifyResult.subtype ?? reclassifyResult.habit_subtype ?? null;
 
       // ─────────────────────────────────────────────────────────────────────
       // SAME BUCKET: Update the existing entity with reclassify data
@@ -5547,12 +5549,14 @@ export const useGremlyStore = create<GremlyState>()(
 
       // Step 1: Mark clarification as skipped and set ai_pending for shimmer animation
       // Also set a normal confirmation message to replace the "tap me" style message
+      // Skipped items stay as LOG/general, so use general fallbacks
+      const skippedConfirmation = getRandomFallback('log', null);
       const skippedViews: Record<string, unknown> = {
         ...views,
         needs_clarification: false,
         clarification_resolved: true,
         clarification_skipped: true,
-        confirmation_message: 'Captured for later.',
+        confirmation_message: skippedConfirmation,
         ai_pending: true,
         minddrop_stage: 'classified',
       };
@@ -5565,7 +5569,7 @@ export const useGremlyStore = create<GremlyState>()(
                   ...n,
                   needs_clarification: false,
                   clarification_resolved: true,
-                  confirmation_message: 'Captured for later.',
+                  confirmation_message: skippedConfirmation,
                   views: skippedViews,
                 }
               : n,
@@ -5579,7 +5583,7 @@ export const useGremlyStore = create<GremlyState>()(
                   ...t,
                   needs_clarification: false,
                   clarification_resolved: true,
-                  confirmation_message: 'Captured for later.',
+                  confirmation_message: skippedConfirmation,
                   views: skippedViews,
                 }
               : t,
@@ -5593,7 +5597,7 @@ export const useGremlyStore = create<GremlyState>()(
                   ...h,
                   needs_clarification: false,
                   clarification_resolved: true,
-                  confirmation_message: 'Captured for later.',
+                  confirmation_message: skippedConfirmation,
                   views: skippedViews,
                 }
               : h,
