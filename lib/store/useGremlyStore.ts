@@ -606,6 +606,10 @@ interface GremlyState {
     segmentIndex: number,
     updates: Partial<PendingDropSegment>,
   ) => void;
+  /** Split a multi-drop into separate pending drops for each selected segment */
+  splitMultiDrop: (localId: string, segments: PendingDropSegment[]) => void;
+  /** Resolve a multi-drop as a single entity (keep as-is) */
+  resolveMultiDropAsSingle: (localId: string) => void;
   /** Update clarification fields on a synced entity by its drop_id (for Phase 1.5 race condition) */
   updateEntityClarificationByDropId: (
     dropId: string,
@@ -4327,6 +4331,73 @@ export const useGremlyStore = create<GremlyState>()(
         const newPending = new Map(state.pendingDrops);
         newPending.set(localId, updated);
 
+        return { pendingDrops: newPending };
+      });
+    },
+
+    /**
+     * Split a multi-drop into separate pending drops for each selected segment.
+     * The original multi-drop is removed and replaced with individual drops.
+     */
+    splitMultiDrop: (localId: string, segments: PendingDropSegment[]) => {
+      set((state) => {
+        const drop = state.pendingDrops.get(localId);
+        if (!drop) {
+          console.warn('[GremlyStore] splitMultiDrop: drop not found', { localId });
+          return state;
+        }
+
+        const newPending = new Map(state.pendingDrops);
+
+        // Remove the original multi-drop
+        newPending.delete(localId);
+
+        // Create new pending drops for each selected segment
+        segments.forEach((segment, index) => {
+          const newLocalId = `${localId}-split-${index}-${Date.now()}`;
+          const newDrop: PendingDrop = {
+            localId: newLocalId,
+            text: segment.text,
+            spaceId: drop.spaceId,
+            createdAt: new Date().toISOString(),
+            bucket: segment.bucket,
+            subtype: segment.subtype ?? null,
+            smartTitle: segment.smartTitle ?? undefined,
+            status: 'classified',
+            isMulti: false,
+          };
+          newPending.set(newLocalId, newDrop);
+        });
+
+        console.log('[GremlyStore] splitMultiDrop: split into', segments.length, 'drops');
+        return { pendingDrops: newPending };
+      });
+    },
+
+    /**
+     * Resolve a multi-drop as a single entity (keep as-is).
+     * Clears the isMulti flag so it won't show in the multi-split step again.
+     */
+    resolveMultiDropAsSingle: (localId: string) => {
+      set((state) => {
+        const drop = state.pendingDrops.get(localId);
+        if (!drop) {
+          console.warn('[GremlyStore] resolveMultiDropAsSingle: drop not found', { localId });
+          return state;
+        }
+
+        // Keep the drop but mark it as resolved (no longer multi)
+        const updated: PendingDrop = {
+          ...drop,
+          isMulti: false,
+          multiSegments: undefined,
+          multiSummary: undefined,
+        };
+
+        const newPending = new Map(state.pendingDrops);
+        newPending.set(localId, updated);
+
+        console.log('[GremlyStore] resolveMultiDropAsSingle: kept as single', { localId });
         return { pendingDrops: newPending };
       });
     },

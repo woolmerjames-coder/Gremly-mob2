@@ -3,6 +3,7 @@
  *
  * Full-screen flow for the Evening Sweep ritual:
  * - Step 0: Intro ("Ready to Sweep?")
+ * - Step 0.25: Multi-Split (if user has unresolved multi-drops)
  * - Step 0.5: Lock-In Checkpoint (if user has locked items)
  * - Step 1: Decision cards
  * - Step 2: Habits check-in
@@ -76,6 +77,7 @@ import type {
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
+import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep';
 import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
@@ -2876,6 +2878,19 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Track if lock-in checkpoint was shown
   const [lockInCheckpointComplete, setLockInCheckpointComplete] = useState(false);
 
+  // Track if multi-split step was shown
+  const [multiSplitComplete, setMultiSplitComplete] = useState(false);
+
+  // Get unresolved multi-drops from pending drops
+  const pendingDrops = useGremlyStore((state) => state.pendingDrops);
+  const unresolvedMultiDrops = useMemo(() => {
+    if (!pendingDrops) return [];
+    return Array.from(pendingDrops.values()).filter(
+      (drop) => drop.isMulti && drop.multiSegments && drop.multiSegments.length > 1,
+    );
+  }, [pendingDrops]);
+  const hasUnresolvedMultiDrops = unresolvedMultiDrops.length > 0 && !multiSplitComplete;
+
   // Track sweep stats across the session
   const [keptCount, setKeptCount] = useState(() => {
     // Initialize mock data if jumping directly to summary in DEV mode
@@ -3023,12 +3038,53 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   );
 
   const handleIntroStart = () => {
-    if (hasLockedItems && !lockInCheckpointComplete) {
+    // Check for unresolved multi-drops first
+    if (hasUnresolvedMultiDrops) {
+      setStep(0.25); // Go to multi-split step
+    } else if (hasLockedItems && !lockInCheckpointComplete) {
       setStep(0.5); // Go to lock-in checkpoint
     } else {
       setStep(1); // Go to decision cards
     }
   };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Multi-Split Step Handlers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Handle splitting a multi-drop into separate entities
+  const handleMultiSplit = useCallback(
+    (dropId: string, segments: import('../../lib/store/useGremlyStore').PendingDropSegment[]) => {
+      const { splitMultiDrop } = useGremlyStore.getState();
+      if (splitMultiDrop) {
+        splitMultiDrop(dropId, segments);
+      } else {
+        console.warn('[SweepFlowScreen] splitMultiDrop not available in store');
+      }
+    },
+    [],
+  );
+
+  // Handle keeping a multi-drop as a single entity
+  const handleMultiKeepAsOne = useCallback((dropId: string) => {
+    const { resolveMultiDropAsSingle } = useGremlyStore.getState();
+    if (resolveMultiDropAsSingle) {
+      resolveMultiDropAsSingle(dropId);
+    } else {
+      console.warn('[SweepFlowScreen] resolveMultiDropAsSingle not available in store');
+    }
+  }, []);
+
+  // Handle completing the multi-split step
+  const handleMultiSplitComplete = useCallback(() => {
+    setMultiSplitComplete(true);
+    // Continue to next step
+    if (hasLockedItems && !lockInCheckpointComplete) {
+      setStep(0.5); // Go to lock-in checkpoint
+    } else {
+      setStep(1); // Go to decision cards
+    }
+  }, [hasLockedItems, lockInCheckpointComplete]);
 
   // Handle lock-in checkpoint decisions
   const handleLockInContinue = useCallback(
@@ -3257,6 +3313,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 completedItems={completedItems}
               />
             </>
+          )}
+          {step === 0.25 && (
+            <SweepMultiSplitStep
+              multiDrops={unresolvedMultiDrops}
+              onSplit={handleMultiSplit}
+              onKeepAsOne={handleMultiKeepAsOne}
+              onComplete={handleMultiSplitComplete}
+              onClose={handleClose}
+            />
           )}
           {step === 0.5 && (
             <LockInCheckpointStep onContinue={handleLockInContinue} onClose={handleClose} />
