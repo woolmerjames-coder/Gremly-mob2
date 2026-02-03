@@ -28,6 +28,12 @@
     // Exclude entity-chat-bundle - documentation bundle with copied code
     "entity-chat-bundle/**/*",
     // Exclude date-audit - temporary audit folder with stale imports
-    "date-audit/**/*"
+    "date-audit/**/*",
+    // Exclude audit bundles - extracted zips with broken imports
+    "classification-audit-bundle/**/*",
+    "minddrop-audit-bundle/**/*",
+    "minddrop-bundle/**/*",
+    // Generic bundle pattern - all *-bundle directories
+    "*-bundle/**/*"
   ]
 }
