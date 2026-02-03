@@ -1483,6 +1483,15 @@ export default {
 
         t = t.replace(/^(today|tonight|this\s+morning|this\s+evening|this\s+week)\s+/i, '').trim();
 
+        // Strip frequency words (these are tracked as metadata, not in titles)
+        t = t
+          .replace(
+            /\b(daily|weekly|every\s+(day|morning|evening|night|week)|(\d+x?\s*(per|a|\/)\s*week))\b/gi,
+            '',
+          )
+          .trim();
+        t = t.replace(/\s+/g, ' ').trim(); // clean up any double spaces
+
         const words = t.split(/\s+/);
         if (words.length > 7) t = words.slice(0, 7).join(' ');
 
@@ -3230,10 +3239,21 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
  
  === ENRICHMENT ===
  
- TITLE: 3-7 words capturing the topic
- - For TODO: Action verb + object ("Buy Running Shoes", "Call Mom")
- - For HABIT: Activity name ("Morning Run", "No Phone After 9pm")
- - For LOG: Topic/theme ("Running Gear Guide", "Stretching Routine")
+ TITLE: 3-7 words capturing the SUBJECT/TOPIC — what it IS about.
+ 
+ Rules:
+ - Must make sense when scanned in a list (standalone, clear)
+ - Strip temporal info (dates, times, time-of-day, days of week → metadata)
+ - Strip frequency info ("daily", "3x/week" → tracked separately for habits)
+ - Strip mood words ("stressed", "anxious" → mood metadata for journals)
+ - No meta-language prefixes ("Reflect on", "Remember to", "Track")
+ - Preserve question framing for ideas/journals
+ - Title case
+ 
+ Examples:
+ - TODO: "Call Mom", "Buy Running Shoes", "Dentist Appointment"
+ - HABIT: "Meditation", "Run", "No Phone Before Bed"
+ - LOG: "Running Gear Options", "Career Decision", "Interview Stress"
  
  TAGS: 2-4 relevant lowercase tags with hyphens
  
@@ -4249,13 +4269,15 @@ Generate:
 
 === TITLE PRINCIPLES ===
 
-The title should reflect what the user ACTUALLY wrote.
+Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN or HOW OFTEN.
 
-Do NOT invent actions, details, or specifics the user did not provide. If they wrote one word, the title can be one word.
-
-If their input contains an action verb, keep it. If it doesn't, do not add one.
-
-No temporal words in titles — dates are stored separately.
+1. Reflect user's actual words — don't invent actions or details not provided
+2. Strip temporal info — dates, times, time-of-day (morning, evening), days of week (these go in metadata)
+3. Strip frequency info — "daily", "3x/week", "every morning" (tracked separately for habits)
+4. Strip mood words — "stressed", "anxious", "excited" (captured as mood metadata for journals)
+5. No meta-language — don't start with "Reflect on", "Journal about", "Remember to", "Track"
+6. Preserve question framing for ideas/journals — the question IS the content
+7. Title case, 3-7 words
 
 === CONFIRMATION MESSAGE PRINCIPLES ===
 
@@ -5018,7 +5040,7 @@ Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it hap
 
 1. **Extract the core subject matter** — The title should make sense in a list of items. What is this fundamentally about?
 
-2. **Strip temporal information** — Dates, times, and scheduling words belong in metadata, not titles. They become stale.
+2. **Strip temporal information** — Dates, times, time-of-day (morning, evening, night), and scheduling words belong in metadata, not titles. They become stale.
 
 3. **Strip frequency information** — For habits, frequency is tracked separately. The title is just the activity.
 
