@@ -398,6 +398,8 @@ export default function CalendarScreen() {
 
   // Calendar events for selected date
   const calendarEventsMap = useGremlyStore((s) => s.calendarEvents);
+  const calendarConnections = useGremlyStore((s) => s.calendarConnections);
+  const hasCalendarConnected = calendarConnections.some((c) => c.isConnected);
   const calendarEvents = useMemo(
     () => calendarEventsMap[selectedDate] ?? [],
     [calendarEventsMap, selectedDate],
@@ -746,6 +748,15 @@ export default function CalendarScreen() {
               <Text style={styles.emptyEmoji}>🌿</Text>
               <Text style={styles.emptyTitle}>Nothing scheduled</Text>
               <Text style={styles.emptySubtext}>Enjoy the open day</Text>
+              {!hasCalendarConnected && (
+                <Pressable
+                  style={styles.connectCalendarChip}
+                  onPress={() => navigation.navigate('Settings' as never)}
+                >
+                  <Calendar size={14} color={COLORS.mossGreen} />
+                  <Text style={styles.connectCalendarChipText}>Connect Calendar</Text>
+                </Pressable>
+              )}
             </View>
           )}
 
@@ -876,6 +887,23 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontSize: 14,
     color: COLORS.inkMuted,
+  },
+  connectCalendarChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    backgroundColor: '#E8F0EB',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.mossGreen,
+  },
+  connectCalendarChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.mossGreen,
   },
   completedSection: {
     marginTop: 16,
