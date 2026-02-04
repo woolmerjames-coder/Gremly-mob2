@@ -278,6 +278,7 @@ export interface PendingDrop {
   localId: string;
   text: string;
   spaceId: string | null;
+  source?: 'today' | 'space' | 'minddrop' | 'photo';
   createdAt: string;
   bucket?: 'todo' | 'habit' | 'log';
   subtype?: 'journal' | 'idea' | 'general' | null;

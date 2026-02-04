@@ -1,4 +1,5 @@
 import { createSelector } from 'reselect';
+import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore, isHabitLockedIn, type HabitProgressRow } from './useGremlyStore';
 import type { Todo, Habit, Note, Space } from '../types';
 import type {
@@ -1966,3 +1967,48 @@ export const selectSweepIntroStats = (
 /** Hook to get sweep intro stats from store */
 export const useSweepIntroStatsFromStore = (lastSweepCompletedAt: string | null) =>
   useGremlyStore((state) => selectSweepIntroStats(state, lastSweepCompletedAt));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PENDING DROPS SELECTORS (optimistic UI for quick-add)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import type { PendingDrop } from './useGremlyStore';
+
+/**
+ * Get pending drops for Today's Focus (source: 'today')
+ * Shows optimistic loading cards while drops are processing
+ * Uses useShallow to prevent infinite re-renders from new array references
+ */
+export function useTodayPendingDrops(): PendingDrop[] {
+  return useGremlyStore(
+    useShallow((state) => {
+      const drops: PendingDrop[] = [];
+      state.pendingDrops.forEach((drop) => {
+        if (drop.source === 'today') {
+          drops.push(drop);
+        }
+      });
+      return drops;
+    }),
+  );
+}
+
+/**
+ * Get pending drops for a specific space
+ * Shows optimistic loading cards while drops are processing
+ * Uses useShallow to prevent infinite re-renders from new array references
+ */
+export function useSpacePendingDrops(spaceId: string | null): PendingDrop[] {
+  return useGremlyStore(
+    useShallow((state) => {
+      if (!spaceId) return [];
+      const drops: PendingDrop[] = [];
+      state.pendingDrops.forEach((drop) => {
+        if (drop.spaceId === spaceId) {
+          drops.push(drop);
+        }
+      });
+      return drops;
+    }),
+  );
+}

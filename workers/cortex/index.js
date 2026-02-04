@@ -306,15 +306,18 @@ function mapPreparseToClassification(preparse) {
     return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
   }
 
-  // --- FAST PATH: Exploring frame is always an idea ---
+  // --- BAIL: Exploring frame needs Phase 1 verification ---
   if (preparse.frame_type === 'exploring') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'idea', habitSubtype: null };
+    return { needsPhase1: true, reason: 'exploring_frame' };
   }
 
   // --- BAIL EARLY: Check ambiguous cases ---
 
   // Vague desire for more/less without concrete measure - needs clarification
   if (preparse.direction_without_schedule && !preparse.frequency_type) {
+    if (preparse.temporal_specificity) {
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    }
     return { needsPhase1: true, reason: 'direction_without_schedule' };
   }
 
@@ -414,7 +417,7 @@ When uncertain about any field, return "uncertain" or the appropriate null value
 // Mini-prompt A: Intent & Frame
 const PREPARSE_INTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
-- frame_type: What is the user DOING with this thought? "directing" (commanding themselves to act), "exploring" (wondering whether to do something), "processing" (working through emotions or reflecting on experience), "factual" (stating complete information where both the subject and its value are present), or "uncertain" (cannot determine intent, including when there is no verb or statement structure).
+- frame_type: What is the user's commitment state? "directing" (user has decided to act — an imperative self-command IS commitment, regardless of what the action involves), "exploring" (user is uncertain WHETHER to commit — hedging or questioning their own intent), "processing" (working through emotions or reflecting), "factual" (stating information to remember), or "uncertain" (cannot determine intent). TEST: Is this a self-command or a consideration? A self-command expresses commitment through its form.
 - factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present. If only one side exists, this is false. Goals about what to DO are not facts about what IS.
 - is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?`;
 
@@ -424,8 +427,9 @@ const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON
 - emotional_content: Is the user expressing feelings, mood, or emotional state?
 - self_reflection: Is the user examining their own thoughts, patterns, or behavior?
 - frequency_present: Does it reference repetition, recurrence, or cessation? Set true if frequency_type is not null.
-- frequency_type: "explicit" (daily, weekly, every X), "day_names" (ONLY for recurring days - "every Monday", "on Fridays", NOT for deadlines), "stop_quit" (stop, quit, no more), or null. IMPORTANT: "by Friday", "before Tuesday", "this Monday" = one-time deadline = null, NOT day_names.
-- direction_without_schedule: Is the user expressing a desire for MORE or LESS of a BEHAVIOR without specifying a concrete amount or schedule? This only applies to actions. Emotional states are not behaviors. Specific actions with clear scope are not vague desires.`;
+- frequency_type: Does the user intend to do this REPEATEDLY on an ongoing basis? Test: "Once I complete this, will I need to do it again?" If NO → null. If YES → "explicit", "day_names", or "stop_quit".
+- direction_without_schedule: Does the user's language explicitly express a desire to CHANGE from their current state — to increase, decrease, or improve something — without specifying a target? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity.
+- temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.`;
 
 // Mini-prompt C: Structure & Confidence
 const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -514,6 +518,7 @@ async function runPreparse(text, env) {
         ? contentResult.frequency_type
         : null,
       direction_without_schedule: Boolean(contentResult.direction_without_schedule),
+      temporal_specificity: Boolean(contentResult.temporal_specificity),
 
       // From structure
       uncertainty_present: Boolean(structureResult.uncertainty_present),
@@ -619,6 +624,20 @@ Only uncertainty about WHETHER to act at all removes it from TODO.
 
 If signals genuinely conflict with equal weight, return AMBIGUOUS.`;
 
+    case 'exploring_frame':
+      return `Pre-parse detected "exploring" frame, but this signal is unreliable.
+
+Apply THE COMMITMENT TEST:
+Is this a self-command to act, or a consideration of whether to act?
+
+A self-command expresses commitment through its grammatical form — the user is telling themselves to do something. This is DIRECTING → TODO.
+
+A consideration expresses uncertainty about whether to commit — the user is weighing options or floating a possibility. This is EXPLORING → LOG/idea.
+
+The test: Is the user issuing an instruction to themselves, or asking themselves a question?
+
+IGNORE the preparse frame_type for this decision. Evaluate fresh.`;
+
     default:
       return `Apply holistic reasoning using the core tests: Uncertainty Location, Frame, Commitment, and Completeness.`;
   }
@@ -657,6 +676,7 @@ Obligation framing: ${preparseContext.obligation_framing}
 Frequency present: ${preparseContext.frequency_present}
 Frequency type: ${preparseContext.frequency_type || 'N/A'}
 Direction without schedule: ${preparseContext.direction_without_schedule}
+Temporal specificity: ${preparseContext.temporal_specificity}
 Emotional content: ${preparseContext.emotional_content}
 Hypothetical framing: ${preparseContext.hypothetical_framing}
 Self reflection: ${preparseContext.self_reflection}
@@ -4327,7 +4347,7 @@ If no date in input, all date fields are null.
   "bucket": "todo" | "habit" | "log",
   "subtype": "journal" | "idea" | "general" | null,
   "smart_title": "Title From Their Words",
-  "confirmation_message": "Warm message referencing their input",
+  "confirmation_message": "4-8 words max 50 chars",
   "target_date": "YYYY-MM-DD" | null,
   "scheduled_date": "YYYY-MM-DD" | null,
   "date_type_ambiguous": boolean
@@ -4418,8 +4438,10 @@ If no date in input, all date fields are null.
           let confirmationMessage = parsed.confirmation_message || null;
           if (confirmationMessage) {
             confirmationMessage = String(confirmationMessage).trim();
-            if (confirmationMessage.length < 3 || confirmationMessage.length > 100) {
+            if (confirmationMessage.length < 3) {
               confirmationMessage = null;
+            } else if (confirmationMessage.length > 50) {
+              confirmationMessage = confirmationMessage.substring(0, 47) + '...';
             }
           }
 
@@ -5067,7 +5089,7 @@ Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it hap
 
 7. **Title case, 3-7 words**
 
-=== CONFIRMATION MESSAGE (4-10 words) ===
+=== CONFIRMATION MESSAGE (4-8 words, max 50 characters) ===
 
 This is Gremly's voice — a witty, warm friend who actually listened. Not a notification system.
 
@@ -5164,8 +5186,10 @@ Return ONLY valid JSON:
           let confirmationMessage = parsed.confirmation_message || null;
           if (confirmationMessage) {
             confirmationMessage = String(confirmationMessage).trim();
-            if (confirmationMessage.length < 3 || confirmationMessage.length > 100) {
+            if (confirmationMessage.length < 3) {
               confirmationMessage = null;
+            } else if (confirmationMessage.length > 50) {
+              confirmationMessage = confirmationMessage.substring(0, 47) + '...';
             }
           }
 

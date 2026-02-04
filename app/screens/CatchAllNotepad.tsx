@@ -3554,10 +3554,10 @@ const RecentDrops: React.FC<{
               subtype: seg.subtype ?? null,
               habitSubtype: null,
               // Use smart_title from Phase 1 if available, fall back to truncated text
-              preview_title: seg.smartTitle || seg.text.substring(0, 40),
-              // Pass Phase 1 data for entity creation during split
-              smart_title: seg.smartTitle ?? null,
-              confirmation_message: seg.confirmationMessage ?? null,
+              preview_title: seg.smartTitle || seg.smart_title || seg.text.substring(0, 40),
+              // Pass Phase 1 data for entity creation during split (handle both casing conventions)
+              smart_title: seg.smartTitle ?? seg.smart_title ?? null,
+              confirmation_message: seg.confirmationMessage ?? seg.confirmation_message ?? null,
             } satisfies MultiDropItem;
           }),
           multi_summary_title: drop.multiSummary,

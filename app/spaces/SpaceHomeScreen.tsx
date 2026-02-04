@@ -43,6 +43,7 @@ import {
   selectCompletedTodosCountBySpace,
   useSpaceCompletedTodos,
   selectIsHabitDoneToday,
+  useSpacePendingDrops,
 } from '../../lib/store/selectors';
 import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
@@ -477,10 +478,21 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Phase 6: Quick add state
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [showAttachExistingModal, setShowAttachExistingModal] = useState(false);
-  const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
-    id: string;
-    title: string;
-  } | null>(null);
+  // Pending drops from Zustand store (persists until entity is created)
+  const spacePendingDrops = useSpacePendingDrops(spaceId);
+  const [optimisticDots, setOptimisticDots] = useState('');
+
+  // Animated dots for optimistic card
+  useEffect(() => {
+    if (spacePendingDrops.length === 0) {
+      setOptimisticDots('');
+      return;
+    }
+    const interval = setInterval(() => {
+      setOptimisticDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 500);
+    return () => clearInterval(interval);
+  }, [spacePendingDrops.length]);
 
   // Unified compact item list - combines all types, filtered, sorted by most recent
   const MAX_COMPACT_ITEMS = 7;
@@ -526,10 +538,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       filtered = lists;
     }
 
-    // Exclude optimistic items (already shown in optimistic card)
-    if (optimisticQuickAdd) {
-      filtered = filtered.filter((it) => it.id !== optimisticQuickAdd.id);
-    }
+    // Exclude pending items (already shown in optimistic card)
+    const pendingIds = new Set(spacePendingDrops.map((p) => p.localId));
+    filtered = filtered.filter((it) => !pendingIds.has(it.id));
 
     // Sort by most recently interacted (updated_at or created_at)
     filtered.sort((a: any, b: any) => {
@@ -542,7 +553,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       itemsToShow: expanded ? filtered : filtered.slice(0, MAX_COMPACT_ITEMS),
       moreCount: Math.max(0, filtered.length - MAX_COMPACT_ITEMS),
     };
-  }, [storeTodos, storeHabits, storeNotes, filter, optimisticQuickAdd, expanded]);
+  }, [storeTodos, storeHabits, storeNotes, filter, spacePendingDrops, expanded]);
 
   // Phase 4: Section data for new layout with optimistic completion
   const todosForSpace = useMemo(() => {
@@ -794,26 +805,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [store],
   );
 
-  // Phase 6: Space quick add hook
-  const spaceQuickAdd = useSpaceQuickAdd({
-    spaceId,
-    onStart: (draftTitle) => {
-      console.log('[SpaceHome] Quick add started:', draftTitle);
-      setOptimisticQuickAdd({
-        id: `space-optimistic-${Date.now()}`,
-        title: draftTitle,
-      });
-    },
-    onComplete: (result) => {
-      console.log('[SpaceHome] Quick add complete:', result);
-      setOptimisticQuickAdd(null);
-      void reload();
-    },
-    onError: (error) => {
-      console.error('[SpaceHome] Quick add error:', error.message);
-      setOptimisticQuickAdd(null);
-    },
-  });
+  // Phase 6: Space quick add hook - store handles pending drops, no callbacks needed
+  const spaceQuickAdd = useSpaceQuickAdd({ spaceId });
 
   // Phase 6: Handle quick add submission
   const handleQuickAddSubmit = useCallback(
@@ -1579,47 +1572,50 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             }}
             scrollEventThrottle={16}
           >
-            {/* Optimistic quick add card */}
-            {optimisticQuickAdd && (
+            {/* Optimistic quick add cards from pending drops */}
+            {spacePendingDrops.map((drop) => (
               <View
+                key={drop.localId}
                 style={{
                   marginHorizontal: CONTENT_HORIZONTAL_PAD,
                   marginBottom: 12,
-                  backgroundColor: BRAND.colors.sageMist,
-                  borderRadius: BRAND.radius.md,
-                  padding: 14,
+                  backgroundColor: '#FDFCFA',
+                  borderRadius: 8,
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: 'rgba(46,85,64,0.12)',
                   flexDirection: 'row',
                   alignItems: 'center',
+                  justifyContent: 'space-between',
                 }}
               >
-                <ActivityIndicator
-                  size="small"
-                  color={BRAND.colors.mossGreen}
-                  style={{ marginRight: 12 }}
-                />
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, marginRight: 12 }}>
                   <Text
                     style={{
                       fontSize: 14,
                       fontWeight: '500',
                       color: BRAND.colors.charcoalInk,
+                      lineHeight: 18,
                     }}
                     numberOfLines={1}
                   >
-                    {optimisticQuickAdd.title}
+                    {drop.smartTitle ?? drop.text}
                   </Text>
                   <Text
                     style={{
                       fontSize: 12,
-                      color: BRAND.colors.inkSubtle,
+                      color: BRAND.colors.mossGreen,
                       marginTop: 2,
+                      fontStyle: 'italic',
                     }}
                   >
-                    Processing...
+                    Working on it{optimisticDots}
                   </Text>
                 </View>
+                <ActivityIndicator size="small" color={BRAND.colors.mossGreen} />
               </View>
-            )}
+            ))}
 
             {/* Zone A removed - Add to Space moved to persistent bottom bar */}
 

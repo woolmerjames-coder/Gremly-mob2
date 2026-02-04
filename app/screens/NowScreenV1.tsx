@@ -60,6 +60,7 @@ import {
   useHubHabits,
   useWeeklyHabitSummaries,
   useHabitsUpToDateCount,
+  useTodayPendingDrops,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
@@ -600,11 +601,9 @@ export default function NowScreenV1() {
     }
   }, [shouldReopenWeekModal, overlayState.visible]);
 
-  // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
-  const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
-    id: string;
-    title: string;
-  } | null>(null);
+  // Pending drops from store - shows loading cards while pipeline runs
+  // These persist until promotePendingDropToEntity removes them
+  const todayPendingDrops = useTodayPendingDrops();
 
   // Toast for quick add feedback
   const { showToast, Toast: QuickAddToast } = useActionToast();
@@ -692,32 +691,13 @@ export default function NowScreenV1() {
     [updateTodo, todayDayString],
   );
 
-  // Quick add hook - wires to MindDrop pipeline with Today scoping
-  // Uses optimistic flow: onStart for immediate feedback, onComplete for final state
-  const quickAdd = useNowQuickAdd({
-    onStart: (draftTitle) => {
-      console.log('[NowScreenV1] Quick add started:', draftTitle);
-      // Show optimistic 'Processing...' card
-      setOptimisticQuickAdd({
-        id: `now-optimistic-${Date.now()}`,
-        title: draftTitle,
-      });
-    },
-    onComplete: (result) => {
-      console.log('[NowScreenV1] Quick add complete:', result);
-      // Clear optimistic card - store auto-updates, no reload needed
-      setOptimisticQuickAdd(null);
-    },
-    onError: (error) => {
-      console.error('[NowScreenV1] Quick add error:', error.message);
-      // Clear optimistic card - no toast needed, error is logged
-      setOptimisticQuickAdd(null);
-    },
-  });
+  // Quick add hook - no callbacks needed, pending drops come from store
+  const quickAdd = useNowQuickAdd();
 
   // Handle quick add submission - fire-and-forget, modal closes immediately
   const handleQuickAddSubmit = useCallback(
     (text: string) => {
+      console.log('[NowScreenV1] Quick add submitted:', text);
       quickAdd.onQuickAdd(text);
     },
     [quickAdd],
@@ -851,7 +831,7 @@ export default function NowScreenV1() {
           hasAnyTodayWork={hasAnyTodayWork}
           onPressItem={handlePressItem}
           onToggleComplete={handleToggleComplete}
-          optimisticQuickAdd={optimisticQuickAdd}
+          pendingDrops={todayPendingDrops}
           overdueTodos={displayOverdueTodos}
           recentDrops={displayRecentDrops}
           onAddToToday={handleAddToToday}
@@ -1079,23 +1059,17 @@ function OptimisticQuickAddCard({
         },
       ]}
       accessibilityLabel={`Processing ${title}`}
-      accessibilityRole="text"
     >
       <View style={styles.optimisticContent}>
         <View style={styles.optimisticTextContainer}>
           <Text numberOfLines={1} style={styles.optimisticTitle}>
             {title}
           </Text>
-          <Animated.Text
-            style={[styles.optimisticSubtitle, { opacity: textOpacityRef.current }]}
-            accessibilityLabel="Processing"
-          >
-            Processing{dots}
+          <Animated.Text style={[styles.optimisticSubtitle, { opacity: textOpacityRef.current }]}>
+            Working on it{dots}
           </Animated.Text>
         </View>
-        <View style={styles.optimisticLoader}>
-          <ActivityIndicator size="small" color={MOSS_GREEN} />
-        </View>
+        <ActivityIndicator size="small" color="#2E5540" />
       </View>
     </Animated.View>
   );
@@ -1110,7 +1084,7 @@ type TodayFocusListProps = {
   hasAnyTodayWork: boolean;
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
-  optimisticQuickAdd?: { id: string; title: string } | null;
+  pendingDrops?: Array<{ localId: string; text: string; smartTitle?: string; status: string }>;
   overdueTodos: SweepCandidate[];
   recentDrops: SweepCandidate[];
   onAddToToday: (item: SweepCandidate) => void;
@@ -1133,7 +1107,7 @@ function TodayFocusList({
   hasAnyTodayWork,
   onPressItem,
   onToggleComplete,
-  optimisticQuickAdd,
+  pendingDrops = [],
   overdueTodos,
   recentDrops,
   onAddToToday,
@@ -1143,27 +1117,6 @@ function TodayFocusList({
   calendarEvents = [],
   onCalendarHintPress,
 }: TodayFocusListProps) {
-  // Track leaving card for exit animation
-  const [leavingCard, setLeavingCard] = useState<{ id: string; title: string } | null>(null);
-  const prevOptimisticRef = useRef<{ id: string; title: string } | null>(null);
-
-  // Detect when optimistic card is being removed and trigger exit animation
-  useEffect(() => {
-    const prev = prevOptimisticRef.current;
-    const curr = optimisticQuickAdd;
-
-    // If we had a card and now we don't, trigger exit animation
-    if (prev && !curr) {
-      setLeavingCard(prev);
-    }
-
-    prevOptimisticRef.current = curr ?? null;
-  }, [optimisticQuickAdd]);
-
-  const handleExitComplete = useCallback(() => {
-    setLeavingCard(null);
-  }, []);
-
   // Get current time block for highlighting
   const currentTimeBlock = getCurrentTimeBlock();
 
@@ -1258,9 +1211,8 @@ function TodayFocusList({
   };
 
   const hasNoItems =
-    lockedItems.length === 0 && activeItems.length === 0 && !optimisticQuickAdd && !leavingCard;
-  const isAllComplete =
-    progressPercent === 100 && hasAnyTodayWork && !optimisticQuickAdd && !leavingCard;
+    lockedItems.length === 0 && activeItems.length === 0 && pendingDrops.length === 0;
+  const isAllComplete = progressPercent === 100 && hasAnyTodayWork && pendingDrops.length === 0;
 
   const emptyState = getTodayEmptyState();
   const emptyContent = getTodayEmptyStateContent(emptyState);
@@ -1405,24 +1357,15 @@ function TodayFocusList({
         </TimeBlockSection>
       )}
 
-      {/* Optimistic 'Processing...' card appended after active items */}
-      {/* Shows active card while processing, or leaving card during exit animation */}
-      {optimisticQuickAdd && (
+      {/* Pending drops - processing cards from store */}
+      {/* These persist until the entity is created and promoted */}
+      {pendingDrops.map((drop) => (
         <OptimisticQuickAddCard
-          key={optimisticQuickAdd.id}
-          id={optimisticQuickAdd.id}
-          title={optimisticQuickAdd.title}
+          key={drop.localId}
+          id={drop.localId}
+          title={drop.smartTitle || drop.text}
         />
-      )}
-      {!optimisticQuickAdd && leavingCard && (
-        <OptimisticQuickAddCard
-          key={leavingCard.id}
-          id={leavingCard.id}
-          title={leavingCard.title}
-          isLeaving
-          onExitComplete={handleExitComplete}
-        />
-      )}
+      ))}
 
       {/* Rolled over section */}
       {overdueTodos.length > 0 && (
@@ -1582,16 +1525,15 @@ const styles = StyleSheet.create({
     color: '#666666', // inkMuted
     textAlign: 'center',
   },
-  // Optimistic quick-add card styles (processing state)
+  // Optimistic quick-add card - matches Today's Focus row styling
   optimisticCard: {
-    backgroundColor: LINEN_CREAM, // Match page background
+    backgroundColor: '#FDFCFA',
     borderRadius: 8,
-    paddingVertical: 2,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     marginBottom: 6,
-    borderWidth: 1,
-    borderColor: '#E5E2DA',
-    opacity: 0.8, // Slightly reduced opacity for processing state
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(46,85,64,0.12)',
   },
   optimisticContent: {
     flexDirection: 'row',
@@ -1600,7 +1542,7 @@ const styles = StyleSheet.create({
   },
   optimisticTextContainer: {
     flex: 1,
-    justifyContent: 'center',
+    marginRight: 12,
   },
   optimisticTitle: {
     fontSize: 14,
@@ -1610,16 +1552,9 @@ const styles = StyleSheet.create({
   },
   optimisticSubtitle: {
     fontSize: 12,
-    color: '#666',
+    color: '#2E5540',
     marginTop: 2,
     fontStyle: 'italic',
-  },
-  optimisticLoader: {
-    marginLeft: 8,
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   // Spacing for Overdue and Recent Drops sections
   sectionSpacing: {
