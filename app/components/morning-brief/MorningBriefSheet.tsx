@@ -18,6 +18,7 @@ import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlySto
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
 import { useTodayCapacity, useTodayCalendarEvents } from '../../../lib/store/capacitySelectors';
+import { useTodayPendingDrops } from '../../../lib/store/selectors';
 import { getTimeBlockBoundaries } from '../../../lib/capacity';
 import type { TimeBlock, TimeBlockPreferences } from '../../../lib/capacity';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
@@ -195,6 +196,9 @@ export function MorningBriefSheet({
     [],
   );
 
+  // Pending drops from store - shows loading cards while pipeline runs
+  const todayPendingDrops = useTodayPendingDrops();
+
   // Group tasks by time block
   const tasksByBlock = useMemo(() => {
     const morning: TaskItemData[] = [];
@@ -262,7 +266,10 @@ export function MorningBriefSheet({
   const [organizeReasoning, setOrganizeReasoning] = useState<string[] | null>(null);
   const [showReasoningModal, setShowReasoningModal] = useState(false);
   // Animation state for card exit animations
-  const [animatingAssignments, setAnimatingAssignments] = useState<Array<{ taskId: string; block: string }> | null>(null);
+  const [animatingAssignments, setAnimatingAssignments] = useState<Array<{
+    taskId: string;
+    block: string;
+  }> | null>(null);
 
   // Summary fade-in animation
   const summaryOpacity = useRef(new Animated.Value(0)).current;
@@ -279,9 +286,12 @@ export function MorningBriefSheet({
     }
   }, [organizeMessage, summaryOpacity]);
 
-  const handleAnimationStart = useCallback((assignments: Array<{ taskId: string; block: string }>) => {
-    setAnimatingAssignments(assignments);
-  }, []);
+  const handleAnimationStart = useCallback(
+    (assignments: Array<{ taskId: string; block: string }>) => {
+      setAnimatingAssignments(assignments);
+    },
+    [],
+  );
 
   const handleAnimationComplete = useCallback(() => {
     setAnimatingAssignments(null);
@@ -448,6 +458,7 @@ export function MorningBriefSheet({
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
                 onAddPress={handleAddPress}
+                pendingDrops={todayPendingDrops}
               />
 
               {/* Help Me Organize Button */}
@@ -491,15 +502,14 @@ export function MorningBriefSheet({
                 animationType="fade"
                 onRequestClose={() => setShowReasoningModal(false)}
               >
-                <Pressable
-                  style={styles.modalOverlay}
-                  onPress={() => setShowReasoningModal(false)}
-                >
+                <Pressable style={styles.modalOverlay} onPress={() => setShowReasoningModal(false)}>
                   <View style={styles.reasoningModal}>
                     <Text style={styles.reasoningTitle}>Why this plan?</Text>
                     <View style={styles.reasoningList}>
                       {organizeReasoning?.map((reason, index) => (
-                        <Text key={index} style={styles.reasoningItem}>• {reason}</Text>
+                        <Text key={index} style={styles.reasoningItem}>
+                          • {reason}
+                        </Text>
                       ))}
                     </View>
                     <Pressable

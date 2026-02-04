@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
-import { ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react-native';
 import { getDateService } from '../../lib/date';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useNavigation } from '@react-navigation/native';
 
 const COLORS = {
   linenCream: '#F9F6F1',
@@ -27,6 +29,9 @@ export function CalendarMonthPicker({
   onClose,
 }: CalendarMonthPickerProps) {
   const dateService = getDateService();
+  const navigation = useNavigation();
+  const calendarConnections = useGremlyStore((s) => s.calendarConnections);
+  const hasCalendarConnected = calendarConnections.some((c) => c.isConnected);
 
   // Track which month we're viewing (may differ from selected date)
   const [viewingDate, setViewingDate] = useState(selectedDate);
@@ -160,6 +165,24 @@ export function CalendarMonthPicker({
           <Pressable style={styles.todayButton} onPress={() => handleSelectDate(today)}>
             <Text style={styles.todayButtonText}>Today</Text>
           </Pressable>
+
+          {/* Connect calendar CTA - only shown when no calendar connected */}
+          {!hasCalendarConnected && (
+            <Pressable
+              style={styles.connectCalendarCta}
+              onPress={() => {
+                onClose();
+                navigation.navigate('Settings' as never);
+              }}
+            >
+              <Calendar size={16} color={COLORS.mossGreen} />
+              <View style={styles.connectCalendarTextContainer}>
+                <Text style={styles.connectCalendarTitle}>Connect your calendar</Text>
+                <Text style={styles.connectCalendarSubtitle}>See events in your daily view</Text>
+              </View>
+              <ChevronRight size={16} color={COLORS.inkMuted} />
+            </Pressable>
+          )}
         </Pressable>
       </Pressable>
     </Modal>
@@ -250,5 +273,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: COLORS.mossGreen,
+  },
+  connectCalendarCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.divider,
+    marginTop: 4,
+  },
+  connectCalendarTextContainer: {
+    flex: 1,
+  },
+  connectCalendarTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.charcoalInk,
+  },
+  connectCalendarSubtitle: {
+    fontSize: 12,
+    color: COLORS.inkMuted,
+    marginTop: 2,
   },
 });
