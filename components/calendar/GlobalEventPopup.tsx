@@ -35,8 +35,16 @@ export function GlobalEventPopup() {
   const { isOpen, event } = useGremlyStore((s) => s.eventPopup);
   const closeEventPopup = useGremlyStore((s) => s.closeEventPopup);
   const hideEventFromPopup = useGremlyStore((s) => s.hideEventFromPopup);
+  const openEventTimePicker = useGremlyStore((s) => s.openEventTimePicker);
+
+  console.log('[GlobalEventPopup] render:', { isOpen, hasEvent: !!event });
 
   if (!event) return null;
+
+  const handleEditTime = () => {
+    openEventTimePicker(event);
+    closeEventPopup();
+  };
 
   const formatTime = (d: Date) =>
     d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -92,7 +100,7 @@ export function GlobalEventPopup() {
 
           {/* Actions */}
           <View style={styles.actions}>
-            <Pressable style={styles.actionButton} onPress={closeEventPopup}>
+            <Pressable style={styles.actionButton} onPress={handleEditTime}>
               <Clock size={16} color={COLORS.mossGreen} />
               <Text style={styles.actionButtonText}>Edit time</Text>
             </Pressable>

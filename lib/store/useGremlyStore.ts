@@ -742,6 +742,14 @@ interface GremlyState {
   closeEventPopup: () => void;
   hideEventFromPopup: () => void;
 
+  // Event Time Picker State & Actions
+  eventTimePicker: {
+    isOpen: boolean;
+    event: CalendarEvent | null;
+  };
+  openEventTimePicker: (event: CalendarEvent) => void;
+  closeEventTimePicker: () => void;
+
   // User Calendar Events (quick-add entries)
   setUserCalendarEvents: (events: UserCalendarEvent[]) => void;
   createUserCalendarEvent: (
@@ -816,6 +824,11 @@ const initialState = {
     isOpen: false,
     event: null as CalendarEvent | null,
     dateContext: null as string | null,
+  },
+  // Event time picker state (global time editor for calendar events)
+  eventTimePicker: {
+    isOpen: false,
+    event: null as CalendarEvent | null,
   },
   hiddenTodayIds: [] as string[],
   hiddenTodayDate: null as string | null,
@@ -3595,6 +3608,19 @@ export const useGremlyStore = create<GremlyState>()(
       }
       set({
         eventPopup: { isOpen: false, event: null, dateContext: null },
+      });
+    },
+
+    // Event Time Picker Actions (global time editor for calendar events)
+    openEventTimePicker: (event) => {
+      set({
+        eventTimePicker: { isOpen: true, event },
+      });
+    },
+
+    closeEventTimePicker: () => {
+      set({
+        eventTimePicker: { isOpen: false, event: null },
       });
     },
 

@@ -24,6 +24,8 @@ import type { TimeBlock, TimeBlockPreferences } from '../../../lib/capacity';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 import { MiniSweepGate } from './MiniSweepGate';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
+import { GlobalEventPopup } from '../../../components/calendar/GlobalEventPopup';
+import { GlobalEventTimePicker } from '../../../components/calendar/GlobalEventTimePicker';
 import {
   MorningBriefHeader,
   MorningBriefFooter,
@@ -582,6 +584,12 @@ export function MorningBriefSheet({
               onSubmit={handleQuickAddSubmit}
               onPressManualAdd={handleQuickAddManual}
             />
+
+            {/* Global Event Popup - must be inside MorningBriefSheet Modal to appear on top */}
+            <GlobalEventPopup />
+
+            {/* Global Event Time Picker - must be inside MorningBriefSheet Modal to appear on top */}
+            <GlobalEventTimePicker />
           </>
         )}
       </View>

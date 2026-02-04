@@ -188,6 +188,7 @@ export function TimeBlockSection({
   const isEmpty = visibleEvents.length === 0 && tasks.length === 0;
 
   const handleEventPress = (event: CalendarEvent) => {
+    console.log('[TimeBlockSection] handleEventPress called:', event.title);
     openEventPopup(event, dateContext);
   };
 
