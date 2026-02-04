@@ -732,6 +732,16 @@ interface GremlyState {
   unhideCalendarEvent: (date: string, eventId: string) => void;
   unhideAllCalendarEventsForDate: (date: string) => void;
 
+  // Event Popup State & Actions
+  eventPopup: {
+    isOpen: boolean;
+    event: CalendarEvent | null;
+    dateContext: string | null;
+  };
+  openEventPopup: (event: CalendarEvent, dateContext: string) => void;
+  closeEventPopup: () => void;
+  hideEventFromPopup: () => void;
+
   // User Calendar Events (quick-add entries)
   setUserCalendarEvents: (events: UserCalendarEvent[]) => void;
   createUserCalendarEvent: (
@@ -801,6 +811,12 @@ const initialState = {
   hiddenCalendarEventsByDate: {} as Record<string, string[]>,
   eventTimeOverrides: {} as Record<string, { startAt: string; endAt: string }>,
   timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES,
+  // Event popup state (global popup for calendar events)
+  eventPopup: {
+    isOpen: false,
+    event: null as CalendarEvent | null,
+    dateContext: null as string | null,
+  },
   hiddenTodayIds: [] as string[],
   hiddenTodayDate: null as string | null,
 };
@@ -3555,6 +3571,30 @@ export const useGremlyStore = create<GremlyState>()(
         // Persist to AsyncStorage (fire and forget)
         saveHiddenEventsToStorage(rest);
         return { hiddenCalendarEventsByDate: rest };
+      });
+    },
+
+    // Event Popup Actions (global popup for calendar events)
+    openEventPopup: (event, dateContext) => {
+      set({
+        eventPopup: { isOpen: true, event, dateContext },
+      });
+    },
+
+    closeEventPopup: () => {
+      set({
+        eventPopup: { isOpen: false, event: null, dateContext: null },
+      });
+    },
+
+    hideEventFromPopup: () => {
+      const { eventPopup, hideCalendarEvent } = get();
+      if (eventPopup.event && eventPopup.dateContext) {
+        const eventId = `${eventPopup.event.provider}-${eventPopup.event.providerEventId}`;
+        hideCalendarEvent(eventPopup.dateContext, eventId);
+      }
+      set({
+        eventPopup: { isOpen: false, event: null, dateContext: null },
       });
     },
 

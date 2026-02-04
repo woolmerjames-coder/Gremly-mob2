@@ -61,10 +61,11 @@ const SECTION_CONFIG: Record<TimeBlock, { label: string; color: string; Icon: Lu
 
 interface CalendarEventRowProps {
   event: CalendarEvent;
+  onPress?: () => void;
   isLast?: boolean;
 }
 
-function CalendarEventRow({ event, isLast }: CalendarEventRowProps) {
+function CalendarEventRow({ event, onPress, isLast }: CalendarEventRowProps) {
   // Format time range
   const timeDisplay = useMemo(() => {
     if (event.isAllDay) return 'All day';
@@ -96,7 +97,10 @@ function CalendarEventRow({ event, isLast }: CalendarEventRowProps) {
   }, [event.isAllDay, event.startAt, event.endAt]);
 
   return (
-    <View style={[sectionStyles.eventRow, !isLast && sectionStyles.rowBorder]}>
+    <Pressable
+      style={[sectionStyles.eventRow, !isLast && sectionStyles.rowBorder]}
+      onPress={onPress}
+    >
       <Calendar size={16} color={COLORS.inkMuted} style={sectionStyles.eventIcon} />
       <View style={sectionStyles.eventContent}>
         <View style={sectionStyles.eventHeader}>
@@ -112,7 +116,7 @@ function CalendarEventRow({ event, isLast }: CalendarEventRowProps) {
           </Text>
         )}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -168,6 +172,7 @@ interface CalendarScreenSectionProps {
   habits: Habit[];
   onPressTodo: (todo: Todo) => void;
   onPressHabit: (habit: Habit) => void;
+  onPressEvent: (event: CalendarEvent) => void;
 }
 
 function CalendarScreenSection({
@@ -178,6 +183,7 @@ function CalendarScreenSection({
   habits,
   onPressTodo,
   onPressHabit,
+  onPressEvent,
 }: CalendarScreenSectionProps) {
   const isEmpty = events.length === 0 && todos.length === 0 && habits.length === 0;
   if (isEmpty) return null;
@@ -197,6 +203,7 @@ function CalendarScreenSection({
         <CalendarEventRow
           key={event.id}
           event={event}
+          onPress={() => onPressEvent(event)}
           isLast={idx === events.length - 1 && todos.length === 0 && habits.length === 0}
         />
       ))}
@@ -400,6 +407,7 @@ export default function CalendarScreen() {
   const calendarEventsMap = useGremlyStore((s) => s.calendarEvents);
   const calendarConnections = useGremlyStore((s) => s.calendarConnections);
   const hasCalendarConnected = calendarConnections.some((c) => c.isConnected);
+  const openEventPopup = useGremlyStore((s) => s.openEventPopup);
   const calendarEvents = useMemo(
     () => calendarEventsMap[selectedDate] ?? [],
     [calendarEventsMap, selectedDate],
@@ -696,6 +704,7 @@ export default function CalendarScreen() {
             habits={groupedData.morning.habits}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
+            onPressEvent={(event) => openEventPopup(event, selectedDate)}
           />
         )}
 
@@ -709,6 +718,7 @@ export default function CalendarScreen() {
             habits={groupedData.afternoon.habits}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
+            onPressEvent={(event) => openEventPopup(event, selectedDate)}
           />
         )}
 
@@ -722,6 +732,7 @@ export default function CalendarScreen() {
             habits={groupedData.evening.habits}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
+            onPressEvent={(event) => openEventPopup(event, selectedDate)}
           />
         )}
 
@@ -735,6 +746,7 @@ export default function CalendarScreen() {
             habits={groupedData.anytime.habits}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
+            onPressEvent={(event) => openEventPopup(event, selectedDate)}
           />
         )}
 

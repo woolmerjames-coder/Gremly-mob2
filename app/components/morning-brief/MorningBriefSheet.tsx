@@ -133,19 +133,11 @@ export function MorningBriefSheet({
     () => hiddenCalendarEventsByDate[today] ?? [],
     [hiddenCalendarEventsByDate, today],
   );
-  const hideCalendarEvent = useGremlyStore((s) => s.hideCalendarEvent);
 
   // ─────────────────────────────────────────────────────────────────
   // HIDDEN TODAY (Not Today - todos/habits hidden for the day)
   // ─────────────────────────────────────────────────────────────────
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
-
-  const handleHideEvent = useCallback(
-    (eventId: string) => {
-      hideCalendarEvent(today, eventId);
-    },
-    [hideCalendarEvent, today],
-  );
 
   // ─────────────────────────────────────────────────────────────────
   // TASK DATA TRANSFORMATION
@@ -532,8 +524,8 @@ export function MorningBriefSheet({
                 tasks={tasksByBlock.morning}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
-                onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
+                dateContext={today}
               />
 
               <View style={styles.blockDivider} />
@@ -544,8 +536,8 @@ export function MorningBriefSheet({
                 tasks={tasksByBlock.afternoon}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
-                onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
+                dateContext={today}
               />
 
               <View style={styles.blockDivider} />
@@ -556,8 +548,8 @@ export function MorningBriefSheet({
                 tasks={tasksByBlock.evening}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
-                onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
+                dateContext={today}
               />
             </ScrollView>
 

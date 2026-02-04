@@ -29,6 +29,7 @@ import {
 import { eventBus } from './lib/events';
 import celebrationController from './app/features/celebration/CelebrationController';
 import AgeUpCelebrationModal from './components/ritual/AgeUpCelebrationModal';
+import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
 
 // Prevent the splash screen from auto-hiding before app is ready
 SplashScreen.preventAutoHideAsync();
@@ -182,6 +183,7 @@ export default function App() {
                             <RootNavigator />
                             <OverlayHost />
                           </NavigationContainer>
+                          <GlobalEventPopup />
                         </OverlayProvider>
                       </CelebrationProvider>
                     </CortexProvider>
