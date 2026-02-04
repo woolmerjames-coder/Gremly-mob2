@@ -26,6 +26,7 @@ import {
   TouchableOpacity,
   Image,
   Modal,
+  Vibration,
 } from 'react-native';
 import Reanimated, {
   FadeIn,
@@ -33,6 +34,13 @@ import Reanimated, {
   FadeOutDown,
   Layout,
   Easing as ReanimatedEasing,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+  interpolate,
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -2630,6 +2638,22 @@ function SweepSummaryStep({
 
   const hasTomorrow = tomorrowTodos.length > 0 || tomorrowHabits.length > 0;
 
+  // Mascot hover animation - gentle continuous bobbing
+  const hoverY = useSharedValue(0);
+
+  const mascotAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: hoverY.value }],
+  }));
+
+  // Title glow animation
+  const glowOpacity = useSharedValue(0);
+
+  const titleAnimatedStyle = useAnimatedStyle(() => ({
+    textShadowColor: `rgba(46, 85, 64, ${glowOpacity.value})`,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: interpolate(glowOpacity.value, [0, 0.8], [0, 20]),
+  }));
+
   const tomorrowSubtitle = useMemo(
     () =>
       [
@@ -2645,9 +2669,31 @@ function SweepSummaryStep({
     [tomorrowTodos, tomorrowHabits],
   );
 
-  // Trigger haptic on mount
+  // Trigger celebration on mount
   useEffect(() => {
-    triggerLight();
+    // Intense celebration vibration (long pattern)
+    Vibration.vibrate([0, 100, 50, 100, 50, 200], false);
+
+    // Start mascot hover animation - smooth continuous bobbing
+    hoverY.value = withRepeat(
+      withSequence(
+        withTiming(-8, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+        withTiming(0, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+      ),
+      -1, // Infinite repeat
+      true, // Reverse
+    );
+
+    // Title glow animation - fade in, hold, fade out
+    glowOpacity.value = withDelay(
+      300, // Wait for slide-in to start
+      withSequence(
+        withTiming(0.8, { duration: 600 }),
+        withTiming(0.8, { duration: 1500 }), // Hold glow
+        withTiming(0, { duration: 800 }),
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/immutability
   }, []);
 
   const showBadges = lockInTotal > 0 || habitsCheckedCount > 0 || journalWritten;
@@ -2661,19 +2707,22 @@ function SweepSummaryStep({
       >
         {/* Gremly mascot - broom-riding */}
         <View style={styles.summaryMascotContainer}>
-          <Image
+          <Reanimated.Image
             source={GREMLY_MASCOT_CELEBRATE}
-            style={styles.summaryMascotImage}
+            style={[styles.summaryMascotImage, mascotAnimatedStyle]}
             resizeMode="contain"
             testID="sweep-summary-mascot"
             accessibilityLabel="Gremly mascot riding a broom"
           />
         </View>
 
-        {/* Title */}
-        <Text variant="title" style={styles.summaryTitle}>
+        {/* Title - slides in from below with glow */}
+        <Reanimated.Text
+          entering={FadeInUp.duration(400).delay(100).springify().damping(12)}
+          style={[styles.summaryTitle, styles.summaryTitleText, titleAnimatedStyle]}
+        >
           Nice sweep!
-        </Text>
+        </Reanimated.Text>
 
         {/* Subtext */}
         {totalProcessed > 0 && (
@@ -4601,6 +4650,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     marginBottom: 4,
+  },
+  summaryTitleText: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
   },
   summarySubtext: {
     fontSize: 16,
