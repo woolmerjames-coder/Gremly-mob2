@@ -44,6 +44,7 @@ import {
   useSpaceCompletedTodos,
   selectIsHabitDoneToday,
   useSpacePendingDrops,
+  useGoalForSpace,
 } from '../../lib/store/selectors';
 import type { Space, SpaceChat, AppRecord, RecordType, Note } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
@@ -98,6 +99,7 @@ import { getRelativeTime } from '../../lib/utils/getRelativeTime';
 import { SpaceQuickAddModal } from '../../components/spaces/SpaceQuickAddModal';
 import { AttachExistingModal } from '../../components/spaces/AttachExistingModal';
 import { useSpaceQuickAdd } from '../../lib/spaces/useSpaceQuickAdd';
+import { useEventQuickAdd } from '../../lib/spaces/useEventQuickAdd';
 // Shared components for unified styling
 import {
   SegmentedPills,
@@ -431,8 +433,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   const notesCount = useSpaceNotesCount(spaceId);
   // Phase 12: Milestone and pinned - now from Zustand store
+  // Note: milestone/countdown kept for backwards compatibility but not used in header anymore
   const milestone = useSpaceMilestoneFromStore(spaceId);
   const countdown = useMilestoneCountdown(spaceId);
+  // Goal event from event notes (new system)
+  const goalEvent = useGoalForSpace(spaceId);
   const { count: pinnedCount } = useSpacePinnedItems(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   // Phase 5: Removed searchVisible, searchQuery, searchActiveV33 state (search via filter bar now)
@@ -478,6 +483,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Phase 6: Quick add state
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [quickAddMode, setQuickAddMode] = useState<'default' | 'keyDate'>('default');
   const [showAttachExistingModal, setShowAttachExistingModal] = useState(false);
   // Pending drops from Zustand store (persists until entity is created)
   const spacePendingDrops = useSpacePendingDrops(spaceId);
@@ -812,12 +818,27 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Phase 6: Space quick add hook - store handles pending drops, no callbacks needed
   const spaceQuickAdd = useSpaceQuickAdd({ spaceId });
 
-  // Phase 6: Handle quick add submission
+  // Event quick add hook for Key Dates
+  const eventQuickAdd = useEventQuickAdd({
+    spaceId,
+    onComplete: () => {
+      console.log('[SpaceHome] Key Date event created');
+    },
+    onError: (error) => {
+      console.error('[SpaceHome] Key Date creation failed:', error);
+    },
+  });
+
+  // Phase 6: Handle quick add submission (routes based on mode)
   const handleQuickAddSubmit = useCallback(
     (text: string) => {
-      spaceQuickAdd.onQuickAdd(text);
+      if (quickAddMode === 'keyDate') {
+        eventQuickAdd.onQuickAdd(text);
+      } else {
+        spaceQuickAdd.onQuickAdd(text);
+      }
     },
-    [spaceQuickAdd],
+    [spaceQuickAdd, eventQuickAdd, quickAddMode],
   );
 
   // Phase 6: Handle "Manual add" from quick add modal
@@ -836,10 +857,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [overlay, spaceId],
   );
 
-  // Key Dates: Handle add event (opens create mode with event subtype)
+  // Key Dates: Handle add event (opens quick add modal in key date mode)
   const handleAddKeyDate = useCallback(() => {
-    overlay.openCreate({ spaceId, type: 'log', logSubtype: 'event' });
-  }, [overlay, spaceId]);
+    setQuickAddMode('keyDate');
+    setShowQuickAddModal(true);
+  }, []);
+
+  // Open quick add modal in default mode
+  const handleOpenQuickAdd = useCallback(() => {
+    setQuickAddMode('default');
+    setShowQuickAddModal(true);
+  }, []);
 
   // Phase 6: Handle attach existing completion
   const handleAttachExistingComplete = useCallback(() => {
@@ -1233,44 +1261,47 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       // Haptic feedback on save
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      console.log('[SpaceHome] Saving milestone:', name, targetDate);
+      console.log('[SpaceHome] Saving goal event:', name, targetDate);
 
       try {
-        if (milestone) {
-          // Update existing
-          await store.updateMilestone(milestone.id, {
-            name,
-            date: dateService.toLocalDate(targetDate),
+        if (goalEvent) {
+          // Update existing goal event note
+          await store.updateNote(goalEvent.id, {
+            title: name,
+            target_date: dateService.toLocalDate(targetDate),
           });
         } else {
-          // Create new
-          await store.createMilestone(spaceId, {
-            name,
-            date: dateService.toLocalDate(targetDate),
+          // Create new goal event note
+          await store.createNote({
+            title: name,
+            subtype: 'event',
+            is_goal: true,
+            space_id: spaceId,
+            target_date: dateService.toLocalDate(targetDate),
           });
         }
         // Store update triggers automatic UI refresh via subscription
       } catch (error) {
-        console.error('[SpaceHome] Milestone save error:', error);
+        console.error('[SpaceHome] Goal event save error:', error);
         throw error;
       }
     },
-    [spaceId, milestone, store],
+    [spaceId, goalEvent, store],
   );
 
   const handleMilestoneRemove = useCallback(async () => {
-    if (!milestone) return;
+    if (!goalEvent) return;
 
-    console.log('[SpaceHome] Removing milestone:', milestone.id);
+    console.log('[SpaceHome] Removing goal event:', goalEvent.id);
 
     try {
-      await store.deleteMilestone(milestone.id);
+      await store.deleteNote(goalEvent.id);
       // Store update triggers automatic UI refresh via subscription
     } catch (error) {
-      console.error('[SpaceHome] Milestone remove error:', error);
+      console.error('[SpaceHome] Goal event remove error:', error);
       throw error;
     }
-  }, [milestone, store]);
+  }, [goalEvent, store]);
 
   const handlePinnedItemPress = useCallback(
     (item: any, type: 'todo' | 'habit' | 'note') => {
@@ -1562,8 +1593,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           <View style={[styles.fixedHeader, isScrolled && styles.fixedHeaderShadow]}>
             <MilestoneHeader
               spaceName={space?.name ?? 'Space'}
-              milestone={milestone}
-              countdown={countdown}
+              milestone={null} // Milestone display removed - using goal events now
+              countdown={{ days: null, dateFormatted: null, isPast: false }}
               pinnedCount={pinnedCount}
               completedCount={reactiveCompletedCount}
               mascotSource={getMascotSource(space?.mascot_id || 'astro')}
@@ -1574,7 +1605,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onMilestonePress={handleMilestonePress}
               onSettingsPress={handleSettingsPress}
               onBackPress={() => navigation.goBack()}
-            />
+              hasGoalEvent={!!goalEvent}
+            >
+              {/* Key Dates Section - inside header with cream background */}
+              <View style={{ marginTop: 4 }}>
+                <KeyDatesSection
+                  spaceId={spaceId}
+                  onEventPress={handleKeyDatePress}
+                  onAddPress={handleAddKeyDate}
+                />
+              </View>
+            </MilestoneHeader>
           </View>
 
           {/* Scrollable content */}
@@ -1636,19 +1677,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
             {/* Zone A removed - Add to Space moved to persistent bottom bar */}
 
-            {/* Key Dates Section */}
-            <KeyDatesSection
-              spaceId={spaceId}
-              onEventPress={handleKeyDatePress}
-              onAddPress={handleAddKeyDate}
-            />
-
             {/* ═══════════════════════════════════════════════════════════════════
                 ZONE B — Phase 12 Content Sections
                 ═══════════════════════════════════════════════════════════════════ */}
             <View
               testID="space-zone-b"
-              style={{ paddingHorizontal: CONTENT_HORIZONTAL_PAD, marginTop: 20 }}
+              style={{ paddingHorizontal: CONTENT_HORIZONTAL_PAD, marginTop: 12 }}
             >
               {/* Show sections if any content exists */}
               {todosForSpace.length > 0 || habitsForSpace.length > 0 || notesForSpace.length > 0 ? (
@@ -1720,7 +1754,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           testID="space-bottom-action-bar"
         >
           <Pressable
-            onPress={() => setShowQuickAddModal(true)}
+            onPress={handleOpenQuickAdd}
             style={({ pressed }) => ({
               flex: 1,
               height: 48,
@@ -1781,7 +1815,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onClose={() => setShowQuickAddModal(false)}
           onSubmit={handleQuickAddSubmit}
           onPressManualAdd={handleQuickAddManual}
-          onPressAttachExisting={() => setShowAttachExistingModal(true)}
+          onPressAttachExisting={
+            quickAddMode === 'default' ? () => setShowAttachExistingModal(true) : undefined
+          }
+          mode={quickAddMode}
         />
 
         {/* Phase 6: Attach Existing Modal */}
@@ -1807,10 +1844,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           visible={showMilestoneModal}
           onClose={handleMilestoneModalClose}
           onSave={handleMilestoneSave}
-          onRemove={milestone ? handleMilestoneRemove : undefined}
-          initialName={milestone?.name}
-          initialDate={milestone?.date ? new Date(milestone.date) : undefined}
-          isEditing={!!milestone}
+          onRemove={goalEvent ? handleMilestoneRemove : undefined}
+          initialName={goalEvent?.title ?? undefined}
+          initialDate={goalEvent?.target_date ? new Date(goalEvent.target_date) : undefined}
+          isEditing={!!goalEvent}
         />
 
         {/* Space Settings Modal */}
@@ -1818,7 +1855,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           visible={showSettingsModal}
           onClose={handleSettingsClose}
           space={space}
-          hasMilestone={!!milestone}
+          hasMilestone={!!goalEvent}
           onEditMilestone={handleEditMilestoneFromSettings}
           onSaveSpaceName={handleSaveSpaceName}
           onDeleteSpace={handleDeleteSpace}
@@ -2122,7 +2159,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           testID="space-bottom-action-bar"
         >
           <Pressable
-            onPress={() => setShowQuickAddModal(true)}
+            onPress={handleOpenQuickAdd}
             style={({ pressed }) => ({
               flex: 1,
               height: 48,
@@ -2532,7 +2569,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         testID="space-bottom-action-bar"
       >
         <Pressable
-          onPress={() => setShowQuickAddModal(true)}
+          onPress={handleOpenQuickAdd}
           style={({ pressed }) => ({
             flex: 1,
             height: 48,

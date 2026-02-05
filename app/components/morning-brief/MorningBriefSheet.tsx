@@ -18,8 +18,10 @@ import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlySto
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
 import { useTodayCapacity, useTodayCalendarEvents } from '../../../lib/store/capacitySelectors';
-import { useTodayPendingDrops } from '../../../lib/store/selectors';
+import { useTodayPendingDrops, useEventsForDate } from '../../../lib/store/selectors';
 import { getTimeBlockBoundaries } from '../../../lib/capacity';
+import { getTimeBlockForHour } from '../../../lib/now/timeBlockHelpers';
+import type { Note } from '../../../lib/types';
 import type { TimeBlock, TimeBlockPreferences } from '../../../lib/capacity';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 import { MiniSweepGate } from './MiniSweepGate';
@@ -32,6 +34,7 @@ import {
   TimeBlockSection,
   TimeBlockPicker,
   OnYourPlateSection,
+  TodaysKeyDatesSection,
   TimeEstimatePicker,
   OrganizeButton,
   type TaskItemData,
@@ -45,6 +48,8 @@ interface MorningBriefSheetProps {
   onQuickAddSubmit?: (text: string) => void;
   /** Handler for 'Prefer to add manually' */
   onQuickAddManual?: () => void;
+  /** Handler for when a Key Date event is pressed */
+  onKeyDatePress?: (event: Note) => void;
 }
 
 /**
@@ -52,6 +57,49 @@ interface MorningBriefSheetProps {
  */
 function getTodayDateString(): string {
   return getDateService().getCurrentDate();
+}
+
+/**
+ * Group key date events by time block based on event_time
+ * Events without event_time go to 'flexible' (On Your Plate section)
+ */
+type KeyDateTimeBlock = 'morning' | 'day' | 'evening' | 'flexible';
+
+function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<KeyDateTimeBlock, Note[]> {
+  const grouped: Record<KeyDateTimeBlock, Note[]> = {
+    morning: [],
+    day: [],
+    evening: [],
+    flexible: [],
+  };
+
+  for (const event of keyDates) {
+    if (event.event_time) {
+      // Parse HH:mm time string to get hour
+      const [hourStr] = event.event_time.split(':');
+      const hour = parseInt(hourStr, 10);
+      if (!isNaN(hour)) {
+        const block = getTimeBlockForHour(hour);
+        // Map 'afternoon' -> 'day' and 'anytime' -> 'flexible'
+        if (block === 'afternoon') {
+          grouped.day.push(event);
+        } else if (block === 'morning') {
+          grouped.morning.push(event);
+        } else if (block === 'evening') {
+          grouped.evening.push(event);
+        } else {
+          grouped.flexible.push(event);
+        }
+      } else {
+        grouped.flexible.push(event);
+      }
+    } else {
+      // No event_time - goes to flexible (On Your Plate)
+      grouped.flexible.push(event);
+    }
+  }
+
+  return grouped;
 }
 
 /**
@@ -84,6 +132,7 @@ export function MorningBriefSheet({
   onComplete,
   onQuickAddSubmit,
   onQuickAddManual,
+  onKeyDatePress,
 }: MorningBriefSheetProps) {
   const insets = useSafeAreaInsets();
   const today = getTodayDateString();
@@ -105,6 +154,27 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
   const capacity = useTodayCapacity();
   const calendarEvents = useTodayCalendarEvents();
+
+  // ─────────────────────────────────────────────────────────────────
+  // KEY DATE EVENTS (from Notes with subtype='event')
+  // ─────────────────────────────────────────────────────────────────
+  const todayKeyDates = useEventsForDate(today);
+  const spaces = useGremlyStore((s) => s.spaces);
+
+  // Group key dates by time block
+  const keyDatesByBlock = useMemo(() => {
+    return groupKeyDatesByTimeBlock(todayKeyDates);
+  }, [todayKeyDates]);
+
+  // Helper to get space name for a key date event
+  const getSpaceName = useCallback(
+    (spaceId: string | null | undefined): string | undefined => {
+      if (!spaceId) return undefined;
+      const space = spaces.find((s) => s.id === spaceId);
+      return space?.name;
+    },
+    [spaces],
+  );
 
   // ─────────────────────────────────────────────────────────────────
   // MINI SWEEP GATE
@@ -445,6 +515,13 @@ export function MorningBriefSheet({
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
             >
+              {/* Today's Key Dates - informational anchors for the day */}
+              <TodaysKeyDatesSection
+                keyDates={keyDatesByBlock.flexible}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
+              />
+
               {/* On Your Plate - Flexible/Unassigned Tasks */}
               <OnYourPlateSection
                 tasks={tasksByBlock.flexible}
@@ -523,6 +600,9 @@ export function MorningBriefSheet({
               <TimeBlockSection
                 capacity={capacity.blocks.morning}
                 events={getEventsForBlock(calendarEvents, 'morning', today, timeBlockPreferences)}
+                keyDateEvents={keyDatesByBlock.morning}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
                 tasks={tasksByBlock.morning}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
@@ -535,6 +615,9 @@ export function MorningBriefSheet({
               <TimeBlockSection
                 capacity={capacity.blocks.day}
                 events={getEventsForBlock(calendarEvents, 'day', today, timeBlockPreferences)}
+                keyDateEvents={keyDatesByBlock.day}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
                 tasks={tasksByBlock.afternoon}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
@@ -547,6 +630,9 @@ export function MorningBriefSheet({
               <TimeBlockSection
                 capacity={capacity.blocks.evening}
                 events={getEventsForBlock(calendarEvents, 'evening', today, timeBlockPreferences)}
+                keyDateEvents={keyDatesByBlock.evening}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
                 tasks={tasksByBlock.evening}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}

@@ -360,6 +360,9 @@ export interface Note {
   /** Specific time for events (e.g., "2pm" -> "14:00") */
   event_time?: string | null; // HH:mm format
 
+  /** Whether this event note is a Space goal */
+  is_goal?: boolean;
+
   /** When to surface a reminder about this note */
   reminder_date?: string | null; // YYYY-MM-DD
 

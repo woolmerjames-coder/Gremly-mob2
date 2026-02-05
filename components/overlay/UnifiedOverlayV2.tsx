@@ -61,7 +61,15 @@ import { renderFormattedContent } from '../../lib/markdown/renderFormattedConten
 import { stripMarkdown } from '../../lib/markdown/stripMarkdown';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
-import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
+import {
+  format,
+  parseISO,
+  addDays,
+  setHours,
+  setMinutes,
+  isSameDay,
+  differenceInDays,
+} from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { getDateService, getTodayDayString } from '../../lib/date';
@@ -5019,6 +5027,290 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       ? format(parseISO(entityCreatedAt), 'MMM d, yyyy')
       : null;
 
+    // Check if body has real content (not just duplicating the title)
+    const bodyHasContent =
+      entityBody && entityBody.trim() && entityBody.trim() !== entityTitle.trim();
+
+    // Format event date for display
+    const formatEventDate = () => {
+      if (!state.log.target_date) return null;
+
+      const targetDate = parseISO(state.log.target_date);
+      const endDate = state.log.end_date ? parseISO(state.log.end_date) : null;
+      const eventTime = state.log.event_time;
+      const today = new Date();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // Check if dates are same day
+      const isToday = isSameDay(targetDate, today);
+      const isTomorrow = isSameDay(targetDate, tomorrow);
+
+      // Calculate days from now
+      const daysFromNow = differenceInDays(targetDate, today);
+
+      // Format the date part
+      let dateStr: string;
+      if (isToday) {
+        dateStr = 'Today';
+      } else if (isTomorrow) {
+        dateStr = 'Tomorrow';
+      } else if (daysFromNow > 0 && daysFromNow <= 7) {
+        dateStr = format(targetDate, 'EEEE'); // Day name like "Friday"
+      } else if (daysFromNow > 7 && daysFromNow <= 14) {
+        dateStr = `In ${daysFromNow} days`;
+      } else {
+        dateStr = format(targetDate, 'MMM d, yyyy');
+      }
+
+      // Handle multi-day events
+      if (endDate && !isSameDay(targetDate, endDate)) {
+        const startStr = format(targetDate, 'MMM d');
+        const endStr = format(
+          endDate,
+          targetDate.getFullYear() === endDate.getFullYear() ? 'd, yyyy' : 'MMM d, yyyy',
+        );
+        dateStr = `${startStr}–${endStr}`;
+      }
+
+      // Format time part
+      let timeStr = 'All day';
+      if (eventTime) {
+        const [hours, minutes] = eventTime.split(':').map(Number);
+        const timeDate = new Date();
+        timeDate.setHours(hours, minutes, 0, 0);
+        timeStr = format(timeDate, 'h:mm a');
+      }
+
+      return { dateStr, timeStr };
+    };
+
+    const eventDateInfo = effectiveLogSubtype === 'event' ? formatEventDate() : null;
+
+    // Special rendering for event notes
+    if (effectiveLogSubtype === 'event') {
+      return (
+        <ScrollView
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled={true}
+          scrollEnabled={true}
+          bounces={true}
+          showsVerticalScrollIndicator={true}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingBottom: 24,
+            paddingTop: 16,
+          }}
+        >
+          {/* Title - Large, prominent display */}
+          <Text
+            style={{
+              fontSize: 24,
+              fontWeight: '600',
+              color: colorMode === 'dark' ? '#FFFFFF' : '#1a1a1a',
+              fontFamily: Platform.OS === 'ios' ? 'Plus Jakarta Sans' : undefined,
+              marginBottom: 12,
+              lineHeight: 32,
+            }}
+          >
+            {entityTitle}
+          </Text>
+
+          {/* Event Date Row: Calendar icon + Date + Time ... Space name */}
+          {eventDateInfo && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 16,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Calendar
+                  size={16}
+                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540'}
+                />
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: '500',
+                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
+                  }}
+                >
+                  {eventDateInfo.dateStr}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
+                  }}
+                >
+                  ·
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
+                  }}
+                >
+                  {eventDateInfo.timeStr}
+                </Text>
+              </View>
+              {entitySpaceName && (
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#999',
+                  }}
+                >
+                  {entitySpaceName}
+                </Text>
+              )}
+            </View>
+          )}
+
+          {/* Divider between header and content */}
+          <View
+            style={{
+              height: 1,
+              backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              marginBottom: 16,
+            }}
+          />
+
+          {/* Tags row - read-only display */}
+          {entityTags.length > 0 && (
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 6,
+                marginBottom: 16,
+              }}
+            >
+              {entityTags.map((tag) => (
+                <View
+                  key={tag}
+                  style={{
+                    backgroundColor:
+                      colorMode === 'dark' ? 'rgba(94, 160, 138, 0.2)' : 'rgba(94, 160, 138, 0.15)',
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 14,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: colorMode === 'dark' ? '#8FCBB4' : '#2E7D6A',
+                      fontWeight: '500',
+                    }}
+                  >
+                    #{tag}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Body content - only show if it has real content different from title */}
+          {bodyHasContent && (
+            <View
+              style={{
+                backgroundColor:
+                  colorMode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+                borderRadius: 12,
+                padding: 16,
+                marginBottom: 16,
+              }}
+            >
+              {renderFormattedContent(entityBody, {
+                textColor: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
+                fontSize: 16,
+                lineHeight: 24,
+              })}
+            </View>
+          )}
+
+          {/* Photos grid (read-only) - for logs with photos */}
+          {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
+            <View style={{ marginBottom: 16 }}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8 }}
+              >
+                {logPhotos
+                  .filter((p) => !p.isDeleted)
+                  .map((photo, index) => {
+                    const actualIndex = logPhotos.findIndex((p) => p === photo);
+                    return (
+                      <Pressable
+                        key={actualIndex}
+                        onPress={() => handleViewLogPhoto(actualIndex)}
+                        accessibilityLabel={`View photo ${index + 1}`}
+                        accessibilityRole="button"
+                      >
+                        <Image
+                          source={{ uri: photo.url }}
+                          style={{
+                            width: 100,
+                            height: 100,
+                            borderRadius: 8,
+                          }}
+                          resizeMode="cover"
+                        />
+                      </Pressable>
+                    );
+                  })}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Linked Items section for event notes */}
+          {currentEntityId && fullEntity?.space_id && (
+            <LinkedItemsSection
+              eventId={currentEntityId}
+              spaceId={fullEntity.space_id}
+              onItemPress={handleLinkedItemPress}
+              onAddTodo={handleLinkedAddTodo}
+              onAddNote={handleLinkedAddNote}
+              onLinkExisting={handleLinkExisting}
+            />
+          )}
+
+          {/* Chat with Gremly button */}
+          {currentEntityId && (
+            <View style={{ marginTop: 16 }}>
+              <EntityChatButton
+                entityId={currentEntityId}
+                entityType="note"
+                variant="overlay"
+                onPress={() => setShowEntityChat(true)}
+              />
+            </View>
+          )}
+
+          {/* Created date - subtle footer info, very small */}
+          {formattedCreatedDate && (
+            <Text
+              style={{
+                fontSize: 11,
+                color: colorMode === 'dark' ? 'rgba(255,255,255,0.3)' : '#bbb',
+                marginTop: 24,
+                textAlign: 'center',
+              }}
+            >
+              Created {formattedCreatedDate}
+            </Text>
+          )}
+        </ScrollView>
+      );
+    }
+
+    // Default rendering for non-event entities
     return (
       <ScrollView
         style={{ flex: 1 }}
@@ -5359,32 +5651,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             Created {formattedCreatedDate}
           </Text>
         )}
-
-        {/* Linked Items section for event notes in view mode */}
-        {isLog && effectiveLogSubtype === 'event' && currentEntityId && fullEntity?.space_id && (
-          <View style={{ marginTop: 24 }}>
-            <LinkedItemsSection
-              eventId={currentEntityId}
-              spaceId={fullEntity.space_id}
-              onItemPress={handleLinkedItemPress}
-              onAddTodo={handleLinkedAddTodo}
-              onAddNote={handleLinkedAddNote}
-              onLinkExisting={handleLinkExisting}
-            />
-          </View>
-        )}
-
-        {/* Chat with Gremly button for event notes in view mode */}
-        {isLog && effectiveLogSubtype === 'event' && currentEntityId && (
-          <View style={{ marginTop: 16 }}>
-            <EntityChatButton
-              entityId={currentEntityId}
-              entityType="note"
-              variant="overlay"
-              onPress={() => setShowEntityChat(true)}
-            />
-          </View>
-        )}
       </ScrollView>
     );
   };
@@ -5559,18 +5825,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               autoCorrect={false}
                             />
                           ) : (
-                            <Text
-                              variant="title"
-                              style={{
-                                color: '#222222',
-                                fontWeight: '500',
-                                fontSize: 18,
-                                flex: 1,
-                              }}
-                              numberOfLines={1}
-                            >
-                              {headerFor(baseType, mode, overlaySubtitle)}
-                            </Text>
+                            // Hide "View" text for event notes in view mode - show empty space
+                            !(isViewMode && isLog && effectiveLogSubtype === 'event') && (
+                              <Text
+                                variant="title"
+                                style={{
+                                  color: '#222222',
+                                  fontWeight: '500',
+                                  fontSize: 18,
+                                  flex: 1,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {headerFor(baseType, mode, overlaySubtitle)}
+                              </Text>
+                            )
                           )}
                           {/* Lock In badge */}
                           {isLockedIn ? (
@@ -5582,6 +5851,38 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             >
                               <Diamond size={12} color="#2E5540" fill="#2E5540" />
                               <Text style={styles.lockedBadgeText}>Locked In</Text>
+                            </View>
+                          ) : null}
+                          {/* Note chip - show before Event chip for event notes in view mode */}
+                          {isLog && effectiveLogSubtype === 'event' && isViewMode ? (
+                            <View
+                              style={{
+                                alignSelf: 'center',
+                                marginLeft: 8,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: 999,
+                                borderWidth: StyleSheet.hairlineWidth,
+                                borderColor:
+                                  colorMode === 'dark'
+                                    ? 'rgba(255, 255, 255, 0.15)'
+                                    : 'rgba(0, 0, 0, 0.12)',
+                                backgroundColor:
+                                  colorMode === 'dark'
+                                    ? 'rgba(255, 255, 255, 0.04)'
+                                    : 'rgba(46, 85, 64, 0.06)',
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: '500',
+                                  color:
+                                    colorMode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : '#5a5a5a',
+                                }}
+                              >
+                                Note
+                              </Text>
                             </View>
                           ) : null}
                           {/* Log subtype chip - tappable for manual override */}
@@ -5623,9 +5924,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           ) : null}
                         </View>
 
-                        {/* Favorite star - view mode, notes only */}
+                        {/* Favorite star - view mode, notes only (not for events) */}
                         {isViewMode &&
                           baseType === 'log' &&
+                          effectiveLogSubtype !== 'event' &&
                           (fullEntity?.id || (initialEntity as any)?.id) && (
                             <Pressable
                               onPress={handleToggleFavorite}
@@ -5668,8 +5970,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           </Pressable>
                         ) : null}
 
-                        {/* Header Edit button - view mode only (not for habits - they have Edit button in footer) */}
-                        {isViewMode && fullEntity && baseType !== 'habit' ? (
+                        {/* Header Edit button - view mode only (not for habits or events - they have Edit button in footer) */}
+                        {isViewMode &&
+                        fullEntity &&
+                        baseType !== 'habit' &&
+                        effectiveLogSubtype !== 'event' ? (
                           <Pressable
                             onPress={() => {
                               if (initialEntity && (initialEntity as any).id) {
@@ -5746,16 +6051,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       </View>
                       {/* Phase 6b: Removed subtitle to avoid duplication - title now shows in header */}
                     </View>
-                    {/* Decorative title divider */}
-                    <View
-                      style={{
-                        width: '35%',
-                        height: 1,
-                        backgroundColor: 'rgba(191, 216, 192, 0.9)',
-                        marginTop: 4,
-                        marginBottom: 4,
-                      }}
-                    />
+                    {/* Decorative title divider - hide for event notes in view mode */}
+                    {!(isViewMode && isLog && effectiveLogSubtype === 'event') && (
+                      <View
+                        style={{
+                          width: '35%',
+                          height: 1,
+                          backgroundColor: 'rgba(191, 216, 192, 0.9)',
+                          marginTop: 4,
+                          marginBottom: 4,
+                        }}
+                      />
+                    )}
                   </Box>
 
                   {/* View/Edit Mode Content Container with Crossfade Animation */}
@@ -6219,8 +6526,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Box>
                           )}
 
-                          {/* Linked Items section for event notes */}
-                          {isEventNote && fullEntity?.space_id && (
+                          {/* Linked Items section for event notes - only in view mode */}
+                          {isViewMode && isEventNote && fullEntity?.space_id && (
                             <Box px={4}>
                               <LinkedItemsSection
                                 eventId={currentEntityId}
@@ -6244,8 +6551,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Box>
                           )}
 
-                          {/* Entity Chat & Notes buttons - side by side */}
-                          {currentEntityId && (
+                          {/* Entity Chat & Notes buttons - side by side (hide for events in edit mode) */}
+                          {currentEntityId && (!isEventNote || isViewMode) && (
                             <View
                               style={{
                                 flexDirection: 'row',
@@ -10209,13 +10516,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }
                           }}
                           accessibilityRole="button"
-                          accessibilityLabel="Edit"
+                          accessibilityLabel={
+                            effectiveLogSubtype === 'event' ? 'Edit Details' : 'Edit'
+                          }
                           style={{
                             backgroundColor:
                               colorMode === 'dark'
                                 ? darkTokens.colors.moss
                                 : lightTokens.colors.moss,
-                            width: 120,
+                            minWidth: 120,
+                            paddingHorizontal: 20,
                             height: 44,
                             borderRadius: 999,
                             justifyContent: 'center',
@@ -10229,7 +10539,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               fontWeight: '600',
                             }}
                           >
-                            Edit
+                            {effectiveLogSubtype === 'event' ? 'Edit Details' : 'Edit'}
                           </Text>
                         </Pressable>
                       )}

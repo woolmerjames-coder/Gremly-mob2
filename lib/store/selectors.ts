@@ -1676,16 +1676,22 @@ export const useAllSpaceMilestones = (spaceId: string) =>
 // EVENT NOTE SELECTORS (Key Dates feature)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Events (notes with subtype='event') for a space, sorted by target_date ascending */
+/** Events (notes with subtype='event') for a space, sorted with goals first, then dated events, then dateless */
 export const selectEventsForSpace = createSelector(
   [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
   (notes, spaceId) =>
     notes
-      .filter(
-        (n) => n.subtype === 'event' && n.space_id === spaceId && !n.archived && n.target_date,
-      )
+      .filter((n) => n.subtype === 'event' && n.space_id === spaceId && !n.archived)
       .sort((a, b) => {
-        // Sort by target_date ascending (earliest first)
+        // 1. Goals first (sorted by date among themselves)
+        if (a.is_goal && !b.is_goal) return -1;
+        if (!a.is_goal && b.is_goal) return 1;
+
+        // 2. Dateless events go to the bottom
+        if (a.target_date && !b.target_date) return -1;
+        if (!a.target_date && b.target_date) return 1;
+
+        // 3. Both have dates (or both dateless) - sort by date ascending
         const dateA = a.target_date || '';
         const dateB = b.target_date || '';
         return dateA.localeCompare(dateB);
@@ -1694,6 +1700,18 @@ export const selectEventsForSpace = createSelector(
 
 export const useEventsForSpace = (spaceId: string) =>
   useGremlyStore((state) => selectEventsForSpace(state, spaceId));
+
+/** Goal event for a space (is_goal = true) */
+export const selectGoalForSpace = createSelector(
+  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
+  (notes, spaceId) =>
+    notes.find(
+      (n) => n.subtype === 'event' && n.is_goal === true && n.space_id === spaceId && !n.archived,
+    ) || null,
+);
+
+export const useGoalForSpace = (spaceId: string) =>
+  useGremlyStore((state) => selectGoalForSpace(state, spaceId));
 
 /** All items (todos, notes, habits) linked to a specific event */
 export const selectItemsLinkedToEvent = createSelector(

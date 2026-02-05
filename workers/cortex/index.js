@@ -5571,7 +5571,53 @@ Array of numbers if mentioned (0=Sun … 6=Sat), else null
 YYYY-MM-DD if mentioned, else null
 
 --------------------------------
-FOR LOGS (ALL SUBTYPES):
+FOR LOGS (EVENT SUBTYPE):
+--------------------------------
+
+**EVENT-SPECIFIC EXTRACTION:**
+
+When subtype is "event", extract clean event information.
+
+1. smart_title
+Create a clean, concise event name by REMOVING dates and times from the title.
+- "QBR with London team on Feb 12" → "QBR with London Team"
+- "dentist appointment tuesday 2pm" → "Dentist Appointment"
+- "company offsite feb 20-22" → "Company Offsite"
+- "Sarah's wedding June 15" → "Sarah's Wedding"
+- "team lunch friday noon" → "Team Lunch"
+
+Rules:
+- Title case the result
+- Strip all date/time references from the title itself
+- Keep location and people references
+- Keep the essence of what the event IS
+
+2. target_date (event start date)
+Extract the event date in YYYY-MM-DD format.
+- "feb 12" → "2026-02-12" (assume current year if not specified)
+- "next tuesday" → resolve to actual date using date calculation rules above
+- "march 10th" → "2026-03-10"
+- "on the 15th" → current or next month's 15th
+- If no date mentioned → null
+
+3. end_date (for multi-day events)
+Extract end date in YYYY-MM-DD format for multi-day events.
+- "feb 20-22" → end_date: "2026-02-22"
+- "monday through wednesday" → resolve both dates
+- "conference june 10-12" → end_date: "2026-06-12"
+- If single day or no range mentioned → null
+
+4. event_time
+Extract time if mentioned, in HH:mm format (24-hour).
+- "at 2pm" → "14:00"
+- "morning meeting" → "09:00"
+- "lunch at noon" → "12:00"
+- "dinner at 7" → "19:00"
+- "10:30am" → "10:30"
+- If no time mentioned → null
+
+--------------------------------
+FOR LOGS (OTHER SUBTYPES):
 --------------------------------
 
 **DATE EXTRACTION FOR LOGS:**
@@ -5679,6 +5725,16 @@ For LOGS (idea/general):
 {
   "tags": ["tag1", "tag2"],
   "target_date": "YYYY-MM-DD" | null,
+  "event_time": "HH:mm" | null,
+  "people": ["name1", "name2"] | []
+}
+
+For LOGS (event):
+{
+  "smart_title": "Clean Event Name",
+  "tags": ["tag1", "tag2"],
+  "target_date": "YYYY-MM-DD" | null,
+  "end_date": "YYYY-MM-DD" | null,
   "event_time": "HH:mm" | null,
   "people": ["name1", "name2"] | []
 }`;

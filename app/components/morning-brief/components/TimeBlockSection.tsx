@@ -14,6 +14,7 @@ import type { LucideIcon } from 'lucide-react-native';
 import { getEffectiveEventTimes, type EventTimeOverride } from '../../../../lib/capacity';
 import type { TimeBlockCapacity, TimeBlock, TimeBlockPreferences } from '../../../../lib/capacity';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
+import type { Note } from '../../../../lib/types';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { TaskItem, type TaskItemData } from './TaskItem';
 import { EventTimePicker } from './EventTimePicker';
@@ -74,6 +75,12 @@ const SECTION_CONFIG: Record<TimeBlock, { label: string; color: string; Icon: Lu
 interface TimeBlockSectionProps {
   capacity: TimeBlockCapacity;
   events: CalendarEvent[];
+  /** Key Date events (notes with subtype='event') for this time block */
+  keyDateEvents?: Note[];
+  /** Function to get space name by ID */
+  getSpaceName?: (spaceId: string | null | undefined) => string | undefined;
+  /** Called when user taps a Key Date event */
+  onKeyDatePress?: (event: Note) => void;
   tasks: TaskItemData[];
   onTaskPress: (task: TaskItemData) => void;
   /** Called when user taps the time estimate */
@@ -108,6 +115,9 @@ function getEventId(event: CalendarEvent): string {
 export function TimeBlockSection({
   capacity,
   events,
+  keyDateEvents = [],
+  getSpaceName,
+  onKeyDatePress,
   tasks,
   onTaskPress,
   onTimePress,
@@ -185,11 +195,17 @@ export function TimeBlockSection({
 
   const { label, color, Icon } = config;
 
-  const isEmpty = visibleEvents.length === 0 && tasks.length === 0;
+  const isEmpty = visibleEvents.length === 0 && keyDateEvents.length === 0 && tasks.length === 0;
 
   const handleEventPress = (event: CalendarEvent) => {
     console.log('[TimeBlockSection] handleEventPress called:', event.title);
     openEventPopup(event, dateContext);
+  };
+
+  /** Handle tapping a Key Date event - calls the callback */
+  const handleKeyDatePress = (keyDate: Note) => {
+    console.log('[MorningBrief] Key Date tapped:', keyDate.id, keyDate.title);
+    onKeyDatePress?.(keyDate);
   };
 
   const handleTimeSave = (eventId: string, startAt: string, endAt: string) => {
@@ -253,7 +269,8 @@ export function TimeBlockSection({
           d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
         const effectiveTimeRange = `${formatTime(effectiveStart)} - ${formatTime(effectiveEnd)}`;
 
-        const isLast = idx === visibleEvents.length - 1 && tasks.length === 0;
+        const isLast =
+          idx === visibleEvents.length - 1 && keyDateEvents.length === 0 && tasks.length === 0;
         return (
           <React.Fragment key={eventId}>
             <Pressable style={styles.eventRow} onPress={() => handleEventPress(event)}>
@@ -282,6 +299,58 @@ export function TimeBlockSection({
                 <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
                   {event.title}
                 </Text>
+              </View>
+            </Pressable>
+            {!isLast && <View style={styles.rowDivider} />}
+          </React.Fragment>
+        );
+      })}
+
+      {/* Key Date Events (from Notes with subtype='event') */}
+      {keyDateEvents.map((keyDate, idx) => {
+        const spaceName = getSpaceName?.(keyDate.space_id);
+        const eventTime = keyDate.event_time;
+
+        // Format time range similar to calendar events
+        const formatKeyDateTime = (time: string): string => {
+          const [hourStr, minStr] = time.split(':');
+          const hour = parseInt(hourStr, 10);
+          const min = parseInt(minStr, 10);
+          const ampm = hour >= 12 ? 'PM' : 'AM';
+          const displayHour = hour % 12 || 12;
+          return min > 0 ? `${displayHour}:${minStr} ${ampm}` : `${displayHour}:00 ${ampm}`;
+        };
+
+        const isLast = idx === keyDateEvents.length - 1 && tasks.length === 0;
+        return (
+          <React.Fragment key={keyDate.id}>
+            <Pressable style={styles.eventRow} onPress={() => handleKeyDatePress(keyDate)}>
+              <Calendar size={16} color={COLORS.inkMuted} style={styles.eventIcon} />
+              <View style={styles.eventContent}>
+                {eventTime ? (
+                  // WITH time: Show time on line 1, title + space on line 2 (matches calendar events)
+                  <>
+                    <Text style={[styles.eventTime, isPast && styles.textMuted]}>
+                      {formatKeyDateTime(eventTime)}
+                    </Text>
+                    <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                      {keyDate.title || 'Untitled Event'}
+                      {spaceName ? ` · ${spaceName}` : ''}
+                    </Text>
+                  </>
+                ) : (
+                  // WITHOUT time: Show title on line 1, space on line 2
+                  <>
+                    <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                      {keyDate.title || 'Untitled Event'}
+                    </Text>
+                    {spaceName && (
+                      <Text style={[styles.eventTime, isPast && styles.textMuted]}>
+                        {spaceName} · Needs time
+                      </Text>
+                    )}
+                  </>
+                )}
               </View>
             </Pressable>
             {!isLast && <View style={styles.rowDivider} />}

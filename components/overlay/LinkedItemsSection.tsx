@@ -8,9 +8,9 @@
  * - Link existing item button
  */
 
-import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Circle, CheckCircle2, FileText, RotateCw, Plus, Link2 } from 'lucide-react-native';
+import React, { useCallback } from 'react';
+import { View, Text, Pressable, StyleSheet, ActionSheetIOS, Platform } from 'react-native';
+import { Circle, CheckCircle2, FileText, RotateCw, Plus } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useItemsLinkedToEvent } from '../../lib/store/selectors';
 import type { Todo, Note, Habit } from '../../lib/types';
@@ -93,6 +93,25 @@ export default function LinkedItemsSection({
   const totalCount = allItems.length;
   const isEmpty = totalCount === 0;
 
+  const handleAddPress = useCallback(() => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Add to-do', 'Add note', 'Link existing item', 'Cancel'],
+          cancelButtonIndex: 3,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) onAddTodo();
+          else if (buttonIndex === 1) onAddNote();
+          else if (buttonIndex === 2) onLinkExisting();
+        },
+      );
+    } else {
+      // Android fallback - just add todo for now
+      onAddTodo();
+    }
+  }, [onAddTodo, onAddNote, onLinkExisting]);
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -101,11 +120,11 @@ export default function LinkedItemsSection({
           Linked Items{totalCount > 0 ? ` (${totalCount})` : ''}
         </Text>
         <Pressable
-          style={({ pressed }) => [styles.linkButton, pressed && { opacity: 0.7 }]}
-          onPress={onLinkExisting}
+          style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}
+          onPress={handleAddPress}
         >
-          <Link2 size={14} color={BRAND.colors.mossGreen} />
-          <Text style={styles.linkButtonText}>Link</Text>
+          <Plus size={14} color={BRAND.colors.mossGreen} />
+          <Text style={styles.addButtonText}>Add</Text>
         </Pressable>
       </View>
 
@@ -121,25 +140,6 @@ export default function LinkedItemsSection({
           ))}
         </View>
       )}
-
-      {/* Add buttons */}
-      <View style={styles.addButtonsRow}>
-        <Pressable
-          style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}
-          onPress={onAddTodo}
-        >
-          <Plus size={14} color={BRAND.colors.mossGreen} />
-          <Text style={styles.addButtonText}>Add to-do</Text>
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}
-          onPress={onAddNote}
-        >
-          <Plus size={14} color={BRAND.colors.mossGreen} />
-          <Text style={styles.addButtonText}>Add note</Text>
-        </Pressable>
-      </View>
     </View>
   );
 }
@@ -162,14 +162,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
   },
-  linkButton: {
+  addButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingVertical: 4,
     paddingHorizontal: 8,
   },
-  linkButtonText: {
+  addButtonText: {
     fontSize: 13,
     fontWeight: '500',
     color: BRAND.colors.mossGreen,
@@ -211,29 +211,5 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 13,
     color: BRAND.colors.inkMuted,
-  },
-  addButtonsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-  },
-  addButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
-    borderStyle: 'dashed',
-  },
-  addButtonText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: BRAND.colors.mossGreen,
   },
 });

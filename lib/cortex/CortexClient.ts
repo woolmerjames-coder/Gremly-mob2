@@ -78,6 +78,10 @@ export interface Phase2EnrichmentResult {
   people?: string[];
   mood?: string[] | null; // AI-extracted moods for journal entries
   latency_ms?: number;
+  // Event-specific fields
+  target_date?: string | null; // Event date in YYYY-MM-DD format
+  end_date?: string | null; // End date for multi-day events
+  event_time?: string | null; // Event time in HH:mm format
 }
 
 const mask = (value: string) => (value ? `${value.slice(0, 4)}…${value.slice(-4)}` : '(missing)');
@@ -1014,6 +1018,10 @@ export function callEnrichPhase2Streaming(
           extracted_frequency: data.extracted_frequency || finalResult.extracted_frequency,
           extracted_days: data.extracted_days || finalResult.extracted_days,
           people: data.people || finalResult.people,
+          // Event-specific fields
+          target_date: data.target_date || finalResult.target_date,
+          end_date: data.end_date || finalResult.end_date,
+          event_time: data.event_time || finalResult.event_time,
           latency_ms: data.latency_ms,
         };
         console.log('[CortexClient:SSE] Completed, closing');

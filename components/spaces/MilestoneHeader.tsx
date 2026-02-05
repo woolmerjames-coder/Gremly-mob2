@@ -7,7 +7,7 @@
  * - OR Nudge to set a goal (if no milestone)
  */
 
-import React from 'react';
+import React, { ReactNode } from 'react';
 import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Flag, Plus, Pin, MoreHorizontal, ChevronLeft, CheckCircle2 } from 'lucide-react-native';
@@ -27,6 +27,8 @@ interface MilestoneHeaderProps {
   pinnedCount: number;
   completedCount?: number;
   mascotSource?: ImageSourcePropType; // Custom mascot image source
+  hasGoalEvent?: boolean; // Whether a goal event exists (new system)
+  children?: ReactNode; // Optional content to render in header (e.g., KeyDatesSection)
   onGremlyPress: () => void;
   onPinnedPress: () => void;
   onCompletedPress?: () => void;
@@ -43,6 +45,8 @@ export function MilestoneHeader({
   pinnedCount,
   completedCount = 0,
   mascotSource,
+  hasGoalEvent = false,
+  children,
   onGremlyPress,
   onPinnedPress,
   onCompletedPress,
@@ -52,7 +56,9 @@ export function MilestoneHeader({
   onBackPress,
 }: MilestoneHeaderProps) {
   const insets = useSafeAreaInsets();
+  // Show nudge only if no milestone AND no goal event
   const hasMilestone = milestone !== null;
+  const showNudge = !hasMilestone && !hasGoalEvent;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
@@ -133,8 +139,8 @@ export function MilestoneHeader({
                 </Text>
               )}
             </Pressable>
-          ) : (
-            // Nudge to set a goal
+          ) : showNudge ? (
+            // Nudge to set a goal (only if no goal event either)
             <Pressable
               onPress={onNudgePress}
               style={styles.nudgeContainer}
@@ -148,7 +154,7 @@ export function MilestoneHeader({
               </View>
               <Text style={styles.nudgeSubtitle}>Goals help you get things done</Text>
             </Pressable>
-          )}
+          ) : null}
 
           {/* Action pills row - pinned and completed */}
           <View style={styles.pillsRow}>
@@ -188,6 +194,9 @@ export function MilestoneHeader({
           </View>
         </View>
       </View>
+
+      {/* Optional children (e.g., KeyDatesSection) */}
+      {children}
     </View>
   );
 }
@@ -197,7 +206,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F1EB', // Slightly darker than linenCream for subtle header distinction
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 16,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: BRAND.colors.borderSubtle,
   },
@@ -207,7 +216,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   backButton: {
     padding: 8,
@@ -297,7 +306,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginTop: 16,
+    marginTop: 6,
   },
   pinnedButton: {
     flexDirection: 'row',

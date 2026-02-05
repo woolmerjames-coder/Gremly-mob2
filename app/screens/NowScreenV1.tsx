@@ -697,12 +697,18 @@ export default function NowScreenV1() {
     ],
   );
 
-  // Handle key date press - open overlay for event note
+  // Handle key date press - close brief first, then open overlay for event note
   const handleKeyDatePress = useCallback(
     (event: Note) => {
-      overlayController.openView({
-        record: event,
-      });
+      console.log('[NowScreenV1] handleKeyDatePress called:', event.id, event.title);
+      // Close the Morning Brief modal first
+      setBriefSheetVisible(false);
+      // Open the overlay after a short delay to allow modal to close
+      setTimeout(() => {
+        overlayController.openView({
+          record: event,
+        });
+      }, 100);
     },
     [overlayController],
   );
@@ -997,6 +1003,7 @@ export default function NowScreenV1() {
         onComplete={markTodayOpened}
         onQuickAddSubmit={handleQuickAddSubmit}
         onQuickAddManual={handleQuickAddManual}
+        onKeyDatePress={handleKeyDatePress}
       />
 
       {/* Help Card */}
