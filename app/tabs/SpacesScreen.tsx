@@ -36,17 +36,23 @@ import { Plus } from 'lucide-react-native';
 import SPACES_TITLE from '../../assets/spacestitle.png';
 
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useActiveSpaces } from '../../lib/store/selectors';
+import { useActiveSpaces, useNewSpaceSuggestions } from '../../lib/store/selectors';
 import { Text } from '../../ui';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { setNewSpaceCallback } from '../../components/CreateSpaceModal';
 import { useReducedMotion } from '../../design/animations';
 import { getSpaceIcon } from '../../lib/utils/spaceIconMatcher';
 import MascotIcon from '../../components/MascotIcon';
+import SpaceSuggestionCard from '../../components/spaces/SpaceSuggestionCard';
 
 function SpacesScreen() {
   const activeSpaces = useActiveSpaces();
+  const newSpaceSuggestions = useNewSpaceSuggestions();
   const deleteSpace = useGremlyStore((s) => s.deleteSpace);
+  const createSpace = useGremlyStore((s) => s.createSpace);
+  const acceptSuggestion = useGremlyStore((s) => s.acceptSuggestion);
+  const declineSuggestion = useGremlyStore((s) => s.declineSuggestion);
+  const assignDropsToSpace = useGremlyStore((s) => s.assignDropsToSpace);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const isReducedMotion = useReducedMotion();
 
@@ -112,6 +118,32 @@ function SpacesScreen() {
             <Plus size={20} color="#2E5540" />
             <Text style={styles.createSpaceButtonText}>Create a Space</Text>
           </Pressable>
+
+          {/* Space Suggestions (max 2) */}
+          {newSpaceSuggestions.length > 0 && (
+            <View style={styles.suggestionsSection}>
+              {newSpaceSuggestions.slice(0, 2).map((suggestion) => (
+                <SpaceSuggestionCard
+                  key={suggestion.id}
+                  suggestion={suggestion}
+                  onAccept={async () => {
+                    try {
+                      const newSpace = await createSpace({
+                        name: suggestion.suggested_name || 'New Space',
+                      });
+                      await assignDropsToSpace(suggestion.drop_ids, newSpace.id);
+                      await acceptSuggestion(suggestion.id);
+                      navigation.navigate('SpaceHome', { spaceId: newSpace.id });
+                    } catch (err) {
+                      const message = err instanceof Error ? err.message : 'Failed to create space';
+                      Alert.alert('Error', message);
+                    }
+                  }}
+                  onDecline={() => declineSuggestion(suggestion.id)}
+                />
+              ))}
+            </View>
+          )}
 
           {/* Spaces List or Empty State */}
           {spaces.length === 0 ? (
@@ -221,6 +253,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#2E5540',
+  },
+  suggestionsSection: {
+    marginBottom: 8,
   },
   emptyState: {
     alignItems: 'center',
