@@ -13,6 +13,8 @@ export type LogState = {
   private: boolean;
   /** Date Intelligence: Event date for notes (when it IS) */
   target_date?: string | null;
+  /** Date Intelligence: End date for multi-day events */
+  end_date?: string | null;
   /** Date Intelligence: Event time if applicable */
   event_time?: string | null;
 };
@@ -95,7 +97,7 @@ export type HabitState = {
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
 export type PersonLink = { id: string; display: string } | null;
 export type SentimentValue = 'pos' | 'neu' | 'neg'; // Simplified positive/neutral/negative for logs (not journal moods)
-export type LogSubtypeOverride = 'journal' | 'idea' | 'general' | 'list' | null;
+export type LogSubtypeOverride = 'journal' | 'idea' | 'general' | 'list' | 'event' | null;
 
 /**
  * V2State - Complete overlay state for all entity types
@@ -245,6 +247,7 @@ type Action =
   | { type: 'SET_FORMAT'; fmt: FormatKind }
   | { type: 'SET_REMINDER'; when: string | null }
   | { type: 'SET_LOG_TARGET_DATE'; date: string | null }
+  | { type: 'SET_LOG_END_DATE'; date: string | null }
   | { type: 'SET_LOG_EVENT_TIME'; time: string | null }
   | { type: 'TOGGLE_LOG_PRIVATE' }
   | { type: 'SET_LOG_SUBTYPE_OVERRIDE'; value: LogSubtypeOverride }
@@ -522,6 +525,8 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, reminderAt: action.when };
     case 'SET_LOG_TARGET_DATE':
       return { ...state, log: { ...state.log, target_date: action.date } };
+    case 'SET_LOG_END_DATE':
+      return { ...state, log: { ...state.log, end_date: action.date } };
     case 'SET_LOG_EVENT_TIME':
       return { ...state, log: { ...state.log, event_time: action.time } };
     case 'TOGGLE_LOG_PRIVATE':

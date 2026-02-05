@@ -647,7 +647,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   }, [storeHabits]);
 
   const notesForSpace = useMemo(() => {
-    return storeNotes.filter((n: any) => !n.is_list && n.subtype !== 'list');
+    // Filter out lists and event notes (events show in Key Dates section)
+    return storeNotes.filter(
+      (n: any) => !n.is_list && n.subtype !== 'list' && n.subtype !== 'event',
+    );
   }, [storeNotes]);
 
   // Phase 4: Streak map from weekly habit data
@@ -833,10 +836,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [overlay, spaceId],
   );
 
-  // Key Dates: Handle add event (opens create mode for log/note)
-  // Phase 3 will add proper event subtype handling in the overlay
+  // Key Dates: Handle add event (opens create mode with event subtype)
   const handleAddKeyDate = useCallback(() => {
-    overlay.openCreate({ spaceId, type: 'log' });
+    overlay.openCreate({ spaceId, type: 'log', logSubtype: 'event' });
   }, [overlay, spaceId]);
 
   // Phase 6: Handle attach existing completion

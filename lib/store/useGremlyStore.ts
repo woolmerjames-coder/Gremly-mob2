@@ -6951,10 +6951,33 @@ export const selectMorningBriefItems = (date: string) => (state: GremlyState) =>
     // Note: Habits don't have completed_at - completion is tracked via habitProgress
     // Add days_active logic here if needed
   );
-  const eventNotes = state.notes.filter((n) => !n.archived && n.target_date === date);
+  // Notes with target_date (excluding event subtype - those are handled separately as keyDateEvents)
+  const eventNotes = state.notes.filter(
+    (n) => !n.archived && n.target_date === date && n.subtype !== 'event',
+  );
   const reminderNotes = state.notes.filter((n) => !n.archived && n.reminder_date === date);
   const calendarEvents = state.calendarEvents[date] ?? [];
   const userCalendarEvents = state.userCalendarEvents.filter((e) => e.event_date === date);
 
-  return { todos, habits, eventNotes, reminderNotes, calendarEvents, userCalendarEvents };
+  // Key Date events (subtype='event') - includes single-day and multi-day events spanning this date
+  const keyDateEvents = state.notes.filter((n) => {
+    if (n.subtype !== 'event' || n.archived) return false;
+    // Single day event: target_date matches
+    if (n.target_date === date) return true;
+    // Multi-day event: date falls within range
+    if (n.target_date && n.end_date) {
+      return date >= n.target_date && date <= n.end_date;
+    }
+    return false;
+  });
+
+  return {
+    todos,
+    habits,
+    eventNotes,
+    reminderNotes,
+    calendarEvents,
+    userCalendarEvents,
+    keyDateEvents,
+  };
 };

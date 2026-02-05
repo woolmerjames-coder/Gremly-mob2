@@ -83,6 +83,7 @@ import {
   useSpaceById,
   selectItemById,
   selectCompletionsInRolling7Days,
+  useEventsForSpace,
 } from '../../lib/store/selectors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
@@ -171,6 +172,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const milestone = useSpaceMilestoneFromStore(spaceId);
   const countdown = useMilestoneCountdown(spaceId);
   const rolling7Completions = useGremlyStore(selectCompletionsInRolling7Days);
+  const spaceEvents = useEventsForSpace(spaceId);
 
   // Build space context for AI
   const spaceContext = useMemo(() => {
@@ -225,6 +227,15 @@ export default function ChatThreadScreen({ route }: Props) {
       title: n.title || '',
     }));
 
+    // Map events for AI context
+    const eventsData = spaceEvents.map((e) => ({
+      name: e.title || undefined,
+      title: e.title || undefined,
+      target_date: e.target_date || null,
+      end_date: e.end_date || null,
+      event_time: e.event_time || null,
+    }));
+
     return (
       buildSpaceContext({
         space,
@@ -234,9 +245,10 @@ export default function ChatThreadScreen({ route }: Props) {
         todos: todosData,
         habits: habitsData,
         notes: notesData,
+        events: eventsData,
       }) ?? undefined
     );
-  }, [space, todos, habits, notes, milestone, countdown, rolling7Completions]);
+  }, [space, todos, habits, notes, milestone, countdown, rolling7Completions, spaceEvents]);
 
   // Debug: Log space context for AI
   useEffect(() => {
@@ -762,7 +774,15 @@ export default function ChatThreadScreen({ route }: Props) {
                   });
                 }
               },
-              onComplete: async (finalText: string, richResult?: { save_suggestion?: any; sources?: Array<{ title: string; url: string }>; search_query?: string | null; fetchedUrl?: { url: string; title: string } | null }) => {
+              onComplete: async (
+                finalText: string,
+                richResult?: {
+                  save_suggestion?: any;
+                  sources?: Array<{ title: string; url: string }>;
+                  search_query?: string | null;
+                  fetchedUrl?: { url: string; title: string } | null;
+                },
+              ) => {
                 // Clear searching/fetching state
                 const msgId = streamingMessageIdRef.current;
                 if (msgId) {
@@ -1133,13 +1153,14 @@ export default function ChatThreadScreen({ route }: Props) {
 
       try {
         // ─── SMART SAVE: If we have title from AI suggestion, skip classification ───
-        const smartSuggestion = currentSaveable.title && currentSaveable.prefillData?.steps
-          ? {
-              type: currentSaveable.type,
-              title: currentSaveable.title,
-              steps: currentSaveable.prefillData.steps as string[],
-            }
-          : null;
+        const smartSuggestion =
+          currentSaveable.title && currentSaveable.prefillData?.steps
+            ? {
+                type: currentSaveable.type,
+                title: currentSaveable.title,
+                steps: currentSaveable.prefillData.steps as string[],
+              }
+            : null;
 
         if (smartSuggestion?.title) {
           console.log('[Chat] Smart save - creating new entity (skipping Phase 1):', {
@@ -1156,7 +1177,9 @@ export default function ChatThreadScreen({ route }: Props) {
             // Format steps as part of the body if present
             let body = assistantMessage;
             if (smartSuggestion.steps?.length) {
-              const stepsText = smartSuggestion.steps.map((step, i) => `${i + 1}. ${step}`).join('\n');
+              const stepsText = smartSuggestion.steps
+                .map((step, i) => `${i + 1}. ${step}`)
+                .join('\n');
               body = `Steps:\n${stepsText}\n\n---\n${assistantMessage}`;
             }
 

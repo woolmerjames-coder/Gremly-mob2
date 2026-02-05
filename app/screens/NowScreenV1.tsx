@@ -61,6 +61,7 @@ import {
   useWeeklyHabitSummaries,
   useHabitsUpToDateCount,
   useTodayPendingDrops,
+  useEventsForDate,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
@@ -78,14 +79,16 @@ import type {
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import type { Habit, Todo, Space } from '../../lib/types';
+import type { Habit, Todo, Space, Note } from '../../lib/types';
 import { eventBus } from '../../lib/events';
 import { TimeBlockSection } from '../../components/now/TimeBlockSection';
 import { CalendarHint } from '../../components/now/CalendarHint';
+import { EventRow } from '../../components/now/EventRow';
 import {
   getCurrentTimeBlock,
   groupEventsByTimeBlock,
   formatEventTimeForHint,
+  getTimeBlockForHour,
   type TimeBlock,
 } from '../../lib/now/timeBlockHelpers';
 
@@ -180,6 +183,38 @@ function toSweepCandidate(todo: Todo, todayDayString: string): SweepCandidate {
     daysUntilDeadline,
     space_id: todo.space_id ?? null,
   };
+}
+
+/**
+ * Group key date events by time block based on event_time
+ * Events without event_time go to 'anytime'
+ */
+function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<TimeBlock, Note[]> {
+  const grouped: Record<TimeBlock, Note[]> = {
+    morning: [],
+    afternoon: [],
+    evening: [],
+    anytime: [],
+  };
+
+  for (const event of keyDates) {
+    if (event.event_time) {
+      // Parse HH:mm time string to get hour
+      const [hourStr] = event.event_time.split(':');
+      const hour = parseInt(hourStr, 10);
+      if (!isNaN(hour)) {
+        const block = getTimeBlockForHour(hour);
+        grouped[block].push(event);
+      } else {
+        grouped.anytime.push(event);
+      }
+    } else {
+      // No event_time - goes to anytime
+      grouped.anytime.push(event);
+    }
+  }
+
+  return grouped;
 }
 
 /**
@@ -292,6 +327,9 @@ export default function NowScreenV1() {
     useCallback((s) => s.calendarEvents[todayStr] ?? EMPTY_CALENDAR_EVENTS, [todayStr]),
   );
   const fetchCalendarEvents = useGremlyStore((s) => s.fetchCalendarEventsForRange);
+
+  // Key Dates - internal event notes for today
+  const todayKeyDates = useEventsForDate(todayStr);
 
   // Debug: log calendar events selector result
   console.log(
@@ -659,6 +697,16 @@ export default function NowScreenV1() {
     ],
   );
 
+  // Handle key date press - open overlay for event note
+  const handleKeyDatePress = useCallback(
+    (event: Note) => {
+      overlayController.openView({
+        record: event,
+      });
+    },
+    [overlayController],
+  );
+
   // Handle overwhelm plan submission
   const handleOverwhelmSubmit = useCallback(() => {
     const selectedItems = [...displayLockedItems, ...visibleActiveItems]
@@ -840,6 +888,8 @@ export default function NowScreenV1() {
           lockedItemIds={lockedItemIds}
           calendarEvents={todayCalendarEvents}
           onCalendarHintPress={handleCalendarHintPress}
+          keyDates={todayKeyDates}
+          onKeyDatePress={handleKeyDatePress}
         />
       </View>
 
@@ -1097,6 +1147,8 @@ type TodayFocusListProps = {
   lockedItemIds?: Set<string>;
   calendarEvents?: CalendarEvent[];
   onCalendarHintPress?: () => void;
+  keyDates?: Note[];
+  onKeyDatePress?: (event: Note) => void;
 };
 
 function TodayFocusList({
@@ -1116,12 +1168,17 @@ function TodayFocusList({
   lockedItemIds,
   calendarEvents = [],
   onCalendarHintPress,
+  keyDates = [],
+  onKeyDatePress,
 }: TodayFocusListProps) {
   // Get current time block for highlighting
   const currentTimeBlock = getCurrentTimeBlock();
 
   // Group calendar events by time block
   const eventsByBlock = useMemo(() => groupEventsByTimeBlock(calendarEvents), [calendarEvents]);
+
+  // Group key dates (internal events) by time block based on event_time
+  const keyDatesByBlock = useMemo(() => groupKeyDatesByTimeBlock(keyDates), [keyDates]);
 
   // Build flat sorted list: locked items first, then active items sorted by sequence
   const sortedItems = useMemo(() => {
@@ -1183,11 +1240,12 @@ function TodayFocusList({
   }, [sortedItems, brief]);
 
   // Helper to check if a block should render
-  // Only render if block has items or calendar events - don't show empty blocks
+  // Only render if block has items, calendar events, or key dates - don't show empty blocks
   const shouldRenderBlock = (block: TimeBlock) => {
     const hasItems = itemsByBlock[block].length > 0;
     const hasEvents = eventsByBlock[block].length > 0;
-    return hasItems || hasEvents;
+    const hasKeyDates = keyDatesByBlock[block].length > 0;
+    return hasItems || hasEvents || hasKeyDates;
   };
 
   // Helper to get calendar hint data for a block
@@ -1268,13 +1326,22 @@ function TodayFocusList({
             )
           }
         >
+          {/* Key dates with morning event_time */}
+          {keyDatesByBlock.morning.map((event, index) => (
+            <EventRow
+              key={event.id}
+              event={event}
+              onPress={() => onKeyDatePress?.(event)}
+              isFirst={index === 0 && itemsByBlock.morning.length === 0}
+            />
+          ))}
           {itemsByBlock.morning.map((item, index) => (
             <NowFocusRow
               key={item.id}
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0}
+              isFirst={index === 0 && keyDatesByBlock.morning.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1297,13 +1364,22 @@ function TodayFocusList({
             )
           }
         >
+          {/* Key dates with afternoon event_time */}
+          {keyDatesByBlock.afternoon.map((event, index) => (
+            <EventRow
+              key={event.id}
+              event={event}
+              onPress={() => onKeyDatePress?.(event)}
+              isFirst={index === 0 && itemsByBlock.afternoon.length === 0}
+            />
+          ))}
           {itemsByBlock.afternoon.map((item, index) => (
             <NowFocusRow
               key={item.id}
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0}
+              isFirst={index === 0 && keyDatesByBlock.afternoon.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1326,13 +1402,22 @@ function TodayFocusList({
             )
           }
         >
+          {/* Key dates with evening event_time */}
+          {keyDatesByBlock.evening.map((event, index) => (
+            <EventRow
+              key={event.id}
+              event={event}
+              onPress={() => onKeyDatePress?.(event)}
+              isFirst={index === 0 && itemsByBlock.evening.length === 0}
+            />
+          ))}
           {itemsByBlock.evening.map((item, index) => (
             <NowFocusRow
               key={item.id}
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0}
+              isFirst={index === 0 && keyDatesByBlock.evening.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1340,16 +1425,25 @@ function TodayFocusList({
         </TimeBlockSection>
       )}
 
-      {/* Any time section */}
-      {itemsByBlock.anytime.length > 0 && (
+      {/* Any time section - includes key dates without event_time */}
+      {(itemsByBlock.anytime.length > 0 || keyDatesByBlock.anytime.length > 0) && (
         <TimeBlockSection block="anytime" isFirst={getIsFirst()}>
+          {/* Key dates without event_time */}
+          {keyDatesByBlock.anytime.map((event, index) => (
+            <EventRow
+              key={event.id}
+              event={event}
+              onPress={() => onKeyDatePress?.(event)}
+              isFirst={index === 0 && itemsByBlock.anytime.length === 0}
+            />
+          ))}
           {itemsByBlock.anytime.map((item, index) => (
             <NowFocusRow
               key={item.id}
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0}
+              isFirst={index === 0 && keyDatesByBlock.anytime.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />

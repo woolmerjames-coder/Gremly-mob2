@@ -53,6 +53,7 @@ import {
   Clock,
   TrendingUp,
   TrendingDown,
+  X,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -1518,9 +1519,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // 1. Manual override takes HIGHEST precedence (user explicitly chose)
     if (state.logSubtypeOverride) return state.logSubtypeOverride;
 
-    // 2. Fallback to entity.subtype if present (from classification system or edit mode)
+    // 2. Fallback to entity.subtype or logSubtype if present
+    // - entity.subtype: from classification system or edit mode (persisted notes)
+    // - entity.logSubtype: from openCreate() in create mode
     const entity = initialEntity as any;
-    const rawSubtype = entity?.subtype as string | undefined;
+    const rawSubtype = (entity?.subtype ?? entity?.logSubtype) as string | undefined;
     if (
       rawSubtype === 'journal' ||
       rawSubtype === 'idea' ||
@@ -1582,7 +1585,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showHabitStartDatePicker, setShowHabitStartDatePicker] = useState(false);
   const [showHabitEndDatePicker, setShowHabitEndDatePicker] = useState(false);
   const [dateModalTarget, setDateModalTarget] = useState<
-    'todo_deadline' | 'todo_dodate' | 'note_event' | 'reminder' | null
+    'todo_deadline' | 'todo_dodate' | 'note_event' | 'note_end_date' | 'reminder' | null
   >(null);
   const [showSpaceModal, setShowSpaceModal] = useState(false);
 
@@ -1679,20 +1682,35 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   );
 
   const handleLinkedAddTodo = useCallback(() => {
+    const eventId = currentEntityId;
     const spaceId = fullEntity?.space_id || initialSpaceId;
+    const eventDate = (fullEntity as any)?.target_date; // Event's date becomes todo's deadline
     onClose();
     setTimeout(() => {
-      globalOverlay.openCreate({ spaceId });
+      globalOverlay.openCreate({
+        type: 'todo',
+        spaceId,
+        initialEntity: {
+          type: 'todo',
+          linked_event_id: eventId,
+          target_date: eventDate, // Pre-populate deadline from event date
+        } as any,
+      });
     }, 100);
-  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId]);
+  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId, currentEntityId, fullEntity]);
 
   const handleLinkedAddNote = useCallback(() => {
+    const eventId = currentEntityId;
     const spaceId = fullEntity?.space_id || initialSpaceId;
     onClose();
     setTimeout(() => {
-      globalOverlay.openCreate({ spaceId });
+      globalOverlay.openCreate({
+        type: 'log',
+        spaceId,
+        initialEntity: { type: 'log', linked_event_id: eventId } as any,
+      });
     }, 100);
-  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId]);
+  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId, currentEntityId]);
 
   const handleLinkExisting = useCallback(() => {
     Alert.alert('Coming Soon', 'Linking existing items will be available in a future update.');
@@ -1702,8 +1720,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const handleLinkedEventChange = useCallback(
     (eventId: string | null) => {
       dispatch({ type: 'SET_LINKED_EVENT_ID', eventId });
+
+      // Auto-populate todo deadline from event date if todo doesn't have one
+      if (eventId && baseType === 'todo' && !state.todo.target_date) {
+        const event = getItemById(eventId);
+        const eventDate = (event as any)?.target_date;
+        if (eventDate) {
+          dispatch({ type: 'SET_TODO_TARGET_DATE', date: eventDate });
+        }
+      }
     },
-    [dispatch],
+    [dispatch, baseType, state.todo.target_date, getItemById],
   );
 
   // Clarification popup state (Phase 2)
@@ -2838,6 +2865,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const override = deriveBaseTypeFromInitial((initialEntity as any)?.type);
     const rawText = typeof initialText === 'string' ? initialText : '';
     const hasText = rawText.trim().length > 0;
+    const hasLinkedEventId = !!(initialEntity as any)?.linked_event_id;
 
     // Check for conversionMeta prefill (Idea → Todo/Habit conversion, Space Chat)
     const hasConversionMeta =
@@ -2849,7 +2877,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         conversionMeta.initialFrequency ||
         conversionMeta.initialDueDate); // ADD: Space Chat todo due date
 
-    if (!override && !hasText && !defaultDueToday && !hasConversionMeta) {
+    if (!override && !hasText && !defaultDueToday && !hasConversionMeta && !hasLinkedEventId) {
       createPrefillAppliedRef.current = true;
       return;
     }
@@ -2960,6 +2988,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       payload.todo = {
         ...(payload.todo || initialV2State.todo),
         due_at: todayISO,
+      };
+    }
+
+    // Apply linked_event_id from initialEntity (for "+ Add to-do" / "+ Add note" from events)
+    const linkedEventIdFromInitial = (initialEntity as any)?.linked_event_id;
+    if (linkedEventIdFromInitial) {
+      payload.linkedEventId = linkedEventIdFromInitial;
+    }
+
+    // Apply target_date from initialEntity for todos (event date becomes todo deadline)
+    const targetDateFromInitial = (initialEntity as any)?.target_date;
+    if (targetDateFromInitial && override === 'todo') {
+      payload.todo = {
+        ...(payload.todo || initialV2State.todo),
+        target_date: targetDateFromInitial,
       };
     }
 
@@ -4237,6 +4280,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const viewsWithDateIntelligence = {
         ...viewsWithPrivate,
         target_date: s.log.target_date ?? null,
+        end_date: s.log.end_date ?? null,
         event_time: s.log.event_time ?? null,
       };
 
@@ -4265,6 +4309,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // Checklist persistence - use isChecklistMode as the source of truth
         has_list: isChecklistMode,
         list_items: checklistItems,
+        // Key Dates: Date Intelligence fields (direct on note, not just views)
+        target_date: s.log.target_date ?? null,
+        end_date: s.log.end_date ?? null,
+        event_time: s.log.event_time ?? null,
         // Key Dates: Link to an event
         linked_event_id: s.linkedEventId ?? null,
       };
@@ -4349,6 +4397,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // Checklist persistence - use isChecklistMode as the source of truth
       has_list: isChecklistMode,
       list_items: checklistItems,
+      // Key Dates: Date Intelligence fields (direct on note)
+      target_date: s.log.target_date ?? null,
+      end_date: s.log.end_date ?? null,
+      event_time: s.log.event_time ?? null,
       // Key Dates: Link to an event
       linked_event_id: s.linkedEventId ?? null,
     };
@@ -4361,6 +4413,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setSaveError("You're offline — Save will keep the draft.");
       return;
     }
+
+    // Key Dates: Events require a target_date
+    if (isLog && effectiveLogSubtype === 'event' && !state.log.target_date) {
+      Alert.alert('Date required', 'Key dates must have a date set.');
+      return;
+    }
+
     setSaveError(null);
     setIsSaving(true);
     try {
@@ -5300,6 +5359,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             Created {formattedCreatedDate}
           </Text>
         )}
+
+        {/* Linked Items section for event notes in view mode */}
+        {isLog && effectiveLogSubtype === 'event' && currentEntityId && fullEntity?.space_id && (
+          <View style={{ marginTop: 24 }}>
+            <LinkedItemsSection
+              eventId={currentEntityId}
+              spaceId={fullEntity.space_id}
+              onItemPress={handleLinkedItemPress}
+              onAddTodo={handleLinkedAddTodo}
+              onAddNote={handleLinkedAddNote}
+              onLinkExisting={handleLinkExisting}
+            />
+          </View>
+        )}
+
+        {/* Chat with Gremly button for event notes in view mode */}
+        {isLog && effectiveLogSubtype === 'event' && currentEntityId && (
+          <View style={{ marginTop: 16 }}>
+            <EntityChatButton
+              entityId={currentEntityId}
+              entityType="note"
+              variant="overlay"
+              onPress={() => setShowEntityChat(true)}
+            />
+          </View>
+        )}
       </ScrollView>
     );
   };
@@ -5452,13 +5537,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         <View
                           style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}
                         >
-                          {mode === 'edit' && initialEntity?.id ? (
+                          {(mode === 'edit' && initialEntity?.id) ||
+                          (mode === 'create' && isLog) ? (
                             <TextInput
-                              value={state.compactTitle}
+                              value={mode === 'create' ? state.compactTitle : state.compactTitle}
                               onChangeText={(text) =>
                                 dispatch({ type: 'SET_COMPACT_TITLE', title: text })
                               }
-                              placeholder="Add title..."
+                              placeholder={mode === 'create' ? 'Add title...' : 'Add title...'}
                               placeholderTextColor="#999999"
                               style={{
                                 color: '#222222',
@@ -6474,6 +6560,98 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     </Pressable>
                                   </View>
                                 </View>
+
+                                {/* End Date for multi-day events - only shown for event subtype when start date is set */}
+                                {effectiveLogSubtype === 'event' && state.log.target_date && (
+                                  <View style={[styles.dueAndLockRow, { marginTop: 8 }]}>
+                                    <View style={styles.dueDateLeft}>
+                                      <Pressable
+                                        style={styles.dueDatePill}
+                                        onPress={() => {
+                                          setMoodPickerExpanded(false);
+                                          if (state.log.end_date) {
+                                            const parsed = getDateService().fromDateString(
+                                              state.log.end_date,
+                                            );
+                                            if (parsed) {
+                                              setSelectedDate(parsed);
+                                            }
+                                          } else {
+                                            // Default to day after start date
+                                            const startDate = getDateService().fromDateString(
+                                              state.log.target_date!,
+                                            );
+                                            if (startDate) {
+                                              const nextDay = new Date(startDate);
+                                              nextDay.setDate(nextDay.getDate() + 1);
+                                              setSelectedDate(nextDay);
+                                            } else {
+                                              setSelectedDate(new Date());
+                                            }
+                                          }
+                                          setDateModalTarget('note_end_date');
+                                          setShowDateModal(true);
+                                        }}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                          state.log.end_date
+                                            ? `End date: ${formatDueDay(state.log.end_date)}`
+                                            : 'Add end date'
+                                        }
+                                      >
+                                        <Calendar
+                                          size={16}
+                                          color={
+                                            state.log.end_date
+                                              ? colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.7)'
+                                                : '#666666'
+                                              : colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.5)'
+                                                : '#777777'
+                                          }
+                                          style={styles.dueDateIcon}
+                                        />
+                                        <Text
+                                          style={[
+                                            styles.dueDateText,
+                                            !state.log.end_date && {
+                                              color:
+                                                colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.5)'
+                                                  : '#777777',
+                                              fontWeight: '400',
+                                            },
+                                          ]}
+                                        >
+                                          {state.log.end_date
+                                            ? `End: ${formatDueDay(state.log.end_date)}`
+                                            : '+ End date (optional)'}
+                                        </Text>
+                                      </Pressable>
+                                      {/* Clear end date button */}
+                                      {state.log.end_date && (
+                                        <Pressable
+                                          onPress={() =>
+                                            dispatch({ type: 'SET_LOG_END_DATE', date: null })
+                                          }
+                                          style={{ marginLeft: 8, padding: 4 }}
+                                          accessibilityRole="button"
+                                          accessibilityLabel="Clear end date"
+                                        >
+                                          <X
+                                            size={14}
+                                            color={
+                                              colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.5)'
+                                                : '#999'
+                                            }
+                                          />
+                                        </Pressable>
+                                      )}
+                                    </View>
+                                  </View>
+                                )}
                               </Box>
                             )}
 
@@ -7661,6 +7839,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             {dateModalTarget === 'todo_deadline' && 'Set deadline'}
                             {dateModalTarget === 'todo_dodate' && 'Set do date'}
                             {dateModalTarget === 'note_event' && 'Set event date'}
+                            {dateModalTarget === 'note_end_date' && 'Set end date'}
                             {dateModalTarget === 'reminder' && 'Set reminder'}
                           </Text>
                           <Box mt={1}>
@@ -8042,6 +8221,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     } else {
                                       dispatch({ type: 'SET_LOG_TARGET_DATE', date: null });
                                       showDueToast('Event date cleared');
+                                    }
+                                  } else if (dateModalTarget === 'note_end_date') {
+                                    // End date for multi-day events
+                                    if (finalDate) {
+                                      const dateStr = getDateService().toDateString(finalDate);
+                                      dispatch({ type: 'SET_LOG_END_DATE', date: dateStr });
+                                      showDueToast(
+                                        `End date set for ${format(finalDate, 'MMM d')}`,
+                                      );
+                                    } else {
+                                      dispatch({ type: 'SET_LOG_END_DATE', date: null });
+                                      showDueToast('End date cleared');
                                     }
                                   }
 
@@ -10369,9 +10560,14 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 
   // Phase L8: Hydrate logSubtypeOverride from entity.subtype for logs
   const rawSubtype = (entity as any)?.subtype as string | undefined;
-  let logSubtypeOverride: 'journal' | 'idea' | 'general' | null = null;
+  let logSubtypeOverride: 'journal' | 'idea' | 'general' | 'list' | 'event' | null = null;
   if (baseType === 'log') {
-    if (rawSubtype === 'journal' || rawSubtype === 'idea') {
+    if (
+      rawSubtype === 'journal' ||
+      rawSubtype === 'idea' ||
+      rawSubtype === 'list' ||
+      rawSubtype === 'event'
+    ) {
       logSubtypeOverride = rawSubtype;
     } else {
       logSubtypeOverride = 'general';
@@ -10436,6 +10632,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       private: (entity as any)?.private ?? false, // Hydrate private field for logs (Phase L7)
       // Date Intelligence fields for notes
       target_date: (entity as any)?.target_date ?? (entity?.views as any)?.target_date ?? null,
+      end_date: (entity as any)?.end_date ?? (entity?.views as any)?.end_date ?? null,
       event_time: (entity as any)?.event_time ?? (entity?.views as any)?.event_time ?? null,
     },
     todo: {

@@ -4,8 +4,8 @@
  * Features:
  * - Collapsed by default (shows next upcoming event)
  * - Expanded shows all events with KeyDateRow
- * - "Add Key Date" button
- * - Empty state when no events
+ * - Simple "+ Add Key Date" link
+ * - Warm, scannable styling matching Space sections
  */
 
 import React, { useState, useMemo } from 'react';
@@ -14,7 +14,6 @@ import { Calendar, ChevronDown, ChevronUp, Plus } from 'lucide-react-native';
 import { format, parseISO } from 'date-fns';
 import { BRAND } from '../../design/brand';
 import { useEventsForSpace, useItemsLinkedToEvent } from '../../lib/store/selectors';
-import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import KeyDateRow from './KeyDateRow';
 import type { Note } from '../../lib/types';
 
@@ -22,15 +21,6 @@ export interface KeyDatesSectionProps {
   spaceId: string;
   onEventPress: (event: Note) => void;
   onAddPress: () => void;
-}
-
-/**
- * Helper component to get linked item count for an event
- * Uses the selector hook which requires being inside a component
- */
-function LinkedItemCount({ eventId }: { eventId: string }): number {
-  const linked = useItemsLinkedToEvent(eventId);
-  return linked.todos.length + linked.notes.length + linked.habits.length;
 }
 
 /**
@@ -54,64 +44,54 @@ export default function KeyDatesSection({
   // Get the next upcoming event (first one since they're sorted by date ascending)
   const nextEvent = events.length > 0 ? events[0] : null;
 
-  // Format the next event preview text
+  // Format the next event preview text: "Feb 12 · QBR"
   const nextEventPreview = useMemo(() => {
     if (!nextEvent || !nextEvent.target_date) return null;
     const date = parseISO(nextEvent.target_date);
     const dateStr = format(date, 'MMM d');
     const title = nextEvent.title || 'Untitled Event';
-    return `${title} — ${dateStr}`;
+    return `${dateStr} · ${title}`;
   }, [nextEvent]);
 
-  // Empty state
+  // Empty state - just show add link
   if (events.length === 0) {
     return (
       <View style={styles.container} testID="key-dates-section">
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <Calendar size={18} color={BRAND.colors.mossGreen} />
+            <Calendar size={16} color={BRAND.colors.inkMuted} />
             <Text style={styles.headerText}>Key Dates</Text>
           </View>
-        </View>
-
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyStateText}>No key dates yet</Text>
           <Pressable
-            style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}
+            style={({ pressed }) => [styles.addLink, pressed && { opacity: 0.6 }]}
             onPress={onAddPress}
+            hitSlop={8}
           >
-            <Plus size={16} color={BRAND.colors.mossGreen} />
-            <Text style={styles.addButtonText}>Add Key Date</Text>
+            <Plus size={14} color={BRAND.colors.mossGreen} />
+            <Text style={styles.addLinkText}>Add</Text>
           </Pressable>
         </View>
       </View>
     );
   }
 
-  // Collapsed state
+  // Collapsed state - show header with next event preview
   if (!expanded) {
     return (
       <View style={styles.container} testID="key-dates-section">
-        <Pressable style={styles.collapsedContainer} onPress={() => setExpanded(true)}>
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <Calendar size={18} color={BRAND.colors.mossGreen} />
-              <Text style={styles.headerText}>Key Dates ({events.length})</Text>
-            </View>
-            <View style={styles.headerRight}>
-              <Text style={styles.expandText}>Expand</Text>
-              <ChevronDown size={18} color={BRAND.colors.inkMuted} />
-            </View>
+        <Pressable style={styles.collapsedRow} onPress={() => setExpanded(true)}>
+          <View style={styles.headerLeft}>
+            <Calendar size={16} color={BRAND.colors.inkMuted} />
+            <Text style={styles.headerText}>
+              Key Dates <Text style={styles.countText}>({events.length})</Text>
+            </Text>
           </View>
-
           {nextEventPreview && (
-            <View style={styles.previewRow}>
-              <Text style={styles.previewLabel}>Next:</Text>
-              <Text style={styles.previewText} numberOfLines={1}>
-                {nextEventPreview}
-              </Text>
-            </View>
+            <Text style={styles.previewText} numberOfLines={1}>
+              {nextEventPreview}
+            </Text>
           )}
+          <ChevronDown size={16} color={BRAND.colors.inkMuted} />
         </Pressable>
       </View>
     );
@@ -121,15 +101,14 @@ export default function KeyDatesSection({
   return (
     <View style={styles.container} testID="key-dates-section">
       {/* Header */}
-      <Pressable style={styles.header} onPress={() => setExpanded(false)}>
+      <Pressable style={styles.expandedHeader} onPress={() => setExpanded(false)}>
         <View style={styles.headerLeft}>
-          <Calendar size={18} color={BRAND.colors.mossGreen} />
-          <Text style={styles.headerText}>Key Dates ({events.length})</Text>
+          <Calendar size={16} color={BRAND.colors.inkMuted} />
+          <Text style={styles.headerText}>
+            Key Dates <Text style={styles.countText}>({events.length})</Text>
+          </Text>
         </View>
-        <View style={styles.headerRight}>
-          <Text style={styles.expandText}>Collapse</Text>
-          <ChevronUp size={18} color={BRAND.colors.inkMuted} />
-        </View>
+        <ChevronUp size={16} color={BRAND.colors.inkMuted} />
       </Pressable>
 
       {/* Event list */}
@@ -139,17 +118,18 @@ export default function KeyDatesSection({
         ))}
       </View>
 
-      {/* Add button */}
+      {/* Add link */}
       <Pressable
         style={({ pressed }) => [
-          styles.addButton,
-          styles.addButtonExpanded,
-          pressed && { opacity: 0.7 },
+          styles.addLink,
+          styles.addLinkExpanded,
+          pressed && { opacity: 0.6 },
         ]}
         onPress={onAddPress}
+        hitSlop={8}
       >
-        <Plus size={16} color={BRAND.colors.mossGreen} />
-        <Text style={styles.addButtonText}>Add Key Date</Text>
+        <Plus size={14} color={BRAND.colors.mossGreen} />
+        <Text style={styles.addLinkText}>Add Key Date</Text>
       </Pressable>
     </View>
   );
@@ -157,14 +137,8 @@ export default function KeyDatesSection({
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 16,
-    marginHorizontal: 16,
-    backgroundColor: BRAND.colors.sageMist + '30', // 30% opacity
-    borderRadius: BRAND.radius.lg,
-    padding: 16,
-  },
-  collapsedContainer: {
-    // Additional styles for collapsed state if needed
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   header: {
     flexDirection: 'row',
@@ -174,67 +148,46 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+  },
+  headerText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BRAND.colors.inkMuted,
+  },
+  countText: {
+    fontWeight: '400',
+  },
+  collapsedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
-  headerRight: {
+  previewText: {
+    flex: 1,
+    fontSize: 14,
+    color: BRAND.colors.charcoalInk,
+    marginLeft: 8,
+  },
+  expandedHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  eventList: {
+    paddingLeft: 22, // Align with header text (icon width + gap)
+  },
+  addLink: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  headerText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
+  addLinkExpanded: {
+    paddingLeft: 22,
+    marginTop: 4,
   },
-  expandText: {
-    fontSize: 13,
-    color: BRAND.colors.inkMuted,
-  },
-  previewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 6,
-  },
-  previewLabel: {
-    fontSize: 13,
-    color: BRAND.colors.inkMuted,
-  },
-  previewText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-    flex: 1,
-  },
-  eventList: {
-    marginTop: 12,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 16,
-    gap: 12,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
-    borderStyle: 'dashed',
-  },
-  addButtonExpanded: {
-    marginTop: 8,
-  },
-  addButtonText: {
+  addLinkText: {
     fontSize: 14,
     fontWeight: '500',
     color: BRAND.colors.mossGreen,

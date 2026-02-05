@@ -1681,7 +1681,9 @@ export const selectEventsForSpace = createSelector(
   [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
   (notes, spaceId) =>
     notes
-      .filter((n) => n.subtype === 'event' && n.space_id === spaceId && !n.archived)
+      .filter(
+        (n) => n.subtype === 'event' && n.space_id === spaceId && !n.archived && n.target_date,
+      )
       .sort((a, b) => {
         // Sort by target_date ascending (earliest first)
         const dateA = a.target_date || '';
@@ -1723,6 +1725,28 @@ export const selectUpcomingEventsForSpace = createSelector([selectEventsForSpace
 
 export const useUpcomingEventsForSpace = (spaceId: string) =>
   useGremlyStore((state) => selectUpcomingEventsForSpace(state, spaceId));
+
+/** Events occurring on a specific date (single-day or multi-day spanning that date) */
+export const selectEventsForDate = createSelector(
+  [selectNotes, (_state: GremlyState, date: string) => date],
+  (notes, date) =>
+    notes.filter((n) => {
+      if (n.subtype !== 'event' || n.archived) return false;
+
+      // Single day event: target_date matches
+      if (n.target_date === date) return true;
+
+      // Multi-day event: date falls within range
+      if (n.target_date && n.end_date) {
+        return date >= n.target_date && date <= n.end_date;
+      }
+
+      return false;
+    }),
+);
+
+export const useEventsForDate = (date: string) =>
+  useGremlyStore((state) => selectEventsForDate(state, date));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ITEM LOOKUP SELECTORS (for Mind Drop / CatchAllNotepad)

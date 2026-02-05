@@ -1,10 +1,13 @@
 /**
  * KeyDateRow - Renders a single event note row in the Key Dates section
+ *
+ * Simple, warm list-item styling that matches Gremly's aesthetic.
+ * Format: "Feb 12 · QBR" with subtle left accent for today's events.
  */
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { format, parseISO, isToday, isPast } from 'date-fns';
+import { format, parseISO, isToday, isPast, differenceInDays } from 'date-fns';
 import { BRAND } from '../../design/brand';
 import type { Note } from '../../lib/types';
 
@@ -16,32 +19,31 @@ export interface KeyDateRowProps {
 
 /**
  * Format the date display for a key date
- * Returns "Feb 18" or "Feb 18-22" if end_date exists
+ * Returns "Feb 18" or "3 days" for multi-day events
  */
-function formatDateRange(targetDate: string, endDate?: string | null): string {
+function formatDateDisplay(targetDate: string, endDate?: string | null): string {
   const startDate = parseISO(targetDate);
   const formattedStart = format(startDate, 'MMM d');
 
   if (endDate) {
     const end = parseISO(endDate);
-    // If same month, show "Feb 18-22", otherwise "Feb 18 - Mar 2"
-    if (startDate.getMonth() === end.getMonth()) {
-      return `${formattedStart}-${format(end, 'd')}`;
+    const days = differenceInDays(end, startDate) + 1;
+    if (days > 1) {
+      return `${formattedStart} (${days} days)`;
     }
-    return `${formattedStart} - ${format(end, 'MMM d')}`;
   }
 
   return formattedStart;
 }
 
 /**
- * Format time for display (e.g., "14:00" -> "2:00 PM")
+ * Format time for display (e.g., "14:00" -> "2pm")
  */
 function formatEventTime(time: string): string {
-  const [hours, minutes] = time.split(':').map(Number);
-  const period = hours >= 12 ? 'PM' : 'AM';
+  const [hours] = time.split(':').map(Number);
+  const period = hours >= 12 ? 'pm' : 'am';
   const displayHours = hours % 12 || 12;
-  return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+  return `${displayHours}${period}`;
 }
 
 export default function KeyDateRow({ event, onPress, linkedItemCount = 0 }: KeyDateRowProps) {
@@ -55,111 +57,113 @@ export default function KeyDateRow({ event, onPress, linkedItemCount = 0 }: KeyD
   const isTodayEvent = isToday(parsedDate);
   const isPastEvent = isPast(parsedDate) && !isTodayEvent;
 
-  const dateDisplay = formatDateRange(targetDate, event.end_date);
+  const dateDisplay = formatDateDisplay(targetDate, event.end_date);
   const eventName = event.title || 'Untitled Event';
 
-  // Right side: time if exists, otherwise linked item count
-  let rightContent: string | null = null;
+  // Build the suffix: time or linked count
+  let suffix = '';
   if (event.event_time) {
-    rightContent = formatEventTime(event.event_time);
+    suffix = ` · ${formatEventTime(event.event_time)}`;
   } else if (linkedItemCount > 0) {
-    rightContent = `${linkedItemCount} item${linkedItemCount > 1 ? 's' : ''}`;
+    suffix = ` · ${linkedItemCount} item${linkedItemCount > 1 ? 's' : ''}`;
   }
 
   return (
     <Pressable
       style={({ pressed }) => [
-        styles.container,
-        isTodayEvent && styles.todayContainer,
-        isPastEvent && styles.pastContainer,
+        styles.row,
+        isTodayEvent && styles.todayRow,
+        isPastEvent && styles.pastRow,
         pressed && styles.pressed,
       ]}
       onPress={() => onPress(event)}
+      accessibilityRole="button"
+      accessibilityLabel={`${eventName}, ${dateDisplay}`}
     >
+      {/* Left accent line for today */}
+      {isTodayEvent && <View style={styles.todayAccent} />}
+
       {/* Date */}
-      <View style={styles.dateColumn}>
-        <Text
-          style={[
-            styles.dateText,
-            isTodayEvent && styles.todayText,
-            isPastEvent && styles.pastText,
-          ]}
-        >
-          {dateDisplay}
-        </Text>
-      </View>
+      <Text
+        style={[
+          styles.dateText,
+          isTodayEvent && styles.todayDateText,
+          isPastEvent && styles.pastText,
+        ]}
+      >
+        {dateDisplay}
+      </Text>
+
+      {/* Separator dot */}
+      <Text style={[styles.separator, isPastEvent && styles.pastText]}>·</Text>
 
       {/* Event name */}
-      <View style={styles.nameColumn}>
-        <Text
-          style={[styles.nameText, isPastEvent && styles.pastText]}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {eventName}
-        </Text>
-      </View>
+      <Text
+        style={[styles.nameText, isPastEvent && styles.pastText]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
+        {eventName}
+      </Text>
 
-      {/* Right side: time or linked count */}
-      {rightContent && (
-        <View style={styles.rightColumn}>
-          <Text style={[styles.rightText, isPastEvent && styles.pastText]}>{rightContent}</Text>
-        </View>
-      )}
+      {/* Suffix (time or linked count) */}
+      {suffix ? (
+        <Text style={[styles.suffixText, isPastEvent && styles.pastText]}>{suffix}</Text>
+      ) : null}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    marginBottom: 8,
-    ...BRAND.elevation.one,
+    height: 38,
+    paddingLeft: 0,
   },
-  todayContainer: {
-    borderLeftWidth: 3,
-    borderLeftColor: BRAND.colors.goldenPear,
+  todayRow: {
+    paddingLeft: 0,
   },
-  pastContainer: {
-    opacity: 0.5,
+  pastRow: {
+    opacity: 0.6,
   },
   pressed: {
     opacity: 0.7,
   },
-  dateColumn: {
-    width: 72,
-    marginRight: 12,
+  todayAccent: {
+    width: 3,
+    height: 20,
+    backgroundColor: BRAND.colors.goldenPear,
+    borderRadius: 1.5,
+    marginRight: 8,
   },
   dateText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    minWidth: 48,
   },
-  todayText: {
+  todayDateText: {
     color: BRAND.colors.goldenPear,
+    fontWeight: '500',
+  },
+  separator: {
+    fontSize: 14,
+    color: BRAND.colors.inkSubtle,
+    marginHorizontal: 6,
+  },
+  nameText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    flex: 1,
+  },
+  suffixText: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    marginLeft: 4,
   },
   pastText: {
     color: BRAND.colors.inkMuted,
-  },
-  nameColumn: {
-    flex: 1,
-    marginRight: 8,
-  },
-  nameText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  rightColumn: {
-    flexShrink: 0,
-  },
-  rightText: {
-    fontSize: 13,
-    color: BRAND.colors.inkSubtle,
   },
 });

@@ -71,7 +71,7 @@ export interface ClarificationFields {
  * - 'idea' → 'idea'
  * - 'general' → 'catchall'
  */
-export type LogSubtype = 'journal' | 'idea' | 'general';
+export type LogSubtype = 'journal' | 'idea' | 'general' | 'event';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
 export type Cadence = 'daily' | 'weekly' | 'monthly';

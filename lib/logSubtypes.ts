@@ -14,6 +14,8 @@ export function persistedNoteSubtypeToLogSubtype(subtype?: string | null): LogSu
       return 'journal';
     case 'idea':
       return 'idea';
+    case 'event':
+      return 'event';
     default:
       return 'general'; // All other note subtypes map to log-general
   }
