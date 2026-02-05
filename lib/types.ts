@@ -435,6 +435,25 @@ export interface Space {
 }
 
 /**
+ * SpaceSuggestion - AI-generated suggestions for organizing unassigned items into Spaces
+ * Generated nightly by the inngest-jobs worker
+ */
+export interface SpaceSuggestion {
+  id: ID;
+  user_id: ID;
+  suggestion_type: 'assign_to_space' | 'new_space';
+  space_id: ID | null; // For assign_to_space type - references existing space
+  suggested_name: string | null; // For new_space type - proposed name
+  reason: string | null; // AI-generated explanation for the suggestion
+  drop_ids: ID[]; // Array of todo/note/habit IDs this suggestion applies to
+  confidence: number; // 0.0 to 1.0 confidence score from AI
+  status: 'pending' | 'accepted' | 'dismissed' | 'expired';
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+  acted_on_at: string | null; // ISO 8601 - when user accepted/dismissed
+}
+
+/**
  * SpaceMilestone - goal/direction for a Space journey
  * Phase 12: Redesigned for "Spaces as dashboards for journeys"
  *

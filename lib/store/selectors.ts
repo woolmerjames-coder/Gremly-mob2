@@ -1,7 +1,7 @@
 import { createSelector } from 'reselect';
 import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore, isHabitLockedIn, type HabitProgressRow } from './useGremlyStore';
-import type { Todo, Habit, Note, Space } from '../types';
+import type { Todo, Habit, Note, Space, SpaceSuggestion } from '../types';
 import type {
   SweepCandidate,
   SweepCandidateTodo,
@@ -60,6 +60,7 @@ const selectSpaceChatMessages = (state: GremlyState) => state.spaceChatMessages;
 const selectMilestones = (state: GremlyState) => state.milestones;
 const selectIsLoading = (state: GremlyState) => state.isLoading;
 const selectIsInitialized = (state: GremlyState) => state.isInitialized;
+const selectSpaceSuggestions = (state: GremlyState) => state.spaceSuggestions;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // HABIT COMPLETION TRACKING
@@ -2190,4 +2191,89 @@ export function useSpacePendingDrops(spaceId: string | null): PendingDrop[] {
       return drops;
     }),
   );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPACE SUGGESTIONS SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Get all pending "new_space" suggestions
+ * These are suggestions to create a new space from unassigned drops
+ */
+export const selectNewSpaceSuggestions = createSelector(
+  [selectSpaceSuggestions],
+  (suggestions): SpaceSuggestion[] => {
+    return suggestions.filter((s) => s.suggestion_type === 'new_space' && s.status === 'pending');
+  },
+);
+
+/**
+ * Hook to get new space suggestions from store
+ */
+export function useNewSpaceSuggestions(): SpaceSuggestion[] {
+  return useGremlyStore(useShallow((state) => selectNewSpaceSuggestions(state)));
+}
+
+/**
+ * Get pending "assign_to_space" suggestions for a specific space
+ * These are suggestions to assign unassigned drops to an existing space
+ */
+export const selectAssignmentSuggestionsForSpace = createSelector(
+  [selectSpaceSuggestions, (_state: GremlyState, spaceId: string) => spaceId],
+  (suggestions, spaceId): SpaceSuggestion[] => {
+    return suggestions.filter(
+      (s) =>
+        s.suggestion_type === 'assign_to_space' && s.space_id === spaceId && s.status === 'pending',
+    );
+  },
+);
+
+/**
+ * Hook to get assignment suggestions for a specific space
+ */
+export function useAssignmentSuggestionsForSpace(spaceId: string): SpaceSuggestion[] {
+  return useGremlyStore(useShallow((state) => selectAssignmentSuggestionsForSpace(state, spaceId)));
+}
+
+/**
+ * Entity union type for selectEntitiesByIds
+ */
+export type DropEntity = (Todo | Note | Habit) & { _type: 'todo' | 'note' | 'habit' };
+
+/**
+ * Get entities (todos, notes, habits) by an array of IDs
+ * Useful for resolving drop_ids from a SpaceSuggestion
+ */
+export const selectEntitiesByIds = createSelector(
+  [selectTodos, selectNotes, selectHabits, (_state: GremlyState, dropIds: string[]) => dropIds],
+  (todos, notes, habits, dropIds): DropEntity[] => {
+    const idSet = new Set(dropIds);
+    const entities: DropEntity[] = [];
+
+    for (const todo of todos) {
+      if (idSet.has(todo.id)) {
+        entities.push({ ...todo, _type: 'todo' });
+      }
+    }
+    for (const note of notes) {
+      if (idSet.has(note.id)) {
+        entities.push({ ...note, _type: 'note' });
+      }
+    }
+    for (const habit of habits) {
+      if (idSet.has(habit.id)) {
+        entities.push({ ...habit, _type: 'habit' });
+      }
+    }
+
+    return entities;
+  },
+);
+
+/**
+ * Hook to get entities by IDs
+ */
+export function useEntitiesByIds(dropIds: string[]): DropEntity[] {
+  return useGremlyStore(useShallow((state) => selectEntitiesByIds(state, dropIds)));
 }
