@@ -12,7 +12,7 @@ const TEXT_AREA_MAX_HEIGHT = Math.round(SCREEN_HEIGHT * 0.4);
 
 export type OverlayExpandedEditorProps = {
   baseType: BaseType; // 'log' | 'todo' | 'habit'
-  effectiveLogSubtype: 'journal' | 'idea' | 'general' | 'list' | null;
+  effectiveLogSubtype: 'journal' | 'idea' | 'general' | 'list' | 'event' | null;
   text: string;
   onChangeText: (text: string) => void;
   colorMode: ReturnType<typeof useColorScheme> | 'light' | 'dark' | null;

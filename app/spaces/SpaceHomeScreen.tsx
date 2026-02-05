@@ -45,7 +45,7 @@ import {
   selectIsHabitDoneToday,
   useSpacePendingDrops,
 } from '../../lib/store/selectors';
-import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
+import type { Space, SpaceChat, AppRecord, RecordType, Note } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import { startOfWeek, formatISO, addDays } from 'date-fns';
 import { getDateService } from '../../lib/date';
@@ -112,6 +112,7 @@ import {
   GuidesLogsSection,
 } from '../../components/spaces/sections';
 import { SectionDivider } from '../../components/spaces/sections/SectionDivider';
+import KeyDatesSection from '../../components/spaces/KeyDatesSection';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
@@ -823,6 +824,20 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     },
     [overlay, spaceId],
   );
+
+  // Key Dates: Handle event press (opens view mode)
+  const handleKeyDatePress = useCallback(
+    (event: Note) => {
+      overlay.openView({ record: event, spaceId });
+    },
+    [overlay, spaceId],
+  );
+
+  // Key Dates: Handle add event (opens create mode for log/note)
+  // Phase 3 will add proper event subtype handling in the overlay
+  const handleAddKeyDate = useCallback(() => {
+    overlay.openCreate({ spaceId, type: 'log' });
+  }, [overlay, spaceId]);
 
   // Phase 6: Handle attach existing completion
   const handleAttachExistingComplete = useCallback(() => {
@@ -1618,6 +1633,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             ))}
 
             {/* Zone A removed - Add to Space moved to persistent bottom bar */}
+
+            {/* Key Dates Section */}
+            <KeyDatesSection
+              spaceId={spaceId}
+              onEventPress={handleKeyDatePress}
+              onAddPress={handleAddKeyDate}
+            />
 
             {/* ═══════════════════════════════════════════════════════════════════
                 ZONE B — Phase 12 Content Sections

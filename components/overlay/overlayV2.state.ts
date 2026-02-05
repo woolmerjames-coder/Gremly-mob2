@@ -156,6 +156,8 @@ export type V2State = {
   logIsPrivate: boolean;
   // UI-only: Checklist formatting mode (applies to log, todo, habit)
   isChecklistMode: boolean;
+  // Key Dates: Link to an event note
+  linkedEventId: string | null;
 };
 
 export const initialV2State: V2State = {
@@ -203,6 +205,7 @@ export const initialV2State: V2State = {
   logSubtypeOverride: null, // Phase L8: Manual log subtype override
   logIsPrivate: false, // Phase L9: Private flag for journal logs
   isChecklistMode: false, // UI-only: Checklist formatting mode
+  linkedEventId: null, // Key Dates: Link to an event note
 };
 
 type Action =
@@ -248,6 +251,7 @@ type Action =
   | { type: 'SET_LOG_IS_PRIVATE'; value: boolean }
   | { type: 'SET_CHECKLIST_MODE'; enabled: boolean }
   | { type: 'TOGGLE_CHECKLIST_MODE' }
+  | { type: 'SET_LINKED_EVENT_ID'; eventId: string | null }
   | { type: 'PUSH_UNDO'; entry: { kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> } }
   | { type: 'UNDO_LAST' }
   | { type: 'RESET' };
@@ -530,6 +534,8 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, isChecklistMode: action.enabled };
     case 'TOGGLE_CHECKLIST_MODE':
       return { ...state, isChecklistMode: !state.isChecklistMode };
+    case 'SET_LINKED_EVENT_ID':
+      return { ...state, linkedEventId: action.eventId };
     default:
       return state;
   }

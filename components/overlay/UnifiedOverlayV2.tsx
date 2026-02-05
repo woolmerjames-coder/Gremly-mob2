@@ -71,7 +71,7 @@ import {
   borderRadius as tokenRadius,
 } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { selectItemById, useActiveSpaces } from '../../lib/store/selectors';
+import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
 import { useAuth } from '../../providers/AuthProvider';
 import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
@@ -141,6 +141,10 @@ import HabitViewMode from './HabitViewMode';
 // Entity Chat
 import { EntityChatButton, EntityChatScreen, EntityNotesSection, EntityNotesModal } from '../chat';
 import { ChecklistProgress } from './ChecklistProgress';
+
+// Linked Items for Events
+import LinkedItemsSection from './LinkedItemsSection';
+import LinkedEventPicker from './LinkedEventPicker';
 import { RevertToTextButton } from './RevertToTextButton';
 import { TodoPreviewModal } from './TodoPreviewModal';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
@@ -1075,12 +1079,16 @@ function formatLogTimestamp(mode: 'create' | 'edit' | 'view', entity: any | null
 
 // Helper to get log subtype chip label
 // Note: 'list' is legacy for backward compatibility - checklist mode is now separate
-function getLogSubtypeChipLabel(subtype: 'journal' | 'idea' | 'general' | 'list'): string {
+function getLogSubtypeChipLabel(
+  subtype: 'journal' | 'idea' | 'general' | 'list' | 'event',
+): string {
   switch (subtype) {
     case 'journal':
       return 'Journal';
     case 'idea':
       return 'Idea';
+    case 'event':
+      return 'Event';
     case 'list':
       return 'Note'; // Legacy 'list' subtype displays as Note; checklist is separate toggle
     case 'general':
@@ -1504,7 +1512,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Phase L8: Derive effective log subtype from manual override or entity subtype or detected tags
   // Priority order: manual override > tags > entity subtype > fallback
-  const effectiveLogSubtype: 'journal' | 'idea' | 'general' | 'list' = useMemo(() => {
+  const effectiveLogSubtype: 'journal' | 'idea' | 'general' | 'list' | 'event' = useMemo(() => {
     if (!isLog) return 'general';
 
     // 1. Manual override takes HIGHEST precedence (user explicitly chose)
@@ -1517,7 +1525,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       rawSubtype === 'journal' ||
       rawSubtype === 'idea' ||
       rawSubtype === 'general' ||
-      rawSubtype === 'list'
+      rawSubtype === 'list' ||
+      rawSubtype === 'event'
     ) {
       return rawSubtype;
     }
@@ -1527,6 +1536,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Journal detection for mood selector (Phase L4) - now uses effectiveLogSubtype
   const isJournal = isLog && effectiveLogSubtype === 'journal';
+
+  // Event note detection for LinkedItemsSection
+  const isEventNote = isLog && effectiveLogSubtype === 'event' && !!currentEntityId;
+
+  // LinkedEventPicker: Check if current space has events
+  // Resolve spaceId from state (explicit) or entity (fallback)
+  const effectiveSpaceId = state.spaceId ?? fullEntity?.space_id ?? initialSpaceId ?? null;
+  const spaceHasEvents = useSpaceHasEvents(effectiveSpaceId ?? '');
+  // Show LinkedEventPicker when:
+  // - Entity has a space_id with events
+  // - Entity is NOT itself an event (subtype !== 'event')
+  const showLinkedEventPicker =
+    !!effectiveSpaceId &&
+    spaceHasEvents &&
+    effectiveLogSubtype !== 'event' &&
+    !(baseType === 'habit' && state.habit.subtype === 'break_habit'); // Don't show for break habits
 
   // Phase L9: Show Private toggle only for journal logs
   const showLogPrivateToggle = baseType === 'log' && effectiveLogSubtype === 'journal';
@@ -1639,6 +1664,47 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Entity Chat state
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [showNotesModal, setShowNotesModal] = useState(false);
+
+  // LinkedItemsSection handlers for event notes
+  const handleLinkedItemPress = useCallback(
+    (item: any) => {
+      const itemSpaceId = item.space_id || fullEntity?.space_id || initialSpaceId;
+      onClose();
+      // Small delay to let current overlay close before opening new one
+      setTimeout(() => {
+        globalOverlay.openView({ record: item, spaceId: itemSpaceId });
+      }, 100);
+    },
+    [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId],
+  );
+
+  const handleLinkedAddTodo = useCallback(() => {
+    const spaceId = fullEntity?.space_id || initialSpaceId;
+    onClose();
+    setTimeout(() => {
+      globalOverlay.openCreate({ spaceId });
+    }, 100);
+  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId]);
+
+  const handleLinkedAddNote = useCallback(() => {
+    const spaceId = fullEntity?.space_id || initialSpaceId;
+    onClose();
+    setTimeout(() => {
+      globalOverlay.openCreate({ spaceId });
+    }, 100);
+  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId]);
+
+  const handleLinkExisting = useCallback(() => {
+    Alert.alert('Coming Soon', 'Linking existing items will be available in a future update.');
+  }, []);
+
+  // Handler for LinkedEventPicker changes
+  const handleLinkedEventChange = useCallback(
+    (eventId: string | null) => {
+      dispatch({ type: 'SET_LINKED_EVENT_ID', eventId });
+    },
+    [dispatch],
+  );
 
   // Clarification popup state (Phase 2)
   const [showClarificationPopup, setShowClarificationPopup] = useState(false);
@@ -3741,7 +3807,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     existingEntity?: any,
     photoUri?: string | null, // Phase L3: Photo support
     moodsParam?: Mood[], // Phase L4: Multi-select moods for journals
-    effectiveLogSubtype?: 'journal' | 'idea' | 'general' | 'list', // Phase L8: Manual log subtype
+    effectiveLogSubtype?: 'journal' | 'idea' | 'general' | 'list' | 'event', // Phase L8: Manual log subtype
   ) {
     const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
 
@@ -3942,6 +4008,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
+          // Key Dates: Link to an event
+          linked_event_id: s.linkedEventId ?? null,
         };
       }
 
@@ -4001,6 +4069,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
         },
+        // Key Dates: Link to an event
+        linked_event_id: s.linkedEventId ?? null,
       };
     }
     if (baseType === 'habit') {
@@ -4057,6 +4127,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
+          // Key Dates: Link to an event
+          linked_event_id: s.linkedEventId ?? null,
         };
       }
 
@@ -4103,6 +4175,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
         },
+        // Key Dates: Link to an event
+        linked_event_id: s.linkedEventId ?? null,
       };
     }
 
@@ -4191,6 +4265,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // Checklist persistence - use isChecklistMode as the source of truth
         has_list: isChecklistMode,
         list_items: checklistItems,
+        // Key Dates: Link to an event
+        linked_event_id: s.linkedEventId ?? null,
       };
     }
 
@@ -4273,6 +4349,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // Checklist persistence - use isChecklistMode as the source of truth
       has_list: isChecklistMode,
       list_items: checklistItems,
+      // Key Dates: Link to an event
+      linked_event_id: s.linkedEventId ?? null,
     };
   }
 
@@ -6055,6 +6133,31 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Box>
                           )}
 
+                          {/* Linked Items section for event notes */}
+                          {isEventNote && fullEntity?.space_id && (
+                            <Box px={4}>
+                              <LinkedItemsSection
+                                eventId={currentEntityId}
+                                spaceId={fullEntity.space_id}
+                                onItemPress={handleLinkedItemPress}
+                                onAddTodo={handleLinkedAddTodo}
+                                onAddNote={handleLinkedAddNote}
+                                onLinkExisting={handleLinkExisting}
+                              />
+                            </Box>
+                          )}
+
+                          {/* LinkedEventPicker for notes (non-event) - show when space has events */}
+                          {isLog && !isEventNote && showLinkedEventPicker && effectiveSpaceId && (
+                            <Box px={4} mt={3}>
+                              <LinkedEventPicker
+                                spaceId={effectiveSpaceId}
+                                currentEventId={state.linkedEventId}
+                                onChange={handleLinkedEventChange}
+                              />
+                            </Box>
+                          )}
+
                           {/* Entity Chat & Notes buttons - side by side */}
                           {currentEntityId && (
                             <View
@@ -6656,6 +6759,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               </Box>
                             ) : null}
 
+                            {/* LinkedEventPicker for todos - show when space has events */}
+                            {baseType === 'todo' && showLinkedEventPicker && effectiveSpaceId && (
+                              <Box mt={3} px={0}>
+                                <LinkedEventPicker
+                                  spaceId={effectiveSpaceId}
+                                  currentEventId={state.linkedEventId}
+                                  onChange={handleLinkedEventChange}
+                                />
+                              </Box>
+                            )}
+
                             {/* Frequency row for habits */}
                             {baseType === 'habit' ? (
                               <Box mt={3} px={0}>
@@ -6786,6 +6900,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 </View>
                               </Box>
                             ) : null}
+
+                            {/* LinkedEventPicker for habits - show when space has events */}
+                            {baseType === 'habit' && showLinkedEventPicker && effectiveSpaceId && (
+                              <Box mt={3} px={0}>
+                                <LinkedEventPicker
+                                  spaceId={effectiveSpaceId}
+                                  currentEventId={state.linkedEventId}
+                                  onChange={handleLinkedEventChange}
+                                />
+                              </Box>
+                            )}
 
                             <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 12 }}>
                               <Pressable
@@ -10197,6 +10322,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       spaceId: (entity as any)?.space_id ?? null,
       logSubtypeOverride: null, // Phase L8: Default for habits
       logIsPrivate: false, // Phase L9: Default for habits
+      // Key Dates: Link to an event
+      linkedEventId: (entity as any)?.linked_event_id ?? null,
     };
   }
 
@@ -10362,6 +10489,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       (entity?.has_list === true || // User explicitly saved as list
         (entity?.has_list == null && // Not explicitly set yet - auto-detect
           (looksLikeSimpleCommaList(logBody) || looksLikeChecklistMarkup(logBody)))),
+    // Key Dates: Link to an event
+    linkedEventId: (entity as any)?.linked_event_id ?? null,
   };
 
   return payload;
