@@ -2621,7 +2621,7 @@ export const useGremlyStore = create<GremlyState>()(
       // 2. SYNC TO SUPABASE
       const { error } = await supabase
         .from('space_suggestions')
-        .update({ status: 'accepted', acted_on_at: now, updated_at: now })
+        .update({ status: 'accepted', updated_at: now })
         .eq('id', suggestionId);
 
       if (error) {
@@ -2648,7 +2648,7 @@ export const useGremlyStore = create<GremlyState>()(
       // 2. SYNC TO SUPABASE
       const { error } = await supabase
         .from('space_suggestions')
-        .update({ status: 'dismissed', acted_on_at: now, updated_at: now })
+        .update({ status: 'dismissed', updated_at: now })
         .eq('id', suggestionId);
 
       if (error) {

@@ -84,7 +84,9 @@ const synthesizeUserProfiles = inngest.createFunction(
       else profilesFailed++;
     }
 
-    console.log(`[SynthesizeProfiles] Complete: ${profilesSucceeded} succeeded, ${profilesFailed} failed`);
+    console.log(
+      `[SynthesizeProfiles] Complete: ${profilesSucceeded} succeeded, ${profilesFailed} failed`,
+    );
 
     // Step 3: Generate space suggestions for each user
     let suggestionsSucceeded = 0;
@@ -99,7 +101,9 @@ const synthesizeUserProfiles = inngest.createFunction(
       else suggestionsFailed++;
     }
 
-    console.log(`[SpaceSuggestions] Complete: ${suggestionsSucceeded} succeeded, ${suggestionsFailed} failed`);
+    console.log(
+      `[SpaceSuggestions] Complete: ${suggestionsSucceeded} succeeded, ${suggestionsFailed} failed`,
+    );
 
     return {
       processed: activeUsers.length,
@@ -583,10 +587,16 @@ async function generateSpaceSuggestions(userId, env) {
 
     // Step 2: Fetch ALL user's spaces (including disable_suggestions flag)
     const spacesResponse = await fetch(
-      `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name,goal,target_date,disable_suggestions`,
+      `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name,disable_suggestions`,
       { headers },
     );
-    const allSpaces = await spacesResponse.json();
+    const allSpacesData = await spacesResponse.json();
+
+    // Ensure we have an array (Supabase returns error object on failure)
+    const allSpaces = Array.isArray(allSpacesData) ? allSpacesData : [];
+    if (!Array.isArray(allSpacesData)) {
+      console.error('[SpaceSuggestions] Spaces query failed:', allSpacesData);
+    }
 
     // Step 3: Fetch unassigned drops (last 14 days) with views data
     const fourteenDaysAgo = formatDateOnly(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000));
@@ -648,7 +658,9 @@ async function generateSpaceSuggestions(userId, env) {
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 100);
 
-    console.log(`[SpaceSuggestions] Found ${allSpaces.length} spaces, ${unassignedDrops.length} unassigned drops`);
+    console.log(
+      `[SpaceSuggestions] Found ${allSpaces.length} spaces, ${unassignedDrops.length} unassigned drops`,
+    );
 
     // Step 4: Check skip conditions
     if (unassignedDrops.length < 3) {
@@ -668,11 +680,17 @@ async function generateSpaceSuggestions(userId, env) {
     console.log(`[SpaceSuggestions] Built profiles for ${spaceProfiles.length} spaces`);
 
     // Step 6: Call AI to generate suggestions
-    const aiSuggestions = await callAIForSpaceSuggestions(spaceProfiles, unassignedDrops, env.OPENAI_API_KEY);
+    const aiSuggestions = await callAIForSpaceSuggestions(
+      spaceProfiles,
+      unassignedDrops,
+      env.OPENAI_API_KEY,
+    );
 
     const assignCount = aiSuggestions.assign_to_existing?.length || 0;
     const newSpaceCount = aiSuggestions.suggest_new_spaces?.length || 0;
-    console.log(`[SpaceSuggestions] AI response: ${assignCount} assign suggestions, ${newSpaceCount} new space suggestions`);
+    console.log(
+      `[SpaceSuggestions] AI response: ${assignCount} assign suggestions, ${newSpaceCount} new space suggestions`,
+    );
 
     // Step 7: Validate suggestions
     const validSpaceIds = new Set(spacesForSuggestions.map((s) => s.id));
@@ -689,7 +707,9 @@ async function generateSpaceSuggestions(userId, env) {
       const originalCount = s.drop_ids?.length || 0;
       s.drop_ids = (s.drop_ids || []).filter((id) => validDropIds.has(id));
       if (s.drop_ids.length < originalCount) {
-        console.warn(`[SpaceSuggestions] Filtered ${originalCount - s.drop_ids.length} invalid drop_ids`);
+        console.warn(
+          `[SpaceSuggestions] Filtered ${originalCount - s.drop_ids.length} invalid drop_ids`,
+        );
       }
       return s.drop_ids.length > 0;
     });
@@ -702,7 +722,9 @@ async function generateSpaceSuggestions(userId, env) {
       const originalCount = s.drop_ids?.length || 0;
       s.drop_ids = (s.drop_ids || []).filter((id) => validDropIds.has(id));
       if (s.drop_ids.length < originalCount) {
-        console.warn(`[SpaceSuggestions] Filtered ${originalCount - s.drop_ids.length} invalid drop_ids`);
+        console.warn(
+          `[SpaceSuggestions] Filtered ${originalCount - s.drop_ids.length} invalid drop_ids`,
+        );
       }
       return s.drop_ids.length >= 3; // Need at least 3 items for a new space suggestion
     });
@@ -784,7 +806,7 @@ async function generateSpaceSuggestions(userId, env) {
 
 async function buildSpaceProfile(space, env, headers) {
   // Fetch entities in this space
-  const [todos, notes, habits] = await Promise.all([
+  const [todosData, notesData, habitsData] = await Promise.all([
     fetch(
       `${env.SUPABASE_URL}/rest/v1/todos?space_id=eq.${space.id}&archived=eq.false&select=title,tags,body`,
       { headers },
@@ -799,6 +821,11 @@ async function buildSpaceProfile(space, env, headers) {
     ).then((r) => r.json()),
   ]);
 
+  // Ensure arrays (Supabase returns error object on failure)
+  const todos = Array.isArray(todosData) ? todosData : [];
+  const notes = Array.isArray(notesData) ? notesData : [];
+  const habits = Array.isArray(habitsData) ? habitsData : [];
+
   const allEntities = [
     ...todos.map((t) => ({ title: t.title, body: t.body, tags: t.tags || [] })),
     ...notes.map((n) => ({ title: n.title, body: n.body, tags: n.tags || [] })),
@@ -810,13 +837,14 @@ async function buildSpaceProfile(space, env, headers) {
     `${env.SUPABASE_URL}/rest/v1/space_chats?space_id=eq.${space.id}&select=running_summary,context_json&order=updated_at.desc&limit=3`,
     { headers },
   );
-  const chats = await chatsResponse.json();
+  const chatsData = await chatsResponse.json();
+  const chats = Array.isArray(chatsData) ? chatsData : [];
 
   return {
     space_id: space.id,
     name: space.name,
-    goal: space.goal || null,
-    target_date: space.target_date || null,
+    goal: null, // goal column doesn't exist on spaces table
+    target_date: null, // target_date column doesn't exist on spaces table
     top_tags: extractTopTags(allEntities, 10),
     top_keywords: extractTopKeywords(allEntities, 10),
     people_mentioned: extractPeopleFromEntities(allEntities, 5),
@@ -852,24 +880,196 @@ function extractTopTags(entities, limit = 10) {
 // ============================================================================
 
 const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-  'from', 'up', 'about', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
-  'between', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where',
-  'why', 'how', 'all', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor',
-  'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just',
-  'don', 'should', 'now', 'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'you', 'your',
-  'he', 'him', 'his', 'she', 'her', 'it', 'its', 'they', 'them', 'their', 'what', 'which',
-  'who', 'whom', 'this', 'that', 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be',
-  'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'would',
-  'could', 'ought', 'i\'m', 'you\'re', 'he\'s', 'she\'s', 'it\'s', 'we\'re', 'they\'re',
-  'i\'ve', 'you\'ve', 'we\'ve', 'they\'ve', 'i\'d', 'you\'d', 'he\'d', 'she\'d', 'we\'d',
-  'they\'d', 'i\'ll', 'you\'ll', 'he\'ll', 'she\'ll', 'we\'ll', 'they\'ll', 'isn\'t',
-  'aren\'t', 'wasn\'t', 'weren\'t', 'hasn\'t', 'haven\'t', 'hadn\'t', 'doesn\'t', 'don\'t',
-  'didn\'t', 'won\'t', 'wouldn\'t', 'shan\'t', 'shouldn\'t', 'can\'t', 'cannot', 'couldn\'t',
-  'mustn\'t', 'let\'s', 'that\'s', 'who\'s', 'what\'s', 'here\'s', 'there\'s', 'when\'s',
-  'where\'s', 'why\'s', 'how\'s', 'need', 'get', 'make', 'go', 'come', 'take', 'see', 'know',
-  'want', 'look', 'use', 'find', 'give', 'tell', 'work', 'call', 'try', 'ask', 'put', 'keep',
-  'let', 'begin', 'seem', 'help', 'show', 'hear', 'play', 'run', 'move', 'live', 'believe',
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'but',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'of',
+  'with',
+  'by',
+  'from',
+  'up',
+  'about',
+  'into',
+  'through',
+  'during',
+  'before',
+  'after',
+  'above',
+  'below',
+  'between',
+  'under',
+  'again',
+  'further',
+  'then',
+  'once',
+  'here',
+  'there',
+  'when',
+  'where',
+  'why',
+  'how',
+  'all',
+  'each',
+  'few',
+  'more',
+  'most',
+  'other',
+  'some',
+  'such',
+  'no',
+  'nor',
+  'not',
+  'only',
+  'own',
+  'same',
+  'so',
+  'than',
+  'too',
+  'very',
+  's',
+  't',
+  'can',
+  'will',
+  'just',
+  'don',
+  'should',
+  'now',
+  'i',
+  'me',
+  'my',
+  'myself',
+  'we',
+  'our',
+  'ours',
+  'you',
+  'your',
+  'he',
+  'him',
+  'his',
+  'she',
+  'her',
+  'it',
+  'its',
+  'they',
+  'them',
+  'their',
+  'what',
+  'which',
+  'who',
+  'whom',
+  'this',
+  'that',
+  'these',
+  'those',
+  'am',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'have',
+  'has',
+  'had',
+  'having',
+  'do',
+  'does',
+  'did',
+  'doing',
+  'would',
+  'could',
+  'ought',
+  "i'm",
+  "you're",
+  "he's",
+  "she's",
+  "it's",
+  "we're",
+  "they're",
+  "i've",
+  "you've",
+  "we've",
+  "they've",
+  "i'd",
+  "you'd",
+  "he'd",
+  "she'd",
+  "we'd",
+  "they'd",
+  "i'll",
+  "you'll",
+  "he'll",
+  "she'll",
+  "we'll",
+  "they'll",
+  "isn't",
+  "aren't",
+  "wasn't",
+  "weren't",
+  "hasn't",
+  "haven't",
+  "hadn't",
+  "doesn't",
+  "don't",
+  "didn't",
+  "won't",
+  "wouldn't",
+  "shan't",
+  "shouldn't",
+  "can't",
+  'cannot',
+  "couldn't",
+  "mustn't",
+  "let's",
+  "that's",
+  "who's",
+  "what's",
+  "here's",
+  "there's",
+  "when's",
+  "where's",
+  "why's",
+  "how's",
+  'need',
+  'get',
+  'make',
+  'go',
+  'come',
+  'take',
+  'see',
+  'know',
+  'want',
+  'look',
+  'use',
+  'find',
+  'give',
+  'tell',
+  'work',
+  'call',
+  'try',
+  'ask',
+  'put',
+  'keep',
+  'let',
+  'begin',
+  'seem',
+  'help',
+  'show',
+  'hear',
+  'play',
+  'run',
+  'move',
+  'live',
+  'believe',
 ]);
 
 function extractTopKeywords(entities, limit = 10) {
@@ -904,10 +1104,38 @@ function extractPeopleFromEntities(entities, limit = 5) {
     const matches = text.match(namePattern) || [];
     for (const name of matches) {
       // Filter out common non-names
-      if (!['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
-            'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
-            'September', 'October', 'November', 'December', 'Today', 'Tomorrow', 'Yesterday',
-            'Morning', 'Evening', 'Night', 'Week', 'Month', 'Year'].includes(name)) {
+      if (
+        ![
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday',
+          'Sunday',
+          'January',
+          'February',
+          'March',
+          'April',
+          'May',
+          'June',
+          'July',
+          'August',
+          'September',
+          'October',
+          'November',
+          'December',
+          'Today',
+          'Tomorrow',
+          'Yesterday',
+          'Morning',
+          'Evening',
+          'Night',
+          'Week',
+          'Month',
+          'Year',
+        ].includes(name)
+      ) {
         names.add(name);
       }
     }
@@ -1096,13 +1324,68 @@ function ninetyDaysAgo() {
 }
 
 // ============================================================================
+// CORS helpers
+// ============================================================================
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+function corsResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      ...CORS_HEADERS,
+    },
+  });
+}
+
+// ============================================================================
 // Worker entry point
 // ============================================================================
 
+// Inngest serve handler
+const inngestHandler = serve({
+  client: inngest,
+  functions: [synthesizeUserProfiles],
+  servePath: '/',
+});
+
 export default {
-  fetch: serve({
-    client: inngest,
-    functions: [synthesizeUserProfiles],
-    servePath: '/',
-  }),
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
+    // Custom API endpoint: manually trigger space suggestions for a user
+    if (url.pathname === '/api/generate-space-suggestions' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const userId = body.user_id;
+
+        if (!userId) {
+          return corsResponse({ error: 'user_id is required' }, 400);
+        }
+
+        console.log(`[API] Manual space suggestions trigger for user: ${userId}`);
+
+        // Call the space suggestions function directly
+        const result = await generateSpaceSuggestions(userId, env);
+
+        return corsResponse({ success: true, ...result });
+      } catch (err) {
+        console.error('[API] Error generating space suggestions:', err);
+        return corsResponse({ error: err.message || 'Internal error' }, 500);
+      }
+    }
+
+    // Pass through to Inngest handler for all other routes
+    return inngestHandler.fetch(request, env, ctx);
+  },
 };
