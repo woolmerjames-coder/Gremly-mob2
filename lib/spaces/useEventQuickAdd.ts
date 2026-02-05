@@ -14,7 +14,33 @@
 
 import { useCallback, useRef } from 'react';
 import { useGremlyStore } from '../store/useGremlyStore';
-import { callEnrichPhase2Streaming, Phase2EnrichmentResult } from '../cortex/CortexClient';
+import { getDateService } from '../date';
+import { env, getEnv } from '../env';
+
+// --- Helpers to read env vars (same pattern as dropProcessor.ts) ---
+const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
+
+const readCortexUrl = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
+  const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
+};
+
+const readSupabaseAnonKey = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+};
+
+/** Phase 2 enrichment result for events */
+interface EventEnrichmentResult {
+  smart_title?: string | null;
+  target_date?: string | null;
+  end_date?: string | null;
+  event_time?: string | null;
+  tags?: string[];
+  extracted_date?: string | null;
+}
 
 /** Options for useEventQuickAdd hook */
 export interface EventQuickAddOptions {
@@ -64,75 +90,146 @@ export function useEventQuickAdd(options: EventQuickAddOptions): UseEventQuickAd
       console.log('[EventQuickAdd] Quick add submitted:', { text: trimmed, spaceId });
       onStart?.(trimmed);
 
-      // Collect enrichment fields as they arrive
-      const enrichedFields: Partial<Phase2EnrichmentResult> = {};
+      // Run the async flow
+      (async () => {
+        try {
+          const cortexUrl = readCortexUrl();
+          const anonKey = readSupabaseAnonKey();
 
-      // Run Phase 2 enrichment with event parameters
-      const controller = callEnrichPhase2Streaming(
-        {
-          text: trimmed,
-          bucket: 'log',
-          subtype: 'event',
-        },
-        {
-          onField: (field, value) => {
-            console.log('[EventQuickAdd] Enrichment field:', field, value);
-            enrichedFields[field as keyof Phase2EnrichmentResult] = value;
-          },
-          onComplete: async (result) => {
-            console.log('[EventQuickAdd] Enrichment complete:', result);
+          if (!cortexUrl || !anonKey) {
+            throw new Error('Missing cortex URL or anon key');
+          }
 
-            try {
-              // Create the event note with enriched data
-              // Use target_date for event date, end_date for multi-day events
-              const note = await createNote({
-                title: result.smart_title || trimmed.substring(0, 60),
-                body: null,
-                subtype: 'event',
-                space_id: spaceId,
-                is_goal: false,
-                target_date: result.target_date || result.extracted_date || null,
-                end_date: result.end_date || null,
-                event_time: result.event_time || null,
-                tags: result.tags || [],
-                origin: 'space_chat',
-              });
+          // Get date context for Phase 2
+          const ds = getDateService();
+          const currentDate = ds.getCurrentDate(); // YYYY-MM-DD
+          const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
-              console.log('[EventQuickAdd] Event created:', note.id);
-              onComplete?.(note.id);
-            } catch (err) {
-              console.error('[EventQuickAdd] Failed to create event:', err);
-              onError?.(err instanceof Error ? err : new Error(String(err)));
-            } finally {
-              isProcessingRef.current = false;
-            }
-          },
-          onError: (error) => {
-            console.error('[EventQuickAdd] Enrichment failed:', error);
+          console.log('[EventQuickAdd] Running Phase 1.5a + Phase 2 in parallel');
 
-            // Fallback: Create event with just the raw text as title
-            createNote({
+          // Run Phase 1.5a (smart title + confirmation) and Phase 2 (date extraction) in parallel
+          const [phase15aResult, phase2Result] = await Promise.all([
+            // Phase 1.5a: Get smart title + confirmation message
+            (async () => {
+              try {
+                const res = await fetch(cortexUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${anonKey}`,
+                  },
+                  body: JSON.stringify({
+                    type: 'enrich-phase1-5a',
+                    text: trimmed,
+                    bucket: 'log',
+                    subtype: 'event',
+                  }),
+                });
+                if (!res.ok) {
+                  console.warn('[EventQuickAdd] Phase 1.5a returned non-ok status:', res.status);
+                  return null;
+                }
+                const json = await res.json();
+                console.log('[EventQuickAdd] Phase 1.5a result:', {
+                  smart_title: json.smart_title,
+                  confirmation_message: json.confirmation_message?.substring(0, 50),
+                });
+                return {
+                  smart_title: json.smart_title || null,
+                  confirmation_message: json.confirmation_message || null,
+                };
+              } catch (err) {
+                console.warn('[EventQuickAdd] Phase 1.5a failed:', err);
+                return null;
+              }
+            })(),
+
+            // Phase 2: Get date/time extraction
+            (async () => {
+              try {
+                const res = await fetch(cortexUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${anonKey}`,
+                  },
+                  body: JSON.stringify({
+                    type: 'enrich-phase2',
+                    text: trimmed,
+                    bucket: 'log',
+                    subtype: 'event',
+                    currentDate,
+                    dayOfWeek,
+                    timezone,
+                  }),
+                });
+                if (!res.ok) {
+                  console.warn('[EventQuickAdd] Phase 2 returned non-ok status:', res.status);
+                  return null;
+                }
+                const json: EventEnrichmentResult = await res.json();
+                console.log('[EventQuickAdd] Phase 2 result:', {
+                  target_date: json.target_date,
+                  end_date: json.end_date,
+                  event_time: json.event_time,
+                  tags: json.tags,
+                });
+                return json;
+              } catch (err) {
+                console.warn('[EventQuickAdd] Phase 2 failed:', err);
+                return null;
+              }
+            })(),
+          ]);
+
+          // Use Phase 1.5a for title/message, Phase 2 for dates
+          const smartTitle = phase15aResult?.smart_title || trimmed.substring(0, 60);
+          const confirmationMessage = phase15aResult?.confirmation_message || null;
+
+          // Create the event note with enriched data
+          const note = await createNote({
+            title: smartTitle,
+            body: trimmed, // Store original text as body
+            subtype: 'event',
+            space_id: spaceId,
+            is_goal: false,
+            target_date: phase2Result?.target_date || phase2Result?.extracted_date || null,
+            end_date: phase2Result?.end_date || null,
+            event_time: phase2Result?.event_time || null,
+            tags: phase2Result?.tags || [],
+            origin: 'space_chat',
+            views: {
+              confirmation_message: confirmationMessage,
+            },
+          });
+
+          console.log('[EventQuickAdd] Event note created:', note.id);
+          onComplete?.(note.id);
+        } catch (err) {
+          console.error('[EventQuickAdd] Enrichment failed:', err);
+
+          // Fallback: Create event with just the raw text as title
+          try {
+            const note = await createNote({
               title: trimmed.substring(0, 60),
-              body: trimmed.length > 60 ? trimmed : null,
+              body: trimmed,
               subtype: 'event',
               space_id: spaceId,
               is_goal: false,
               origin: 'space_chat',
-            })
-              .then((note) => {
-                console.log('[EventQuickAdd] Fallback event created:', note.id);
-                onComplete?.(note.id);
-              })
-              .catch((err) => {
-                console.error('[EventQuickAdd] Fallback creation failed:', err);
-                onError?.(err instanceof Error ? err : new Error(String(err)));
-              })
-              .finally(() => {
-                isProcessingRef.current = false;
-              });
-          },
-        },
-      );
+            });
+
+            console.log('[EventQuickAdd] Fallback event created:', note.id);
+            onComplete?.(note.id);
+          } catch (fallbackErr) {
+            console.error('[EventQuickAdd] Fallback creation failed:', fallbackErr);
+            onError?.(fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr)));
+          }
+        } finally {
+          isProcessingRef.current = false;
+        }
+      })();
     },
     [createNote, spaceId, onStart, onComplete, onError],
   );

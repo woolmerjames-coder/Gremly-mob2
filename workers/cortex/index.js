@@ -5866,12 +5866,24 @@ For LOGS (event):
           // Event dates for logs (notes that are events)
           let noteTargetDate = null;
           let eventTime = null;
+          let endDate = null;
+          let eventSmartTitle = null;
           if (bucket === 'log') {
             if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
               noteTargetDate = parsed.target_date;
             }
             if (parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
               eventTime = parsed.event_time;
+            }
+            if (parsed.end_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date)) {
+              endDate = parsed.end_date;
+            }
+            if (
+              subtype === 'event' &&
+              parsed.smart_title &&
+              typeof parsed.smart_title === 'string'
+            ) {
+              eventSmartTitle = parsed.smart_title.trim();
             }
           }
 
@@ -5952,6 +5964,9 @@ For LOGS (event):
             scheduled_date: scheduledDate,
             date_type_ambiguous: dateTypeAmbiguous,
             event_time: eventTime,
+            // Event-specific fields
+            end_date: endDate,
+            smart_title: eventSmartTitle,
             // Keep existing habit fields
             extracted_start_date: extractedStartDate,
             extracted_frequency: extractedFrequency,

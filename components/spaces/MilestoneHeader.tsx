@@ -7,14 +7,24 @@
  * - OR Nudge to set a goal (if no milestone)
  */
 
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Flag, Plus, Pin, MoreHorizontal, ChevronLeft, CheckCircle2 } from 'lucide-react-native';
+import {
+  Flag,
+  Plus,
+  Pin,
+  MoreHorizontal,
+  ChevronLeft,
+  CheckCircle2,
+  Star,
+} from 'lucide-react-native';
+import { format, parseISO, differenceInDays } from 'date-fns';
 import { BRAND } from '../../design/brand';
-import type { SpaceMilestone } from '../../lib/types';
+import type { SpaceMilestone, Note } from '../../lib/types';
 import type { ImageSourcePropType } from 'react-native';
 import { getMascotSource, DEFAULT_MASCOT_ID } from '../../lib/mascots/mascotConfig';
+import { getTodayDayString } from '../../lib/date';
 
 interface MilestoneHeaderProps {
   spaceName: string;
@@ -27,7 +37,7 @@ interface MilestoneHeaderProps {
   pinnedCount: number;
   completedCount?: number;
   mascotSource?: ImageSourcePropType; // Custom mascot image source
-  hasGoalEvent?: boolean; // Whether a goal event exists (new system)
+  goalEvent?: Note | null; // Goal event note (new system)
   children?: ReactNode; // Optional content to render in header (e.g., KeyDatesSection)
   onGremlyPress: () => void;
   onPinnedPress: () => void;
@@ -45,7 +55,7 @@ export function MilestoneHeader({
   pinnedCount,
   completedCount = 0,
   mascotSource,
-  hasGoalEvent = false,
+  goalEvent = null,
   children,
   onGremlyPress,
   onPinnedPress,
@@ -58,7 +68,22 @@ export function MilestoneHeader({
   const insets = useSafeAreaInsets();
   // Show nudge only if no milestone AND no goal event
   const hasMilestone = milestone !== null;
+  const hasGoalEvent = goalEvent !== null;
   const showNudge = !hasMilestone && !hasGoalEvent;
+
+  // Compute goal countdown from goalEvent
+  const goalCountdown = useMemo(() => {
+    if (!goalEvent?.target_date) return null;
+    const parsedDate = parseISO(goalEvent.target_date);
+    const today = getTodayDayString();
+    const days = differenceInDays(parsedDate, parseISO(today));
+    const dateFormatted = format(parsedDate, 'MMM d');
+    return {
+      days,
+      dateFormatted,
+      isPast: days < 0,
+    };
+  }, [goalEvent?.target_date]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
@@ -139,8 +164,42 @@ export function MilestoneHeader({
                 </Text>
               )}
             </Pressable>
+          ) : hasGoalEvent ? (
+            // Goal event display
+            <Pressable
+              onPress={onMilestonePress}
+              accessibilityRole="button"
+              accessibilityLabel="Edit goal"
+              testID="header-goal-button"
+            >
+              <View style={styles.goalHeader}>
+                <Star size={14} color={BRAND.colors.goldenPear} fill={BRAND.colors.goldenPear} />
+                <Text style={styles.milestoneName} numberOfLines={2}>
+                  {goalEvent?.title || 'Goal'}
+                </Text>
+              </View>
+              {goalCountdown?.dateFormatted && (
+                <Text style={styles.countdown}>
+                  {goalCountdown.dateFormatted}
+                  {goalCountdown.days !== null && (
+                    <Text
+                      style={goalCountdown.isPast ? styles.countdownPast : styles.countdownDays}
+                    >
+                      {' · '}
+                      {goalCountdown.isPast
+                        ? `${Math.abs(goalCountdown.days)} days ago`
+                        : goalCountdown.days === 0
+                          ? 'Today!'
+                          : goalCountdown.days === 1
+                            ? '1 day'
+                            : `${goalCountdown.days} days`}
+                    </Text>
+                  )}
+                </Text>
+              )}
+            </Pressable>
           ) : showNudge ? (
-            // Nudge to set a goal (only if no goal event either)
+            // Nudge to set a goal
             <Pressable
               onPress={onNudgePress}
               style={styles.nudgeContainer}
@@ -258,6 +317,12 @@ const styles = StyleSheet.create({
   milestoneSection: {
     flex: 1,
     justifyContent: 'center',
+  },
+  goalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
   },
   milestoneName: {
     fontSize: 18,

@@ -8,13 +8,12 @@
  * - Warm, scannable styling matching Space sections
  */
 
-import React, { useState, useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Calendar, ChevronDown, ChevronUp, Plus, Star } from 'lucide-react-native';
-import { format, parseISO, differenceInDays } from 'date-fns';
+import React, { useState, useMemo, useEffect } from 'react';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { Calendar, ChevronDown, ChevronUp, Plus } from 'lucide-react-native';
+import { format, parseISO } from 'date-fns';
 import { BRAND } from '../../design/brand';
 import { useEventsForSpace, useItemsLinkedToEvent } from '../../lib/store/selectors';
-import { getTodayDayString } from '../../lib/date';
 import KeyDateRow from './KeyDateRow';
 import type { Note } from '../../lib/types';
 
@@ -22,6 +21,8 @@ export interface KeyDatesSectionProps {
   spaceId: string;
   onEventPress: (event: Note) => void;
   onAddPress: () => void;
+  /** Loading state for new event being created */
+  pendingEvent?: string | null;
 }
 
 /**
@@ -45,54 +46,49 @@ export default function KeyDatesSection({
   spaceId,
   onEventPress,
   onAddPress,
+  pendingEvent,
 }: KeyDatesSectionProps) {
   const [expanded, setExpanded] = useState(false);
-  const events = useEventsForSpace(spaceId);
+  const events = useEventsForSpace(spaceId); // Goals are excluded by selector
+  const [loadingDots, setLoadingDots] = useState('');
 
-  // Find goal event (first one with is_goal=true, already sorted first by selector)
-  const goalEvent = events.find((e) => e.is_goal === true);
+  // Animated dots for loading state (matches SpaceHomeScreen pattern)
+  useEffect(() => {
+    if (!pendingEvent) {
+      setLoadingDots('');
+      return;
+    }
+    const interval = setInterval(() => {
+      setLoadingDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 500);
+    return () => clearInterval(interval);
+  }, [pendingEvent]);
 
-  // Get the next upcoming event (first non-goal since goals are sorted first)
+  // Auto-expand when there's a pending event so user sees the loading row
+  useEffect(() => {
+    if (pendingEvent && !expanded) {
+      setExpanded(true);
+    }
+  }, [pendingEvent]);
+
+  // Get the next upcoming event for preview
   const nextEvent = events.length > 0 ? events[0] : null;
 
-  // Format countdown for goal preview
-  const getGoalCountdown = (event: Note): string | null => {
-    if (!event.target_date) return null;
-    const today = getTodayDayString();
-    const days = differenceInDays(parseISO(event.target_date), parseISO(today));
-
-    if (days === 0) return 'Today';
-    if (days < 0) return `${Math.abs(days)} days ago`;
-    if (days === 1) return '1 day';
-    return `${days} days`;
-  };
-
-  // Format the preview text based on whether there's a goal
+  // Format the preview text (next event only, goals shown in header)
   const previewContent = useMemo(() => {
-    if (goalEvent && goalEvent.target_date) {
-      // Show goal: "★ Title · X days"
-      const title = goalEvent.title || 'Goal';
-      const countdown = getGoalCountdown(goalEvent);
-      return {
-        isGoal: true,
-        title,
-        countdown,
-      };
-    }
-
     if (nextEvent && nextEvent.target_date) {
       // Show next event: "Feb 12 · Title"
       const date = parseISO(nextEvent.target_date);
       const dateStr = format(date, 'MMM d');
       const title = nextEvent.title || 'Untitled Event';
-      return {
-        isGoal: false,
-        text: `${dateStr} · ${title}`,
-      };
+      return `${dateStr} · ${title}`;
     }
-
+    if (nextEvent && !nextEvent.target_date) {
+      // Dateless event
+      return nextEvent.title || 'Untitled Event';
+    }
     return null;
-  }, [goalEvent, nextEvent]);
+  }, [nextEvent]);
 
   // Empty state - just show add link
   if (events.length === 0) {
@@ -116,7 +112,7 @@ export default function KeyDatesSection({
     );
   }
 
-  // Collapsed state - show header with goal or next event preview
+  // Collapsed state - show header with next event preview
   if (!expanded) {
     return (
       <View style={styles.container} testID="key-dates-section">
@@ -127,22 +123,11 @@ export default function KeyDatesSection({
               Key Dates <Text style={styles.countText}>({events.length})</Text>
             </Text>
           </View>
-          {previewContent &&
-            (previewContent.isGoal ? (
-              <View style={styles.goalPreview}>
-                <Star size={12} color={BRAND.colors.goldenPear} fill={BRAND.colors.goldenPear} />
-                <Text style={styles.goalPreviewTitle} numberOfLines={1}>
-                  {previewContent.title}
-                </Text>
-                {previewContent.countdown && (
-                  <Text style={styles.goalPreviewCountdown}>· {previewContent.countdown}</Text>
-                )}
-              </View>
-            ) : (
-              <Text style={styles.previewText} numberOfLines={1}>
-                {previewContent.text}
-              </Text>
-            ))}
+          {previewContent && (
+            <Text style={styles.previewText} numberOfLines={1}>
+              {previewContent}
+            </Text>
+          )}
           <ChevronDown size={16} color={BRAND.colors.inkMuted} />
         </Pressable>
       </View>
@@ -165,6 +150,18 @@ export default function KeyDatesSection({
 
       {/* Event list */}
       <View style={styles.eventList}>
+        {/* Pending event loading row - matches SpaceHomeScreen optimistic card pattern */}
+        {pendingEvent && (
+          <View style={styles.pendingRow}>
+            <View style={styles.pendingContent}>
+              <Text style={styles.pendingTitle} numberOfLines={1}>
+                {pendingEvent}
+              </Text>
+              <Text style={styles.pendingMessage}>Working on it{loadingDots}</Text>
+            </View>
+            <ActivityIndicator size="small" color={BRAND.colors.mossGreen} />
+          </View>
+        )}
         {events.map((event) => (
           <KeyDateRowWithCount key={event.id} event={event} onPress={onEventPress} />
         ))}
@@ -221,25 +218,6 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
     marginLeft: 8,
   },
-  goalPreview: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 8,
-    gap: 4,
-  },
-  goalPreviewTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-    flexShrink: 1,
-  },
-  goalPreviewCountdown: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: BRAND.colors.goldenPear,
-    marginLeft: 2,
-  },
   expandedHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -262,5 +240,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: BRAND.colors.mossGreen,
+  },
+  // Pending event loading row (matches SpaceHomeScreen optimistic card pattern)
+  pendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 38,
+    marginBottom: 4,
+  },
+  pendingContent: {
+    flex: 1,
+    marginRight: 8,
+  },
+  pendingTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    opacity: 0.7,
+  },
+  pendingMessage: {
+    fontSize: 12,
+    color: BRAND.colors.mossGreen,
+    fontStyle: 'italic',
+    marginTop: 1,
   },
 });

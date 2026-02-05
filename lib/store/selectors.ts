@@ -1676,22 +1676,18 @@ export const useAllSpaceMilestones = (spaceId: string) =>
 // EVENT NOTE SELECTORS (Key Dates feature)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Events (notes with subtype='event') for a space, sorted with goals first, then dated events, then dateless */
+/** Events (notes with subtype='event') for a space, excluding goals (goals shown in header), sorted by date then dateless at bottom */
 export const selectEventsForSpace = createSelector(
   [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
   (notes, spaceId) =>
     notes
-      .filter((n) => n.subtype === 'event' && n.space_id === spaceId && !n.archived)
+      .filter((n) => n.subtype === 'event' && n.space_id === spaceId && !n.archived && !n.is_goal)
       .sort((a, b) => {
-        // 1. Goals first (sorted by date among themselves)
-        if (a.is_goal && !b.is_goal) return -1;
-        if (!a.is_goal && b.is_goal) return 1;
-
-        // 2. Dateless events go to the bottom
+        // 1. Dateless events go to the bottom
         if (a.target_date && !b.target_date) return -1;
         if (!a.target_date && b.target_date) return 1;
 
-        // 3. Both have dates (or both dateless) - sort by date ascending
+        // 2. Both have dates (or both dateless) - sort by date ascending
         const dateA = a.target_date || '';
         const dateB = b.target_date || '';
         return dateA.localeCompare(dateB);

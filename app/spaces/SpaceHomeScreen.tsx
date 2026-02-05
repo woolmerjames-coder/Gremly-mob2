@@ -485,6 +485,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [quickAddMode, setQuickAddMode] = useState<'default' | 'keyDate'>('default');
   const [showAttachExistingModal, setShowAttachExistingModal] = useState(false);
+  const [pendingEvent, setPendingEvent] = useState<string | null>(null); // Loading state for key date creation
   // Pending drops from Zustand store (persists until entity is created)
   const spacePendingDrops = useSpacePendingDrops(spaceId);
   const [optimisticDots, setOptimisticDots] = useState('');
@@ -821,11 +822,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Event quick add hook for Key Dates
   const eventQuickAdd = useEventQuickAdd({
     spaceId,
+    onStart: (draftTitle) => {
+      console.log('[SpaceHome] Key Date creation started:', draftTitle);
+      setPendingEvent(draftTitle);
+    },
     onComplete: () => {
       console.log('[SpaceHome] Key Date event created');
+      setPendingEvent(null);
     },
     onError: (error) => {
       console.error('[SpaceHome] Key Date creation failed:', error);
+      setPendingEvent(null);
     },
   });
 
@@ -1605,7 +1612,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onMilestonePress={handleMilestonePress}
               onSettingsPress={handleSettingsPress}
               onBackPress={() => navigation.goBack()}
-              hasGoalEvent={!!goalEvent}
+              goalEvent={goalEvent}
             >
               {/* Key Dates Section - inside header with cream background */}
               <View style={{ marginTop: 4 }}>
@@ -1613,6 +1620,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                   spaceId={spaceId}
                   onEventPress={handleKeyDatePress}
                   onAddPress={handleAddKeyDate}
+                  pendingEvent={pendingEvent}
                 />
               </View>
             </MilestoneHeader>

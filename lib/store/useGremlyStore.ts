@@ -264,7 +264,7 @@ export interface HabitProgressRow {
 export interface PendingDropSegment {
   text: string;
   bucket: 'todo' | 'habit' | 'log';
-  subtype?: 'journal' | 'idea' | 'general' | null;
+  subtype?: 'journal' | 'idea' | 'event' | 'general' | null;
   likelyBucket?: string; // From Phase 0 (before Phase 1 confirmation)
   likelySubtype?: string; // From Phase 0
   confirmed?: boolean; // True after Phase 1 confirms the bucket
@@ -281,7 +281,7 @@ export interface PendingDrop {
   source?: 'today' | 'space' | 'minddrop' | 'photo';
   createdAt: string;
   bucket?: 'todo' | 'habit' | 'log';
-  subtype?: 'journal' | 'idea' | 'general' | null;
+  subtype?: 'journal' | 'idea' | 'event' | 'general' | null;
   smartTitle?: string;
   tags?: string[];
   confirmationMessage?: string | null;
@@ -305,7 +305,7 @@ export interface PendingDrop {
   multiSegments?: PendingDropSegment[];
   multiSummary?: string; // Summary title for the multi-card
   dominantBucket?: 'todo' | 'habit' | 'log';
-  dominantSubtype?: 'journal' | 'idea' | 'general' | null;
+  dominantSubtype?: 'journal' | 'idea' | 'event' | 'general' | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // Phase 1: Ambiguity Detection (triggers Phase 1.5 in background)
@@ -606,7 +606,7 @@ interface GremlyState {
     localId: string,
     classification: {
       bucket: 'todo' | 'habit' | 'log';
-      subtype: 'journal' | 'idea' | 'general' | null;
+      subtype: 'journal' | 'idea' | 'event' | 'general' | null;
     },
   ) => void;
   updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
@@ -4369,7 +4369,7 @@ export const useGremlyStore = create<GremlyState>()(
       localId: string,
       classification: {
         bucket: 'todo' | 'habit' | 'log';
-        subtype: 'journal' | 'idea' | 'general' | null;
+        subtype: 'journal' | 'idea' | 'event' | 'general' | null;
       },
     ) => {
       set((state) => {
