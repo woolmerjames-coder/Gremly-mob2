@@ -400,6 +400,66 @@ export function SpaceJourneyModal({
   const createNote = useGremlyStore((s) => s.createNote);
   const updateNote = useGremlyStore((s) => s.updateNote);
   const deleteNote = useGremlyStore((s) => s.deleteNote);
+  const notes = useGremlyStore((s) => s.notes) as Note[];
+
+  // Compute check-ins for all goals at modal level to avoid hooks in loop
+  const goalCheckInsMap = useMemo(() => {
+    const map = new Map<string, Note[]>();
+    if (!visible || goals.length === 0 || !notes) return map;
+
+    // Get all journals in this space
+    const journalsInSpace = notes.filter(
+      (n: Note) => n.subtype === 'journal' && n.space_id === spaceId && !n.archived,
+    );
+
+    console.log(
+      '[SpaceJourneyModal] Computing goalCheckInsMap, journals in space:',
+      journalsInSpace.length,
+    );
+
+    for (const goal of goals) {
+      const goalTitleLower = (goal.title || '').toLowerCase();
+      const goalWords = goalTitleLower.split(/\\s+/).filter((w: string) => w.length > 2);
+
+      const matches = journalsInSpace.filter((n: Note) => {
+        // Check 1: origin is goal_checkin AND views.goal_checkin.goal_id matches
+        const hasGoalCheckinOrigin = n.origin === 'goal_checkin';
+        const goalCheckinData = (n as any).views?.goal_checkin;
+        const matchesGoalId = goalCheckinData?.goal_id === goal.id;
+        const matchesGoalName = goalCheckinData?.goal_name?.toLowerCase() === goalTitleLower;
+
+        // Check 2: title contains goal-related words
+        const noteTitle = (n.title || '').toLowerCase();
+        const hasGoalInTitle = goalWords.some((word: string) => noteTitle.includes(word));
+
+        // Check 3: tags include goal name
+        const hasTags =
+          Array.isArray(n.tags) &&
+          n.tags.some(
+            (tag: string) =>
+              tag.toLowerCase().includes(goalTitleLower) ||
+              goalTitleLower.includes(tag.toLowerCase()),
+          );
+
+        const isMatch =
+          (hasGoalCheckinOrigin && (matchesGoalId || matchesGoalName)) || hasGoalInTitle || hasTags;
+
+        return isMatch;
+      });
+
+      // Sort by created_at descending
+      matches.sort((a: Note, b: Note) => {
+        const aDate = a.created_at || '';
+        const bDate = b.created_at || '';
+        return bDate.localeCompare(aDate);
+      });
+
+      console.log('[SpaceJourneyModal] Goal', goal.title, 'has', matches.length, 'check-ins');
+      map.set(goal.id, matches);
+    }
+
+    return map;
+  }, [visible, goals, notes, spaceId]);
 
   // UI state
   const [showPast, setShowPast] = useState(false);
@@ -685,12 +745,19 @@ export function SpaceJourneyModal({
 
   const handleJournalCreate = useCallback(
     (goal: Note) => {
+      console.log('[SpaceJourneyModal] Check-in button pressed for goal:', {
+        goal_id: goal.id,
+        goal_title: goal.title,
+        spaceName,
+        hasOnGoalCheckIn: !!onGoalCheckIn,
+      });
       // If onGoalCheckIn is provided, use it to open full journal screen
       if (onGoalCheckIn) {
         onGoalCheckIn(goal, spaceName);
         return;
       }
       // Fallback: Create a check-in journal inline (legacy behavior)
+      console.log('[SpaceJourneyModal] Using fallback inline creation (no onGoalCheckIn handler)');
       createNote({
         title: `Check-in: ${goal.title || 'Untitled Goal'}`,
         subtype: 'journal',
@@ -823,7 +890,7 @@ export function SpaceJourneyModal({
                   <GoalBlock
                     goal={goal}
                     spaceId={spaceId}
-                    checkIns={[]} // Pass empty for now - avoids render loop from hook
+                    checkIns={goalCheckInsMap.get(goal.id) || []}
                     isEditing={editingGoalId === goal.id}
                     onEditToggle={() =>
                       setEditingGoalId(editingGoalId === goal.id ? null : goal.id)

@@ -1728,7 +1728,7 @@ export const selectGoalsForSpace = createSelector(
 export const useGoalsForSpace = (spaceId: string) =>
   useGremlyStore((state) => selectGoalsForSpace(state, spaceId));
 
-/** Journal check-ins related to a goal (by title match or tag) */
+/** Journal check-ins related to a goal (by origin, views.goal_checkin, title match, or tag) */
 export const selectCheckInsForGoal = createSelector(
   [
     selectNotes,
@@ -1736,35 +1736,62 @@ export const selectCheckInsForGoal = createSelector(
     (_state: GremlyState, _goalTitle: string, spaceId: string) => spaceId,
   ],
   (notes, goalTitle, spaceId) => {
-    const goalWords = goalTitle
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 2);
-    return notes
-      .filter((n) => {
-        if (n.subtype !== 'journal' || n.archived) return false;
-        if (n.space_id !== spaceId) return false;
+    const goalTitleLower = goalTitle.toLowerCase();
+    const goalWords = goalTitleLower.split(/\s+/).filter((w) => w.length > 2);
 
-        // Check if title contains goal-related words
-        const noteTitle = (n.title || '').toLowerCase();
-        const hasGoalInTitle = goalWords.some((word) => noteTitle.includes(word));
+    const journalsInSpace = notes.filter(
+      (n) => n.subtype === 'journal' && n.space_id === spaceId && !n.archived,
+    );
 
-        // Check if tags include goal name
-        const hasTags =
-          Array.isArray(n.tags) &&
-          n.tags.some(
-            (tag) =>
-              tag.toLowerCase().includes(goalTitle.toLowerCase()) ||
-              goalTitle.toLowerCase().includes(tag.toLowerCase()),
-          );
+    console.log('[selectCheckInsForGoal] Searching for:', { goalTitle, spaceId });
+    console.log('[selectCheckInsForGoal] Journals in space:', journalsInSpace.length);
 
-        return hasGoalInTitle || hasTags;
-      })
-      .sort((a, b) => {
-        const aDate = a.created_at || '';
-        const bDate = b.created_at || '';
-        return bDate.localeCompare(aDate); // Most recent first
-      });
+    const matches = journalsInSpace.filter((n) => {
+      // Check 1: origin is goal_checkin AND views.goal_checkin matches
+      const hasGoalCheckinOrigin = n.origin === 'goal_checkin';
+      const goalCheckinData = (n as any).views?.goal_checkin;
+      const matchesGoalCheckinView = goalCheckinData?.goal_name?.toLowerCase() === goalTitleLower;
+
+      // Check 2: title contains goal-related words
+      const noteTitle = (n.title || '').toLowerCase();
+      const hasGoalInTitle = goalWords.some((word) => noteTitle.includes(word));
+
+      // Check 3: tags include goal name
+      const hasTags =
+        Array.isArray(n.tags) &&
+        n.tags.some(
+          (tag) =>
+            tag.toLowerCase().includes(goalTitleLower) ||
+            goalTitleLower.includes(tag.toLowerCase()),
+        );
+
+      const isMatch = (hasGoalCheckinOrigin && matchesGoalCheckinView) || hasGoalInTitle || hasTags;
+
+      if (journalsInSpace.length < 20) {
+        // Only log if not too many journals to avoid noise
+        console.log('[selectCheckInsForGoal] Checking note:', {
+          id: n.id,
+          title: n.title,
+          origin: n.origin,
+          hasGoalCheckinOrigin,
+          goalCheckinData,
+          matchesGoalCheckinView,
+          tags: n.tags,
+          hasGoalInTitle,
+          hasTags,
+          isMatch,
+        });
+      }
+
+      return isMatch;
+    });
+
+    console.log('[selectCheckInsForGoal] Found matches:', matches.length);
+    return matches.sort((a, b) => {
+      const aDate = a.created_at || '';
+      const bDate = b.created_at || '';
+      return bDate.localeCompare(aDate); // Most recent first
+    });
   },
 );
 

@@ -925,17 +925,24 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Goal Check-in: Open journal for a goal
   const handleGoalCheckIn = useCallback(
     (goal: Note, sName: string) => {
-      console.log('[SpaceHome] Opening goal check-in journal for:', goal.title);
+      console.log('[SpaceHome] Opening goal check-in journal with context:', {
+        goal_id: goal.id,
+        goal_name: goal.title,
+        space_id: spaceId,
+        space_name: sName,
+      });
       // Close SpaceJourneyModal first to avoid nested modal issues
       setShowKeyDatesModal(false);
       // Small delay to let the modal close before opening the new one
       setTimeout(() => {
-        setGoalCheckInContext({
+        const context = {
           goal_id: goal.id,
           goal_name: goal.title || 'Untitled Goal',
           space_id: spaceId,
           space_name: sName,
-        });
+        };
+        console.log('[SpaceHome] Setting goalCheckInContext:', context);
+        setGoalCheckInContext(context);
         setShowGoalCheckInJournal(true);
       }, 300);
     },

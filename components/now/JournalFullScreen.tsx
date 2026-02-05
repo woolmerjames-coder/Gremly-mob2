@@ -283,6 +283,11 @@ export function JournalFullScreen({
         // Create immediately, then run enrichment async (fire-and-forget)
         const isGoalCheckin = goalContext?.type === 'goal_checkin';
 
+        console.log(
+          '[JournalFullScreen] goalContext received:',
+          JSON.stringify(goalContext, null, 2),
+        );
+
         // Build note data for Zustand store
         const notePayload: any = {
           title: isGoalCheckin
@@ -305,11 +310,21 @@ export function JournalFullScreen({
           };
         }
 
+        console.log(
+          '[JournalFullScreen] Creating note with payload:',
+          JSON.stringify(notePayload, null, 2),
+        );
+
         // Create note immediately (this is what matters for check-in count)
         const newNote = await createNote(notePayload);
         const newNoteId = newNote?.id;
 
-        console.log('[JournalFullScreen] Created journal note:', newNoteId);
+        console.log(
+          '[JournalFullScreen] Created journal note:',
+          newNoteId,
+          'full response:',
+          JSON.stringify(newNote, null, 2),
+        );
 
         // Navigate back immediately - don't wait for enrichment
         setOriginalContent(content);
@@ -413,6 +428,12 @@ export function JournalFullScreen({
           })(),
         ]);
 
+        console.log(
+          '[JournalFullScreen] Phase 1.5a result:',
+          JSON.stringify(phase15aResult, null, 2),
+        );
+        console.log('[JournalFullScreen] Phase 2 result:', JSON.stringify(phase2Result, null, 2));
+
         // Build update payload
         const smartTitle = phase15aResult?.smart_title || text.substring(0, 60);
         const goalName = context?.goal_name?.toLowerCase();
@@ -424,9 +445,14 @@ export function JournalFullScreen({
           tags: allTags,
         };
 
-        // Add enrichment data to views
-        if (phase15aResult?.confirmation_message || phase2Result?.mood) {
+        // Add enrichment data to views - ALWAYS preserve goal_checkin if it was set
+        if (
+          context?.type === 'goal_checkin' ||
+          phase15aResult?.confirmation_message ||
+          phase2Result?.mood
+        ) {
           updatePayload.views = {
+            // Always include goal_checkin if this is a goal check-in
             ...(context?.type === 'goal_checkin' && {
               goal_checkin: {
                 goal_id: context.goal_id,
@@ -437,6 +463,11 @@ export function JournalFullScreen({
             mood: phase2Result?.mood || null,
           };
         }
+
+        console.log(
+          '[JournalFullScreen] Updating note with payload:',
+          JSON.stringify(updatePayload, null, 2),
+        );
 
         // Update the note with enriched data
         await updateNote(noteId, updatePayload);
