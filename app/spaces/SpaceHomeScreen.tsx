@@ -45,10 +45,11 @@ import {
   selectIsHabitDoneToday,
   useSpacePendingDrops,
   useGoalForSpace,
+  useEventsForSpace,
 } from '../../lib/store/selectors';
 import type { Space, SpaceChat, AppRecord, RecordType, Note } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
-import { startOfWeek, formatISO, addDays } from 'date-fns';
+import { startOfWeek, formatISO, addDays, format, parseISO } from 'date-fns';
 import { getDateService } from '../../lib/date';
 import { dateService } from '../../lib/date/DateService';
 
@@ -114,7 +115,7 @@ import {
   GuidesLogsSection,
 } from '../../components/spaces/sections';
 import { SectionDivider } from '../../components/spaces/sections/SectionDivider';
-import KeyDatesSection from '../../components/spaces/KeyDatesSection';
+import { KeyDatesModal } from '../../components/spaces/KeyDatesModal';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
@@ -438,6 +439,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const countdown = useMilestoneCountdown(spaceId);
   // Goal event from event notes (new system)
   const goalEvent = useGoalForSpace(spaceId);
+  // Key dates (excluding goals) for header preview
+  const keyDateEvents = useEventsForSpace(spaceId);
   const { count: pinnedCount } = useSpacePinnedItems(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   // Phase 5: Removed searchVisible, searchQuery, searchActiveV33 state (search via filter bar now)
@@ -470,6 +473,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const animatingTodoIdsRef = useRef<Set<string>>(new Set()); // Track todos currently animating out
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
+  const [showKeyDatesModal, setShowKeyDatesModal] = useState(false);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [chatListModalVisible, setChatListModalVisible] = useState(false);
@@ -659,6 +663,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       (n: any) => !n.is_list && n.subtype !== 'list' && n.subtype !== 'event',
     );
   }, [storeNotes]);
+
+  // Key dates preview for header (next upcoming event)
+  const nextKeyDatePreview = useMemo(() => {
+    if (keyDateEvents.length === 0) return null;
+    // Find the first event with a target_date
+    const nextEvent = keyDateEvents.find((e) => e.target_date);
+    if (!nextEvent?.target_date) return null;
+    const date = parseISO(nextEvent.target_date);
+    return format(date, 'MMM d');
+  }, [keyDateEvents]);
 
   // Phase 4: Streak map from weekly habit data
   const streakMap = useMemo(() => {
@@ -862,6 +876,36 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       overlay.openView({ record: event, spaceId });
     },
     [overlay, spaceId],
+  );
+
+  // Key Dates: Open the Key Dates modal
+  const handleOpenKeyDatesModal = useCallback(() => {
+    setShowKeyDatesModal(true);
+  }, []);
+
+  // Key Dates: Create event with specific date (from calendar picker in modal)
+  const handleAddEventWithDate = useCallback(
+    async (title: string, date: string) => {
+      console.log('[SpaceHome] Adding event with date:', title, date);
+      // Close modal first for snappy UX
+      setShowKeyDatesModal(false);
+      // Create event note directly with the specified date
+      try {
+        await store.createNote({
+          title,
+          body: title,
+          subtype: 'event',
+          space_id: spaceId,
+          is_goal: false,
+          target_date: date,
+          origin: 'manual',
+        });
+        console.log('[SpaceHome] Event created successfully');
+      } catch (error) {
+        console.error('[SpaceHome] Failed to create event:', error);
+      }
+    },
+    [spaceId, store],
   );
 
   // Key Dates: Handle add event (opens quick add modal in key date mode)
@@ -1610,20 +1654,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onCompletedPress={() => setShowCompletedOverlay(true)}
               onNudgePress={handleMilestonePress}
               onMilestonePress={handleMilestonePress}
+              onKeyDatesPress={handleOpenKeyDatesModal}
               onSettingsPress={handleSettingsPress}
               onBackPress={() => navigation.goBack()}
               goalEvent={goalEvent}
-            >
-              {/* Key Dates Section - inside header with cream background */}
-              <View style={{ marginTop: 4 }}>
-                <KeyDatesSection
-                  spaceId={spaceId}
-                  onEventPress={handleKeyDatePress}
-                  onAddPress={handleAddKeyDate}
-                  pendingEvent={pendingEvent}
-                />
-              </View>
-            </MilestoneHeader>
+              keyDatesCount={keyDateEvents.length}
+              nextKeyDatePreview={nextKeyDatePreview}
+            />
           </View>
 
           {/* Scrollable content */}
@@ -1845,6 +1882,18 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onClose={handlePinnedModalClose}
           onItemPress={handlePinnedItemPress}
           onUnpin={() => {}} // Store subscription handles reactive updates
+        />
+
+        {/* Key Dates Modal */}
+        <KeyDatesModal
+          visible={showKeyDatesModal}
+          spaceId={spaceId}
+          onClose={() => setShowKeyDatesModal(false)}
+          onEventPress={(event) => {
+            setShowKeyDatesModal(false);
+            handleKeyDatePress(event);
+          }}
+          onAddEvent={handleAddEventWithDate}
         />
 
         {/* Milestone Entry Modal */}

@@ -3,28 +3,28 @@
  *
  * Shows:
  * - Gremly mascot (tappable → chat)
- * - Milestone name + countdown (if set) + pinned pill
- * - OR Nudge to set a goal (if no milestone)
+ * - Goal title with star icon (if set)
+ * - Key Dates summary row (tappable → modal)
+ * - Pinned/Completed pills
+ * - OR Nudge to set a goal (if no goal)
  */
 
-import React, { ReactNode, useMemo } from 'react';
+import React, { ReactNode } from 'react';
 import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Flag,
-  Plus,
   Pin,
   MoreHorizontal,
   ChevronLeft,
+  ChevronRight,
   CheckCircle2,
-  Star,
+  Calendar,
 } from 'lucide-react-native';
-import { format, parseISO, differenceInDays } from 'date-fns';
 import { BRAND } from '../../design/brand';
 import type { SpaceMilestone, Note } from '../../lib/types';
 import type { ImageSourcePropType } from 'react-native';
 import { getMascotSource, DEFAULT_MASCOT_ID } from '../../lib/mascots/mascotConfig';
-import { getTodayDayString } from '../../lib/date';
 
 interface MilestoneHeaderProps {
   spaceName: string;
@@ -38,12 +38,15 @@ interface MilestoneHeaderProps {
   completedCount?: number;
   mascotSource?: ImageSourcePropType; // Custom mascot image source
   goalEvent?: Note | null; // Goal event note (new system)
+  keyDatesCount?: number; // Number of key date events (excluding goals)
+  nextKeyDatePreview?: string | null; // Preview text for next key date
   children?: ReactNode; // Optional content to render in header (e.g., KeyDatesSection)
   onGremlyPress: () => void;
   onPinnedPress: () => void;
   onCompletedPress?: () => void;
   onNudgePress: () => void;
   onMilestonePress: () => void;
+  onKeyDatesPress?: () => void; // Open Key Dates modal
   onSettingsPress: () => void;
   onBackPress: () => void;
 }
@@ -56,12 +59,15 @@ export function MilestoneHeader({
   completedCount = 0,
   mascotSource,
   goalEvent = null,
+  keyDatesCount = 0,
+  nextKeyDatePreview = null,
   children,
   onGremlyPress,
   onPinnedPress,
   onCompletedPress,
   onNudgePress,
   onMilestonePress,
+  onKeyDatesPress,
   onSettingsPress,
   onBackPress,
 }: MilestoneHeaderProps) {
@@ -71,19 +77,8 @@ export function MilestoneHeader({
   const hasGoalEvent = goalEvent !== null;
   const showNudge = !hasMilestone && !hasGoalEvent;
 
-  // Compute goal countdown from goalEvent
-  const goalCountdown = useMemo(() => {
-    if (!goalEvent?.target_date) return null;
-    const parsedDate = parseISO(goalEvent.target_date);
-    const today = getTodayDayString();
-    const days = differenceInDays(parsedDate, parseISO(today));
-    const dateFormatted = format(parsedDate, 'MMM d');
-    return {
-      days,
-      dateFormatted,
-      isPast: days < 0,
-    };
-  }, [goalEvent?.target_date]);
+  // Show Key Dates row if there are events or if there's a handler to add them
+  const showKeyDates = keyDatesCount > 0 || onKeyDatesPress;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
@@ -165,38 +160,16 @@ export function MilestoneHeader({
               )}
             </Pressable>
           ) : hasGoalEvent ? (
-            // Goal event display
+            // Goal event display (no countdown - simpler)
             <Pressable
               onPress={onMilestonePress}
               accessibilityRole="button"
               accessibilityLabel="Edit goal"
               testID="header-goal-button"
             >
-              <View style={styles.goalHeader}>
-                <Star size={14} color={BRAND.colors.goldenPear} fill={BRAND.colors.goldenPear} />
-                <Text style={styles.milestoneName} numberOfLines={2}>
-                  {goalEvent?.title || 'Goal'}
-                </Text>
-              </View>
-              {goalCountdown?.dateFormatted && (
-                <Text style={styles.countdown}>
-                  {goalCountdown.dateFormatted}
-                  {goalCountdown.days !== null && (
-                    <Text
-                      style={goalCountdown.isPast ? styles.countdownPast : styles.countdownDays}
-                    >
-                      {' · '}
-                      {goalCountdown.isPast
-                        ? `${Math.abs(goalCountdown.days)} days ago`
-                        : goalCountdown.days === 0
-                          ? 'Today!'
-                          : goalCountdown.days === 1
-                            ? '1 day'
-                            : `${goalCountdown.days} days`}
-                    </Text>
-                  )}
-                </Text>
-              )}
+              <Text style={styles.milestoneName} numberOfLines={2}>
+                {goalEvent?.title || 'Goal'}
+              </Text>
             </Pressable>
           ) : showNudge ? (
             // Nudge to set a goal
@@ -214,6 +187,33 @@ export function MilestoneHeader({
               <Text style={styles.nudgeSubtitle}>Goals help you get things done</Text>
             </Pressable>
           ) : null}
+
+          {/* Key Dates row - tappable to open modal */}
+          {showKeyDates && (
+            <Pressable
+              onPress={onKeyDatesPress}
+              style={({ pressed }) => [styles.keyDatesRow, pressed && styles.actionButtonPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`Key Dates${keyDatesCount > 0 ? `, ${keyDatesCount} events` : ''}`}
+              testID="header-key-dates-button"
+            >
+              <View style={styles.keyDatesLeft}>
+                <Calendar size={14} color={BRAND.colors.inkMuted} />
+                <Text style={styles.keyDatesText}>
+                  Key Dates
+                  {keyDatesCount > 0 && (
+                    <Text style={styles.keyDatesCount}> ({keyDatesCount})</Text>
+                  )}
+                </Text>
+              </View>
+              {nextKeyDatePreview && (
+                <Text style={styles.keyDatesPreview} numberOfLines={1}>
+                  Next: {nextKeyDatePreview}
+                </Text>
+              )}
+              <ChevronRight size={14} color={BRAND.colors.inkMuted} />
+            </Pressable>
+          )}
 
           {/* Action pills row - pinned and completed */}
           <View style={styles.pillsRow}>
@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F1EB', // Slightly darker than linenCream for subtle header distinction
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 8,
+    paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: BRAND.colors.borderSubtle,
   },
@@ -275,7 +275,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   backButton: {
     padding: 8,
@@ -322,13 +322,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 2,
+    marginBottom: 0,
   },
   milestoneName: {
     fontSize: 18,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
-    marginBottom: 4,
+    marginBottom: 0,
   },
   countdown: {
     fontSize: 14,
@@ -363,6 +363,36 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
   },
 
+  // Key Dates row - plain metadata style, no chip background
+  keyDatesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    marginTop: 4,
+    marginBottom: 2,
+    gap: 4,
+  },
+  keyDatesLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  keyDatesText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: BRAND.colors.inkMuted,
+  },
+  keyDatesCount: {
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+  },
+  keyDatesPreview: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+    marginLeft: 8,
+    marginRight: 2,
+  },
+
   // Action row (removed - pinned now inline)
   actionButtonPressed: {
     opacity: 0.7,
@@ -371,7 +401,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginTop: 6,
+    marginTop: 4,
   },
   pinnedButton: {
     flexDirection: 'row',
