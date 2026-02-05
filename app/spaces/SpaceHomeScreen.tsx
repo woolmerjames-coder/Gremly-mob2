@@ -333,6 +333,21 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showAssignmentSheet, setShowAssignmentSheet] = useState(true);
   const updateSpace = useGremlyStore((s) => s.updateSpace);
 
+  // Debug: log assignment suggestions state
+  const allSuggestions = useGremlyStore((s) => s.spaceSuggestions);
+  console.log('[SpaceHome] spaceId:', spaceId);
+  console.log(
+    '[SpaceHome] allSuggestions:',
+    allSuggestions.length,
+    allSuggestions.map((s) => ({
+      id: s.id,
+      type: s.suggestion_type,
+      space_id: s.space_id,
+      status: s.status,
+    })),
+  );
+  console.log('[SpaceHome] assignmentSuggestions:', assignmentSuggestions.length);
+
   // Completed todos count and list from store (storeTodos only has incomplete todos)
   const completedTodoCount = useGremlyStore(
     useCallback((state) => selectCompletedTodosCountBySpace(state, spaceId), [spaceId]),
@@ -1698,6 +1713,27 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     );
   }
 
+  // Show assignment sheet if there are pending suggestions for this space
+  // This must come BEFORE v33 layout check to intercept the render
+  if (showAssignmentSheet && assignmentSuggestions.length > 0) {
+    console.log(
+      '[SpaceHome] Showing SpaceAssignmentSheet with',
+      assignmentSuggestions.length,
+      'suggestions',
+    );
+    return (
+      <SpaceAssignmentSheet
+        spaceId={spaceId}
+        spaceName={space?.name || 'this space'}
+        suggestions={assignmentSuggestions}
+        onComplete={() => setShowAssignmentSheet(false)}
+        onDisableSuggestions={async () => {
+          await updateSpace(spaceId, { disable_suggestions: true });
+        }}
+      />
+    );
+  }
+
   // New: Space v33 gated layout
   if (isSpaceV33) {
     if (__DEV__) {
@@ -2379,21 +2415,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // (moved above)
 
   // (effect moved above to satisfy hooks rules)
-
-  // Show assignment sheet if there are pending suggestions for this space
-  if (showAssignmentSheet && assignmentSuggestions.length > 0) {
-    return (
-      <SpaceAssignmentSheet
-        spaceId={spaceId}
-        spaceName={space?.name || 'this space'}
-        suggestions={assignmentSuggestions}
-        onComplete={() => setShowAssignmentSheet(false)}
-        onDisableSuggestions={async () => {
-          await updateSpace(spaceId, { disable_suggestions: true });
-        }}
-      />
-    );
-  }
 
   return (
     <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>

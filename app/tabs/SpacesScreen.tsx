@@ -25,7 +25,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SheetManager } from 'react-native-actions-sheet';
 import { StyleSheet, View, Pressable, Alert, ScrollView, Image } from 'react-native';
@@ -98,10 +98,24 @@ function SpacesScreen() {
   const acceptSuggestion = useGremlyStore((s) => s.acceptSuggestion);
   const declineSuggestion = useGremlyStore((s) => s.declineSuggestion);
   const assignDropsToSpace = useGremlyStore((s) => s.assignDropsToSpace);
+  const fetchSpaceSuggestions = useGremlyStore((s) => s.fetchSpaceSuggestions);
+  const spaceSuggestionsLoaded = useGremlyStore((s) => s.spaceSuggestionsLoaded);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const isReducedMotion = useReducedMotion();
 
   const [expandedSuggestions, setExpandedSuggestions] = useState<Set<string>>(new Set());
+
+  // Fetch space suggestions when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (!spaceSuggestionsLoaded) {
+        console.log('[SpacesScreen] Fetching space suggestions...');
+        fetchSpaceSuggestions().catch((err) => {
+          console.error('[SpacesScreen] Failed to fetch suggestions:', err);
+        });
+      }
+    }, [spaceSuggestionsLoaded, fetchSpaceSuggestions]),
+  );
 
   const toggleExpanded = useCallback((suggestionId: string) => {
     setExpandedSuggestions((prev) => {

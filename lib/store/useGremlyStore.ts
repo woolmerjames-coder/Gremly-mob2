@@ -2583,10 +2583,18 @@ export const useGremlyStore = create<GremlyState>()(
 
     fetchSpaceSuggestions: async () => {
       const userId = get().userId;
-      if (!userId) return;
+      if (!userId) {
+        console.log('[GremlyStore] fetchSpaceSuggestions: No userId, skipping');
+        return;
+      }
 
       // Avoid refetching if already loaded
-      if (get().spaceSuggestionsLoaded) return;
+      if (get().spaceSuggestionsLoaded) {
+        console.log('[GremlyStore] fetchSpaceSuggestions: Already loaded, skipping');
+        return;
+      }
+
+      console.log('[GremlyStore] Fetching space suggestions for user:', userId);
 
       try {
         const { data, error } = await supabase
@@ -2601,6 +2609,7 @@ export const useGremlyStore = create<GremlyState>()(
           return;
         }
 
+        console.log('[GremlyStore] Fetched suggestions:', data?.length || 0);
         set({ spaceSuggestions: data || [], spaceSuggestionsLoaded: true });
       } catch (err) {
         console.error('[GremlyStore] fetchSpaceSuggestions error:', err);
