@@ -502,6 +502,15 @@ interface GremlyState {
   restoreNote: (id: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // CROSS-ENTITY MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  updateLinkedEventId: (
+    entityId: string,
+    entityType: 'todo' | 'note' | 'habit',
+    linkedEventId: string | null,
+  ) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
   // SPACE MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
   createSpace: (space: Partial<Space>) => Promise<Space>;
@@ -2357,6 +2366,48 @@ export const useGremlyStore = create<GremlyState>()(
         spaceId: prevNote?.space_id,
         source: STORE_EVENT_SOURCE,
       });
+    },
+
+    updateLinkedEventId: async (
+      entityId: string,
+      entityType: 'todo' | 'note' | 'habit',
+      linkedEventId: string | null,
+    ) => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId ? { ...t, linked_event_id: linkedEventId, updated_at: now } : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId ? { ...h, linked_event_id: linkedEventId, updated_at: now } : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId ? { ...n, linked_event_id: linkedEventId, updated_at: now } : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const { error } = await supabase
+        .from(table)
+        .update({ linked_event_id: linkedEventId, updated_at: now })
+        .eq('id', entityId);
+
+      if (error) {
+        console.error(`[GremlyStore] updateLinkedEventId failed:`, error);
+        // Revert on error - refetch would be better but this is simpler
+      }
     },
 
     archiveNote: async (id: string, reason?: string) => {

@@ -4844,6 +4844,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     [fullEntity, initialEntity, removeHabitCompletionForDate],
   );
 
+  const handleUpdateHabitWhy = useCallback(
+    async (why: string) => {
+      const habitId = fullEntity?.id || (initialEntity as any)?.id;
+      if (habitId) {
+        await updateHabit(habitId, { why_string: why });
+      }
+    },
+    [fullEntity, initialEntity, updateHabit],
+  );
+
+  const handleOpenHabitChat = useCallback(() => {
+    setShowEntityChat(true);
+  }, []);
+
   // ============================================================================
   // VIEW MODE CONTENT RENDERER
   // ============================================================================
@@ -5596,6 +5610,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             onLogToday={handleLogHabitToday}
                             onLogDate={handleLogHabitDate}
                             onRemoveDate={handleRemoveHabitDate}
+                            onUpdateWhy={handleUpdateHabitWhy}
+                            onChatWithGremly={handleOpenHabitChat}
+                            onLogSlip={handleLogHabitToday}
                           />
                         ) : (
                           renderViewModeContent()

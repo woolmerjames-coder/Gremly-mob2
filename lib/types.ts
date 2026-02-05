@@ -16,7 +16,7 @@ export type RecordType = 'habit' | 'todo' | 'note';
  * - 'list': checklist-style notes (legacy, rarely used)
  * - 'reference': reference materials (legacy, rarely used)
  */
-export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
+export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference' | 'event';
 
 export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 export type LegacyCanonicalType = 'note' | 'journal';
@@ -183,6 +183,9 @@ export interface Habit {
 
   /** True once user has resolved the clarification */
   clarification_resolved?: boolean;
+
+  /** Link to an event note (for items related to a key date) */
+  linked_event_id?: ID | null;
 }
 
 /**
@@ -282,6 +285,9 @@ export interface Todo {
 
   /** True once user has resolved the clarification */
   clarification_resolved?: boolean;
+
+  /** Link to an event note (for items related to a key date) */
+  linked_event_id?: ID | null;
 }
 
 /**
@@ -348,11 +354,17 @@ export interface Note {
   /** When the event IS (e.g., "Mom's birthday March 5", "dentist Tuesday 2pm") */
   target_date?: string | null; // YYYY-MM-DD
 
+  /** For multi-day events - when the event ends */
+  end_date?: string | null; // YYYY-MM-DD
+
   /** Specific time for events (e.g., "2pm" -> "14:00") */
   event_time?: string | null; // HH:mm format
 
   /** When to surface a reminder about this note */
   reminder_date?: string | null; // YYYY-MM-DD
+
+  /** Link to an event note (for items related to a key date) */
+  linked_event_id?: ID | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // Clarifying Questions (Phase 2)

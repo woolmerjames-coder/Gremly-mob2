@@ -5,7 +5,7 @@
  * Rendered inside UnifiedOverlayV2 when viewing a habit.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,17 +15,33 @@ import {
   Pressable,
   Image,
   TouchableOpacity,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
 } from 'react-native';
-import { Folder, Flame, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import Animated, {
+  FadeIn,
+  FadeInUp,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
+import { Folder, Flame, ChevronLeft, ChevronRight, Leaf } from 'lucide-react-native';
 import { format, parseISO } from 'date-fns';
 import type { Habit } from '../../lib/types';
 import type { HabitProgressRow } from '../../lib/store/useGremlyStore';
 import { getHabitStreak, getFrequencyLabel } from '../../lib/sweep/habitHelpers';
 import { getDateService } from '../../lib/date';
+import { HabitHeatmap } from '../habit/HabitHeatmap';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Gremly avatar for completed dots
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_AVATAR = require('../../assets/buttonforHP.png');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 
 // Brand colors
 const BRAND = {
@@ -45,6 +61,9 @@ interface HabitViewModeProps {
   onLogToday: () => void;
   onLogDate: (dateIso: string) => void;
   onRemoveDate: (dateIso: string) => void;
+  onUpdateWhy?: (why: string) => void;
+  onChatWithGremly?: () => void;
+  onLogSlip?: () => void;
 }
 
 /**
@@ -153,6 +172,29 @@ function calculateAverageFrequency(
       target,
     };
   }
+}
+
+/**
+ * Format a day count into detailed duration text.
+ * e.g., 45 days -> "1 month, 15 days"
+ */
+function formatDurationDetailed(days: number): string {
+  if (days <= 0) return 'Just started';
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'}`;
+  if (days < 30) {
+    const weeks = Math.floor(days / 7);
+    const remainingDays = days % 7;
+    const weekStr = `${weeks} week${weeks === 1 ? '' : 's'}`;
+    return remainingDays > 0
+      ? `${weekStr}, ${remainingDays} day${remainingDays === 1 ? '' : 's'}`
+      : weekStr;
+  }
+  const months = Math.floor(days / 30);
+  const remainingDays = days % 30;
+  const monthStr = `${months} month${months === 1 ? '' : 's'}`;
+  return remainingDays > 0
+    ? `${monthStr}, ${remainingDays} day${remainingDays === 1 ? '' : 's'}`
+    : monthStr;
 }
 
 /**
@@ -337,6 +379,86 @@ function getPrevMonth(year: number, month: number): { year: number; month: numbe
   return { year, month: month - 1 };
 }
 
+/**
+ * Generate contextual Gremly message based on habit progress
+ * Template-based (no API call) but feels personal
+ */
+function generateGremlyMessage(
+  isBreakHabit: boolean,
+  currentStreak: number,
+  bestStreak: number,
+  adherence: number,
+  trend: number, // positive = improving
+): string {
+  if (isBreakHabit) {
+    // BREAK habit messages
+    if (currentStreak === 0) {
+      return "Every journey starts with day one. I'm here with you.";
+    }
+    if (currentStreak === 1) {
+      return "Day one down. You're already proving something to yourself.";
+    }
+    if (currentStreak < 3) {
+      return "The first few days are the hardest. You're doing great.";
+    }
+    if (currentStreak === 7) {
+      return 'One week! Your body is already starting to thank you.';
+    }
+    if (currentStreak === 14) {
+      return 'Two weeks strong. The hardest part is behind you.';
+    }
+    if (currentStreak === 21) {
+      return 'Three weeks — they say this is when habits really change.';
+    }
+    if (currentStreak === 30) {
+      return "A whole month! You've proven you can do this.";
+    }
+    if (currentStreak > 30) {
+      return "You've built something real. Keep protecting it.";
+    }
+    if (currentStreak >= 7) {
+      return "You're building something powerful. Keep going.";
+    }
+    return "Every hour counts. You're stronger than you think.";
+  }
+
+  // BUILD habit messages
+  if (currentStreak === 0 && adherence === 0) {
+    return 'Ready to start building? One day at a time.';
+  }
+  if (currentStreak === 0 && adherence > 0) {
+    return "Streak reset, but you've shown up before. Fresh start?";
+  }
+  if (currentStreak === 1) {
+    return 'Day one! The hardest step is the first one.';
+  }
+  if (currentStreak > 0 && currentStreak === bestStreak) {
+    return "You're at your personal best. Keep the momentum!";
+  }
+  if (currentStreak > 0 && bestStreak - currentStreak <= 3) {
+    return `${bestStreak - currentStreak} more days ties your best. You've got this.`;
+  }
+  if (trend > 10) {
+    return 'Your consistency is improving. Keep building.';
+  }
+  if (trend < -10 && adherence < 50) {
+    return "It's okay to have off weeks. Want to talk about it?";
+  }
+  if (adherence >= 80) {
+    return "You're crushing it. This is becoming second nature.";
+  }
+  if (adherence >= 50) {
+    return 'Solid consistency. Every check-in counts.';
+  }
+  if (currentStreak >= 7) {
+    return "A full week! You're building real momentum.";
+  }
+  if (currentStreak >= 3) {
+    return 'Three days strong. Keep stacking them up.';
+  }
+  return 'Small steps lead to big changes. Keep going.';
+}
+
 export default function HabitViewMode({
   habit,
   habitProgress,
@@ -344,11 +466,40 @@ export default function HabitViewMode({
   onLogToday,
   onLogDate,
   onRemoveDate,
+  onUpdateWhy,
+  onChatWithGremly,
+  onLogSlip,
 }: HabitViewModeProps) {
   const ds = getDateService();
   const habitName = habit.name || (habit as any).title || 'Untitled Habit';
   const frequencyLabel = getFrequencyLabel(habit);
   const startDateLabel = formatStartDate(habit.start_date);
+
+  // State for editing "Your Why"
+  const [isEditingWhy, setIsEditingWhy] = useState(false);
+  const [whyText, setWhyText] = useState(habit.why_string || '');
+
+  // Button scale animation
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const buttonScale = useSharedValue(1);
+  const animatedButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: buttonScale.value }],
+  }));
+
+  const handleCheckIn = useCallback(() => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    buttonScale.value = withSequence(
+      withTiming(0.95, { duration: 100 }),
+      withSpring(1, { damping: 10, stiffness: 400 }),
+    );
+    onLogToday();
+  }, [onLogToday, buttonScale]);
+
+  // Get current date info from DateService (must be first - used by other calculations)
+  const todayIso = ds.getCurrentDate();
+
+  // Detect if this is a break habit
+  const isBreakHabit = habit.subtype === 'break_habit';
 
   // Calculate streak data
   const currentStreak = useMemo(
@@ -361,6 +512,27 @@ export default function HabitViewMode({
   );
   const _isNewBest = currentStreak > 0 && currentStreak >= bestStreak;
 
+  // For break habits: calculate days clean (since last slip)
+  const daysClean = useMemo(() => {
+    if (!isBreakHabit) return 0;
+    const sortedProgress = habitProgress
+      .filter((p) => p.habit_id === habit.id)
+      .map((p) => p.occurred_day)
+      .sort((a, b) => b.localeCompare(a)); // Most recent first
+    if (sortedProgress.length === 0) {
+      // No slips recorded - clean since start
+      if (habit.start_date) {
+        const startDate = new Date(habit.start_date);
+        const today = new Date(todayIso);
+        return Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      }
+      return 0;
+    }
+    const lastSlipDate = new Date(sortedProgress[0]);
+    const today = new Date(todayIso);
+    return Math.floor((today.getTime() - lastSlipDate.getTime()) / (1000 * 60 * 60 * 24));
+  }, [isBreakHabit, habitProgress, habit.id, habit.start_date, todayIso]);
+
   // Calculate average frequency
   const avgFrequency = calculateAverageFrequency(habit.id, habitProgress, habit);
 
@@ -370,9 +542,6 @@ export default function HabitViewMode({
     [habit.id, habitProgress],
   );
   const completedCount = rolling7Days.filter((d) => d.isCompleted).length;
-
-  // Get current date info from DateService
-  const todayIso = ds.getCurrentDate();
   const todayDate = ds.fromDateString(todayIso);
   const currentYear = todayDate?.getFullYear() ?? new Date().getFullYear();
   const currentMonth = todayDate?.getMonth() ?? new Date().getMonth();
@@ -407,6 +576,19 @@ export default function HabitViewMode({
   );
 
   const adherenceTrend = currentMonthAdherence - prevMonthAdherence;
+
+  // Generate contextual Gremly message
+  const gremlyMessage = useMemo(
+    () =>
+      generateGremlyMessage(
+        isBreakHabit,
+        currentStreak,
+        bestStreak,
+        currentMonthAdherence,
+        adherenceTrend,
+      ),
+    [isBreakHabit, currentStreak, bestStreak, currentMonthAdherence, adherenceTrend],
+  );
 
   // Completed dates set for O(1) lookup
   const completedDatesSet = useMemo(() => {
@@ -482,35 +664,42 @@ export default function HabitViewMode({
       showsVerticalScrollIndicator={true}
       bounces={true}
     >
-      {/* Header Section */}
-      <View style={styles.header}>
-        {/* Habit Name */}
-        <Text style={styles.habitName} numberOfLines={2}>
-          {habitName}
-        </Text>
+      {/* Header Section with subtle gradient */}
+      <LinearGradient
+        colors={['rgba(191, 216, 192, 0.4)', 'rgba(249, 246, 241, 0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={styles.headerGradient}
+      >
+        <View style={styles.header}>
+          {/* Habit Name */}
+          <Text style={styles.habitName} numberOfLines={2}>
+            {habitName}
+          </Text>
 
-        {/* Frequency + Start Date */}
-        <View style={styles.metaRow}>
-          <Text style={styles.metaText}>{frequencyLabel}</Text>
-          {startDateLabel && (
-            <>
-              <Text style={styles.metaSeparator}>·</Text>
-              <Text style={styles.metaText}>{startDateLabel}</Text>
-            </>
+          {/* Frequency + Start Date */}
+          <View style={styles.metaRow}>
+            <Text style={styles.metaText}>{frequencyLabel}</Text>
+            {startDateLabel && (
+              <>
+                <Text style={styles.metaSeparator}>·</Text>
+                <Text style={styles.metaText}>{startDateLabel}</Text>
+              </>
+            )}
+          </View>
+
+          {/* Space badge (if has space) */}
+          {spaceName && (
+            <View style={styles.spaceBadge}>
+              <Folder size={12} color={BRAND.mutedSageText} />
+              <Text style={styles.spaceBadgeText}>{spaceName}</Text>
+            </View>
           )}
         </View>
-
-        {/* Space badge (if has space) */}
-        {spaceName && (
-          <View style={styles.spaceBadge}>
-            <Folder size={12} color={BRAND.mutedSageText} />
-            <Text style={styles.spaceBadgeText}>{spaceName}</Text>
-          </View>
-        )}
-      </View>
+      </LinearGradient>
 
       {/* This Week Section */}
-      <View style={styles.section}>
+      <Animated.View style={styles.section} entering={FadeIn.delay(100).duration(300)}>
         <Text style={styles.sectionHeader}>THIS WEEK</Text>
         <View style={styles.weekDotsContainer}>
           {rolling7Days.map((day) => (
@@ -547,113 +736,62 @@ export default function HabitViewMode({
           ))}
         </View>
         <Text style={styles.weekSummary}>{completedCount} of 7 days</Text>
-      </View>
+      </Animated.View>
 
-      {/* Stats Section */}
-      <View style={styles.statsRow}>
-        {/* Streak Card - Combined current + best */}
-        <View style={styles.statCard}>
-          <Text style={styles.statLabel}>STREAK</Text>
-          <View style={styles.statValueRow}>
-            <Flame size={18} color="#FF6B35" />
-            <Text style={styles.statValue}>{currentStreak} days</Text>
+      {/* Hero Section - Different for BUILD vs BREAK */}
+      {isBreakHabit ? (
+        /* BREAK HABIT: Calm green "days clean" hero */
+        <Animated.View style={styles.heroSection} entering={FadeInUp.duration(400).springify()}>
+          <View style={styles.cleanCircle}>
+            <Leaf size={28} color={BRAND.mossGreen} />
+            <Text style={styles.cleanDaysNumber}>{daysClean}</Text>
+            <Text style={styles.cleanDaysLabel}>days clean</Text>
           </View>
-          <Text style={styles.statSubtext}>Best: {bestStreak} days</Text>
+          <Text style={styles.cleanDuration}>{formatDurationDetailed(daysClean)}</Text>
+          <Text style={styles.heroSubtext}>Every day is a victory</Text>
+        </Animated.View>
+      ) : (
+        /* BUILD HABIT: Golden fire-themed streak hero */
+        <Animated.View style={styles.heroSection} entering={FadeInUp.duration(400).springify()}>
+          <View style={styles.streakCircle}>
+            <Flame size={28} color="#FF6B35" />
+            <Text style={styles.streakNumber}>{currentStreak}</Text>
+            <Text style={styles.streakLabel}>day streak</Text>
+          </View>
+          <Text style={styles.heroSubtext}>Best: {bestStreak} days</Text>
+        </Animated.View>
+      )}
+
+      {/* Your Why Section - BREAK habits only */}
+      {isBreakHabit && (
+        <View style={styles.whySection}>
+          <View style={styles.whySectionHeader}>
+            <Text style={styles.whySectionTitle}>YOUR WHY</Text>
+            <TouchableOpacity onPress={() => setIsEditingWhy(true)}>
+              <Text style={styles.whyEditLink}>edit</Text>
+            </TouchableOpacity>
+          </View>
+
+          {habit.why_string ? (
+            <Text style={styles.whyText}>"{habit.why_string}"</Text>
+          ) : (
+            <TouchableOpacity onPress={() => setIsEditingWhy(true)}>
+              <Text style={styles.whyPlaceholder}>Tap to add your reason for quitting...</Text>
+            </TouchableOpacity>
+          )}
         </View>
+      )}
 
-        {/* Average Frequency Card */}
-        <View style={styles.statCard}>
-          <Text style={styles.statLabel}>AVG FREQUENCY</Text>
-          <Text style={styles.statValue}>
-            {avgFrequency.average}x / {avgFrequency.periodLabel}
-          </Text>
-          <Text style={styles.statSubtext}>Target: {avgFrequency.target}x</Text>
-        </View>
-      </View>
-
-      {/* Calendar Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionHeader}>CALENDAR</Text>
-
-        {/* Month navigation header */}
-        <View style={styles.calendarHeader}>
-          <Pressable
-            onPress={goToPrevMonth}
-            style={({ pressed }) => [
-              styles.calendarNavButton,
-              pressed && styles.calendarNavPressed,
-            ]}
-            accessibilityLabel="Previous month"
-          >
-            <ChevronLeft size={20} color={BRAND.charcoalInk} />
-          </Pressable>
-
-          <Text style={styles.calendarMonthLabel}>
-            {MONTH_NAMES[calendarMonth.month]} {calendarMonth.year}
-          </Text>
-
-          <Pressable
-            onPress={goToNextMonth}
-            style={({ pressed }) => [
-              styles.calendarNavButton,
-              pressed && styles.calendarNavPressed,
-              isCurrentMonthView && styles.calendarNavDisabled,
-            ]}
-            accessibilityLabel="Next month"
-            disabled={isCurrentMonthView}
-          >
-            <ChevronRight
-              size={20}
-              color={isCurrentMonthView ? BRAND.sageMist : BRAND.charcoalInk}
-            />
-          </Pressable>
-        </View>
-
-        {/* Day of week headers */}
-        <View style={styles.calendarWeekHeader}>
-          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-            <Text key={i} style={styles.calendarWeekDay}>
-              {day}
-            </Text>
-          ))}
-        </View>
-
-        {/* Calendar grid */}
-        <View style={styles.calendarGrid}>
-          {calendarDays.map((day) => {
-            const isCompleted = completedDatesSet.has(day.dateIso);
-            const isTappable = day.isPast && day.isCurrentMonth;
-
-            return (
-              <Pressable
-                key={day.dateIso}
-                onPress={() => handleCalendarDayPress(day)}
-                disabled={!isTappable}
-                style={({ pressed }) => [
-                  styles.calendarDay,
-                  day.isToday && styles.calendarDayToday,
-                  pressed && isTappable && styles.calendarDayPressed,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.calendarDayText,
-                    !day.isCurrentMonth && styles.calendarDayTextMuted,
-                    day.isFuture && day.isCurrentMonth && styles.calendarDayTextFuture,
-                    day.isToday && styles.calendarDayTextToday,
-                  ]}
-                >
-                  {day.dayOfMonth}
-                </Text>
-                {isCompleted && <View style={styles.calendarDayDot} />}
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Hint text */}
-        <Text style={styles.calendarHint}>Tap past days to log</Text>
-      </View>
+      {/* Heatmap Section - BUILD habits only */}
+      {!isBreakHabit && (
+        <Animated.View style={styles.section} entering={FadeIn.delay(200).duration(300)}>
+          <HabitHeatmap
+            habitId={habit.id}
+            completedDates={completedDatesSet}
+            adherencePercent={currentMonthAdherence}
+          />
+        </Animated.View>
+      )}
 
       {/* Consistency Section */}
       <View style={styles.section}>
@@ -679,24 +817,103 @@ export default function HabitViewMode({
         </View>
       </View>
 
-      {/* Actions Section */}
-      <View style={styles.section}>
-        <Pressable
-          onPress={onLogToday}
-          disabled={isCompletedToday}
-          style={({ pressed }) => [
-            styles.actionButton,
-            isCompletedToday && styles.actionButtonCompleted,
-            pressed && !isCompletedToday && styles.actionButtonPressed,
-          ]}
-        >
-          <Text
-            style={[styles.actionButtonText, isCompletedToday && styles.actionButtonTextCompleted]}
+      {/* Gremly Message */}
+      <Animated.View style={styles.messageSection} entering={FadeIn.delay(300).duration(300)}>
+        <Text style={styles.messageQuote}>💬</Text>
+        <Text style={styles.messageText}>"{gremlyMessage}"</Text>
+      </Animated.View>
+
+      {/* Chat with Gremly Button */}
+      {onChatWithGremly && (
+        <TouchableOpacity style={styles.chatButton} onPress={onChatWithGremly} activeOpacity={0.8}>
+          <Image source={GREMLY_AVATAR} style={styles.chatButtonIcon} />
+          <Text style={styles.chatButtonText}>Chat with Gremly</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Footer with Action + Mascot */}
+      <View style={styles.footerSection}>
+        {/* Main Action Button */}
+        <Animated.View style={animatedButtonStyle}>
+          <Pressable
+            onPress={handleCheckIn}
+            disabled={isCompletedToday}
+            style={({ pressed }) => [
+              styles.actionButton,
+              isCompletedToday && styles.actionButtonCompleted,
+              pressed && !isCompletedToday && styles.actionButtonPressed,
+            ]}
           >
-            {isCompletedToday ? '✓ Completed' : 'Log Today'}
-          </Text>
-        </Pressable>
+            <Text
+              style={[
+                styles.actionButtonText,
+                isCompletedToday && styles.actionButtonTextCompleted,
+              ]}
+            >
+              {isCompletedToday
+                ? isBreakHabit
+                  ? '✓ Going Strong'
+                  : '✓ Checked In'
+                : isBreakHabit
+                  ? 'Still Going Strong'
+                  : 'Check In Today'}
+            </Text>
+          </Pressable>
+        </Animated.View>
+
+        {/* Slip link for break habits */}
+        {isBreakHabit && !isCompletedToday && onLogSlip && (
+          <TouchableOpacity style={styles.slipLink} onPress={onLogSlip}>
+            <Text style={styles.slipLinkText}>Had a slip? Log it — no shame</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Gremly mascot */}
+        <Image source={GREMLY_MASCOT} style={styles.footerMascot} resizeMode="contain" />
       </View>
+
+      {/* Why Edit Modal */}
+      <Modal visible={isEditingWhy} transparent animationType="fade">
+        <KeyboardAvoidingView
+          style={styles.whyModalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.whyModalContent}>
+            <Text style={styles.whyModalTitle}>Why are you doing this?</Text>
+            <Text style={styles.whyModalSubtitle}>This will remind you on hard days</Text>
+            <TextInput
+              style={styles.whyInput}
+              value={whyText}
+              onChangeText={setWhyText}
+              placeholder="e.g., I want to be healthy for my kids"
+              placeholderTextColor={BRAND.mutedSageText}
+              multiline
+              maxLength={200}
+              autoFocus
+            />
+            <View style={styles.whyModalActions}>
+              <TouchableOpacity
+                style={styles.whyModalCancel}
+                onPress={() => {
+                  setWhyText(habit.why_string || '');
+                  setIsEditingWhy(false);
+                }}
+              >
+                <Text style={styles.whyModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.whyModalSave}
+                onPress={() => {
+                  onUpdateWhy?.(whyText.trim());
+                  setIsEditingWhy(false);
+                }}
+              >
+                <Text style={styles.whyModalSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
   );
 }
@@ -708,11 +925,18 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 0,
     paddingBottom: 32,
   },
+  headerGradient: {
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+    marginBottom: 8,
+  },
   header: {
-    marginBottom: 24,
+    // No marginBottom needed - gradient handles spacing
   },
   habitName: {
     fontSize: 24,
@@ -819,7 +1043,71 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Stats section
+  // Hero section (replaces stats cards)
+  heroSection: {
+    alignItems: 'center',
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  streakCircle: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(255, 107, 53, 0.08)',
+    borderWidth: 3,
+    borderColor: 'rgba(255, 107, 53, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  streakNumber: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#FF6B35',
+    marginTop: 4,
+  },
+  streakLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.mutedSageText,
+    marginTop: -2,
+  },
+  cleanCircle: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(46, 85, 64, 0.08)',
+    borderWidth: 3,
+    borderColor: 'rgba(46, 85, 64, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  cleanDaysNumber: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: BRAND.mossGreen,
+    marginTop: 4,
+  },
+  cleanDaysLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.mutedSageText,
+    marginTop: -2,
+  },
+  cleanDuration: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.mossGreen,
+    marginBottom: 4,
+  },
+  heroSubtext: {
+    fontSize: 13,
+    color: BRAND.mutedSageText,
+    fontStyle: 'italic',
+  },
+
+  // Stats section (legacy - kept for reference)
   statsRow: {
     flexDirection: 'row',
     gap: 12,
@@ -988,26 +1276,195 @@ const styles = StyleSheet.create({
     color: BRAND.mutedSageText,
   },
 
-  // Actions section
-  actionButton: {
+  // Message section
+  messageSection: {
+    backgroundColor: 'rgba(191, 216, 192, 0.2)',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  messageQuote: {
+    fontSize: 16,
+    marginBottom: 4,
+  },
+  messageText: {
+    fontSize: 15,
+    color: BRAND.charcoalInk,
+    lineHeight: 22,
+    fontStyle: 'italic',
+  },
+
+  // Your Why section (BREAK habits)
+  whySection: {
+    backgroundColor: 'rgba(191, 216, 192, 0.15)',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+  },
+  whySectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  whySectionTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: BRAND.mutedSageText,
+    letterSpacing: 0.5,
+  },
+  whyEditLink: {
+    fontSize: 13,
+    color: BRAND.mossGreen,
+  },
+  whyText: {
+    fontSize: 15,
+    color: BRAND.charcoalInk,
+    fontStyle: 'italic',
+    lineHeight: 22,
+  },
+  whyPlaceholder: {
+    fontSize: 14,
+    color: BRAND.mutedSageText,
+    fontStyle: 'italic',
+  },
+  whyModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  whyModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+  },
+  whyModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: BRAND.charcoalInk,
+    textAlign: 'center',
+  },
+  whyModalSubtitle: {
+    fontSize: 14,
+    color: BRAND.mutedSageText,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  whyInput: {
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    color: BRAND.charcoalInk,
+  },
+  whyModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  whyModalCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    alignItems: 'center',
+  },
+  whyModalCancelText: {
+    fontSize: 16,
+    color: BRAND.mutedSageText,
+    fontWeight: '500',
+  },
+  whyModalSave: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: BRAND.mossGreen,
+    alignItems: 'center',
+  },
+  whyModalSaveText: {
+    fontSize: 16,
+    color: 'white',
+    fontWeight: '600',
+  },
+
+  // Chat button
+  chatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: BRAND.sageMist,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginTop: 12,
+    gap: 10,
+  },
+  chatButtonIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  chatButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND.mossGreen,
+  },
+
+  // Footer section with mascot
+  footerSection: {
+    marginTop: 24,
+    position: 'relative',
+    paddingBottom: 60,
+  },
+  actionButton: {
+    backgroundColor: BRAND.mossGreen,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   actionButtonCompleted: {
-    backgroundColor: 'rgba(180, 200, 185, 0.5)',
+    backgroundColor: BRAND.sageMist,
   },
   actionButtonPressed: {
-    opacity: 0.8,
+    opacity: 0.9,
   },
   actionButtonText: {
-    color: BRAND.mossGreen,
+    color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },
   actionButtonTextCompleted: {
+    color: BRAND.mossGreen,
+  },
+  slipLink: {
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  slipLinkText: {
+    fontSize: 14,
     color: BRAND.mutedSageText,
+  },
+  footerMascot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 50,
+    height: 50,
+    opacity: 0.9,
+  },
+  actionButtonBreak: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.2)',
+  },
+  actionButtonTextBreak: {
+    color: '#DC2626',
   },
 });

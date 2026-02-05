@@ -1673,6 +1673,58 @@ export const useAllSpaceMilestones = (spaceId: string) =>
   useGremlyStore((state) => selectAllMilestonesForSpace(state, spaceId));
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// EVENT NOTE SELECTORS (Key Dates feature)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Events (notes with subtype='event') for a space, sorted by target_date ascending */
+export const selectEventsForSpace = createSelector(
+  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
+  (notes, spaceId) =>
+    notes
+      .filter((n) => n.subtype === 'event' && n.space_id === spaceId && !n.archived)
+      .sort((a, b) => {
+        // Sort by target_date ascending (earliest first)
+        const dateA = a.target_date || '';
+        const dateB = b.target_date || '';
+        return dateA.localeCompare(dateB);
+      }),
+);
+
+export const useEventsForSpace = (spaceId: string) =>
+  useGremlyStore((state) => selectEventsForSpace(state, spaceId));
+
+/** All items (todos, notes, habits) linked to a specific event */
+export const selectItemsLinkedToEvent = createSelector(
+  [selectTodos, selectNotes, selectHabits, (_state: GremlyState, eventId: string) => eventId],
+  (todos, notes, habits, eventId) => ({
+    todos: todos.filter((t) => t.linked_event_id === eventId && !t.archived && !t.completed_at),
+    notes: notes.filter((n) => n.linked_event_id === eventId && !n.archived),
+    habits: habits.filter((h) => h.linked_event_id === eventId && !h.archived),
+  }),
+);
+
+export const useItemsLinkedToEvent = (eventId: string) =>
+  useGremlyStore((state) => selectItemsLinkedToEvent(state, eventId));
+
+/** Whether a space has any events */
+export const selectSpaceHasEvents = createSelector(
+  [selectEventsForSpace],
+  (events) => events.length > 0,
+);
+
+export const useSpaceHasEvents = (spaceId: string) =>
+  useGremlyStore((state) => selectSpaceHasEvents(state, spaceId));
+
+/** Upcoming events for a space (target_date >= today) */
+export const selectUpcomingEventsForSpace = createSelector([selectEventsForSpace], (events) => {
+  const today = getTodayDayString();
+  return events.filter((e) => e.target_date && e.target_date >= today);
+});
+
+export const useUpcomingEventsForSpace = (spaceId: string) =>
+  useGremlyStore((state) => selectUpcomingEventsForSpace(state, spaceId));
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ITEM LOOKUP SELECTORS (for Mind Drop / CatchAllNotepad)
 // ═══════════════════════════════════════════════════════════════════════════════
 

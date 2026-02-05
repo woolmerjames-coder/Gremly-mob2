@@ -228,6 +228,12 @@ import { getSpaceContent, buildSpaceContentString } from './context/spaceContent
  * - "high": Clear structure, unambiguous parsing
  * - "medium": Some structural elements unclear but main parse is solid
  * - "low": Significant uncertainty in the parse
+ *
+ * @property {"self"|"external"|"other_person"} action_target
+ * Who or what is the subject of change or action.
+ * - "self": The user will do or change something about themselves
+ * - "external": Describing how something else should behave or be configured
+ * - "other_person": About someone else's behavior
  */
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -315,6 +321,9 @@ function mapPreparseToClassification(preparse) {
 
   // Vague desire for more/less without concrete measure - needs clarification
   if (preparse.direction_without_schedule && !preparse.frequency_type) {
+    if (preparse.action_target === 'external') {
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    }
     if (preparse.temporal_specificity) {
       return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
     }
@@ -348,21 +357,18 @@ function mapPreparseToClassification(preparse) {
     return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
   }
 
-  // 4. Frequency (including stop/quit) + commitment → habit
-  if (
-    preparse.frequency_type &&
-    (preparse.frame_type === 'directing' || preparse.obligation_framing)
-  ) {
-    const habitSubtype = preparse.frequency_type === 'stop_quit' ? 'break_habit' : 'start_habit';
-    return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype };
+  // 4. Frequency detected → ALWAYS verify with Phase 1
+  // Habits are too consequential to fast-path. Wrong habits pollute the user's list.
+  // Phase 1 can distinguish "discussing habits" from "creating habits" and apply
+  // semantic tests that PreParse keyword-matching cannot.
+  if (preparse.frequency_type) {
+    if (preparse.action_target === 'external') {
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    }
+    return { needsPhase1: true, reason: 'frequency_detected_needs_habit_verification' };
   }
 
-  // 5. Stop/quit language → habit (backup check)
-  if (preparse.frequency_type === 'stop_quit') {
-    return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype: 'break_habit' };
-  }
-
-  // 6. Directing frame or obligation framing → todo (if no hedging on verb)
+  // 5. Directing frame or obligation framing → todo (if no hedging on verb)
   if (preparse.frame_type === 'directing' || preparse.obligation_framing) {
     if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
       return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
@@ -419,15 +425,16 @@ const PREPARSE_INTENT_PROMPT = `Extract these facts from the input. Return JSON 
 
 - frame_type: What is the user's commitment state? "directing" (user has decided to act — an imperative self-command IS commitment, regardless of what the action involves), "exploring" (user is uncertain WHETHER to commit — hedging or questioning their own intent), "processing" (working through emotions or reflecting), "factual" (stating information to remember), or "uncertain" (cannot determine intent). TEST: Is this a self-command or a consideration? A self-command expresses commitment through its form.
 - factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present. If only one side exists, this is false. Goals about what to DO are not facts about what IS.
-- is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?`;
+- is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?
+- action_target: Who or what is the subject of change or action? "self" (the user will personally do or embody this change), "external" (the user is giving instructions about how a system, product, feature, or thing should behave or be built), or "other_person" (about another person's behavior). If the user is telling a system what to do rather than telling themselves what to do, that is "external".`;
 
 // Mini-prompt B: Content Signals
 const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
 - emotional_content: Is the user expressing feelings, mood, or emotional state?
 - self_reflection: Is the user examining their own thoughts, patterns, or behavior?
-- frequency_present: Does it reference repetition, recurrence, or cessation? Set true if frequency_type is not null.
-- frequency_type: Does the user intend to do this REPEATEDLY on an ongoing basis? Test: "Once I complete this, will I need to do it again?" If NO → null. If YES → "explicit", "day_names", or "stop_quit".
+- frequency_present: Does the user intend to personally repeat this behavior on an ongoing basis? Set true if frequency_type is not null.
+- frequency_type: Apply this test: "Has the user specified WHEN or HOW OFTEN they will do this?" Frequency requires concrete timing — not just a desire to do more or less of something. If no timing is specified → null. If timing is specified → "explicit" (recurrence is stated), "day_names" (specific days are referenced), or "stop_quit" (user intends to completely stop a behavior). Wanting "more" or "less" of something without a schedule is NOT frequency — that is direction_without_schedule.
 - direction_without_schedule: Does the user's language explicitly express a desire to CHANGE from their current state — to increase, decrease, or improve something — without specifying a target? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity.
 - temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.`;
 
@@ -509,6 +516,9 @@ async function runPreparse(text, env) {
         : 'uncertain',
       factual_statement: Boolean(intentResult.factual_statement),
       is_noun_phrase_only: Boolean(intentResult.is_noun_phrase_only),
+      action_target: ['self', 'external', 'other_person'].includes(intentResult.action_target)
+        ? intentResult.action_target
+        : 'self',
 
       // From content
       emotional_content: Boolean(contentResult.emotional_content),
@@ -738,7 +748,14 @@ Short inputs are not necessarily incomplete. Single emotional expressions are co
 
 TODO — A discrete, completable action. The user can mark it DONE. Committed action with fuzzy details is still TODO.
 
-HABIT — A trackable, recurring behavior. Requires EXPLICIT frequency or stop/quit language. User must be able to answer "did I do this?" with certainty. Direction without schedule is NOT a habit.
+HABIT — A trackable, recurring behavior the USER will personally repeat. User must be able to answer "did I do this today?" with a clear yes or no. Direction without concrete recurrence is NOT a habit.
+
+HABIT GATE — Before classifying as HABIT, apply these semantic tests:
+1. WHO repeats? Is the USER the one who will personally perform this action repeatedly? If the user is building/creating/configuring something, the output may be recurring but the user's action is one-time. That's TODO.
+2. WHAT recurs? Does the frequency language describe the user's behavior, or something else (a feature, an event, an output)? The recurrence must attach to the user's action.
+3. IS there concrete timing? Wanting "more" or "less" of something is a vague aspiration, not a schedule. The user must have specified when or how often they will do this. If no timing is present, it's not a habit.
+
+The test: "Has the user specified WHEN or HOW OFTEN?" If NO → not a habit, even if PreParse detected frequency.
 
 LOG — Capture for reflection, not action:
 - journal: Expressing or processing feelings. The value is in the expression itself.
@@ -3706,6 +3723,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
           self_reflection: preparseResult.result.self_reflection,
           is_noun_phrase_only: preparseResult.result.is_noun_phrase_only,
           parse_confidence: preparseResult.result.parse_confidence,
+          action_target: preparseResult.result.action_target,
           latency_ms: preparseResult.latency_ms,
         });
 
