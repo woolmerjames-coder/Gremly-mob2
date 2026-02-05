@@ -46,6 +46,7 @@ import {
   useSpacePendingDrops,
   useGoalForSpace,
   useEventsForSpace,
+  useAssignmentSuggestionsForSpace,
 } from '../../lib/store/selectors';
 import type { Space, SpaceChat, AppRecord, RecordType, Note } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
@@ -122,6 +123,7 @@ import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
 import { SpaceSettingsModal } from '../../components/spaces/SpaceSettingsModal';
 import { CompletedInSpaceOverlay } from '../../components/spaces/CompletedInSpaceOverlay';
+import SpaceAssignmentSheet from '../../components/spaces/SpaceAssignmentSheet';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -325,6 +327,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const storeTodos = useSpaceTodosFromStore(spaceId);
   const storeHabits = useSpaceHabitsFromStore(spaceId);
   const storeNotes = useSpaceNotesFromStore(spaceId);
+
+  // Space assignment suggestions - show sheet if pending suggestions exist
+  const assignmentSuggestions = useAssignmentSuggestionsForSpace(spaceId);
+  const [showAssignmentSheet, setShowAssignmentSheet] = useState(true);
+  const updateSpace = useGremlyStore((s) => s.updateSpace);
 
   // Completed todos count and list from store (storeTodos only has incomplete todos)
   const completedTodoCount = useGremlyStore(
@@ -2372,6 +2379,21 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // (moved above)
 
   // (effect moved above to satisfy hooks rules)
+
+  // Show assignment sheet if there are pending suggestions for this space
+  if (showAssignmentSheet && assignmentSuggestions.length > 0) {
+    return (
+      <SpaceAssignmentSheet
+        spaceId={spaceId}
+        spaceName={space?.name || 'this space'}
+        suggestions={assignmentSuggestions}
+        onComplete={() => setShowAssignmentSheet(false)}
+        onDisableSuggestions={async () => {
+          await updateSpace(spaceId, { disable_suggestions: true });
+        }}
+      />
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: BRAND.colors.linenCream }]}>

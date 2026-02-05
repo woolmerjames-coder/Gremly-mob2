@@ -432,6 +432,9 @@ export interface Space {
   summary_updated_at?: string | null; // ISO 8601 timestamp of last summary update
   layout_state_json?: any | null; // JSON blob for saving UI layout state (collapsed sections, sort order, etc.)
   archived_at?: string | null; // ISO 8601 timestamp when space was archived (null = active)
+
+  // Space Suggestions feature
+  disable_suggestions?: boolean; // If true, nightly job skips this space for suggestions
 }
 
 /**
