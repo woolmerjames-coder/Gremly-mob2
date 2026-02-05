@@ -37,7 +37,8 @@ interface MilestoneHeaderProps {
   pinnedCount: number;
   completedCount?: number;
   mascotSource?: ImageSourcePropType; // Custom mascot image source
-  goalEvent?: Note | null; // Goal event note (new system)
+  goalEvent?: Note | null; // Primary goal event (first by created_at) - kept for backward compatibility
+  goals?: Note[]; // All goals for the space (up to 3)
   keyDatesCount?: number; // Number of key date events (excluding goals)
   nextKeyDatePreview?: string | null; // Preview text for next key date
   children?: ReactNode; // Optional content to render in header (e.g., KeyDatesSection)
@@ -59,6 +60,7 @@ export function MilestoneHeader({
   completedCount = 0,
   mascotSource,
   goalEvent = null,
+  goals = [],
   keyDatesCount = 0,
   nextKeyDatePreview = null,
   children,
@@ -72,10 +74,14 @@ export function MilestoneHeader({
   onBackPress,
 }: MilestoneHeaderProps) {
   const insets = useSafeAreaInsets();
-  // Show nudge only if no milestone AND no goal event
+  // Primary goal is first in goals array, or fallback to goalEvent for compatibility
+  const primaryGoal = goals.length > 0 ? goals[0] : goalEvent;
+  const additionalGoalsCount = Math.max(0, goals.length - 1);
+
+  // Show nudge only if no milestone AND no goals
   const hasMilestone = milestone !== null;
-  const hasGoalEvent = goalEvent !== null;
-  const showNudge = !hasMilestone && !hasGoalEvent;
+  const hasGoals = goals.length > 0 || goalEvent !== null;
+  const showNudge = !hasMilestone && !hasGoals;
 
   // Show Key Dates row if there are events or if there's a handler to add them
   const showKeyDates = keyDatesCount > 0 || onKeyDatesPress;
@@ -159,17 +165,28 @@ export function MilestoneHeader({
                 </Text>
               )}
             </Pressable>
-          ) : hasGoalEvent ? (
-            // Goal event display (no countdown - simpler)
+          ) : primaryGoal ? (
+            // Goal display with support for multiple goals
             <Pressable
               onPress={onMilestonePress}
               accessibilityRole="button"
-              accessibilityLabel="Edit goal"
+              accessibilityLabel={
+                additionalGoalsCount > 0
+                  ? `${primaryGoal.title} and ${additionalGoalsCount} more goals`
+                  : 'Edit goal'
+              }
               testID="header-goal-button"
             >
-              <Text style={styles.milestoneName} numberOfLines={2}>
-                {goalEvent?.title || 'Goal'}
-              </Text>
+              <View style={styles.goalTitleRow}>
+                <Text style={styles.milestoneName} numberOfLines={2}>
+                  {primaryGoal.title || 'Goal'}
+                </Text>
+                {additionalGoalsCount > 0 && (
+                  <Pressable onPress={onKeyDatesPress} hitSlop={8}>
+                    <Text style={styles.moreGoalsText}>+{additionalGoalsCount} more</Text>
+                  </Pressable>
+                )}
+              </View>
             </Pressable>
           ) : showNudge ? (
             // Nudge to set a goal
@@ -324,11 +341,22 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 0,
   },
+  goalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
   milestoneName: {
     fontSize: 18,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
     marginBottom: 0,
+  },
+  moreGoalsText: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    fontWeight: '500',
   },
   countdown: {
     fontSize: 14,

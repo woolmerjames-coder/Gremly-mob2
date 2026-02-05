@@ -5,8 +5,9 @@
  * - View and edit existing journals
  * - Create new journals in create mode
  * - Date navigation between entries
- * - Random writing prompts
- * - Auto-save on Done
+ * - Cycling writing prompts (FIX 2)
+ * - Auto-save on Done with enrichment (FIX 3)
+ * - Open overlay button (FIX 4)
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
@@ -22,10 +23,32 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MoreHorizontal } from 'lucide-react-native';
 import { format, addDays, subDays, parseISO, isToday, isSameDay } from 'date-fns';
 
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useGlobalOverlay } from '../../contexts/OverlayContext';
+import { getDateService } from '../../lib/date';
+import { env, getEnv } from '../../lib/env';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cortex URL helper (same pattern as useEventQuickAdd.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
+
+const readCortexUrl = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
+  const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
+};
+
+const readSupabaseAnonKey = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design Tokens
@@ -54,13 +77,33 @@ const JOURNAL_PROMPTS = [
   'Something I noticed today...',
 ];
 
-function getRandomPrompt(): string {
-  return JOURNAL_PROMPTS[Math.floor(Math.random() * JOURNAL_PROMPTS.length)];
-}
+// Goal check-in focused prompts (FIX 2: expanded list)
+const GOAL_CHECKIN_PROMPTS = [
+  'What progress have you made since last time?',
+  "What's the biggest thing in the way right now?",
+  'How are you feeling about this goal today?',
+  "What's one small thing you could do next?",
+  'Has anything changed about what you want here?',
+  'What would make you feel good about this week?',
+  'What obstacles am I facing?',
+  'What would help me move forward?',
+  "What's working well?",
+  'What have I learned so far?',
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Context for goal check-in journals */
+export interface GoalContext {
+  type: 'goal_checkin';
+  goal_id: string;
+  goal_name: string;
+  space_id: string;
+  space_name: string;
+}
+
 interface JournalFullScreenProps {
   /** Whether the modal is visible */
   visible: boolean;
@@ -72,6 +115,8 @@ interface JournalFullScreenProps {
   onSave: () => void;
   /** When true, creates a new journal instead of editing */
   createMode?: boolean;
+  /** Optional goal context for check-in journals */
+  goalContext?: GoalContext;
 }
 
 interface JournalEntry {
@@ -91,11 +136,22 @@ export function JournalFullScreen({
   onClose,
   onSave,
   createMode = false,
+  goalContext,
 }: JournalFullScreenProps) {
   const insets = useSafeAreaInsets();
   const repo = useRepo();
   const { user } = useAuth();
   const inputRef = useRef<TextInput>(null);
+
+  // Zustand store for creating notes (FIX 3)
+  const createNote = useGremlyStore((s) => s.createNote);
+  const updateNote = useGremlyStore((s) => s.updateNote);
+
+  // Global overlay for opening full note editor (FIX 4)
+  const { openEdit } = useGlobalOverlay();
+
+  // Determine which prompts to use based on context
+  const prompts = goalContext?.type === 'goal_checkin' ? GOAL_CHECKIN_PROMPTS : JOURNAL_PROMPTS;
 
   // State
   const [loading, setLoading] = useState(false);
@@ -104,7 +160,12 @@ export function JournalFullScreen({
   const [originalContent, setOriginalContent] = useState('');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [currentJournalId, setCurrentJournalId] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<string | null>(null);
+  // FIX 2: Use index-based prompt cycling instead of random
+  const [promptIndex, setPromptIndex] = useState(-1); // -1 means no prompt shown yet
+  const [promptShown, setPromptShown] = useState(false);
+
+  // Current prompt based on index (FIX 2)
+  const currentPrompt = promptIndex >= 0 ? prompts[promptIndex % prompts.length] : null;
 
   // Check if content has changed
   const hasChanges = content !== originalContent;
@@ -181,7 +242,9 @@ export function JournalFullScreen({
   // Initialize on open
   useEffect(() => {
     if (visible) {
-      setPrompt(null);
+      // Reset prompt state (FIX 2)
+      setPromptIndex(-1);
+      setPromptShown(false);
       if (createMode) {
         // Create mode: start fresh with today's date
         setContent('');
@@ -208,31 +271,182 @@ export function JournalFullScreen({
     setSaving(true);
     try {
       if (currentJournalId) {
-        // Update existing journal
+        // Update existing journal via repo
         await repo.updateNote(currentJournalId, {
           content: content.trim(),
         });
+        setOriginalContent(content);
+        onSave();
+        onClose();
       } else if (user?.id) {
-        // Create new journal
-        await repo.createNote({
-          space_id: '', // No space for personal journals
-          user_id: user.id,
-          type: 'journal',
-          content: content.trim(),
-          title: format(currentDate, 'MMMM d, yyyy'),
-          date: format(currentDate, 'yyyy-MM-dd'),
-        });
+        // FIX 3: Create new journal via Zustand store (not repo) for proper persistence
+        // Create immediately, then run enrichment async (fire-and-forget)
+        const isGoalCheckin = goalContext?.type === 'goal_checkin';
+
+        // Build note data for Zustand store
+        const notePayload: any = {
+          title: isGoalCheckin
+            ? `Check-in: ${goalContext.goal_name}`
+            : format(currentDate, 'MMMM d, yyyy'),
+          body: content.trim(),
+          subtype: 'journal',
+          space_id: goalContext?.space_id || '',
+          origin: isGoalCheckin ? 'goal_checkin' : 'manual',
+          tags: isGoalCheckin ? [goalContext.goal_name.toLowerCase()] : [],
+        };
+
+        // Add goal check-in metadata
+        if (isGoalCheckin) {
+          notePayload.views = {
+            goal_checkin: {
+              goal_id: goalContext.goal_id,
+              goal_name: goalContext.goal_name,
+            },
+          };
+        }
+
+        // Create note immediately (this is what matters for check-in count)
+        const newNote = await createNote(notePayload);
+        const newNoteId = newNote?.id;
+
+        console.log('[JournalFullScreen] Created journal note:', newNoteId);
+
+        // Navigate back immediately - don't wait for enrichment
+        setOriginalContent(content);
+        setCurrentJournalId(newNoteId || null);
+        onSave();
+        onClose();
+
+        // FIX 3: Run enrichment async (fire-and-forget) - don't block navigation
+        if (newNoteId) {
+          enrichGoalCheckin(newNoteId, content.trim(), goalContext).catch((err) => {
+            console.warn('[JournalFullScreen] Enrichment failed:', err);
+          });
+        }
       }
-      setOriginalContent(content);
-      onSave();
-      onClose();
     } catch (error) {
       console.error('[JournalFullScreen] Failed to save journal:', error);
       Alert.alert('Error', 'Failed to save journal entry');
-    } finally {
       setSaving(false);
     }
-  }, [content, currentJournalId, currentDate, repo, onSave, onClose]);
+  }, [
+    content,
+    currentJournalId,
+    currentDate,
+    repo,
+    onSave,
+    onClose,
+    goalContext,
+    user?.id,
+    createNote,
+  ]);
+
+  // FIX 3: Async enrichment function (fire-and-forget)
+  const enrichGoalCheckin = useCallback(
+    async (noteId: string, text: string, context: GoalContext | undefined) => {
+      try {
+        const cortexUrl = readCortexUrl();
+        const anonKey = readSupabaseAnonKey();
+
+        if (!cortexUrl || !anonKey) {
+          console.warn('[JournalFullScreen] Missing cortex URL or anon key, skipping enrichment');
+          return;
+        }
+
+        const ds = getDateService();
+        const currentDateStr = ds.getCurrentDate();
+        const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+        console.log('[JournalFullScreen] Running Phase 1.5a + Phase 2 enrichment');
+
+        // Run Phase 1.5a and Phase 2 in parallel
+        const [phase15aResult, phase2Result] = await Promise.all([
+          // Phase 1.5a: Smart title + confirmation message
+          (async () => {
+            try {
+              const res = await fetch(cortexUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${anonKey}`,
+                },
+                body: JSON.stringify({
+                  type: 'enrich-phase1-5a',
+                  text,
+                  bucket: 'log',
+                  subtype: 'journal',
+                }),
+              });
+              if (!res.ok) return null;
+              return await res.json();
+            } catch (err) {
+              console.warn('[JournalFullScreen] Phase 1.5a failed:', err);
+              return null;
+            }
+          })(),
+          // Phase 2: Tags, mood, etc.
+          (async () => {
+            try {
+              const res = await fetch(cortexUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${anonKey}`,
+                },
+                body: JSON.stringify({
+                  type: 'enrich-phase2',
+                  text,
+                  bucket: 'log',
+                  subtype: 'journal',
+                  currentDate: currentDateStr,
+                  dayOfWeek,
+                  timezone,
+                }),
+              });
+              if (!res.ok) return null;
+              return await res.json();
+            } catch (err) {
+              console.warn('[JournalFullScreen] Phase 2 failed:', err);
+              return null;
+            }
+          })(),
+        ]);
+
+        // Build update payload
+        const smartTitle = phase15aResult?.smart_title || text.substring(0, 60);
+        const goalName = context?.goal_name?.toLowerCase();
+        const extractedTags = phase2Result?.tags || [];
+        const allTags = goalName ? [...new Set([goalName, ...extractedTags])] : extractedTags;
+
+        const updatePayload: any = {
+          title: smartTitle,
+          tags: allTags,
+        };
+
+        // Add enrichment data to views
+        if (phase15aResult?.confirmation_message || phase2Result?.mood) {
+          updatePayload.views = {
+            ...(context?.type === 'goal_checkin' && {
+              goal_checkin: {
+                goal_id: context.goal_id,
+                goal_name: context.goal_name,
+              },
+            }),
+            confirmation_message: phase15aResult?.confirmation_message || null,
+            mood: phase2Result?.mood || null,
+          };
+        }
+
+        // Update the note with enriched data
+        await updateNote(noteId, updatePayload);
+        console.log('[JournalFullScreen] Enrichment complete for note:', noteId);
+      } catch (err) {
+        console.error('[JournalFullScreen] Enrichment error:', err);
+      }
+    },
+    [updateNote],
+  );
 
   // Handle back with unsaved changes warning
   const handleBack = useCallback(() => {
@@ -265,16 +479,67 @@ export function JournalFullScreen({
     }
   }, [currentDate, loadJournalForDate]);
 
-  // Handle prompt
+  // FIX 2: Handle prompt cycling (not random)
   const handleGetPrompt = useCallback(() => {
-    const newPrompt = getRandomPrompt();
-    setPrompt(newPrompt);
-    // If content is empty, insert prompt as starter
-    if (!content.trim()) {
-      setContent(newPrompt + ' ');
-      inputRef.current?.focus();
+    setPromptIndex((prev) => prev + 1);
+    setPromptShown(true);
+    inputRef.current?.focus();
+  }, []);
+
+  // FIX 4: Handle opening full overlay editor
+  const handleOpenOverlay = useCallback(async () => {
+    // If we have an existing note, open it directly
+    if (currentJournalId) {
+      openEdit({
+        id: currentJournalId,
+        type: 'note',
+      } as any);
+      return;
     }
-  }, [content]);
+
+    // If no note exists yet but user has content, save first then open
+    if (content.trim() && user?.id) {
+      setSaving(true);
+      try {
+        const isGoalCheckin = goalContext?.type === 'goal_checkin';
+        const notePayload: any = {
+          title: isGoalCheckin
+            ? `Check-in: ${goalContext.goal_name}`
+            : format(currentDate, 'MMMM d, yyyy'),
+          body: content.trim(),
+          subtype: 'journal',
+          space_id: goalContext?.space_id || '',
+          origin: isGoalCheckin ? 'goal_checkin' : 'manual',
+          tags: isGoalCheckin ? [goalContext.goal_name.toLowerCase()] : [],
+        };
+
+        if (isGoalCheckin) {
+          notePayload.views = {
+            goal_checkin: {
+              goal_id: goalContext.goal_id,
+              goal_name: goalContext.goal_name,
+            },
+          };
+        }
+
+        const newNote = await createNote(notePayload);
+        if (newNote?.id) {
+          setCurrentJournalId(newNote.id);
+          setOriginalContent(content);
+          // Open the overlay with the new note
+          openEdit({
+            id: newNote.id,
+            type: 'note',
+          } as any);
+        }
+      } catch (error) {
+        console.error('[JournalFullScreen] Failed to save before overlay:', error);
+        Alert.alert('Error', 'Failed to save journal entry');
+      } finally {
+        setSaving(false);
+      }
+    }
+  }, [currentJournalId, content, user?.id, goalContext, currentDate, createNote, openEdit]);
 
   // Format nav dates
   const prevDateLabel = format(subDays(currentDate, 1), 'MMM d');
@@ -300,19 +565,38 @@ export function JournalFullScreen({
           >
             <Text style={styles.backButton}>← Back</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={saving}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            {saving ? (
-              <ActivityIndicator size="small" color={MOSS_GREEN} />
-            ) : (
-              <Text style={[styles.doneButton, !hasChanges && styles.doneButtonDisabled]}>
-                Done
-              </Text>
-            )}
-          </TouchableOpacity>
+
+          {/* FIX 4: Header right side with overlay button and Done */}
+          <View style={styles.headerRight}>
+            {/* Overlay button - opens full note editor */}
+            <TouchableOpacity
+              onPress={handleOpenOverlay}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={styles.overlayButton}
+              disabled={saving || (!currentJournalId && !content.trim())}
+            >
+              <MoreHorizontal
+                size={20}
+                color={
+                  saving || (!currentJournalId && !content.trim()) ? LIGHT_BORDER : SUBTLE_GREY
+                }
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleSave}
+              disabled={saving}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color={MOSS_GREEN} />
+              ) : (
+                <Text style={[styles.doneButton, !hasChanges && styles.doneButtonDisabled]}>
+                  Done
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Content Area */}
@@ -326,11 +610,19 @@ export function JournalFullScreen({
               {/* Date Display */}
               <Text style={styles.dateDisplay}>{formattedDate}</Text>
 
+              {/* Goal Context - if checking in on a goal */}
+              {goalContext?.type === 'goal_checkin' && (
+                <Text style={styles.goalContext}>Check-in: {goalContext.goal_name}</Text>
+              )}
+
+              {/* FIX 2: Writing prompt displayed above input */}
+              {currentPrompt && <Text style={styles.promptDisplay}>{currentPrompt}</Text>}
+
               {/* Journal Text Input */}
               <TextInput
                 ref={inputRef}
                 style={styles.journalInput}
-                placeholder={prompt || 'Start writing...'}
+                placeholder="Start writing..."
                 placeholderTextColor={SUBTLE_GREY}
                 value={content}
                 onChangeText={setContent}
@@ -339,7 +631,7 @@ export function JournalFullScreen({
                 autoFocus={createMode}
               />
 
-              {/* Get Prompt Button */}
+              {/* Get Prompt Button - FIX 2: Updated text */}
               <TouchableOpacity
                 style={[styles.promptButton, content.trim() && styles.promptButtonSubtle]}
                 onPress={handleGetPrompt}
@@ -348,7 +640,7 @@ export function JournalFullScreen({
                 <Text
                   style={[styles.promptButtonText, content.trim() && styles.promptButtonTextSubtle]}
                 >
-                  {prompt ? 'Get another prompt' : 'Get a prompt'}
+                  {promptShown ? 'Get another prompt' : 'Get a prompt'}
                 </Text>
               </TouchableOpacity>
             </>
@@ -393,6 +685,18 @@ const styles = StyleSheet.create({
     color: MOSS_GREEN,
     fontWeight: '500',
   },
+  // FIX 4: Header right section
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  overlayButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   doneButton: {
     fontSize: 16,
     color: MOSS_GREEN,
@@ -417,7 +721,23 @@ const styles = StyleSheet.create({
     color: MOSS_GREEN,
     textAlign: 'center',
     marginTop: 24,
-    marginBottom: 32,
+    marginBottom: 8,
+  },
+  goalContext: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: SUBTLE_GREY,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  // FIX 2: Prompt display above input
+  promptDisplay: {
+    fontSize: 15,
+    fontStyle: 'italic',
+    color: MOSS_GREEN,
+    textAlign: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 12,
   },
   journalInput: {
     flex: 1,

@@ -255,17 +255,17 @@ export function SpaceSettingsModal({
               </View>
             </Pressable>
 
-            {/* Milestone */}
+            {/* Goals & Key Dates */}
             <Pressable onPress={handleEditMilestone} style={styles.option}>
               <View style={styles.optionHeader}>
                 <View style={styles.iconContainer}>
                   <Flag size={18} color={BRAND.colors.mossGreen} />
                 </View>
-                <Text style={styles.optionLabel}>Goal</Text>
+                <Text style={styles.optionLabel}>Goals & Key Dates</Text>
               </View>
               <View style={styles.optionValue}>
                 <Text style={styles.optionValueText}>
-                  {hasMilestone ? 'Edit goal' : 'Set a goal'}
+                  {hasMilestone ? 'View journey' : 'Set goals'}
                 </Text>
                 <ChevronRight size={18} color={BRAND.colors.inkMuted} />
               </View>

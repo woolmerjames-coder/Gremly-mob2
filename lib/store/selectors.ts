@@ -1697,7 +1697,7 @@ export const selectEventsForSpace = createSelector(
 export const useEventsForSpace = (spaceId: string) =>
   useGremlyStore((state) => selectEventsForSpace(state, spaceId));
 
-/** Goal event for a space (is_goal = true) */
+/** Goal event for a space (is_goal = true) - returns first goal by created_at (primary goal) */
 export const selectGoalForSpace = createSelector(
   [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
   (notes, spaceId) =>
@@ -1708,6 +1708,68 @@ export const selectGoalForSpace = createSelector(
 
 export const useGoalForSpace = (spaceId: string) =>
   useGremlyStore((state) => selectGoalForSpace(state, spaceId));
+
+/** All goal events for a space (is_goal = true), max 3, sorted by created_at ascending */
+export const selectGoalsForSpace = createSelector(
+  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
+  (notes, spaceId) =>
+    notes
+      .filter(
+        (n) => n.subtype === 'event' && n.is_goal === true && n.space_id === spaceId && !n.archived,
+      )
+      .sort((a, b) => {
+        const aDate = a.created_at || '';
+        const bDate = b.created_at || '';
+        return aDate.localeCompare(bDate);
+      })
+      .slice(0, 3),
+);
+
+export const useGoalsForSpace = (spaceId: string) =>
+  useGremlyStore((state) => selectGoalsForSpace(state, spaceId));
+
+/** Journal check-ins related to a goal (by title match or tag) */
+export const selectCheckInsForGoal = createSelector(
+  [
+    selectNotes,
+    (_state: GremlyState, goalTitle: string) => goalTitle,
+    (_state: GremlyState, _goalTitle: string, spaceId: string) => spaceId,
+  ],
+  (notes, goalTitle, spaceId) => {
+    const goalWords = goalTitle
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+    return notes
+      .filter((n) => {
+        if (n.subtype !== 'journal' || n.archived) return false;
+        if (n.space_id !== spaceId) return false;
+
+        // Check if title contains goal-related words
+        const noteTitle = (n.title || '').toLowerCase();
+        const hasGoalInTitle = goalWords.some((word) => noteTitle.includes(word));
+
+        // Check if tags include goal name
+        const hasTags =
+          Array.isArray(n.tags) &&
+          n.tags.some(
+            (tag) =>
+              tag.toLowerCase().includes(goalTitle.toLowerCase()) ||
+              goalTitle.toLowerCase().includes(tag.toLowerCase()),
+          );
+
+        return hasGoalInTitle || hasTags;
+      })
+      .sort((a, b) => {
+        const aDate = a.created_at || '';
+        const bDate = b.created_at || '';
+        return bDate.localeCompare(aDate); // Most recent first
+      });
+  },
+);
+
+export const useCheckInsForGoal = (goalTitle: string, spaceId: string) =>
+  useGremlyStore((state) => selectCheckInsForGoal(state, goalTitle, spaceId));
 
 /** All items (todos, notes, habits) linked to a specific event */
 export const selectItemsLinkedToEvent = createSelector(

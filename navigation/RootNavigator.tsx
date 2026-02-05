@@ -42,8 +42,17 @@ export type RootStackParamList = {
   SpaceDetail: { id: string };
   CatchAllNotepad: undefined;
   PersonDetail: { personName: string; personEmail?: string };
-  SpaceHome: { spaceId: string };
-  ChatThread: { spaceId: string; chatId?: string };
+  SpaceHome: { spaceId: string; openKeyDatesModal?: boolean };
+  ChatThread: {
+    spaceId: string;
+    chatId?: string;
+    goalContext?: {
+      goal_id: string;
+      goal_name: string;
+      checkIns?: { title: string; created_at: string }[];
+    };
+    returnToKeyDates?: boolean;
+  };
   Lists: undefined;
   Sweep: { initialStep?: number; initialCardIndex?: number } | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;

@@ -115,8 +115,9 @@ import {
   GuidesLogsSection,
 } from '../../components/spaces/sections';
 import { SectionDivider } from '../../components/spaces/sections/SectionDivider';
-import { KeyDatesModal } from '../../components/spaces/KeyDatesModal';
+import { SpaceJourneyModal } from '../../components/spaces/SpaceJourneyModal';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
+import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
 import { SpaceSettingsModal } from '../../components/spaces/SpaceSettingsModal';
@@ -475,6 +476,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showPinnedModal, setShowPinnedModal] = useState(false);
   const [showKeyDatesModal, setShowKeyDatesModal] = useState(false);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
+  const [showGoalCheckInJournal, setShowGoalCheckInJournal] = useState(false);
+  const [goalCheckInContext, setGoalCheckInContext] = useState<{
+    goal_id: string;
+    goal_name: string;
+    space_id: string;
+    space_name: string;
+  } | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [chatListModalVisible, setChatListModalVisible] = useState(false);
   const [showCompletedOverlay, setShowCompletedOverlay] = useState(false);
@@ -913,6 +921,59 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     setQuickAddMode('keyDate');
     setShowQuickAddModal(true);
   }, []);
+
+  // Goal Check-in: Open journal for a goal
+  const handleGoalCheckIn = useCallback(
+    (goal: Note, sName: string) => {
+      console.log('[SpaceHome] Opening goal check-in journal for:', goal.title);
+      // Close SpaceJourneyModal first to avoid nested modal issues
+      setShowKeyDatesModal(false);
+      // Small delay to let the modal close before opening the new one
+      setTimeout(() => {
+        setGoalCheckInContext({
+          goal_id: goal.id,
+          goal_name: goal.title || 'Untitled Goal',
+          space_id: spaceId,
+          space_name: sName,
+        });
+        setShowGoalCheckInJournal(true);
+      }, 300);
+    },
+    [spaceId],
+  );
+
+  // Goal Chat: Navigate to chat with goal context
+  const handleGoalChat = useCallback(
+    (goal: Note, checkIns: Note[]) => {
+      console.log('[SpaceHome] Opening goal chat for:', goal.title);
+      // Close SpaceJourneyModal first
+      setShowKeyDatesModal(false);
+      // Navigate to chat thread with goal context
+      navigation.navigate('ChatThread', {
+        spaceId,
+        goalContext: {
+          goal_id: goal.id,
+          goal_name: goal.title || 'Untitled Goal',
+          checkIns: checkIns.slice(0, 5).map((c) => ({
+            title: c.title || '',
+            created_at: c.created_at || '',
+          })),
+        },
+        returnToKeyDates: true,
+      });
+    },
+    [spaceId, navigation],
+  );
+
+  // Goal Check-in: Handle pressing on a check-in note
+  const handleCheckInPress = useCallback(
+    (checkIn: Note) => {
+      console.log('[SpaceHome] Opening check-in note:', checkIn.id);
+      setShowKeyDatesModal(false);
+      overlay.openView({ record: checkIn, spaceId });
+    },
+    [overlay, spaceId],
+  );
 
   // Open quick add modal in default mode
   const handleOpenQuickAdd = useCallback(() => {
@@ -1885,15 +1946,44 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         />
 
         {/* Key Dates Modal */}
-        <KeyDatesModal
+        <SpaceJourneyModal
           visible={showKeyDatesModal}
           spaceId={spaceId}
+          spaceName={space?.name}
           onClose={() => setShowKeyDatesModal(false)}
           onEventPress={(event) => {
             setShowKeyDatesModal(false);
             handleKeyDatePress(event);
           }}
           onAddEvent={handleAddEventWithDate}
+          onGoalChat={handleGoalChat}
+          onCheckInPress={handleCheckInPress}
+          onGoalCheckIn={handleGoalCheckIn}
+        />
+
+        {/* Goal Check-in Journal */}
+        <JournalFullScreen
+          visible={showGoalCheckInJournal}
+          createMode={true}
+          goalContext={
+            goalCheckInContext
+              ? {
+                  type: 'goal_checkin',
+                  goal_id: goalCheckInContext.goal_id,
+                  goal_name: goalCheckInContext.goal_name,
+                  space_id: goalCheckInContext.space_id,
+                  space_name: goalCheckInContext.space_name,
+                }
+              : undefined
+          }
+          onClose={() => {
+            setShowGoalCheckInJournal(false);
+            setGoalCheckInContext(null);
+          }}
+          onSave={() => {
+            setShowGoalCheckInJournal(false);
+            setGoalCheckInContext(null);
+          }}
         />
 
         {/* Milestone Entry Modal */}
