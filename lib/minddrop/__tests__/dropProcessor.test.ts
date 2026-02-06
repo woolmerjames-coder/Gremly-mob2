@@ -259,4 +259,88 @@ describe('dropProcessor', () => {
       expect(inferenceExamples[4].inferred).toBe('administrative');
     });
   });
+
+  describe('event note sync', () => {
+    it('documents event note fields synced to Supabase', () => {
+      // When bucket='note' and subtype='event', the sync payload includes:
+      const eventSyncFields = {
+        type: 'note',
+        subtype: 'event',
+        smart_title: 'Team Retreat',
+        target_date: '2025-03-15',
+        end_date: '2025-03-17',
+        event_time: '09:00',
+        is_goal: false,
+      };
+
+      expect(eventSyncFields.subtype).toBe('event');
+      expect(eventSyncFields.target_date).toBeTruthy();
+      expect(eventSyncFields.end_date).toBeTruthy();
+      expect(eventSyncFields.event_time).toBeTruthy();
+      expect(eventSyncFields.is_goal).toBe(false);
+    });
+
+    it('documents event note without end_date or time', () => {
+      // Events can have just a target_date (single-day, all-day events)
+      const minimalEvent = {
+        type: 'note',
+        subtype: 'event',
+        smart_title: 'Dentist Appointment',
+        target_date: '2025-03-15',
+        end_date: null,
+        event_time: null,
+        is_goal: false,
+      };
+
+      expect(minimalEvent.subtype).toBe('event');
+      expect(minimalEvent.target_date).toBe('2025-03-15');
+      expect(minimalEvent.end_date).toBeNull();
+      expect(minimalEvent.event_time).toBeNull();
+    });
+
+    it('documents goal event sync (is_goal=true)', () => {
+      // Goals are events with is_goal=true - typically set by user post-creation
+      // During initial drop processing, is_goal defaults to false
+      const goalEvent = {
+        type: 'note',
+        subtype: 'event',
+        smart_title: 'Launch Product',
+        target_date: '2025-06-01',
+        is_goal: false, // default during drop processing
+      };
+
+      // is_goal is set to true via a separate user action
+      expect(goalEvent.is_goal).toBe(false);
+    });
+
+    it('documents event classification from Phase 1', () => {
+      // Phase 1 classifies event drops:
+      // bucket='note', subtype='event'
+      // Phase 2 enrichment extracts dates and times
+      const phase1 = {
+        bucket: 'note' as const,
+        subtype: 'event',
+        smart_title: 'Company Retreat March 15-17',
+      };
+
+      const phase2 = {
+        target_date: '2025-03-15',
+        end_date: '2025-03-17',
+        event_time: null,
+      };
+
+      // Final entity merges Phase 1 + Phase 2
+      const finalEntity = {
+        ...phase1,
+        ...phase2,
+        is_goal: false,
+      };
+
+      expect(finalEntity.bucket).toBe('note');
+      expect(finalEntity.subtype).toBe('event');
+      expect(finalEntity.smart_title).toBe('Company Retreat March 15-17');
+      expect(finalEntity.target_date).toBe('2025-03-15');
+      expect(finalEntity.end_date).toBe('2025-03-17');
+    });
+  });
 });

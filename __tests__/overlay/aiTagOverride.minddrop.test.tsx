@@ -14,6 +14,18 @@ import { UnifiedOverlayV2 } from '../../components/overlay/UnifiedOverlayV2';
 
 jest.setTimeout(1500);
 
+jest.mock('@react-navigation/native', () => {
+  const actual = jest.requireActual('@react-navigation/native');
+  return {
+    ...actual,
+    useNavigation: () => ({
+      setOptions: jest.fn(),
+      navigate: jest.fn(),
+      goBack: jest.fn(),
+    }),
+  };
+});
+
 const mockGetById = jest.fn();
 const mockUpdate = jest.fn();
 const mockListSpaces = jest.fn();

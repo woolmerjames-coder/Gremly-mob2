@@ -20,8 +20,17 @@ import {
   selectUnscheduledTodosForMiniSweep,
   selectRecentDrops,
   selectHabitsUpToDateCount,
+  selectEventsForSpace,
+  selectGoalForSpace,
+  selectGoalsForSpace,
+  selectCheckInsForGoal,
+  selectItemsLinkedToEvent,
+  selectSpaceHasEvents,
+  selectUpcomingEventsForSpace,
+  selectEventsForDate,
+  selectNewSpaceSuggestions,
 } from '../selectors';
-import type { Todo, Habit, Note, Space } from '../../types';
+import type { Todo, Habit, Note, Space, SpaceSuggestion } from '../../types';
 import type { Milestone } from '../../schemas';
 import type { HabitProgressRow } from '../useGremlyStore';
 
@@ -113,6 +122,7 @@ function makeState(
     spaces: Space[];
     habitProgress: HabitProgressRow[];
     milestones: Milestone[];
+    spaceSuggestions: SpaceSuggestion[];
     // Sweep preferences
     lastSweepCompletedAt: string | null;
     sweepStreak: number;
@@ -129,6 +139,7 @@ function makeState(
     spaceChats: [],
     spaceChatMessages: [],
     milestones: [],
+    spaceSuggestions: [],
     isLoading: false,
     isInitialized: true,
     lastSyncedAt: new Date(),
@@ -1696,5 +1707,428 @@ describe('selectSweepCandidateCountUnified (SweepPill count)', () => {
     // Only the overdue todo should be counted
     expect(candidates.length).toBe(1);
     expect(candidates[0].candidate.id).toBe('overdue-1');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT NOTE SELECTORS (Key Dates feature)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('selectEventsForSpace', () => {
+  it('returns event notes for the given space', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1', target_date: '2025-12-20' }),
+        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1', target_date: '2025-12-18' }),
+        makeNote({ id: 'n1', subtype: 'journal', space_id: 'space-1' }),
+      ],
+    });
+
+    const result = selectEventsForSpace(state as any, 'space-1');
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe('e2'); // sorted by date ascending
+    expect(result[1].id).toBe('e1');
+  });
+
+  it('excludes goals (is_goal=true)', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1', is_goal: true }),
+        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1' }),
+      ],
+    });
+
+    const result = selectEventsForSpace(state as any, 'space-1');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e2');
+  });
+
+  it('excludes archived events', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1', archived: true }),
+        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1' }),
+      ],
+    });
+
+    const result = selectEventsForSpace(state as any, 'space-1');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e2');
+  });
+
+  it('excludes events from other spaces', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' }),
+        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-2' }),
+      ],
+    });
+
+    const result = selectEventsForSpace(state as any, 'space-1');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e1');
+  });
+
+  it('sorts dateless events to the bottom', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' }), // no target_date
+        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1', target_date: '2025-12-18' }),
+      ],
+    });
+
+    const result = selectEventsForSpace(state as any, 'space-1');
+    expect(result[0].id).toBe('e2');
+    expect(result[1].id).toBe('e1');
+  });
+});
+
+describe('selectGoalForSpace', () => {
+  it('returns the first goal event for a space', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'g1', subtype: 'event', space_id: 'space-1', is_goal: true }),
+        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' }),
+      ],
+    });
+
+    const result = selectGoalForSpace(state as any, 'space-1');
+    expect(result?.id).toBe('g1');
+  });
+
+  it('returns null when no goal exists', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' })],
+    });
+
+    const result = selectGoalForSpace(state as any, 'space-1');
+    expect(result).toBeNull();
+  });
+
+  it('excludes archived goals', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'g1',
+          subtype: 'event',
+          space_id: 'space-1',
+          is_goal: true,
+          archived: true,
+        }),
+      ],
+    });
+
+    const result = selectGoalForSpace(state as any, 'space-1');
+    expect(result).toBeNull();
+  });
+});
+
+describe('selectGoalsForSpace', () => {
+  it('returns up to 3 goals sorted by created_at', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'g1',
+          subtype: 'event',
+          space_id: 'space-1',
+          is_goal: true,
+          created_at: '2025-12-03T00:00:00Z',
+        }),
+        makeNote({
+          id: 'g2',
+          subtype: 'event',
+          space_id: 'space-1',
+          is_goal: true,
+          created_at: '2025-12-01T00:00:00Z',
+        }),
+        makeNote({
+          id: 'g3',
+          subtype: 'event',
+          space_id: 'space-1',
+          is_goal: true,
+          created_at: '2025-12-02T00:00:00Z',
+        }),
+        makeNote({
+          id: 'g4',
+          subtype: 'event',
+          space_id: 'space-1',
+          is_goal: true,
+          created_at: '2025-12-04T00:00:00Z',
+        }),
+      ],
+    });
+
+    const result = selectGoalsForSpace(state as any, 'space-1');
+    expect(result).toHaveLength(3);
+    expect(result.map((g) => g.id)).toEqual(['g2', 'g3', 'g1']); // sorted asc, max 3
+  });
+
+  it('returns empty array when no goals exist', () => {
+    const state = makeState({ notes: [] });
+    const result = selectGoalsForSpace(state as any, 'space-1');
+    expect(result).toEqual([]);
+  });
+});
+
+describe('selectCheckInsForGoal', () => {
+  it('matches journals by origin=goal_checkin with matching view data', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'j1',
+          subtype: 'journal',
+          space_id: 'space-1',
+          origin: 'goal_checkin',
+          views: { goal_checkin: { goal_name: 'Learn Spanish' } },
+        } as any),
+        makeNote({ id: 'j2', subtype: 'journal', space_id: 'space-1' }),
+      ],
+    });
+
+    const result = selectCheckInsForGoal(state as any, 'Learn Spanish', 'space-1');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('j1');
+  });
+
+  it('matches journals by title containing goal words', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'j1',
+          subtype: 'journal',
+          space_id: 'space-1',
+          title: 'Progress on learning Spanish today',
+        }),
+      ],
+    });
+
+    const result = selectCheckInsForGoal(state as any, 'Learn Spanish', 'space-1');
+    expect(result).toHaveLength(1);
+  });
+
+  it('matches journals by tag containing goal name', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'j1',
+          subtype: 'journal',
+          space_id: 'space-1',
+          tags: ['learn spanish'],
+        }),
+      ],
+    });
+
+    const result = selectCheckInsForGoal(state as any, 'Learn Spanish', 'space-1');
+    expect(result).toHaveLength(1);
+  });
+
+  it('returns empty when no matches', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'j1', subtype: 'journal', space_id: 'space-1', title: 'Unrelated entry' }),
+      ],
+    });
+
+    const result = selectCheckInsForGoal(state as any, 'Learn Spanish', 'space-1');
+    expect(result).toHaveLength(0);
+  });
+});
+
+describe('selectItemsLinkedToEvent', () => {
+  it('returns todos, notes, and habits linked to an event', () => {
+    const state = makeState({
+      todos: [makeTodo({ id: 't1', linked_event_id: 'event-1' } as any), makeTodo({ id: 't2' })],
+      notes: [makeNote({ id: 'n1', linked_event_id: 'event-1' } as any)],
+      habits: [makeHabit({ id: 'h1', linked_event_id: 'event-1' } as any), makeHabit({ id: 'h2' })],
+    });
+
+    const result = selectItemsLinkedToEvent(state as any, 'event-1');
+    expect(result.todos).toHaveLength(1);
+    expect(result.todos[0].id).toBe('t1');
+    expect(result.notes).toHaveLength(1);
+    expect(result.notes[0].id).toBe('n1');
+    expect(result.habits).toHaveLength(1);
+    expect(result.habits[0].id).toBe('h1');
+  });
+
+  it('excludes archived and completed items', () => {
+    const state = makeState({
+      todos: [
+        makeTodo({
+          id: 't1',
+          linked_event_id: 'event-1',
+          completed_at: '2025-12-15T00:00:00Z',
+        } as any),
+        makeTodo({ id: 't2', linked_event_id: 'event-1', archived: true } as any),
+      ],
+      notes: [makeNote({ id: 'n1', linked_event_id: 'event-1', archived: true } as any)],
+      habits: [makeHabit({ id: 'h1', linked_event_id: 'event-1', archived: true } as any)],
+    });
+
+    const result = selectItemsLinkedToEvent(state as any, 'event-1');
+    expect(result.todos).toHaveLength(0);
+    expect(result.notes).toHaveLength(0);
+    expect(result.habits).toHaveLength(0);
+  });
+
+  it('returns empty lists when nothing linked', () => {
+    const state = makeState({});
+    const result = selectItemsLinkedToEvent(state as any, 'event-1');
+    expect(result.todos).toEqual([]);
+    expect(result.notes).toEqual([]);
+    expect(result.habits).toEqual([]);
+  });
+});
+
+describe('selectSpaceHasEvents', () => {
+  it('returns true when space has events', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' })],
+    });
+
+    expect(selectSpaceHasEvents(state as any, 'space-1')).toBe(true);
+  });
+
+  it('returns false when space has no events', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'n1', subtype: 'journal', space_id: 'space-1' })],
+    });
+
+    expect(selectSpaceHasEvents(state as any, 'space-1')).toBe(false);
+  });
+});
+
+describe('selectUpcomingEventsForSpace', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns only future events', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1', target_date: '2025-12-20' }),
+        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1', target_date: '2025-12-10' }),
+        makeNote({ id: 'e3', subtype: 'event', space_id: 'space-1', target_date: '2025-12-15' }),
+      ],
+    });
+
+    const result = selectUpcomingEventsForSpace(state as any, 'space-1');
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id)).toEqual(['e3', 'e1']); // today + future, sorted by date
+  });
+});
+
+describe('selectEventsForDate', () => {
+  it('matches single-day events on that date', () => {
+    const state = makeState({
+      notes: [
+        makeNote({ id: 'e1', subtype: 'event', target_date: '2025-12-15' }),
+        makeNote({ id: 'e2', subtype: 'event', target_date: '2025-12-16' }),
+      ],
+    });
+
+    const result = selectEventsForDate(state as any, '2025-12-15');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e1');
+  });
+
+  it('matches multi-day events spanning the date', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-10',
+          end_date: '2025-12-20',
+        } as any),
+      ],
+    });
+
+    const result = selectEventsForDate(state as any, '2025-12-15');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e1');
+  });
+
+  it('excludes multi-day events that do not span the date', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-01',
+          end_date: '2025-12-05',
+        } as any),
+      ],
+    });
+
+    const result = selectEventsForDate(state as any, '2025-12-15');
+    expect(result).toHaveLength(0);
+  });
+
+  it('excludes archived events', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', target_date: '2025-12-15', archived: true })],
+    });
+
+    const result = selectEventsForDate(state as any, '2025-12-15');
+    expect(result).toHaveLength(0);
+  });
+});
+
+describe('selectNewSpaceSuggestions', () => {
+  it('returns pending new_space suggestions', () => {
+    const state = makeState({
+      spaceSuggestions: [
+        {
+          id: 's1',
+          suggestion_type: 'new_space',
+          status: 'pending',
+          suggested_name: 'Fitness',
+          reason: 'Multiple fitness drops',
+          drop_ids: ['d1', 'd2'],
+          confidence: 0.9,
+          created_at: '2025-12-15T00:00:00Z',
+          updated_at: '2025-12-15T00:00:00Z',
+        } as SpaceSuggestion,
+        {
+          id: 's2',
+          suggestion_type: 'assign_to_space',
+          status: 'pending',
+          space_id: 'space-1',
+          suggested_name: null,
+          reason: 'Related to space',
+          drop_ids: ['d3'],
+          confidence: 0.8,
+          created_at: '2025-12-15T00:00:00Z',
+          updated_at: '2025-12-15T00:00:00Z',
+        } as SpaceSuggestion,
+        {
+          id: 's3',
+          suggestion_type: 'new_space',
+          status: 'accepted',
+          suggested_name: 'Cooking',
+          reason: 'Recipe drops',
+          drop_ids: ['d4'],
+          confidence: 0.85,
+          created_at: '2025-12-14T00:00:00Z',
+          updated_at: '2025-12-15T00:00:00Z',
+        } as SpaceSuggestion,
+      ],
+    });
+
+    const result = selectNewSpaceSuggestions(state as any);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('s1');
+  });
+
+  it('returns empty array when no pending new_space suggestions', () => {
+    const state = makeState({ spaceSuggestions: [] });
+    const result = selectNewSpaceSuggestions(state as any);
+    expect(result).toEqual([]);
   });
 });

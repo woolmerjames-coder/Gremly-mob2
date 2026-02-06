@@ -190,6 +190,120 @@ describe('buildSpaceContext', () => {
       expect(result?.summary.noteCount).toBe(2);
     });
   });
+
+  describe('with events', () => {
+    it('processes events with daysUntil calculation', () => {
+      // Pin date so daysUntil is deterministic
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2025-12-15T12:00:00'));
+
+      const result = buildSpaceContext({
+        space: mockSpace,
+        milestone: null,
+        meta: null,
+        countdown: null,
+        todos: [],
+        habits: [],
+        notes: [],
+        events: [
+          { name: 'Concert', target_date: '2025-12-20', end_date: null, event_time: '19:00' },
+          { name: 'Flight', target_date: '2025-12-18', end_date: null, event_time: null },
+        ],
+      });
+
+      jest.useRealTimers();
+
+      expect(result?.events).toHaveLength(2);
+      // Sorted by date ascending
+      expect(result!.events![0].name).toBe('Flight');
+      expect(result!.events![0].date).toBe('2025-12-18');
+      expect(result!.events![0].daysUntil).toBeGreaterThan(0);
+      expect(result!.events![0].isPast).toBe(false);
+      expect(result!.events![1].name).toBe('Concert');
+      expect(result!.events![1].time).toBe('19:00');
+      // Concert is further in the future than Flight
+      expect(result!.events![1].daysUntil).toBeGreaterThan(result!.events![0].daysUntil);
+    });
+
+    it('excludes dateless events', () => {
+      const result = buildSpaceContext({
+        space: mockSpace,
+        milestone: null,
+        meta: null,
+        countdown: null,
+        todos: [],
+        habits: [],
+        notes: [],
+        events: [
+          { name: 'Someday Event', target_date: null, end_date: null, event_time: null },
+          { title: 'Titled Event', target_date: '2025-12-20', end_date: null, event_time: null },
+        ],
+      });
+
+      expect(result?.events).toHaveLength(1);
+      expect(result!.events![0].name).toBe('Titled Event');
+    });
+
+    it('marks past events with isPast=true', () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2025-12-15T12:00:00'));
+
+      const result = buildSpaceContext({
+        space: mockSpace,
+        milestone: null,
+        meta: null,
+        countdown: null,
+        todos: [],
+        habits: [],
+        notes: [],
+        events: [
+          { name: 'Past Event', target_date: '2025-12-10', end_date: null, event_time: null },
+        ],
+      });
+
+      jest.useRealTimers();
+
+      expect(result?.events).toHaveLength(1);
+      expect(result!.events![0].isPast).toBe(true);
+      expect(result!.events![0].daysUntil).toBeLessThan(0);
+    });
+
+    it('includes endDate when provided', () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2025-12-15T12:00:00'));
+
+      const result = buildSpaceContext({
+        space: mockSpace,
+        milestone: null,
+        meta: null,
+        countdown: null,
+        todos: [],
+        habits: [],
+        notes: [],
+        events: [
+          { name: 'Trip', target_date: '2025-12-20', end_date: '2025-12-25', event_time: null },
+        ],
+      });
+
+      jest.useRealTimers();
+
+      expect(result!.events![0].endDate).toBe('2025-12-25');
+    });
+
+    it('returns undefined events when none provided', () => {
+      const result = buildSpaceContext({
+        space: mockSpace,
+        milestone: null,
+        meta: null,
+        countdown: null,
+        todos: [],
+        habits: [],
+        notes: [],
+      });
+
+      expect(result?.events).toBeUndefined();
+    });
+  });
 });
 
 describe('formatSpaceContextForPrompt', () => {
@@ -389,5 +503,58 @@ describe('formatSpaceContextForPrompt', () => {
     const result = formatSpaceContextForPrompt(context);
     expect(result).not.toContain('open todos');
     expect(result).not.toContain('habit');
+  });
+
+  it('formats key dates/events section', () => {
+    const context: SpaceContext = {
+      spaceName: 'Traveling',
+      events: [
+        { name: 'Flight', date: '2025-12-20', daysUntil: 5, isPast: false },
+        { name: 'Hotel', date: '2025-12-20', endDate: '2025-12-25', daysUntil: 5, isPast: false },
+        { name: 'Past Booking', date: '2025-12-10', daysUntil: -5, isPast: true },
+      ],
+      todos: [],
+      habits: [],
+      guides: [],
+      summary: { todoCount: 0, completedTodoCount: 0, habitCount: 0, noteCount: 0 },
+    };
+
+    const result = formatSpaceContextForPrompt(context);
+    expect(result).toContain('Key dates:');
+    expect(result).toContain('- Flight (2025-12-20) — in 5 days');
+    expect(result).toContain('- Hotel (2025-12-20 - 2025-12-25) — in 5 days');
+    expect(result).toContain('- Past Booking (2025-12-10) — 5 days ago');
+  });
+
+  it('formats event with time', () => {
+    const context: SpaceContext = {
+      spaceName: 'Traveling',
+      events: [{ name: 'Dinner', date: '2025-12-20', time: '19:00', daysUntil: 5, isPast: false }],
+      todos: [],
+      habits: [],
+      guides: [],
+      summary: { todoCount: 0, completedTodoCount: 0, habitCount: 0, noteCount: 0 },
+    };
+
+    const result = formatSpaceContextForPrompt(context);
+    expect(result).toContain('- Dinner (2025-12-20 at 19:00) — in 5 days');
+  });
+
+  it('formats today and tomorrow events', () => {
+    const context: SpaceContext = {
+      spaceName: 'Traveling',
+      events: [
+        { name: 'Today Event', date: '2025-12-15', daysUntil: 0, isPast: false },
+        { name: 'Tomorrow Event', date: '2025-12-16', daysUntil: 1, isPast: false },
+      ],
+      todos: [],
+      habits: [],
+      guides: [],
+      summary: { todoCount: 0, completedTodoCount: 0, habitCount: 0, noteCount: 0 },
+    };
+
+    const result = formatSpaceContextForPrompt(context);
+    expect(result).toContain('— today');
+    expect(result).toContain('— tomorrow');
   });
 });

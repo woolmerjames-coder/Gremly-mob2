@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, act } from '@testing-library/react-native';
 import { MultiSplitModal, MultiSplitModalProps } from '../MultiSplitModal';
 import type { MultiDropItem } from '../../../../lib/minddrop/types';
 
@@ -64,7 +64,7 @@ describe('MultiSplitModal', () => {
   describe('rendering', () => {
     it('renders header text correctly', () => {
       const { getByText } = renderModal();
-      expect(getByText('Split these up or keep as one?')).toBeTruthy();
+      expect(getByText(/Looks like multiple things/)).toBeTruthy();
     });
 
     it('renders original text in quotes when provided', () => {
@@ -149,11 +149,24 @@ describe('MultiSplitModal', () => {
   // ─────────────────────────────────────────────────────────────────────────────
 
   describe('button actions', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
     it('calls onSplitSelected with selected items', () => {
       const onSplitSelected = jest.fn();
       const { getByText } = renderModal({ onSplitSelected });
 
       fireEvent.press(getByText('Split (3)'));
+
+      // Callback fires after FADE_IN + HOLD delay (200 + 800 = 1000ms)
+      act(() => {
+        jest.advanceTimersByTime(1100);
+      });
 
       expect(onSplitSelected).toHaveBeenCalledTimes(1);
       expect(onSplitSelected).toHaveBeenCalledWith(mockItems);
@@ -167,6 +180,10 @@ describe('MultiSplitModal', () => {
       fireEvent.press(getByText('Buy milk'));
 
       fireEvent.press(getByText('Split (2)'));
+
+      act(() => {
+        jest.advanceTimersByTime(1100);
+      });
 
       expect(onSplitSelected).toHaveBeenCalledTimes(1);
       expect(onSplitSelected).toHaveBeenCalledWith([mockItems[1], mockItems[2]]);
@@ -191,6 +208,10 @@ describe('MultiSplitModal', () => {
       const { getByText } = renderModal({ onKeepAsNote });
 
       fireEvent.press(getByText('One Item'));
+
+      act(() => {
+        jest.advanceTimersByTime(1100);
+      });
 
       expect(onKeepAsNote).toHaveBeenCalledTimes(1);
     });
@@ -286,7 +307,7 @@ describe('MultiSplitModal', () => {
     it('does not render when visible is false', () => {
       const { queryByText } = renderModal({ visible: false });
       // Modal content should not be accessible when not visible
-      expect(queryByText('Split these up or keep as one?')).toBeFalsy();
+      expect(queryByText(/Looks like multiple things/)).toBeFalsy();
     });
   });
 });

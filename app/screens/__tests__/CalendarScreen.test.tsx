@@ -84,6 +84,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
       todos: mockTodos,
       habits: mockHabits,
       habitProgress: [],
+      calendarConnections: [],
     };
     return selector(state);
   },
