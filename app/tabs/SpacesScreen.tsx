@@ -404,35 +404,6 @@ function SpacesScreen() {
               )}
             </View>
           )}
-
-          {/* Temporary test button - move to bottom, remove before shipping */}
-          {__DEV__ && (
-            <Pressable
-              onPress={async () => {
-                try {
-                  const userId = useGremlyStore.getState().userId;
-                  const response = await fetch(
-                    'https://gremly-inngest-jobs.woolmerjames.workers.dev/api/generate-space-suggestions',
-                    {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ user_id: userId }),
-                    },
-                  );
-                  const result = await response.json();
-                  console.log('[Test] Space suggestions result:', result);
-                  await useGremlyStore.getState().fetchSpaceSuggestions();
-                  Alert.alert('Done', JSON.stringify(result));
-                } catch (err) {
-                  console.error('[Test] Error:', err);
-                  Alert.alert('Error', err instanceof Error ? err.message : 'Unknown error');
-                }
-              }}
-              style={styles.testButton}
-            >
-              <Text style={styles.testButtonText}>🧪 Generate Space Suggestions</Text>
-            </Pressable>
-          )}
         </ScrollView>
       </Animated.View>
     </SafeAreaView>
@@ -640,18 +611,6 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     marginLeft: 8,
     textTransform: 'capitalize',
-  },
-  testButton: {
-    padding: 16,
-    backgroundColor: '#E0C47A',
-    borderRadius: 8,
-    marginTop: 32,
-    opacity: 0.6,
-  },
-  testButtonText: {
-    textAlign: 'center',
-    fontWeight: '600',
-    fontSize: 14,
   },
 });
 

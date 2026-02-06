@@ -123,7 +123,7 @@ import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
 import { SpaceSettingsModal } from '../../components/spaces/SpaceSettingsModal';
 import { CompletedInSpaceOverlay } from '../../components/spaces/CompletedInSpaceOverlay';
-import SpaceAssignmentSheet from '../../components/spaces/SpaceAssignmentSheet';
+import { SheetManager } from 'react-native-actions-sheet';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -328,9 +328,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const storeHabits = useSpaceHabitsFromStore(spaceId);
   const storeNotes = useSpaceNotesFromStore(spaceId);
 
-  // Space assignment suggestions - show sheet if pending suggestions exist
+  // Space assignment suggestions - show bottom sheet if pending suggestions exist
   const assignmentSuggestions = useAssignmentSuggestionsForSpace(spaceId);
-  const [showAssignmentSheet, setShowAssignmentSheet] = useState(true);
+  const [hasShownSuggestions, setHasShownSuggestions] = useState(false);
   const updateSpace = useGremlyStore((s) => s.updateSpace);
 
   // Debug: log assignment suggestions state
@@ -1703,6 +1703,30 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     ]);
   }, [spaceInsight]);
 
+  // Show assignment bottom sheet if there are pending suggestions
+  // NOTE: This must be before early returns to comply with Rules of Hooks
+  useEffect(() => {
+    if (!hasShownSuggestions && assignmentSuggestions.length > 0 && space?.name) {
+      setHasShownSuggestions(true);
+      console.log(
+        '[SpaceHome] Showing SpaceAssignmentSheet with',
+        assignmentSuggestions.length,
+        'suggestions',
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (SheetManager.show as any)('space-assignment', {
+        payload: {
+          spaceId,
+          spaceName: space.name,
+          suggestions: assignmentSuggestions,
+          onComplete: () => {
+            // Sheet closed - data will refresh automatically via store
+          },
+        },
+      });
+    }
+  }, [hasShownSuggestions, assignmentSuggestions, spaceId, space?.name]);
+
   // Always show loading spinner if no space yet
   // This prevents the "Space not found" flash during initial load
   if (!space) {
@@ -1710,27 +1734,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       <View style={[styles.loading, { backgroundColor: BRAND.colors.linenCream }]}>
         <ActivityIndicator size="large" color={BRAND.colors.mossGreen} />
       </View>
-    );
-  }
-
-  // Show assignment sheet if there are pending suggestions for this space
-  // This must come BEFORE v33 layout check to intercept the render
-  if (showAssignmentSheet && assignmentSuggestions.length > 0) {
-    console.log(
-      '[SpaceHome] Showing SpaceAssignmentSheet with',
-      assignmentSuggestions.length,
-      'suggestions',
-    );
-    return (
-      <SpaceAssignmentSheet
-        spaceId={spaceId}
-        spaceName={space?.name || 'this space'}
-        suggestions={assignmentSuggestions}
-        onComplete={() => setShowAssignmentSheet(false)}
-        onDisableSuggestions={async () => {
-          await updateSpace(spaceId, { disable_suggestions: true });
-        }}
-      />
     );
   }
 

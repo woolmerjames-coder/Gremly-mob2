@@ -130,11 +130,13 @@ export default function RootNavigator() {
             name="SpaceHome"
             component={SpaceHomeScreen}
             options={{ title: 'Space', headerShown: false }}
+            getId={({ params }) => params?.spaceId}
           />
           <Stack.Screen
             name="ChatThread"
             component={ChatThreadScreen}
             options={{ title: 'Chat', headerShown: false }}
+            getId={({ params }) => `${params?.spaceId}-${params?.chatId ?? 'new'}`}
           />
           <Stack.Screen
             name="Lists"

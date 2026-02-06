@@ -16,6 +16,7 @@ import { useEntityMutations } from '../hooks/useEntityMutations';
 import type { AppRecord, NoteSubtype, Space, Note, Habit, Todo } from '../lib/types';
 import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
 import { emitOverlaySaved, type OverlaySavedPayload } from '../lib/events/overlaySaved';
+import SpaceAssignmentActionSheet from './spaces/SpaceAssignmentActionSheet';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -32,6 +33,9 @@ registerSheet('demo-sheet', ({ sheetId }) => {
     </ActionSheet>
   );
 });
+
+// Space assignment bottom sheet - shown when entering a Space with pending suggestions
+registerSheet('space-assignment', SpaceAssignmentActionSheet);
 
 type DestinationPickerPayload = {
   itemId: string;
