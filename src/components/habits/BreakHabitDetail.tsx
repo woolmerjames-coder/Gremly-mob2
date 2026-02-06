@@ -1,0 +1,789 @@
+/**
+ * BreakHabitDetail — Full scrollable content for break_habit detail.
+ *
+ * Rendered inside HabitDetailScreen. Shares card styles with BuildHabitDetail
+ * but has break-specific sections (Your Why, Known Triggers, Replacement,
+ * Fresh Start state) and amber color theming.
+ */
+
+import React, { useCallback, useMemo, useState } from 'react';
+import { Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Text } from '../../../ui';
+import { BRAND } from '../../../design/brand';
+import { dateService } from '../../../lib/date/DateService';
+import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { WeeklyDotsRow } from './WeeklyDotsRow';
+import { StreakRing } from './StreakRing';
+import { MilestoneBar } from './MilestoneBar';
+import { CalendarHeatmap } from './CalendarHeatmap';
+import { MessageCircle } from 'lucide-react-native';
+import MascotIcon from '../../../components/MascotIcon';
+import type { Habit } from '../../../lib/types';
+import type { DayDot } from '../../../lib/today/hooks/useWeeklyHabitStats';
+
+// ─── Color tokens ────────────────────────────────────────────────────────────
+const MOSS_GREEN = BRAND.colors.mossGreen;
+const SAGE_MIST = BRAND.colors.sageMist;
+const SAGE_MIST_DARK = '#C8DEC9';
+const CHARCOAL = BRAND.colors.charcoalInk;
+const INK_MUTED = BRAND.colors.inkMuted;
+const INK_SUBTLE = BRAND.colors.inkSubtle;
+const SURFACE = '#FFFFFF';
+const BORDER_SUBTLE = BRAND.colors.borderSubtle;
+
+// Break-specific amber palette
+const GOLDEN_OCHRE = '#C79E5F';
+const GOLDEN_LIGHT = '#FDF6E9';
+const GOLDEN_BORDER = '#EDE4CC';
+
+// ─── Card shadow (iOS) / border (Android) ────────────────────────────────────
+const CARD_SHADOW = Platform.select({
+  ios: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 } as { width: number; height: number },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+  },
+  default: {},
+});
+
+// ─── Props ───────────────────────────────────────────────────────────────────
+export interface BreakHabitDetailProps {
+  habit: Habit;
+  completedDates: string[];
+  currentStreak: number;
+  bestStreak: number;
+  nextMilestone: number;
+  milestoneProgress: number;
+  isDaily: boolean;
+  weeksOnTarget: import('./BuildHabitDetail').WeeksOnTarget | null;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Pad YYYY-MM-DD from a Date in local timezone */
+function toLocalISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Short day-of-week letter for a Date */
+function dayLetter(d: Date): string {
+  return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()];
+}
+
+/** Format frequency label from cadence + target */
+function formatFrequency(habit: Habit): string {
+  const cadence = habit.cadence ?? 'daily';
+  const target = habit.target_per_period ?? 1;
+
+  if (cadence === 'daily') return 'Daily';
+  if (cadence === 'weekly') {
+    if (target === 7) return 'Daily';
+    return `${target}× / week`;
+  }
+  if (cadence === 'monthly') return `${target}× / month`;
+  return 'Daily';
+}
+
+/**
+ * Compute the previous streak — the consecutive-day run that ended just
+ * before the most recent gap. Returns 0 if there's no previous streak.
+ */
+function computePreviousStreak(sortedDates: string[]): number {
+  if (sortedDates.length < 2) return 0;
+
+  // Walk backwards to find the gap
+  let i = sortedDates.length - 1;
+
+  // First, skip the current streak (consecutive from the end)
+  while (i > 0) {
+    const curr = new Date(sortedDates[i] + 'T00:00:00');
+    const prev = new Date(sortedDates[i - 1] + 'T00:00:00');
+    const diff = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff > 1) break; // Found the gap
+    i--;
+  }
+
+  // Now count the streak before this gap
+  if (i <= 0) return 0;
+  let streak = 1;
+  for (let j = i - 1; j > 0; j--) {
+    const curr = new Date(sortedDates[j] + 'T00:00:00');
+    const prev = new Date(sortedDates[j - 1] + 'T00:00:00');
+    const diff = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff === 1) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+/** Short month names for "SINCE" label */
+const SHORT_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+function formatSinceDate(habit: Habit): string {
+  const raw = habit.start_date || habit.created_at;
+  if (!raw) return '';
+  const d = new Date(raw);
+  return `${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export function BreakHabitDetail({
+  habit,
+  completedDates,
+  currentStreak,
+  bestStreak,
+  nextMilestone,
+  milestoneProgress,
+  isDaily,
+  weeksOnTarget,
+}: BreakHabitDetailProps) {
+  // Zustand actions for dot toggling
+  const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
+  const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
+
+  const today = useMemo(() => new Date(), []);
+  const todayISO = useMemo(() => toLocalISO(today), [today]);
+  const currentMonth = today.getMonth();
+  const currentYear = today.getFullYear();
+
+  // ── Calendar month navigation ──
+  const [calMonth, setCalMonth] = useState(currentMonth);
+  const [calYear, setCalYear] = useState(currentYear);
+  const calendarCanGoForward = calMonth !== currentMonth || calYear !== currentYear;
+
+  const handleMonthChange = useCallback((newMonth: number, newYear: number) => {
+    setCalMonth(newMonth);
+    setCalYear(newYear);
+  }, []);
+
+  // ── Rolling 7-day window ──
+  const weekData = useMemo(() => {
+    const completedSet = new Set(completedDates);
+    const days: Date[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      days.push(d);
+    }
+
+    const dayDates = days.map(toLocalISO);
+    const dayLabels = days.map(dayLetter);
+    const todayIndex = 6;
+
+    const dayDots: DayDot[] = dayDates.map((iso, idx) => {
+      if (completedSet.has(iso)) return 'done';
+      if (idx > todayIndex) return 'future';
+      if (iso > todayISO) return 'future';
+      return 'missed';
+    });
+
+    const doneCount = dayDots.filter((d) => d === 'done').length;
+    const cadence = habit.cadence ?? 'daily';
+    const target = habit.target_per_period ?? (cadence === 'daily' ? 7 : 1);
+    const weeklyTarget = cadence === 'daily' ? 7 : target;
+    const weeklyCompleted = doneCount;
+
+    return { dayDots, dayDates, dayLabels, todayIndex, doneCount, weeklyTarget, weeklyCompleted };
+  }, [today, todayISO, completedDates, habit.cadence, habit.target_per_period]);
+
+  // ── Day toggle handler ──
+  const handleToggleDay = useCallback(
+    async (dateISO: string, newState: boolean) => {
+      try {
+        if (newState) {
+          await logHabitCompletionForDate(habit.id, dateISO);
+        } else {
+          await removeHabitCompletionForDate(habit.id, dateISO);
+        }
+      } catch (error) {
+        console.error('[BreakHabitDetail] Toggle failed:', error);
+      }
+    },
+    [habit.id, logHabitCompletionForDate, removeHabitCompletionForDate],
+  );
+
+  // ── Derived values ──
+  const frequencyLabel = formatFrequency(habit);
+  const whyText = habit.why_string || habit.notes || null;
+  const hasWhy = !!whyText && whyText.trim().length > 0;
+  const triggers = habit.triggers;
+  const hasTriggers = Array.isArray(triggers) && triggers.length > 0;
+  const replacementText = habit.replacement_text;
+  const hasReplacement = !!replacementText && replacementText.trim().length > 0;
+  const previousStreak = useMemo(() => computePreviousStreak(completedDates), [completedDates]);
+
+  // ── Streak comparison text ──
+  const streakComparisonText = useMemo(() => {
+    if (currentStreak >= bestStreak && bestStreak > 0) return 'New personal best!';
+    const gap = bestStreak - currentStreak;
+    return `${gap} more to beat your record!`;
+  }, [currentStreak, bestStreak]);
+
+  const isFreshStart = currentStreak === 0;
+
+  // ── Mascot pose based on progress ──
+  const mascotPose = useMemo(() => {
+    if (currentStreak > 14) return 'celebrate' as const;
+    if (currentStreak > 0) return 'default' as const;
+    return 'neutral' as const;
+  }, [currentStreak]);
+
+  return (
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* ─── 1. TITLE SECTION ─── */}
+      <View style={styles.titleSection}>
+        <View style={styles.mascotFloat}>
+          <MascotIcon size={58} pose={mascotPose} animate={false} />
+        </View>
+        <View style={styles.titleRow}>
+          <View style={styles.accentBar} />
+          <View style={styles.titleCol}>
+            <Text style={styles.habitName}>{habit.name}</Text>
+            <View style={styles.metaRow}>
+              <View style={styles.freqPill}>
+                <Text style={styles.freqPillText}>{frequencyLabel}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* ─── 2. YOUR WHY ─── */}
+      <View style={styles.whySection}>
+        <View style={styles.whyContainer}>
+          <View style={styles.whyRow}>
+            <View style={styles.whyLeft}>
+              <Text style={styles.whyLabel}>YOUR WHY</Text>
+              <Text style={[styles.whyText, !hasWhy && styles.whyPlaceholder]}>
+                {hasWhy ? whyText : 'Tap Edit in the header to add your why'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* ─── 3. STREAK CARD ─── */}
+      {isFreshStart ? (
+        /* STATE B: Fresh start */
+        <View style={[styles.freshStartCard, CARD_SHADOW]}>
+          <View style={styles.seedlingCircle}>
+            <Text style={styles.seedlingEmoji}>🌱</Text>
+          </View>
+          <Text style={styles.freshStartTitle}>Fresh start</Text>
+          <Text style={styles.freshStartBody}>
+            {
+              "Yesterday didn't go to plan — that's okay.\nToday's a new day. You've done this before."
+            }
+          </Text>
+          <View style={styles.freshStartDivider}>
+            <Text style={styles.freshStartStats}>
+              {previousStreak > 0
+                ? `Previous: ${previousStreak} days · Best ever: ${bestStreak} days`
+                : `Best ever: ${bestStreak} days`}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.reflectionButton}
+            onPress={() => console.log('[BreakHabitDetail] TODO: open reflection chat')}
+          >
+            <Text style={styles.reflectionButtonText}>Want to talk about what happened? →</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        /* STATE A: Active streak */
+        <View style={[styles.streakCard, CARD_SHADOW]}>
+          <View style={styles.streakRow}>
+            {isDaily || !weeksOnTarget ? (
+              /* Daily habit: streak ring + milestone */
+              <>
+                <StreakRing
+                  count={currentStreak}
+                  label="days strong"
+                  progress={milestoneProgress}
+                  color="amber"
+                />
+                <View style={styles.streakRight}>
+                  <Text style={styles.bestStreakText}>Best: {bestStreak} days</Text>
+                  <Text style={styles.streakCompare}>{streakComparisonText}</Text>
+                  <Text style={styles.milestoneLabel}>NEXT MILESTONE · {nextMilestone} DAYS</Text>
+                  <MilestoneBar current={currentStreak} target={nextMilestone} color="amber" />
+                </View>
+              </>
+            ) : (
+              /* Non-daily habit: weeks on target + cumulative stats */
+              <>
+                <StreakRing
+                  count={weeksOnTarget.weeksHit}
+                  label="weeks on target"
+                  progress={weeksOnTarget.weeksHit / weeksOnTarget.totalWeeks}
+                  color="amber"
+                />
+                <View style={styles.streakRight}>
+                  <Text style={styles.bestStreakText}>
+                    {weeksOnTarget.totalCompletions} total completions
+                  </Text>
+                  <Text style={styles.streakCompare}>
+                    {weeksOnTarget.thisMonthCompletions} this month
+                  </Text>
+                  <Text style={styles.sinceLabel}>
+                    SINCE {formatSinceDate(habit).toUpperCase()}
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* ─── 4. KNOWN TRIGGERS ─── */}
+      {hasTriggers && (
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>KNOWN TRIGGERS</Text>
+          <View style={styles.chipsRow}>
+            {triggers!.map((trigger, idx) => (
+              <View key={`trigger-${idx}`} style={styles.triggerChip}>
+                <Text style={styles.triggerChipText}>{trigger}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* ─── 5. REPLACEMENT SUGGESTION ─── */}
+      {hasReplacement && (
+        <View style={styles.replacementSection}>
+          <View style={styles.replacementContainer}>
+            <Text style={styles.replacementLabel}>INSTEAD, TRY</Text>
+            <Text style={styles.replacementText}>{replacementText}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* ─── 6. THIS WEEK ─── */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabel}>THIS WEEK</Text>
+          <Text style={styles.sectionMeta}>
+            {weekData.doneCount} of 7 · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this week
+          </Text>
+        </View>
+        <View style={[styles.weekCard, CARD_SHADOW]}>
+          <WeeklyDotsRow
+            dayDots={weekData.dayDots}
+            dayDates={weekData.dayDates}
+            todayIndex={weekData.todayIndex}
+            onToggleDay={handleToggleDay}
+            isBreakingHabit={true}
+            startDate={habit.start_date}
+            dotSize={32}
+            dotSpacing={10}
+          />
+          <Text style={styles.weekSummary}>
+            {weekData.doneCount} of 7 days · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this
+            week
+          </Text>
+        </View>
+      </View>
+
+      {/* ─── 7. CONSISTENCY CALENDAR ─── */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabel}>CONSISTENCY</Text>
+        </View>
+        <View style={[styles.calendarCard, CARD_SHADOW]}>
+          <CalendarHeatmap
+            completedDates={completedDates}
+            month={calMonth}
+            year={calYear}
+            isBreak={true}
+            todayDate={todayISO}
+            onMonthChange={handleMonthChange}
+            canGoForward={calendarCanGoForward}
+            onToggleDate={handleToggleDay}
+            habitId={habit.id}
+          />
+        </View>
+      </View>
+
+      {/* ─── 8. TALK TO GREMLY ─── */}
+      <View style={styles.gremlySection}>
+        <TouchableOpacity
+          style={styles.gremlyButton}
+          onPress={() => console.log('[BreakHabitDetail] TODO: open entity chat', habit.id)}
+        >
+          <MessageCircle size={18} color={MOSS_GREEN} />
+          <Text style={styles.gremlyButtonText}>Talk to Gremly about this habit</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── Styles ──────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 40,
+  },
+
+  // ── 1. Title ──
+  titleSection: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    position: 'relative' as const,
+  },
+  mascotFloat: {
+    position: 'absolute' as const,
+    right: 24,
+    top: 10,
+    zIndex: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+    paddingRight: 70,
+  },
+  accentBar: {
+    width: 4,
+    borderRadius: 2,
+    alignSelf: 'stretch',
+    backgroundColor: GOLDEN_OCHRE,
+  },
+  titleCol: {
+    flex: 1,
+  },
+  habitName: {
+    fontSize: 24,
+    fontWeight: '700',
+    fontFamily: 'PlusJakartaSans-Bold',
+    color: CHARCOAL,
+    letterSpacing: -0.5,
+    lineHeight: 32,
+    includeFontPadding: false,
+    paddingTop: 2,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  freqPill: {
+    backgroundColor: GOLDEN_LIGHT,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: GOLDEN_BORDER,
+  },
+  freqPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: GOLDEN_OCHRE,
+  },
+
+  // ── 2. Your Why ──
+  whySection: {
+    paddingHorizontal: 24,
+    marginTop: 16,
+  },
+  whyContainer: {
+    padding: 14,
+    paddingHorizontal: 18,
+    backgroundColor: GOLDEN_LIGHT,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: GOLDEN_BORDER,
+  },
+  whyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  whyLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  whyLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: GOLDEN_OCHRE,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 5,
+  },
+  whyText: {
+    fontSize: 14,
+    color: GOLDEN_OCHRE,
+    fontStyle: 'italic',
+    fontFamily: 'PlusJakartaSans-MediumItalic',
+    lineHeight: 20,
+  },
+  whyPlaceholder: {
+    opacity: 0.6,
+  },
+  whyEditLink: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: GOLDEN_OCHRE,
+    opacity: 0.7,
+  },
+
+  // ── 3A. Streak Card (active) ──
+  streakCard: {
+    marginHorizontal: 20,
+    marginTop: 24,
+    padding: 22,
+    backgroundColor: SURFACE,
+    borderRadius: 20,
+    borderWidth: Platform.OS === 'android' ? 1 : 0,
+    borderColor: BORDER_SUBTLE,
+  },
+  streakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 22,
+  },
+  streakRight: {
+    flex: 1,
+  },
+  bestStreakText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
+  streakCompare: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: GOLDEN_OCHRE,
+    marginBottom: 16,
+  },
+  milestoneLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: INK_MUTED,
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+
+  // ── 3B. Fresh Start ──
+  freshStartCard: {
+    marginHorizontal: 20,
+    marginTop: 24,
+    padding: 32,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+    backgroundColor: SURFACE,
+    borderRadius: 20,
+    alignItems: 'center',
+    borderWidth: Platform.OS === 'android' ? 1 : 0,
+    borderColor: BORDER_SUBTLE,
+  },
+  seedlingCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: SAGE_MIST,
+    borderWidth: 2,
+    borderColor: SAGE_MIST_DARK,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seedlingEmoji: {
+    fontSize: 36,
+  },
+  freshStartTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    fontFamily: 'PlusJakartaSans-Bold',
+    color: MOSS_GREEN,
+    marginTop: 18,
+  },
+  freshStartBody: {
+    fontSize: 14,
+    color: INK_SUBTLE,
+    lineHeight: 22,
+    textAlign: 'center',
+    maxWidth: 260,
+    marginTop: 8,
+  },
+  freshStartDivider: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_SUBTLE,
+    width: '100%',
+    alignItems: 'center',
+  },
+  freshStartStats: {
+    fontSize: 12,
+    color: INK_MUTED,
+  },
+  reflectionButton: {
+    marginTop: 14,
+    paddingVertical: 11,
+    paddingHorizontal: 24,
+    borderRadius: 99,
+    borderWidth: 1.5,
+    borderColor: 'rgba(46,85,64,0.18)',
+  },
+  reflectionButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: MOSS_GREEN,
+  },
+
+  // ── 4. Known Triggers ──
+  chipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginTop: 10,
+  },
+  triggerChip: {
+    backgroundColor: GOLDEN_LIGHT,
+    borderWidth: 1,
+    borderColor: GOLDEN_BORDER,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 99,
+  },
+  triggerChipText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: GOLDEN_OCHRE,
+  },
+
+  // ── 5. Replacement Suggestion ──
+  replacementSection: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+  },
+  replacementContainer: {
+    padding: 14,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+    backgroundColor: SAGE_MIST,
+    borderWidth: 1,
+    borderColor: SAGE_MIST_DARK,
+  },
+  replacementLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: MOSS_GREEN,
+    letterSpacing: 1.2,
+    marginBottom: 5,
+  },
+  replacementText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: MOSS_GREEN,
+    lineHeight: 20,
+  },
+
+  // ── 6. This Week / Shared sections ──
+  section: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sinceLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: INK_MUTED,
+    letterSpacing: 0.5,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: INK_MUTED,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  sectionMeta: {
+    fontSize: 12,
+    color: INK_MUTED,
+  },
+  weekCard: {
+    backgroundColor: SURFACE,
+    borderRadius: 16,
+    padding: 20,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    borderWidth: Platform.OS === 'android' ? 1 : 0,
+    borderColor: BORDER_SUBTLE,
+  },
+  weekSummary: {
+    fontSize: 12,
+    color: INK_MUTED,
+    textAlign: 'center',
+    marginTop: 14,
+  },
+
+  // ── 7. Consistency Calendar ──
+  calendarCard: {
+    backgroundColor: SURFACE,
+    borderRadius: 16,
+    padding: 18,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    borderWidth: Platform.OS === 'android' ? 1 : 0,
+    borderColor: BORDER_SUBTLE,
+  },
+
+  // ── 8. Talk to Gremly ──
+  gremlySection: {
+    paddingHorizontal: 24,
+    paddingTop: 20,
+  },
+  gremlyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    borderRadius: 16,
+    paddingVertical: 15,
+    backgroundColor: 'rgba(46,85,64,0.08)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(46,85,64,0.15)',
+  },
+  gremlyButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: MOSS_GREEN,
+  },
+});

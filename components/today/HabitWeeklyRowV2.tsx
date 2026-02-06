@@ -1,4 +1,6 @@
 /**
+ * @deprecated Use HabitWeeklyRow instead.
+ *
  * HabitWeeklyRowV2 - Updated habit row with Gremly faces for completion indicators
  *
  * Shows habit name, metadata (streak/progress), rolling 7-day Gremly faces, and status.

@@ -1,4 +1,6 @@
 /**
+ * @deprecated Converted to HabitsScreen. Kept for reference only.
+ *
  * NowWeekPopup - Shows today's habit progress and weekly summaries with tap-to-complete
  *
  * Uses useTodayStats as single source of truth for today's habits,

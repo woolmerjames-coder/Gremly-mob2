@@ -34,7 +34,6 @@ import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet'
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
-import { NowWeekPopup } from '../../components/now/NowWeekPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
@@ -57,8 +56,6 @@ import {
   useTodayLogsCount,
   useIsLoading,
   useHabitsCompletedToday,
-  useHubHabits,
-  useWeeklyHabitSummaries,
   useHabitsUpToDateCount,
   useTodayPendingDrops,
   useEventsForDate,
@@ -69,7 +66,7 @@ import { useActionToast } from '../../src/hooks/useActionToast';
 import { getTodayEmptyState, getTodayEmptyStateContent } from '../../lib/today/getTodayEmptyState';
 import type { LogItem } from '../../lib/notes/useRecentLogs';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { useGlobalOverlay } from '../../contexts/OverlayContext';
+
 import type {
   NowLockedItem,
   NowActiveItem,
@@ -403,8 +400,6 @@ export default function NowScreenV1() {
   // Habits
   const habitsToday = useTodayHabits();
   const completedHabitsToday = useHabitsCompletedToday();
-  const allActiveHabits = useHubHabits(); // All non-archived habits for NowWeekPopup
-  const weeklySummaries = useWeeklyHabitSummaries(); // Weekly habit summaries for NowWeekPopup
   const habitsUpToDate = useHabitsUpToDateCount(); // Habits up to date count for header
 
   // Spaces - for looking up space names
@@ -471,10 +466,8 @@ export default function NowScreenV1() {
 
     return {
       dateTimeLabel,
-      weeklySummaries, // Weekly habit summaries for header
-      allHabits: allActiveHabits, // All non-archived habits for NowWeekPopup
     };
-  }, [allActiveHabits, weeklySummaries]);
+  }, []);
 
   // ═══════════════════════════════════════════════════════════════════
   // STORE MUTATIONS - Direct store actions
@@ -615,29 +608,12 @@ export default function NowScreenV1() {
   }, [navigation]);
 
   const [isProgressVisible, setProgressVisible] = useState(false);
-  const [isWeekVisible, setWeekVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
   const [isJournalVisible, setJournalVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
-
-  // Track if we should reopen habits modal after overlay closes
-  const [shouldReopenWeekModal, setShouldReopenWeekModal] = useState(false);
-  const { state: overlayState } = useGlobalOverlay();
-
-  // Reopen habits modal when overlay closes (if we came from there)
-  useEffect(() => {
-    if (shouldReopenWeekModal && !overlayState.visible) {
-      // Small delay to let overlay animation finish
-      const timer = setTimeout(() => {
-        setWeekVisible(true);
-        setShouldReopenWeekModal(false);
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [shouldReopenWeekModal, overlayState.visible]);
 
   // Pending drops from store - shows loading cards while pipeline runs
   // These persist until promotePendingDropToEntity removes them
@@ -832,7 +808,7 @@ export default function NowScreenV1() {
         remainingMinutes={remainingMinutes}
         calendarEvents={todayCalendarEvents}
         onPressProgress={() => setProgressVisible(true)}
-        onPressWeek={() => setWeekVisible(true)}
+        onPressWeek={() => navigation.navigate('Habits')}
         onCalendarPress={handleCalendarHintPress}
         onNotesPress={handleNotesPress}
         onMascotPress={() => setShowHelp(true)}
@@ -930,16 +906,6 @@ export default function NowScreenV1() {
             record: { id: item.id, type: overlayType } as any,
           });
         }}
-      />
-
-      <NowWeekPopup
-        visible={isWeekVisible}
-        habitsToday={displayHabitsToday}
-        completedHabitsToday={displayCompletedHabitsToday}
-        weeklySummaries={nowData.weeklySummaries}
-        allHabits={allActiveHabits}
-        onClose={() => setWeekVisible(false)}
-        onOpenOverlay={() => setShouldReopenWeekModal(true)}
       />
 
       <OverwhelmSelectSheet

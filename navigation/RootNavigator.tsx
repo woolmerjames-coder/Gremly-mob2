@@ -28,6 +28,8 @@ import { ListsScreen } from '../app/screens/ListsScreen';
 import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
 import SweepTestScreen from '../app/screens/SweepTestScreen';
 import CalendarScreen from '../app/screens/CalendarScreen';
+import HabitsScreen from '../app/screens/HabitsScreen';
+import HabitDetailScreen from '../app/screens/HabitDetailScreen';
 import SettingsScreen from '../app/screens/SettingsScreen';
 import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
 
@@ -57,6 +59,8 @@ export type RootStackParamList = {
   Sweep: { initialStep?: number; initialCardIndex?: number } | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;
   CalendarScreen: undefined;
+  Habits: undefined;
+  HabitDetail: { habitId: string };
   Settings: undefined;
   WhatGremlyKnows: undefined;
   SweepTest: undefined; // DEV only
@@ -156,6 +160,22 @@ export default function RootNavigator() {
           <Stack.Screen
             name="CalendarScreen"
             component={CalendarScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="Habits"
+            component={HabitsScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="HabitDetail"
+            component={HabitDetailScreen}
             options={{
               headerShown: false,
               animation: 'slide_from_right',
