@@ -53,6 +53,7 @@ import {
   Clock,
   TrendingUp,
   TrendingDown,
+  BarChart3,
   X,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
@@ -124,6 +125,9 @@ import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
 import {
@@ -1281,6 +1285,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   );
 
   const globalOverlay = useGlobalOverlay();
+  const overlayNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // P0 fix: Use lazy initializer to derive baseType from initialEntity.type on first render
   // This prevents the brief flash of empty LOG form when editing todos/habits
   const [state, dispatch] = useReducer(v2Reducer, props, getInitialV2StateFromProps);
@@ -6177,10 +6182,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <View
                               style={{
                                 flexDirection: 'row',
-                                alignItems: 'center',
+                                justifyContent: 'space-between',
                                 marginTop: 0,
                                 marginBottom: 12,
-                                gap: 20,
                                 paddingHorizontal: 4,
                               }}
                             >
@@ -6214,7 +6218,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     color: !isBreakHabit ? lightTokens.colors.moss : '#999999',
                                   }}
                                 >
-                                  Build
+                                  Build a habit
                                 </Text>
                               </Pressable>
 
@@ -6248,7 +6252,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     color: isBreakHabit ? lightTokens.colors.moss : '#999999',
                                   }}
                                 >
-                                  Break
+                                  Break a habit
                                 </Text>
                               </Pressable>
                             </View>
@@ -6561,13 +6565,50 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 paddingVertical: 8,
                               }}
                             >
-                              {/* Chat with Gremly button - primary action, takes more space */}
+                              {/* Check progress button — habits only, not in create mode */}
+                              {baseType === 'habit' && mode !== 'create' && (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    onClose();
+                                    setTimeout(() => {
+                                      overlayNavigation.navigate('HabitDetail', {
+                                        habitId: currentEntityId,
+                                      });
+                                    }, 300);
+                                  }}
+                                  style={{
+                                    flex: 1,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 12,
+                                    backgroundColor: 'rgba(191, 216, 192, 0.3)',
+                                    borderRadius: 10,
+                                  }}
+                                  activeOpacity={0.8}
+                                >
+                                  <BarChart3 size={16} color={lightTokens.colors.mossGreen} />
+                                  <Text
+                                    style={{
+                                      fontSize: 13,
+                                      fontFamily: lightTokens.typography.fontFamily.medium,
+                                      color: lightTokens.colors.mossGreen,
+                                    }}
+                                  >
+                                    Check progress
+                                  </Text>
+                                </TouchableOpacity>
+                              )}
+
+                              {/* Chat with Gremly button */}
                               <EntityChatButton
                                 entityId={currentEntityId}
                                 entityType={entityTypeForChat}
                                 variant="overlay"
                                 onPress={() => setShowEntityChat(true)}
-                                style={{ flex: 2 }}
+                                style={{ flex: 1 }}
                               />
 
                               {/* Notes button - secondary, takes less space */}

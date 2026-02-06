@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Image,
   Modal,
   Platform,
   ScrollView,
@@ -25,8 +26,10 @@ import { StreakRing } from './StreakRing';
 import { MilestoneBar } from './MilestoneBar';
 import { CalendarHeatmap } from './CalendarHeatmap';
 import { MessageCircle } from 'lucide-react-native';
-import MascotIcon from '../../../components/MascotIcon';
 import { EntityChatScreen } from '../../../components/chat/EntityChatScreen';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const HABIT_FOCUS_GREMLY = require('../../../assets/mascot/habitfocusgremly.png');
 import type { Habit, EntityChatPreset } from '../../../lib/types';
 import type { DayDot } from '../../../lib/today/hooks/useWeeklyHabitStats';
 
@@ -276,13 +279,6 @@ export function BreakHabitDetail({
 
   const isFreshStart = currentStreak === 0;
 
-  // ── Mascot pose based on progress ──
-  const mascotPose = useMemo(() => {
-    if (currentStreak > 14) return 'celebrate' as const;
-    if (currentStreak > 0) return 'default' as const;
-    return 'neutral' as const;
-  }, [currentStreak]);
-
   return (
     <>
       <ScrollView
@@ -294,7 +290,11 @@ export function BreakHabitDetail({
         {/* ─── 1. TITLE SECTION ─── */}
         <View style={styles.titleSection}>
           <View style={styles.mascotFloat}>
-            <MascotIcon size={58} pose={mascotPose} animate={false} />
+            <Image
+              source={HABIT_FOCUS_GREMLY}
+              style={{ width: 64, height: 64 }}
+              resizeMode="contain"
+            />
           </View>
           <View style={styles.titleRow}>
             <View style={styles.accentBar} />

@@ -6,7 +6,15 @@
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { dateService } from '../../../lib/date/DateService';
@@ -16,8 +24,10 @@ import { StreakRing } from './StreakRing';
 import { MilestoneBar } from './MilestoneBar';
 import { CalendarHeatmap } from './CalendarHeatmap';
 import { MessageCircle } from 'lucide-react-native';
-import MascotIcon from '../../../components/MascotIcon';
 import { EntityChatScreen } from '../../../components/chat/EntityChatScreen';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const HABIT_FOCUS_GREMLY = require('../../../assets/mascot/habitfocusgremly.png');
 import type { Habit } from '../../../lib/types';
 import type { DayDot } from '../../../lib/today/hooks/useWeeklyHabitStats';
 
@@ -207,17 +217,6 @@ export function BuildHabitDetail({
   const frequencyLabel = formatFrequency(habit);
   const spaceLabel = habit.labels?.[0] ?? null;
 
-  // ── Mascot pose based on progress ──
-  const mascotPose = useMemo(() => {
-    if (isDaily) {
-      if (currentStreak > 7) return 'celebrate' as const;
-      if (currentStreak > 0) return 'default' as const;
-      return 'think' as const;
-    }
-    if (weeksOnTarget && weeksOnTarget.weeksHit > 3) return 'celebrate' as const;
-    return 'default' as const;
-  }, [isDaily, currentStreak, weeksOnTarget]);
-
   return (
     <>
       <ScrollView
@@ -228,7 +227,11 @@ export function BuildHabitDetail({
         {/* ─── 1. TITLE SECTION ─── */}
         <View style={styles.titleSection}>
           <View style={styles.mascotFloat}>
-            <MascotIcon size={58} pose={mascotPose} animate={false} />
+            <Image
+              source={HABIT_FOCUS_GREMLY}
+              style={{ width: 64, height: 64 }}
+              resizeMode="contain"
+            />
           </View>
           <View style={styles.titleRow}>
             <View style={styles.accentBar} />

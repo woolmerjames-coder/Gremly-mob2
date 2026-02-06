@@ -193,7 +193,7 @@ export default function HabitDetailScreen() {
     try {
       const fullHabit = await repo.getById(habitId);
       if (fullHabit && fullHabit.type === 'habit') {
-        overlayController.openView({ record: fullHabit as any });
+        overlayController.openEdit({ record: fullHabit as any });
       }
     } catch (error) {
       console.error('[HabitDetailScreen] Failed to open edit:', error);

@@ -8,7 +8,14 @@
  */
 
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
-import { StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, View } from 'react-native';
+import {
+  Image,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  View,
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -22,7 +29,9 @@ import { dateService } from '../../lib/date/DateService';
 import { BRAND } from '../../design/brand';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit } from '../../lib/types';
-import MascotIcon from '../../components/MascotIcon';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const HABIT_GREMLY = require('../../assets/mascot/habitgremly.png');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design Tokens (from BRAND)
@@ -397,7 +406,8 @@ export default function HabitsScreen() {
             </View>
           </View>
           <View style={styles.mascotWrap}>
-            <MascotIcon size={52} pose="think" animate={false} />
+            {/* TODO: habitgremly.png needs background removed (currently has black bg) */}
+            <Image source={HABIT_GREMLY} style={{ width: 64, height: 64 }} resizeMode="contain" />
           </View>
         </View>
 
