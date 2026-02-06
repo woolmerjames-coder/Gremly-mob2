@@ -13,6 +13,8 @@ export type LogState = {
   private: boolean;
   /** Date Intelligence: Event date for notes (when it IS) */
   target_date?: string | null;
+  /** Date Intelligence: End date for multi-day events */
+  end_date?: string | null;
   /** Date Intelligence: Event time if applicable */
   event_time?: string | null;
 };
@@ -95,7 +97,7 @@ export type HabitState = {
 export type FormatKind = 'plain' | 'checkboxes' | 'bullet';
 export type PersonLink = { id: string; display: string } | null;
 export type SentimentValue = 'pos' | 'neu' | 'neg'; // Simplified positive/neutral/negative for logs (not journal moods)
-export type LogSubtypeOverride = 'journal' | 'idea' | 'general' | 'list' | null;
+export type LogSubtypeOverride = 'journal' | 'idea' | 'general' | 'list' | 'event' | null;
 
 /**
  * V2State - Complete overlay state for all entity types
@@ -156,6 +158,8 @@ export type V2State = {
   logIsPrivate: boolean;
   // UI-only: Checklist formatting mode (applies to log, todo, habit)
   isChecklistMode: boolean;
+  // Key Dates: Link to an event note
+  linkedEventId: string | null;
 };
 
 export const initialV2State: V2State = {
@@ -203,6 +207,7 @@ export const initialV2State: V2State = {
   logSubtypeOverride: null, // Phase L8: Manual log subtype override
   logIsPrivate: false, // Phase L9: Private flag for journal logs
   isChecklistMode: false, // UI-only: Checklist formatting mode
+  linkedEventId: null, // Key Dates: Link to an event note
 };
 
 type Action =
@@ -242,12 +247,14 @@ type Action =
   | { type: 'SET_FORMAT'; fmt: FormatKind }
   | { type: 'SET_REMINDER'; when: string | null }
   | { type: 'SET_LOG_TARGET_DATE'; date: string | null }
+  | { type: 'SET_LOG_END_DATE'; date: string | null }
   | { type: 'SET_LOG_EVENT_TIME'; time: string | null }
   | { type: 'TOGGLE_LOG_PRIVATE' }
   | { type: 'SET_LOG_SUBTYPE_OVERRIDE'; value: LogSubtypeOverride }
   | { type: 'SET_LOG_IS_PRIVATE'; value: boolean }
   | { type: 'SET_CHECKLIST_MODE'; enabled: boolean }
   | { type: 'TOGGLE_CHECKLIST_MODE' }
+  | { type: 'SET_LINKED_EVENT_ID'; eventId: string | null }
   | { type: 'PUSH_UNDO'; entry: { kind: 'type' | 'tag' | 'commitment'; prev: Partial<V2State> } }
   | { type: 'UNDO_LAST' }
   | { type: 'RESET' };
@@ -518,6 +525,8 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, reminderAt: action.when };
     case 'SET_LOG_TARGET_DATE':
       return { ...state, log: { ...state.log, target_date: action.date } };
+    case 'SET_LOG_END_DATE':
+      return { ...state, log: { ...state.log, end_date: action.date } };
     case 'SET_LOG_EVENT_TIME':
       return { ...state, log: { ...state.log, event_time: action.time } };
     case 'TOGGLE_LOG_PRIVATE':
@@ -530,6 +539,8 @@ export function v2Reducer(state: V2State, action: Action): V2State {
       return { ...state, isChecklistMode: action.enabled };
     case 'TOGGLE_CHECKLIST_MODE':
       return { ...state, isChecklistMode: !state.isChecklistMode };
+    case 'SET_LINKED_EVENT_ID':
+      return { ...state, linkedEventId: action.eventId };
     default:
       return state;
   }

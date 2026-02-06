@@ -167,7 +167,7 @@ export function NowHeader({
       : 'No events today';
   const calendarLine2 =
     upcomingEvent && minutesUntil !== null && minutesUntil > 0
-      ? `Next: ${upcomingEvent.title.slice(0, 20)}${upcomingEvent.title.length > 20 ? '...' : ''} in ${minutesUntil} min`
+      ? `Next: ${upcomingEvent.title} in ${minutesUntil} min`
       : null;
 
   return (
@@ -203,7 +203,11 @@ export function NowHeader({
 
             {/* Calendar summary */}
             <Text style={styles.calendarSummaryLine1}>{calendarLine1}</Text>
-            {calendarLine2 && <Text style={styles.calendarSummaryLine2}>{calendarLine2}</Text>}
+            {calendarLine2 && (
+              <Text style={styles.calendarSummaryLine2} numberOfLines={1} ellipsizeMode="tail">
+                {calendarLine2}
+              </Text>
+            )}
 
             {/* Task progress bar */}
             {totalTasksToday > 0 && (
@@ -337,13 +341,14 @@ const useStyles = makeStyles((t) => ({
   },
   // Today card - matches combined height of right column cards
   todayCard: {
-    height: 110,
+    minHeight: 110,
     backgroundColor: CARD_BG_TODAY,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingTop: 6, // Reduced top padding for better vertical centering
     paddingBottom: 12,
     justifyContent: 'flex-start',
+    overflow: 'hidden',
     // Soft shadow: 0 2px 8px rgba(0,0,0,0.06)
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

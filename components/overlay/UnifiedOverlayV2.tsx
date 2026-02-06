@@ -53,6 +53,8 @@ import {
   Clock,
   TrendingUp,
   TrendingDown,
+  BarChart3,
+  X,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -60,7 +62,15 @@ import { renderFormattedContent } from '../../lib/markdown/renderFormattedConten
 import { stripMarkdown } from '../../lib/markdown/stripMarkdown';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
-import { format, parseISO, addDays, setHours, setMinutes } from 'date-fns';
+import {
+  format,
+  parseISO,
+  addDays,
+  setHours,
+  setMinutes,
+  isSameDay,
+  differenceInDays,
+} from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { getDateService, getTodayDayString } from '../../lib/date';
@@ -71,7 +81,7 @@ import {
   borderRadius as tokenRadius,
 } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { selectItemById, useActiveSpaces } from '../../lib/store/selectors';
+import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
 import { useAuth } from '../../providers/AuthProvider';
 import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
@@ -115,6 +125,9 @@ import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
 import {
@@ -141,6 +154,10 @@ import HabitViewMode from './HabitViewMode';
 // Entity Chat
 import { EntityChatButton, EntityChatScreen, EntityNotesSection, EntityNotesModal } from '../chat';
 import { ChecklistProgress } from './ChecklistProgress';
+
+// Linked Items for Events
+import LinkedItemsSection from './LinkedItemsSection';
+import LinkedEventPicker from './LinkedEventPicker';
 import { RevertToTextButton } from './RevertToTextButton';
 import { TodoPreviewModal } from './TodoPreviewModal';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
@@ -1075,12 +1092,16 @@ function formatLogTimestamp(mode: 'create' | 'edit' | 'view', entity: any | null
 
 // Helper to get log subtype chip label
 // Note: 'list' is legacy for backward compatibility - checklist mode is now separate
-function getLogSubtypeChipLabel(subtype: 'journal' | 'idea' | 'general' | 'list'): string {
+function getLogSubtypeChipLabel(
+  subtype: 'journal' | 'idea' | 'general' | 'list' | 'event',
+): string {
   switch (subtype) {
     case 'journal':
       return 'Journal';
     case 'idea':
       return 'Idea';
+    case 'event':
+      return 'Event';
     case 'list':
       return 'Note'; // Legacy 'list' subtype displays as Note; checklist is separate toggle
     case 'general':
@@ -1264,6 +1285,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   );
 
   const globalOverlay = useGlobalOverlay();
+  const overlayNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // P0 fix: Use lazy initializer to derive baseType from initialEntity.type on first render
   // This prevents the brief flash of empty LOG form when editing todos/habits
   const [state, dispatch] = useReducer(v2Reducer, props, getInitialV2StateFromProps);
@@ -1504,20 +1526,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Phase L8: Derive effective log subtype from manual override or entity subtype or detected tags
   // Priority order: manual override > tags > entity subtype > fallback
-  const effectiveLogSubtype: 'journal' | 'idea' | 'general' | 'list' = useMemo(() => {
+  const effectiveLogSubtype: 'journal' | 'idea' | 'general' | 'list' | 'event' = useMemo(() => {
     if (!isLog) return 'general';
 
     // 1. Manual override takes HIGHEST precedence (user explicitly chose)
     if (state.logSubtypeOverride) return state.logSubtypeOverride;
 
-    // 2. Fallback to entity.subtype if present (from classification system or edit mode)
+    // 2. Fallback to entity.subtype or logSubtype if present
+    // - entity.subtype: from classification system or edit mode (persisted notes)
+    // - entity.logSubtype: from openCreate() in create mode
     const entity = initialEntity as any;
-    const rawSubtype = entity?.subtype as string | undefined;
+    const rawSubtype = (entity?.subtype ?? entity?.logSubtype) as string | undefined;
     if (
       rawSubtype === 'journal' ||
       rawSubtype === 'idea' ||
       rawSubtype === 'general' ||
-      rawSubtype === 'list'
+      rawSubtype === 'list' ||
+      rawSubtype === 'event'
     ) {
       return rawSubtype;
     }
@@ -1527,6 +1552,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Journal detection for mood selector (Phase L4) - now uses effectiveLogSubtype
   const isJournal = isLog && effectiveLogSubtype === 'journal';
+
+  // Event note detection for LinkedItemsSection
+  const isEventNote = isLog && effectiveLogSubtype === 'event' && !!currentEntityId;
+
+  // LinkedEventPicker: Check if current space has events
+  // Resolve spaceId from state (explicit) or entity (fallback)
+  const effectiveSpaceId = state.spaceId ?? fullEntity?.space_id ?? initialSpaceId ?? null;
+  const spaceHasEvents = useSpaceHasEvents(effectiveSpaceId ?? '');
+  // Show LinkedEventPicker when:
+  // - Entity has a space_id with events
+  // - Entity is NOT itself an event (subtype !== 'event')
+  const showLinkedEventPicker =
+    !!effectiveSpaceId &&
+    spaceHasEvents &&
+    effectiveLogSubtype !== 'event' &&
+    !(baseType === 'habit' && state.habit.subtype === 'break_habit'); // Don't show for break habits
 
   // Phase L9: Show Private toggle only for journal logs
   const showLogPrivateToggle = baseType === 'log' && effectiveLogSubtype === 'journal';
@@ -1557,7 +1598,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showHabitStartDatePicker, setShowHabitStartDatePicker] = useState(false);
   const [showHabitEndDatePicker, setShowHabitEndDatePicker] = useState(false);
   const [dateModalTarget, setDateModalTarget] = useState<
-    'todo_deadline' | 'todo_dodate' | 'note_event' | 'reminder' | null
+    'todo_deadline' | 'todo_dodate' | 'note_event' | 'note_end_date' | 'reminder' | null
   >(null);
   const [showSpaceModal, setShowSpaceModal] = useState(false);
 
@@ -1639,6 +1680,71 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Entity Chat state
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [showNotesModal, setShowNotesModal] = useState(false);
+
+  // LinkedItemsSection handlers for event notes
+  const handleLinkedItemPress = useCallback(
+    (item: any) => {
+      const itemSpaceId = item.space_id || fullEntity?.space_id || initialSpaceId;
+      onClose();
+      // Small delay to let current overlay close before opening new one
+      setTimeout(() => {
+        globalOverlay.openEdit({ record: item, spaceId: itemSpaceId });
+      }, 100);
+    },
+    [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId],
+  );
+
+  const handleLinkedAddTodo = useCallback(() => {
+    const eventId = currentEntityId;
+    const spaceId = fullEntity?.space_id || initialSpaceId;
+    const eventDate = (fullEntity as any)?.target_date; // Event's date becomes todo's deadline
+    onClose();
+    setTimeout(() => {
+      globalOverlay.openCreate({
+        type: 'todo',
+        spaceId,
+        initialEntity: {
+          type: 'todo',
+          linked_event_id: eventId,
+          target_date: eventDate, // Pre-populate deadline from event date
+        } as any,
+      });
+    }, 100);
+  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId, currentEntityId, fullEntity]);
+
+  const handleLinkedAddNote = useCallback(() => {
+    const eventId = currentEntityId;
+    const spaceId = fullEntity?.space_id || initialSpaceId;
+    onClose();
+    setTimeout(() => {
+      globalOverlay.openCreate({
+        type: 'log',
+        spaceId,
+        initialEntity: { type: 'log', linked_event_id: eventId } as any,
+      });
+    }, 100);
+  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId, currentEntityId]);
+
+  const handleLinkExisting = useCallback(() => {
+    Alert.alert('Coming Soon', 'Linking existing items will be available in a future update.');
+  }, []);
+
+  // Handler for LinkedEventPicker changes
+  const handleLinkedEventChange = useCallback(
+    (eventId: string | null) => {
+      dispatch({ type: 'SET_LINKED_EVENT_ID', eventId });
+
+      // Auto-populate todo deadline from event date if todo doesn't have one
+      if (eventId && baseType === 'todo' && !state.todo.target_date) {
+        const event = getItemById(eventId);
+        const eventDate = (event as any)?.target_date;
+        if (eventDate) {
+          dispatch({ type: 'SET_TODO_TARGET_DATE', date: eventDate });
+        }
+      }
+    },
+    [dispatch, baseType, state.todo.target_date, getItemById],
+  );
 
   // Clarification popup state (Phase 2)
   const [showClarificationPopup, setShowClarificationPopup] = useState(false);
@@ -2466,7 +2572,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     // Small delay to let current overlay close
     setTimeout(() => {
-      globalOverlay.openView({
+      globalOverlay.openEdit({
         record: {
           ...fullNote,
           type: 'note',
@@ -2772,6 +2878,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const override = deriveBaseTypeFromInitial((initialEntity as any)?.type);
     const rawText = typeof initialText === 'string' ? initialText : '';
     const hasText = rawText.trim().length > 0;
+    const hasLinkedEventId = !!(initialEntity as any)?.linked_event_id;
 
     // Check for conversionMeta prefill (Idea → Todo/Habit conversion, Space Chat)
     const hasConversionMeta =
@@ -2783,7 +2890,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         conversionMeta.initialFrequency ||
         conversionMeta.initialDueDate); // ADD: Space Chat todo due date
 
-    if (!override && !hasText && !defaultDueToday && !hasConversionMeta) {
+    if (!override && !hasText && !defaultDueToday && !hasConversionMeta && !hasLinkedEventId) {
       createPrefillAppliedRef.current = true;
       return;
     }
@@ -2894,6 +3001,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       payload.todo = {
         ...(payload.todo || initialV2State.todo),
         due_at: todayISO,
+      };
+    }
+
+    // Apply linked_event_id from initialEntity (for "+ Add to-do" / "+ Add note" from events)
+    const linkedEventIdFromInitial = (initialEntity as any)?.linked_event_id;
+    if (linkedEventIdFromInitial) {
+      payload.linkedEventId = linkedEventIdFromInitial;
+    }
+
+    // Apply target_date from initialEntity for todos (event date becomes todo deadline)
+    const targetDateFromInitial = (initialEntity as any)?.target_date;
+    if (targetDateFromInitial && override === 'todo') {
+      payload.todo = {
+        ...(payload.todo || initialV2State.todo),
+        target_date: targetDateFromInitial,
       };
     }
 
@@ -3741,7 +3863,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     existingEntity?: any,
     photoUri?: string | null, // Phase L3: Photo support
     moodsParam?: Mood[], // Phase L4: Multi-select moods for journals
-    effectiveLogSubtype?: 'journal' | 'idea' | 'general' | 'list', // Phase L8: Manual log subtype
+    effectiveLogSubtype?: 'journal' | 'idea' | 'general' | 'list' | 'event', // Phase L8: Manual log subtype
   ) {
     const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
 
@@ -3942,6 +4064,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
+          // Key Dates: Link to an event
+          linked_event_id: s.linkedEventId ?? null,
         };
       }
 
@@ -4001,6 +4125,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
         },
+        // Key Dates: Link to an event
+        linked_event_id: s.linkedEventId ?? null,
       };
     }
     if (baseType === 'habit') {
@@ -4057,6 +4183,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment: s.commitment,
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
+          // Key Dates: Link to an event
+          linked_event_id: s.linkedEventId ?? null,
         };
       }
 
@@ -4103,6 +4231,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           commitment_note: s.commitment ? s.commitmentNote || null : null,
           commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
         },
+        // Key Dates: Link to an event
+        linked_event_id: s.linkedEventId ?? null,
       };
     }
 
@@ -4163,6 +4293,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const viewsWithDateIntelligence = {
         ...viewsWithPrivate,
         target_date: s.log.target_date ?? null,
+        end_date: s.log.end_date ?? null,
         event_time: s.log.event_time ?? null,
       };
 
@@ -4191,6 +4322,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // Checklist persistence - use isChecklistMode as the source of truth
         has_list: isChecklistMode,
         list_items: checklistItems,
+        // Key Dates: Date Intelligence fields (direct on note, not just views)
+        target_date: s.log.target_date ?? null,
+        end_date: s.log.end_date ?? null,
+        event_time: s.log.event_time ?? null,
+        // Key Dates: Link to an event
+        linked_event_id: s.linkedEventId ?? null,
       };
     }
 
@@ -4273,6 +4410,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // Checklist persistence - use isChecklistMode as the source of truth
       has_list: isChecklistMode,
       list_items: checklistItems,
+      // Key Dates: Date Intelligence fields (direct on note)
+      target_date: s.log.target_date ?? null,
+      end_date: s.log.end_date ?? null,
+      event_time: s.log.event_time ?? null,
+      // Key Dates: Link to an event
+      linked_event_id: s.linkedEventId ?? null,
     };
   }
 
@@ -4283,6 +4426,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setSaveError("You're offline — Save will keep the draft.");
       return;
     }
+
+    // Key Dates: Events require a target_date
+    if (isLog && effectiveLogSubtype === 'event' && !state.log.target_date) {
+      Alert.alert('Date required', 'Key dates must have a date set.');
+      return;
+    }
+
     setSaveError(null);
     setIsSaving(true);
     try {
@@ -4844,6 +4994,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     [fullEntity, initialEntity, removeHabitCompletionForDate],
   );
 
+  const handleUpdateHabitWhy = useCallback(
+    async (why: string) => {
+      const habitId = fullEntity?.id || (initialEntity as any)?.id;
+      if (habitId) {
+        await updateHabit(habitId, { why_string: why });
+      }
+    },
+    [fullEntity, initialEntity, updateHabit],
+  );
+
+  const handleOpenHabitChat = useCallback(() => {
+    setShowEntityChat(true);
+  }, []);
+
   // ============================================================================
   // VIEW MODE CONTENT RENDERER
   // ============================================================================
@@ -4868,6 +5032,290 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       ? format(parseISO(entityCreatedAt), 'MMM d, yyyy')
       : null;
 
+    // Check if body has real content (not just duplicating the title)
+    const bodyHasContent =
+      entityBody && entityBody.trim() && entityBody.trim() !== entityTitle.trim();
+
+    // Format event date for display
+    const formatEventDate = () => {
+      if (!state.log.target_date) return null;
+
+      const targetDate = parseISO(state.log.target_date);
+      const endDate = state.log.end_date ? parseISO(state.log.end_date) : null;
+      const eventTime = state.log.event_time;
+      const today = new Date();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // Check if dates are same day
+      const isToday = isSameDay(targetDate, today);
+      const isTomorrow = isSameDay(targetDate, tomorrow);
+
+      // Calculate days from now
+      const daysFromNow = differenceInDays(targetDate, today);
+
+      // Format the date part
+      let dateStr: string;
+      if (isToday) {
+        dateStr = 'Today';
+      } else if (isTomorrow) {
+        dateStr = 'Tomorrow';
+      } else if (daysFromNow > 0 && daysFromNow <= 7) {
+        dateStr = format(targetDate, 'EEEE'); // Day name like "Friday"
+      } else if (daysFromNow > 7 && daysFromNow <= 14) {
+        dateStr = `In ${daysFromNow} days`;
+      } else {
+        dateStr = format(targetDate, 'MMM d, yyyy');
+      }
+
+      // Handle multi-day events
+      if (endDate && !isSameDay(targetDate, endDate)) {
+        const startStr = format(targetDate, 'MMM d');
+        const endStr = format(
+          endDate,
+          targetDate.getFullYear() === endDate.getFullYear() ? 'd, yyyy' : 'MMM d, yyyy',
+        );
+        dateStr = `${startStr}–${endStr}`;
+      }
+
+      // Format time part
+      let timeStr = 'All day';
+      if (eventTime) {
+        const [hours, minutes] = eventTime.split(':').map(Number);
+        const timeDate = new Date();
+        timeDate.setHours(hours, minutes, 0, 0);
+        timeStr = format(timeDate, 'h:mm a');
+      }
+
+      return { dateStr, timeStr };
+    };
+
+    const eventDateInfo = effectiveLogSubtype === 'event' ? formatEventDate() : null;
+
+    // Special rendering for event notes
+    if (effectiveLogSubtype === 'event') {
+      return (
+        <ScrollView
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled={true}
+          scrollEnabled={true}
+          bounces={true}
+          showsVerticalScrollIndicator={true}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingBottom: 24,
+            paddingTop: 16,
+          }}
+        >
+          {/* Title - Large, prominent display */}
+          <Text
+            style={{
+              fontSize: 24,
+              fontWeight: '600',
+              color: colorMode === 'dark' ? '#FFFFFF' : '#1a1a1a',
+              fontFamily: Platform.OS === 'ios' ? 'Plus Jakarta Sans' : undefined,
+              marginBottom: 12,
+              lineHeight: 32,
+            }}
+          >
+            {entityTitle}
+          </Text>
+
+          {/* Event Date Row: Calendar icon + Date + Time ... Space name */}
+          {eventDateInfo && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 16,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Calendar
+                  size={16}
+                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540'}
+                />
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: '500',
+                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
+                  }}
+                >
+                  {eventDateInfo.dateStr}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
+                  }}
+                >
+                  ·
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
+                  }}
+                >
+                  {eventDateInfo.timeStr}
+                </Text>
+              </View>
+              {entitySpaceName && (
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#999',
+                  }}
+                >
+                  {entitySpaceName}
+                </Text>
+              )}
+            </View>
+          )}
+
+          {/* Divider between header and content */}
+          <View
+            style={{
+              height: 1,
+              backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              marginBottom: 16,
+            }}
+          />
+
+          {/* Tags row - read-only display */}
+          {entityTags.length > 0 && (
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 6,
+                marginBottom: 16,
+              }}
+            >
+              {entityTags.map((tag) => (
+                <View
+                  key={tag}
+                  style={{
+                    backgroundColor:
+                      colorMode === 'dark' ? 'rgba(94, 160, 138, 0.2)' : 'rgba(94, 160, 138, 0.15)',
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 14,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: colorMode === 'dark' ? '#8FCBB4' : '#2E7D6A',
+                      fontWeight: '500',
+                    }}
+                  >
+                    #{tag}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Body content - only show if it has real content different from title */}
+          {bodyHasContent && (
+            <View
+              style={{
+                backgroundColor:
+                  colorMode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+                borderRadius: 12,
+                padding: 16,
+                marginBottom: 16,
+              }}
+            >
+              {renderFormattedContent(entityBody, {
+                textColor: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
+                fontSize: 16,
+                lineHeight: 24,
+              })}
+            </View>
+          )}
+
+          {/* Photos grid (read-only) - for logs with photos */}
+          {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
+            <View style={{ marginBottom: 16 }}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8 }}
+              >
+                {logPhotos
+                  .filter((p) => !p.isDeleted)
+                  .map((photo, index) => {
+                    const actualIndex = logPhotos.findIndex((p) => p === photo);
+                    return (
+                      <Pressable
+                        key={actualIndex}
+                        onPress={() => handleViewLogPhoto(actualIndex)}
+                        accessibilityLabel={`View photo ${index + 1}`}
+                        accessibilityRole="button"
+                      >
+                        <Image
+                          source={{ uri: photo.url }}
+                          style={{
+                            width: 100,
+                            height: 100,
+                            borderRadius: 8,
+                          }}
+                          resizeMode="cover"
+                        />
+                      </Pressable>
+                    );
+                  })}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Linked Items section for event notes */}
+          {currentEntityId && fullEntity?.space_id && (
+            <LinkedItemsSection
+              eventId={currentEntityId}
+              spaceId={fullEntity.space_id}
+              onItemPress={handleLinkedItemPress}
+              onAddTodo={handleLinkedAddTodo}
+              onAddNote={handleLinkedAddNote}
+              onLinkExisting={handleLinkExisting}
+            />
+          )}
+
+          {/* Chat with Gremly button */}
+          {currentEntityId && (
+            <View style={{ marginTop: 16 }}>
+              <EntityChatButton
+                entityId={currentEntityId}
+                entityType="note"
+                variant="overlay"
+                onPress={() => setShowEntityChat(true)}
+              />
+            </View>
+          )}
+
+          {/* Created date - subtle footer info, very small */}
+          {formattedCreatedDate && (
+            <Text
+              style={{
+                fontSize: 11,
+                color: colorMode === 'dark' ? 'rgba(255,255,255,0.3)' : '#bbb',
+                marginTop: 24,
+                textAlign: 'center',
+              }}
+            >
+              Created {formattedCreatedDate}
+            </Text>
+          )}
+        </ScrollView>
+      );
+    }
+
+    // Default rendering for non-event entities
     return (
       <ScrollView
         style={{ flex: 1 }}
@@ -5360,13 +5808,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         <View
                           style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}
                         >
-                          {mode === 'edit' && initialEntity?.id ? (
+                          {(mode === 'edit' && initialEntity?.id) ||
+                          (mode === 'create' && isLog) ? (
                             <TextInput
-                              value={state.compactTitle}
+                              value={mode === 'create' ? state.compactTitle : state.compactTitle}
                               onChangeText={(text) =>
                                 dispatch({ type: 'SET_COMPACT_TITLE', title: text })
                               }
-                              placeholder="Add title..."
+                              placeholder={mode === 'create' ? 'Add title...' : 'Add title...'}
                               placeholderTextColor="#999999"
                               style={{
                                 color: '#222222',
@@ -5381,18 +5830,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               autoCorrect={false}
                             />
                           ) : (
-                            <Text
-                              variant="title"
-                              style={{
-                                color: '#222222',
-                                fontWeight: '500',
-                                fontSize: 18,
-                                flex: 1,
-                              }}
-                              numberOfLines={1}
-                            >
-                              {headerFor(baseType, mode, overlaySubtitle)}
-                            </Text>
+                            // Hide "View" text for event notes in view mode - show empty space
+                            !(isViewMode && isLog && effectiveLogSubtype === 'event') && (
+                              <Text
+                                variant="title"
+                                style={{
+                                  color: '#222222',
+                                  fontWeight: '500',
+                                  fontSize: 18,
+                                  flex: 1,
+                                }}
+                                numberOfLines={1}
+                              >
+                                {headerFor(baseType, mode, overlaySubtitle)}
+                              </Text>
+                            )
                           )}
                           {/* Lock In badge */}
                           {isLockedIn ? (
@@ -5404,6 +5856,38 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             >
                               <Diamond size={12} color="#2E5540" fill="#2E5540" />
                               <Text style={styles.lockedBadgeText}>Locked In</Text>
+                            </View>
+                          ) : null}
+                          {/* Note chip - show before Event chip for event notes in view mode */}
+                          {isLog && effectiveLogSubtype === 'event' && isViewMode ? (
+                            <View
+                              style={{
+                                alignSelf: 'center',
+                                marginLeft: 8,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: 999,
+                                borderWidth: StyleSheet.hairlineWidth,
+                                borderColor:
+                                  colorMode === 'dark'
+                                    ? 'rgba(255, 255, 255, 0.15)'
+                                    : 'rgba(0, 0, 0, 0.12)',
+                                backgroundColor:
+                                  colorMode === 'dark'
+                                    ? 'rgba(255, 255, 255, 0.04)'
+                                    : 'rgba(46, 85, 64, 0.06)',
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: '500',
+                                  color:
+                                    colorMode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : '#5a5a5a',
+                                }}
+                              >
+                                Note
+                              </Text>
                             </View>
                           ) : null}
                           {/* Log subtype chip - tappable for manual override */}
@@ -5445,9 +5929,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           ) : null}
                         </View>
 
-                        {/* Favorite star - view mode, notes only */}
+                        {/* Favorite star - view mode, notes only (not for events) */}
                         {isViewMode &&
                           baseType === 'log' &&
+                          effectiveLogSubtype !== 'event' &&
                           (fullEntity?.id || (initialEntity as any)?.id) && (
                             <Pressable
                               onPress={handleToggleFavorite}
@@ -5490,8 +5975,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           </Pressable>
                         ) : null}
 
-                        {/* Header Edit button - view mode only (not for habits - they have Edit button in footer) */}
-                        {isViewMode && fullEntity && baseType !== 'habit' ? (
+                        {/* Header Edit button - view mode only (not for habits or events - they have Edit button in footer) */}
+                        {isViewMode &&
+                        fullEntity &&
+                        baseType !== 'habit' &&
+                        effectiveLogSubtype !== 'event' ? (
                           <Pressable
                             onPress={() => {
                               if (initialEntity && (initialEntity as any).id) {
@@ -5568,16 +6056,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       </View>
                       {/* Phase 6b: Removed subtitle to avoid duplication - title now shows in header */}
                     </View>
-                    {/* Decorative title divider */}
-                    <View
-                      style={{
-                        width: '35%',
-                        height: 1,
-                        backgroundColor: 'rgba(191, 216, 192, 0.9)',
-                        marginTop: 4,
-                        marginBottom: 4,
-                      }}
-                    />
+                    {/* Decorative title divider - hide for event notes in view mode */}
+                    {!(isViewMode && isLog && effectiveLogSubtype === 'event') && (
+                      <View
+                        style={{
+                          width: '35%',
+                          height: 1,
+                          backgroundColor: 'rgba(191, 216, 192, 0.9)',
+                          marginTop: 4,
+                          marginBottom: 4,
+                        }}
+                      />
+                    )}
                   </Box>
 
                   {/* View/Edit Mode Content Container with Crossfade Animation */}
@@ -5596,6 +6086,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             onLogToday={handleLogHabitToday}
                             onLogDate={handleLogHabitDate}
                             onRemoveDate={handleRemoveHabitDate}
+                            onUpdateWhy={handleUpdateHabitWhy}
+                            onChatWithGremly={handleOpenHabitChat}
+                            onLogSlip={handleLogHabitToday}
                           />
                         ) : (
                           renderViewModeContent()
@@ -5689,10 +6182,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <View
                               style={{
                                 flexDirection: 'row',
-                                alignItems: 'center',
+                                justifyContent: 'space-between',
                                 marginTop: 0,
                                 marginBottom: 12,
-                                gap: 20,
                                 paddingHorizontal: 4,
                               }}
                             >
@@ -5726,7 +6218,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     color: !isBreakHabit ? lightTokens.colors.moss : '#999999',
                                   }}
                                 >
-                                  Build
+                                  Build a habit
                                 </Text>
                               </Pressable>
 
@@ -5760,7 +6252,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     color: isBreakHabit ? lightTokens.colors.moss : '#999999',
                                   }}
                                 >
-                                  Break
+                                  Break a habit
                                 </Text>
                               </Pressable>
                             </View>
@@ -6038,8 +6530,33 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Box>
                           )}
 
-                          {/* Entity Chat & Notes buttons - side by side */}
-                          {currentEntityId && (
+                          {/* Linked Items section for event notes - only in view mode */}
+                          {isViewMode && isEventNote && fullEntity?.space_id && (
+                            <Box px={4}>
+                              <LinkedItemsSection
+                                eventId={currentEntityId}
+                                spaceId={fullEntity.space_id}
+                                onItemPress={handleLinkedItemPress}
+                                onAddTodo={handleLinkedAddTodo}
+                                onAddNote={handleLinkedAddNote}
+                                onLinkExisting={handleLinkExisting}
+                              />
+                            </Box>
+                          )}
+
+                          {/* LinkedEventPicker for notes (non-event) - show when space has events */}
+                          {isLog && !isEventNote && showLinkedEventPicker && effectiveSpaceId && (
+                            <Box px={4} mt={3}>
+                              <LinkedEventPicker
+                                spaceId={effectiveSpaceId}
+                                currentEventId={state.linkedEventId}
+                                onChange={handleLinkedEventChange}
+                              />
+                            </Box>
+                          )}
+
+                          {/* Entity Chat & Notes buttons - side by side (hide for events in edit mode) */}
+                          {currentEntityId && (!isEventNote || isViewMode) && (
                             <View
                               style={{
                                 flexDirection: 'row',
@@ -6048,13 +6565,50 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 paddingVertical: 8,
                               }}
                             >
-                              {/* Chat with Gremly button - primary action, takes more space */}
+                              {/* Check progress button — habits only, not in create mode */}
+                              {baseType === 'habit' && mode !== 'create' && (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    onClose();
+                                    setTimeout(() => {
+                                      overlayNavigation.navigate('HabitDetail', {
+                                        habitId: currentEntityId,
+                                      });
+                                    }, 300);
+                                  }}
+                                  style={{
+                                    flex: 1,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 12,
+                                    backgroundColor: 'rgba(191, 216, 192, 0.3)',
+                                    borderRadius: 10,
+                                  }}
+                                  activeOpacity={0.8}
+                                >
+                                  <BarChart3 size={16} color={lightTokens.colors.mossGreen} />
+                                  <Text
+                                    style={{
+                                      fontSize: 13,
+                                      fontFamily: lightTokens.typography.fontFamily.medium,
+                                      color: lightTokens.colors.mossGreen,
+                                    }}
+                                  >
+                                    Check progress
+                                  </Text>
+                                </TouchableOpacity>
+                              )}
+
+                              {/* Chat with Gremly button */}
                               <EntityChatButton
                                 entityId={currentEntityId}
                                 entityType={entityTypeForChat}
                                 variant="overlay"
                                 onPress={() => setShowEntityChat(true)}
-                                style={{ flex: 2 }}
+                                style={{ flex: 1 }}
                               />
 
                               {/* Notes button - secondary, takes less space */}
@@ -6354,6 +6908,98 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     </Pressable>
                                   </View>
                                 </View>
+
+                                {/* End Date for multi-day events - only shown for event subtype when start date is set */}
+                                {effectiveLogSubtype === 'event' && state.log.target_date && (
+                                  <View style={[styles.dueAndLockRow, { marginTop: 8 }]}>
+                                    <View style={styles.dueDateLeft}>
+                                      <Pressable
+                                        style={styles.dueDatePill}
+                                        onPress={() => {
+                                          setMoodPickerExpanded(false);
+                                          if (state.log.end_date) {
+                                            const parsed = getDateService().fromDateString(
+                                              state.log.end_date,
+                                            );
+                                            if (parsed) {
+                                              setSelectedDate(parsed);
+                                            }
+                                          } else {
+                                            // Default to day after start date
+                                            const startDate = getDateService().fromDateString(
+                                              state.log.target_date!,
+                                            );
+                                            if (startDate) {
+                                              const nextDay = new Date(startDate);
+                                              nextDay.setDate(nextDay.getDate() + 1);
+                                              setSelectedDate(nextDay);
+                                            } else {
+                                              setSelectedDate(new Date());
+                                            }
+                                          }
+                                          setDateModalTarget('note_end_date');
+                                          setShowDateModal(true);
+                                        }}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={
+                                          state.log.end_date
+                                            ? `End date: ${formatDueDay(state.log.end_date)}`
+                                            : 'Add end date'
+                                        }
+                                      >
+                                        <Calendar
+                                          size={16}
+                                          color={
+                                            state.log.end_date
+                                              ? colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.7)'
+                                                : '#666666'
+                                              : colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.5)'
+                                                : '#777777'
+                                          }
+                                          style={styles.dueDateIcon}
+                                        />
+                                        <Text
+                                          style={[
+                                            styles.dueDateText,
+                                            !state.log.end_date && {
+                                              color:
+                                                colorMode === 'dark'
+                                                  ? 'rgba(255,255,255,0.5)'
+                                                  : '#777777',
+                                              fontWeight: '400',
+                                            },
+                                          ]}
+                                        >
+                                          {state.log.end_date
+                                            ? `End: ${formatDueDay(state.log.end_date)}`
+                                            : '+ End date (optional)'}
+                                        </Text>
+                                      </Pressable>
+                                      {/* Clear end date button */}
+                                      {state.log.end_date && (
+                                        <Pressable
+                                          onPress={() =>
+                                            dispatch({ type: 'SET_LOG_END_DATE', date: null })
+                                          }
+                                          style={{ marginLeft: 8, padding: 4 }}
+                                          accessibilityRole="button"
+                                          accessibilityLabel="Clear end date"
+                                        >
+                                          <X
+                                            size={14}
+                                            color={
+                                              colorMode === 'dark'
+                                                ? 'rgba(255,255,255,0.5)'
+                                                : '#999'
+                                            }
+                                          />
+                                        </Pressable>
+                                      )}
+                                    </View>
+                                  </View>
+                                )}
                               </Box>
                             )}
 
@@ -6639,6 +7285,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               </Box>
                             ) : null}
 
+                            {/* LinkedEventPicker for todos - show when space has events */}
+                            {baseType === 'todo' && showLinkedEventPicker && effectiveSpaceId && (
+                              <Box mt={3} px={0}>
+                                <LinkedEventPicker
+                                  spaceId={effectiveSpaceId}
+                                  currentEventId={state.linkedEventId}
+                                  onChange={handleLinkedEventChange}
+                                />
+                              </Box>
+                            )}
+
                             {/* Frequency row for habits */}
                             {baseType === 'habit' ? (
                               <Box mt={3} px={0}>
@@ -6769,6 +7426,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 </View>
                               </Box>
                             ) : null}
+
+                            {/* LinkedEventPicker for habits - show when space has events */}
+                            {baseType === 'habit' && showLinkedEventPicker && effectiveSpaceId && (
+                              <Box mt={3} px={0}>
+                                <LinkedEventPicker
+                                  spaceId={effectiveSpaceId}
+                                  currentEventId={state.linkedEventId}
+                                  onChange={handleLinkedEventChange}
+                                />
+                              </Box>
+                            )}
 
                             <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 12 }}>
                               <Pressable
@@ -7519,6 +8187,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             {dateModalTarget === 'todo_deadline' && 'Set deadline'}
                             {dateModalTarget === 'todo_dodate' && 'Set do date'}
                             {dateModalTarget === 'note_event' && 'Set event date'}
+                            {dateModalTarget === 'note_end_date' && 'Set end date'}
                             {dateModalTarget === 'reminder' && 'Set reminder'}
                           </Text>
                           <Box mt={1}>
@@ -7900,6 +8569,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     } else {
                                       dispatch({ type: 'SET_LOG_TARGET_DATE', date: null });
                                       showDueToast('Event date cleared');
+                                    }
+                                  } else if (dateModalTarget === 'note_end_date') {
+                                    // End date for multi-day events
+                                    if (finalDate) {
+                                      const dateStr = getDateService().toDateString(finalDate);
+                                      dispatch({ type: 'SET_LOG_END_DATE', date: dateStr });
+                                      showDueToast(
+                                        `End date set for ${format(finalDate, 'MMM d')}`,
+                                      );
+                                    } else {
+                                      dispatch({ type: 'SET_LOG_END_DATE', date: null });
+                                      showDueToast('End date cleared');
                                     }
                                   }
 
@@ -9876,13 +10557,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }
                           }}
                           accessibilityRole="button"
-                          accessibilityLabel="Edit"
+                          accessibilityLabel={
+                            effectiveLogSubtype === 'event' ? 'Edit Details' : 'Edit'
+                          }
                           style={{
                             backgroundColor:
                               colorMode === 'dark'
                                 ? darkTokens.colors.moss
                                 : lightTokens.colors.moss,
-                            width: 120,
+                            minWidth: 120,
+                            paddingHorizontal: 20,
                             height: 44,
                             borderRadius: 999,
                             justifyContent: 'center',
@@ -9896,7 +10580,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               fontWeight: '600',
                             }}
                           >
-                            Edit
+                            {effectiveLogSubtype === 'event' ? 'Edit Details' : 'Edit'}
                           </Text>
                         </Pressable>
                       )}
@@ -10180,6 +10864,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       spaceId: (entity as any)?.space_id ?? null,
       logSubtypeOverride: null, // Phase L8: Default for habits
       logIsPrivate: false, // Phase L9: Default for habits
+      // Key Dates: Link to an event
+      linkedEventId: (entity as any)?.linked_event_id ?? null,
     };
   }
 
@@ -10225,9 +10911,14 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
 
   // Phase L8: Hydrate logSubtypeOverride from entity.subtype for logs
   const rawSubtype = (entity as any)?.subtype as string | undefined;
-  let logSubtypeOverride: 'journal' | 'idea' | 'general' | null = null;
+  let logSubtypeOverride: 'journal' | 'idea' | 'general' | 'list' | 'event' | null = null;
   if (baseType === 'log') {
-    if (rawSubtype === 'journal' || rawSubtype === 'idea') {
+    if (
+      rawSubtype === 'journal' ||
+      rawSubtype === 'idea' ||
+      rawSubtype === 'list' ||
+      rawSubtype === 'event'
+    ) {
       logSubtypeOverride = rawSubtype;
     } else {
       logSubtypeOverride = 'general';
@@ -10292,6 +10983,7 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       private: (entity as any)?.private ?? false, // Hydrate private field for logs (Phase L7)
       // Date Intelligence fields for notes
       target_date: (entity as any)?.target_date ?? (entity?.views as any)?.target_date ?? null,
+      end_date: (entity as any)?.end_date ?? (entity?.views as any)?.end_date ?? null,
       event_time: (entity as any)?.event_time ?? (entity?.views as any)?.event_time ?? null,
     },
     todo: {
@@ -10345,6 +11037,8 @@ export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
       (entity?.has_list === true || // User explicitly saved as list
         (entity?.has_list == null && // Not explicitly set yet - auto-detect
           (looksLikeSimpleCommaList(logBody) || looksLikeChecklistMarkup(logBody)))),
+    // Key Dates: Link to an event
+    linkedEventId: (entity as any)?.linked_event_id ?? null,
   };
 
   return payload;

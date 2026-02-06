@@ -9,10 +9,10 @@
  * Each GremlyDot is tappable for past/current days (not future).
  */
 
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import { StyleSheet, Pressable, View } from 'react-native';
 import { Text } from '../../ui';
-import { GremlyDot } from '../ui/GremlyDot';
+import { WeeklyDotsRow } from '../../src/components/habits/WeeklyDotsRow';
 import { Flame } from 'lucide-react-native';
 import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitStats';
 
@@ -22,7 +22,6 @@ import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitSt
 
 const MOSS_GREEN = '#2E5540';
 const GOLDEN_PEAR = '#E0C47A';
-const SAGE_MIST = '#E8F0EA';
 const CHARCOAL_INK = '#222222';
 const INK_SUBTLE = 'rgba(34, 34, 34, 0.55)';
 const BORDER_SUBTLE = 'rgba(0, 0, 0, 0.08)';
@@ -55,10 +54,14 @@ export interface HabitWeeklyRowProps {
   showDivider?: boolean;
   /** Whether this is a breaking habit (subtype === 'break_habit') */
   isBreakingHabit?: boolean;
-  /** Current streak in days (for breaking habits) */
+  /** Current streak count (days or weeks depending on cadence) */
   streakDays?: number;
+  /** Streak unit — 'day' or 'week' (default 'day') */
+  streakUnit?: 'day' | 'week';
   /** ISO date string when habit started (YYYY-MM-DD) */
   startDate?: string | null;
+  /** Called when the "Set start date" banner is pressed (date picker flow) */
+  onPressPickStartDate?: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,68 +97,6 @@ function getStatusLabel(status: HabitStatus): { text: string; color: string } {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: Breaking habit checkmark dot
-// ─────────────────────────────────────────────────────────────────────────────
-
-function BreakingDot({
-  isCompleted,
-  isToday,
-  isFuture,
-  onPress,
-  size = DOT_SIZE,
-}: {
-  isCompleted: boolean;
-  isToday: boolean;
-  isFuture: boolean;
-  onPress: () => void;
-  size?: number;
-}) {
-  // Use slightly smaller inner size to account for border (match GremlyDot visual size)
-  const innerSize = size - 4; // 2px border on each side
-
-  return (
-    <Pressable
-      onPress={isFuture ? undefined : onPress}
-      style={{
-        width: size,
-        height: size,
-        justifyContent: 'center',
-        alignItems: 'center',
-        opacity: isFuture ? 0.4 : 1,
-      }}
-      disabled={isFuture}
-    >
-      <View
-        style={{
-          width: innerSize,
-          height: innerSize,
-          borderRadius: innerSize / 2,
-          borderWidth: 2,
-          borderColor: isCompleted ? MOSS_GREEN : isToday ? MOSS_GREEN : '#D0D0D0',
-          backgroundColor: isCompleted ? MOSS_GREEN : 'transparent',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}
-      >
-        {isCompleted && (
-          <Text
-            style={{
-              color: '#FFFFFF',
-              fontSize: innerSize * 0.5,
-              fontWeight: '700',
-              lineHeight: innerSize * 0.5,
-              textAlign: 'center',
-            }}
-          >
-            ✓
-          </Text>
-        )}
-      </View>
-    </Pressable>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // HabitWeeklyRow Component
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -174,34 +115,10 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
   showDivider = true,
   isBreakingHabit = false,
   streakDays,
+  streakUnit = 'day',
   startDate,
+  onPressPickStartDate,
 }: HabitWeeklyRowProps) {
-  // Track optimistic state for each day
-  const [optimisticDots, setOptimisticDots] = useState<Record<string, DayDot>>({});
-
-  const handleDotPress = useCallback(
-    (dateISO: string, newState: boolean) => {
-      // Optimistically update UI
-      setOptimisticDots((prev) => ({
-        ...prev,
-        [dateISO]: newState ? 'done' : 'missed',
-      }));
-
-      // Call parent handler
-      onToggleDay(habitId, dateISO, newState);
-
-      // Clear optimistic state after a short delay (parent will have updated by then)
-      setTimeout(() => {
-        setOptimisticDots((prev) => {
-          const next = { ...prev };
-          delete next[dateISO];
-          return next;
-        });
-      }, 500);
-    },
-    [habitId, onToggleDay],
-  );
-
   // Derive frequency label from weeklyTarget if not provided
   const displayFrequency =
     frequencyLabel ??
@@ -214,7 +131,7 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
   // Get status label text and color
   const statusInfo = getStatusLabel(status);
   // Override status when no start_date is set
-  const displayStatus = !startDate ? { text: 'Set up needed', color: GOLDEN_PEAR } : statusInfo;
+  const displayStatus = !startDate ? { text: 'Set up needed', color: INK_SUBTLE } : statusInfo;
 
   return (
     <View style={styles.row}>
@@ -222,7 +139,7 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
       <View
         style={[
           styles.accentBar,
-          { backgroundColor: !startDate ? GOLDEN_PEAR : getAccentColor(status) },
+          { backgroundColor: !startDate ? 'rgba(0,0,0,0.1)' : getAccentColor(status) },
         ]}
       />
 
@@ -236,20 +153,20 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
               {name}
             </Text>
             <View style={styles.metaRow}>
-              {startDate && dayDates.includes(startDate) && (
+              {startDate && (
                 <Text style={styles.startedLabel}>
-                  Started{' '}
-                  {new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', {
-                    month: 'numeric',
-                    day: 'numeric',
-                  })}
+                  {startDate > dayDates[dayDates.length - 1]
+                    ? `Starts ${new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`
+                    : `Started ${new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`}
                 </Text>
               )}
               {streakDays !== undefined && streakDays > 0 && (
                 <View style={styles.streakContainer}>
                   <Flame size={12} color={GOLDEN_PEAR} />
                   <Text style={styles.streakText}>
-                    {isBreakingHabit ? `${streakDays} days strong` : `${streakDays} day streak`}
+                    {isBreakingHabit
+                      ? `${streakDays} ${streakUnit}${streakDays !== 1 ? 's' : ''} strong`
+                      : `${streakDays} ${streakUnit} streak`}
                   </Text>
                 </View>
               )}
@@ -267,56 +184,17 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
 
         {/* ─── DOTS ROW ONLY ─── */}
         {/* Day labels removed - now in shared header in NowWeekPopup */}
-        {!startDate ? (
-          // No start date - show banner prompting user to set one
-          <Pressable style={styles.pickStartDateBanner} onPress={onPressHeader}>
-            <Text style={styles.pickStartDateText}>Tap to pick a start date</Text>
-          </Pressable>
-        ) : (
-          // Has start date - show dots row
-          <View style={styles.dotsRow}>
-            {dayDots.map((dotState, index) => {
-              const dateISO = dayDates[index];
-              const optimistic = optimisticDots[dateISO];
-              const effectiveState = optimistic ?? dotState;
-              const isCompleted = effectiveState === 'done';
-              const isToday = index === todayIndex;
-              const isFuture = dotState === 'future';
-
-              // Check if this day is before habit started
-              const isBeforeStart = startDate && dateISO < startDate;
-
-              if (isBeforeStart) {
-                // Show empty placeholder to maintain spacing
-                return <View key={dateISO} style={{ width: DOT_SIZE, height: DOT_SIZE }} />;
-              }
-
-              if (isBreakingHabit) {
-                return (
-                  <BreakingDot
-                    key={dateISO}
-                    isCompleted={isCompleted}
-                    isToday={isToday}
-                    isFuture={isFuture}
-                    onPress={() => handleDotPress(dateISO, !isCompleted)}
-                    size={DOT_SIZE}
-                  />
-                );
-              }
-
-              return (
-                <GremlyDot
-                  key={dateISO}
-                  isCompleted={isCompleted}
-                  isToday={isToday}
-                  isFuture={isFuture}
-                  onPress={() => handleDotPress(dateISO, !isCompleted)}
-                  size={DOT_SIZE}
-                />
-              );
-            })}
-          </View>
-        )}
+        <WeeklyDotsRow
+          dayDots={dayDots}
+          dayDates={dayDates}
+          todayIndex={todayIndex}
+          onToggleDay={(dateISO, newState) => onToggleDay(habitId, dateISO, newState)}
+          isBreakingHabit={isBreakingHabit}
+          startDate={startDate}
+          dotSize={DOT_SIZE}
+          dotSpacing={DOT_SPACING}
+          onPressPickStartDate={onPressPickStartDate ?? onPressHeader}
+        />
       </View>
 
       {/* Divider */}
@@ -385,15 +263,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     marginTop: 1, // Tiny gap between frequency and status
   },
-  // ─── DOTS ROW ───
-  // GremlyDot faces aligned with shared header labels in NowWeekPopup
-  dotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    gap: DOT_SPACING,
-    marginTop: 8, // Gap between name and GremlyDot row
-  },
   // Meta row for started label and streak
   metaRow: {
     flexDirection: 'row',
@@ -417,20 +286,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: 'Inter-Regular',
     color: INK_SUBTLE,
-  },
-  // Pick start date banner for habits without start_date
-  pickStartDateBanner: {
-    backgroundColor: SAGE_MIST,
-    borderRadius: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginTop: 8,
-    alignItems: 'center',
-  },
-  pickStartDateText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: MOSS_GREEN,
   },
   // Bottom divider between rows
   divider: {

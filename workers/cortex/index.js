@@ -228,6 +228,12 @@ import { getSpaceContent, buildSpaceContentString } from './context/spaceContent
  * - "high": Clear structure, unambiguous parsing
  * - "medium": Some structural elements unclear but main parse is solid
  * - "low": Significant uncertainty in the parse
+ *
+ * @property {"self"|"external"|"other_person"} action_target
+ * Who or what is the subject of change or action.
+ * - "self": The user will do or change something about themselves
+ * - "external": Describing how something else should behave or be configured
+ * - "other_person": About someone else's behavior
  */
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -306,15 +312,21 @@ function mapPreparseToClassification(preparse) {
     return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
   }
 
-  // --- FAST PATH: Exploring frame is always an idea ---
+  // --- BAIL: Exploring frame needs Phase 1 verification ---
   if (preparse.frame_type === 'exploring') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'idea', habitSubtype: null };
+    return { needsPhase1: true, reason: 'exploring_frame' };
   }
 
   // --- BAIL EARLY: Check ambiguous cases ---
 
   // Vague desire for more/less without concrete measure - needs clarification
   if (preparse.direction_without_schedule && !preparse.frequency_type) {
+    if (preparse.action_target === 'external') {
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    }
+    if (preparse.temporal_specificity) {
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    }
     return { needsPhase1: true, reason: 'direction_without_schedule' };
   }
 
@@ -345,21 +357,18 @@ function mapPreparseToClassification(preparse) {
     return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
   }
 
-  // 4. Frequency (including stop/quit) + commitment → habit
-  if (
-    preparse.frequency_type &&
-    (preparse.frame_type === 'directing' || preparse.obligation_framing)
-  ) {
-    const habitSubtype = preparse.frequency_type === 'stop_quit' ? 'break_habit' : 'start_habit';
-    return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype };
+  // 4. Frequency detected → ALWAYS verify with Phase 1
+  // Habits are too consequential to fast-path. Wrong habits pollute the user's list.
+  // Phase 1 can distinguish "discussing habits" from "creating habits" and apply
+  // semantic tests that PreParse keyword-matching cannot.
+  if (preparse.frequency_type) {
+    if (preparse.action_target === 'external') {
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    }
+    return { needsPhase1: true, reason: 'frequency_detected_needs_habit_verification' };
   }
 
-  // 5. Stop/quit language → habit (backup check)
-  if (preparse.frequency_type === 'stop_quit') {
-    return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype: 'break_habit' };
-  }
-
-  // 6. Directing frame or obligation framing → todo (if no hedging on verb)
+  // 5. Directing frame or obligation framing → todo (if no hedging on verb)
   if (preparse.frame_type === 'directing' || preparse.obligation_framing) {
     if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
       return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
@@ -414,18 +423,20 @@ When uncertain about any field, return "uncertain" or the appropriate null value
 // Mini-prompt A: Intent & Frame
 const PREPARSE_INTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
-- frame_type: What is the user DOING with this thought? "directing" (commanding themselves to act), "exploring" (wondering whether to do something), "processing" (working through emotions or reflecting on experience), "factual" (stating complete information where both the subject and its value are present), or "uncertain" (cannot determine intent, including when there is no verb or statement structure).
+- frame_type: What is the user's commitment state? "directing" (user has decided to act — an imperative self-command IS commitment, regardless of what the action involves), "exploring" (user is uncertain WHETHER to commit — hedging or questioning their own intent), "processing" (working through emotions or reflecting), "factual" (stating information to remember), or "uncertain" (cannot determine intent). TEST: Is this a self-command or a consideration? A self-command expresses commitment through its form.
 - factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present. If only one side exists, this is false. Goals about what to DO are not facts about what IS.
-- is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?`;
+- is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?
+- action_target: Who or what is the subject of change or action? "self" (the user will personally do or embody this change), "external" (the user is giving instructions about how a system, product, feature, or thing should behave or be built), or "other_person" (about another person's behavior). If the user is telling a system what to do rather than telling themselves what to do, that is "external".`;
 
 // Mini-prompt B: Content Signals
 const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
 - emotional_content: Is the user expressing feelings, mood, or emotional state?
 - self_reflection: Is the user examining their own thoughts, patterns, or behavior?
-- frequency_present: Does it reference repetition, recurrence, or cessation? Set true if frequency_type is not null.
-- frequency_type: "explicit" (daily, weekly, every X), "day_names" (ONLY for recurring days - "every Monday", "on Fridays", NOT for deadlines), "stop_quit" (stop, quit, no more), or null. IMPORTANT: "by Friday", "before Tuesday", "this Monday" = one-time deadline = null, NOT day_names.
-- direction_without_schedule: Is the user expressing a desire for MORE or LESS of a BEHAVIOR without specifying a concrete amount or schedule? This only applies to actions. Emotional states are not behaviors. Specific actions with clear scope are not vague desires.`;
+- frequency_present: Does the user intend to personally repeat this behavior on an ongoing basis? Set true if frequency_type is not null.
+- frequency_type: Apply this test: "Has the user specified WHEN or HOW OFTEN they will do this?" Frequency requires concrete timing — not just a desire to do more or less of something. If no timing is specified → null. If timing is specified → "explicit" (recurrence is stated), "day_names" (specific days are referenced), or "stop_quit" (user intends to completely stop a behavior). Wanting "more" or "less" of something without a schedule is NOT frequency — that is direction_without_schedule.
+- direction_without_schedule: Does the user's language explicitly express a desire to CHANGE from their current state — to increase, decrease, or improve something — without specifying a target? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity.
+- temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.`;
 
 // Mini-prompt C: Structure & Confidence
 const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -505,6 +516,9 @@ async function runPreparse(text, env) {
         : 'uncertain',
       factual_statement: Boolean(intentResult.factual_statement),
       is_noun_phrase_only: Boolean(intentResult.is_noun_phrase_only),
+      action_target: ['self', 'external', 'other_person'].includes(intentResult.action_target)
+        ? intentResult.action_target
+        : 'self',
 
       // From content
       emotional_content: Boolean(contentResult.emotional_content),
@@ -514,6 +528,7 @@ async function runPreparse(text, env) {
         ? contentResult.frequency_type
         : null,
       direction_without_schedule: Boolean(contentResult.direction_without_schedule),
+      temporal_specificity: Boolean(contentResult.temporal_specificity),
 
       // From structure
       uncertainty_present: Boolean(structureResult.uncertainty_present),
@@ -619,6 +634,20 @@ Only uncertainty about WHETHER to act at all removes it from TODO.
 
 If signals genuinely conflict with equal weight, return AMBIGUOUS.`;
 
+    case 'exploring_frame':
+      return `Pre-parse detected "exploring" frame, but this signal is unreliable.
+
+Apply THE COMMITMENT TEST:
+Is this a self-command to act, or a consideration of whether to act?
+
+A self-command expresses commitment through its grammatical form — the user is telling themselves to do something. This is DIRECTING → TODO.
+
+A consideration expresses uncertainty about whether to commit — the user is weighing options or floating a possibility. This is EXPLORING → LOG/idea.
+
+The test: Is the user issuing an instruction to themselves, or asking themselves a question?
+
+IGNORE the preparse frame_type for this decision. Evaluate fresh.`;
+
     default:
       return `Apply holistic reasoning using the core tests: Uncertainty Location, Frame, Commitment, and Completeness.`;
   }
@@ -657,6 +686,7 @@ Obligation framing: ${preparseContext.obligation_framing}
 Frequency present: ${preparseContext.frequency_present}
 Frequency type: ${preparseContext.frequency_type || 'N/A'}
 Direction without schedule: ${preparseContext.direction_without_schedule}
+Temporal specificity: ${preparseContext.temporal_specificity}
 Emotional content: ${preparseContext.emotional_content}
 Hypothetical framing: ${preparseContext.hypothetical_framing}
 Self reflection: ${preparseContext.self_reflection}
@@ -718,7 +748,14 @@ Short inputs are not necessarily incomplete. Single emotional expressions are co
 
 TODO — A discrete, completable action. The user can mark it DONE. Committed action with fuzzy details is still TODO.
 
-HABIT — A trackable, recurring behavior. Requires EXPLICIT frequency or stop/quit language. User must be able to answer "did I do this?" with certainty. Direction without schedule is NOT a habit.
+HABIT — A trackable, recurring behavior the USER will personally repeat. User must be able to answer "did I do this today?" with a clear yes or no. Direction without concrete recurrence is NOT a habit.
+
+HABIT GATE — Before classifying as HABIT, apply these semantic tests:
+1. WHO repeats? Is the USER the one who will personally perform this action repeatedly? If the user is building/creating/configuring something, the output may be recurring but the user's action is one-time. That's TODO.
+2. WHAT recurs? Does the frequency language describe the user's behavior, or something else (a feature, an event, an output)? The recurrence must attach to the user's action.
+3. IS there concrete timing? Wanting "more" or "less" of something is a vague aspiration, not a schedule. The user must have specified when or how often they will do this. If no timing is present, it's not a habit.
+
+The test: "Has the user specified WHEN or HOW OFTEN?" If NO → not a habit, even if PreParse detected frequency.
 
 LOG — Capture for reflection, not action:
 - journal: Expressing or processing feelings. The value is in the expression itself.
@@ -3686,6 +3723,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
           self_reflection: preparseResult.result.self_reflection,
           is_noun_phrase_only: preparseResult.result.is_noun_phrase_only,
           parse_confidence: preparseResult.result.parse_confidence,
+          action_target: preparseResult.result.action_target,
           latency_ms: preparseResult.latency_ms,
         });
 
@@ -4327,7 +4365,7 @@ If no date in input, all date fields are null.
   "bucket": "todo" | "habit" | "log",
   "subtype": "journal" | "idea" | "general" | null,
   "smart_title": "Title From Their Words",
-  "confirmation_message": "Warm message referencing their input",
+  "confirmation_message": "4-8 words max 50 chars",
   "target_date": "YYYY-MM-DD" | null,
   "scheduled_date": "YYYY-MM-DD" | null,
   "date_type_ambiguous": boolean
@@ -4418,8 +4456,10 @@ If no date in input, all date fields are null.
           let confirmationMessage = parsed.confirmation_message || null;
           if (confirmationMessage) {
             confirmationMessage = String(confirmationMessage).trim();
-            if (confirmationMessage.length < 3 || confirmationMessage.length > 100) {
+            if (confirmationMessage.length < 3) {
               confirmationMessage = null;
+            } else if (confirmationMessage.length > 50) {
+              confirmationMessage = confirmationMessage.substring(0, 47) + '...';
             }
           }
 
@@ -5067,7 +5107,7 @@ Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it hap
 
 7. **Title case, 3-7 words**
 
-=== CONFIRMATION MESSAGE (4-10 words) ===
+=== CONFIRMATION MESSAGE (4-8 words, max 50 characters) ===
 
 This is Gremly's voice — a witty, warm friend who actually listened. Not a notification system.
 
@@ -5164,8 +5204,10 @@ Return ONLY valid JSON:
           let confirmationMessage = parsed.confirmation_message || null;
           if (confirmationMessage) {
             confirmationMessage = String(confirmationMessage).trim();
-            if (confirmationMessage.length < 3 || confirmationMessage.length > 100) {
+            if (confirmationMessage.length < 3) {
               confirmationMessage = null;
+            } else if (confirmationMessage.length > 50) {
+              confirmationMessage = confirmationMessage.substring(0, 47) + '...';
             }
           }
 
@@ -5529,7 +5571,53 @@ Array of numbers if mentioned (0=Sun … 6=Sat), else null
 YYYY-MM-DD if mentioned, else null
 
 --------------------------------
-FOR LOGS (ALL SUBTYPES):
+FOR LOGS (EVENT SUBTYPE):
+--------------------------------
+
+**EVENT-SPECIFIC EXTRACTION:**
+
+When subtype is "event", extract clean event information.
+
+1. smart_title
+Create a clean, concise event name by REMOVING dates and times from the title.
+- "QBR with London team on Feb 12" → "QBR with London Team"
+- "dentist appointment tuesday 2pm" → "Dentist Appointment"
+- "company offsite feb 20-22" → "Company Offsite"
+- "Sarah's wedding June 15" → "Sarah's Wedding"
+- "team lunch friday noon" → "Team Lunch"
+
+Rules:
+- Title case the result
+- Strip all date/time references from the title itself
+- Keep location and people references
+- Keep the essence of what the event IS
+
+2. target_date (event start date)
+Extract the event date in YYYY-MM-DD format.
+- "feb 12" → "2026-02-12" (assume current year if not specified)
+- "next tuesday" → resolve to actual date using date calculation rules above
+- "march 10th" → "2026-03-10"
+- "on the 15th" → current or next month's 15th
+- If no date mentioned → null
+
+3. end_date (for multi-day events)
+Extract end date in YYYY-MM-DD format for multi-day events.
+- "feb 20-22" → end_date: "2026-02-22"
+- "monday through wednesday" → resolve both dates
+- "conference june 10-12" → end_date: "2026-06-12"
+- If single day or no range mentioned → null
+
+4. event_time
+Extract time if mentioned, in HH:mm format (24-hour).
+- "at 2pm" → "14:00"
+- "morning meeting" → "09:00"
+- "lunch at noon" → "12:00"
+- "dinner at 7" → "19:00"
+- "10:30am" → "10:30"
+- If no time mentioned → null
+
+--------------------------------
+FOR LOGS (OTHER SUBTYPES):
 --------------------------------
 
 **DATE EXTRACTION FOR LOGS:**
@@ -5637,6 +5725,16 @@ For LOGS (idea/general):
 {
   "tags": ["tag1", "tag2"],
   "target_date": "YYYY-MM-DD" | null,
+  "event_time": "HH:mm" | null,
+  "people": ["name1", "name2"] | []
+}
+
+For LOGS (event):
+{
+  "smart_title": "Clean Event Name",
+  "tags": ["tag1", "tag2"],
+  "target_date": "YYYY-MM-DD" | null,
+  "end_date": "YYYY-MM-DD" | null,
   "event_time": "HH:mm" | null,
   "people": ["name1", "name2"] | []
 }`;
@@ -5768,12 +5866,24 @@ For LOGS (idea/general):
           // Event dates for logs (notes that are events)
           let noteTargetDate = null;
           let eventTime = null;
+          let endDate = null;
+          let eventSmartTitle = null;
           if (bucket === 'log') {
             if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
               noteTargetDate = parsed.target_date;
             }
             if (parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
               eventTime = parsed.event_time;
+            }
+            if (parsed.end_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date)) {
+              endDate = parsed.end_date;
+            }
+            if (
+              subtype === 'event' &&
+              parsed.smart_title &&
+              typeof parsed.smart_title === 'string'
+            ) {
+              eventSmartTitle = parsed.smart_title.trim();
             }
           }
 
@@ -5854,6 +5964,9 @@ For LOGS (idea/general):
             scheduled_date: scheduledDate,
             date_type_ambiguous: dateTypeAmbiguous,
             event_time: eventTime,
+            // Event-specific fields
+            end_date: endDate,
+            smart_title: eventSmartTitle,
             // Keep existing habit fields
             extracted_start_date: extractedStartDate,
             extracted_frequency: extractedFrequency,

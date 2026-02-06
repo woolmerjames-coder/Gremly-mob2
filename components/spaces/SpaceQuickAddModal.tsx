@@ -26,6 +26,9 @@ import { BRAND } from '../../design/brand';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const MINDDROP_HEADER = require('../../assets/minddrop_header-removebg.png');
 
+/** Mode for the quick add modal */
+export type SpaceQuickAddMode = 'default' | 'keyDate';
+
 interface SpaceQuickAddModalProps {
   visible: boolean;
   spaceName: string;
@@ -35,6 +38,8 @@ interface SpaceQuickAddModalProps {
   onPressManualAdd: (text: string) => void;
   /** Optional callback to attach an existing item to the space */
   onPressAttachExisting?: () => void;
+  /** Mode: 'default' for normal MindDrop, 'keyDate' for adding events */
+  mode?: SpaceQuickAddMode;
 }
 
 const useStyles = makeStyles((t) => ({
@@ -120,12 +125,21 @@ export function SpaceQuickAddModal({
   onSubmit,
   onPressManualAdd,
   onPressAttachExisting,
+  mode = 'default',
 }: SpaceQuickAddModalProps) {
   const styles = useStyles();
   const [text, setText] = useState('');
   const inputRef = useRef<TextInput>(null);
   const wasVisible = useRef(visible);
   const isSubmittingRef = useRef(false);
+
+  // Mode-specific text
+  const isKeyDateMode = mode === 'keyDate';
+  const placeholderText = isKeyDateMode
+    ? 'e.g., "QBR with London team Feb 12"'
+    : 'What do you want to capture?';
+  const submitButtonText = isKeyDateMode ? 'Add Key Date →' : 'Drop to Gremly →';
+  const headerSubtitle = isKeyDateMode ? `Adding event to ${spaceName}` : `Adding to ${spaceName}`;
 
   // Animated value for swipe-to-dismiss
   const translateY = useMemo(() => new Animated.Value(0), []);
@@ -243,7 +257,7 @@ export function SpaceQuickAddModal({
               <View style={styles.headerRow}>
                 <Image source={MINDDROP_HEADER} style={styles.mindDropLogo} resizeMode="contain" />
                 <Text style={styles.headerSubtitle} numberOfLines={1} ellipsizeMode="tail">
-                  Adding to {spaceName}
+                  {headerSubtitle}
                 </Text>
               </View>
 
@@ -251,7 +265,7 @@ export function SpaceQuickAddModal({
                 <TextInput
                   ref={inputRef}
                   style={styles.input}
-                  placeholder="What do you want to capture?"
+                  placeholder={placeholderText}
                   placeholderTextColor="#999999"
                   value={text}
                   onChangeText={setText}
@@ -266,25 +280,30 @@ export function SpaceQuickAddModal({
                 disabled={isDisabled}
                 activeOpacity={0.8}
               >
-                <Text style={styles.submitButtonText}>Drop to Gremly →</Text>
+                <Text style={styles.submitButtonText}>{submitButtonText}</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.manualAddLink}
-                onPress={handleManualAdd}
-                testID="quick-add-manual-link"
-              >
-                <Text style={styles.manualAddText}>Prefer to add it manually?</Text>
-              </TouchableOpacity>
+              {/* Hide manual add and attach links in key date mode */}
+              {!isKeyDateMode && (
+                <>
+                  <TouchableOpacity
+                    style={styles.manualAddLink}
+                    onPress={handleManualAdd}
+                    testID="quick-add-manual-link"
+                  >
+                    <Text style={styles.manualAddText}>Prefer to add it manually?</Text>
+                  </TouchableOpacity>
 
-              {onPressAttachExisting && (
-                <TouchableOpacity
-                  style={styles.manualAddLink}
-                  onPress={handleAttachExisting}
-                  testID="quick-add-attach-existing"
-                >
-                  <Text style={styles.manualAddText}>Or attach an existing item</Text>
-                </TouchableOpacity>
+                  {onPressAttachExisting && (
+                    <TouchableOpacity
+                      style={styles.manualAddLink}
+                      onPress={handleAttachExisting}
+                      testID="quick-add-attach-existing"
+                    >
+                      <Text style={styles.manualAddText}>Or attach an existing item</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
               )}
             </TouchableOpacity>
           </Animated.View>

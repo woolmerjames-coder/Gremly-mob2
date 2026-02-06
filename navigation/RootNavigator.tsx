@@ -28,6 +28,8 @@ import { ListsScreen } from '../app/screens/ListsScreen';
 import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
 import SweepTestScreen from '../app/screens/SweepTestScreen';
 import CalendarScreen from '../app/screens/CalendarScreen';
+import HabitsScreen from '../app/screens/HabitsScreen';
+import HabitDetailScreen from '../app/screens/HabitDetailScreen';
 import SettingsScreen from '../app/screens/SettingsScreen';
 import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
 
@@ -42,12 +44,23 @@ export type RootStackParamList = {
   SpaceDetail: { id: string };
   CatchAllNotepad: undefined;
   PersonDetail: { personName: string; personEmail?: string };
-  SpaceHome: { spaceId: string };
-  ChatThread: { spaceId: string; chatId?: string };
+  SpaceHome: { spaceId: string; openKeyDatesModal?: boolean };
+  ChatThread: {
+    spaceId: string;
+    chatId?: string;
+    goalContext?: {
+      goal_id: string;
+      goal_name: string;
+      checkIns?: { title: string; created_at: string }[];
+    };
+    returnToKeyDates?: boolean;
+  };
   Lists: undefined;
   Sweep: { initialStep?: number; initialCardIndex?: number } | undefined;
   ArchivedItems: { searchQuery?: string } | undefined;
   CalendarScreen: undefined;
+  Habits: undefined;
+  HabitDetail: { habitId: string };
   Settings: undefined;
   WhatGremlyKnows: undefined;
   SweepTest: undefined; // DEV only
@@ -121,11 +134,13 @@ export default function RootNavigator() {
             name="SpaceHome"
             component={SpaceHomeScreen}
             options={{ title: 'Space', headerShown: false }}
+            getId={({ params }) => params?.spaceId}
           />
           <Stack.Screen
             name="ChatThread"
             component={ChatThreadScreen}
             options={{ title: 'Chat', headerShown: false }}
+            getId={({ params }) => `${params?.spaceId}-${params?.chatId ?? 'new'}`}
           />
           <Stack.Screen
             name="Lists"
@@ -145,6 +160,22 @@ export default function RootNavigator() {
           <Stack.Screen
             name="CalendarScreen"
             component={CalendarScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="Habits"
+            component={HabitsScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="HabitDetail"
+            component={HabitDetailScreen}
             options={{
               headerShown: false,
               animation: 'slide_from_right',

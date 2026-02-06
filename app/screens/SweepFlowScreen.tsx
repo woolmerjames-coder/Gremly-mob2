@@ -3,6 +3,7 @@
  *
  * Full-screen flow for the Evening Sweep ritual:
  * - Step 0: Intro ("Ready to Sweep?")
+ * - Step 0.25: Multi-Split (if user has unresolved multi-drops)
  * - Step 0.5: Lock-In Checkpoint (if user has locked items)
  * - Step 1: Decision cards
  * - Step 2: Habits check-in
@@ -25,6 +26,7 @@ import {
   TouchableOpacity,
   Image,
   Modal,
+  Vibration,
 } from 'react-native';
 import Reanimated, {
   FadeIn,
@@ -32,6 +34,13 @@ import Reanimated, {
   FadeOutDown,
   Layout,
   Easing as ReanimatedEasing,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+  interpolate,
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -76,6 +85,7 @@ import type {
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
+import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep';
 import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
@@ -424,7 +434,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
   // Open entry in overlay view mode
   const handleOpenEntry = useCallback(
     (entry: (typeof notes)[0]) => {
-      overlay.openView({ record: entry as any, spaceId: null });
+      overlay.openEdit({ record: entry as any, spaceId: null });
     },
     [overlay],
   );
@@ -2628,6 +2638,22 @@ function SweepSummaryStep({
 
   const hasTomorrow = tomorrowTodos.length > 0 || tomorrowHabits.length > 0;
 
+  // Mascot hover animation - gentle continuous bobbing
+  const hoverY = useSharedValue(0);
+
+  const mascotAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: hoverY.value }],
+  }));
+
+  // Title glow animation
+  const glowOpacity = useSharedValue(0);
+
+  const titleAnimatedStyle = useAnimatedStyle(() => ({
+    textShadowColor: `rgba(46, 85, 64, ${glowOpacity.value})`,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: interpolate(glowOpacity.value, [0, 0.8], [0, 20]),
+  }));
+
   const tomorrowSubtitle = useMemo(
     () =>
       [
@@ -2643,9 +2669,31 @@ function SweepSummaryStep({
     [tomorrowTodos, tomorrowHabits],
   );
 
-  // Trigger haptic on mount
+  // Trigger celebration on mount
   useEffect(() => {
-    triggerLight();
+    // Intense celebration vibration (long pattern)
+    Vibration.vibrate([0, 100, 50, 100, 50, 200], false);
+
+    // Start mascot hover animation - smooth continuous bobbing
+    hoverY.value = withRepeat(
+      withSequence(
+        withTiming(-8, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+        withTiming(0, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+      ),
+      -1, // Infinite repeat
+      true, // Reverse
+    );
+
+    // Title glow animation - fade in, hold, fade out
+    glowOpacity.value = withDelay(
+      300, // Wait for slide-in to start
+      withSequence(
+        withTiming(0.8, { duration: 600 }),
+        withTiming(0.8, { duration: 1500 }), // Hold glow
+        withTiming(0, { duration: 800 }),
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/immutability
   }, []);
 
   const showBadges = lockInTotal > 0 || habitsCheckedCount > 0 || journalWritten;
@@ -2659,19 +2707,22 @@ function SweepSummaryStep({
       >
         {/* Gremly mascot - broom-riding */}
         <View style={styles.summaryMascotContainer}>
-          <Image
+          <Reanimated.Image
             source={GREMLY_MASCOT_CELEBRATE}
-            style={styles.summaryMascotImage}
+            style={[styles.summaryMascotImage, mascotAnimatedStyle]}
             resizeMode="contain"
             testID="sweep-summary-mascot"
             accessibilityLabel="Gremly mascot riding a broom"
           />
         </View>
 
-        {/* Title */}
-        <Text variant="title" style={styles.summaryTitle}>
+        {/* Title - slides in from below with glow */}
+        <Reanimated.Text
+          entering={FadeInUp.duration(400).delay(100).springify().damping(12)}
+          style={[styles.summaryTitle, styles.summaryTitleText, titleAnimatedStyle]}
+        >
           Nice sweep!
-        </Text>
+        </Reanimated.Text>
 
         {/* Subtext */}
         {totalProcessed > 0 && (
@@ -2876,6 +2927,84 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Track if lock-in checkpoint was shown
   const [lockInCheckpointComplete, setLockInCheckpointComplete] = useState(false);
 
+  // Track if multi-split step was shown
+  const [multiSplitComplete, setMultiSplitComplete] = useState(false);
+
+  // Get unresolved multi-drops from NOTES (not pendingDrops - they're promoted before sweep starts)
+  // Multi-drops are stored as notes with views.is_multi=true and views.minddrop_stage='multi_pending'
+  const notes = useGremlyStore((state) => state.notes);
+  const unresolvedMultiDrops = useMemo(() => {
+    const multiNotes = notes.filter((note) => {
+      const views = note.views as {
+        is_multi?: boolean;
+        multi_items?: Array<{ text: string; bucket?: string; smartTitle?: string }>;
+        minddrop_stage?: string;
+      } | null;
+      return (
+        views?.is_multi === true &&
+        views?.minddrop_stage === 'multi_pending' &&
+        Array.isArray(views?.multi_items) &&
+        views.multi_items.length > 1 &&
+        !note.archived
+      );
+    });
+    if (__DEV__) {
+      console.log('[SweepFlowScreen] notes count:', notes.length);
+      console.log('[SweepFlowScreen] unresolvedMultiDrops count:', multiNotes.length);
+      if (multiNotes.length > 0) {
+        multiNotes.forEach((note) => {
+          const views = note.views as any;
+          console.log('[SweepFlowScreen] multi-note:', {
+            id: note.id,
+            title: note.title,
+            multiItemsCount: views?.multi_items?.length ?? 0,
+            minddropStage: views?.minddrop_stage,
+          });
+        });
+      }
+    }
+    return multiNotes;
+  }, [notes]);
+  const hasUnresolvedMultiDrops = unresolvedMultiDrops.length > 0 && !multiSplitComplete;
+
+  // Map notes to UnresolvedMultiDrop format for SweepMultiSplitStep component
+  const unresolvedMultiDropsForStep = useMemo(() => {
+    return unresolvedMultiDrops.map((note) => {
+      const views = note.views as {
+        multi_items?: Array<{
+          text: string;
+          bucket?: string;
+          subtype?: string | null;
+          habitSubtype?: string | null;
+          preview_title?: string;
+          smart_title?: string | null;
+          confirmation_message?: string | null;
+        }>;
+        multi_summary_title?: string;
+        dominant_bucket?: string;
+        dominant_subtype?: string;
+      } | null;
+
+      return {
+        localId: note.id, // Use note.id as localId for handlers
+        originalText: note.body ?? '',
+        items:
+          views?.multi_items?.map((item) => ({
+            text: item.text,
+            bucket: (item.bucket as 'todo' | 'habit' | 'log') ?? 'log',
+            subtype: (item.subtype as 'journal' | 'idea' | 'general' | null) ?? null,
+            habitSubtype: (item.habitSubtype as 'start_habit' | 'break_habit' | null) ?? null,
+            preview_title: item.preview_title ?? item.text.substring(0, 50),
+            smart_title: item.smart_title ?? null,
+            confirmation_message: item.confirmation_message ?? null,
+          })) ?? [],
+        summaryTitle: views?.multi_summary_title ?? note.title ?? '',
+        dominantBucket: views?.dominant_bucket ?? null,
+        dominantSubtype: views?.dominant_subtype ?? null,
+      };
+    });
+  }, [unresolvedMultiDrops]);
+
   // Track sweep stats across the session
   const [keptCount, setKeptCount] = useState(() => {
     // Initialize mock data if jumping directly to summary in DEV mode
@@ -3023,12 +3152,86 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   );
 
   const handleIntroStart = () => {
-    if (hasLockedItems && !lockInCheckpointComplete) {
+    if (__DEV__) {
+      console.log('[SweepFlowScreen] handleIntroStart:', {
+        hasUnresolvedMultiDrops,
+        unresolvedMultiDropsCount: unresolvedMultiDrops.length,
+        hasLockedItems,
+        lockInCheckpointComplete,
+      });
+    }
+    // Check for unresolved multi-drops first
+    if (hasUnresolvedMultiDrops) {
+      setStep(0.25); // Go to multi-split step
+    } else if (hasLockedItems && !lockInCheckpointComplete) {
       setStep(0.5); // Go to lock-in checkpoint
     } else {
       setStep(1); // Go to decision cards
     }
   };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Multi-Split Step Handlers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Handle splitting a multi-drop into separate entities
+  const handleMultiSplit = useCallback(
+    async (dropId: string, selectedItems: import('../../lib/minddrop/types').MultiDropItem[]) => {
+      const { createTodo, createHabit, createNote, archiveNote } = useGremlyStore.getState();
+
+      // Create each item as proper entity - they'll appear in sweep automatically
+      for (const item of selectedItems) {
+        const title = item.smart_title || item.preview_title || item.text;
+
+        if (item.bucket === 'todo') {
+          createTodo?.({ name: title });
+        } else if (item.bucket === 'habit') {
+          createHabit?.({
+            name: title,
+            frequency: 'daily',
+            subtype: item.habitSubtype === 'break_habit' ? 'break_habit' : 'start_habit',
+          });
+        } else {
+          // Log bucket - create as note
+          createNote?.({
+            title,
+            body: item.text,
+            subtype:
+              item.subtype === 'journal' || item.subtype === 'idea' ? item.subtype : 'catchall',
+          });
+        }
+      }
+
+      // Archive the original multi-drop note
+      archiveNote?.(dropId, 'split');
+
+      if (__DEV__) {
+        console.log('[SweepFlowScreen] handleMultiSplit: created', selectedItems.length, 'items');
+      }
+    },
+    [],
+  );
+
+  // Handle keeping a multi-drop as a single entity
+  const handleMultiKeepAsOne = useCallback((dropId: string) => {
+    const { resolveMultiDropAsSingle } = useGremlyStore.getState();
+    if (resolveMultiDropAsSingle) {
+      resolveMultiDropAsSingle(dropId);
+    } else {
+      console.warn('[SweepFlowScreen] resolveMultiDropAsSingle not available in store');
+    }
+  }, []);
+
+  // Handle completing the multi-split step
+  const handleMultiSplitComplete = useCallback(() => {
+    setMultiSplitComplete(true);
+    // Continue to next step
+    if (hasLockedItems && !lockInCheckpointComplete) {
+      setStep(0.5); // Go to lock-in checkpoint
+    } else {
+      setStep(1); // Go to decision cards
+    }
+  }, [hasLockedItems, lockInCheckpointComplete]);
 
   // Handle lock-in checkpoint decisions
   const handleLockInContinue = useCallback(
@@ -3257,6 +3460,14 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 completedItems={completedItems}
               />
             </>
+          )}
+          {step === 0.25 && (
+            <SweepMultiSplitStep
+              multiDrops={unresolvedMultiDropsForStep}
+              onSplit={handleMultiSplit}
+              onKeepAsOne={handleMultiKeepAsOne}
+              onComplete={handleMultiSplitComplete}
+            />
           )}
           {step === 0.5 && (
             <LockInCheckpointStep onContinue={handleLockInContinue} onClose={handleClose} />
@@ -4439,6 +4650,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     marginBottom: 4,
+  },
+  summaryTitleText: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
   },
   summarySubtext: {
     fontSize: 16,

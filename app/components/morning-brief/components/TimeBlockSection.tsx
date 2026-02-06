@@ -9,11 +9,12 @@
 
 import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
-import { Sunrise, Sun, Sunset, Calendar, X, MapPin, Clock, ChevronUp, ChevronDown } from 'lucide-react-native';
+import { Sunrise, Sun, Sunset, Calendar, X, ChevronUp, ChevronDown } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { getEffectiveEventTimes, type EventTimeOverride } from '../../../../lib/capacity';
 import type { TimeBlockCapacity, TimeBlock, TimeBlockPreferences } from '../../../../lib/capacity';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
+import type { Note } from '../../../../lib/types';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { TaskItem, type TaskItemData } from './TaskItem';
 import { EventTimePicker } from './EventTimePicker';
@@ -74,14 +75,20 @@ const SECTION_CONFIG: Record<TimeBlock, { label: string; color: string; Icon: Lu
 interface TimeBlockSectionProps {
   capacity: TimeBlockCapacity;
   events: CalendarEvent[];
+  /** Key Date events (notes with subtype='event') for this time block */
+  keyDateEvents?: Note[];
+  /** Function to get space name by ID */
+  getSpaceName?: (spaceId: string | null | undefined) => string | undefined;
+  /** Called when user taps a Key Date event */
+  onKeyDatePress?: (event: Note) => void;
   tasks: TaskItemData[];
   onTaskPress: (task: TaskItemData) => void;
   /** Called when user taps the time estimate */
   onTimePress?: (task: TaskItemData) => void;
-  /** Called when user hides an event from the view */
-  onHideEvent?: (eventId: string) => void;
   /** Array of hidden event IDs */
   hiddenEventIds?: string[];
+  /** Date context for hiding events (YYYY-MM-DD) */
+  dateContext: string;
 }
 
 /**
@@ -105,209 +112,21 @@ function getEventId(event: CalendarEvent): string {
   return `${event.provider}-${event.providerEventId}`;
 }
 
-/**
- * Event Detail Popup
- */
-interface EventDetailPopupProps {
-  event: CalendarEvent | null;
-  visible: boolean;
-  onClose: () => void;
-  onHide: () => void;
-  onEditTime: () => void;
-  timeOverride?: { startAt: string; endAt: string };
-}
-
-function EventDetailPopup({
-  event,
-  visible,
-  onClose,
-  onHide,
-  onEditTime,
-  timeOverride,
-}: EventDetailPopupProps) {
-  if (!event) return null;
-
-  const originalDuration = formatEventDuration(event);
-  const hasOverride = timeOverride !== undefined;
-
-  // Calculate effective times and duration
-  const effectiveStart = hasOverride ? new Date(timeOverride.startAt) : new Date(event.startAt);
-  const effectiveEnd = hasOverride ? new Date(timeOverride.endAt) : new Date(event.endAt);
-  const effectiveDurationMins = Math.round(
-    (effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60),
-  );
-  const displayDuration = formatEventDuration(event, effectiveDurationMins);
-
-  // Format effective time range
-  const formatTime = (d: Date) =>
-    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  const timeRange = `${formatTime(effectiveStart)} - ${formatTime(effectiveEnd)}`;
-
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={popupStyles.overlay} onPress={onClose}>
-        <Pressable style={popupStyles.container} onPress={(e) => e.stopPropagation()}>
-          {/* Header */}
-          <View style={popupStyles.header}>
-            <Text style={popupStyles.title} numberOfLines={2}>
-              {event.title}
-            </Text>
-            <Pressable onPress={onClose} hitSlop={8}>
-              <X size={20} color={COLORS.inkMuted} />
-            </Pressable>
-          </View>
-
-          {/* Details */}
-          <View style={popupStyles.details}>
-            <View style={popupStyles.detailRow}>
-              <Clock size={16} color={COLORS.inkMuted} />
-              <Text style={popupStyles.detailText}>
-                {timeRange}
-                {hasOverride ? (
-                  <>
-                    {' ('}
-                    <Text style={popupStyles.strikethrough}>{originalDuration}</Text>
-                    {' → '}
-                    <Text style={popupStyles.overrideText}>{displayDuration}</Text>
-                    {')'}
-                  </>
-                ) : displayDuration ? (
-                  ` (${displayDuration})`
-                ) : (
-                  ''
-                )}
-              </Text>
-            </View>
-
-            {event.location && (
-              <View style={popupStyles.detailRow}>
-                <MapPin size={16} color={COLORS.inkMuted} />
-                <Text style={popupStyles.detailText}>{event.location}</Text>
-              </View>
-            )}
-
-            <View style={popupStyles.detailRow}>
-              <Calendar size={16} color={COLORS.inkMuted} />
-              <Text style={popupStyles.detailText}>
-                {event.provider === 'google'
-                  ? 'Google Calendar'
-                  : event.provider === 'outlook'
-                    ? 'Outlook Calendar'
-                    : 'Calendar'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Actions */}
-          <View style={popupStyles.actions}>
-            <Pressable style={popupStyles.actionButton} onPress={onEditTime}>
-              <Clock size={16} color={COLORS.mossGreen} />
-              <Text style={popupStyles.actionButtonText}>Edit time</Text>
-            </Pressable>
-            <View style={popupStyles.actionDivider} />
-            <Pressable style={popupStyles.actionButton} onPress={onHide}>
-              <Text style={popupStyles.actionButtonText}>Hide from today</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
-const popupStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  container: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    width: '100%',
-    maxWidth: 340,
-    overflow: 'hidden',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    padding: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.divider,
-  },
-  title: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    color: COLORS.charcoalInk,
-    marginRight: 12,
-  },
-  details: {
-    padding: 16,
-    gap: 12,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  detailText: {
-    flex: 1,
-    fontSize: 14,
-    color: COLORS.inkSubtle,
-    lineHeight: 20,
-  },
-  strikethrough: {
-    textDecorationLine: 'line-through',
-    color: COLORS.inkMuted,
-  },
-  overrideText: {
-    color: COLORS.mossGreen,
-    fontWeight: '600',
-  },
-  actions: {
-    padding: 16,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.divider,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 8,
-  },
-  actionButtonText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: COLORS.mossGreen,
-  },
-  actionDivider: {
-    height: 1,
-    backgroundColor: COLORS.divider,
-    marginVertical: 4,
-  },
-});
-
 export function TimeBlockSection({
   capacity,
   events,
+  keyDateEvents = [],
+  getSpaceName,
+  onKeyDatePress,
   tasks,
   onTaskPress,
   onTimePress,
-  onHideEvent,
   hiddenEventIds = [],
+  dateContext,
 }: TimeBlockSectionProps) {
   const { block, availableMinutes, isPast } = capacity;
   const config = SECTION_CONFIG[block];
 
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [showEventPopup, setShowEventPopup] = useState(false);
   const [timePickerVisible, setTimePickerVisible] = useState(false);
   const [timePickerEvent, setTimePickerEvent] = useState<CalendarEvent | null>(null);
 
@@ -317,6 +136,7 @@ export function TimeBlockSection({
   const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
   const setEventTimeOverride = useGremlyStore((s) => s.setEventTimeOverride);
   const clearEventTimeOverride = useGremlyStore((s) => s.clearEventTimeOverride);
+  const openEventPopup = useGremlyStore((s) => s.openEventPopup);
 
   // Time block edit state
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
@@ -375,27 +195,17 @@ export function TimeBlockSection({
 
   const { label, color, Icon } = config;
 
-  const isEmpty = visibleEvents.length === 0 && tasks.length === 0;
+  const isEmpty = visibleEvents.length === 0 && keyDateEvents.length === 0 && tasks.length === 0;
 
   const handleEventPress = (event: CalendarEvent) => {
-    setSelectedEvent(event);
-    setShowEventPopup(true);
+    console.log('[TimeBlockSection] handleEventPress called:', event.title);
+    openEventPopup(event, dateContext);
   };
 
-  const handleHideEvent = () => {
-    if (selectedEvent && onHideEvent) {
-      onHideEvent(getEventId(selectedEvent));
-    }
-    setShowEventPopup(false);
-    setSelectedEvent(null);
-  };
-
-  const handleEditTime = () => {
-    if (selectedEvent) {
-      setTimePickerEvent(selectedEvent);
-      setShowEventPopup(false);
-      setTimePickerVisible(true);
-    }
+  /** Handle tapping a Key Date event - calls the callback */
+  const handleKeyDatePress = (keyDate: Note) => {
+    console.log('[MorningBrief] Key Date tapped:', keyDate.id, keyDate.title);
+    onKeyDatePress?.(keyDate);
   };
 
   const handleTimeSave = (eventId: string, startAt: string, endAt: string) => {
@@ -459,13 +269,11 @@ export function TimeBlockSection({
           d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
         const effectiveTimeRange = `${formatTime(effectiveStart)} - ${formatTime(effectiveEnd)}`;
 
-        const isLast = idx === visibleEvents.length - 1 && tasks.length === 0;
+        const isLast =
+          idx === visibleEvents.length - 1 && keyDateEvents.length === 0 && tasks.length === 0;
         return (
           <React.Fragment key={eventId}>
-            <Pressable
-              style={styles.eventRow}
-              onPress={() => handleEventPress(event)}
-            >
+            <Pressable style={styles.eventRow} onPress={() => handleEventPress(event)}>
               <Calendar size={16} color={COLORS.inkMuted} style={styles.eventIcon} />
               <View style={styles.eventContent}>
                 {/* Line 1: Time + Duration */}
@@ -498,6 +306,58 @@ export function TimeBlockSection({
         );
       })}
 
+      {/* Key Date Events (from Notes with subtype='event') */}
+      {keyDateEvents.map((keyDate, idx) => {
+        const spaceName = getSpaceName?.(keyDate.space_id);
+        const eventTime = keyDate.event_time;
+
+        // Format time range similar to calendar events
+        const formatKeyDateTime = (time: string): string => {
+          const [hourStr, minStr] = time.split(':');
+          const hour = parseInt(hourStr, 10);
+          const min = parseInt(minStr, 10);
+          const ampm = hour >= 12 ? 'PM' : 'AM';
+          const displayHour = hour % 12 || 12;
+          return min > 0 ? `${displayHour}:${minStr} ${ampm}` : `${displayHour}:00 ${ampm}`;
+        };
+
+        const isLast = idx === keyDateEvents.length - 1 && tasks.length === 0;
+        return (
+          <React.Fragment key={keyDate.id}>
+            <Pressable style={styles.eventRow} onPress={() => handleKeyDatePress(keyDate)}>
+              <Calendar size={16} color={COLORS.inkMuted} style={styles.eventIcon} />
+              <View style={styles.eventContent}>
+                {eventTime ? (
+                  // WITH time: Show time on line 1, title + space on line 2 (matches calendar events)
+                  <>
+                    <Text style={[styles.eventTime, isPast && styles.textMuted]}>
+                      {formatKeyDateTime(eventTime)}
+                    </Text>
+                    <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                      {keyDate.title || 'Untitled Event'}
+                      {spaceName ? ` · ${spaceName}` : ''}
+                    </Text>
+                  </>
+                ) : (
+                  // WITHOUT time: Show title on line 1, space on line 2
+                  <>
+                    <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                      {keyDate.title || 'Untitled Event'}
+                    </Text>
+                    {spaceName && (
+                      <Text style={[styles.eventTime, isPast && styles.textMuted]}>
+                        {spaceName} · Needs time
+                      </Text>
+                    )}
+                  </>
+                )}
+              </View>
+            </Pressable>
+            {!isLast && <View style={styles.rowDivider} />}
+          </React.Fragment>
+        );
+      })}
+
       {/* Assigned Tasks */}
       {tasks.map((task, idx) => {
         const isLast = idx === tasks.length - 1;
@@ -523,16 +383,6 @@ export function TimeBlockSection({
           <Text style={styles.emptyText}>No events or tasks</Text>
         </View>
       )}
-
-      {/* Event Detail Popup */}
-      <EventDetailPopup
-        event={selectedEvent}
-        visible={showEventPopup}
-        onClose={() => setShowEventPopup(false)}
-        onHide={handleHideEvent}
-        onEditTime={handleEditTime}
-        timeOverride={selectedEvent ? eventTimeOverrides[getEventId(selectedEvent)] : undefined}
-      />
 
       {/* Event Time Picker */}
       <EventTimePicker
@@ -574,7 +424,10 @@ export function TimeBlockSection({
                     disabled={editStart <= getMinStart()}
                     style={styles.editAdjusterButton}
                   >
-                    <ChevronDown size={20} color={editStart <= getMinStart() ? COLORS.divider : COLORS.mossGreen} />
+                    <ChevronDown
+                      size={20}
+                      color={editStart <= getMinStart() ? COLORS.divider : COLORS.mossGreen}
+                    />
                   </Pressable>
                   <Text style={styles.editTimeValue}>{formatHour(editStart)}</Text>
                   <Pressable
@@ -582,7 +435,10 @@ export function TimeBlockSection({
                     disabled={editStart >= editEnd - 1}
                     style={styles.editAdjusterButton}
                   >
-                    <ChevronUp size={20} color={editStart >= editEnd - 1 ? COLORS.divider : COLORS.mossGreen} />
+                    <ChevronUp
+                      size={20}
+                      color={editStart >= editEnd - 1 ? COLORS.divider : COLORS.mossGreen}
+                    />
                   </Pressable>
                 </View>
               </View>
@@ -597,7 +453,10 @@ export function TimeBlockSection({
                     disabled={editEnd <= editStart + 1}
                     style={styles.editAdjusterButton}
                   >
-                    <ChevronDown size={20} color={editEnd <= editStart + 1 ? COLORS.divider : COLORS.mossGreen} />
+                    <ChevronDown
+                      size={20}
+                      color={editEnd <= editStart + 1 ? COLORS.divider : COLORS.mossGreen}
+                    />
                   </Pressable>
                   <Text style={styles.editTimeValue}>{formatHour(editEnd)}</Text>
                   <Pressable
@@ -605,7 +464,10 @@ export function TimeBlockSection({
                     disabled={editEnd >= getMaxEnd()}
                     style={styles.editAdjusterButton}
                   >
-                    <ChevronUp size={20} color={editEnd >= getMaxEnd() ? COLORS.divider : COLORS.mossGreen} />
+                    <ChevronUp
+                      size={20}
+                      color={editEnd >= getMaxEnd() ? COLORS.divider : COLORS.mossGreen}
+                    />
                   </Pressable>
                 </View>
               </View>

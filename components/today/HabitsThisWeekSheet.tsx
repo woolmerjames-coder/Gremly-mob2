@@ -1,4 +1,6 @@
 /**
+ * @deprecated Use HabitsScreen instead.
+ *
  * HabitsThisWeekSheet - Bottom sheet showing all habits with rolling 7-day view
  *
  * Features:

@@ -7,10 +7,11 @@
  * Supports exit animations when tasks are being organized.
  */
 
-import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { Plus, Clock } from 'lucide-react-native';
 import { AnimatedTaskItem, type TaskItemData } from './TaskItem';
+import type { PendingDrop } from '../../../../lib/store/useGremlyStore';
 
 // Colors matching CalendarScreen exactly
 const COLORS = {
@@ -36,6 +37,35 @@ interface OnYourPlateSectionProps {
   onTaskPress: (task: TaskItemData) => void;
   onTimePress?: (task: TaskItemData) => void;
   onAddPress: () => void;
+  pendingDrops?: PendingDrop[];
+}
+
+/**
+ * PendingDropRow - Shows a processing task with loading animation
+ * Matches the visual style of TaskItem but with loading state
+ */
+function PendingDropRow({ drop }: { drop: PendingDrop }) {
+  const [dots, setDots] = useState('');
+
+  // Animated dots for loading state
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <View style={styles.pendingDropRow}>
+      <View style={styles.pendingDropContent}>
+        <Text style={styles.pendingDropTitle} numberOfLines={1}>
+          {drop.smartTitle || drop.text}
+        </Text>
+        <Text style={styles.pendingDropSubtitle}>Working on it{dots}</Text>
+      </View>
+      <ActivityIndicator size="small" color={COLORS.mossGreen} />
+    </View>
+  );
 }
 
 export function OnYourPlateSection({
@@ -44,8 +74,9 @@ export function OnYourPlateSection({
   onTaskPress,
   onTimePress,
   onAddPress,
+  pendingDrops = [],
 }: OnYourPlateSectionProps) {
-  const count = tasks.length;
+  const count = tasks.length + pendingDrops.length;
 
   return (
     <View style={styles.container}>
@@ -73,20 +104,25 @@ export function OnYourPlateSection({
         <Text style={styles.instructions}>Tap to assign to a time block, or leave flexible</Text>
       )}
 
+      {/* Pending Drops - Processing cards from store */}
+      {pendingDrops.map((drop) => (
+        <PendingDropRow key={drop.localId} drop={drop} />
+      ))}
+
       {/* Task List */}
       {tasks.map((task, index) => {
         // Check if this task is being animated out
-        const animationIndex = animatingAssignments?.findIndex(a => a.taskId === task.id) ?? -1;
+        const animationIndex = animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
         const isAnimatingOut = animationIndex >= 0;
-        
+
         return (
           <View
             key={task.id}
             style={[styles.taskWrapper, index < tasks.length - 1 && styles.taskBorder]}
           >
-            <AnimatedTaskItem 
-              task={task} 
-              onPress={onTaskPress} 
+            <AnimatedTaskItem
+              task={task}
+              onPress={onTaskPress}
               onTimePress={onTimePress}
               isAnimatingOut={isAnimatingOut}
               animationDelay={animationIndex * 150}
@@ -177,5 +213,33 @@ const styles = StyleSheet.create({
     color: COLORS.inkMuted,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  pendingDropRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginBottom: 1,
+    backgroundColor: COLORS.linenCream,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: COLORS.divider,
+  },
+  pendingDropContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  pendingDropTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: COLORS.charcoalInk,
+    lineHeight: 20,
+  },
+  pendingDropSubtitle: {
+    fontSize: 12,
+    color: COLORS.mossGreen,
+    marginTop: 2,
+    fontStyle: 'italic',
   },
 });

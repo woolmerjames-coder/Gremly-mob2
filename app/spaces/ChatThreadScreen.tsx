@@ -83,6 +83,7 @@ import {
   useSpaceById,
   selectItemById,
   selectCompletionsInRolling7Days,
+  useEventsForSpace,
 } from '../../lib/store/selectors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
@@ -138,7 +139,7 @@ export default function ChatThreadScreen({ route }: Props) {
   // Scroll ref for auto-scrolling to the latest message
   const flatListRef = useRef<any>(null);
 
-  const { spaceId, chatId } = route.params;
+  const { spaceId, chatId, goalContext, returnToKeyDates } = route.params;
   const auth = useAuth();
   const { userId } = auth;
   const getItemById = useCallback(
@@ -171,6 +172,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const milestone = useSpaceMilestoneFromStore(spaceId);
   const countdown = useMilestoneCountdown(spaceId);
   const rolling7Completions = useGremlyStore(selectCompletionsInRolling7Days);
+  const spaceEvents = useEventsForSpace(spaceId);
 
   // Build space context for AI
   const spaceContext = useMemo(() => {
@@ -225,6 +227,15 @@ export default function ChatThreadScreen({ route }: Props) {
       title: n.title || '',
     }));
 
+    // Map events for AI context
+    const eventsData = spaceEvents.map((e) => ({
+      name: e.title || undefined,
+      title: e.title || undefined,
+      target_date: e.target_date || null,
+      end_date: e.end_date || null,
+      event_time: e.event_time || null,
+    }));
+
     return (
       buildSpaceContext({
         space,
@@ -234,23 +245,55 @@ export default function ChatThreadScreen({ route }: Props) {
         todos: todosData,
         habits: habitsData,
         notes: notesData,
+        events: eventsData,
       }) ?? undefined
     );
-  }, [space, todos, habits, notes, milestone, countdown, rolling7Completions]);
+  }, [space, todos, habits, notes, milestone, countdown, rolling7Completions, spaceEvents]);
+
+  // Enhance spaceContext with goal information if goalContext is provided
+  const enhancedSpaceContext = useMemo(() => {
+    if (!spaceContext) return undefined;
+    if (!goalContext) return spaceContext;
+
+    // Build goal context string for AI - add as custom field
+    const checkInSummary = goalContext.checkIns?.length
+      ? `Recent check-ins: ${goalContext.checkIns
+          .slice(0, 3)
+          .map((c) => `"${c.title}" (${c.created_at})`)
+          .join(', ')}`
+      : 'No check-ins yet';
+
+    const goalFocusPrompt = `GOAL FOCUS: The user is asking about their goal "${goalContext.goal_name}". ${checkInSummary}. Help them reflect on progress, overcome obstacles, and plan next steps for this specific goal.`;
+
+    // Cast to add the extra goal fields while keeping the base SpaceContext shape
+    return {
+      ...spaceContext,
+      // Add goal context as extra metadata (will be passed through to AI)
+      goalFocus: {
+        goal_id: goalContext.goal_id,
+        goal_name: goalContext.goal_name,
+        checkIns: goalContext.checkIns || [],
+        prompt: goalFocusPrompt,
+      },
+    } as SpaceContext & {
+      goalFocus: { goal_id: string; goal_name: string; checkIns: any[]; prompt: string };
+    };
+  }, [spaceContext, goalContext]);
 
   // Debug: Log space context for AI
   useEffect(() => {
-    if (__DEV__ && spaceContext) {
+    if (__DEV__ && enhancedSpaceContext) {
       console.log('[ChatThread] Space context for AI:', {
-        spaceName: spaceContext.spaceName,
-        hasMilestone: !!spaceContext.milestone,
-        milestoneName: spaceContext.milestone?.name,
-        daysRemaining: spaceContext.milestone?.daysRemaining,
-        hasWhy: !!spaceContext.meta?.why,
-        summary: spaceContext.summary,
+        spaceName: enhancedSpaceContext.spaceName,
+        hasMilestone: !!enhancedSpaceContext.milestone,
+        milestoneName: enhancedSpaceContext.milestone?.name,
+        daysRemaining: enhancedSpaceContext.milestone?.daysRemaining,
+        hasGoalFocus: !!(enhancedSpaceContext as any).goalFocus,
+        hasWhy: !!enhancedSpaceContext.meta?.why,
+        todoCount: enhancedSpaceContext.summary?.todoCount,
       });
     }
-  }, [spaceContext]);
+  }, [enhancedSpaceContext]);
 
   // Phase 10.7D: Debounce timer ref
   const sendDebounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -343,18 +386,21 @@ export default function ChatThreadScreen({ route }: Props) {
   const spaceChatEnhanced = useSpaceChatEnhanced({
     spaceId,
     chatId: currentChatId ?? undefined,
-    spaceContext,
+    spaceContext: enhancedSpaceContext,
   });
 
   // Back button handler
   const handleBackPress = useCallback(() => {
-    if (navigation.canGoBack()) {
+    // If we came from Key Dates modal (goal chat), navigate back to SpaceHome with flag to reopen modal
+    if (returnToKeyDates) {
+      (navigation as any).navigate('SpaceHome', { spaceId, openKeyDatesModal: true });
+    } else if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
       // Fallback: navigate to the space home if can't go back
       (navigation as any).navigate('SpaceHome', { spaceId });
     }
-  }, [navigation, spaceId]);
+  }, [navigation, spaceId, returnToKeyDates]);
 
   // Auto-scroll when messages change (e.g., new assistant/user messages)
   useEffect(() => {
@@ -762,7 +808,15 @@ export default function ChatThreadScreen({ route }: Props) {
                   });
                 }
               },
-              onComplete: async (finalText: string, richResult?: { save_suggestion?: any; sources?: Array<{ title: string; url: string }>; search_query?: string | null; fetchedUrl?: { url: string; title: string } | null }) => {
+              onComplete: async (
+                finalText: string,
+                richResult?: {
+                  save_suggestion?: any;
+                  sources?: Array<{ title: string; url: string }>;
+                  search_query?: string | null;
+                  fetchedUrl?: { url: string; title: string } | null;
+                },
+              ) => {
                 // Clear searching/fetching state
                 const msgId = streamingMessageIdRef.current;
                 if (msgId) {
@@ -1133,13 +1187,14 @@ export default function ChatThreadScreen({ route }: Props) {
 
       try {
         // ─── SMART SAVE: If we have title from AI suggestion, skip classification ───
-        const smartSuggestion = currentSaveable.title && currentSaveable.prefillData?.steps
-          ? {
-              type: currentSaveable.type,
-              title: currentSaveable.title,
-              steps: currentSaveable.prefillData.steps as string[],
-            }
-          : null;
+        const smartSuggestion =
+          currentSaveable.title && currentSaveable.prefillData?.steps
+            ? {
+                type: currentSaveable.type,
+                title: currentSaveable.title,
+                steps: currentSaveable.prefillData.steps as string[],
+              }
+            : null;
 
         if (smartSuggestion?.title) {
           console.log('[Chat] Smart save - creating new entity (skipping Phase 1):', {
@@ -1156,7 +1211,9 @@ export default function ChatThreadScreen({ route }: Props) {
             // Format steps as part of the body if present
             let body = assistantMessage;
             if (smartSuggestion.steps?.length) {
-              const stepsText = smartSuggestion.steps.map((step, i) => `${i + 1}. ${step}`).join('\n');
+              const stepsText = smartSuggestion.steps
+                .map((step, i) => `${i + 1}. ${step}`)
+                .join('\n');
               body = `Steps:\n${stepsText}\n\n---\n${assistantMessage}`;
             }
 
@@ -1413,18 +1470,10 @@ export default function ChatThreadScreen({ route }: Props) {
               if (itemId && itemType) {
                 console.log(`[Locked${itemType}] Tapped, itemId:`, itemId);
                 // Notes open in view mode, todos/habits open in edit mode
-                if (itemType === 'note') {
-                  overlayController.openView({
-                    record: { id: itemId, type: itemType } as any,
-                    spaceId: spaceId ?? undefined,
-                  });
-                } else {
-                  // todo or habit
-                  overlayController.openEdit({
-                    record: { id: itemId, type: itemType } as any,
-                    spaceId: spaceId ?? undefined,
-                  });
-                }
+                overlayController.openEdit({
+                  record: { id: itemId, type: itemType } as any,
+                  spaceId: spaceId ?? undefined,
+                });
               }
             }}
           />
@@ -1447,18 +1496,10 @@ export default function ChatThreadScreen({ route }: Props) {
               entry={typedEntry}
               onPress={(entry) => {
                 // Notes open in view mode, todos/habits open in edit mode
-                if (entryType === 'note' || entryType === 'log') {
-                  overlayController.openView({
-                    record: entry as any,
-                    spaceId: spaceId ?? undefined,
-                  });
-                } else {
-                  // todo or habit
-                  overlayController.openEdit({
-                    record: entry as any,
-                    spaceId: spaceId ?? undefined,
-                  });
-                }
+                overlayController.openEdit({
+                  record: entry as any,
+                  spaceId: spaceId ?? undefined,
+                });
               }}
               testID={`entry-card-${message.id}`}
             />
@@ -1562,7 +1603,10 @@ export default function ChatThreadScreen({ route }: Props) {
 
               {/* Centered title with golden underline */}
               <View style={styles.headerTitleContainer}>
-                <Text style={styles.headerTitle}>{spaceName || 'Chat'}</Text>
+                <Text style={styles.headerTitle}>
+                  {goalContext ? goalContext.goal_name : spaceName || 'Chat'}
+                </Text>
+                {goalContext && <Text style={styles.headerSubtitle}>Goal in {spaceName}</Text>}
                 <View style={styles.headerUnderline} />
               </View>
 
@@ -1666,6 +1710,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#222222',
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    marginTop: 2,
   },
   headerUnderline: {
     width: 40,

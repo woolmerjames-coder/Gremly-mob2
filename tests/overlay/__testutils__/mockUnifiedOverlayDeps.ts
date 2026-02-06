@@ -3,6 +3,18 @@
  * component integration tests fast and memory friendly.
  */
 
+jest.mock('@react-navigation/native', () => {
+  const actual = jest.requireActual('@react-navigation/native');
+  return {
+    ...actual,
+    useNavigation: () => ({
+      setOptions: jest.fn(),
+      navigate: jest.fn(),
+      goBack: jest.fn(),
+    }),
+  };
+});
+
 jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ userId: 'test-user' }),
 }));

@@ -6,9 +6,11 @@
  * - Keep as a single note
  * - Split into separate entities
  * - Select which items to split
+ *
+ * Design matches SweepMultiSplitStep with confirmation overlay animation.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -18,6 +20,13 @@ import {
   Image,
   Pressable,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import type { MultiDropItem } from '../../../lib/minddrop/types';
@@ -39,6 +48,21 @@ export interface MultiSplitModalProps {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+// Constants
+// ───────────────────────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_ICON = require('../../../assets/buttonforHP.png');
+
+const CARD_WIDTH = 320;
+const MAX_ITEM_LIST_HEIGHT = 240;
+
+// Animation timing
+const FADE_IN_DURATION = 200;
+const HOLD_DURATION = 800;
+const FADE_OUT_DURATION = 200;
+
+// ───────────────────────────────────────────────────────────────────────────────
 // Component
 // ───────────────────────────────────────────────────────────────────────────────
 
@@ -53,105 +77,225 @@ export function MultiSplitModal({
   onKeepAsNote,
   onSplitSelected,
 }: MultiSplitModalProps) {
-  // Track item count to detect when items array changes
-  const itemCount = items.length;
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(
-    () => new Set(items.map((_, i) => i)), // All selected by default
+    () => new Set(items.map((_, i) => i)),
   );
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [confirmationText, setConfirmationText] = useState('');
 
-  // Reset selection when item count changes (using key pattern instead of effect)
+  // Store pending action
+  const pendingActionRef = useRef<(() => void) | null>(null);
+
+  // Animation value for confirmation overlay
+  const confirmationOpacity = useSharedValue(0);
+
+  // Reset selection when item count changes
+  const itemCount = items.length;
   const [prevItemCount, setPrevItemCount] = useState(itemCount);
   if (itemCount !== prevItemCount) {
     setPrevItemCount(itemCount);
     setSelectedIndices(new Set(items.map((_, i) => i)));
   }
 
-  const toggleItem = useCallback((index: number) => {
-    setSelectedIndices((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
-      return next;
-    });
-  }, []);
+  const toggleItem = useCallback(
+    (index: number) => {
+      if (isAnimating) return;
+      setSelectedIndices((prev) => {
+        const next = new Set(prev);
+        if (next.has(index)) {
+          next.delete(index);
+        } else {
+          next.add(index);
+        }
+        return next;
+      });
+    },
+    [isAnimating],
+  );
 
-  const handleSplitSelected = useCallback(() => {
+  const triggerConfirmation = useCallback(
+    (text: string, storeAction: () => void) => {
+      setIsAnimating(true);
+      setConfirmationText(text);
+      pendingActionRef.current = storeAction;
+
+      // Fade in confirmation overlay
+      // eslint-disable-next-line react-hooks/immutability
+      confirmationOpacity.value = withTiming(1, {
+        duration: FADE_IN_DURATION,
+        easing: Easing.out(Easing.cubic),
+      });
+
+      // After hold, execute action and fade out
+      setTimeout(() => {
+        if (pendingActionRef.current) {
+          pendingActionRef.current();
+          pendingActionRef.current = null;
+        }
+
+        // eslint-disable-next-line react-hooks/immutability
+        confirmationOpacity.value = withTiming(0, {
+          duration: FADE_OUT_DURATION,
+          easing: Easing.in(Easing.cubic),
+        });
+      }, FADE_IN_DURATION + HOLD_DURATION);
+
+      // After fade out, close modal
+      setTimeout(
+        () => {
+          setIsAnimating(false);
+          onClose();
+        },
+        FADE_IN_DURATION + HOLD_DURATION + FADE_OUT_DURATION + 50,
+      );
+    },
+    [confirmationOpacity, onClose],
+  );
+
+  const handleSplit = useCallback(() => {
+    if (isAnimating) return;
+
     const selected = items.filter((_, i) => selectedIndices.has(i));
-    if (selected.length > 0) {
-      onSplitSelected(selected);
-    }
-  }, [items, selectedIndices, onSplitSelected]);
+    if (selected.length === 0) return;
 
-  const selectedCount = selectedIndices.size;
+    const selectedItems = [...selected];
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-  const getKeepTogetherLabel = () => {
+    const cardText = selectedItems.length === 1 ? 'card' : 'cards';
+    triggerConfirmation(`Split into ${selectedItems.length} ${cardText}`, () => {
+      onSplitSelected(selectedItems);
+    });
+  }, [items, selectedIndices, isAnimating, onSplitSelected, triggerConfirmation]);
+
+  const handleKeepAsOne = useCallback(() => {
+    if (isAnimating) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    triggerConfirmation('Kept as one', () => {
+      onKeepAsNote();
+    });
+  }, [isAnimating, onKeepAsNote, triggerConfirmation]);
+
+  const getKeepTogetherLabel = useCallback(() => {
     if (dominantBucket === 'todo') return 'One Task';
     if (dominantBucket === 'habit') return 'One Habit';
     if (dominantBucket === 'log' && dominantSubtype === 'journal') return 'Just Venting';
     if (dominantBucket === 'log' && dominantSubtype === 'idea') return 'Just Brainstorming';
     return 'One Item';
-  };
+  }, [dominantBucket, dominantSubtype]);
+
+  // Animated style for confirmation overlay
+  const confirmationAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: confirmationOpacity.value,
+  }));
+
+  const selectedCount = selectedIndices.size;
+  const needsScroll = items.length > 4;
+
+  // Truncate text for display
+  const displayText =
+    originalText && originalText.length > 60 ? originalText.slice(0, 60) + '...' : originalText;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      {/* Backdrop - only closes when tapped outside the modal content */}
-      <Pressable style={styles.overlay} onPress={onClose}>
-        {/* Modal content - stop propagation so taps inside don't close */}
-        <Pressable style={styles.container} onPress={(e) => e?.stopPropagation?.()}>
-          {/* Header */}
-          <View style={styles.headerRow}>
-            <Image source={require('../../../assets/buttonforHP.png')} style={styles.gremlyIcon} />
-            <Text style={styles.header}>Split these up or keep as one?</Text>
-          </View>
-          {originalText && <Text style={styles.originalText}>"{originalText}"</Text>}
+      {/* Backdrop */}
+      <Pressable style={styles.overlay} onPress={isAnimating ? undefined : onClose}>
+        {/* Card wrapper */}
+        <Pressable style={styles.cardWrapper} onPress={(e) => e?.stopPropagation?.()}>
+          {/* Main Card */}
+          <View style={styles.card}>
+            {/* YOU DROPPED */}
+            <Text style={styles.droppedLabel}>YOU DROPPED</Text>
+            {displayText && (
+              <Text style={styles.originalText} numberOfLines={2}>
+                "{displayText}"
+              </Text>
+            )}
 
-          {/* Item list with checkboxes */}
-          <ScrollView style={styles.itemList} contentContainerStyle={styles.itemListContent}>
-            {items.map((item, index) => (
+            <View style={styles.divider} />
+
+            {/* Gremly question */}
+            <View style={styles.gremlyRow}>
+              <Image source={GREMLY_ICON} style={styles.gremlyIcon} />
+              <Text style={styles.gremlyText}>
+                Looks like multiple things. Want to <Text style={styles.gremlyTextBold}>split</Text>{' '}
+                or <Text style={styles.gremlyTextBold}>keep as one</Text>?
+              </Text>
+            </View>
+
+            {/* Item list */}
+            <View style={styles.itemListContainer}>
+              <ScrollView
+                style={[styles.itemList, needsScroll && { maxHeight: MAX_ITEM_LIST_HEIGHT }]}
+                contentContainerStyle={styles.itemListContent}
+                showsVerticalScrollIndicator={false}
+                scrollEnabled={needsScroll}
+              >
+                {items.map((item, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[styles.itemRow, selectedIndices.has(index) && styles.itemRowSelected]}
+                    onPress={() => toggleItem(index)}
+                    activeOpacity={0.7}
+                    disabled={isAnimating}
+                  >
+                    <View
+                      style={[
+                        styles.checkbox,
+                        selectedIndices.has(index) && styles.checkboxSelected,
+                      ]}
+                    >
+                      {selectedIndices.has(index) && <Text style={styles.checkmark}>✓</Text>}
+                    </View>
+                    <View style={styles.itemContent}>
+                      <Text style={styles.itemTitle} numberOfLines={2}>
+                        {item.smart_title || item.preview_title || item.text}
+                      </Text>
+                      <Text style={styles.itemBucket}>
+                        {item.bucket === 'todo'
+                          ? 'Todo'
+                          : item.bucket === 'habit'
+                            ? 'Habit'
+                            : 'Note'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Buttons */}
+            <View style={styles.buttonRow}>
               <TouchableOpacity
-                key={index}
-                style={[styles.itemRow, selectedIndices.has(index) && styles.itemRowSelected]}
-                onPress={() => toggleItem(index)}
+                style={styles.secondaryButton}
+                onPress={handleKeepAsOne}
+                disabled={isAnimating}
                 activeOpacity={0.7}
               >
-                {/* Checkbox */}
-                <View
-                  style={[styles.checkbox, selectedIndices.has(index) && styles.checkboxSelected]}
-                >
-                  {selectedIndices.has(index) && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-
-                {/* Item details */}
-                <View style={styles.itemContent}>
-                  <Text style={styles.itemTitle}>
-                    {item.smart_title || item.preview_title || item.text}
-                  </Text>
-                  <Text style={styles.itemBucket}>
-                    {item.bucket === 'todo' ? 'Todo' : item.bucket === 'habit' ? 'Habit' : 'Note'}
-                  </Text>
-                </View>
+                <Text style={styles.secondaryButtonText}>{getKeepTogetherLabel()}</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {/* Action buttons */}
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.secondaryButton} onPress={onKeepAsNote}>
-              <Text style={styles.secondaryButtonText}>{getKeepTogetherLabel()}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.primaryButton, selectedCount === 0 && styles.buttonDisabled]}
-              onPress={handleSplitSelected}
-              disabled={selectedCount === 0}
-            >
-              <Text style={styles.primaryButtonText}>
-                Split{selectedCount > 0 ? ` (${selectedCount})` : ''}
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.primaryButton, selectedCount === 0 && styles.buttonDisabled]}
+                onPress={handleSplit}
+                disabled={selectedCount === 0 || isAnimating}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.primaryButtonText}>
+                  Split{selectedCount > 0 ? ` (${selectedCount})` : ''}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {/* Confirmation Overlay */}
+          <Animated.View
+            style={[styles.confirmationOverlay, confirmationAnimatedStyle]}
+            pointerEvents="none"
+          >
+            <Image source={GREMLY_ICON} style={styles.confirmationIcon} />
+            <Text style={styles.confirmationText}>{confirmationText}</Text>
+          </Animated.View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -170,64 +314,94 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
-  container: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.lg,
-    padding: 24,
+  cardWrapper: {
+    width: CARD_WIDTH,
+    position: 'relative',
+  },
+  card: {
     width: '100%',
-    maxWidth: 340,
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: BRAND.colors.borderSubtle,
-    marginBottom: 12,
-  },
-  gremlyIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
-  },
-  header: {
-    fontSize: 16,
-    ...BRAND.typography.header,
-    color: BRAND.colors.charcoalInk,
-    flex: 1,
+
+  // YOU DROPPED
+  droppedLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.5,
+    color: BRAND.colors.inkSubtle,
+    marginBottom: 8,
   },
   originalText: {
+    fontSize: 17,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    lineHeight: 24,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: BRAND.colors.borderSubtle,
+    marginVertical: 16,
+  },
+
+  // Gremly row
+  gremlyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  gremlyIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 10,
+    marginTop: 2,
+  },
+  gremlyText: {
+    flex: 1,
     fontSize: 14,
-    ...BRAND.typography.body,
     color: BRAND.colors.inkMuted,
-    fontStyle: 'italic',
-    marginBottom: 20,
+    lineHeight: 20,
   },
-  itemList: {
-    marginBottom: 24,
-    maxHeight: 300,
+  gremlyTextBold: {
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
   },
+
+  // Item list
+  itemListContainer: {
+    marginBottom: 16,
+  },
+  itemList: {},
   itemListContent: {
-    paddingBottom: 8,
+    paddingBottom: 4,
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    padding: 12,
     marginBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: BRAND.colors.borderSubtle,
+    borderRadius: BRAND.radius.md,
+    borderWidth: 1,
+    borderColor: BRAND.colors.borderSubtle,
+    backgroundColor: BRAND.colors.surface,
   },
   itemRowSelected: {
-    backgroundColor: 'rgba(156, 166, 224, 0.1)', // Periwinkle tint
+    backgroundColor: 'rgba(191, 216, 192, 0.15)',
+    borderColor: BRAND.colors.sageMist,
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: BRAND.radius.sm,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
     borderWidth: 2,
-    borderColor: BRAND.colors.sageMist,
+    borderColor: BRAND.colors.borderSubtle,
     marginRight: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -240,8 +414,7 @@ const styles = StyleSheet.create({
     color: BRAND.colors.surface,
     fontSize: 14,
     fontWeight: '700',
-    lineHeight: 16,
-    textAlign: 'center',
+    lineHeight: 14,
   },
   itemContent: {
     flex: 1,
@@ -250,19 +423,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   itemTitle: {
-    fontSize: 15,
-    ...BRAND.typography.bodyMedium,
-    color: BRAND.colors.charcoalInk,
     flex: 1,
+    fontSize: 15,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    marginRight: 8,
   },
   itemBucket: {
     fontSize: 12,
-    ...BRAND.typography.bodyMedium,
-    color: '#4A7C59',
-    textTransform: 'capitalize',
-    marginLeft: 8,
-    marginRight: 4,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
   },
+
+  // Buttons
   buttonRow: {
     flexDirection: 'row',
     gap: 12,
@@ -274,10 +447,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BRAND.colors.borderSubtle,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   secondaryButtonText: {
     fontSize: 15,
-    ...BRAND.typography.bodyMedium,
+    fontWeight: '600',
     color: BRAND.colors.inkMuted,
   },
   primaryButton: {
@@ -286,19 +460,41 @@ const styles = StyleSheet.create({
     borderRadius: BRAND.radius.md,
     backgroundColor: BRAND.colors.sageMist,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
   buttonDisabled: {
     opacity: 0.5,
   },
-  primaryButtonText: {
-    fontSize: 15,
-    ...BRAND.typography.bodyMedium,
-    color: BRAND.colors.mossGreen,
+
+  // Confirmation overlay
+  confirmationOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: BRAND.colors.surface,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  confirmationIcon: {
+    width: 88,
+    height: 88,
+    marginBottom: 20,
+  },
+  confirmationText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
   },
 });
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Exports
-// ───────────────────────────────────────────────────────────────────────────────
 
 export default MultiSplitModal;

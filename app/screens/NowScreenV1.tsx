@@ -34,7 +34,6 @@ import { OverwhelmSelectSheet } from '../../components/now/OverwhelmSelectSheet'
 import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
-import { NowWeekPopup } from '../../components/now/NowWeekPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
@@ -57,9 +56,9 @@ import {
   useTodayLogsCount,
   useIsLoading,
   useHabitsCompletedToday,
-  useHubHabits,
-  useWeeklyHabitSummaries,
   useHabitsUpToDateCount,
+  useTodayPendingDrops,
+  useEventsForDate,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
@@ -67,7 +66,7 @@ import { useActionToast } from '../../src/hooks/useActionToast';
 import { getTodayEmptyState, getTodayEmptyStateContent } from '../../lib/today/getTodayEmptyState';
 import type { LogItem } from '../../lib/notes/useRecentLogs';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { useGlobalOverlay } from '../../contexts/OverlayContext';
+
 import type {
   NowLockedItem,
   NowActiveItem,
@@ -77,14 +76,16 @@ import type {
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import type { Habit, Todo, Space } from '../../lib/types';
+import type { Habit, Todo, Space, Note } from '../../lib/types';
 import { eventBus } from '../../lib/events';
 import { TimeBlockSection } from '../../components/now/TimeBlockSection';
 import { CalendarHint } from '../../components/now/CalendarHint';
+import { EventRow } from '../../components/now/EventRow';
 import {
   getCurrentTimeBlock,
   groupEventsByTimeBlock,
   formatEventTimeForHint,
+  getTimeBlockForHour,
   type TimeBlock,
 } from '../../lib/now/timeBlockHelpers';
 
@@ -179,6 +180,38 @@ function toSweepCandidate(todo: Todo, todayDayString: string): SweepCandidate {
     daysUntilDeadline,
     space_id: todo.space_id ?? null,
   };
+}
+
+/**
+ * Group key date events by time block based on event_time
+ * Events without event_time go to 'anytime'
+ */
+function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<TimeBlock, Note[]> {
+  const grouped: Record<TimeBlock, Note[]> = {
+    morning: [],
+    afternoon: [],
+    evening: [],
+    anytime: [],
+  };
+
+  for (const event of keyDates) {
+    if (event.event_time) {
+      // Parse HH:mm time string to get hour
+      const [hourStr] = event.event_time.split(':');
+      const hour = parseInt(hourStr, 10);
+      if (!isNaN(hour)) {
+        const block = getTimeBlockForHour(hour);
+        grouped[block].push(event);
+      } else {
+        grouped.anytime.push(event);
+      }
+    } else {
+      // No event_time - goes to anytime
+      grouped.anytime.push(event);
+    }
+  }
+
+  return grouped;
 }
 
 /**
@@ -292,6 +325,9 @@ export default function NowScreenV1() {
   );
   const fetchCalendarEvents = useGremlyStore((s) => s.fetchCalendarEventsForRange);
 
+  // Key Dates - internal event notes for today
+  const todayKeyDates = useEventsForDate(todayStr);
+
   // Debug: log calendar events selector result
   console.log(
     '[NowScreen] todayCalendarEvents:',
@@ -364,8 +400,6 @@ export default function NowScreenV1() {
   // Habits
   const habitsToday = useTodayHabits();
   const completedHabitsToday = useHabitsCompletedToday();
-  const allActiveHabits = useHubHabits(); // All non-archived habits for NowWeekPopup
-  const weeklySummaries = useWeeklyHabitSummaries(); // Weekly habit summaries for NowWeekPopup
   const habitsUpToDate = useHabitsUpToDateCount(); // Habits up to date count for header
 
   // Spaces - for looking up space names
@@ -432,10 +466,8 @@ export default function NowScreenV1() {
 
     return {
       dateTimeLabel,
-      weeklySummaries, // Weekly habit summaries for header
-      allHabits: allActiveHabits, // All non-archived habits for NowWeekPopup
     };
-  }, [allActiveHabits, weeklySummaries]);
+  }, []);
 
   // ═══════════════════════════════════════════════════════════════════
   // STORE MUTATIONS - Direct store actions
@@ -576,7 +608,6 @@ export default function NowScreenV1() {
   }, [navigation]);
 
   const [isProgressVisible, setProgressVisible] = useState(false);
-  const [isWeekVisible, setWeekVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
   const [isJournalVisible, setJournalVisible] = useState(false);
@@ -584,27 +615,9 @@ export default function NowScreenV1() {
   const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
 
-  // Track if we should reopen habits modal after overlay closes
-  const [shouldReopenWeekModal, setShouldReopenWeekModal] = useState(false);
-  const { state: overlayState } = useGlobalOverlay();
-
-  // Reopen habits modal when overlay closes (if we came from there)
-  useEffect(() => {
-    if (shouldReopenWeekModal && !overlayState.visible) {
-      // Small delay to let overlay animation finish
-      const timer = setTimeout(() => {
-        setWeekVisible(true);
-        setShouldReopenWeekModal(false);
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [shouldReopenWeekModal, overlayState.visible]);
-
-  // Optimistic quick-add state - shows 'Processing...' card while pipeline runs
-  const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
-    id: string;
-    title: string;
-  } | null>(null);
+  // Pending drops from store - shows loading cards while pipeline runs
+  // These persist until promotePendingDropToEntity removes them
+  const todayPendingDrops = useTodayPendingDrops();
 
   // Toast for quick add feedback
   const { showToast, Toast: QuickAddToast } = useActionToast();
@@ -660,6 +673,22 @@ export default function NowScreenV1() {
     ],
   );
 
+  // Handle key date press - close brief first, then open overlay for event note
+  const handleKeyDatePress = useCallback(
+    (event: Note) => {
+      console.log('[NowScreenV1] handleKeyDatePress called:', event.id, event.title);
+      // Close the Morning Brief modal first
+      setBriefSheetVisible(false);
+      // Open the overlay after a short delay to allow modal to close
+      setTimeout(() => {
+        overlayController.openEdit({
+          record: event,
+        });
+      }, 100);
+    },
+    [overlayController],
+  );
+
   // Handle overwhelm plan submission
   const handleOverwhelmSubmit = useCallback(() => {
     const selectedItems = [...displayLockedItems, ...visibleActiveItems]
@@ -692,32 +721,13 @@ export default function NowScreenV1() {
     [updateTodo, todayDayString],
   );
 
-  // Quick add hook - wires to MindDrop pipeline with Today scoping
-  // Uses optimistic flow: onStart for immediate feedback, onComplete for final state
-  const quickAdd = useNowQuickAdd({
-    onStart: (draftTitle) => {
-      console.log('[NowScreenV1] Quick add started:', draftTitle);
-      // Show optimistic 'Processing...' card
-      setOptimisticQuickAdd({
-        id: `now-optimistic-${Date.now()}`,
-        title: draftTitle,
-      });
-    },
-    onComplete: (result) => {
-      console.log('[NowScreenV1] Quick add complete:', result);
-      // Clear optimistic card - store auto-updates, no reload needed
-      setOptimisticQuickAdd(null);
-    },
-    onError: (error) => {
-      console.error('[NowScreenV1] Quick add error:', error.message);
-      // Clear optimistic card - no toast needed, error is logged
-      setOptimisticQuickAdd(null);
-    },
-  });
+  // Quick add hook - no callbacks needed, pending drops come from store
+  const quickAdd = useNowQuickAdd();
 
   // Handle quick add submission - fire-and-forget, modal closes immediately
   const handleQuickAddSubmit = useCallback(
     (text: string) => {
+      console.log('[NowScreenV1] Quick add submitted:', text);
       quickAdd.onQuickAdd(text);
     },
     [quickAdd],
@@ -798,7 +808,7 @@ export default function NowScreenV1() {
         remainingMinutes={remainingMinutes}
         calendarEvents={todayCalendarEvents}
         onPressProgress={() => setProgressVisible(true)}
-        onPressWeek={() => setWeekVisible(true)}
+        onPressWeek={() => navigation.navigate('Habits')}
         onCalendarPress={handleCalendarHintPress}
         onNotesPress={handleNotesPress}
         onMascotPress={() => setShowHelp(true)}
@@ -851,7 +861,7 @@ export default function NowScreenV1() {
           hasAnyTodayWork={hasAnyTodayWork}
           onPressItem={handlePressItem}
           onToggleComplete={handleToggleComplete}
-          optimisticQuickAdd={optimisticQuickAdd}
+          pendingDrops={todayPendingDrops}
           overdueTodos={displayOverdueTodos}
           recentDrops={displayRecentDrops}
           onAddToToday={handleAddToToday}
@@ -860,6 +870,8 @@ export default function NowScreenV1() {
           lockedItemIds={lockedItemIds}
           calendarEvents={todayCalendarEvents}
           onCalendarHintPress={handleCalendarHintPress}
+          keyDates={todayKeyDates}
+          onKeyDatePress={handleKeyDatePress}
         />
       </View>
 
@@ -894,16 +906,6 @@ export default function NowScreenV1() {
             record: { id: item.id, type: overlayType } as any,
           });
         }}
-      />
-
-      <NowWeekPopup
-        visible={isWeekVisible}
-        habitsToday={displayHabitsToday}
-        completedHabitsToday={displayCompletedHabitsToday}
-        weeklySummaries={nowData.weeklySummaries}
-        allHabits={allActiveHabits}
-        onClose={() => setWeekVisible(false)}
-        onOpenOverlay={() => setShouldReopenWeekModal(true)}
       />
 
       <OverwhelmSelectSheet
@@ -967,6 +969,7 @@ export default function NowScreenV1() {
         onComplete={markTodayOpened}
         onQuickAddSubmit={handleQuickAddSubmit}
         onQuickAddManual={handleQuickAddManual}
+        onKeyDatePress={handleKeyDatePress}
       />
 
       {/* Help Card */}
@@ -1079,23 +1082,17 @@ function OptimisticQuickAddCard({
         },
       ]}
       accessibilityLabel={`Processing ${title}`}
-      accessibilityRole="text"
     >
       <View style={styles.optimisticContent}>
         <View style={styles.optimisticTextContainer}>
           <Text numberOfLines={1} style={styles.optimisticTitle}>
             {title}
           </Text>
-          <Animated.Text
-            style={[styles.optimisticSubtitle, { opacity: textOpacityRef.current }]}
-            accessibilityLabel="Processing"
-          >
-            Processing{dots}
+          <Animated.Text style={[styles.optimisticSubtitle, { opacity: textOpacityRef.current }]}>
+            Working on it{dots}
           </Animated.Text>
         </View>
-        <View style={styles.optimisticLoader}>
-          <ActivityIndicator size="small" color={MOSS_GREEN} />
-        </View>
+        <ActivityIndicator size="small" color="#2E5540" />
       </View>
     </Animated.View>
   );
@@ -1110,7 +1107,7 @@ type TodayFocusListProps = {
   hasAnyTodayWork: boolean;
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
-  optimisticQuickAdd?: { id: string; title: string } | null;
+  pendingDrops?: Array<{ localId: string; text: string; smartTitle?: string; status: string }>;
   overdueTodos: SweepCandidate[];
   recentDrops: SweepCandidate[];
   onAddToToday: (item: SweepCandidate) => void;
@@ -1123,6 +1120,8 @@ type TodayFocusListProps = {
   lockedItemIds?: Set<string>;
   calendarEvents?: CalendarEvent[];
   onCalendarHintPress?: () => void;
+  keyDates?: Note[];
+  onKeyDatePress?: (event: Note) => void;
 };
 
 function TodayFocusList({
@@ -1133,7 +1132,7 @@ function TodayFocusList({
   hasAnyTodayWork,
   onPressItem,
   onToggleComplete,
-  optimisticQuickAdd,
+  pendingDrops = [],
   overdueTodos,
   recentDrops,
   onAddToToday,
@@ -1142,33 +1141,17 @@ function TodayFocusList({
   lockedItemIds,
   calendarEvents = [],
   onCalendarHintPress,
+  keyDates = [],
+  onKeyDatePress,
 }: TodayFocusListProps) {
-  // Track leaving card for exit animation
-  const [leavingCard, setLeavingCard] = useState<{ id: string; title: string } | null>(null);
-  const prevOptimisticRef = useRef<{ id: string; title: string } | null>(null);
-
-  // Detect when optimistic card is being removed and trigger exit animation
-  useEffect(() => {
-    const prev = prevOptimisticRef.current;
-    const curr = optimisticQuickAdd;
-
-    // If we had a card and now we don't, trigger exit animation
-    if (prev && !curr) {
-      setLeavingCard(prev);
-    }
-
-    prevOptimisticRef.current = curr ?? null;
-  }, [optimisticQuickAdd]);
-
-  const handleExitComplete = useCallback(() => {
-    setLeavingCard(null);
-  }, []);
-
   // Get current time block for highlighting
   const currentTimeBlock = getCurrentTimeBlock();
 
   // Group calendar events by time block
   const eventsByBlock = useMemo(() => groupEventsByTimeBlock(calendarEvents), [calendarEvents]);
+
+  // Group key dates (internal events) by time block based on event_time
+  const keyDatesByBlock = useMemo(() => groupKeyDatesByTimeBlock(keyDates), [keyDates]);
 
   // Build flat sorted list: locked items first, then active items sorted by sequence
   const sortedItems = useMemo(() => {
@@ -1230,11 +1213,12 @@ function TodayFocusList({
   }, [sortedItems, brief]);
 
   // Helper to check if a block should render
-  // Only render if block has items or calendar events - don't show empty blocks
+  // Only render if block has items, calendar events, or key dates - don't show empty blocks
   const shouldRenderBlock = (block: TimeBlock) => {
     const hasItems = itemsByBlock[block].length > 0;
     const hasEvents = eventsByBlock[block].length > 0;
-    return hasItems || hasEvents;
+    const hasKeyDates = keyDatesByBlock[block].length > 0;
+    return hasItems || hasEvents || hasKeyDates;
   };
 
   // Helper to get calendar hint data for a block
@@ -1258,9 +1242,8 @@ function TodayFocusList({
   };
 
   const hasNoItems =
-    lockedItems.length === 0 && activeItems.length === 0 && !optimisticQuickAdd && !leavingCard;
-  const isAllComplete =
-    progressPercent === 100 && hasAnyTodayWork && !optimisticQuickAdd && !leavingCard;
+    lockedItems.length === 0 && activeItems.length === 0 && pendingDrops.length === 0;
+  const isAllComplete = progressPercent === 100 && hasAnyTodayWork && pendingDrops.length === 0;
 
   const emptyState = getTodayEmptyState();
   const emptyContent = getTodayEmptyStateContent(emptyState);
@@ -1316,13 +1299,22 @@ function TodayFocusList({
             )
           }
         >
+          {/* Key dates with morning event_time */}
+          {keyDatesByBlock.morning.map((event, index) => (
+            <EventRow
+              key={event.id}
+              event={event}
+              onPress={() => onKeyDatePress?.(event)}
+              isFirst={index === 0 && itemsByBlock.morning.length === 0}
+            />
+          ))}
           {itemsByBlock.morning.map((item, index) => (
             <NowFocusRow
               key={item.id}
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0}
+              isFirst={index === 0 && keyDatesByBlock.morning.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1345,13 +1337,22 @@ function TodayFocusList({
             )
           }
         >
+          {/* Key dates with afternoon event_time */}
+          {keyDatesByBlock.afternoon.map((event, index) => (
+            <EventRow
+              key={event.id}
+              event={event}
+              onPress={() => onKeyDatePress?.(event)}
+              isFirst={index === 0 && itemsByBlock.afternoon.length === 0}
+            />
+          ))}
           {itemsByBlock.afternoon.map((item, index) => (
             <NowFocusRow
               key={item.id}
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0}
+              isFirst={index === 0 && keyDatesByBlock.afternoon.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1374,13 +1375,22 @@ function TodayFocusList({
             )
           }
         >
+          {/* Key dates with evening event_time */}
+          {keyDatesByBlock.evening.map((event, index) => (
+            <EventRow
+              key={event.id}
+              event={event}
+              onPress={() => onKeyDatePress?.(event)}
+              isFirst={index === 0 && itemsByBlock.evening.length === 0}
+            />
+          ))}
           {itemsByBlock.evening.map((item, index) => (
             <NowFocusRow
               key={item.id}
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0}
+              isFirst={index === 0 && keyDatesByBlock.evening.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1388,16 +1398,25 @@ function TodayFocusList({
         </TimeBlockSection>
       )}
 
-      {/* Any time section */}
-      {itemsByBlock.anytime.length > 0 && (
+      {/* Any time section - includes key dates without event_time */}
+      {(itemsByBlock.anytime.length > 0 || keyDatesByBlock.anytime.length > 0) && (
         <TimeBlockSection block="anytime" isFirst={getIsFirst()}>
+          {/* Key dates without event_time */}
+          {keyDatesByBlock.anytime.map((event, index) => (
+            <EventRow
+              key={event.id}
+              event={event}
+              onPress={() => onKeyDatePress?.(event)}
+              isFirst={index === 0 && itemsByBlock.anytime.length === 0}
+            />
+          ))}
           {itemsByBlock.anytime.map((item, index) => (
             <NowFocusRow
               key={item.id}
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0}
+              isFirst={index === 0 && keyDatesByBlock.anytime.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1405,24 +1424,15 @@ function TodayFocusList({
         </TimeBlockSection>
       )}
 
-      {/* Optimistic 'Processing...' card appended after active items */}
-      {/* Shows active card while processing, or leaving card during exit animation */}
-      {optimisticQuickAdd && (
+      {/* Pending drops - processing cards from store */}
+      {/* These persist until the entity is created and promoted */}
+      {pendingDrops.map((drop) => (
         <OptimisticQuickAddCard
-          key={optimisticQuickAdd.id}
-          id={optimisticQuickAdd.id}
-          title={optimisticQuickAdd.title}
+          key={drop.localId}
+          id={drop.localId}
+          title={drop.smartTitle || drop.text}
         />
-      )}
-      {!optimisticQuickAdd && leavingCard && (
-        <OptimisticQuickAddCard
-          key={leavingCard.id}
-          id={leavingCard.id}
-          title={leavingCard.title}
-          isLeaving
-          onExitComplete={handleExitComplete}
-        />
-      )}
+      ))}
 
       {/* Rolled over section */}
       {overdueTodos.length > 0 && (
@@ -1582,16 +1592,15 @@ const styles = StyleSheet.create({
     color: '#666666', // inkMuted
     textAlign: 'center',
   },
-  // Optimistic quick-add card styles (processing state)
+  // Optimistic quick-add card - matches Today's Focus row styling
   optimisticCard: {
-    backgroundColor: LINEN_CREAM, // Match page background
+    backgroundColor: '#FDFCFA',
     borderRadius: 8,
-    paddingVertical: 2,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     marginBottom: 6,
-    borderWidth: 1,
-    borderColor: '#E5E2DA',
-    opacity: 0.8, // Slightly reduced opacity for processing state
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(46,85,64,0.12)',
   },
   optimisticContent: {
     flexDirection: 'row',
@@ -1600,7 +1609,7 @@ const styles = StyleSheet.create({
   },
   optimisticTextContainer: {
     flex: 1,
-    justifyContent: 'center',
+    marginRight: 12,
   },
   optimisticTitle: {
     fontSize: 14,
@@ -1610,16 +1619,9 @@ const styles = StyleSheet.create({
   },
   optimisticSubtitle: {
     fontSize: 12,
-    color: '#666',
+    color: '#2E5540',
     marginTop: 2,
     fontStyle: 'italic',
-  },
-  optimisticLoader: {
-    marginLeft: 8,
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   // Spacing for Overdue and Recent Drops sections
   sectionSpacing: {

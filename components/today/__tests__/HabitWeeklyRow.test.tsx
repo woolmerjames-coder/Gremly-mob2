@@ -130,6 +130,31 @@ describe('HabitWeeklyRow', () => {
 
       expect(screen.getByText('10 days strong')).toBeTruthy();
     });
+
+    it('renders week streak when streakUnit is "week"', () => {
+      render(<HabitWeeklyRow {...defaultProps} streakDays={4} streakUnit="week" />);
+
+      expect(screen.getByText('4 week streak')).toBeTruthy();
+    });
+
+    it('renders singular "week" for 1-week streak', () => {
+      render(<HabitWeeklyRow {...defaultProps} streakDays={1} streakUnit="week" />);
+
+      expect(screen.getByText('1 week streak')).toBeTruthy();
+    });
+
+    it('renders "weeks strong" for breaking habits with week streakUnit', () => {
+      render(
+        <HabitWeeklyRow
+          {...defaultProps}
+          isBreakingHabit={true}
+          streakDays={3}
+          streakUnit="week"
+        />,
+      );
+
+      expect(screen.getByText('3 weeks strong')).toBeTruthy();
+    });
   });
 
   describe('start date display', () => {
@@ -153,7 +178,7 @@ describe('HabitWeeklyRow', () => {
       expect(screen.getByText(/Started/)).toBeTruthy();
     });
 
-    it('does not render started date when startDate is before visible range', () => {
+    it('renders "Started" for past start dates', () => {
       render(
         <HabitWeeklyRow
           {...defaultProps}
@@ -170,7 +195,27 @@ describe('HabitWeeklyRow', () => {
         />,
       );
 
-      expect(screen.queryByText(/Started/)).toBeNull();
+      expect(screen.getByText(/Started/)).toBeTruthy();
+    });
+
+    it('renders "Starts" for future start dates', () => {
+      render(
+        <HabitWeeklyRow
+          {...defaultProps}
+          startDate="2025-12-20"
+          dayDates={[
+            '2025-12-09',
+            '2025-12-10',
+            '2025-12-11',
+            '2025-12-12',
+            '2025-12-13',
+            '2025-12-14',
+            '2025-12-15',
+          ]}
+        />,
+      );
+
+      expect(screen.getByText(/Starts/)).toBeTruthy();
     });
   });
 

@@ -82,6 +82,7 @@ export function useMindDropSubmit(): {
 } {
   const spaces = useGremlyStore((s) => s.spaces);
   const addPendingDrop = useGremlyStore((s) => s.addPendingDrop);
+  const removePendingDrop = useGremlyStore((s) => s.removePendingDrop);
   const incrementDropCount = useGremlyStore((s) => s.incrementDropCount);
 
   const submitLockRef = useRef(false);
@@ -206,6 +207,7 @@ export function useMindDropSubmit(): {
           localId: queuedDrop.localId,
           text: entityText,
           spaceId: resolvedSpaceId,
+          source: context.source,
           createdAt: queuedDrop.createdAt,
           bucket, // Heuristic prediction for immediate UI
           subtype: subtypeHint,
@@ -268,6 +270,8 @@ export function useMindDropSubmit(): {
           },
           onError: (localId, error) => {
             console.error('[MindDrop:Background] Processing failed', { localId, error });
+            // Remove pending drop so loading card doesn't stay forever
+            removePendingDrop(localId);
             if (testEnabled) {
               testLogger.assert('error', false, {
                 where: 'background_processing',

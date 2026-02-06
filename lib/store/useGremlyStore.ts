@@ -9,6 +9,7 @@ import type {
   Habit,
   Note,
   Space,
+  SpaceSuggestion,
   Tag,
   SpaceChat,
   SpaceChatMessage,
@@ -264,7 +265,7 @@ export interface HabitProgressRow {
 export interface PendingDropSegment {
   text: string;
   bucket: 'todo' | 'habit' | 'log';
-  subtype?: 'journal' | 'idea' | 'general' | null;
+  subtype?: 'journal' | 'idea' | 'event' | 'general' | null;
   likelyBucket?: string; // From Phase 0 (before Phase 1 confirmation)
   likelySubtype?: string; // From Phase 0
   confirmed?: boolean; // True after Phase 1 confirms the bucket
@@ -278,9 +279,10 @@ export interface PendingDrop {
   localId: string;
   text: string;
   spaceId: string | null;
+  source?: 'today' | 'space' | 'minddrop' | 'photo';
   createdAt: string;
   bucket?: 'todo' | 'habit' | 'log';
-  subtype?: 'journal' | 'idea' | 'general' | null;
+  subtype?: 'journal' | 'idea' | 'event' | 'general' | null;
   smartTitle?: string;
   tags?: string[];
   confirmationMessage?: string | null;
@@ -304,7 +306,7 @@ export interface PendingDrop {
   multiSegments?: PendingDropSegment[];
   multiSummary?: string; // Summary title for the multi-card
   dominantBucket?: 'todo' | 'habit' | 'log';
-  dominantSubtype?: 'journal' | 'idea' | 'general' | null;
+  dominantSubtype?: 'journal' | 'idea' | 'event' | 'general' | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // Phase 1: Ambiguity Detection (triggers Phase 1.5 in background)
@@ -393,6 +395,12 @@ interface GremlyState {
   spaceChatMessages: SpaceChatMessage[];
   milestones: Milestone[];
   pendingDrops: Map<string, PendingDrop>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // SPACE SUGGESTIONS STATE
+  // ═══════════════════════════════════════════════════════════════════
+  spaceSuggestions: SpaceSuggestion[];
+  spaceSuggestionsLoaded: boolean;
 
   // ═══════════════════════════════════════════════════════════════════
   // MORNING BRIEF STATE
@@ -501,11 +509,28 @@ interface GremlyState {
   restoreNote: (id: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
+  // CROSS-ENTITY MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  updateLinkedEventId: (
+    entityId: string,
+    entityType: 'todo' | 'note' | 'habit',
+    linkedEventId: string | null,
+  ) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
   // SPACE MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
   createSpace: (space: Partial<Space>) => Promise<Space>;
   updateSpace: (id: string, updates: Partial<Space>) => Promise<void>;
   deleteSpace: (id: string) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // SPACE SUGGESTIONS ACTIONS
+  // ═══════════════════════════════════════════════════════════════════
+  fetchSpaceSuggestions: () => Promise<void>;
+  acceptSuggestion: (suggestionId: string) => Promise<void>;
+  declineSuggestion: (suggestionId: string) => Promise<void>;
+  assignDropsToSpace: (dropIds: string[], spaceId: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // SPACE CHAT MUTATIONS
@@ -596,7 +621,7 @@ interface GremlyState {
     localId: string,
     classification: {
       bucket: 'todo' | 'habit' | 'log';
-      subtype: 'journal' | 'idea' | 'general' | null;
+      subtype: 'journal' | 'idea' | 'event' | 'general' | null;
     },
   ) => void;
   updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
@@ -606,6 +631,10 @@ interface GremlyState {
     segmentIndex: number,
     updates: Partial<PendingDropSegment>,
   ) => void;
+  /** Split a multi-drop into separate pending drops for each selected segment */
+  splitMultiDrop: (localId: string, items: import('../minddrop/types').MultiDropItem[]) => void;
+  /** Resolve a multi-drop as a single entity (keep as-is) */
+  resolveMultiDropAsSingle: (localId: string) => void;
   /** Update clarification fields on a synced entity by its drop_id (for Phase 1.5 race condition) */
   updateEntityClarificationByDropId: (
     dropId: string,
@@ -727,6 +756,24 @@ interface GremlyState {
   unhideCalendarEvent: (date: string, eventId: string) => void;
   unhideAllCalendarEventsForDate: (date: string) => void;
 
+  // Event Popup State & Actions
+  eventPopup: {
+    isOpen: boolean;
+    event: CalendarEvent | null;
+    dateContext: string | null;
+  };
+  openEventPopup: (event: CalendarEvent, dateContext: string) => void;
+  closeEventPopup: () => void;
+  hideEventFromPopup: () => void;
+
+  // Event Time Picker State & Actions
+  eventTimePicker: {
+    isOpen: boolean;
+    event: CalendarEvent | null;
+  };
+  openEventTimePicker: (event: CalendarEvent) => void;
+  closeEventTimePicker: () => void;
+
   // User Calendar Events (quick-add entries)
   setUserCalendarEvents: (events: UserCalendarEvent[]) => void;
   createUserCalendarEvent: (
@@ -760,6 +807,9 @@ const initialState = {
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
   milestones: [] as Milestone[],
+  // Space suggestions
+  spaceSuggestions: [] as SpaceSuggestion[],
+  spaceSuggestionsLoaded: false,
   dailyBrief: null as DailyBrief | null,
   dailyBriefLoading: false,
   isLoading: false,
@@ -796,6 +846,17 @@ const initialState = {
   hiddenCalendarEventsByDate: {} as Record<string, string[]>,
   eventTimeOverrides: {} as Record<string, { startAt: string; endAt: string }>,
   timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES,
+  // Event popup state (global popup for calendar events)
+  eventPopup: {
+    isOpen: false,
+    event: null as CalendarEvent | null,
+    dateContext: null as string | null,
+  },
+  // Event time picker state (global time editor for calendar events)
+  eventTimePicker: {
+    isOpen: false,
+    event: null as CalendarEvent | null,
+  },
   hiddenTodayIds: [] as string[],
   hiddenTodayDate: null as string | null,
 };
@@ -2325,6 +2386,48 @@ export const useGremlyStore = create<GremlyState>()(
       });
     },
 
+    updateLinkedEventId: async (
+      entityId: string,
+      entityType: 'todo' | 'note' | 'habit',
+      linkedEventId: string | null,
+    ) => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Optimistic update
+      if (entityType === 'todo') {
+        set({
+          todos: state.todos.map((t) =>
+            t.id === entityId ? { ...t, linked_event_id: linkedEventId, updated_at: now } : t,
+          ),
+        });
+      } else if (entityType === 'habit') {
+        set({
+          habits: state.habits.map((h) =>
+            h.id === entityId ? { ...h, linked_event_id: linkedEventId, updated_at: now } : h,
+          ),
+        });
+      } else {
+        set({
+          notes: state.notes.map((n) =>
+            n.id === entityId ? { ...n, linked_event_id: linkedEventId, updated_at: now } : n,
+          ),
+        });
+      }
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+      const { error } = await supabase
+        .from(table)
+        .update({ linked_event_id: linkedEventId, updated_at: now })
+        .eq('id', entityId);
+
+      if (error) {
+        console.error(`[GremlyStore] updateLinkedEventId failed:`, error);
+        // Revert on error - refetch would be better but this is simpler
+      }
+    },
+
     archiveNote: async (id: string, reason?: string) => {
       const now = new Date().toISOString();
       const prevNote = get().notes.find((n) => n.id === id);
@@ -2472,6 +2575,172 @@ export const useGremlyStore = create<GremlyState>()(
       }
 
       eventBus.emit('entity:deleted', { id, type: 'space', source: STORE_EVENT_SOURCE });
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SPACE SUGGESTIONS ACTIONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    fetchSpaceSuggestions: async () => {
+      const userId = get().userId;
+      if (!userId) {
+        console.log('[GremlyStore] fetchSpaceSuggestions: No userId, skipping');
+        return;
+      }
+
+      // Avoid refetching if already loaded
+      if (get().spaceSuggestionsLoaded) {
+        console.log('[GremlyStore] fetchSpaceSuggestions: Already loaded, skipping');
+        return;
+      }
+
+      console.log('[GremlyStore] Fetching space suggestions for user:', userId);
+
+      try {
+        const { data, error } = await supabase
+          .from('space_suggestions')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('status', 'pending')
+          .order('confidence', { ascending: false });
+
+        if (error) {
+          console.error('[GremlyStore] fetchSpaceSuggestions failed:', error);
+          return;
+        }
+
+        console.log('[GremlyStore] Fetched suggestions:', data?.length || 0);
+        set({ spaceSuggestions: data || [], spaceSuggestionsLoaded: true });
+      } catch (err) {
+        console.error('[GremlyStore] fetchSpaceSuggestions error:', err);
+      }
+    },
+
+    acceptSuggestion: async (suggestionId: string) => {
+      const suggestion = get().spaceSuggestions.find((s) => s.id === suggestionId);
+      if (!suggestion) return;
+
+      const now = new Date().toISOString();
+
+      // 1. OPTIMISTIC UPDATE - remove from local state
+      set((state) => ({
+        spaceSuggestions: state.spaceSuggestions.filter((s) => s.id !== suggestionId),
+      }));
+
+      // 2. SYNC TO SUPABASE
+      const { error } = await supabase
+        .from('space_suggestions')
+        .update({ status: 'accepted', updated_at: now })
+        .eq('id', suggestionId);
+
+      if (error) {
+        console.error('[GremlyStore] acceptSuggestion failed:', error);
+        // Rollback on error
+        set((state) => ({
+          spaceSuggestions: [...state.spaceSuggestions, suggestion],
+        }));
+        throw error;
+      }
+    },
+
+    declineSuggestion: async (suggestionId: string) => {
+      const suggestion = get().spaceSuggestions.find((s) => s.id === suggestionId);
+      if (!suggestion) return;
+
+      const now = new Date().toISOString();
+
+      // 1. OPTIMISTIC UPDATE - remove from local state
+      set((state) => ({
+        spaceSuggestions: state.spaceSuggestions.filter((s) => s.id !== suggestionId),
+      }));
+
+      // 2. SYNC TO SUPABASE
+      const { error } = await supabase
+        .from('space_suggestions')
+        .update({ status: 'dismissed', updated_at: now })
+        .eq('id', suggestionId);
+
+      if (error) {
+        console.error('[GremlyStore] declineSuggestion failed:', error);
+        // Rollback on error
+        set((state) => ({
+          spaceSuggestions: [...state.spaceSuggestions, suggestion],
+        }));
+        throw error;
+      }
+    },
+
+    assignDropsToSpace: async (dropIds: string[], spaceId: string) => {
+      const now = new Date().toISOString();
+      const state = get();
+
+      // Build previous state for rollback
+      const prevTodos = state.todos.filter((t) => dropIds.includes(t.id));
+      const prevNotes = state.notes.filter((n) => dropIds.includes(n.id));
+      const prevHabits = state.habits.filter((h) => dropIds.includes(h.id));
+
+      // 1. OPTIMISTIC UPDATE - update space_id on all matched entities
+      set((state) => ({
+        todos: state.todos.map((t) =>
+          dropIds.includes(t.id) ? { ...t, space_id: spaceId, updated_at: now } : t,
+        ),
+        notes: state.notes.map((n) =>
+          dropIds.includes(n.id) ? { ...n, space_id: spaceId, updated_at: now } : n,
+        ),
+        habits: state.habits.map((h) =>
+          dropIds.includes(h.id) ? { ...h, space_id: spaceId, updated_at: now } : h,
+        ),
+      }));
+
+      // 2. SYNC TO SUPABASE - update each table in sequence
+      // (Using sequential updates for better error handling)
+      const errors: any[] = [];
+
+      // Todos
+      const todoIds = prevTodos.map((t) => t.id);
+      if (todoIds.length > 0) {
+        const { error } = await supabase
+          .from('todos')
+          .update({ space_id: spaceId, updated_at: now })
+          .in('id', todoIds);
+        if (error) errors.push(error);
+      }
+
+      // Notes
+      const noteIds = prevNotes.map((n) => n.id);
+      if (noteIds.length > 0) {
+        const { error } = await supabase
+          .from('notes')
+          .update({ space_id: spaceId, updated_at: now })
+          .in('id', noteIds);
+        if (error) errors.push(error);
+      }
+
+      // Habits
+      const habitIds = prevHabits.map((h) => h.id);
+      if (habitIds.length > 0) {
+        const { error } = await supabase
+          .from('habits')
+          .update({ space_id: spaceId, updated_at: now })
+          .in('id', habitIds);
+        if (error) errors.push(error);
+      }
+
+      if (errors.length > 0) {
+        console.error('[GremlyStore] assignDropsToSpace failed:', errors);
+        // 3. ROLLBACK ON ERROR
+        set((state) => ({
+          todos: state.todos.map((t) => prevTodos.find((pt) => pt.id === t.id) || t),
+          notes: state.notes.map((n) => prevNotes.find((pn) => pn.id === n.id) || n),
+          habits: state.habits.map((h) => prevHabits.find((ph) => ph.id === h.id) || h),
+        }));
+        throw new Error('Failed to assign drops to space');
+      }
+
+      // Emit events for updated entities
+      dropIds.forEach((id) => {
+        eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
+      });
     },
 
     // ═══════════════════════════════════════════════════════════════════
@@ -3553,6 +3822,43 @@ export const useGremlyStore = create<GremlyState>()(
       });
     },
 
+    // Event Popup Actions (global popup for calendar events)
+    openEventPopup: (event, dateContext) => {
+      set({
+        eventPopup: { isOpen: true, event, dateContext },
+      });
+    },
+
+    closeEventPopup: () => {
+      set({
+        eventPopup: { isOpen: false, event: null, dateContext: null },
+      });
+    },
+
+    hideEventFromPopup: () => {
+      const { eventPopup, hideCalendarEvent } = get();
+      if (eventPopup.event && eventPopup.dateContext) {
+        const eventId = `${eventPopup.event.provider}-${eventPopup.event.providerEventId}`;
+        hideCalendarEvent(eventPopup.dateContext, eventId);
+      }
+      set({
+        eventPopup: { isOpen: false, event: null, dateContext: null },
+      });
+    },
+
+    // Event Time Picker Actions (global time editor for calendar events)
+    openEventTimePicker: (event) => {
+      set({
+        eventTimePicker: { isOpen: true, event },
+      });
+    },
+
+    closeEventTimePicker: () => {
+      set({
+        eventTimePicker: { isOpen: false, event: null },
+      });
+    },
+
     // ═══════════════════════════════════════════════════════════════════
     // USER CALENDAR EVENTS (Quick-add entries)
     // ═══════════════════════════════════════════════════════════════════
@@ -4247,7 +4553,7 @@ export const useGremlyStore = create<GremlyState>()(
       localId: string,
       classification: {
         bucket: 'todo' | 'habit' | 'log';
-        subtype: 'journal' | 'idea' | 'general' | null;
+        subtype: 'journal' | 'idea' | 'event' | 'general' | null;
       },
     ) => {
       set((state) => {
@@ -4328,6 +4634,157 @@ export const useGremlyStore = create<GremlyState>()(
         newPending.set(localId, updated);
 
         return { pendingDrops: newPending };
+      });
+    },
+
+    /**
+     * Split a multi-drop note into separate entities for each selected segment.
+     * The original multi-drop note is archived and individual entities are created.
+     * Works with notes that have views.is_multi=true (already synced to Supabase).
+     */
+    splitMultiDrop: (noteId: string, items: import('../minddrop/types').MultiDropItem[]) => {
+      set((state) => {
+        // Find the note by ID
+        const note = state.notes.find((n) => n.id === noteId);
+        if (!note) {
+          console.warn('[GremlyStore] splitMultiDrop: note not found', { noteId });
+          return state;
+        }
+
+        // Archive the original multi-drop note
+        const now = new Date().toISOString();
+        const updatedNotes = state.notes.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                archived: true,
+                archived_at: now,
+                archived_reason: 'split' as const,
+                views: { ...n.views, minddrop_stage: 'enriched' as const },
+                updated_at: now,
+              }
+            : n,
+        );
+
+        // Create new notes for each selected item
+        const newNotes: typeof state.notes = [];
+        items.forEach((item, index) => {
+          const newNote = {
+            id: `${noteId}-split-${index}-${Date.now()}`,
+            type: 'note' as const,
+            owner_id: note.owner_id,
+            title: item.smart_title ?? item.preview_title ?? item.text.substring(0, 50),
+            body: item.text,
+            subtype: 'catchall' as const,
+            space_id: note.space_id,
+            ai_placed: true,
+            origin: note.origin,
+            views: {
+              minddrop_stage: 'enriched',
+              ai_pending: false,
+              bucket: item.bucket,
+              subtype: item.subtype,
+            },
+            created_at: now,
+            updated_at: now,
+          };
+          newNotes.push(newNote as any);
+        });
+
+        console.log('[GremlyStore] splitMultiDrop: split into', items.length, 'notes');
+
+        // Also update Supabase asynchronously
+        (async () => {
+          try {
+            // Archive the original note
+            await supabase
+              .from('notes')
+              .update({
+                archived: true,
+                archived_at: now,
+                archived_reason: 'split',
+                views: { ...note.views, minddrop_stage: 'resolved' },
+                updated_at: now,
+              })
+              .eq('id', noteId);
+
+            // Insert new notes
+            for (const newNote of newNotes) {
+              await supabase.from('notes').insert({
+                owner_id: newNote.owner_id,
+                title: newNote.title,
+                body: newNote.body,
+                subtype: newNote.subtype,
+                space_id: newNote.space_id,
+                ai_placed: newNote.ai_placed,
+                origin: newNote.origin,
+                views: newNote.views,
+                created_at: newNote.created_at,
+                updated_at: newNote.updated_at,
+              });
+            }
+            console.log('[GremlyStore] splitMultiDrop: Supabase updated');
+          } catch (error) {
+            console.error('[GremlyStore] splitMultiDrop: Supabase error', error);
+          }
+        })();
+
+        return {
+          notes: [...updatedNotes.filter((n) => n.id !== noteId || n.archived), ...newNotes],
+        };
+      });
+    },
+
+    /**
+     * Resolve a multi-drop note as a single entity (keep as-is).
+     * Updates the minddrop_stage to 'resolved' so it won't show in the multi-split step again.
+     */
+    resolveMultiDropAsSingle: (noteId: string) => {
+      set((state) => {
+        const note = state.notes.find((n) => n.id === noteId);
+        if (!note) {
+          console.warn('[GremlyStore] resolveMultiDropAsSingle: note not found', { noteId });
+          return state;
+        }
+
+        const now = new Date().toISOString();
+        const updatedNotes = state.notes.map((n) =>
+          n.id === noteId
+            ? {
+                ...n,
+                views: {
+                  ...n.views,
+                  minddrop_stage: 'enriched' as const,
+                  is_multi: false, // Clear the multi flag
+                },
+                updated_at: now,
+              }
+            : n,
+        );
+
+        console.log('[GremlyStore] resolveMultiDropAsSingle: kept as single', { noteId });
+
+        // Also update Supabase asynchronously
+        (async () => {
+          try {
+            await supabase
+              .from('notes')
+              .update({
+                views: {
+                  ...note.views,
+                  minddrop_stage: 'resolved',
+                  is_multi: false,
+                },
+                updated_at: now,
+              })
+              .eq('id', noteId);
+            console.log('[GremlyStore] resolveMultiDropAsSingle: Supabase updated');
+          } catch (error) {
+            console.error('[GremlyStore] resolveMultiDropAsSingle: Supabase error', error);
+          }
+        })();
+
+        return { notes: updatedNotes };
       });
     },
 
@@ -6678,10 +7135,33 @@ export const selectMorningBriefItems = (date: string) => (state: GremlyState) =>
     // Note: Habits don't have completed_at - completion is tracked via habitProgress
     // Add days_active logic here if needed
   );
-  const eventNotes = state.notes.filter((n) => !n.archived && n.target_date === date);
+  // Notes with target_date (excluding event subtype - those are handled separately as keyDateEvents)
+  const eventNotes = state.notes.filter(
+    (n) => !n.archived && n.target_date === date && n.subtype !== 'event',
+  );
   const reminderNotes = state.notes.filter((n) => !n.archived && n.reminder_date === date);
   const calendarEvents = state.calendarEvents[date] ?? [];
   const userCalendarEvents = state.userCalendarEvents.filter((e) => e.event_date === date);
 
-  return { todos, habits, eventNotes, reminderNotes, calendarEvents, userCalendarEvents };
+  // Key Date events (subtype='event') - includes single-day and multi-day events spanning this date
+  const keyDateEvents = state.notes.filter((n) => {
+    if (n.subtype !== 'event' || n.archived) return false;
+    // Single day event: target_date matches
+    if (n.target_date === date) return true;
+    // Multi-day event: date falls within range
+    if (n.target_date && n.end_date) {
+      return date >= n.target_date && date <= n.end_date;
+    }
+    return false;
+  });
+
+  return {
+    todos,
+    habits,
+    eventNotes,
+    reminderNotes,
+    calendarEvents,
+    userCalendarEvents,
+    keyDateEvents,
+  };
 };

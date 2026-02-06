@@ -22,6 +22,14 @@ export interface SpaceContext {
   todos: Array<{ title: string; completed: boolean; due_date?: string | null }>;
   habits: Array<{ name: string; frequency: string; completionSummary?: string }>;
   guides: Array<{ title: string }>;
+  events?: Array<{
+    name: string;
+    date: string;
+    endDate?: string;
+    time?: string;
+    daysUntil: number;
+    isPast: boolean;
+  }>;
   summary: {
     todoCount: number;
     completedTodoCount: number;
@@ -43,12 +51,42 @@ export function buildSpaceContext(params: {
   }>;
   habits: Array<{ name: string; frequency?: string; completionSummary?: string }>;
   notes: Array<{ name?: string; title?: string }>;
+  events?: Array<{
+    name?: string;
+    title?: string;
+    target_date?: string | null;
+    end_date?: string | null;
+    event_time?: string | null;
+  }>;
 }): SpaceContext | null {
-  const { space, milestone, meta, countdown, todos, habits, notes } = params;
+  const { space, milestone, meta, countdown, todos, habits, notes, events } = params;
 
   if (!space) return null;
 
   const completedTodos = todos.filter((t) => !!t.completed_at);
+
+  // Process events with days until calculation
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const processedEvents = (events || [])
+    .filter((e) => e.target_date)
+    .map((e) => {
+      const eventDate = new Date(e.target_date!);
+      eventDate.setHours(0, 0, 0, 0);
+      const diffMs = eventDate.getTime() - today.getTime();
+      const daysUntil = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+      return {
+        name: e.name || e.title || 'Untitled',
+        date: e.target_date!,
+        endDate: e.end_date || undefined,
+        time: e.event_time || undefined,
+        daysUntil,
+        isPast: daysUntil < 0,
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   return {
     spaceName: space.name,
@@ -79,6 +117,7 @@ export function buildSpaceContext(params: {
     guides: notes.map((n) => ({
       title: n.name || n.title || 'Untitled',
     })),
+    events: processedEvents.length > 0 ? processedEvents : undefined,
     summary: {
       todoCount: todos.length,
       completedTodoCount: completedTodos.length,
@@ -106,6 +145,32 @@ export function formatSpaceContextForPrompt(context: SpaceContext): string {
 
   if (context.meta?.why) {
     lines.push(`Why: ${context.meta.why}`);
+  }
+
+  // Key dates/events
+  if (context.events && context.events.length > 0) {
+    lines.push('');
+    lines.push('Key dates:');
+    context.events.slice(0, 5).forEach((e) => {
+      const dateStr = e.endDate ? `${e.date} - ${e.endDate}` : e.date;
+      const timeStr = e.time ? ` at ${e.time}` : '';
+
+      let status: string;
+      if (e.isPast) {
+        status = `${Math.abs(e.daysUntil)} days ago`;
+      } else if (e.daysUntil === 0) {
+        status = 'today';
+      } else if (e.daysUntil === 1) {
+        status = 'tomorrow';
+      } else {
+        status = `in ${e.daysUntil} days`;
+      }
+
+      lines.push(`- ${e.name} (${dateStr}${timeStr}) — ${status}`);
+    });
+    if (context.events.length > 5) {
+      lines.push(`  (+${context.events.length - 5} more)`);
+    }
   }
 
   // Current habits

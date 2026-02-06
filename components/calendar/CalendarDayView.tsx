@@ -9,6 +9,9 @@ import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { getDateService } from '../../lib/date';
 import { useCalendarItemsForDate, type CalendarItem } from '../../lib/store/calendarSelectors';
+import { useEventsForDate } from '../../lib/store/selectors';
+import { SpaceKeyDateRow } from './SpaceKeyDateRow';
+import type { Note } from '../../lib/types';
 
 // ═══════════════════════════════════════════════════════════════════
 // BRAND COLORS
@@ -31,6 +34,7 @@ const BRAND = {
 interface CalendarDayViewProps {
   selectedDate: string; // YYYY-MM-DD
   onItemPress: (item: CalendarItem) => void;
+  onKeyDatePress?: (event: Note) => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -60,19 +64,33 @@ function getSubtitle(item: CalendarItem): string {
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 
-export default function CalendarDayView({ selectedDate, onItemPress }: CalendarDayViewProps) {
+export default function CalendarDayView({
+  selectedDate,
+  onItemPress,
+  onKeyDatePress,
+}: CalendarDayViewProps) {
   const dateService = getDateService();
   const items = useCalendarItemsForDate(selectedDate);
+  const keyDateEvents = useEventsForDate(selectedDate);
 
-  // Split into timed and untimed
+  // Split key dates into timed and all-day
+  const timedKeyDates = keyDateEvents.filter(
+    (e) => e.event_time !== null && e.event_time !== undefined,
+  );
+  const allDayKeyDates = keyDateEvents.filter((e) => !e.event_time);
+
+  // Split items into timed and untimed
   const timedItems = items.filter((i) => i.time !== null);
   const untimedItems = items.filter((i) => i.time === null);
 
   // Format the header date
   const headerDate = dateService.formatForOverlay(selectedDate);
 
+  // Check if there's any content to show
+  const hasContent = items.length > 0 || keyDateEvents.length > 0;
+
   // Empty state
-  if (items.length === 0) {
+  if (!hasContent) {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.emptyContent}>
         <Text style={styles.headerDate}>{headerDate}</Text>
@@ -87,6 +105,21 @@ export default function CalendarDayView({ selectedDate, onItemPress }: CalendarD
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.headerDate}>{headerDate}</Text>
+
+      {/* All-day Key Dates */}
+      {allDayKeyDates.length > 0 && (
+        <>
+          <Text style={styles.sectionDivider}>All Day</Text>
+          {allDayKeyDates.map((event) => (
+            <SpaceKeyDateRow key={event.id} event={event} onPress={(e) => onKeyDatePress?.(e)} />
+          ))}
+        </>
+      )}
+
+      {/* Timed Key Dates */}
+      {timedKeyDates.map((event) => (
+        <SpaceKeyDateRow key={event.id} event={event} onPress={(e) => onKeyDatePress?.(e)} />
+      ))}
 
       {/* Timed items */}
       {timedItems.map((item) => (

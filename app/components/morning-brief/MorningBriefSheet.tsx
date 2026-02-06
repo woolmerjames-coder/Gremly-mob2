@@ -18,17 +18,23 @@ import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlySto
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
 import { useTodayCapacity, useTodayCalendarEvents } from '../../../lib/store/capacitySelectors';
+import { useTodayPendingDrops, useEventsForDate } from '../../../lib/store/selectors';
 import { getTimeBlockBoundaries } from '../../../lib/capacity';
+import { getTimeBlockForHour } from '../../../lib/now/timeBlockHelpers';
+import type { Note } from '../../../lib/types';
 import type { TimeBlock, TimeBlockPreferences } from '../../../lib/capacity';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 import { MiniSweepGate } from './MiniSweepGate';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
+import { GlobalEventPopup } from '../../../components/calendar/GlobalEventPopup';
+import { GlobalEventTimePicker } from '../../../components/calendar/GlobalEventTimePicker';
 import {
   MorningBriefHeader,
   MorningBriefFooter,
   TimeBlockSection,
   TimeBlockPicker,
   OnYourPlateSection,
+  TodaysKeyDatesSection,
   TimeEstimatePicker,
   OrganizeButton,
   type TaskItemData,
@@ -42,6 +48,8 @@ interface MorningBriefSheetProps {
   onQuickAddSubmit?: (text: string) => void;
   /** Handler for 'Prefer to add manually' */
   onQuickAddManual?: () => void;
+  /** Handler for when a Key Date event is pressed */
+  onKeyDatePress?: (event: Note) => void;
 }
 
 /**
@@ -49,6 +57,49 @@ interface MorningBriefSheetProps {
  */
 function getTodayDateString(): string {
   return getDateService().getCurrentDate();
+}
+
+/**
+ * Group key date events by time block based on event_time
+ * Events without event_time go to 'flexible' (On Your Plate section)
+ */
+type KeyDateTimeBlock = 'morning' | 'day' | 'evening' | 'flexible';
+
+function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<KeyDateTimeBlock, Note[]> {
+  const grouped: Record<KeyDateTimeBlock, Note[]> = {
+    morning: [],
+    day: [],
+    evening: [],
+    flexible: [],
+  };
+
+  for (const event of keyDates) {
+    if (event.event_time) {
+      // Parse HH:mm time string to get hour
+      const [hourStr] = event.event_time.split(':');
+      const hour = parseInt(hourStr, 10);
+      if (!isNaN(hour)) {
+        const block = getTimeBlockForHour(hour);
+        // Map 'afternoon' -> 'day' and 'anytime' -> 'flexible'
+        if (block === 'afternoon') {
+          grouped.day.push(event);
+        } else if (block === 'morning') {
+          grouped.morning.push(event);
+        } else if (block === 'evening') {
+          grouped.evening.push(event);
+        } else {
+          grouped.flexible.push(event);
+        }
+      } else {
+        grouped.flexible.push(event);
+      }
+    } else {
+      // No event_time - goes to flexible (On Your Plate)
+      grouped.flexible.push(event);
+    }
+  }
+
+  return grouped;
 }
 
 /**
@@ -81,6 +132,7 @@ export function MorningBriefSheet({
   onComplete,
   onQuickAddSubmit,
   onQuickAddManual,
+  onKeyDatePress,
 }: MorningBriefSheetProps) {
   const insets = useSafeAreaInsets();
   const today = getTodayDateString();
@@ -102,6 +154,27 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
   const capacity = useTodayCapacity();
   const calendarEvents = useTodayCalendarEvents();
+
+  // ─────────────────────────────────────────────────────────────────
+  // KEY DATE EVENTS (from Notes with subtype='event')
+  // ─────────────────────────────────────────────────────────────────
+  const todayKeyDates = useEventsForDate(today);
+  const spaces = useGremlyStore((s) => s.spaces);
+
+  // Group key dates by time block
+  const keyDatesByBlock = useMemo(() => {
+    return groupKeyDatesByTimeBlock(todayKeyDates);
+  }, [todayKeyDates]);
+
+  // Helper to get space name for a key date event
+  const getSpaceName = useCallback(
+    (spaceId: string | null | undefined): string | undefined => {
+      if (!spaceId) return undefined;
+      const space = spaces.find((s) => s.id === spaceId);
+      return space?.name;
+    },
+    [spaces],
+  );
 
   // ─────────────────────────────────────────────────────────────────
   // MINI SWEEP GATE
@@ -132,19 +205,11 @@ export function MorningBriefSheet({
     () => hiddenCalendarEventsByDate[today] ?? [],
     [hiddenCalendarEventsByDate, today],
   );
-  const hideCalendarEvent = useGremlyStore((s) => s.hideCalendarEvent);
 
   // ─────────────────────────────────────────────────────────────────
   // HIDDEN TODAY (Not Today - todos/habits hidden for the day)
   // ─────────────────────────────────────────────────────────────────
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
-
-  const handleHideEvent = useCallback(
-    (eventId: string) => {
-      hideCalendarEvent(today, eventId);
-    },
-    [hideCalendarEvent, today],
-  );
 
   // ─────────────────────────────────────────────────────────────────
   // TASK DATA TRANSFORMATION
@@ -194,6 +259,9 @@ export function MorningBriefSheet({
     }),
     [],
   );
+
+  // Pending drops from store - shows loading cards while pipeline runs
+  const todayPendingDrops = useTodayPendingDrops();
 
   // Group tasks by time block
   const tasksByBlock = useMemo(() => {
@@ -262,7 +330,10 @@ export function MorningBriefSheet({
   const [organizeReasoning, setOrganizeReasoning] = useState<string[] | null>(null);
   const [showReasoningModal, setShowReasoningModal] = useState(false);
   // Animation state for card exit animations
-  const [animatingAssignments, setAnimatingAssignments] = useState<Array<{ taskId: string; block: string }> | null>(null);
+  const [animatingAssignments, setAnimatingAssignments] = useState<Array<{
+    taskId: string;
+    block: string;
+  }> | null>(null);
 
   // Summary fade-in animation
   const summaryOpacity = useRef(new Animated.Value(0)).current;
@@ -279,9 +350,12 @@ export function MorningBriefSheet({
     }
   }, [organizeMessage, summaryOpacity]);
 
-  const handleAnimationStart = useCallback((assignments: Array<{ taskId: string; block: string }>) => {
-    setAnimatingAssignments(assignments);
-  }, []);
+  const handleAnimationStart = useCallback(
+    (assignments: Array<{ taskId: string; block: string }>) => {
+      setAnimatingAssignments(assignments);
+    },
+    [],
+  );
 
   const handleAnimationComplete = useCallback(() => {
     setAnimatingAssignments(null);
@@ -441,6 +515,13 @@ export function MorningBriefSheet({
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
             >
+              {/* Today's Key Dates - informational anchors for the day */}
+              <TodaysKeyDatesSection
+                keyDates={keyDatesByBlock.flexible}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
+              />
+
               {/* On Your Plate - Flexible/Unassigned Tasks */}
               <OnYourPlateSection
                 tasks={tasksByBlock.flexible}
@@ -448,6 +529,7 @@ export function MorningBriefSheet({
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
                 onAddPress={handleAddPress}
+                pendingDrops={todayPendingDrops}
               />
 
               {/* Help Me Organize Button */}
@@ -491,15 +573,14 @@ export function MorningBriefSheet({
                 animationType="fade"
                 onRequestClose={() => setShowReasoningModal(false)}
               >
-                <Pressable
-                  style={styles.modalOverlay}
-                  onPress={() => setShowReasoningModal(false)}
-                >
+                <Pressable style={styles.modalOverlay} onPress={() => setShowReasoningModal(false)}>
                   <View style={styles.reasoningModal}>
                     <Text style={styles.reasoningTitle}>Why this plan?</Text>
                     <View style={styles.reasoningList}>
                       {organizeReasoning?.map((reason, index) => (
-                        <Text key={index} style={styles.reasoningItem}>• {reason}</Text>
+                        <Text key={index} style={styles.reasoningItem}>
+                          • {reason}
+                        </Text>
                       ))}
                     </View>
                     <Pressable
@@ -519,11 +600,14 @@ export function MorningBriefSheet({
               <TimeBlockSection
                 capacity={capacity.blocks.morning}
                 events={getEventsForBlock(calendarEvents, 'morning', today, timeBlockPreferences)}
+                keyDateEvents={keyDatesByBlock.morning}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
                 tasks={tasksByBlock.morning}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
-                onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
+                dateContext={today}
               />
 
               <View style={styles.blockDivider} />
@@ -531,11 +615,14 @@ export function MorningBriefSheet({
               <TimeBlockSection
                 capacity={capacity.blocks.day}
                 events={getEventsForBlock(calendarEvents, 'day', today, timeBlockPreferences)}
+                keyDateEvents={keyDatesByBlock.day}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
                 tasks={tasksByBlock.afternoon}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
-                onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
+                dateContext={today}
               />
 
               <View style={styles.blockDivider} />
@@ -543,11 +630,14 @@ export function MorningBriefSheet({
               <TimeBlockSection
                 capacity={capacity.blocks.evening}
                 events={getEventsForBlock(calendarEvents, 'evening', today, timeBlockPreferences)}
+                keyDateEvents={keyDatesByBlock.evening}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
                 tasks={tasksByBlock.evening}
                 onTaskPress={handleTaskPress}
                 onTimePress={handleTimePress}
-                onHideEvent={handleHideEvent}
                 hiddenEventIds={hiddenEventIds}
+                dateContext={today}
               />
             </ScrollView>
 
@@ -580,6 +670,12 @@ export function MorningBriefSheet({
               onSubmit={handleQuickAddSubmit}
               onPressManualAdd={handleQuickAddManual}
             />
+
+            {/* Global Event Popup - must be inside MorningBriefSheet Modal to appear on top */}
+            <GlobalEventPopup />
+
+            {/* Global Event Time Picker - must be inside MorningBriefSheet Modal to appear on top */}
+            <GlobalEventTimePicker />
           </>
         )}
       </View>

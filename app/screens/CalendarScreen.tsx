@@ -34,6 +34,7 @@ import {
   timeWindowToBlock,
   type TimeBlock,
 } from '../../lib/now/timeBlockHelpers';
+import { type EventTimeOverride } from '../../lib/capacity';
 import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 import type { Todo, Habit } from '../../lib/types';
 
@@ -55,21 +56,29 @@ const SECTION_CONFIG: Record<TimeBlock, { label: string; color: string; Icon: Lu
   anytime: { label: 'ANY TIME', color: '#999999', Icon: Clock },
 };
 
+// Stable empty object to prevent re-renders
+const EMPTY_TIME_OVERRIDES: Record<string, EventTimeOverride> = {};
+
 // ═════════════════════════════════════════════════════════════════════════════
 // ROW COMPONENTS
 // ═════════════════════════════════════════════════════════════════════════════
 
 interface CalendarEventRowProps {
   event: CalendarEvent;
+  onPress?: () => void;
   isLast?: boolean;
+  timeOverride?: { startAt: string; endAt: string };
 }
 
-function CalendarEventRow({ event, isLast }: CalendarEventRowProps) {
+function CalendarEventRow({ event, onPress, isLast, timeOverride }: CalendarEventRowProps) {
   // Format time range
   const timeDisplay = useMemo(() => {
     if (event.isAllDay) return 'All day';
-    const start = new Date(event.startAt);
-    const end = new Date(event.endAt);
+
+    // Use override times if available
+    const start = timeOverride ? new Date(timeOverride.startAt) : new Date(event.startAt);
+    const end = timeOverride ? new Date(timeOverride.endAt) : new Date(event.endAt);
+
     const startStr = start.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -81,22 +90,28 @@ function CalendarEventRow({ event, isLast }: CalendarEventRowProps) {
       hour12: true,
     });
     return `${startStr} - ${endStr}`;
-  }, [event.isAllDay, event.startAt, event.endAt]);
+  }, [event.isAllDay, event.startAt, event.endAt, timeOverride]);
 
   // Calculate duration
   const duration = useMemo(() => {
     if (event.isAllDay) return null;
-    const start = new Date(event.startAt);
-    const end = new Date(event.endAt);
+
+    // Use override times if available
+    const start = timeOverride ? new Date(timeOverride.startAt) : new Date(event.startAt);
+    const end = timeOverride ? new Date(timeOverride.endAt) : new Date(event.endAt);
+
     const mins = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
     if (mins < 60) return `${mins} min`;
     const hrs = Math.floor(mins / 60);
     const remainingMins = mins % 60;
     return remainingMins > 0 ? `${hrs} hr ${remainingMins} min` : `${hrs} hr`;
-  }, [event.isAllDay, event.startAt, event.endAt]);
+  }, [event.isAllDay, event.startAt, event.endAt, timeOverride]);
 
   return (
-    <View style={[sectionStyles.eventRow, !isLast && sectionStyles.rowBorder]}>
+    <Pressable
+      style={[sectionStyles.eventRow, !isLast && sectionStyles.rowBorder]}
+      onPress={onPress}
+    >
       <Calendar size={16} color={COLORS.inkMuted} style={sectionStyles.eventIcon} />
       <View style={sectionStyles.eventContent}>
         <View style={sectionStyles.eventHeader}>
@@ -112,7 +127,7 @@ function CalendarEventRow({ event, isLast }: CalendarEventRowProps) {
           </Text>
         )}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -168,6 +183,8 @@ interface CalendarScreenSectionProps {
   habits: Habit[];
   onPressTodo: (todo: Todo) => void;
   onPressHabit: (habit: Habit) => void;
+  onPressEvent: (event: CalendarEvent) => void;
+  eventTimeOverrides: Record<string, EventTimeOverride>;
 }
 
 function CalendarScreenSection({
@@ -178,6 +195,8 @@ function CalendarScreenSection({
   habits,
   onPressTodo,
   onPressHabit,
+  onPressEvent,
+  eventTimeOverrides,
 }: CalendarScreenSectionProps) {
   const isEmpty = events.length === 0 && todos.length === 0 && habits.length === 0;
   if (isEmpty) return null;
@@ -193,13 +212,20 @@ function CalendarScreenSection({
       </View>
 
       {/* Calendar events */}
-      {events.map((event, idx) => (
-        <CalendarEventRow
-          key={event.id}
-          event={event}
-          isLast={idx === events.length - 1 && todos.length === 0 && habits.length === 0}
-        />
-      ))}
+      {events.map((event, idx) => {
+        const eventId = `${event.provider}-${event.providerEventId}`;
+        const override = eventTimeOverrides[eventId];
+
+        return (
+          <CalendarEventRow
+            key={event.id}
+            event={event}
+            onPress={() => onPressEvent(event)}
+            isLast={idx === events.length - 1 && todos.length === 0 && habits.length === 0}
+            timeOverride={override}
+          />
+        );
+      })}
 
       {/* Todos */}
       {todos.map((todo, idx) => (
@@ -398,6 +424,10 @@ export default function CalendarScreen() {
 
   // Calendar events for selected date
   const calendarEventsMap = useGremlyStore((s) => s.calendarEvents);
+  const calendarConnections = useGremlyStore((s) => s.calendarConnections);
+  const hasCalendarConnected = calendarConnections.some((c) => c.isConnected);
+  const openEventPopup = useGremlyStore((s) => s.openEventPopup);
+  const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
   const calendarEvents = useMemo(
     () => calendarEventsMap[selectedDate] ?? [],
     [calendarEventsMap, selectedDate],
@@ -694,6 +724,8 @@ export default function CalendarScreen() {
             habits={groupedData.morning.habits}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
+            onPressEvent={(event) => openEventPopup(event, selectedDate)}
+            eventTimeOverrides={eventTimeOverrides}
           />
         )}
 
@@ -707,6 +739,8 @@ export default function CalendarScreen() {
             habits={groupedData.afternoon.habits}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
+            onPressEvent={(event) => openEventPopup(event, selectedDate)}
+            eventTimeOverrides={eventTimeOverrides}
           />
         )}
 
@@ -720,6 +754,8 @@ export default function CalendarScreen() {
             habits={groupedData.evening.habits}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
+            onPressEvent={(event) => openEventPopup(event, selectedDate)}
+            eventTimeOverrides={eventTimeOverrides}
           />
         )}
 
@@ -733,6 +769,8 @@ export default function CalendarScreen() {
             habits={groupedData.anytime.habits}
             onPressTodo={handlePressTodo}
             onPressHabit={handlePressHabit}
+            onPressEvent={(event) => openEventPopup(event, selectedDate)}
+            eventTimeOverrides={eventTimeOverrides}
           />
         )}
 
@@ -746,6 +784,15 @@ export default function CalendarScreen() {
               <Text style={styles.emptyEmoji}>🌿</Text>
               <Text style={styles.emptyTitle}>Nothing scheduled</Text>
               <Text style={styles.emptySubtext}>Enjoy the open day</Text>
+              {!hasCalendarConnected && (
+                <Pressable
+                  style={styles.connectCalendarChip}
+                  onPress={() => navigation.navigate('Settings' as never)}
+                >
+                  <Calendar size={14} color={COLORS.mossGreen} />
+                  <Text style={styles.connectCalendarChipText}>Connect Calendar</Text>
+                </Pressable>
+              )}
             </View>
           )}
 
@@ -876,6 +923,23 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontSize: 14,
     color: COLORS.inkMuted,
+  },
+  connectCalendarChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    backgroundColor: '#E8F0EB',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.mossGreen,
+  },
+  connectCalendarChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.mossGreen,
   },
   completedSection: {
     marginTop: 16,

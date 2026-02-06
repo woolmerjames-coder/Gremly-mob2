@@ -16,7 +16,7 @@ export type RecordType = 'habit' | 'todo' | 'note';
  * - 'list': checklist-style notes (legacy, rarely used)
  * - 'reference': reference materials (legacy, rarely used)
  */
-export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference';
+export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference' | 'event';
 
 export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 export type LegacyCanonicalType = 'note' | 'journal';
@@ -71,7 +71,7 @@ export interface ClarificationFields {
  * - 'idea' → 'idea'
  * - 'general' → 'catchall'
  */
-export type LogSubtype = 'journal' | 'idea' | 'general';
+export type LogSubtype = 'journal' | 'idea' | 'general' | 'event';
 export type HabitSubtype = 'start_habit' | 'break_habit' | 'routine';
 export type Frequency = string; // Changed from strict enum to string - supports custom frequencies like "3x/week"
 export type Cadence = 'daily' | 'weekly' | 'monthly';
@@ -97,7 +97,7 @@ export interface Habit {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | 'goal_checkin' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
@@ -183,6 +183,9 @@ export interface Habit {
 
   /** True once user has resolved the clarification */
   clarification_resolved?: boolean;
+
+  /** Link to an event note (for items related to a key date) */
+  linked_event_id?: ID | null;
 }
 
 /**
@@ -210,7 +213,7 @@ export interface Todo {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | 'goal_checkin' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
@@ -282,6 +285,9 @@ export interface Todo {
 
   /** True once user has resolved the clarification */
   clarification_resolved?: boolean;
+
+  /** Link to an event note (for items related to a key date) */
+  linked_event_id?: ID | null;
 }
 
 /**
@@ -301,7 +307,7 @@ export interface Note {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | 'goal_checkin' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
@@ -348,11 +354,20 @@ export interface Note {
   /** When the event IS (e.g., "Mom's birthday March 5", "dentist Tuesday 2pm") */
   target_date?: string | null; // YYYY-MM-DD
 
+  /** For multi-day events - when the event ends */
+  end_date?: string | null; // YYYY-MM-DD
+
   /** Specific time for events (e.g., "2pm" -> "14:00") */
   event_time?: string | null; // HH:mm format
 
+  /** Whether this event note is a Space goal */
+  is_goal?: boolean;
+
   /** When to surface a reminder about this note */
   reminder_date?: string | null; // YYYY-MM-DD
+
+  /** Link to an event note (for items related to a key date) */
+  linked_event_id?: ID | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // Clarifying Questions (Phase 2)
@@ -417,6 +432,28 @@ export interface Space {
   summary_updated_at?: string | null; // ISO 8601 timestamp of last summary update
   layout_state_json?: any | null; // JSON blob for saving UI layout state (collapsed sections, sort order, etc.)
   archived_at?: string | null; // ISO 8601 timestamp when space was archived (null = active)
+
+  // Space Suggestions feature
+  disable_suggestions?: boolean; // If true, nightly job skips this space for suggestions
+}
+
+/**
+ * SpaceSuggestion - AI-generated suggestions for organizing unassigned items into Spaces
+ * Generated nightly by the inngest-jobs worker
+ */
+export interface SpaceSuggestion {
+  id: ID;
+  user_id: ID;
+  suggestion_type: 'assign_to_space' | 'new_space';
+  space_id: ID | null; // For assign_to_space type - references existing space
+  suggested_name: string | null; // For new_space type - proposed name
+  reason: string | null; // AI-generated explanation for the suggestion
+  drop_ids: ID[]; // Array of todo/note/habit IDs this suggestion applies to
+  confidence: number; // 0.0 to 1.0 confidence score from AI
+  status: 'pending' | 'accepted' | 'dismissed' | 'expired';
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+  acted_on_at: string | null; // ISO 8601 - when user accepted/dismissed
 }
 
 /**

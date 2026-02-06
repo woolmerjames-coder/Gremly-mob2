@@ -43,10 +43,14 @@ import {
   selectCompletedTodosCountBySpace,
   useSpaceCompletedTodos,
   selectIsHabitDoneToday,
+  useSpacePendingDrops,
+  useGoalForSpace,
+  useEventsForSpace,
+  useAssignmentSuggestionsForSpace,
 } from '../../lib/store/selectors';
-import type { Space, SpaceChat, AppRecord, RecordType } from '../../lib/types';
+import type { Space, SpaceChat, AppRecord, RecordType, Note } from '../../lib/types';
 import { lightTokens, darkTokens } from '../../design/tokens';
-import { startOfWeek, formatISO, addDays } from 'date-fns';
+import { startOfWeek, formatISO, addDays, format, parseISO } from 'date-fns';
 import { getDateService } from '../../lib/date';
 import { dateService } from '../../lib/date/DateService';
 
@@ -97,6 +101,7 @@ import { getRelativeTime } from '../../lib/utils/getRelativeTime';
 import { SpaceQuickAddModal } from '../../components/spaces/SpaceQuickAddModal';
 import { AttachExistingModal } from '../../components/spaces/AttachExistingModal';
 import { useSpaceQuickAdd } from '../../lib/spaces/useSpaceQuickAdd';
+import { useEventQuickAdd } from '../../lib/spaces/useEventQuickAdd';
 // Shared components for unified styling
 import {
   SegmentedPills,
@@ -111,11 +116,14 @@ import {
   GuidesLogsSection,
 } from '../../components/spaces/sections';
 import { SectionDivider } from '../../components/spaces/sections/SectionDivider';
+import { SpaceJourneyModal } from '../../components/spaces/SpaceJourneyModal';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
+import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
 import { SpaceSettingsModal } from '../../components/spaces/SpaceSettingsModal';
 import { CompletedInSpaceOverlay } from '../../components/spaces/CompletedInSpaceOverlay';
+import { SheetManager } from 'react-native-actions-sheet';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SpaceHome'>;
 
@@ -320,6 +328,26 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const storeHabits = useSpaceHabitsFromStore(spaceId);
   const storeNotes = useSpaceNotesFromStore(spaceId);
 
+  // Space assignment suggestions - show bottom sheet if pending suggestions exist
+  const assignmentSuggestions = useAssignmentSuggestionsForSpace(spaceId);
+  const [hasShownSuggestions, setHasShownSuggestions] = useState(false);
+  const updateSpace = useGremlyStore((s) => s.updateSpace);
+
+  // Debug: log assignment suggestions state
+  const allSuggestions = useGremlyStore((s) => s.spaceSuggestions);
+  console.log('[SpaceHome] spaceId:', spaceId);
+  console.log(
+    '[SpaceHome] allSuggestions:',
+    allSuggestions.length,
+    allSuggestions.map((s) => ({
+      id: s.id,
+      type: s.suggestion_type,
+      space_id: s.space_id,
+      status: s.status,
+    })),
+  );
+  console.log('[SpaceHome] assignmentSuggestions:', assignmentSuggestions.length);
+
   // Completed todos count and list from store (storeTodos only has incomplete todos)
   const completedTodoCount = useGremlyStore(
     useCallback((state) => selectCompletedTodosCountBySpace(state, spaceId), [spaceId]),
@@ -429,8 +457,13 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   const notesCount = useSpaceNotesCount(spaceId);
   // Phase 12: Milestone and pinned - now from Zustand store
+  // Note: milestone/countdown kept for backwards compatibility but not used in header anymore
   const milestone = useSpaceMilestoneFromStore(spaceId);
   const countdown = useMilestoneCountdown(spaceId);
+  // Goal event from event notes (new system)
+  const goalEvent = useGoalForSpace(spaceId);
+  // Key dates (excluding goals) for header preview
+  const keyDateEvents = useEventsForSpace(spaceId);
   const { count: pinnedCount } = useSpacePinnedItems(spaceId);
   const [aiSummaries, setAiSummaries] = useState<Record<string, string>>({});
   // Phase 5: Removed searchVisible, searchQuery, searchActiveV33 state (search via filter bar now)
@@ -463,7 +496,15 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const animatingTodoIdsRef = useRef<Set<string>>(new Set()); // Track todos currently animating out
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
+  const [showKeyDatesModal, setShowKeyDatesModal] = useState(false);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
+  const [showGoalCheckInJournal, setShowGoalCheckInJournal] = useState(false);
+  const [goalCheckInContext, setGoalCheckInContext] = useState<{
+    goal_id: string;
+    goal_name: string;
+    space_id: string;
+    space_name: string;
+  } | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [chatListModalVisible, setChatListModalVisible] = useState(false);
   const [showCompletedOverlay, setShowCompletedOverlay] = useState(false);
@@ -476,11 +517,24 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Phase 6: Quick add state
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [quickAddMode, setQuickAddMode] = useState<'default' | 'keyDate'>('default');
   const [showAttachExistingModal, setShowAttachExistingModal] = useState(false);
-  const [optimisticQuickAdd, setOptimisticQuickAdd] = useState<{
-    id: string;
-    title: string;
-  } | null>(null);
+  const [pendingEvent, setPendingEvent] = useState<string | null>(null); // Loading state for key date creation
+  // Pending drops from Zustand store (persists until entity is created)
+  const spacePendingDrops = useSpacePendingDrops(spaceId);
+  const [optimisticDots, setOptimisticDots] = useState('');
+
+  // Animated dots for optimistic card
+  useEffect(() => {
+    if (spacePendingDrops.length === 0) {
+      setOptimisticDots('');
+      return;
+    }
+    const interval = setInterval(() => {
+      setOptimisticDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
+    }, 500);
+    return () => clearInterval(interval);
+  }, [spacePendingDrops.length]);
 
   // Unified compact item list - combines all types, filtered, sorted by most recent
   const MAX_COMPACT_ITEMS = 7;
@@ -526,10 +580,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       filtered = lists;
     }
 
-    // Exclude optimistic items (already shown in optimistic card)
-    if (optimisticQuickAdd) {
-      filtered = filtered.filter((it) => it.id !== optimisticQuickAdd.id);
-    }
+    // Exclude pending items (already shown in optimistic card)
+    const pendingIds = new Set(spacePendingDrops.map((p) => p.localId));
+    filtered = filtered.filter((it) => !pendingIds.has(it.id));
 
     // Sort by most recently interacted (updated_at or created_at)
     filtered.sort((a: any, b: any) => {
@@ -542,7 +595,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       itemsToShow: expanded ? filtered : filtered.slice(0, MAX_COMPACT_ITEMS),
       moreCount: Math.max(0, filtered.length - MAX_COMPACT_ITEMS),
     };
-  }, [storeTodos, storeHabits, storeNotes, filter, optimisticQuickAdd, expanded]);
+  }, [storeTodos, storeHabits, storeNotes, filter, spacePendingDrops, expanded]);
 
   // Phase 4: Section data for new layout with optimistic completion
   const todosForSpace = useMemo(() => {
@@ -635,8 +688,21 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   }, [storeHabits]);
 
   const notesForSpace = useMemo(() => {
-    return storeNotes.filter((n: any) => !n.is_list && n.subtype !== 'list');
+    // Filter out lists and event notes (events show in Key Dates section)
+    return storeNotes.filter(
+      (n: any) => !n.is_list && n.subtype !== 'list' && n.subtype !== 'event',
+    );
   }, [storeNotes]);
+
+  // Key dates preview for header (next upcoming event)
+  const nextKeyDatePreview = useMemo(() => {
+    if (keyDateEvents.length === 0) return null;
+    // Find the first event with a target_date
+    const nextEvent = keyDateEvents.find((e) => e.target_date);
+    if (!nextEvent?.target_date) return null;
+    const date = parseISO(nextEvent.target_date);
+    return format(date, 'MMM d');
+  }, [keyDateEvents]);
 
   // Phase 4: Streak map from weekly habit data
   const streakMap = useMemo(() => {
@@ -674,13 +740,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handleItemPress = useCallback(
     (item: AppRecord) => {
       console.log('[SpaceHome] Item pressed:', item.id, item.type);
-      // Todos open in edit mode, notes and habits open in view mode
-      if (item.type === 'todo') {
-        overlay.openEdit({ record: item, spaceId });
-      } else {
-        // note or habit
-        overlay.openView({ record: item, spaceId });
-      }
+      overlay.openEdit({ record: item, spaceId });
     },
     [overlay, spaceId],
   );
@@ -794,33 +854,36 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     [store],
   );
 
-  // Phase 6: Space quick add hook
-  const spaceQuickAdd = useSpaceQuickAdd({
+  // Phase 6: Space quick add hook - store handles pending drops, no callbacks needed
+  const spaceQuickAdd = useSpaceQuickAdd({ spaceId });
+
+  // Event quick add hook for Key Dates
+  const eventQuickAdd = useEventQuickAdd({
     spaceId,
     onStart: (draftTitle) => {
-      console.log('[SpaceHome] Quick add started:', draftTitle);
-      setOptimisticQuickAdd({
-        id: `space-optimistic-${Date.now()}`,
-        title: draftTitle,
-      });
+      console.log('[SpaceHome] Key Date creation started:', draftTitle);
+      setPendingEvent(draftTitle);
     },
-    onComplete: (result) => {
-      console.log('[SpaceHome] Quick add complete:', result);
-      setOptimisticQuickAdd(null);
-      void reload();
+    onComplete: () => {
+      console.log('[SpaceHome] Key Date event created');
+      setPendingEvent(null);
     },
     onError: (error) => {
-      console.error('[SpaceHome] Quick add error:', error.message);
-      setOptimisticQuickAdd(null);
+      console.error('[SpaceHome] Key Date creation failed:', error);
+      setPendingEvent(null);
     },
   });
 
-  // Phase 6: Handle quick add submission
+  // Phase 6: Handle quick add submission (routes based on mode)
   const handleQuickAddSubmit = useCallback(
     (text: string) => {
-      spaceQuickAdd.onQuickAdd(text);
+      if (quickAddMode === 'keyDate') {
+        eventQuickAdd.onQuickAdd(text);
+      } else {
+        spaceQuickAdd.onQuickAdd(text);
+      }
     },
-    [spaceQuickAdd],
+    [spaceQuickAdd, eventQuickAdd, quickAddMode],
   );
 
   // Phase 6: Handle "Manual add" from quick add modal
@@ -830,6 +893,116 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     },
     [overlay, spaceId],
   );
+
+  // Key Dates: Handle event press (opens view mode)
+  const handleKeyDatePress = useCallback(
+    (event: Note) => {
+      overlay.openEdit({ record: event, spaceId });
+    },
+    [overlay, spaceId],
+  );
+
+  // Key Dates: Open the Key Dates modal
+  const handleOpenKeyDatesModal = useCallback(() => {
+    setShowKeyDatesModal(true);
+  }, []);
+
+  // Key Dates: Create event with specific date (from calendar picker in modal)
+  const handleAddEventWithDate = useCallback(
+    async (title: string, date: string) => {
+      console.log('[SpaceHome] Adding event with date:', title, date);
+      // Close modal first for snappy UX
+      setShowKeyDatesModal(false);
+      // Create event note directly with the specified date
+      try {
+        await store.createNote({
+          title,
+          body: title,
+          subtype: 'event',
+          space_id: spaceId,
+          is_goal: false,
+          target_date: date,
+          origin: 'manual',
+        });
+        console.log('[SpaceHome] Event created successfully');
+      } catch (error) {
+        console.error('[SpaceHome] Failed to create event:', error);
+      }
+    },
+    [spaceId, store],
+  );
+
+  // Key Dates: Handle add event (opens quick add modal in key date mode)
+  const handleAddKeyDate = useCallback(() => {
+    setQuickAddMode('keyDate');
+    setShowQuickAddModal(true);
+  }, []);
+
+  // Goal Check-in: Open journal for a goal
+  const handleGoalCheckIn = useCallback(
+    (goal: Note, sName: string) => {
+      console.log('[SpaceHome] Opening goal check-in journal with context:', {
+        goal_id: goal.id,
+        goal_name: goal.title,
+        space_id: spaceId,
+        space_name: sName,
+      });
+      // Close SpaceJourneyModal first to avoid nested modal issues
+      setShowKeyDatesModal(false);
+      // Small delay to let the modal close before opening the new one
+      setTimeout(() => {
+        const context = {
+          goal_id: goal.id,
+          goal_name: goal.title || 'Untitled Goal',
+          space_id: spaceId,
+          space_name: sName,
+        };
+        console.log('[SpaceHome] Setting goalCheckInContext:', context);
+        setGoalCheckInContext(context);
+        setShowGoalCheckInJournal(true);
+      }, 300);
+    },
+    [spaceId],
+  );
+
+  // Goal Chat: Navigate to chat with goal context
+  const handleGoalChat = useCallback(
+    (goal: Note, checkIns: Note[]) => {
+      console.log('[SpaceHome] Opening goal chat for:', goal.title);
+      // Close SpaceJourneyModal first
+      setShowKeyDatesModal(false);
+      // Navigate to chat thread with goal context
+      navigation.navigate('ChatThread', {
+        spaceId,
+        goalContext: {
+          goal_id: goal.id,
+          goal_name: goal.title || 'Untitled Goal',
+          checkIns: checkIns.slice(0, 5).map((c) => ({
+            title: c.title || '',
+            created_at: c.created_at || '',
+          })),
+        },
+        returnToKeyDates: true,
+      });
+    },
+    [spaceId, navigation],
+  );
+
+  // Goal Check-in: Handle pressing on a check-in note
+  const handleCheckInPress = useCallback(
+    (checkIn: Note) => {
+      console.log('[SpaceHome] Opening check-in note:', checkIn.id);
+      setShowKeyDatesModal(false);
+      overlay.openEdit({ record: checkIn, spaceId });
+    },
+    [overlay, spaceId],
+  );
+
+  // Open quick add modal in default mode
+  const handleOpenQuickAdd = useCallback(() => {
+    setQuickAddMode('default');
+    setShowQuickAddModal(true);
+  }, []);
 
   // Phase 6: Handle attach existing completion
   const handleAttachExistingComplete = useCallback(() => {
@@ -1223,44 +1396,47 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       // Haptic feedback on save
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      console.log('[SpaceHome] Saving milestone:', name, targetDate);
+      console.log('[SpaceHome] Saving goal event:', name, targetDate);
 
       try {
-        if (milestone) {
-          // Update existing
-          await store.updateMilestone(milestone.id, {
-            name,
-            date: dateService.toLocalDate(targetDate),
+        if (goalEvent) {
+          // Update existing goal event note
+          await store.updateNote(goalEvent.id, {
+            title: name,
+            target_date: dateService.toLocalDate(targetDate),
           });
         } else {
-          // Create new
-          await store.createMilestone(spaceId, {
-            name,
-            date: dateService.toLocalDate(targetDate),
+          // Create new goal event note
+          await store.createNote({
+            title: name,
+            subtype: 'event',
+            is_goal: true,
+            space_id: spaceId,
+            target_date: dateService.toLocalDate(targetDate),
           });
         }
         // Store update triggers automatic UI refresh via subscription
       } catch (error) {
-        console.error('[SpaceHome] Milestone save error:', error);
+        console.error('[SpaceHome] Goal event save error:', error);
         throw error;
       }
     },
-    [spaceId, milestone, store],
+    [spaceId, goalEvent, store],
   );
 
   const handleMilestoneRemove = useCallback(async () => {
-    if (!milestone) return;
+    if (!goalEvent) return;
 
-    console.log('[SpaceHome] Removing milestone:', milestone.id);
+    console.log('[SpaceHome] Removing goal event:', goalEvent.id);
 
     try {
-      await store.deleteMilestone(milestone.id);
+      await store.deleteNote(goalEvent.id);
       // Store update triggers automatic UI refresh via subscription
     } catch (error) {
-      console.error('[SpaceHome] Milestone remove error:', error);
+      console.error('[SpaceHome] Goal event remove error:', error);
       throw error;
     }
-  }, [milestone, store]);
+  }, [goalEvent, store]);
 
   const handlePinnedItemPress = useCallback(
     (item: any, type: 'todo' | 'habit' | 'note') => {
@@ -1521,6 +1697,30 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     ]);
   }, [spaceInsight]);
 
+  // Show assignment bottom sheet if there are pending suggestions
+  // NOTE: This must be before early returns to comply with Rules of Hooks
+  useEffect(() => {
+    if (!hasShownSuggestions && assignmentSuggestions.length > 0 && space?.name) {
+      setHasShownSuggestions(true);
+      console.log(
+        '[SpaceHome] Showing SpaceAssignmentSheet with',
+        assignmentSuggestions.length,
+        'suggestions',
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (SheetManager.show as any)('space-assignment', {
+        payload: {
+          spaceId,
+          spaceName: space.name,
+          suggestions: assignmentSuggestions,
+          onComplete: () => {
+            // Sheet closed - data will refresh automatically via store
+          },
+        },
+      });
+    }
+  }, [hasShownSuggestions, assignmentSuggestions, spaceId, space?.name]);
+
   // Always show loading spinner if no space yet
   // This prevents the "Space not found" flash during initial load
   if (!space) {
@@ -1552,8 +1752,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           <View style={[styles.fixedHeader, isScrolled && styles.fixedHeaderShadow]}>
             <MilestoneHeader
               spaceName={space?.name ?? 'Space'}
-              milestone={milestone}
-              countdown={countdown}
+              milestone={null} // Milestone display removed - using goal events now
+              countdown={{ days: null, dateFormatted: null, isPast: false }}
               pinnedCount={pinnedCount}
               completedCount={reactiveCompletedCount}
               mascotSource={getMascotSource(space?.mascot_id || 'astro')}
@@ -1562,8 +1762,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               onCompletedPress={() => setShowCompletedOverlay(true)}
               onNudgePress={handleMilestonePress}
               onMilestonePress={handleMilestonePress}
+              onKeyDatesPress={handleOpenKeyDatesModal}
               onSettingsPress={handleSettingsPress}
               onBackPress={() => navigation.goBack()}
+              goalEvent={goalEvent}
+              keyDatesCount={keyDateEvents.length}
+              nextKeyDatePreview={nextKeyDatePreview}
             />
           </View>
 
@@ -1579,47 +1783,50 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
             }}
             scrollEventThrottle={16}
           >
-            {/* Optimistic quick add card */}
-            {optimisticQuickAdd && (
+            {/* Optimistic quick add cards from pending drops */}
+            {spacePendingDrops.map((drop) => (
               <View
+                key={drop.localId}
                 style={{
                   marginHorizontal: CONTENT_HORIZONTAL_PAD,
                   marginBottom: 12,
-                  backgroundColor: BRAND.colors.sageMist,
-                  borderRadius: BRAND.radius.md,
-                  padding: 14,
+                  backgroundColor: '#FDFCFA',
+                  borderRadius: 8,
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: 'rgba(46,85,64,0.12)',
                   flexDirection: 'row',
                   alignItems: 'center',
+                  justifyContent: 'space-between',
                 }}
               >
-                <ActivityIndicator
-                  size="small"
-                  color={BRAND.colors.mossGreen}
-                  style={{ marginRight: 12 }}
-                />
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, marginRight: 12 }}>
                   <Text
                     style={{
                       fontSize: 14,
                       fontWeight: '500',
                       color: BRAND.colors.charcoalInk,
+                      lineHeight: 18,
                     }}
                     numberOfLines={1}
                   >
-                    {optimisticQuickAdd.title}
+                    {drop.smartTitle ?? drop.text}
                   </Text>
                   <Text
                     style={{
                       fontSize: 12,
-                      color: BRAND.colors.inkSubtle,
+                      color: BRAND.colors.mossGreen,
                       marginTop: 2,
+                      fontStyle: 'italic',
                     }}
                   >
-                    Processing...
+                    Working on it{optimisticDots}
                   </Text>
                 </View>
+                <ActivityIndicator size="small" color={BRAND.colors.mossGreen} />
               </View>
-            )}
+            ))}
 
             {/* Zone A removed - Add to Space moved to persistent bottom bar */}
 
@@ -1628,7 +1835,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                 ═══════════════════════════════════════════════════════════════════ */}
             <View
               testID="space-zone-b"
-              style={{ paddingHorizontal: CONTENT_HORIZONTAL_PAD, marginTop: 20 }}
+              style={{ paddingHorizontal: CONTENT_HORIZONTAL_PAD, marginTop: 12 }}
             >
               {/* Show sections if any content exists */}
               {todosForSpace.length > 0 || habitsForSpace.length > 0 || notesForSpace.length > 0 ? (
@@ -1700,7 +1907,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           testID="space-bottom-action-bar"
         >
           <Pressable
-            onPress={() => setShowQuickAddModal(true)}
+            onPress={handleOpenQuickAdd}
             style={({ pressed }) => ({
               flex: 1,
               height: 48,
@@ -1761,7 +1968,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onClose={() => setShowQuickAddModal(false)}
           onSubmit={handleQuickAddSubmit}
           onPressManualAdd={handleQuickAddManual}
-          onPressAttachExisting={() => setShowAttachExistingModal(true)}
+          onPressAttachExisting={
+            quickAddMode === 'default' ? () => setShowAttachExistingModal(true) : undefined
+          }
+          mode={quickAddMode}
         />
 
         {/* Phase 6: Attach Existing Modal */}
@@ -1782,15 +1992,56 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onUnpin={() => {}} // Store subscription handles reactive updates
         />
 
+        {/* Key Dates Modal */}
+        <SpaceJourneyModal
+          visible={showKeyDatesModal}
+          spaceId={spaceId}
+          spaceName={space?.name}
+          onClose={() => setShowKeyDatesModal(false)}
+          onEventPress={(event) => {
+            setShowKeyDatesModal(false);
+            handleKeyDatePress(event);
+          }}
+          onAddEvent={handleAddEventWithDate}
+          onGoalChat={handleGoalChat}
+          onCheckInPress={handleCheckInPress}
+          onGoalCheckIn={handleGoalCheckIn}
+        />
+
+        {/* Goal Check-in Journal */}
+        <JournalFullScreen
+          visible={showGoalCheckInJournal}
+          createMode={true}
+          goalContext={
+            goalCheckInContext
+              ? {
+                  type: 'goal_checkin',
+                  goal_id: goalCheckInContext.goal_id,
+                  goal_name: goalCheckInContext.goal_name,
+                  space_id: goalCheckInContext.space_id,
+                  space_name: goalCheckInContext.space_name,
+                }
+              : undefined
+          }
+          onClose={() => {
+            setShowGoalCheckInJournal(false);
+            setGoalCheckInContext(null);
+          }}
+          onSave={() => {
+            setShowGoalCheckInJournal(false);
+            setGoalCheckInContext(null);
+          }}
+        />
+
         {/* Milestone Entry Modal */}
         <MilestoneEntryModal
           visible={showMilestoneModal}
           onClose={handleMilestoneModalClose}
           onSave={handleMilestoneSave}
-          onRemove={milestone ? handleMilestoneRemove : undefined}
-          initialName={milestone?.name}
-          initialDate={milestone?.date ? new Date(milestone.date) : undefined}
-          isEditing={!!milestone}
+          onRemove={goalEvent ? handleMilestoneRemove : undefined}
+          initialName={goalEvent?.title ?? undefined}
+          initialDate={goalEvent?.target_date ? new Date(goalEvent.target_date) : undefined}
+          isEditing={!!goalEvent}
         />
 
         {/* Space Settings Modal */}
@@ -1798,7 +2049,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           visible={showSettingsModal}
           onClose={handleSettingsClose}
           space={space}
-          hasMilestone={!!milestone}
+          hasMilestone={!!goalEvent}
           onEditMilestone={handleEditMilestoneFromSettings}
           onSaveSpaceName={handleSaveSpaceName}
           onDeleteSpace={handleDeleteSpace}
@@ -2102,7 +2353,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           testID="space-bottom-action-bar"
         >
           <Pressable
-            onPress={() => setShowQuickAddModal(true)}
+            onPress={handleOpenQuickAdd}
             style={({ pressed }) => ({
               flex: 1,
               height: 48,
@@ -2512,7 +2763,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         testID="space-bottom-action-bar"
       >
         <Pressable
-          onPress={() => setShowQuickAddModal(true)}
+          onPress={handleOpenQuickAdd}
           style={({ pressed }) => ({
             flex: 1,
             height: 48,

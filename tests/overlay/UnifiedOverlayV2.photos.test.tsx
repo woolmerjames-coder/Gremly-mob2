@@ -54,6 +54,7 @@ jest.mock('../../lib/store/selectors', () => ({
     subtype: 'journal',
   }),
   useActiveSpaces: () => [],
+  useSpaceHasEvents: () => false,
 }));
 
 // Keep useRepo mock for any legacy code paths

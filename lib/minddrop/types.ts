@@ -33,9 +33,10 @@ export type MindDropStage =
  * Subtype for log bucket items.
  * - 'journal': Personal reflections, diary-style entries
  * - 'idea': Creative thoughts, brainstorms, concepts to explore
+ * - 'event': Calendar events, meetings, appointments with dates/times
  * - 'general': General notes that don't fit other categories
  */
-export type LogSubtype = 'journal' | 'idea' | 'general';
+export type LogSubtype = 'journal' | 'idea' | 'event' | 'general';
 
 /**
  * A fully processed mind drop item stored in the system.

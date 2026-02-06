@@ -268,7 +268,7 @@ function EventTimePickerContent({
             {/* Disclaimer */}
             <View style={styles.disclaimer}>
               <Text style={styles.disclaimerText}>
-                This only affects Gremly's time calculation — your calendar stays unchanged.
+                This only affects times in Gremly — it doesn't sync with your external calendar.
               </Text>
             </View>
 
@@ -382,10 +382,10 @@ const styles = StyleSheet.create({
   },
   disclaimerText: {
     fontSize: 12,
-    color: COLORS.inkMuted,
+    color: '#999999',
     textAlign: 'center',
     fontStyle: 'italic',
-    lineHeight: 18,
+    lineHeight: 16,
   },
   adjustersRow: {
     flexDirection: 'row',

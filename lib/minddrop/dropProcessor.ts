@@ -73,6 +73,9 @@ export interface Phase2MetadataResult {
   scheduled_date: string | null;
   event_time: string | null;
   date_type_ambiguous: boolean;
+  // Event-specific fields
+  end_date: string | null;
+  smart_title: string | null; // Phase 2 can return smart_title for events
 }
 
 export interface ProcessingCallbacks {
@@ -408,6 +411,9 @@ async function runPhase2(
         scheduled_date: json.scheduled_date ?? null,
         event_time: json.event_time ?? null,
         date_type_ambiguous: json.date_type_ambiguous ?? false,
+        // Event-specific fields
+        end_date: json.end_date ?? null,
+        smart_title: json.smart_title ?? null,
       };
     } catch (err) {
       console.log('[DropProcessor] Phase 2 API error', { error: String(err) });
@@ -596,11 +602,20 @@ async function syncDropToSupabase(
       entityType = 'note';
 
       const noteSubtype =
-        subtype === 'journal' ? 'journal' : subtype === 'idea' ? 'idea' : 'catchall';
+        subtype === 'event'
+          ? 'event'
+          : subtype === 'journal'
+            ? 'journal'
+            : subtype === 'idea'
+              ? 'idea'
+              : 'catchall';
 
       payload = {
         owner_id: userId,
-        title: smartTitle || text.substring(0, 60),
+        title:
+          noteSubtype === 'event' && enrichment?.smart_title
+            ? enrichment.smart_title
+            : smartTitle || text.substring(0, 60),
         body: text,
         subtype: noteSubtype,
         space_id: spaceId,
@@ -608,6 +623,11 @@ async function syncDropToSupabase(
         origin: source === 'space' ? 'space_chat' : 'catchall',
         tags: enrichment?.tags || [],
         mood: enrichment?.mood || null,
+        // Event fields (top-level columns)
+        target_date: enrichment?.target_date || null,
+        end_date: enrichment?.end_date || null,
+        event_time: enrichment?.event_time || null,
+        is_goal: false,
         // Phase 2: Clarification fields (direct columns)
         needs_clarification: drop.needsClarification || false,
         clarification_type: drop.clarificationType || null,
@@ -619,7 +639,7 @@ async function syncDropToSupabase(
           ai_pending: false,
           confirmation_message: confirmationMessage,
           people: enrichment?.people?.length ? enrichment.people : undefined,
-          // Date Intelligence fields (stored in views JSONB)
+          // Keep date intelligence in views as well for backwards compatibility
           target_date: enrichment?.target_date || null,
           scheduled_date: enrichment?.scheduled_date || null,
           event_time: enrichment?.event_time || null,
@@ -828,7 +848,7 @@ export async function processDrop(
       const initialSegments = multiResult.segments.map((seg) => ({
         text: seg.text,
         bucket: (seg.likely_bucket || 'log') as 'todo' | 'habit' | 'log',
-        subtype: (seg.likely_subtype || null) as 'journal' | 'idea' | 'general' | null,
+        subtype: (seg.likely_subtype || null) as 'journal' | 'idea' | 'event' | 'general' | null,
         likelyBucket: seg.likely_bucket,
         likelySubtype: seg.likely_subtype,
         confirmed: false, // Not yet confirmed by Phase 1
@@ -844,6 +864,7 @@ export async function processDrop(
         dominantSubtype: (multiResult.dominant_subtype || null) as
           | 'journal'
           | 'idea'
+          | 'event'
           | 'general'
           | null,
         status: 'classifying', // Still classifying segments
@@ -891,7 +912,12 @@ export async function processDrop(
             // Return a fallback instead of throwing
             phase1 = {
               bucket: (seg.likely_bucket || 'log') as 'todo' | 'habit' | 'log',
-              subtype: (seg.likely_subtype || null) as 'journal' | 'idea' | 'general' | null,
+              subtype: (seg.likely_subtype || null) as
+                | 'journal'
+                | 'idea'
+                | 'event'
+                | 'general'
+                | null,
               habitSubtype: null,
               smart_title: null,
               confirmation_message: null,
