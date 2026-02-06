@@ -7,6 +7,7 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+  Alert,
   Image,
   Modal,
   Platform,
@@ -15,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { dateService } from '../../../lib/date/DateService';
@@ -125,6 +127,16 @@ function formatSinceDate(habit: Habit): string {
   return `${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
+/** Human-friendly date: "Jan 15" or "Jan 15, 2025" (if not current year) */
+const formatDate = (iso: string) => {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+  });
+};
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function BuildHabitDetail({
@@ -150,6 +162,9 @@ export function BuildHabitDetail({
   const [calMonth, setCalMonth] = useState(currentMonth);
   const [calYear, setCalYear] = useState(currentYear);
   const [showEntityChat, setShowEntityChat] = useState(false);
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [tempDate, setTempDate] = useState(new Date());
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
   const calendarCanGoForward = calMonth !== currentMonth || calYear !== currentYear;
 
   const handleMonthChange = useCallback((newMonth: number, newYear: number) => {
@@ -207,6 +222,41 @@ export function BuildHabitDetail({
     [habit.id, logHabitCompletionForDate, removeHabitCompletionForDate],
   );
 
+  // ── Start date picker ──
+  const handleSetStartDate = useCallback(() => {
+    Alert.alert('When do you want to start?', undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Start today',
+        onPress: async () => {
+          const today = dateService.today();
+          try {
+            await updateHabit(habit.id, { start_date: today, start_date_confirmed: true });
+          } catch (error) {
+            console.error('[BuildHabitDetail] Failed to set start date:', error);
+          }
+        },
+      },
+      {
+        text: 'Pick a date',
+        onPress: () => {
+          setTempDate(new Date());
+          setDatePickerVisible(true);
+        },
+      },
+    ]);
+  }, [habit.id, updateHabit]);
+
+  const handleConfirmStartDate = useCallback(async () => {
+    setDatePickerVisible(false);
+    const dateStr = dateService.toLocalDate(tempDate);
+    try {
+      await updateHabit(habit.id, { start_date: dateStr, start_date_confirmed: true });
+    } catch (error) {
+      console.error('[BuildHabitDetail] Failed to set start date:', error);
+    }
+  }, [habit.id, tempDate, updateHabit]);
+
   // ── Streak comparison text ──
   const streakComparisonText = useMemo(() => {
     if (currentStreak >= bestStreak && bestStreak > 0) return 'New personal best!';
@@ -214,8 +264,31 @@ export function BuildHabitDetail({
     return `${gap} more to beat your record!`;
   }, [currentStreak, bestStreak]);
 
+  // ── Average completions per week ──
+  const weeksActive = useMemo(() => {
+    const startRaw = habit.start_date || habit.created_at;
+    if (!startRaw) return 1;
+    return Math.max(
+      1,
+      Math.ceil((today.getTime() - new Date(startRaw).getTime()) / (7 * 24 * 60 * 60 * 1000)),
+    );
+  }, [habit.start_date, habit.created_at, today]);
+
+  const totalCompletions = completedDates.length;
+  const avgPerWeek = (totalCompletions / weeksActive).toFixed(1);
+
+  const targetPerWeek = useMemo(() => {
+    const cadence = habit.cadence || 'daily';
+    const target = habit.target_per_period || 1;
+    if (cadence === 'daily') return 7;
+    if (cadence === 'weekly') return target;
+    if (cadence === 'monthly') return Math.round(target / 4.3);
+    return 7;
+  }, [habit.cadence, habit.target_per_period]);
+
   const frequencyLabel = formatFrequency(habit);
   const spaceLabel = habit.labels?.[0] ?? null;
+  const startDateRaw = habit.start_date || habit.created_at;
 
   return (
     <>
@@ -243,6 +316,12 @@ export function BuildHabitDetail({
                 </View>
                 {spaceLabel && <Text style={styles.spaceLabel}>{spaceLabel}</Text>}
               </View>
+              {startDateRaw && (
+                <Text style={{ fontSize: 13, color: '#8A8A7A', marginTop: 4 }}>
+                  {`Started ${formatDate(startDateRaw)}`}
+                  {habit.end_date ? ` → ${formatDate(habit.end_date)}` : ''}
+                </Text>
+              )}
             </View>
           </View>
         </View>
@@ -262,6 +341,11 @@ export function BuildHabitDetail({
                 <View style={styles.streakRight}>
                   <Text style={styles.bestStreakText}>Best: {bestStreak} days</Text>
                   <Text style={styles.streakCompare}>{streakComparisonText}</Text>
+                  {weeksActive > 1 && (
+                    <Text style={{ fontSize: 13, color: '#8A8A7A', marginTop: 4 }}>
+                      {`Avg: ${avgPerWeek}/${targetPerWeek} per week`}
+                    </Text>
+                  )}
                   <Text style={styles.milestoneLabel}>NEXT MILESTONE · {nextMilestone} DAYS</Text>
                   <MilestoneBar current={currentStreak} target={nextMilestone} color="green" />
                 </View>
@@ -282,6 +366,11 @@ export function BuildHabitDetail({
                   <Text style={styles.streakCompare}>
                     {weeksOnTarget.thisMonthCompletions} this month
                   </Text>
+                  {weeksActive > 1 && (
+                    <Text style={{ fontSize: 13, color: '#8A8A7A', marginTop: 4 }}>
+                      {`Avg: ${avgPerWeek}/${targetPerWeek} per week`}
+                    </Text>
+                  )}
                   <Text style={styles.sinceLabel}>
                     SINCE {formatSinceDate(habit).toUpperCase()}
                   </Text>
@@ -310,6 +399,7 @@ export function BuildHabitDetail({
               startDate={habit.start_date}
               dotSize={32}
               dotSpacing={10}
+              onPressPickStartDate={handleSetStartDate}
             />
             <Text style={styles.weekSummary}>
               {weekData.doneCount} of 7 days · {weekData.weeklyCompleted}/{weekData.weeklyTarget}{' '}
@@ -368,6 +458,47 @@ export function BuildHabitDetail({
           onClose={() => setShowEntityChat(false)}
         />
       </Modal>
+
+      {/* Date picker modal for setting start date */}
+      {datePickerVisible && Platform.OS === 'ios' && (
+        <Modal visible={datePickerVisible} transparent animationType="slide">
+          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.3)' }}>
+            <View
+              style={{
+                backgroundColor: 'white',
+                borderTopLeftRadius: 16,
+                borderTopRightRadius: 16,
+                paddingBottom: 34,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  padding: 16,
+                }}
+              >
+                <TouchableOpacity onPress={() => setDatePickerVisible(false)}>
+                  <Text style={{ fontSize: 16, color: '#8A8A7A' }}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 16, fontWeight: '600' }}>Start date</Text>
+                <TouchableOpacity onPress={handleConfirmStartDate}>
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#2E5540' }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={tempDate}
+                mode="date"
+                display="spinner"
+                minimumDate={new Date()}
+                onChange={(_event, date) => {
+                  if (date) setTempDate(date);
+                }}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
     </>
   );
 }

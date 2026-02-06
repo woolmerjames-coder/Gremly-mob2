@@ -54,10 +54,14 @@ export interface HabitWeeklyRowProps {
   showDivider?: boolean;
   /** Whether this is a breaking habit (subtype === 'break_habit') */
   isBreakingHabit?: boolean;
-  /** Current streak in days (for breaking habits) */
+  /** Current streak count (days or weeks depending on cadence) */
   streakDays?: number;
+  /** Streak unit — 'day' or 'week' (default 'day') */
+  streakUnit?: 'day' | 'week';
   /** ISO date string when habit started (YYYY-MM-DD) */
   startDate?: string | null;
+  /** Called when the "Set start date" banner is pressed (date picker flow) */
+  onPressPickStartDate?: () => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,7 +115,9 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
   showDivider = true,
   isBreakingHabit = false,
   streakDays,
+  streakUnit = 'day',
   startDate,
+  onPressPickStartDate,
 }: HabitWeeklyRowProps) {
   // Derive frequency label from weeklyTarget if not provided
   const displayFrequency =
@@ -160,7 +166,9 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
                 <View style={styles.streakContainer}>
                   <Flame size={12} color={GOLDEN_PEAR} />
                   <Text style={styles.streakText}>
-                    {isBreakingHabit ? `${streakDays} days strong` : `${streakDays} day streak`}
+                    {isBreakingHabit
+                      ? `${streakDays} ${streakUnit}${streakDays !== 1 ? 's' : ''} strong`
+                      : `${streakDays} ${streakUnit} streak`}
                   </Text>
                 </View>
               )}
@@ -187,7 +195,7 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
           startDate={startDate}
           dotSize={DOT_SIZE}
           dotSpacing={DOT_SPACING}
-          onPressPickStartDate={onPressHeader}
+          onPressPickStartDate={onPressPickStartDate ?? onPressHeader}
         />
       </View>
 

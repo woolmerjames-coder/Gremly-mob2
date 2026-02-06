@@ -14,71 +14,16 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ChevronLeft } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { dateService } from '../../lib/date/DateService';
 import { BRAND } from '../../design/brand';
 import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { BuildHabitDetail } from '../../src/components/habits/BuildHabitDetail';
 import { BreakHabitDetail } from '../../src/components/habits/BreakHabitDetail';
+import { computeCurrentStreak, computeBestStreak } from '../../lib/habits/streakUtils';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 // ─── Milestone ladder ────────────────────────────────────────────────────────
 const MILESTONES = [7, 14, 30, 60, 90] as const;
-
-// ─── Streak helpers ──────────────────────────────────────────────────────────
-
-/**
- * Count consecutive completed days backward from today.
- * dates must be sorted ascending (earliest first).
- */
-function computeCurrentStreak(sortedDates: string[]): number {
-  if (sortedDates.length === 0) return 0;
-
-  let streak = 0;
-  let cursor = dateService.today();
-
-  // If today isn't completed, start from yesterday
-  const dateSet = new Set(sortedDates);
-  if (!dateSet.has(cursor)) {
-    cursor = dateService.yesterday();
-  }
-
-  while (dateSet.has(cursor)) {
-    streak++;
-    // Move one day back
-    const d = new Date(cursor + 'T00:00:00');
-    d.setDate(d.getDate() - 1);
-    cursor = toLocalISO(d);
-  }
-
-  return streak;
-}
-
-/**
- * Find the longest consecutive run in a list of ISO date strings.
- */
-function computeBestStreak(sortedDates: string[]): number {
-  if (sortedDates.length === 0) return 0;
-
-  let best = 1;
-  let run = 1;
-
-  for (let i = 1; i < sortedDates.length; i++) {
-    const prev = new Date(sortedDates[i - 1] + 'T00:00:00');
-    const curr = new Date(sortedDates[i] + 'T00:00:00');
-    const diffDays = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 1) {
-      run++;
-      if (run > best) best = run;
-    } else if (diffDays > 1) {
-      run = 1;
-    }
-    // diffDays === 0 means duplicate, skip
-  }
-
-  return best;
-}
 
 /** Pad YYYY-MM-DD from a Date in local timezone */
 function toLocalISO(d: Date): string {

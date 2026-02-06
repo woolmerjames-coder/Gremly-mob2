@@ -9,13 +9,17 @@
 
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
+  Alert,
   Image,
+  Modal,
+  Platform,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
   View,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -27,6 +31,7 @@ import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitSt
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { dateService } from '../../lib/date/DateService';
 import { BRAND } from '../../design/brand';
+import { computeHabitStreak } from '../../lib/habits/streakUtils';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit } from '../../lib/types';
 
@@ -70,21 +75,6 @@ function toDateString(date: Date): string {
 }
 
 /**
- * Compute streak from dayDots - count consecutive 'done' days from the end
- */
-function computeStreak(dayDots: DayDot[]): number {
-  let streak = 0;
-  for (let i = dayDots.length - 1; i >= 0; i--) {
-    if (dayDots[i] === 'done') {
-      streak++;
-    } else if (dayDots[i] !== 'future') {
-      break; // Stop at first non-done, non-future day
-    }
-  }
-  return streak;
-}
-
-/**
  * Determine check-in status based on last_checked_in_at instead of completions.
  * For daily habits: up to date if checked in today or yesterday.
  * For weekly habits: up to date if checked in within last 7 days.
@@ -92,7 +82,7 @@ function computeStreak(dayDots: DayDot[]): number {
 function getCheckInStatus(habit: Habit | undefined): HabitStatus {
   if (!habit) return 'needs_attention';
 
-  const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
+  const lastCheckedIn = dateService.extractLocalDate(habit.last_checked_in_at);
   const yesterday = dateService.yesterday();
   const cadence = habit.cadence ?? 'daily';
 
@@ -119,7 +109,10 @@ export default function HabitsScreen() {
   const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
   const checkInHabit = useGremlyStore((s) => s.checkInHabit);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
   const [isLoading, setIsLoading] = useState(false);
+  const [datePickerHabitId, setDatePickerHabitId] = useState<string | null>(null);
+  const [tempDate, setTempDate] = useState(new Date());
   // Store the initial sort order to prevent rows from jumping when toggled
   const [sortOrder, setSortOrder] = useState<string[] | null>(null);
   // Track if user has checked in this session
@@ -149,6 +142,46 @@ export default function HabitsScreen() {
     },
     [navigation],
   );
+
+  // Start date picker flow
+  const handleSetStartDate = useCallback(
+    (habitId: string) => {
+      Alert.alert('When do you want to start?', undefined, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Start today',
+          onPress: async () => {
+            const today = dateService.today();
+            try {
+              await updateHabit(habitId, { start_date: today, start_date_confirmed: true });
+            } catch (error) {
+              console.error('[HabitsScreen] Failed to set start date:', error);
+            }
+          },
+        },
+        {
+          text: 'Pick a date',
+          onPress: () => {
+            setTempDate(new Date());
+            setDatePickerHabitId(habitId);
+          },
+        },
+      ]);
+    },
+    [updateHabit],
+  );
+
+  const handleConfirmDate = useCallback(async () => {
+    const habitId = datePickerHabitId;
+    if (!habitId) return;
+    setDatePickerHabitId(null);
+    const dateStr = dateService.toLocalDate(tempDate);
+    try {
+      await updateHabit(habitId, { start_date: dateStr, start_date_confirmed: true });
+    } catch (error) {
+      console.error('[HabitsScreen] Failed to set start date:', error);
+    }
+  }, [datePickerHabitId, tempDate, updateHabit]);
 
   // Week date range - rolling 7 days ending today (matches useWeeklyHabitStats)
   const today = useMemo(() => new Date(), []);
@@ -279,7 +312,7 @@ export default function HabitsScreen() {
     const total = activeHabits.length;
 
     const upToDate = activeHabits.filter((habit) => {
-      const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
+      const lastCheckedIn = dateService.extractLocalDate(habit.last_checked_in_at);
       const cadence = habit.cadence ?? 'daily';
 
       if (!lastCheckedIn) return false;
@@ -479,9 +512,21 @@ export default function HabitsScreen() {
                   frequencyLabel={stat.frequencyLabel}
                   onToggleDay={handleToggleDay}
                   onPressHeader={() => openHabitDetail(stat.id)}
+                  onPressPickStartDate={() => handleSetStartDate(stat.id)}
                   showDivider={index < filteredWeeklyStats.length - 1}
                   isBreakingHabit={habit?.subtype === 'break_habit'}
-                  streakDays={computeStreak(stat.dayDots)}
+                  streakDays={(() => {
+                    const allDates = habitProgress
+                      .filter((p) => p.habit_id === stat.id)
+                      .map((p) => p.occurred_day);
+                    const { count } = computeHabitStreak(
+                      allDates,
+                      habit?.cadence || 'daily',
+                      habit?.target_per_period || 1,
+                    );
+                    return count;
+                  })()}
+                  streakUnit={habit?.cadence === 'weekly' ? 'week' : 'day'}
                   startDate={habit?.start_date}
                 />
               );
@@ -516,6 +561,47 @@ export default function HabitsScreen() {
             </View>
           )}
         </View>
+      )}
+
+      {/* Date picker modal for setting start date */}
+      {datePickerHabitId && Platform.OS === 'ios' && (
+        <Modal visible={!!datePickerHabitId} transparent animationType="slide">
+          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.3)' }}>
+            <View
+              style={{
+                backgroundColor: 'white',
+                borderTopLeftRadius: 16,
+                borderTopRightRadius: 16,
+                paddingBottom: 34,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  padding: 16,
+                }}
+              >
+                <TouchableOpacity onPress={() => setDatePickerHabitId(null)}>
+                  <Text style={{ fontSize: 16, color: '#8A8A7A' }}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 16, fontWeight: '600' }}>Start date</Text>
+                <TouchableOpacity onPress={handleConfirmDate}>
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#2E5540' }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={tempDate}
+                mode="date"
+                display="spinner"
+                minimumDate={new Date()}
+                onChange={(_event, date) => {
+                  if (date) setTempDate(date);
+                }}
+              />
+            </View>
+          </View>
+        </Modal>
       )}
     </SafeAreaView>
   );

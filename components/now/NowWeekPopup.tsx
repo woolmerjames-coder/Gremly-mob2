@@ -26,6 +26,7 @@ import { useWeeklyHabitStats, type RawHabit } from '../../lib/today/hooks/useWee
 import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitStats';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { dateService } from '../../lib/date/DateService';
+import { computeHabitStreak } from '../../lib/habits/streakUtils';
 import type {
   NowWeeklyHabitSummary,
   NowLockedItem,
@@ -92,21 +93,6 @@ function toDateString(date: Date): string {
 }
 
 /**
- * Compute streak from dayDots - count consecutive 'done' days from the end
- */
-function computeStreak(dayDots: DayDot[]): number {
-  let streak = 0;
-  for (let i = dayDots.length - 1; i >= 0; i--) {
-    if (dayDots[i] === 'done') {
-      streak++;
-    } else if (dayDots[i] !== 'future') {
-      break; // Stop at first non-done, non-future day
-    }
-  }
-  return streak;
-}
-
-/**
  * Determine check-in status based on last_checked_in_at instead of completions.
  * For daily habits: up to date if checked in today or yesterday.
  * For weekly habits: up to date if checked in within last 7 days.
@@ -114,7 +100,7 @@ function computeStreak(dayDots: DayDot[]): number {
 function getCheckInStatus(habit: Habit | undefined): HabitStatus {
   if (!habit) return 'needs_attention';
 
-  const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
+  const lastCheckedIn = dateService.extractLocalDate(habit.last_checked_in_at);
   const yesterday = dateService.yesterday();
   const cadence = habit.cadence ?? 'daily';
 
@@ -339,7 +325,7 @@ export function NowWeekPopup({
     const upToDate = allHabits.filter((habit) => {
       if (habit.archived) return false;
 
-      const lastCheckedIn = habit.last_checked_in_at?.split('T')[0];
+      const lastCheckedIn = dateService.extractLocalDate(habit.last_checked_in_at);
       const cadence = habit.cadence ?? 'daily';
 
       if (!lastCheckedIn) return false;
@@ -488,7 +474,18 @@ export function NowWeekPopup({
                       onPressHeader={() => openHabitDetail(stat.id, stat.name)}
                       showDivider={index < weeklyStats.length - 1}
                       isBreakingHabit={habit?.subtype === 'break_habit'}
-                      streakDays={computeStreak(stat.dayDots)}
+                      streakDays={(() => {
+                        const allDates = habitProgress
+                          .filter((p) => p.habit_id === stat.id)
+                          .map((p) => p.occurred_day);
+                        const { count } = computeHabitStreak(
+                          allDates,
+                          habit?.cadence || 'daily',
+                          habit?.target_per_period || 1,
+                        );
+                        return count;
+                      })()}
+                      streakUnit={habit?.cadence === 'weekly' ? 'week' : 'day'}
                       startDate={habit?.start_date}
                     />
                   );

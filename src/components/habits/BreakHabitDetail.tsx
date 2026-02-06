@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Image,
   Modal,
   Platform,
@@ -17,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { dateService } from '../../../lib/date/DateService';
@@ -158,6 +160,16 @@ function formatSinceDate(habit: Habit): string {
   return `${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
+/** Human-friendly date: "Jan 15" or "Jan 15, 2025" (if not current year) */
+const formatDate = (iso: string) => {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+  });
+};
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function BreakHabitDetail({
@@ -207,6 +219,8 @@ export function BreakHabitDetail({
   const [calYear, setCalYear] = useState(currentYear);
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [chatPreset, setChatPreset] = useState<EntityChatPreset | undefined>(undefined);
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [tempDate, setTempDate] = useState(new Date());
   const calendarCanGoForward = calMonth !== currentMonth || calYear !== currentYear;
 
   const handleMonthChange = useCallback((newMonth: number, newYear: number) => {
@@ -244,6 +258,41 @@ export function BreakHabitDetail({
     return { dayDots, dayDates, dayLabels, todayIndex, doneCount, weeklyTarget, weeklyCompleted };
   }, [today, todayISO, completedDates, habit.cadence, habit.target_per_period]);
 
+  // ── Start date picker ──
+  const handleSetStartDate = useCallback(() => {
+    Alert.alert('When do you want to start?', undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Start today',
+        onPress: async () => {
+          const today = dateService.today();
+          try {
+            await updateHabit(habit.id, { start_date: today, start_date_confirmed: true });
+          } catch (error) {
+            console.error('[BreakHabitDetail] Failed to set start date:', error);
+          }
+        },
+      },
+      {
+        text: 'Pick a date',
+        onPress: () => {
+          setTempDate(new Date());
+          setDatePickerVisible(true);
+        },
+      },
+    ]);
+  }, [habit.id, updateHabit]);
+
+  const handleConfirmStartDate = useCallback(async () => {
+    setDatePickerVisible(false);
+    const dateStr = dateService.toLocalDate(tempDate);
+    try {
+      await updateHabit(habit.id, { start_date: dateStr, start_date_confirmed: true });
+    } catch (error) {
+      console.error('[BreakHabitDetail] Failed to set start date:', error);
+    }
+  }, [habit.id, tempDate, updateHabit]);
+
   // ── Day toggle handler ──
   const handleToggleDay = useCallback(
     async (dateISO: string, newState: boolean) => {
@@ -262,6 +311,7 @@ export function BreakHabitDetail({
 
   // ── Derived values ──
   const frequencyLabel = formatFrequency(habit);
+  const startDateRaw = habit.start_date || habit.created_at;
   const whyText = habit.why_string || habit.notes || null;
   const hasWhy = !!whyText && whyText.trim().length > 0;
   const triggers = habit.triggers;
@@ -305,6 +355,12 @@ export function BreakHabitDetail({
                   <Text style={styles.freqPillText}>{frequencyLabel}</Text>
                 </View>
               </View>
+              {startDateRaw && (
+                <Text style={{ fontSize: 13, color: '#8A8A7A', marginTop: 4 }}>
+                  {`Started ${formatDate(startDateRaw)}`}
+                  {habit.end_date ? ` → ${formatDate(habit.end_date)}` : ''}
+                </Text>
+              )}
             </View>
           </View>
         </View>
@@ -468,6 +524,7 @@ export function BreakHabitDetail({
               startDate={habit.start_date}
               dotSize={32}
               dotSpacing={10}
+              onPressPickStartDate={handleSetStartDate}
             />
             <Text style={styles.weekSummary}>
               {weekData.doneCount} of 7 days · {weekData.weeklyCompleted}/{weekData.weeklyTarget}{' '}
@@ -521,6 +578,47 @@ export function BreakHabitDetail({
           }}
         />
       </Modal>
+
+      {/* Date picker modal for setting start date */}
+      {datePickerVisible && Platform.OS === 'ios' && (
+        <Modal visible={datePickerVisible} transparent animationType="slide">
+          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.3)' }}>
+            <View
+              style={{
+                backgroundColor: 'white',
+                borderTopLeftRadius: 16,
+                borderTopRightRadius: 16,
+                paddingBottom: 34,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  padding: 16,
+                }}
+              >
+                <TouchableOpacity onPress={() => setDatePickerVisible(false)}>
+                  <Text style={{ fontSize: 16, color: '#8A8A7A' }}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 16, fontWeight: '600' }}>Start date</Text>
+                <TouchableOpacity onPress={handleConfirmStartDate}>
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#2E5540' }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={tempDate}
+                mode="date"
+                display="spinner"
+                minimumDate={new Date()}
+                onChange={(_event, date) => {
+                  if (date) setTempDate(date);
+                }}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
     </>
   );
 }
