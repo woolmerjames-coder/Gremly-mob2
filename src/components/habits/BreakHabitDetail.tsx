@@ -6,8 +6,16 @@
  * Fresh Start state) and amber color theming.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { dateService } from '../../../lib/date/DateService';
@@ -18,7 +26,8 @@ import { MilestoneBar } from './MilestoneBar';
 import { CalendarHeatmap } from './CalendarHeatmap';
 import { MessageCircle } from 'lucide-react-native';
 import MascotIcon from '../../../components/MascotIcon';
-import type { Habit } from '../../../lib/types';
+import { EntityChatScreen } from '../../../components/chat/EntityChatScreen';
+import type { Habit, EntityChatPreset } from '../../../lib/types';
 import type { DayDot } from '../../../lib/today/hooks/useWeeklyHabitStats';
 
 // ─── Color tokens ────────────────────────────────────────────────────────────
@@ -161,6 +170,29 @@ export function BreakHabitDetail({
   // Zustand actions for dot toggling
   const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
+
+  // ── Inline why editing ──
+  const [isEditingWhy, setIsEditingWhy] = useState(false);
+  const [whyDraft, setWhyDraft] = useState(habit.why_string || habit.notes || '');
+
+  // Sync draft when habit changes externally (e.g. from Edit overlay)
+  useEffect(() => {
+    setWhyDraft(habit.why_string || habit.notes || '');
+  }, [habit.why_string, habit.notes]);
+
+  const handleSaveWhy = useCallback(async () => {
+    setIsEditingWhy(false);
+    const trimmed = whyDraft.trim();
+    const current = habit.why_string || habit.notes || '';
+    if (trimmed !== current) {
+      try {
+        await updateHabit(habit.id, { why_string: trimmed });
+      } catch (error) {
+        console.error('[BreakHabitDetail] Failed to save why:', error);
+      }
+    }
+  }, [whyDraft, habit.id, habit.why_string, habit.notes, updateHabit]);
 
   const today = useMemo(() => new Date(), []);
   const todayISO = useMemo(() => toLocalISO(today), [today]);
@@ -170,6 +202,8 @@ export function BreakHabitDetail({
   // ── Calendar month navigation ──
   const [calMonth, setCalMonth] = useState(currentMonth);
   const [calYear, setCalYear] = useState(currentYear);
+  const [showEntityChat, setShowEntityChat] = useState(false);
+  const [chatPreset, setChatPreset] = useState<EntityChatPreset | undefined>(undefined);
   const calendarCanGoForward = calMonth !== currentMonth || calYear !== currentYear;
 
   const handleMonthChange = useCallback((newMonth: number, newYear: number) => {
@@ -250,197 +284,244 @@ export function BreakHabitDetail({
   }, [currentStreak]);
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* ─── 1. TITLE SECTION ─── */}
-      <View style={styles.titleSection}>
-        <View style={styles.mascotFloat}>
-          <MascotIcon size={58} pose={mascotPose} animate={false} />
-        </View>
-        <View style={styles.titleRow}>
-          <View style={styles.accentBar} />
-          <View style={styles.titleCol}>
-            <Text style={styles.habitName}>{habit.name}</Text>
-            <View style={styles.metaRow}>
-              <View style={styles.freqPill}>
-                <Text style={styles.freqPillText}>{frequencyLabel}</Text>
+    <>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* ─── 1. TITLE SECTION ─── */}
+        <View style={styles.titleSection}>
+          <View style={styles.mascotFloat}>
+            <MascotIcon size={58} pose={mascotPose} animate={false} />
+          </View>
+          <View style={styles.titleRow}>
+            <View style={styles.accentBar} />
+            <View style={styles.titleCol}>
+              <Text style={styles.habitName}>{habit.name}</Text>
+              <View style={styles.metaRow}>
+                <View style={styles.freqPill}>
+                  <Text style={styles.freqPillText}>{frequencyLabel}</Text>
+                </View>
               </View>
             </View>
           </View>
         </View>
-      </View>
 
-      {/* ─── 2. YOUR WHY ─── */}
-      <View style={styles.whySection}>
-        <View style={styles.whyContainer}>
-          <View style={styles.whyRow}>
-            <View style={styles.whyLeft}>
+        {/* ─── 2. YOUR WHY ─── */}
+        <View style={styles.whySection}>
+          {isEditingWhy ? (
+            <View style={[styles.whyContainer, styles.whyContainerEditing]}>
               <Text style={styles.whyLabel}>YOUR WHY</Text>
-              <Text style={[styles.whyText, !hasWhy && styles.whyPlaceholder]}>
-                {hasWhy ? whyText : 'Tap Edit in the header to add your why'}
+              <View style={styles.whyRow}>
+                <View style={styles.whyLeft}>
+                  <TextInput
+                    style={styles.whyInput}
+                    value={whyDraft}
+                    onChangeText={setWhyDraft}
+                    multiline
+                    autoFocus
+                    placeholder="What's your reason for breaking this habit?"
+                    placeholderTextColor={`${GOLDEN_OCHRE}66`}
+                    onBlur={handleSaveWhy}
+                    maxLength={200}
+                  />
+                </View>
+                <TouchableOpacity onPress={handleSaveWhy} hitSlop={8}>
+                  <Text style={styles.whyEditLink}>save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.whyContainer}
+              activeOpacity={0.7}
+              onPress={() => setIsEditingWhy(true)}
+            >
+              <Text style={styles.whyLabel}>YOUR WHY</Text>
+              <View style={styles.whyRow}>
+                <View style={styles.whyLeft}>
+                  <Text style={[styles.whyText, !hasWhy && styles.whyPlaceholder]}>
+                    {hasWhy ? whyText : "What's your reason? Tap to add..."}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsEditingWhy(true)} hitSlop={8}>
+                  <Text style={styles.whyEditLink}>edit</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* ─── 3. STREAK CARD ─── */}
+        {isFreshStart ? (
+          /* STATE B: Fresh start */
+          <View style={[styles.freshStartCard, CARD_SHADOW]}>
+            <Text style={styles.freshStartTitle}>Fresh start</Text>
+            <Text style={styles.freshStartBody}>
+              {"Today's a new day. You've done this before."}
+            </Text>
+            <View style={styles.freshStartDivider}>
+              <Text style={styles.freshStartStats}>
+                {previousStreak > 0
+                  ? `Previous: ${previousStreak} days · Best ever: ${bestStreak} days`
+                  : `Best ever: ${bestStreak} days`}
               </Text>
             </View>
+            <TouchableOpacity
+              style={styles.reflectionButton}
+              onPress={() => {
+                setChatPreset('why_skipping');
+                setShowEntityChat(true);
+              }}
+            >
+              <Text style={styles.reflectionButtonText}>Want to talk about what happened? →</Text>
+            </TouchableOpacity>
           </View>
-        </View>
-      </View>
+        ) : (
+          /* STATE A: Active streak */
+          <View style={[styles.streakCard, CARD_SHADOW]}>
+            <View style={styles.streakRow}>
+              {isDaily || !weeksOnTarget ? (
+                /* Daily habit: streak ring + milestone */
+                <>
+                  <StreakRing
+                    count={currentStreak}
+                    label="days strong"
+                    progress={milestoneProgress}
+                    color="amber"
+                  />
+                  <View style={styles.streakRight}>
+                    <Text style={styles.bestStreakText}>Best: {bestStreak} days</Text>
+                    <Text style={styles.streakCompare}>{streakComparisonText}</Text>
+                    <Text style={styles.milestoneLabel}>NEXT MILESTONE · {nextMilestone} DAYS</Text>
+                    <MilestoneBar current={currentStreak} target={nextMilestone} color="amber" />
+                  </View>
+                </>
+              ) : (
+                /* Non-daily habit: weeks on target + cumulative stats */
+                <>
+                  <StreakRing
+                    count={weeksOnTarget.weeksHit}
+                    label="weeks on target"
+                    progress={weeksOnTarget.weeksHit / weeksOnTarget.totalWeeks}
+                    color="amber"
+                  />
+                  <View style={styles.streakRight}>
+                    <Text style={styles.bestStreakText}>
+                      {weeksOnTarget.totalCompletions} total completions
+                    </Text>
+                    <Text style={styles.streakCompare}>
+                      {weeksOnTarget.thisMonthCompletions} this month
+                    </Text>
+                    <Text style={styles.sinceLabel}>
+                      SINCE {formatSinceDate(habit).toUpperCase()}
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+        )}
 
-      {/* ─── 3. STREAK CARD ─── */}
-      {isFreshStart ? (
-        /* STATE B: Fresh start */
-        <View style={[styles.freshStartCard, CARD_SHADOW]}>
-          <View style={styles.seedlingCircle}>
-            <Text style={styles.seedlingEmoji}>🌱</Text>
+        {/* ─── 4. KNOWN TRIGGERS ─── */}
+        {hasTriggers && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>KNOWN TRIGGERS</Text>
+            <View style={styles.chipsRow}>
+              {triggers!.map((trigger, idx) => (
+                <View key={`trigger-${idx}`} style={styles.triggerChip}>
+                  <Text style={styles.triggerChipText}>{trigger}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <Text style={styles.freshStartTitle}>Fresh start</Text>
-          <Text style={styles.freshStartBody}>
-            {
-              "Yesterday didn't go to plan — that's okay.\nToday's a new day. You've done this before."
-            }
-          </Text>
-          <View style={styles.freshStartDivider}>
-            <Text style={styles.freshStartStats}>
-              {previousStreak > 0
-                ? `Previous: ${previousStreak} days · Best ever: ${bestStreak} days`
-                : `Best ever: ${bestStreak} days`}
+        )}
+
+        {/* ─── 5. REPLACEMENT SUGGESTION ─── */}
+        {hasReplacement && (
+          <View style={styles.replacementSection}>
+            <View style={styles.replacementContainer}>
+              <Text style={styles.replacementLabel}>INSTEAD, TRY</Text>
+              <Text style={styles.replacementText}>{replacementText}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* ─── 6. THIS WEEK ─── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionLabel}>THIS WEEK</Text>
+            <Text style={styles.sectionMeta}>
+              {weekData.doneCount} of 7 · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this
+              week
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.reflectionButton}
-            onPress={() => console.log('[BreakHabitDetail] TODO: open reflection chat')}
-          >
-            <Text style={styles.reflectionButtonText}>Want to talk about what happened? →</Text>
+          <View style={[styles.weekCard, CARD_SHADOW]}>
+            <WeeklyDotsRow
+              dayDots={weekData.dayDots}
+              dayDates={weekData.dayDates}
+              todayIndex={weekData.todayIndex}
+              onToggleDay={handleToggleDay}
+              isBreakingHabit={true}
+              startDate={habit.start_date}
+              dotSize={32}
+              dotSpacing={10}
+            />
+            <Text style={styles.weekSummary}>
+              {weekData.doneCount} of 7 days · {weekData.weeklyCompleted}/{weekData.weeklyTarget}{' '}
+              this week
+            </Text>
+          </View>
+        </View>
+
+        {/* ─── 7. CONSISTENCY CALENDAR ─── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionLabel}>CONSISTENCY</Text>
+          </View>
+          <View style={[styles.calendarCard, CARD_SHADOW]}>
+            <CalendarHeatmap
+              completedDates={completedDates}
+              month={calMonth}
+              year={calYear}
+              isBreak={true}
+              todayDate={todayISO}
+              onMonthChange={handleMonthChange}
+              canGoForward={calendarCanGoForward}
+              onToggleDate={handleToggleDay}
+              habitId={habit.id}
+            />
+          </View>
+        </View>
+
+        {/* ─── 8. TALK TO GREMLY ─── */}
+        <View style={styles.gremlySection}>
+          <TouchableOpacity style={styles.gremlyButton} onPress={() => setShowEntityChat(true)}>
+            <MessageCircle size={18} color={MOSS_GREEN} />
+            <Text style={styles.gremlyButtonText}>Talk to Gremly about this habit</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        /* STATE A: Active streak */
-        <View style={[styles.streakCard, CARD_SHADOW]}>
-          <View style={styles.streakRow}>
-            {isDaily || !weeksOnTarget ? (
-              /* Daily habit: streak ring + milestone */
-              <>
-                <StreakRing
-                  count={currentStreak}
-                  label="days strong"
-                  progress={milestoneProgress}
-                  color="amber"
-                />
-                <View style={styles.streakRight}>
-                  <Text style={styles.bestStreakText}>Best: {bestStreak} days</Text>
-                  <Text style={styles.streakCompare}>{streakComparisonText}</Text>
-                  <Text style={styles.milestoneLabel}>NEXT MILESTONE · {nextMilestone} DAYS</Text>
-                  <MilestoneBar current={currentStreak} target={nextMilestone} color="amber" />
-                </View>
-              </>
-            ) : (
-              /* Non-daily habit: weeks on target + cumulative stats */
-              <>
-                <StreakRing
-                  count={weeksOnTarget.weeksHit}
-                  label="weeks on target"
-                  progress={weeksOnTarget.weeksHit / weeksOnTarget.totalWeeks}
-                  color="amber"
-                />
-                <View style={styles.streakRight}>
-                  <Text style={styles.bestStreakText}>
-                    {weeksOnTarget.totalCompletions} total completions
-                  </Text>
-                  <Text style={styles.streakCompare}>
-                    {weeksOnTarget.thisMonthCompletions} this month
-                  </Text>
-                  <Text style={styles.sinceLabel}>
-                    SINCE {formatSinceDate(habit).toUpperCase()}
-                  </Text>
-                </View>
-              </>
-            )}
-          </View>
-        </View>
-      )}
+      </ScrollView>
 
-      {/* ─── 4. KNOWN TRIGGERS ─── */}
-      {hasTriggers && (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>KNOWN TRIGGERS</Text>
-          <View style={styles.chipsRow}>
-            {triggers!.map((trigger, idx) => (
-              <View key={`trigger-${idx}`} style={styles.triggerChip}>
-                <Text style={styles.triggerChipText}>{trigger}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {/* ─── 5. REPLACEMENT SUGGESTION ─── */}
-      {hasReplacement && (
-        <View style={styles.replacementSection}>
-          <View style={styles.replacementContainer}>
-            <Text style={styles.replacementLabel}>INSTEAD, TRY</Text>
-            <Text style={styles.replacementText}>{replacementText}</Text>
-          </View>
-        </View>
-      )}
-
-      {/* ─── 6. THIS WEEK ─── */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionLabel}>THIS WEEK</Text>
-          <Text style={styles.sectionMeta}>
-            {weekData.doneCount} of 7 · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this week
-          </Text>
-        </View>
-        <View style={[styles.weekCard, CARD_SHADOW]}>
-          <WeeklyDotsRow
-            dayDots={weekData.dayDots}
-            dayDates={weekData.dayDates}
-            todayIndex={weekData.todayIndex}
-            onToggleDay={handleToggleDay}
-            isBreakingHabit={true}
-            startDate={habit.start_date}
-            dotSize={32}
-            dotSpacing={10}
-          />
-          <Text style={styles.weekSummary}>
-            {weekData.doneCount} of 7 days · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this
-            week
-          </Text>
-        </View>
-      </View>
-
-      {/* ─── 7. CONSISTENCY CALENDAR ─── */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionLabel}>CONSISTENCY</Text>
-        </View>
-        <View style={[styles.calendarCard, CARD_SHADOW]}>
-          <CalendarHeatmap
-            completedDates={completedDates}
-            month={calMonth}
-            year={calYear}
-            isBreak={true}
-            todayDate={todayISO}
-            onMonthChange={handleMonthChange}
-            canGoForward={calendarCanGoForward}
-            onToggleDate={handleToggleDay}
-            habitId={habit.id}
-          />
-        </View>
-      </View>
-
-      {/* ─── 8. TALK TO GREMLY ─── */}
-      <View style={styles.gremlySection}>
-        <TouchableOpacity
-          style={styles.gremlyButton}
-          onPress={() => console.log('[BreakHabitDetail] TODO: open entity chat', habit.id)}
-        >
-          <MessageCircle size={18} color={MOSS_GREEN} />
-          <Text style={styles.gremlyButtonText}>Talk to Gremly about this habit</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+      <Modal
+        visible={showEntityChat}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowEntityChat(false)}
+      >
+        <EntityChatScreen
+          entityId={habit.id}
+          entityType="habit"
+          initialPreset={chatPreset}
+          onClose={() => {
+            setShowEntityChat(false);
+            setChatPreset(undefined);
+          }}
+        />
+      </Modal>
+    </>
   );
 }
 
@@ -524,6 +605,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: GOLDEN_BORDER,
   },
+  whyContainerEditing: {
+    borderColor: GOLDEN_OCHRE,
+    borderWidth: 1.5,
+  },
   whyRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -532,6 +617,16 @@ const styles = StyleSheet.create({
   whyLeft: {
     flex: 1,
     marginRight: 12,
+  },
+  whyInput: {
+    fontSize: 14,
+    color: GOLDEN_OCHRE,
+    fontStyle: 'italic',
+    fontFamily: 'PlusJakartaSans-MediumItalic',
+    lineHeight: 20,
+    padding: 0,
+    minHeight: 40,
+    textAlignVertical: 'top',
   },
   whyLabel: {
     fontSize: 9,
@@ -599,7 +694,6 @@ const styles = StyleSheet.create({
   freshStartCard: {
     marginHorizontal: 20,
     marginTop: 24,
-    padding: 32,
     paddingHorizontal: 24,
     paddingBottom: 24,
     backgroundColor: SURFACE,
@@ -608,25 +702,12 @@ const styles = StyleSheet.create({
     borderWidth: Platform.OS === 'android' ? 1 : 0,
     borderColor: BORDER_SUBTLE,
   },
-  seedlingCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: SAGE_MIST,
-    borderWidth: 2,
-    borderColor: SAGE_MIST_DARK,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  seedlingEmoji: {
-    fontSize: 36,
-  },
   freshStartTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
     fontFamily: 'PlusJakartaSans-Bold',
     color: MOSS_GREEN,
-    marginTop: 18,
+    marginTop: 24,
   },
   freshStartBody: {
     fontSize: 14,

@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { dateService } from '../../../lib/date/DateService';
@@ -17,6 +17,7 @@ import { MilestoneBar } from './MilestoneBar';
 import { CalendarHeatmap } from './CalendarHeatmap';
 import { MessageCircle } from 'lucide-react-native';
 import MascotIcon from '../../../components/MascotIcon';
+import { EntityChatScreen } from '../../../components/chat/EntityChatScreen';
 import type { Habit } from '../../../lib/types';
 import type { DayDot } from '../../../lib/today/hooks/useWeeklyHabitStats';
 
@@ -138,6 +139,7 @@ export function BuildHabitDetail({
   // ── Calendar month navigation ──
   const [calMonth, setCalMonth] = useState(currentMonth);
   const [calYear, setCalYear] = useState(currentYear);
+  const [showEntityChat, setShowEntityChat] = useState(false);
   const calendarCanGoForward = calMonth !== currentMonth || calYear !== currentYear;
 
   const handleMonthChange = useCallback((newMonth: number, newYear: number) => {
@@ -217,138 +219,153 @@ export function BuildHabitDetail({
   }, [isDaily, currentStreak, weeksOnTarget]);
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* ─── 1. TITLE SECTION ─── */}
-      <View style={styles.titleSection}>
-        <View style={styles.mascotFloat}>
-          <MascotIcon size={58} pose={mascotPose} animate={false} />
-        </View>
-        <View style={styles.titleRow}>
-          <View style={styles.accentBar} />
-          <View style={styles.titleCol}>
-            <Text style={styles.habitName}>{habit.name}</Text>
-            <View style={styles.metaRow}>
-              <View style={styles.freqPill}>
-                <Text style={styles.freqPillText}>{frequencyLabel}</Text>
+    <>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ─── 1. TITLE SECTION ─── */}
+        <View style={styles.titleSection}>
+          <View style={styles.mascotFloat}>
+            <MascotIcon size={58} pose={mascotPose} animate={false} />
+          </View>
+          <View style={styles.titleRow}>
+            <View style={styles.accentBar} />
+            <View style={styles.titleCol}>
+              <Text style={styles.habitName}>{habit.name}</Text>
+              <View style={styles.metaRow}>
+                <View style={styles.freqPill}>
+                  <Text style={styles.freqPillText}>{frequencyLabel}</Text>
+                </View>
+                {spaceLabel && <Text style={styles.spaceLabel}>{spaceLabel}</Text>}
               </View>
-              {spaceLabel && <Text style={styles.spaceLabel}>{spaceLabel}</Text>}
             </View>
           </View>
         </View>
-      </View>
 
-      {/* ─── 2. STREAK / COMPLETION CARD ─── */}
-      <View style={[styles.streakCard, CARD_SHADOW]}>
-        <View style={styles.streakRow}>
-          {isDaily || !weeksOnTarget ? (
-            /* Daily habit: streak ring + milestone */
-            <>
-              <StreakRing
-                count={currentStreak}
-                label="day streak"
-                progress={milestoneProgress}
-                color="green"
-              />
-              <View style={styles.streakRight}>
-                <Text style={styles.bestStreakText}>Best: {bestStreak} days</Text>
-                <Text style={styles.streakCompare}>{streakComparisonText}</Text>
-                <Text style={styles.milestoneLabel}>NEXT MILESTONE · {nextMilestone} DAYS</Text>
-                <MilestoneBar current={currentStreak} target={nextMilestone} color="green" />
-              </View>
-            </>
-          ) : (
-            /* Non-daily habit: weeks on target + cumulative stats */
-            <>
-              <StreakRing
-                count={weeksOnTarget.weeksHit}
-                label="weeks on target"
-                progress={weeksOnTarget.weeksHit / weeksOnTarget.totalWeeks}
-                color="green"
-              />
-              <View style={styles.streakRight}>
-                <Text style={styles.bestStreakText}>
-                  {weeksOnTarget.totalCompletions} total completions
-                </Text>
-                <Text style={styles.streakCompare}>
-                  {weeksOnTarget.thisMonthCompletions} this month
-                </Text>
-                <Text style={styles.sinceLabel}>SINCE {formatSinceDate(habit).toUpperCase()}</Text>
-              </View>
-            </>
-          )}
-        </View>
-      </View>
-
-      {/* ─── 3. THIS WEEK ─── */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionLabel}>THIS WEEK</Text>
-          <Text style={styles.sectionMeta}>
-            {weekData.doneCount} of 7 · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this week
-          </Text>
-        </View>
-        <View style={[styles.weekCard, CARD_SHADOW]}>
-          <WeeklyDotsRow
-            dayDots={weekData.dayDots}
-            dayDates={weekData.dayDates}
-            todayIndex={weekData.todayIndex}
-            onToggleDay={handleToggleDay}
-            isBreakingHabit={false}
-            startDate={habit.start_date}
-            dotSize={32}
-            dotSpacing={10}
-          />
-          <Text style={styles.weekSummary}>
-            {weekData.doneCount} of 7 days · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this
-            week
-          </Text>
-        </View>
-      </View>
-
-      {/* ─── 4. CONSISTENCY CALENDAR ─── */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionLabel}>CONSISTENCY</Text>
-        </View>
-        <View style={[styles.calendarCard, CARD_SHADOW]}>
-          <CalendarHeatmap
-            completedDates={completedDates}
-            month={calMonth}
-            year={calYear}
-            todayDate={todayISO}
-            onMonthChange={handleMonthChange}
-            canGoForward={calendarCanGoForward}
-            onToggleDate={handleToggleDay}
-            habitId={habit.id}
-          />
-        </View>
-      </View>
-
-      {/* ─── 5. NOTES ─── */}
-      {!!habit.notes && habit.notes.trim().length > 0 && (
-        <View style={styles.notesSection}>
-          <View style={styles.notesContainer}>
-            <Text style={styles.notesLabel}>NOTES</Text>
-            <Text style={styles.notesText}>{habit.notes}</Text>
+        {/* ─── 2. STREAK / COMPLETION CARD ─── */}
+        <View style={[styles.streakCard, CARD_SHADOW]}>
+          <View style={styles.streakRow}>
+            {isDaily || !weeksOnTarget ? (
+              /* Daily habit: streak ring + milestone */
+              <>
+                <StreakRing
+                  count={currentStreak}
+                  label="day streak"
+                  progress={milestoneProgress}
+                  color="green"
+                />
+                <View style={styles.streakRight}>
+                  <Text style={styles.bestStreakText}>Best: {bestStreak} days</Text>
+                  <Text style={styles.streakCompare}>{streakComparisonText}</Text>
+                  <Text style={styles.milestoneLabel}>NEXT MILESTONE · {nextMilestone} DAYS</Text>
+                  <MilestoneBar current={currentStreak} target={nextMilestone} color="green" />
+                </View>
+              </>
+            ) : (
+              /* Non-daily habit: weeks on target + cumulative stats */
+              <>
+                <StreakRing
+                  count={weeksOnTarget.weeksHit}
+                  label="weeks on target"
+                  progress={weeksOnTarget.weeksHit / weeksOnTarget.totalWeeks}
+                  color="green"
+                />
+                <View style={styles.streakRight}>
+                  <Text style={styles.bestStreakText}>
+                    {weeksOnTarget.totalCompletions} total completions
+                  </Text>
+                  <Text style={styles.streakCompare}>
+                    {weeksOnTarget.thisMonthCompletions} this month
+                  </Text>
+                  <Text style={styles.sinceLabel}>
+                    SINCE {formatSinceDate(habit).toUpperCase()}
+                  </Text>
+                </View>
+              </>
+            )}
           </View>
         </View>
-      )}
 
-      {/* ─── 6. TALK TO GREMLY ─── */}
-      <View style={styles.gremlySection}>
-        <TouchableOpacity
-          style={styles.gremlyButton}
-          onPress={() => console.log('[BuildHabitDetail] TODO: open entity chat', habit.id)}
-        >
-          <MessageCircle size={18} color={MOSS_GREEN} />
-          <Text style={styles.gremlyButtonText}>Talk to Gremly about this habit</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+        {/* ─── 3. THIS WEEK ─── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionLabel}>THIS WEEK</Text>
+            <Text style={styles.sectionMeta}>
+              {weekData.doneCount} of 7 · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this
+              week
+            </Text>
+          </View>
+          <View style={[styles.weekCard, CARD_SHADOW]}>
+            <WeeklyDotsRow
+              dayDots={weekData.dayDots}
+              dayDates={weekData.dayDates}
+              todayIndex={weekData.todayIndex}
+              onToggleDay={handleToggleDay}
+              isBreakingHabit={false}
+              startDate={habit.start_date}
+              dotSize={32}
+              dotSpacing={10}
+            />
+            <Text style={styles.weekSummary}>
+              {weekData.doneCount} of 7 days · {weekData.weeklyCompleted}/{weekData.weeklyTarget}{' '}
+              this week
+            </Text>
+          </View>
+        </View>
+
+        {/* ─── 4. CONSISTENCY CALENDAR ─── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionLabel}>CONSISTENCY</Text>
+          </View>
+          <View style={[styles.calendarCard, CARD_SHADOW]}>
+            <CalendarHeatmap
+              completedDates={completedDates}
+              month={calMonth}
+              year={calYear}
+              todayDate={todayISO}
+              onMonthChange={handleMonthChange}
+              canGoForward={calendarCanGoForward}
+              onToggleDate={handleToggleDay}
+              habitId={habit.id}
+            />
+          </View>
+        </View>
+
+        {/* ─── 5. NOTES ─── */}
+        {!!habit.notes && habit.notes.trim().length > 0 && (
+          <View style={styles.notesSection}>
+            <View style={styles.notesContainer}>
+              <Text style={styles.notesLabel}>NOTES</Text>
+              <Text style={styles.notesText}>{habit.notes}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* ─── 6. TALK TO GREMLY ─── */}
+        <View style={styles.gremlySection}>
+          <TouchableOpacity style={styles.gremlyButton} onPress={() => setShowEntityChat(true)}>
+            <MessageCircle size={18} color={MOSS_GREEN} />
+            <Text style={styles.gremlyButtonText}>Talk to Gremly about this habit</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
+      <Modal
+        visible={showEntityChat}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowEntityChat(false)}
+      >
+        <EntityChatScreen
+          entityId={habit.id}
+          entityType="habit"
+          onClose={() => setShowEntityChat(false)}
+        />
+      </Modal>
+    </>
   );
 }
 
