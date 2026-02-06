@@ -1688,7 +1688,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       onClose();
       // Small delay to let current overlay close before opening new one
       setTimeout(() => {
-        globalOverlay.openView({ record: item, spaceId: itemSpaceId });
+        globalOverlay.openEdit({ record: item, spaceId: itemSpaceId });
       }, 100);
     },
     [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId],
@@ -2572,7 +2572,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     // Small delay to let current overlay close
     setTimeout(() => {
-      globalOverlay.openView({
+      globalOverlay.openEdit({
         record: {
           ...fullNote,
           type: 'note',

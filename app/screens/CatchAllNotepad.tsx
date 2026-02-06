@@ -4497,49 +4497,27 @@ const RecentDrops: React.FC<{
         const record = getItemById(id);
 
         if (record && record.type === kind) {
-          // Open habits in view mode, others in edit mode
-          if (kind === 'habit') {
-            overlay.openView({
-              record: record as any,
-              spaceId: (record as any).space_id ?? null,
-            });
-          } else {
-            overlay.openEdit({
-              record: record as any,
-              spaceId: (record as any).space_id ?? null,
-            });
-          }
+          overlay.openEdit({
+            record: record as any,
+            spaceId: (record as any).space_id ?? null,
+          });
           onEdited?.();
         } else {
           console.warn('[RecentDrops] handleEdit: record not found or type mismatch', { id, kind });
           // Fallback to minimal record if fetch fails
-          if (kind === 'habit') {
-            overlay.openView({
-              record: { id, type: kind } as any,
-              spaceId: null,
-            });
-          } else {
-            overlay.openEdit({
-              record: { id, type: kind } as any,
-              spaceId: null,
-            });
-          }
+          overlay.openEdit({
+            record: { id, type: kind } as any,
+            spaceId: null,
+          });
           onEdited?.();
         }
       } catch (error) {
         console.error('[RecentDrops] handleEdit: failed to fetch record', error);
         // Fallback to minimal record if fetch fails
-        if (kind === 'habit') {
-          overlay.openView({
-            record: { id, type: kind } as any,
-            spaceId: null,
-          });
-        } else {
-          overlay.openEdit({
-            record: { id, type: kind } as any,
-            spaceId: null,
-          });
-        }
+        overlay.openEdit({
+          record: { id, type: kind } as any,
+          spaceId: null,
+        });
         onEdited?.();
       }
     },

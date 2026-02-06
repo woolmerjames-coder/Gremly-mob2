@@ -1470,18 +1470,10 @@ export default function ChatThreadScreen({ route }: Props) {
               if (itemId && itemType) {
                 console.log(`[Locked${itemType}] Tapped, itemId:`, itemId);
                 // Notes open in view mode, todos/habits open in edit mode
-                if (itemType === 'note') {
-                  overlayController.openView({
-                    record: { id: itemId, type: itemType } as any,
-                    spaceId: spaceId ?? undefined,
-                  });
-                } else {
-                  // todo or habit
-                  overlayController.openEdit({
-                    record: { id: itemId, type: itemType } as any,
-                    spaceId: spaceId ?? undefined,
-                  });
-                }
+                overlayController.openEdit({
+                  record: { id: itemId, type: itemType } as any,
+                  spaceId: spaceId ?? undefined,
+                });
               }
             }}
           />
@@ -1504,18 +1496,10 @@ export default function ChatThreadScreen({ route }: Props) {
               entry={typedEntry}
               onPress={(entry) => {
                 // Notes open in view mode, todos/habits open in edit mode
-                if (entryType === 'note' || entryType === 'log') {
-                  overlayController.openView({
-                    record: entry as any,
-                    spaceId: spaceId ?? undefined,
-                  });
-                } else {
-                  // todo or habit
-                  overlayController.openEdit({
-                    record: entry as any,
-                    spaceId: spaceId ?? undefined,
-                  });
-                }
+                overlayController.openEdit({
+                  record: entry as any,
+                  spaceId: spaceId ?? undefined,
+                });
               }}
               testID={`entry-card-${message.id}`}
             />

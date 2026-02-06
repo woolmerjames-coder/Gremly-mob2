@@ -740,13 +740,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handleItemPress = useCallback(
     (item: AppRecord) => {
       console.log('[SpaceHome] Item pressed:', item.id, item.type);
-      // Todos open in edit mode, notes and habits open in view mode
-      if (item.type === 'todo') {
-        overlay.openEdit({ record: item, spaceId });
-      } else {
-        // note or habit
-        overlay.openView({ record: item, spaceId });
-      }
+      overlay.openEdit({ record: item, spaceId });
     },
     [overlay, spaceId],
   );
@@ -903,7 +897,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Key Dates: Handle event press (opens view mode)
   const handleKeyDatePress = useCallback(
     (event: Note) => {
-      overlay.openView({ record: event, spaceId });
+      overlay.openEdit({ record: event, spaceId });
     },
     [overlay, spaceId],
   );
@@ -999,7 +993,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     (checkIn: Note) => {
       console.log('[SpaceHome] Opening check-in note:', checkIn.id);
       setShowKeyDatesModal(false);
-      overlay.openView({ record: checkIn, spaceId });
+      overlay.openEdit({ record: checkIn, spaceId });
     },
     [overlay, spaceId],
   );

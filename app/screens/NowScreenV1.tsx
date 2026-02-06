@@ -681,7 +681,7 @@ export default function NowScreenV1() {
       setBriefSheetVisible(false);
       // Open the overlay after a short delay to allow modal to close
       setTimeout(() => {
-        overlayController.openView({
+        overlayController.openEdit({
           record: event,
         });
       }, 100);

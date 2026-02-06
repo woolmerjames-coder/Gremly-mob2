@@ -434,7 +434,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
   // Open entry in overlay view mode
   const handleOpenEntry = useCallback(
     (entry: (typeof notes)[0]) => {
-      overlay.openView({ record: entry as any, spaceId: null });
+      overlay.openEdit({ record: entry as any, spaceId: null });
     },
     [overlay],
   );
