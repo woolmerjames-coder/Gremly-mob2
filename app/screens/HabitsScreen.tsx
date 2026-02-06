@@ -452,7 +452,7 @@ export default function HabitsScreen() {
               onPress={() => handleFilterPress('build')}
             >
               <Text style={[styles.pillText, filter === 'build' && styles.pillBuildSelectedText]}>
-                {buildingCount} building
+                {buildingCount} being built
               </Text>
             </TouchableOpacity>
           )}
@@ -462,7 +462,7 @@ export default function HabitsScreen() {
               onPress={() => handleFilterPress('break')}
             >
               <Text style={[styles.pillText, filter === 'break' && styles.pillBreakSelectedText]}>
-                {breakingCount} breaking
+                {breakingCount} being broken
               </Text>
             </TouchableOpacity>
           )}

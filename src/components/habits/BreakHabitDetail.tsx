@@ -27,7 +27,7 @@ import { WeeklyDotsRow } from './WeeklyDotsRow';
 import { StreakRing } from './StreakRing';
 import { MilestoneBar } from './MilestoneBar';
 import { CalendarHeatmap } from './CalendarHeatmap';
-import { MessageCircle } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react-native';
 import { EntityChatScreen } from '../../../components/chat/EntityChatScreen';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -45,10 +45,10 @@ const INK_SUBTLE = BRAND.colors.inkSubtle;
 const SURFACE = '#FFFFFF';
 const BORDER_SUBTLE = BRAND.colors.borderSubtle;
 
-// Break-specific amber palette
-const GOLDEN_OCHRE = '#C79E5F';
-const GOLDEN_LIGHT = '#FDF6E9';
-const GOLDEN_BORDER = '#EDE4CC';
+// Break-specific sage palette
+const BREAK_SAGE = '#6B8F71';
+const BREAK_SAGE_LIGHT = 'rgba(191,216,192,0.15)';
+const BREAK_SAGE_BORDER = 'rgba(191,216,192,0.3)';
 
 // ─── Card shadow (iOS) / border (Android) ────────────────────────────────────
 const CARD_SHADOW = Platform.select({
@@ -223,28 +223,39 @@ export function BreakHabitDetail({
   const [tempDate, setTempDate] = useState(new Date());
   const calendarCanGoForward = calMonth !== currentMonth || calYear !== currentYear;
 
+  // ── Week navigation ──
+  const [weekOffset, setWeekOffset] = useState(0);
+
   const handleMonthChange = useCallback((newMonth: number, newYear: number) => {
     setCalMonth(newMonth);
     setCalYear(newYear);
   }, []);
 
-  // ── Rolling 7-day window ──
+  // ── Week window (navigable via weekOffset) ──
   const weekData = useMemo(() => {
     const completedSet = new Set(completedDates);
+
+    // Compute Monday-based week start for the given offset
+    const anchor = new Date(today);
+    const dayOfWeek = anchor.getDay();
+    const mondayDiff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const weekStart = new Date(anchor);
+    weekStart.setDate(anchor.getDate() + mondayDiff + weekOffset * 7);
+
     const days: Date[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
       days.push(d);
     }
 
     const dayDates = days.map(toLocalISO);
     const dayLabels = days.map(dayLetter);
-    const todayIndex = 6;
+    const todayIdx = dayDates.indexOf(todayISO);
+    const todayIndex = todayIdx >= 0 ? todayIdx : weekOffset < 0 ? 7 : -1;
 
-    const dayDots: DayDot[] = dayDates.map((iso, idx) => {
+    const dayDots: DayDot[] = dayDates.map((iso) => {
       if (completedSet.has(iso)) return 'done';
-      if (idx > todayIndex) return 'future';
       if (iso > todayISO) return 'future';
       return 'missed';
     });
@@ -255,8 +266,23 @@ export function BreakHabitDetail({
     const weeklyTarget = cadence === 'daily' ? 7 : target;
     const weeklyCompleted = doneCount;
 
-    return { dayDots, dayDates, dayLabels, todayIndex, doneCount, weeklyTarget, weeklyCompleted };
-  }, [today, todayISO, completedDates, habit.cadence, habit.target_per_period]);
+    return {
+      dayDots,
+      dayDates,
+      dayLabels,
+      todayIndex,
+      doneCount,
+      weeklyTarget,
+      weeklyCompleted,
+      weekStartDate: weekStart,
+    };
+  }, [today, todayISO, completedDates, habit.cadence, habit.target_per_period, weekOffset]);
+
+  // Week header label
+  const weekLabel = useMemo(() => {
+    if (weekOffset === 0) return 'THIS WEEK';
+    return `WEEK OF ${weekData.weekStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}`;
+  }, [weekOffset, weekData.weekStartDate]);
 
   // ── Start date picker ──
   const handleSetStartDate = useCallback(() => {
@@ -350,17 +376,17 @@ export function BreakHabitDetail({
             <View style={styles.accentBar} />
             <View style={styles.titleCol}>
               <Text style={styles.habitName}>{habit.name}</Text>
-              <View style={styles.metaRow}>
-                <View style={styles.freqPill}>
-                  <Text style={styles.freqPillText}>{frequencyLabel}</Text>
-                </View>
-              </View>
               {startDateRaw && (
                 <Text style={{ fontSize: 13, color: '#8A8A7A', marginTop: 4 }}>
                   {`Started ${formatDate(startDateRaw)}`}
                   {habit.end_date ? ` → ${formatDate(habit.end_date)}` : ''}
                 </Text>
               )}
+              <View style={styles.metaRow}>
+                <View style={styles.freqPill}>
+                  <Text style={styles.freqPillText}>{frequencyLabel}</Text>
+                </View>
+              </View>
             </View>
           </View>
         </View>
@@ -379,7 +405,7 @@ export function BreakHabitDetail({
                     multiline
                     autoFocus
                     placeholder="What's your reason for breaking this habit?"
-                    placeholderTextColor={`${GOLDEN_OCHRE}66`}
+                    placeholderTextColor={`${BREAK_SAGE}66`}
                     onBlur={handleSaveWhy}
                     maxLength={200}
                   />
@@ -508,10 +534,19 @@ export function BreakHabitDetail({
         {/* ─── 6. THIS WEEK ─── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionLabel}>THIS WEEK</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TouchableOpacity onPress={() => setWeekOffset((w) => w - 1)} hitSlop={8}>
+                <ChevronLeft size={18} color="#8A8A7A" />
+              </TouchableOpacity>
+              <Text style={styles.sectionLabel}>{weekLabel}</Text>
+              {weekOffset < 0 && (
+                <TouchableOpacity onPress={() => setWeekOffset((w) => w + 1)} hitSlop={8}>
+                  <ChevronRight size={18} color="#8A8A7A" />
+                </TouchableOpacity>
+              )}
+            </View>
             <Text style={styles.sectionMeta}>
-              {weekData.doneCount} of 7 · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this
-              week
+              {weekData.doneCount} of {weekData.weeklyTarget}
             </Text>
           </View>
           <View style={[styles.weekCard, CARD_SHADOW]}>
@@ -527,8 +562,7 @@ export function BreakHabitDetail({
               onPressPickStartDate={handleSetStartDate}
             />
             <Text style={styles.weekSummary}>
-              {weekData.doneCount} of 7 days · {weekData.weeklyCompleted}/{weekData.weeklyTarget}{' '}
-              this week
+              {weekData.doneCount} of {weekData.weeklyTarget} days
             </Text>
           </View>
         </View>
@@ -655,7 +689,7 @@ const styles = StyleSheet.create({
     width: 4,
     borderRadius: 2,
     alignSelf: 'stretch',
-    backgroundColor: GOLDEN_OCHRE,
+    backgroundColor: SAGE_MIST,
   },
   titleCol: {
     flex: 1,
@@ -677,17 +711,17 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   freqPill: {
-    backgroundColor: GOLDEN_LIGHT,
+    backgroundColor: BREAK_SAGE_LIGHT,
     paddingVertical: 4,
     paddingHorizontal: 12,
     borderRadius: 99,
     borderWidth: 1,
-    borderColor: GOLDEN_BORDER,
+    borderColor: BREAK_SAGE_BORDER,
   },
   freqPillText: {
     fontSize: 11,
     fontWeight: '600',
-    color: GOLDEN_OCHRE,
+    color: BREAK_SAGE,
   },
 
   // ── 2. Your Why ──
@@ -698,13 +732,13 @@ const styles = StyleSheet.create({
   whyContainer: {
     padding: 14,
     paddingHorizontal: 18,
-    backgroundColor: GOLDEN_LIGHT,
+    backgroundColor: BREAK_SAGE_LIGHT,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: GOLDEN_BORDER,
+    borderColor: BREAK_SAGE_BORDER,
   },
   whyContainerEditing: {
-    borderColor: GOLDEN_OCHRE,
+    borderColor: BREAK_SAGE,
     borderWidth: 1.5,
   },
   whyRow: {
@@ -718,7 +752,7 @@ const styles = StyleSheet.create({
   },
   whyInput: {
     fontSize: 14,
-    color: GOLDEN_OCHRE,
+    color: BREAK_SAGE,
     fontStyle: 'italic',
     fontFamily: 'PlusJakartaSans-MediumItalic',
     lineHeight: 20,
@@ -729,14 +763,14 @@ const styles = StyleSheet.create({
   whyLabel: {
     fontSize: 9,
     fontWeight: '700',
-    color: GOLDEN_OCHRE,
+    color: BREAK_SAGE,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
     marginBottom: 5,
   },
   whyText: {
     fontSize: 14,
-    color: GOLDEN_OCHRE,
+    color: BREAK_SAGE,
     fontStyle: 'italic',
     fontFamily: 'PlusJakartaSans-MediumItalic',
     lineHeight: 20,
@@ -747,7 +781,7 @@ const styles = StyleSheet.create({
   whyEditLink: {
     fontSize: 11,
     fontWeight: '600',
-    color: GOLDEN_OCHRE,
+    color: BREAK_SAGE,
     opacity: 0.7,
   },
 
@@ -777,7 +811,7 @@ const styles = StyleSheet.create({
   streakCompare: {
     fontSize: 13,
     fontWeight: '600',
-    color: GOLDEN_OCHRE,
+    color: BREAK_SAGE,
     marginBottom: 16,
   },
   milestoneLabel: {
@@ -849,9 +883,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   triggerChip: {
-    backgroundColor: GOLDEN_LIGHT,
+    backgroundColor: BREAK_SAGE_LIGHT,
     borderWidth: 1,
-    borderColor: GOLDEN_BORDER,
+    borderColor: BREAK_SAGE_BORDER,
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 99,
@@ -859,7 +893,7 @@ const styles = StyleSheet.create({
   triggerChipText: {
     fontSize: 12,
     fontWeight: '500',
-    color: GOLDEN_OCHRE,
+    color: BREAK_SAGE,
   },
 
   // ── 5. Replacement Suggestion ──

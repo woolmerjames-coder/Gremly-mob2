@@ -153,13 +153,11 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
               {name}
             </Text>
             <View style={styles.metaRow}>
-              {startDate && dayDates.includes(startDate) && (
+              {startDate && (
                 <Text style={styles.startedLabel}>
-                  Started{' '}
-                  {new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', {
-                    month: 'numeric',
-                    day: 'numeric',
-                  })}
+                  {startDate > dayDates[dayDates.length - 1]
+                    ? `Starts ${new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`
+                    : `Started ${new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`}
                 </Text>
               )}
               {streakDays !== undefined && streakDays > 0 && (

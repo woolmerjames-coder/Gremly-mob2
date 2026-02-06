@@ -5,7 +5,7 @@
  * handles navigation, edit overlay, and data loading.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -13,6 +13,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -25,7 +26,7 @@ import { WeeklyDotsRow } from './WeeklyDotsRow';
 import { StreakRing } from './StreakRing';
 import { MilestoneBar } from './MilestoneBar';
 import { CalendarHeatmap } from './CalendarHeatmap';
-import { MessageCircle } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react-native';
 import { EntityChatScreen } from '../../../components/chat/EntityChatScreen';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -167,28 +168,59 @@ export function BuildHabitDetail({
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const calendarCanGoForward = calMonth !== currentMonth || calYear !== currentYear;
 
+  // ── Inline notes editing ──
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [notesText, setNotesText] = useState(habit.notes || '');
+
+  // Sync with external changes (e.g. from Edit overlay)
+  useEffect(() => {
+    setNotesText(habit.notes || '');
+  }, [habit.notes]);
+
+  const handleSaveNotes = useCallback(async () => {
+    setIsEditingNotes(false);
+    if (notesText.trim() !== (habit.notes || '')) {
+      try {
+        await updateHabit(habit.id, { notes: notesText.trim() });
+      } catch (error) {
+        console.error('[BuildHabitDetail] Failed to save notes:', error);
+      }
+    }
+  }, [notesText, habit.id, habit.notes, updateHabit]);
+
+  // ── Week navigation ──
+  const [weekOffset, setWeekOffset] = useState(0);
+
   const handleMonthChange = useCallback((newMonth: number, newYear: number) => {
     setCalMonth(newMonth);
     setCalYear(newYear);
   }, []);
 
-  // ── Rolling 7-day window ──
+  // ── Week window (navigable via weekOffset) ──
   const weekData = useMemo(() => {
     const completedSet = new Set(completedDates);
+
+    // Compute Monday-based week start for the given offset
+    const anchor = new Date(today);
+    const dayOfWeek = anchor.getDay();
+    const mondayDiff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const weekStart = new Date(anchor);
+    weekStart.setDate(anchor.getDate() + mondayDiff + weekOffset * 7);
+
     const days: Date[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
       days.push(d);
     }
 
     const dayDates = days.map(toLocalISO);
     const dayLabels = days.map(dayLabel);
-    const todayIndex = 6;
+    const todayIdx = dayDates.indexOf(todayISO);
+    const todayIndex = todayIdx >= 0 ? todayIdx : weekOffset < 0 ? 7 : -1;
 
-    const dayDots: DayDot[] = dayDates.map((iso, idx) => {
+    const dayDots: DayDot[] = dayDates.map((iso) => {
       if (completedSet.has(iso)) return 'done';
-      if (idx > todayIndex) return 'future';
       if (iso > todayISO) return 'future';
       return 'missed';
     });
@@ -200,11 +232,25 @@ export function BuildHabitDetail({
     const target = habit.target_per_period ?? (cadence === 'daily' ? 7 : 1);
     const weeklyTarget = cadence === 'daily' ? 7 : target;
 
-    // Completed count scoped to this week
     const weeklyCompleted = doneCount;
 
-    return { dayDots, dayDates, dayLabels, todayIndex, doneCount, weeklyTarget, weeklyCompleted };
-  }, [today, todayISO, completedDates, habit.cadence, habit.target_per_period]);
+    return {
+      dayDots,
+      dayDates,
+      dayLabels,
+      todayIndex,
+      doneCount,
+      weeklyTarget,
+      weeklyCompleted,
+      weekStartDate: weekStart,
+    };
+  }, [today, todayISO, completedDates, habit.cadence, habit.target_per_period, weekOffset]);
+
+  // Week header label
+  const weekLabel = useMemo(() => {
+    if (weekOffset === 0) return 'THIS WEEK';
+    return `WEEK OF ${weekData.weekStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}`;
+  }, [weekOffset, weekData.weekStartDate]);
 
   // ── Day toggle handler ──
   const handleToggleDay = useCallback(
@@ -296,6 +342,7 @@ export function BuildHabitDetail({
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {/* ─── 1. TITLE SECTION ─── */}
         <View style={styles.titleSection}>
@@ -310,18 +357,18 @@ export function BuildHabitDetail({
             <View style={styles.accentBar} />
             <View style={styles.titleCol}>
               <Text style={styles.habitName}>{habit.name}</Text>
-              <View style={styles.metaRow}>
-                <View style={styles.freqPill}>
-                  <Text style={styles.freqPillText}>{frequencyLabel}</Text>
-                </View>
-                {spaceLabel && <Text style={styles.spaceLabel}>{spaceLabel}</Text>}
-              </View>
               {startDateRaw && (
                 <Text style={{ fontSize: 13, color: '#8A8A7A', marginTop: 4 }}>
                   {`Started ${formatDate(startDateRaw)}`}
                   {habit.end_date ? ` → ${formatDate(habit.end_date)}` : ''}
                 </Text>
               )}
+              <View style={styles.metaRow}>
+                <View style={styles.freqPill}>
+                  <Text style={styles.freqPillText}>{frequencyLabel}</Text>
+                </View>
+                {spaceLabel && <Text style={styles.spaceLabel}>{spaceLabel}</Text>}
+              </View>
             </View>
           </View>
         </View>
@@ -383,10 +430,19 @@ export function BuildHabitDetail({
         {/* ─── 3. THIS WEEK ─── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionLabel}>THIS WEEK</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TouchableOpacity onPress={() => setWeekOffset((w) => w - 1)} hitSlop={8}>
+                <ChevronLeft size={18} color="#8A8A7A" />
+              </TouchableOpacity>
+              <Text style={styles.sectionLabel}>{weekLabel}</Text>
+              {weekOffset < 0 && (
+                <TouchableOpacity onPress={() => setWeekOffset((w) => w + 1)} hitSlop={8}>
+                  <ChevronRight size={18} color="#8A8A7A" />
+                </TouchableOpacity>
+              )}
+            </View>
             <Text style={styles.sectionMeta}>
-              {weekData.doneCount} of 7 · {weekData.weeklyCompleted}/{weekData.weeklyTarget} this
-              week
+              {weekData.doneCount} of {weekData.weeklyTarget}
             </Text>
           </View>
           <View style={[styles.weekCard, CARD_SHADOW]}>
@@ -402,8 +458,7 @@ export function BuildHabitDetail({
               onPressPickStartDate={handleSetStartDate}
             />
             <Text style={styles.weekSummary}>
-              {weekData.doneCount} of 7 days · {weekData.weeklyCompleted}/{weekData.weeklyTarget}{' '}
-              this week
+              {weekData.doneCount} of {weekData.weeklyTarget} days
             </Text>
           </View>
         </View>
@@ -428,14 +483,67 @@ export function BuildHabitDetail({
         </View>
 
         {/* ─── 5. NOTES ─── */}
-        {!!habit.notes && habit.notes.trim().length > 0 && (
-          <View style={styles.notesSection}>
-            <View style={styles.notesContainer}>
-              <Text style={styles.notesLabel}>NOTES</Text>
-              <Text style={styles.notesText}>{habit.notes}</Text>
+        <View style={styles.notesSection}>
+          {isEditingNotes ? (
+            <View
+              style={[
+                styles.notesContainer,
+                { borderColor: 'rgba(46,85,64,0.3)', borderWidth: 1.5 },
+              ]}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={styles.notesLabel}>NOTES</Text>
+                <TouchableOpacity onPress={handleSaveNotes} hitSlop={8}>
+                  <Text style={{ fontSize: 11, color: '#2E5540', fontWeight: '600' }}>save</Text>
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                value={notesText}
+                onChangeText={setNotesText}
+                multiline
+                autoFocus
+                placeholder="Add notes about this habit..."
+                placeholderTextColor="rgba(34,34,34,0.3)"
+                onBlur={handleSaveNotes}
+                style={{
+                  fontSize: 13.5,
+                  color: CHARCOAL,
+                  lineHeight: 22,
+                  minHeight: 60,
+                  textAlignVertical: 'top',
+                  padding: 0,
+                  marginTop: 6,
+                }}
+              />
             </View>
-          </View>
-        )}
+          ) : (
+            <TouchableOpacity
+              onPress={() => setIsEditingNotes(true)}
+              style={styles.notesContainer}
+              activeOpacity={0.7}
+            >
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={styles.notesLabel}>NOTES</Text>
+                <Text style={{ fontSize: 11, color: '#8A8A7A', fontWeight: '500' }}>edit</Text>
+              </View>
+              <Text style={[styles.notesText, !notesText.trim() && { opacity: 0.5 }]}>
+                {notesText.trim() || 'Tap to add notes...'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* ─── 6. TALK TO GREMLY ─── */}
         <View style={styles.gremlySection}>
