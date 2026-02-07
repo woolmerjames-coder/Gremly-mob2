@@ -1212,7 +1212,9 @@ Ask yourself: "Would this person open this Space next Tuesday to see what needs 
 
 Your job is to:
 1. Identify which unassigned items belong in existing Spaces
-2. Identify clusters of unassigned items that suggest a NEW Space — but ONLY if the cluster represents something the person is actively navigating in their life right now`;
+2. Identify clusters of unassigned items that suggest a NEW Space — but ONLY if the cluster represents something the person is actively navigating in their life right now
+
+It is completely normal — even expected — to return an empty array for suggest_new_spaces. Most runs will not produce a new Space suggestion. Do not force items into a new Space just because they are unassigned. Unassigned items are fine. Only suggest a new Space if the evidence is strong.`;
 
   const userPrompt = `EXISTING SPACES:
 ${spacesText}
@@ -1220,6 +1222,10 @@ UNASSIGNED ITEMS:
 ${dropsText}
 
 ANALYSIS CRITERIA:
+IMPORTANT: Be generous when assigning to existing Spaces. If an item could plausibly be part of an existing Space based on its title, topic, or context, assign it there. For example, if a Space contains app development tasks like 'Fix Lock-in Button' and 'Build Mind Drop Widget', then an item like 'Plan Your Tomorrow Section' clearly belongs in that same Space even if the keywords don't overlap exactly. Think about WHAT the items are about, not just whether tags match.
+
+Assign first, suggest new Spaces only for what's truly left over and truly clusters around a concrete initiative.
+
 To determine if an item belongs in a Space, consider (in priority order):
 1. SPACE PURPOSE: Does the item relate to the Space's name and goal?
 2. ENTITY OVERLAP: Does the item reference projects or topics present in the Space?
