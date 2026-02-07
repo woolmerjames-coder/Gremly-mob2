@@ -1382,6 +1382,6 @@ export default {
     }
 
     // Pass through to Inngest handler for all other routes
-    return inngestHandler.fetch(request, env, ctx);
+    return inngestHandler(request, env, ctx);
   },
 };
