@@ -7,8 +7,7 @@
  */
 
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { ShieldOff } from 'lucide-react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 
 const MAX_VISIBLE = 3;
 
@@ -28,7 +27,6 @@ export function BreakHabitCard({ names }: BreakHabitCardProps) {
 
   return (
     <Pressable style={styles.card}>
-      <ShieldOff size={16} color="#8B7E74" style={styles.icon} />
       <Text style={styles.text} numberOfLines={2}>
         <Text style={styles.prefix}>Stay mindful: </Text>
         <Text style={styles.names}>{nameText}</Text>
@@ -46,11 +44,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginTop: 8,
+    marginBottom: 12,
     marginHorizontal: 16,
-  },
-  icon: {
-    marginRight: 8,
-    marginTop: 2,
   },
   text: {
     flex: 1,
