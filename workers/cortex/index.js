@@ -5356,7 +5356,7 @@ If unsure, return null.
 Do NOT invent or over-infer.
 
 --------------------------------
-FOR TODOS & HABITS:
+FOR TODOS & BUILD HABITS (start_habit):
 --------------------------------
 1. time_estimate_minutes
 Estimate in 5-minute increments from 5 to 240 minutes.
@@ -5475,6 +5475,8 @@ Estimate the minimum time if everything went perfectly.
 - Tasks involving other people are rarely under 20 min
 - If the user specifies a duration ("30 min run"), honor their estimate
 - Don't be afraid to estimate 45, 50, 55 min — use the full range
+
+NOTE: If the subtype is "break_habit", SKIP time estimation entirely — return time_estimate_minutes: null. Break habits are about NOT doing something, so they don't have a duration.
 
 2. time_window
 Only if explicitly mentioned:
@@ -5700,12 +5702,22 @@ For TODOS:
   "people": ["name1", "name2"] | []
 }
 
-For HABITS:
+For HABITS (start_habit / build):
 {
   "tags": ["tag1", "tag2"],
   "time_estimate_minutes": number | null,
   "time_window": "morning" | "day" | "evening" | null,
   "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
+  "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
+  "extracted_days": [0, 1, 2] | null,
+  "extracted_start_date": "YYYY-MM-DD" | null,
+  "people": ["name1", "name2"] | []
+}
+
+For HABITS (break_habit):
+{
+  "tags": ["tag1", "tag2"],
+  "time_window": "morning" | "day" | "evening" | null,
   "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
   "extracted_days": [0, 1, 2] | null,
   "extracted_start_date": "YYYY-MM-DD" | null,
@@ -5799,9 +5811,10 @@ For LOGS (event):
             .filter((t) => !isStopTag(t))
             .slice(0, 7);
 
-          // Validate time estimate
+          // Validate time estimate (not for break habits)
           let timeEstimate = null;
-          if (bucket === 'todo' || bucket === 'habit') {
+          const isBreakHabit = bucket === 'habit' && subtype === 'break_habit';
+          if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
             const num = Number(parsed.time_estimate_minutes);
             if (Number.isFinite(num) && num > 0) {
               // Round to nearest 5 minutes, clamp between 5 and 240
@@ -5819,7 +5832,7 @@ For LOGS (event):
 
           // Validate energy_type
           let energyType = null;
-          if (bucket === 'todo' || bucket === 'habit') {
+          if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
             const validEnergyTypes = [
               'deep_focus',
               'administrative',
