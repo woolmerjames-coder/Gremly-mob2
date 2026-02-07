@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui';
 import { NowHeader } from '../../components/now/NowHeader';
 import { NowFocusRow } from '../../components/now/NowFocusRow';
+import { BreakHabitCard } from '../../components/now/BreakHabitCard';
 import { NowCalendarEventRow } from '../../components/now/NowCalendarEventRow';
 import { NowFutureDivider } from '../../components/now/NowFutureDivider';
 import { RolledOverSection, RecentDropsSection, SweepPill } from '../../components/now';
@@ -1181,7 +1182,7 @@ function TodayFocusList({
   }, [activeItems, brief, lockedItems]);
 
   // Group items by time block using brief sequences
-  const itemsByBlock = useMemo(() => {
+  const { itemsByBlock, breakHabitsByBlock } = useMemo(() => {
     const morningIds = new Set(brief?.morning_sequence?.map((i) => i.id) || []);
     const dayIds = new Set(brief?.day_sequence?.map((i) => i.id) || []);
     const eveningIds = new Set(brief?.evening_sequence?.map((i) => i.id) || []);
@@ -1194,7 +1195,26 @@ function TodayFocusList({
       anytime: [],
     };
 
+    const breakNames: Record<TimeBlock, string[]> = {
+      allday: [],
+      morning: [],
+      afternoon: [],
+      evening: [],
+      anytime: [],
+    };
+
     for (const item of sortedItems) {
+      // Break habits → awareness card (names only, no rows)
+      if (item.isBreakHabit) {
+        const tw = inferTimeWindow(item);
+        if (tw === 'morning') breakNames.morning.push(item.name);
+        else if (tw === 'afternoon' || tw === 'midday') breakNames.afternoon.push(item.name);
+        else if (tw === 'evening') breakNames.evening.push(item.name);
+        else breakNames.allday.push(item.name);
+        continue;
+      }
+
+      // Regular items → rows
       if (morningIds.has(item.id)) {
         grouped.morning.push(item);
       } else if (dayIds.has(item.id)) {
@@ -1202,35 +1222,26 @@ function TodayFocusList({
       } else if (eveningIds.has(item.id)) {
         grouped.evening.push(item);
       } else {
-        // Break habits: route to their time_window or allday
-        if (item.isBreakHabit) {
-          const tw = inferTimeWindow(item);
-          if (tw === 'morning') grouped.morning.push(item);
-          else if (tw === 'afternoon' || tw === 'midday') grouped.afternoon.push(item);
-          else if (tw === 'evening') grouped.evening.push(item);
-          else grouped.allday.push(item);
-        } else {
-          // Existing logic for build habits and todos
-          const timeWindow = inferTimeWindow(item);
-          if (timeWindow === 'morning') grouped.morning.push(item);
-          else if (timeWindow === 'afternoon' || timeWindow === 'midday')
-            grouped.afternoon.push(item);
-          else if (timeWindow === 'evening') grouped.evening.push(item);
-          else grouped.anytime.push(item);
-        }
+        const timeWindow = inferTimeWindow(item);
+        if (timeWindow === 'morning') grouped.morning.push(item);
+        else if (timeWindow === 'afternoon' || timeWindow === 'midday')
+          grouped.afternoon.push(item);
+        else if (timeWindow === 'evening') grouped.evening.push(item);
+        else grouped.anytime.push(item);
       }
     }
 
-    return grouped;
+    return { itemsByBlock: grouped, breakHabitsByBlock: breakNames };
   }, [sortedItems, brief]);
 
   // Helper to check if a block should render
-  // Only render if block has items, calendar events, or key dates - don't show empty blocks
+  // Only render if block has items, calendar events, key dates, or break habits
   const shouldRenderBlock = (block: TimeBlock) => {
     const hasItems = itemsByBlock[block].length > 0;
     const hasEvents = eventsByBlock[block].length > 0;
     const hasKeyDates = keyDatesByBlock[block].length > 0;
-    return hasItems || hasEvents || hasKeyDates;
+    const hasBreakHabits = breakHabitsByBlock[block].length > 0;
+    return hasItems || hasEvents || hasKeyDates || hasBreakHabits;
   };
 
   // Helper to get calendar hint data for a block
@@ -1296,20 +1307,10 @@ function TodayFocusList({
         </TimeBlockSection>
       )}
 
-      {/* All Day section - break habits with no specific time */}
-      {itemsByBlock.allday.length > 0 && (
+      {/* All Day section - break habit awareness card */}
+      {breakHabitsByBlock.allday.length > 0 && (
         <TimeBlockSection block="allday" isFirst={getIsFirst()}>
-          {itemsByBlock.allday.map((item, index) => (
-            <NowFocusRow
-              key={item.id}
-              item={item}
-              isCompleted={false}
-              isLocked={false}
-              isFirst={index === 0}
-              onPress={() => onPressItem?.(item)}
-              onToggleComplete={() => onToggleComplete?.(item)}
-            />
-          ))}
+          <BreakHabitCard names={breakHabitsByBlock.allday} />
         </TimeBlockSection>
       )}
 
@@ -1348,6 +1349,9 @@ function TodayFocusList({
               onToggleComplete={() => onToggleComplete?.(item)}
             />
           ))}
+          {breakHabitsByBlock.morning.length > 0 && (
+            <BreakHabitCard names={breakHabitsByBlock.morning} />
+          )}
         </TimeBlockSection>
       )}
 
@@ -1386,6 +1390,9 @@ function TodayFocusList({
               onToggleComplete={() => onToggleComplete?.(item)}
             />
           ))}
+          {breakHabitsByBlock.afternoon.length > 0 && (
+            <BreakHabitCard names={breakHabitsByBlock.afternoon} />
+          )}
         </TimeBlockSection>
       )}
 
@@ -1424,6 +1431,9 @@ function TodayFocusList({
               onToggleComplete={() => onToggleComplete?.(item)}
             />
           ))}
+          {breakHabitsByBlock.evening.length > 0 && (
+            <BreakHabitCard names={breakHabitsByBlock.evening} />
+          )}
         </TimeBlockSection>
       )}
 

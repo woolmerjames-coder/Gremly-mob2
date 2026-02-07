@@ -14,6 +14,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { View, Modal, StyleSheet, ScrollView, Text, Pressable, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ShieldOff } from 'lucide-react-native';
+import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
@@ -258,7 +259,6 @@ export function MorningBriefSheet({
       estimatedMinutes: habit.time_estimate_minutes ?? undefined,
       isLockedIn: isHabitLockedIn(habit),
       timeWindow: (habit.time_window as TaskItemData['timeWindow']) ?? null,
-      isBreakHabit: habit.subtype === 'break_habit',
     }),
     [],
   );
@@ -267,12 +267,18 @@ export function MorningBriefSheet({
   const todayPendingDrops = useTodayPendingDrops();
 
   // Group tasks by time block
-  const tasksByBlock = useMemo(() => {
-    const allday: TaskItemData[] = [];
+  const { tasksByBlock, breakHabitsByBlock } = useMemo(() => {
     const morning: TaskItemData[] = [];
     const afternoon: TaskItemData[] = [];
     const evening: TaskItemData[] = [];
     const flexible: TaskItemData[] = [];
+
+    const breakNames: Record<string, string[]> = {
+      allday: [],
+      morning: [],
+      afternoon: [],
+      evening: [],
+    };
 
     // Process todos
     todayTodos.forEach((todo) => {
@@ -294,29 +300,45 @@ export function MorningBriefSheet({
 
     // Process habits
     todayHabits.forEach((habit) => {
-      const task = transformHabit(habit);
       const isBreak = habit.subtype === 'break_habit';
 
-      switch (habit.time_window) {
-        case 'morning':
-          morning.push(task);
-          break;
-        case 'day':
-          afternoon.push(task);
-          break;
-        case 'evening':
-          evening.push(task);
-          break;
-        default:
-          if (isBreak) {
-            allday.push(task);
-          } else {
+      if (isBreak) {
+        // Break habits → awareness card names only
+        switch (habit.time_window) {
+          case 'morning':
+            breakNames.morning.push(habit.name);
+            break;
+          case 'day':
+            breakNames.afternoon.push(habit.name);
+            break;
+          case 'evening':
+            breakNames.evening.push(habit.name);
+            break;
+          default:
+            breakNames.allday.push(habit.name);
+        }
+      } else {
+        const task = transformHabit(habit);
+        switch (habit.time_window) {
+          case 'morning':
+            morning.push(task);
+            break;
+          case 'day':
+            afternoon.push(task);
+            break;
+          case 'evening':
+            evening.push(task);
+            break;
+          default:
             flexible.push(task);
-          }
+        }
       }
     });
 
-    return { allday, morning, afternoon, evening, flexible };
+    return {
+      tasksByBlock: { morning, afternoon, evening, flexible },
+      breakHabitsByBlock: breakNames,
+    };
   }, [todayTodos, todayHabits, transformTodo, transformHabit]);
 
   // Calculate total task minutes for Gremly summary
@@ -606,8 +628,8 @@ export function MorningBriefSheet({
               {/* Thick divider between On Your Plate and Time Blocks */}
               <View style={styles.sectionDivider} />
 
-              {/* All Day - break habits (awareness items) */}
-              {tasksByBlock.allday.length > 0 && (
+              {/* All Day - break habit awareness card */}
+              {breakHabitsByBlock.allday.length > 0 && (
                 <>
                   <View style={styles.alldaySection}>
                     <View style={styles.alldayHeader}>
@@ -615,14 +637,7 @@ export function MorningBriefSheet({
                       <ShieldOff size={16} color="#8B7E74" />
                       <Text style={styles.alldayLabel}>ALL DAY</Text>
                     </View>
-                    {tasksByBlock.allday.map((task) => (
-                      <TaskItem
-                        key={task.id}
-                        task={task}
-                        onPress={handleTaskPress}
-                        showEstimate={false}
-                      />
-                    ))}
+                    <BreakHabitCard names={breakHabitsByBlock.allday} />
                   </View>
                   <View style={styles.blockDivider} />
                 </>
@@ -641,6 +656,9 @@ export function MorningBriefSheet({
                 hiddenEventIds={hiddenEventIds}
                 dateContext={today}
               />
+              {breakHabitsByBlock.morning.length > 0 && (
+                <BreakHabitCard names={breakHabitsByBlock.morning} />
+              )}
 
               <View style={styles.blockDivider} />
 
@@ -656,6 +674,9 @@ export function MorningBriefSheet({
                 hiddenEventIds={hiddenEventIds}
                 dateContext={today}
               />
+              {breakHabitsByBlock.afternoon.length > 0 && (
+                <BreakHabitCard names={breakHabitsByBlock.afternoon} />
+              )}
 
               <View style={styles.blockDivider} />
 
@@ -671,6 +692,9 @@ export function MorningBriefSheet({
                 hiddenEventIds={hiddenEventIds}
                 dateContext={today}
               />
+              {breakHabitsByBlock.evening.length > 0 && (
+                <BreakHabitCard names={breakHabitsByBlock.evening} />
+              )}
             </ScrollView>
 
             {/* Footer */}
