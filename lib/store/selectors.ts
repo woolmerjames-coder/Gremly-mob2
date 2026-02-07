@@ -409,14 +409,11 @@ function isHabitDueToday(
   }
 }
 
-/** All habits that are due/available today (not completed today, not archived, not breaking habits) */
+/** All habits that are due/available today (not completed today, not archived) */
 export const selectHabitsDueToday = createSelector(
   [selectHabits, selectCompletionsThisWeek, selectCompletionsThisMonth, selectHabitCompletedToday],
   (habits, weeklyCompletions, monthlyCompletions, completedTodaySet): Habit[] => {
     return habits.filter((habit) => {
-      // Exclude breaking habits - they don't belong in Today's Focus
-      if (habit.subtype === 'break_habit') return false;
-
       return isHabitDueToday(
         habit,
         weeklyCompletions.get(habit.id) ?? 0,
