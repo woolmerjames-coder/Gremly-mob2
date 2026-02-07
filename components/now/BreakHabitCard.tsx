@@ -6,8 +6,13 @@
  * happens in Evening Sweep.
  */
 
-import React from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { LayoutAnimation, Pressable, StyleSheet, Text, UIManager, Platform } from 'react-native';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const MAX_VISIBLE = 3;
 
@@ -17,19 +22,26 @@ interface BreakHabitCardProps {
 }
 
 export function BreakHabitCard({ names }: BreakHabitCardProps) {
+  const canExpand = names.length > MAX_VISIBLE;
+  const [expanded, setExpanded] = useState(false);
+
+  const toggle = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded((prev) => !prev);
+  }, []);
+
   if (names.length === 0) return null;
 
-  const visible = names.slice(0, MAX_VISIBLE);
   const overflow = names.length - MAX_VISIBLE;
-
-  let nameText = visible.join(', ');
-  if (overflow > 0) nameText += ` + ${overflow} more`;
+  const visible = expanded ? names : names.slice(0, MAX_VISIBLE);
+  const nameText = visible.join(', ');
 
   return (
-    <Pressable style={styles.card}>
-      <Text style={styles.text} numberOfLines={2}>
+    <Pressable style={styles.card} onPress={canExpand ? toggle : undefined}>
+      <Text style={styles.text}>
         <Text style={styles.prefix}>Stay mindful: </Text>
         <Text style={styles.names}>{nameText}</Text>
+        {!expanded && overflow > 0 && <Text style={styles.moreLabel}> + {overflow} more</Text>}
       </Text>
     </Pressable>
   );
@@ -59,5 +71,10 @@ const styles = StyleSheet.create({
   names: {
     fontWeight: '400',
     color: '#8B7E74',
+  },
+  moreLabel: {
+    fontWeight: '500',
+    color: '#6A6F76',
+    textDecorationLine: 'underline' as const,
   },
 });
