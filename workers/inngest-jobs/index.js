@@ -836,6 +836,11 @@ async function buildSpaceProfile(space, env, headers) {
   const chatsData = await chatsResponse.json();
   const chats = Array.isArray(chatsData) ? chatsData : [];
 
+  const sampleTitles = allEntities
+    .map(e => e.title)
+    .filter(Boolean)
+    .slice(0, 10);
+
   return {
     space_id: space.id,
     name: space.name,
@@ -846,6 +851,7 @@ async function buildSpaceProfile(space, env, headers) {
     people_mentioned: extractPeopleFromEntities(allEntities, 5),
     chat_themes: extractChatThemes(chats, 3),
     item_count: allEntities.length,
+    sample_titles: sampleTitles,
   };
 }
 
@@ -1174,6 +1180,7 @@ async function callAIForSpaceSuggestions(spaceProfiles, unassignedDrops, apiKey)
       spacesText += `Goal: ${sp.goal || 'not set'}\n`;
       spacesText += `Target date: ${sp.target_date || 'not set'}\n`;
       spacesText += `Contains ${sp.item_count} items\n`;
+      spacesText += `Sample items: ${sp.sample_titles?.length > 0 ? sp.sample_titles.join(', ') : 'none'}\n`;
       spacesText += `Common tags: ${sp.top_tags.length > 0 ? sp.top_tags.join(', ') : 'none'}\n`;
       spacesText += `Common keywords: ${sp.top_keywords.length > 0 ? sp.top_keywords.join(', ') : 'none'}\n`;
       spacesText += `People mentioned: ${sp.people_mentioned.length > 0 ? sp.people_mentioned.join(', ') : 'none'}\n`;
