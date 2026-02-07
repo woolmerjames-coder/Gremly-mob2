@@ -602,7 +602,7 @@ async function generateSpaceSuggestions(userId, env) {
 
     const [unassignedTodos, unassignedNotes, unassignedHabits] = await Promise.all([
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&created_at=gte.${fourteenDaysAgo}&select=id,title,body,tags,created_at,views&limit=50`,
+        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&completed_at=is.null&created_at=gte.${fourteenDaysAgo}&select=id,title,body,tags,created_at,views&limit=50`,
         { headers },
       ).then((r) => r.json()),
       fetch(
@@ -610,7 +610,7 @@ async function generateSpaceSuggestions(userId, env) {
         { headers },
       ).then((r) => r.json()),
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&created_at=gte.${fourteenDaysAgo}&select=id,name,tags,created_at,views&limit=20`,
+        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&space_id=is.null&archived_at=is.null&created_at=gte.${fourteenDaysAgo}&select=id,name,tags,created_at,views&limit=20`,
         { headers },
       ).then((r) => r.json()),
     ]);
