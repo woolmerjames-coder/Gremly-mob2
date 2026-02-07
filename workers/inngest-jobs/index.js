@@ -606,7 +606,7 @@ async function generateSpaceSuggestions(userId, env) {
         { headers },
       ).then((r) => r.json()),
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&created_at=gte.${fourteenDaysAgo}&select=id,title,body,tags,subtype,created_at,views&limit=50`,
+        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&subtype=neq.journal&created_at=gte.${fourteenDaysAgo}&select=id,title,body,tags,subtype,created_at,views&limit=50`,
         { headers },
       ).then((r) => r.json()),
       fetch(
@@ -722,7 +722,7 @@ async function generateSpaceSuggestions(userId, env) {
           `[SpaceSuggestions] Filtered ${originalCount - s.drop_ids.length} invalid drop_ids`,
         );
       }
-      return s.drop_ids.length >= 3; // Need at least 3 items for a new space suggestion
+      return s.drop_ids.length >= 5; // Need at least 5 items for a new space suggestion
     });
 
     const validCount = validAssignSuggestions.length + validNewSpaceSuggestions.length;
@@ -1198,15 +1198,14 @@ async function callAIForSpaceSuggestions(spaceProfiles, unassignedDrops, apiKey)
     .join('');
 
   const systemPrompt = `You analyze a user's captured items and suggest how they should be organized into Spaces.
-A Space is a container for a life domain or project. Each Space has a name, optional goal,
-and contains related todos, notes, and habits.
+
+A Space is a container for something a person is actively working on, planning, or managing in their life. The defining quality of a good Space is that the person would open it regularly to check progress, add new items, or figure out what to do next.
+
+Ask yourself: "Would this person open this Space next Tuesday to see what needs attention?" If yes, it's a Space. If it's just a loose grouping of somewhat-related items, it's not.
 
 Your job is to:
 1. Identify which unassigned items belong in existing Spaces
-2. Identify clusters of unassigned items that suggest a NEW Space should be created
-
-Be thoughtful but not overly conservative. If an item reasonably belongs somewhere, suggest it.
-The user will make the final decision.`;
+2. Identify clusters of unassigned items that suggest a NEW Space — but ONLY if the cluster represents something the person is actively navigating in their life right now`;
 
   const userPrompt = `EXISTING SPACES:
 ${spacesText}
@@ -1223,9 +1222,14 @@ To determine if an item belongs in a Space, consider (in priority order):
    (Weight this higher if the Space itself is about specific people)
 
 For NEW SPACE suggestions:
-- Look for 5+ unassigned items that share a clear theme
-- The theme should be DISTINCT from existing Spaces
-- Derive the Space name from what the items are actually about (be specific, not generic)
+- Look for 5+ unassigned items that point to something the user is actively navigating right now
+- The cluster should have a natural center of gravity — a project, an upcoming event, a transition, a goal with a finish line, or a life area they're actively managing
+- Ask: "If I created this Space, would the user open it next week to check on things?" If not, don't suggest it
+- Ask: "Is this a thing the person is DOING, or just a label I'm grouping items under?" Only suggest if it's a thing they're doing
+- The theme must be DISTINCT from existing Spaces
+- Derive the name from what the person is actually trying to accomplish, not from what category the items fall into
+- If items are loosely related but don't point to a single effort or initiative, leave them unassigned — that's fine
+- Require at least 5 items for a new space suggestion
 
 CONFIDENCE SCORING:
 - 90-100%: Clearly belongs based on Space purpose OR strong entity/keyword match
