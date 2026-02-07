@@ -1281,13 +1281,13 @@ Maximum 3 new Space suggestions.`;
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o', // Better reasoning for this daily task
+      model: 'gpt-5-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: 1500,
-      temperature: 0.3, // Lower temp for structured output
+      max_completion_tokens: 4096,
+      reasoning_effort: 'medium',
     }),
   });
 
