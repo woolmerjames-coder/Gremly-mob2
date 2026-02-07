@@ -36,18 +36,17 @@ const inngest = new Inngest({
   middleware: [bindings],
 });
 
-// Main synthesis function
-const synthesizeUserProfiles = inngest.createFunction(
+// Dispatcher: fetch active users and fan out one event per user
+const dailySynthesisDispatcher = inngest.createFunction(
   {
-    id: 'synthesize-user-profiles',
-    name: 'Synthesize User Profiles',
+    id: 'daily-synthesis-dispatcher',
+    name: 'Daily Synthesis Dispatcher',
   },
   [
     { cron: '0 4 * * *' }, // 4 AM UTC daily
     { event: 'app/profiles.sync' }, // Manual trigger
   ],
   async ({ step, env }) => {
-    // Step 1: Get active users who need synthesis (new activity since last profile)
     const activeUsers = await step.run('get-active-users', async () => {
       const response = await fetch(
         `${env.SUPABASE_URL}/rest/v1/rpc/get_active_users_needing_synthesis`,
@@ -69,46 +68,46 @@ const synthesizeUserProfiles = inngest.createFunction(
       return response.json();
     });
 
-    console.log(`[SynthesizeProfiles] Found ${activeUsers.length} active users`);
+    console.log(`[Dispatcher] Found ${activeUsers.length} active users`);
 
-    // Step 2: Process each user - profile synthesis
-    let profilesSucceeded = 0;
-    let profilesFailed = 0;
-
-    for (const user of activeUsers) {
-      const result = await step.run(`synthesize-${user.user_id.slice(0, 8)}`, async () => {
-        return synthesizeUserProfile(user.user_id, env);
-      });
-
-      if (result.success) profilesSucceeded++;
-      else profilesFailed++;
+    // Fan out: send one event per user
+    if (activeUsers.length > 0) {
+      await step.sendEvent('dispatch-users',
+        activeUsers.map(u => ({
+          name: 'app/user.synthesize',
+          data: { user_id: u.user_id },
+        }))
+      );
     }
 
-    console.log(
-      `[SynthesizeProfiles] Complete: ${profilesSucceeded} succeeded, ${profilesFailed} failed`,
-    );
+    return { dispatched: activeUsers.length };
+  },
+);
 
-    // Step 3: Generate space suggestions for each user
-    let suggestionsSucceeded = 0;
-    let suggestionsFailed = 0;
+// Per-user worker: synthesize profile + generate suggestions as separate steps
+const synthesizeSingleUser = inngest.createFunction(
+  {
+    id: 'synthesize-single-user',
+    name: 'Synthesize Single User',
+    concurrency: { limit: 5 },
+  },
+  { event: 'app/user.synthesize' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    console.log(`[UserSynth] Starting for user: ${userId}`);
 
-    for (const user of activeUsers) {
-      const result = await step.run(`suggestions-${user.user_id.slice(0, 8)}`, async () => {
-        return generateSpaceSuggestions(user.user_id, env);
-      });
+    const profileResult = await step.run('synthesize-profile', async () => {
+      return synthesizeUserProfile(userId, env);
+    });
 
-      if (result.success) suggestionsSucceeded++;
-      else suggestionsFailed++;
-    }
-
-    console.log(
-      `[SpaceSuggestions] Complete: ${suggestionsSucceeded} succeeded, ${suggestionsFailed} failed`,
-    );
+    const suggestionsResult = await step.run('generate-suggestions', async () => {
+      return generateSpaceSuggestions(userId, env);
+    });
 
     return {
-      processed: activeUsers.length,
-      profiles: { succeeded: profilesSucceeded, failed: profilesFailed },
-      suggestions: { succeeded: suggestionsSucceeded, failed: suggestionsFailed },
+      user_id: userId,
+      profile: profileResult,
+      suggestions: suggestionsResult,
     };
   },
 );
@@ -670,12 +669,9 @@ async function generateSpaceSuggestions(userId, env) {
 
     // Step 5: Build condensed profiles for each space (where disable_suggestions = false)
     const spacesForSuggestions = allSpaces.filter((s) => !s.disable_suggestions);
-    const spaceProfiles = [];
-
-    for (const space of spacesForSuggestions) {
-      const profile = await buildSpaceProfile(space, env, headers);
-      spaceProfiles.push(profile);
-    }
+    const spaceProfiles = await Promise.all(
+      spacesForSuggestions.map(space => buildSpaceProfile(space, env, headers))
+    );
 
     console.log(`[SpaceSuggestions] Built profiles for ${spaceProfiles.length} spaces`);
 
@@ -1350,7 +1346,7 @@ function corsResponse(body, status = 200) {
 // Inngest serve handler
 const inngestHandler = serve({
   client: inngest,
-  functions: [synthesizeUserProfiles],
+  functions: [dailySynthesisDispatcher, synthesizeSingleUser],
   servePath: '/',
 });
 
