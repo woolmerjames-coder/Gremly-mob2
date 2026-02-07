@@ -133,6 +133,7 @@ function toActiveItem(item: Todo | Habit, spacesMap: Map<string, Space>): NowAct
     targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
     frequency: isHabit ? (item as Habit).frequency : undefined,
     timeWindow: (item.time_window as NowActiveItem['timeWindow']) ?? undefined,
+    isBreakHabit: isHabit ? (item as Habit).subtype === 'break_habit' : false,
   };
 }
 
@@ -188,6 +189,7 @@ function toSweepCandidate(todo: Todo, todayDayString: string): SweepCandidate {
  */
 function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<TimeBlock, Note[]> {
   const grouped: Record<TimeBlock, Note[]> = {
+    allday: [],
     morning: [],
     afternoon: [],
     evening: [],
@@ -1185,6 +1187,7 @@ function TodayFocusList({
     const eveningIds = new Set(brief?.evening_sequence?.map((i) => i.id) || []);
 
     const grouped: Record<TimeBlock, NowActiveItem[]> = {
+      allday: [],
       morning: [],
       afternoon: [],
       evening: [],
@@ -1199,13 +1202,22 @@ function TodayFocusList({
       } else if (eveningIds.has(item.id)) {
         grouped.evening.push(item);
       } else {
-        // Use inferTimeWindow for items not in a sequence
-        const timeWindow = inferTimeWindow(item);
-        if (timeWindow === 'morning') grouped.morning.push(item);
-        else if (timeWindow === 'afternoon' || timeWindow === 'midday')
-          grouped.afternoon.push(item);
-        else if (timeWindow === 'evening') grouped.evening.push(item);
-        else grouped.anytime.push(item);
+        // Break habits: route to their time_window or allday
+        if (item.isBreakHabit) {
+          const tw = inferTimeWindow(item);
+          if (tw === 'morning') grouped.morning.push(item);
+          else if (tw === 'afternoon' || tw === 'midday') grouped.afternoon.push(item);
+          else if (tw === 'evening') grouped.evening.push(item);
+          else grouped.allday.push(item);
+        } else {
+          // Existing logic for build habits and todos
+          const timeWindow = inferTimeWindow(item);
+          if (timeWindow === 'morning') grouped.morning.push(item);
+          else if (timeWindow === 'afternoon' || timeWindow === 'midday')
+            grouped.afternoon.push(item);
+          else if (timeWindow === 'evening') grouped.evening.push(item);
+          else grouped.anytime.push(item);
+        }
       }
     }
 
@@ -1276,6 +1288,23 @@ function TodayFocusList({
               item={item}
               isCompleted={false}
               isLocked
+              isFirst={index === 0}
+              onPress={() => onPressItem?.(item)}
+              onToggleComplete={() => onToggleComplete?.(item)}
+            />
+          ))}
+        </TimeBlockSection>
+      )}
+
+      {/* All Day section - break habits with no specific time */}
+      {itemsByBlock.allday.length > 0 && (
+        <TimeBlockSection block="allday" isFirst={getIsFirst()}>
+          {itemsByBlock.allday.map((item, index) => (
+            <NowFocusRow
+              key={item.id}
+              item={item}
+              isCompleted={false}
+              isLocked={false}
               isFirst={index === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}

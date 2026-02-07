@@ -13,6 +13,7 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { View, Modal, StyleSheet, ScrollView, Text, Pressable, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ShieldOff } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
@@ -37,6 +38,7 @@ import {
   TodaysKeyDatesSection,
   TimeEstimatePicker,
   OrganizeButton,
+  TaskItem,
   type TaskItemData,
 } from './components';
 
@@ -256,6 +258,7 @@ export function MorningBriefSheet({
       estimatedMinutes: habit.time_estimate_minutes ?? undefined,
       isLockedIn: isHabitLockedIn(habit),
       timeWindow: (habit.time_window as TaskItemData['timeWindow']) ?? null,
+      isBreakHabit: habit.subtype === 'break_habit',
     }),
     [],
   );
@@ -265,6 +268,7 @@ export function MorningBriefSheet({
 
   // Group tasks by time block
   const tasksByBlock = useMemo(() => {
+    const allday: TaskItemData[] = [];
     const morning: TaskItemData[] = [];
     const afternoon: TaskItemData[] = [];
     const evening: TaskItemData[] = [];
@@ -291,6 +295,8 @@ export function MorningBriefSheet({
     // Process habits
     todayHabits.forEach((habit) => {
       const task = transformHabit(habit);
+      const isBreak = habit.subtype === 'break_habit';
+
       switch (habit.time_window) {
         case 'morning':
           morning.push(task);
@@ -302,11 +308,15 @@ export function MorningBriefSheet({
           evening.push(task);
           break;
         default:
-          flexible.push(task);
+          if (isBreak) {
+            allday.push(task);
+          } else {
+            flexible.push(task);
+          }
       }
     });
 
-    return { morning, afternoon, evening, flexible };
+    return { allday, morning, afternoon, evening, flexible };
   }, [todayTodos, todayHabits, transformTodo, transformHabit]);
 
   // Calculate total task minutes for Gremly summary
@@ -596,6 +606,28 @@ export function MorningBriefSheet({
               {/* Thick divider between On Your Plate and Time Blocks */}
               <View style={styles.sectionDivider} />
 
+              {/* All Day - break habits (awareness items) */}
+              {tasksByBlock.allday.length > 0 && (
+                <>
+                  <View style={styles.alldaySection}>
+                    <View style={styles.alldayHeader}>
+                      <View style={[styles.alldayBar, { backgroundColor: '#8B7E74' }]} />
+                      <ShieldOff size={16} color="#8B7E74" />
+                      <Text style={styles.alldayLabel}>ALL DAY</Text>
+                    </View>
+                    {tasksByBlock.allday.map((task) => (
+                      <TaskItem
+                        key={task.id}
+                        task={task}
+                        onPress={handleTaskPress}
+                        showEstimate={false}
+                      />
+                    ))}
+                  </View>
+                  <View style={styles.blockDivider} />
+                </>
+              )}
+
               {/* Time Blocks */}
               <TimeBlockSection
                 capacity={capacity.blocks.morning}
@@ -700,6 +732,29 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E5E5',
     marginVertical: 16,
     marginHorizontal: 16,
+  },
+  alldaySection: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  alldayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 8,
+    gap: 6,
+  },
+  alldayBar: {
+    width: 3,
+    height: 16,
+    borderRadius: 1.5,
+    marginRight: 4,
+  },
+  alldayLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    color: '#8B7E74',
   },
   sectionDivider: {
     height: 2,

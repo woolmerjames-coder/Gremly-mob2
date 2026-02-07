@@ -10,7 +10,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, Animated, Easing } from 'react-native';
-import { Circle, Diamond, Repeat } from 'lucide-react-native';
+import { Circle, Diamond, Repeat, ShieldOff } from 'lucide-react-native';
 import type { TimeBlock } from '../../../../lib/capacity';
 
 const COLORS = {
@@ -29,6 +29,7 @@ export interface TaskItemData {
   timeWindow?: TimeBlock | 'any' | null;
   isLockedIn: boolean;
   estimatedMinutes?: number;
+  isBreakHabit?: boolean;
 }
 
 interface TaskItemProps {
@@ -46,8 +47,18 @@ export function TaskItem({
   showEstimate = true,
   dimmed = false,
 }: TaskItemProps) {
-  const Icon = task.isLockedIn ? Diamond : task.type === 'habit' ? Repeat : Circle;
-  const iconColor = task.isLockedIn ? COLORS.mossGreen : COLORS.inkMuted;
+  const Icon = task.isBreakHabit
+    ? ShieldOff
+    : task.isLockedIn
+      ? Diamond
+      : task.type === 'habit'
+        ? Repeat
+        : Circle;
+  const iconColor = task.isLockedIn
+    ? COLORS.mossGreen
+    : task.isBreakHabit
+      ? '#8B7E74'
+      : COLORS.inkMuted;
 
   // Format time estimate
   const timeDisplay = task.estimatedMinutes
@@ -71,8 +82,8 @@ export function TaskItem({
         </Text>
       </Pressable>
 
-      {/* Time estimate - separate tap target */}
-      {showEstimate && (
+      {/* Time estimate - separate tap target (hidden for break habits) */}
+      {showEstimate && !task.isBreakHabit && (
         <Pressable
           style={styles.timeButton}
           onPress={handleTimePress}

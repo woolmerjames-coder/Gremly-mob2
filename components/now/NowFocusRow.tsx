@@ -24,7 +24,7 @@ import { useTokens } from '../../design/makeStyles';
 import { useReducedMotion } from '../../design/animations';
 import { triggerMedium } from '../../lib/haptics';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
-import { Flame, RotateCcw, RefreshCw, Calendar } from 'lucide-react-native';
+import { Flame, RotateCcw, RefreshCw, Calendar, ShieldOff } from 'lucide-react-native';
 import { computeHabitMetadata } from '../../lib/today/hooks/useHabitMetadata';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { BRAND } from '../../design/brand';
@@ -161,6 +161,9 @@ export function NowFocusRow({
 
   // Look up the full habit from the store to get the frequency field
   const fullHabit = item.type === 'habit' ? habits.find((h) => h.id === item.id) : null;
+
+  // Detect break habits (awareness items - no time estimate, no duration)
+  const isBreakHabit = 'isBreakHabit' in item && item.isBreakHabit === true;
 
   // Look up the full todo from the store to get time_estimate_minutes
   const fullTodo = item.type === 'todo' ? todos.find((t) => t.id === item.id) : null;
@@ -468,15 +471,23 @@ export function NowFocusRow({
               </View>
             )}
 
-            {/* Habit: frequency chip */}
-            {item.type === 'habit' && frequencyLabel && (
+            {/* Break habit: Awareness pill with ShieldOff icon */}
+            {item.type === 'habit' && isBreakHabit && (
+              <View style={[styles.chip, styles.chipHabit]}>
+                <ShieldOff size={11} color="#8B7E74" style={styles.chipIcon} />
+                <Text style={styles.chipText}>Awareness</Text>
+              </View>
+            )}
+
+            {/* Habit: frequency chip (not for break habits) */}
+            {item.type === 'habit' && !isBreakHabit && frequencyLabel && (
               <View style={[styles.chip, styles.chipHabit]}>
                 <Text style={styles.chipText}>{frequencyLabel}</Text>
               </View>
             )}
 
-            {/* Habit: progress chip (e.g., "5/7 this week") */}
-            {item.type === 'habit' && habitMetadata && habitMetadata.label && (
+            {/* Habit: progress chip (e.g., "5/7 this week") - not for break habits */}
+            {item.type === 'habit' && !isBreakHabit && habitMetadata && habitMetadata.label && (
               <View style={[styles.chip, styles.chipHabit]}>
                 {MetadataIcon && (
                   <MetadataIcon

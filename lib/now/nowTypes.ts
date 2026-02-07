@@ -58,6 +58,8 @@ export interface NowActiveItem {
   timeWindow?: 'morning' | 'midday' | 'evening' | 'any';
   /** Human-readable frequency like "3 times a week" */
   frequency?: string;
+  /** Whether this is a break habit (awareness item, no time estimate) */
+  isBreakHabit?: boolean;
   /** Space ID for this item */
   spaceId?: string | null;
   /** Space name for display */
