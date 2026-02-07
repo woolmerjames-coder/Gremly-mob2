@@ -24,7 +24,7 @@ import { useTokens } from '../../design/makeStyles';
 import { useReducedMotion } from '../../design/animations';
 import { triggerMedium } from '../../lib/haptics';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
-import { Flame, RotateCcw, RefreshCw, Calendar, ShieldOff } from 'lucide-react-native';
+import { Flame, RotateCcw, RefreshCw, Calendar } from 'lucide-react-native';
 import { computeHabitMetadata } from '../../lib/today/hooks/useHabitMetadata';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { BRAND } from '../../design/brand';
@@ -468,14 +468,6 @@ export function NowFocusRow({
             {item.type === 'todo' && timeEstimateLabel && (
               <View style={[styles.chip, styles.chipTodo]}>
                 <Text style={styles.chipText}>~{timeEstimateLabel}</Text>
-              </View>
-            )}
-
-            {/* Break habit: Awareness pill with ShieldOff icon */}
-            {item.type === 'habit' && isBreakHabit && (
-              <View style={[styles.chip, styles.chipHabit]}>
-                <ShieldOff size={11} color="#8B7E74" style={styles.chipIcon} />
-                <Text style={styles.chipText}>Awareness</Text>
               </View>
             )}
 
