@@ -44,8 +44,8 @@ const INK_SUBTLE = 'rgba(34, 34, 34, 0.55)';
 const BORDER_SUBTLE = 'rgba(0, 0, 0, 0.08)';
 
 // Shared day header constants - must match HabitWeeklyRow GremlyDot sizing
-const DOT_SIZE = 28; // Match GremlyDot size
-const DOT_SPACING = 8; // Match HabitWeeklyRow gap
+const DOT_SIZE = 36; // Match GremlyDot size
+const DOT_SPACING = 10; // Match HabitWeeklyRow gap
 
 interface NowWeekPopupProps {
   visible: boolean;

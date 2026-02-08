@@ -43,8 +43,8 @@ const HABIT_GREMLY = require('../../assets/mascot/habitgremly.png');
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Shared day header constants - must match HabitWeeklyRow GremlyDot sizing
-const DOT_SIZE = 28; // Match GremlyDot size
-const DOT_SPACING = 8; // Match HabitWeeklyRow gap
+const DOT_SIZE = 36; // Match GremlyDot size
+const DOT_SPACING = 10; // Match HabitWeeklyRow gap
 
 type HabitFilter = 'all' | 'build' | 'break';
 

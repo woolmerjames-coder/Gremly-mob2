@@ -27,9 +27,9 @@ const INK_SUBTLE = 'rgba(34, 34, 34, 0.55)';
 const BORDER_SUBTLE = 'rgba(0, 0, 0, 0.08)';
 
 // ─── DOT SIZING ───
-// GremlyDot size 28 with gap 8 per spec
-const DOT_SIZE = 28;
-const DOT_SPACING = 8;
+// GremlyDot size 36 with gap 10 per spec
+const DOT_SIZE = 36;
+const DOT_SPACING = 10;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

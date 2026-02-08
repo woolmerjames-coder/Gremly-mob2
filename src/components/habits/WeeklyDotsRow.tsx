@@ -1,10 +1,10 @@
 /**
- * WeeklyDotsRow - 7 tappable day dots (GremlyDot or BreakingDot) for a habit's weekly progress
+ * WeeklyDotsRow - 7 tappable GremlyDot faces for a habit's weekly progress
  *
  * Extracted from HabitWeeklyRow for reuse in HabitDetailScreen.
  * Includes optimistic state, toggle logic, and the "Tap to pick a start date" banner.
  *
- * GremlyDot is left completely untouched.
+ * All habits (build and break) use the same GremlyDot face circles.
  */
 
 import React, { useCallback, useState } from 'react';
@@ -42,68 +42,6 @@ export interface WeeklyDotsRowProps {
   dotSpacing?: number;
   /** Called when the "Tap to pick a start date" banner is pressed */
   onPressPickStartDate?: () => void;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BreakingDot — checkmark circle for "break habit" entries
-// ─────────────────────────────────────────────────────────────────────────────
-
-function BreakingDot({
-  isCompleted,
-  isToday,
-  isFuture,
-  onPress,
-  size = 28,
-}: {
-  isCompleted: boolean;
-  isToday: boolean;
-  isFuture: boolean;
-  onPress: () => void;
-  size?: number;
-}) {
-  // Use slightly smaller inner size to account for border (match GremlyDot visual size)
-  const innerSize = size - 4; // 2px border on each side
-
-  return (
-    <Pressable
-      onPress={isFuture ? undefined : onPress}
-      style={{
-        width: size,
-        height: size,
-        justifyContent: 'center',
-        alignItems: 'center',
-        opacity: isFuture ? 0.4 : 1,
-      }}
-      disabled={isFuture}
-    >
-      <View
-        style={{
-          width: innerSize,
-          height: innerSize,
-          borderRadius: innerSize / 2,
-          borderWidth: 2,
-          borderColor: isCompleted ? MOSS_GREEN : isToday ? MOSS_GREEN : '#D0D0D0',
-          backgroundColor: isCompleted ? MOSS_GREEN : 'transparent',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}
-      >
-        {isCompleted && (
-          <Text
-            style={{
-              color: '#FFFFFF',
-              fontSize: innerSize * 0.5,
-              fontWeight: '700',
-              lineHeight: innerSize * 0.5,
-              textAlign: 'center',
-            }}
-          >
-            ✓
-          </Text>
-        )}
-      </View>
-    </Pressable>
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,19 +111,6 @@ export function WeeklyDotsRow({
         if (isBeforeStart) {
           // Show empty placeholder to maintain spacing
           return <View key={dateISO} style={{ width: dotSize, height: dotSize }} />;
-        }
-
-        if (isBreakingHabit) {
-          return (
-            <BreakingDot
-              key={dateISO}
-              isCompleted={isCompleted}
-              isToday={isToday}
-              isFuture={isFuture}
-              onPress={() => handleDotPress(dateISO, !isCompleted)}
-              size={dotSize}
-            />
-          );
         }
 
         return (
