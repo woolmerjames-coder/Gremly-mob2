@@ -7091,125 +7091,74 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               </Box>
                             )}
 
-                            {baseType === 'todo' || baseType === 'habit' ? (
-                              <Box style={{ marginBottom: 0 }}>
-                                {/* Deadline (target_date) + Lock In row */}
-                                <View style={styles.dueAndLockRow}>
-                                  {/* Left side: Deadline (target_date) */}
-                                  <View style={styles.dueDateLeft}>
-                                    {baseType === 'todo' ? (
-                                      <Pressable
-                                        style={styles.dueDatePill}
-                                        onPress={() => {
-                                          setMoodPickerExpanded(false);
-                                          if (state.todo.target_date) {
-                                            const parsed = getDateService().fromDateString(
-                                              state.todo.target_date,
-                                            );
-                                            if (parsed) {
-                                              setSelectedDate(parsed);
-                                            }
-                                          } else {
-                                            setSelectedDate(new Date());
-                                          }
-                                          setDateModalTarget('todo_deadline');
-                                          setShowDateModal(true);
-                                        }}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={
-                                          state.todo.target_date
-                                            ? `Deadline: ${formatDueDay(state.todo.target_date)}`
-                                            : 'Add deadline'
-                                        }
-                                      >
-                                        <Calendar
-                                          size={16}
-                                          color={
-                                            state.todo.target_date
-                                              ? colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.7)'
-                                                : '#666666'
-                                              : colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.5)'
-                                                : '#777777'
-                                          }
-                                          style={styles.dueDateIcon}
-                                        />
-                                        <Text
-                                          style={[
-                                            styles.dueDateText,
-                                            !state.todo.target_date && {
-                                              color:
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.5)'
-                                                  : '#777777',
-                                              fontWeight: '400',
-                                            },
-                                          ]}
-                                        >
-                                          {state.todo.target_date
-                                            ? formatDueDay(state.todo.target_date)
-                                            : 'Add deadline'}
-                                        </Text>
-                                      </Pressable>
-                                    ) : null}
-                                  </View>
+                            {/* ===== To-Do-specific rows: Deadline / Do date / Time est / Time of day / Lock In ===== */}
+                            {baseType === 'todo' ? (
+                              <View style={{ paddingHorizontal: 16 }}>
+                                {/* Hairline divider above Deadline */}
+                                <View
+                                  style={{
+                                    height: StyleSheet.hairlineWidth,
+                                    backgroundColor: '#E5E0D8',
+                                  }}
+                                />
 
-                                  {/* Right side: Lock In toggle (for todos only) */}
-                                  {commitmentsOn && baseType === 'todo' ? (
-                                    <View style={styles.lockInRight}>
-                                      <Diamond
-                                        size={14}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'
-                                        }
-                                        style={styles.lockIcon}
-                                      />
-                                      <Text style={styles.lockLabel}>Lock In</Text>
-                                      <Switch
-                                        value={isLockedIn}
-                                        onValueChange={async () => {
-                                          if (!state.commitment) {
-                                            const ok = await canEnableCommitment();
-                                            if (!ok) {
-                                              console.log('[Lock In] Limit reached (3)');
-                                              return;
-                                            }
-                                          }
-                                          pushUndoEntry('commitment', {
-                                            commitment: state.commitment,
-                                            commitmentNote: state.commitmentNote,
-                                            commitmentStartedAt: state.commitmentStartedAt,
-                                          });
-                                          dispatch({ type: 'TOGGLE_COMMITMENT' });
-                                          try {
-                                            eventBus.emit('OverlayCommitmentToggled', {
-                                              on: !state.commitment,
-                                            });
-                                          } catch (e) {
-                                            // ignore telemetry errors
-                                          }
-                                        }}
-                                        trackColor={{
-                                          false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
-                                          true: lightTokens.colors.moss,
-                                        }}
-                                        thumbColor="#FFFFFF"
-                                      />
-                                    </View>
-                                  ) : null}
-                                </View>
+                                {/* Deadline row */}
+                                <Pressable
+                                  onPress={() => {
+                                    setMoodPickerExpanded(false);
+                                    if (state.todo.target_date) {
+                                      const parsed = getDateService().fromDateString(
+                                        state.todo.target_date,
+                                      );
+                                      if (parsed) setSelectedDate(parsed);
+                                    } else {
+                                      setSelectedDate(new Date());
+                                    }
+                                    setDateModalTarget('todo_deadline');
+                                    setShowDateModal(true);
+                                  }}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={
+                                    state.todo.target_date
+                                      ? `Deadline: ${formatDueDay(state.todo.target_date)}`
+                                      : 'Add deadline'
+                                  }
+                                  style={({ pressed }) => ({
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    paddingVertical: 14,
+                                    opacity: pressed ? 0.7 : 1,
+                                  })}
+                                >
+                                  <View
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                                  >
+                                    <Calendar size={18} color="#6B665C" />
+                                    <Text
+                                      style={{
+                                        fontSize: 14,
+                                        fontWeight: state.todo.target_date ? '600' : '500',
+                                        color: state.todo.target_date ? '#2D4A3E' : '#8B8579',
+                                      }}
+                                    >
+                                      {state.todo.target_date
+                                        ? formatDueDay(state.todo.target_date)
+                                        : 'Add deadline'}
+                                    </Text>
+                                  </View>
+                                  <ChevronRight size={18} color="#A09A90" />
+                                </Pressable>
+
                                 {dueToastMessage ? (
                                   <View
                                     style={{
-                                      marginLeft: tokenSpacing.sm,
                                       paddingHorizontal: 10,
                                       paddingVertical: 4,
                                       borderRadius: 999,
-                                      backgroundColor:
-                                        colorMode === 'dark'
-                                          ? 'rgba(255,255,255,0.08)'
-                                          : 'rgba(46,125,106,0.12)',
+                                      backgroundColor: 'rgba(46,125,106,0.12)',
+                                      alignSelf: 'flex-start',
+                                      marginBottom: 4,
                                     }}
                                     pointerEvents="none"
                                   >
@@ -7225,152 +7174,236 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   </View>
                                 ) : null}
 
-                                {/* Do date (scheduled_date) row for todos */}
-                                {baseType === 'todo' && (
-                                  <View style={styles.dueAndLockRow}>
-                                    <View style={styles.dueDateLeft}>
-                                      <Pressable
-                                        style={styles.dueDatePill}
-                                        onPress={() => {
-                                          setMoodPickerExpanded(false);
-                                          if (state.todo.scheduled_date) {
-                                            const parsed = getDateService().fromDateString(
-                                              state.todo.scheduled_date,
-                                            );
-                                            if (parsed) {
-                                              setSelectedDate(parsed);
-                                            }
-                                          } else {
-                                            setSelectedDate(new Date());
-                                          }
-                                          setDateModalTarget('todo_dodate');
-                                          setShowDateModal(true);
-                                        }}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={
-                                          state.todo.scheduled_date
-                                            ? `Do date: ${formatDueDay(state.todo.scheduled_date)}`
-                                            : 'Add do date'
-                                        }
-                                      >
-                                        <Clock
-                                          size={16}
-                                          color={
-                                            state.todo.scheduled_date
-                                              ? colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.7)'
-                                                : '#666666'
-                                              : colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.5)'
-                                                : '#777777'
-                                          }
-                                          style={styles.dueDateIcon}
-                                        />
-                                        <Text
-                                          style={[
-                                            styles.dueDateText,
-                                            !state.todo.scheduled_date && {
-                                              color:
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.5)'
-                                                  : '#777777',
-                                              fontWeight: '400',
-                                            },
-                                          ]}
-                                        >
-                                          {state.todo.scheduled_date
-                                            ? formatDueDay(state.todo.scheduled_date)
-                                            : 'Add do date'}
-                                        </Text>
-                                      </Pressable>
-                                    </View>
-                                  </View>
-                                )}
+                                {/* Hairline divider */}
+                                <View
+                                  style={{
+                                    height: StyleSheet.hairlineWidth,
+                                    backgroundColor: '#E5E0D8',
+                                  }}
+                                />
 
-                                {/* Time estimate row for todos */}
-                                {baseType === 'todo' && (
-                                  <View style={styles.dueAndLockRow}>
-                                    <View style={styles.dueDateLeft}>
-                                      <Pressable
-                                        style={styles.dueDatePill}
-                                        onPress={() => {
-                                          setTimeEstimateValue(
-                                            state.todo.time_estimate_minutes ?? 30,
-                                          );
-                                          setShowTimeEstimateModal(true);
-                                        }}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={
-                                          state.todo.time_estimate_minutes
-                                            ? `Time estimate: ${state.todo.time_estimate_minutes} minutes`
-                                            : 'Add time estimate'
-                                        }
-                                      >
-                                        <Clock
-                                          size={16}
-                                          color={
-                                            state.todo.time_estimate_minutes
-                                              ? colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.7)'
-                                                : '#666666'
-                                              : colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.5)'
-                                                : '#777777'
-                                          }
-                                          style={styles.dueDateIcon}
-                                        />
-                                        <Text
-                                          style={[
-                                            styles.dueDateText,
-                                            !state.todo.time_estimate_minutes && {
-                                              color:
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.5)'
-                                                  : '#777777',
-                                              fontWeight: '400',
-                                            },
-                                          ]}
-                                        >
-                                          {state.todo.time_estimate_minutes
-                                            ? formatTimeEstimate(state.todo.time_estimate_minutes)
-                                            : 'Add time estimate'}
-                                        </Text>
-                                      </Pressable>
-
-                                      {/* Time Window Picker */}
-                                      <Pressable
-                                        style={[styles.dueDatePill, { marginLeft: 8 }]}
-                                        onPress={() => setShowTimeWindowModal(true)}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={
-                                          state.todo.time_window
-                                            ? `Time window: ${state.todo.time_window}`
-                                            : 'Set time window'
-                                        }
-                                      >
-                                        <Text
-                                          style={[
-                                            styles.dueDateText,
-                                            !state.todo.time_window && {
-                                              color:
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.5)'
-                                                  : '#777777',
-                                              fontWeight: '400',
-                                            },
-                                          ]}
-                                        >
-                                          {state.todo.time_window
-                                            ? TIME_WINDOW_OPTIONS.find(
-                                                (o) => o.value === state.todo.time_window,
-                                              )?.label || state.todo.time_window
-                                            : 'Any time'}
-                                        </Text>
-                                      </Pressable>
-                                    </View>
+                                {/* Do date row */}
+                                <Pressable
+                                  onPress={() => {
+                                    setMoodPickerExpanded(false);
+                                    if (state.todo.scheduled_date) {
+                                      const parsed = getDateService().fromDateString(
+                                        state.todo.scheduled_date,
+                                      );
+                                      if (parsed) setSelectedDate(parsed);
+                                    } else {
+                                      setSelectedDate(new Date());
+                                    }
+                                    setDateModalTarget('todo_dodate');
+                                    setShowDateModal(true);
+                                  }}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={
+                                    state.todo.scheduled_date
+                                      ? `Do date: ${formatDueDay(state.todo.scheduled_date)}`
+                                      : 'Add do date'
+                                  }
+                                  style={({ pressed }) => ({
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    paddingVertical: 14,
+                                    opacity: pressed ? 0.7 : 1,
+                                  })}
+                                >
+                                  <View
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                                  >
+                                    <Clock size={18} color="#6B665C" />
+                                    <Text
+                                      style={{
+                                        fontSize: 14,
+                                        fontWeight: state.todo.scheduled_date ? '600' : '500',
+                                        color: state.todo.scheduled_date ? '#2D4A3E' : '#8B8579',
+                                      }}
+                                    >
+                                      {state.todo.scheduled_date
+                                        ? formatDueDay(state.todo.scheduled_date)
+                                        : 'Add do date'}
+                                    </Text>
                                   </View>
-                                )}
-                              </Box>
+                                  <ChevronRight size={18} color="#A09A90" />
+                                </Pressable>
+
+                                {/* Hairline divider */}
+                                <View
+                                  style={{
+                                    height: StyleSheet.hairlineWidth,
+                                    backgroundColor: '#E5E0D8',
+                                  }}
+                                />
+
+                                {/* Time estimate row */}
+                                <Pressable
+                                  onPress={() => {
+                                    setTimeEstimateValue(state.todo.time_estimate_minutes ?? 30);
+                                    setShowTimeEstimateModal(true);
+                                  }}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={
+                                    state.todo.time_estimate_minutes
+                                      ? `Time estimate: ${state.todo.time_estimate_minutes} minutes`
+                                      : 'Add time estimate'
+                                  }
+                                  style={({ pressed }) => ({
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    paddingVertical: 14,
+                                    opacity: pressed ? 0.7 : 1,
+                                  })}
+                                >
+                                  <View
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                                  >
+                                    <Clock size={18} color="#6B665C" />
+                                    <Text
+                                      style={{
+                                        fontSize: 14,
+                                        fontWeight: state.todo.time_estimate_minutes
+                                          ? '600'
+                                          : '500',
+                                        color: state.todo.time_estimate_minutes
+                                          ? '#2D4A3E'
+                                          : '#8B8579',
+                                      }}
+                                    >
+                                      {state.todo.time_estimate_minutes
+                                        ? formatTimeEstimate(state.todo.time_estimate_minutes)
+                                        : 'Add time estimate'}
+                                    </Text>
+                                  </View>
+                                  <ChevronRight size={18} color="#A09A90" />
+                                </Pressable>
+
+                                {/* Hairline divider */}
+                                <View
+                                  style={{
+                                    height: StyleSheet.hairlineWidth,
+                                    backgroundColor: '#E5E0D8',
+                                  }}
+                                />
+
+                                {/* Time of day row */}
+                                <Pressable
+                                  onPress={() => setShowTimeWindowModal(true)}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={
+                                    state.todo.time_window
+                                      ? `Time window: ${state.todo.time_window}`
+                                      : 'Set time window'
+                                  }
+                                  style={({ pressed }) => ({
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    paddingVertical: 14,
+                                    opacity: pressed ? 0.7 : 1,
+                                  })}
+                                >
+                                  <View
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                                  >
+                                    <Clock size={18} color="#6B665C" />
+                                    <Text
+                                      style={{
+                                        fontSize: 14,
+                                        fontWeight: state.todo.time_window ? '600' : '500',
+                                        color: state.todo.time_window ? '#2D4A3E' : '#8B8579',
+                                      }}
+                                    >
+                                      {state.todo.time_window
+                                        ? TIME_WINDOW_OPTIONS.find(
+                                            (o) => o.value === state.todo.time_window,
+                                          )?.label || state.todo.time_window
+                                        : 'Any time'}
+                                    </Text>
+                                  </View>
+                                  <ChevronRight size={18} color="#A09A90" />
+                                </Pressable>
+
+                                {/* Hairline divider */}
+                                <View
+                                  style={{
+                                    height: StyleSheet.hairlineWidth,
+                                    backgroundColor: '#E5E0D8',
+                                  }}
+                                />
+
+                                {/* Lock In row */}
+                                {commitmentsOn ? (
+                                  <View
+                                    style={{
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      paddingVertical: 12,
+                                    }}
+                                  >
+                                    <View
+                                      style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 10,
+                                      }}
+                                    >
+                                      <Diamond size={18} color="#6B665C" />
+                                      <Text
+                                        style={{
+                                          fontSize: 14,
+                                          fontWeight: '600',
+                                          color: '#2D4A3E',
+                                        }}
+                                      >
+                                        Lock In
+                                      </Text>
+                                    </View>
+                                    <Switch
+                                      value={isLockedIn}
+                                      onValueChange={async () => {
+                                        if (!state.commitment) {
+                                          const ok = await canEnableCommitment();
+                                          if (!ok) {
+                                            console.log('[Lock In] Limit reached (3)');
+                                            return;
+                                          }
+                                        }
+                                        pushUndoEntry('commitment', {
+                                          commitment: state.commitment,
+                                          commitmentNote: state.commitmentNote,
+                                          commitmentStartedAt: state.commitmentStartedAt,
+                                        });
+                                        dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                        try {
+                                          eventBus.emit('OverlayCommitmentToggled', {
+                                            on: !state.commitment,
+                                          });
+                                        } catch (e) {
+                                          // ignore telemetry errors
+                                        }
+                                      }}
+                                      trackColor={{
+                                        false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
+                                        true: lightTokens.colors.moss,
+                                      }}
+                                      thumbColor="#FFFFFF"
+                                    />
+                                  </View>
+                                ) : null}
+
+                                {/* Hairline divider below Lock In */}
+                                <View
+                                  style={{
+                                    height: StyleSheet.hairlineWidth,
+                                    backgroundColor: '#E5E0D8',
+                                  }}
+                                />
+                              </View>
                             ) : null}
 
                             {/* LinkedEventPicker for todos - show when space has events */}
